@@ -1,0 +1,12 @@
+[package]
+name = "Kanari-Laps"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+crypto = "0.5.1"
+digest = "0.10.7"
+sha2 = "0.10.8"
+serde = { version = "1.0.202", features = ["derive"] }
+hex = "0.4.3"
+serde_json = "1.0.117"
