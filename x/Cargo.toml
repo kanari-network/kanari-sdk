@@ -1,0 +1,18 @@
+[package]
+name = "x"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+digest.workspace = true
+serde.workspace = true
+hex.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+bincode.workspace = true
+jsonrpc-core = "18.0"
+jsonrpc-http-server = "18.0"
+futures = "0.3.30"
+secp256k1 = { version = "0.29.0", features = ["rand"] }
+rand = "0.8.5"
+
