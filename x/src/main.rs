@@ -111,7 +111,50 @@ fn get_kari_dir() -> PathBuf {
     path
 }
 
+fn create_transaction(sender: String, receiver: String, amount: u64) -> Option<Transaction> {
+    let mut balances = unsafe { BALANCES.as_ref().unwrap().lock().unwrap() };
 
+    // Check if the sender has enough balance
+    if let Some(sender_balance) = balances.get(&sender) {
+        if *sender_balance >= amount {
+            // Create the transaction
+            let transaction = Transaction {
+                sender,
+                receiver,
+                amount,
+            };
+
+            // Deduct the amount from the sender's balance temporarily
+            *balances.entry(transaction.sender.clone()).or_insert(0) -= amount;
+
+            // Add the amount to the receiver's balance temporarily
+            *balances.entry(transaction.receiver.clone()).or_insert(0) += amount;
+
+            return Some(transaction);
+        }
+    }
+    None
+}
+
+fn send_coins(sender: String, receiver: String, amount: u64) -> bool {
+    let mut balances = unsafe { BALANCES.as_ref().unwrap().lock().unwrap() };
+
+    if let Some(sender_balance) = balances.get(&sender) {
+        if *sender_balance >= amount {
+            // Deduct the amount from the sender's balance
+            *balances.entry(sender.clone()).or_insert(0) -= amount;
+
+            // Add the amount to the receiver's balance
+            *balances.entry(receiver.clone()).or_insert(0) += amount;
+
+            // Here, you would also add the transaction to a list of pending transactions
+            // For simplicity, this step is omitted
+
+            return true;
+        }
+    }
+    false
+}
 
 // Blockchain simulation
 fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
@@ -119,6 +162,16 @@ fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
     let mut tokens_per_block = 25;
     let halving_interval = 210_000;
     let block_size = 2_250_000; // 2.25 MB in bytes
+
+    // Assume there's a global variable for pending transactions
+    static mut PENDING_TRANSACTIONS: Vec<Transaction> = Vec::new();
+
+    // Inside the run_blockchain loop, before creating a new block
+    let transactions = unsafe { PENDING_TRANSACTIONS.clone() };
+    // Clear the pending transactions after copying them
+    unsafe { PENDING_TRANSACTIONS.clear(); }
+
+    // Include `transactions` in the call to Block::new
 
     unsafe {
         if BLOCKCHAIN.is_empty() {
@@ -392,6 +445,29 @@ fn handle_keytool_command() -> Option<String> {
                 println!("Wallet not found for address: {}", public_address.red());
                 None
             }
+        },
+        4 => {
+            println!("Enter sender's public address:");
+            let mut sender_address = String::new();
+            io::stdin().read_line(&mut sender_address).unwrap();
+            let sender_address = sender_address.trim().to_string();
+
+            println!("Enter receiver's public address:");
+            let mut receiver_address = String::new();
+            io::stdin().read_line(&mut receiver_address).unwrap();
+            let receiver_address = receiver_address.trim().to_string();
+
+            println!("Enter amount to send:");
+            let mut amount_str = String::new();
+            io::stdin().read_line(&mut amount_str).unwrap();
+            let amount: u64 = amount_str.trim().parse().expect("Invalid input for amount");
+
+            if send_coins(sender_address, receiver_address, amount) {
+                println!("Transaction successful.");
+            } else {
+                println!("Transaction failed.");
+            }
+            None
         },
         _ => {
             println!("{}", "Invalid command".red());
