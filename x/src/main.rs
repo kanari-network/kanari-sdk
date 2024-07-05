@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -12,10 +12,14 @@ use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult};
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
 use serde_json::Value as JsonValue;
 use bip39::{Mnemonic};
+use colored::Colorize;
 use secp256k1::{Secp256k1};
 use rand::rngs::OsRng;
 use hex;
-
+use std::fs;
+use std::path::PathBuf;
+use dirs;
+use jsonrpc_http_server::tokio::runtime::Runtime;
 
 static CHAIN_ID: u64 = 1; // หรือค่าอื่นที่คุณต้องการ
 
@@ -37,10 +41,14 @@ struct Block {
     tokens: u64,
     token_name: String,
     transactions: Vec<Transaction>,
+    miner_address: String,
 }
 
+static mut BALANCES: Option<Mutex<HashMap<String, u64>>> = None;
+
+
 impl Block {
-    fn new(index: u32, data: Vec<u8>, prev_hash: String, tokens: u64, transactions: Vec<Transaction>) -> Block {
+    fn new(index: u32, data: Vec<u8>, prev_hash: String, tokens: u64, transactions: Vec<Transaction>, miner_address: String) -> Block {
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
         let mut hasher = Sha256::new();
         hasher.update(&index.to_le_bytes());
@@ -61,6 +69,7 @@ impl Block {
             tokens,
             token_name: String::from("Kanari"),
             transactions,
+            miner_address,
         }
     }
 
@@ -94,8 +103,18 @@ static mut TOTAL_TOKENS: u64 = 0;
 // สร้าง blockchain แบบ global ให้ thread สามารถเข้าถึงได้
 static mut BLOCKCHAIN: VecDeque<Block> = VecDeque::new();
 
+
+fn get_kari_dir() -> PathBuf {
+    let mut path = dirs::home_dir().expect("Unable to find home directory");
+    path.push(".kari");
+    fs::create_dir_all(&path).expect("Unable to create .kari directory");
+    path
+}
+
+
+
 // Blockchain simulation
-fn run_blockchain(running: Arc<Mutex<bool>>) {
+fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
     let max_tokens = 11_000_000;
     let mut tokens_per_block = 25;
     let halving_interval = 210_000;
@@ -103,10 +122,18 @@ fn run_blockchain(running: Arc<Mutex<bool>>) {
 
     unsafe {
         if BLOCKCHAIN.is_empty() {
-            let genesis_data = vec![0; block_size]; // สร้างข้อมูลขนาด 2.25 MB
+            let genesis_data = vec![0; block_size];
             let genesis_transactions = vec![];
-            BLOCKCHAIN.push_back(Block::new(0, genesis_data, String::from("0"), tokens_per_block, genesis_transactions));
+            BLOCKCHAIN.push_back(Block::new(
+                0,
+                genesis_data,
+                String::from("0"),
+                tokens_per_block,
+                genesis_transactions,
+                miner_address.clone()
+            ));
             TOTAL_TOKENS += tokens_per_block;
+            BALANCES.as_mut().unwrap().lock().unwrap().entry(miner_address.clone()).and_modify(|balance| *balance += tokens_per_block).or_insert(tokens_per_block);
         }
 
         while TOTAL_TOKENS < max_tokens {
@@ -115,14 +142,14 @@ fn run_blockchain(running: Arc<Mutex<bool>>) {
             }
 
             let prev_block = BLOCKCHAIN.back().unwrap();
-            let new_data = vec![0; block_size]; // สร้างข้อมูลขนาด 2.25 MB
+            let new_data = vec![0; block_size];
 
             let transactions = vec![
                 Transaction { sender: String::from("Alice"), receiver: String::from("Bob"), amount: 10 },
                 Transaction { sender: String::from("Charlie"), receiver: String::from("Dave"), amount: 20 },
             ];
 
-            let new_block = Block::new(prev_block.index + 1, new_data, prev_block.hash.clone(), tokens_per_block, transactions);
+            let new_block = Block::new(prev_block.index + 1, new_data, prev_block.hash.clone(), tokens_per_block, transactions, miner_address.clone());
             if !new_block.verify(prev_block) {
                 println!("Block verification failed!");
                 break;
@@ -130,8 +157,14 @@ fn run_blockchain(running: Arc<Mutex<bool>>) {
 
             BLOCKCHAIN.push_back(new_block.clone());
             TOTAL_TOKENS += tokens_per_block;
+            BALANCES.as_mut().unwrap().lock().unwrap().entry(miner_address.clone()).and_modify(|balance| *balance += tokens_per_block).or_insert(tokens_per_block);
+
+            // เพิ่มการบันทึก blockchain ทุกครั้งที่สร้าง block ใหม่
+            save_blockchain();
 
             println!("New block hash: {}", new_block.hash);
+            println!("Miner reward: {} tokens", tokens_per_block);
+
 
             if BLOCKCHAIN.len() % halving_interval == 0 {
                 tokens_per_block /= 2;
@@ -142,28 +175,61 @@ fn run_blockchain(running: Arc<Mutex<bool>>) {
         }
     }
 }
-
 // Save blockchain to file
 fn save_blockchain() {
-    // Adjusted serialization call using addr_of!
+    let kari_dir = get_kari_dir();
+    let blockchain_file = kari_dir.join("blockchain.bin");
     unsafe {
         let data = bincode::serialize(addr_of!(BLOCKCHAIN).as_ref().unwrap()).expect("Failed to serialize blockchain");
-        std::fs::write("blockchain.bin", data).expect("Unable to write to file");
+        fs::write(&blockchain_file, data).expect("Unable to write blockchain to file");
     }
+    println!("Blockchain saved to {:?}", blockchain_file);
 }
 
 // Load blockchain from file
 fn load_blockchain() {
-    unsafe {
-        if std::path::Path::new("blockchain.bin").exists() {
-            let data = std::fs::read("blockchain.bin").expect("Unable to read file");
+    let kari_dir = get_kari_dir();
+    let blockchain_file = kari_dir.join("blockchain.bin");
+    if blockchain_file.exists() {
+        unsafe {
+            let data = fs::read(&blockchain_file).expect("Unable to read blockchain file");
             BLOCKCHAIN = bincode::deserialize(&data).expect("Failed to deserialize blockchain");
         }
+        println!("Blockchain loaded from {:?}", blockchain_file);
+    }
+}
+
+fn save_wallet(address: &str, private_key: &str, seed_phrase: &str) {
+    let kari_dir = get_kari_dir();
+    let wallet_dir = kari_dir.join("wallets");
+    fs::create_dir_all(&wallet_dir).expect("Unable to create wallets directory");
+
+    let wallet_file = wallet_dir.join(format!("{}.json", address));
+    let wallet_data = serde_json::json!({
+        "address": address,
+        "private_key": private_key,
+        "seed_phrase": seed_phrase
+    });
+
+    fs::write(&wallet_file, serde_json::to_string_pretty(&wallet_data).unwrap())
+        .expect("Unable to write wallet to file");
+    println!("Wallet saved to {:?}", wallet_file);
+}
+
+fn load_wallet(address: &str) -> Option<serde_json::Value> {
+    let kari_dir = get_kari_dir();
+    let wallet_file = kari_dir.join("wallets").join(format!("{}.json", address));
+
+    if wallet_file.exists() {
+        let data = fs::read_to_string(wallet_file).expect("Unable to read wallet file");
+        Some(serde_json::from_str(&data).expect("Unable to parse wallet data"))
+    } else {
+        None
     }
 }
 
 // Corrected Mnemonic generation
-fn generate_karix_address() -> (String, String, String) {
+fn generate_karix_address(word_count: usize) -> (String, String, String) {
     let secp = Secp256k1::new();
     let (secret_key, public_key) = secp.generate_keypair(&mut OsRng);
 
@@ -173,10 +239,13 @@ fn generate_karix_address() -> (String, String, String) {
 
     let karix_public_address = format!("0x{}", hex_encoded);
 
-    // Corrected Mnemonic generation
-    // Assuming you want a 12-word mnemonic, adjust the word_count accordingly
-    let mnemonic_result = Mnemonic::generate(12);
-    // Assuming mnemonic_result is a Result<Mnemonic, bip39::Error>
+    // Generate mnemonic with specified word count
+    let mnemonic_result = match word_count {
+        12 => Mnemonic::generate(12),
+        24 => Mnemonic::generate(24),
+        _ => panic!("Unsupported word count: {}", word_count),
+    };
+
     let mnemonic = match mnemonic_result {
         Ok(m) => m,
         Err(e) => panic!("Failed to generate mnemonic: {:?}", e),
@@ -192,67 +261,147 @@ fn generate_karix_address() -> (String, String, String) {
 
 
 // Main function
-fn main() {
+#[tokio::main]
+async fn main() {
     let mut input = String::new();
     load_blockchain();
-    let running = Arc::new(Mutex::new(false));
-    let running_clone = Arc::clone(&running);
+    let running = Arc::new(Mutex::new(true));
 
-    let blockchain_handle = thread::spawn(move || {
-        run_blockchain(running_clone);
+    unsafe {
+        BALANCES = Some(Mutex::new(HashMap::new()));
+    }
+
+    println!("{}", "Welcome to the Rust Blockchain CLI".bold().cyan());
+
+    let mut miner_address = String::new();
+
+    // เริ่ม RPC server ในแบ็คกราวนด์
+    let rpc_handle = tokio::spawn(async {
+        start_rpc_server().await;
     });
 
-    let rpc_handle = thread::spawn(|| {
-        start_rpc_server();
-    });
-
-    print!("Enter command:\n \
-        start     start new network\n \
-        transfer  send coin\n \
-        move      send coin\n \
-        client    send coin\n \
-        keytool   send coin\n \
-    ");
     loop {
+        println!("\nAvailable Commands:");
+        println!("1. {} - Start the blockchain network", "start".green());
+        println!("2. {} - Generate a new address or check balance", "keytool".green());
+        println!("3. {} - Stop the blockchain and exit", "stop".red());
+        println!("Enter your choice:");
 
         io::stdout().flush().unwrap();
         io::stdin().read_line(&mut input).unwrap();
 
         match input.trim() {
             "start" => {
-                *running.lock().unwrap() = true;
-                println!("Starting blockchain...");
-                let running_clone = Arc::clone(&running);
-                thread::spawn(move || {
-                    run_blockchain(running_clone);
-                });
-            }
+                if miner_address.is_empty() {
+                    println!("Please generate an address first using the keytool command.");
+                } else {
+                    *running.lock().unwrap() = true;
+                    println!("{}", "Starting blockchain...".green());
+                    let running_clone = Arc::clone(&running);
+                    let miner_address_clone = miner_address.clone();
+                    tokio::spawn(async move {
+                        run_blockchain(running_clone, miner_address_clone);
+                    });
+                }
+            },
             "keytool" => {
-                let (private_key, public_address, seed_phrase) = generate_karix_address();
-                println!("New address generated:");
-                println!("Private Key: {}", private_key);
-                println!("Public Address: {}", public_address);
-                println!("Seed Phrase: {}", seed_phrase);
-            }
+                let result = handle_keytool_command();
+                if let Some(address) = result {
+                    miner_address = address;
+                }
+            },
             "stop" => {
                 *running.lock().unwrap() = false;
-                println!("Stopping blockchain...");
+                println!("{}", "Stopping blockchain...".red());
                 save_blockchain();
-                break;  // ออกจาก loop เมื่อหยุด
-            }
-            _ => println!("Invalid command"),
+                break;
+            },
+            _ => println!("{}", "Invalid command".red()),
         }
         input.clear();
     }
 
-    // รอให้ thread ทำงานเสร็จ
-    blockchain_handle.join().unwrap();
-    rpc_handle.join().unwrap();
+    // รอให้ RPC server หยุดทำงาน
+    rpc_handle.abort();
 }
 
+fn update_balances_from_blockchain() {
+    unsafe {
+        let mut balances = BALANCES.as_mut().unwrap().lock().unwrap();
+        for block in &BLOCKCHAIN {
+            balances.entry(block.miner_address.clone())
+                .and_modify(|balance| *balance += block.tokens)
+                .or_insert(block.tokens);
+        }
+    }
+    println!("BALANCES updated from blockchain");
+}
+
+fn handle_keytool_command() -> Option<String> {
+    println!("Enter command (1: Generate new address, 2: Check balance, 3: Load existing wallet):");
+    let mut command_str = String::new();
+    io::stdin().read_line(&mut command_str).unwrap();
+    let command: usize = command_str.trim().parse().expect("Invalid input");
+
+    match command {
+        1 => {
+            println!("Enter mnemonic length (12 or 24):");
+            let mut mnemonic_length_str = String::new();
+            io::stdin().read_line(&mut mnemonic_length_str).unwrap();
+            let mnemonic_length: usize = mnemonic_length_str.trim().parse().expect("Invalid input");
+
+            let (private_key, public_address, seed_phrase) = generate_karix_address(mnemonic_length);
+            println!("New address generated:");
+            println!("Private Key: {}", private_key.green());
+            println!("Public Address: {}", public_address.green());
+            println!("Seed Phrase: {}", seed_phrase.green());
+
+            save_wallet(&public_address, &private_key, &seed_phrase);
+
+            Some(public_address)
+        },
+        2 => {
+            println!("Enter public address:");
+            let mut public_address = String::new();
+            io::stdin().read_line(&mut public_address).unwrap();
+            public_address = public_address.trim().to_string();
+
+            // โหลด blockchain ก่อนตรวจสอบยอดคงเหลือ
+            load_blockchain();
+
+            let balance = unsafe {
+                BALANCES.as_ref().unwrap().lock().unwrap().get(&public_address).cloned().unwrap_or(0)
+            };
+
+            println!("Balance for {}: {}", public_address.green(), balance.to_string().green());
+            None
+        },
+        3 => {
+            println!("Enter public address to load:");
+            let mut public_address = String::new();
+            io::stdin().read_line(&mut public_address).unwrap();
+            public_address = public_address.trim().to_string();
+
+            if let Some(wallet_data) = load_wallet(&public_address) {
+                println!("Wallet loaded:");
+                println!("Address: {}", wallet_data["address"].as_str().unwrap().green());
+                println!("Private Key: {}", wallet_data["private_key"].as_str().unwrap().green());
+                println!("Seed Phrase: {}", wallet_data["seed_phrase"].as_str().unwrap().green());
+                Some(public_address)
+            } else {
+                println!("Wallet not found for address: {}", public_address.red());
+                None
+            }
+        },
+        _ => {
+            println!("{}", "Invalid command".red());
+            None
+        },
+    }
+}
 
 // RPC server
-async fn get_latest_block(_params: Params) -> JsonRpcResult<JsonValue> {
+fn get_latest_block(_params: Params) -> JsonRpcResult<JsonValue> {
     unsafe {
         if let Some(block) = BLOCKCHAIN.back() {
             Ok(serde_json::to_value(block).unwrap())
@@ -262,11 +411,11 @@ async fn get_latest_block(_params: Params) -> JsonRpcResult<JsonValue> {
     }
 }
 
-async fn get_chain_id(_params: Params) -> JsonRpcResult<JsonValue> {
+fn get_chain_id(_params: Params) -> JsonRpcResult<JsonValue> {
     Ok(JsonValue::Number(CHAIN_ID.into()))
 }
 
-async fn get_block_by_index(params: Params) -> JsonRpcResult<JsonValue> {
+fn get_block_by_index(params: Params) -> JsonRpcResult<JsonValue> {
     let index: u32 = params.parse().map_err(|e| jsonrpc_core::Error::invalid_params(format!("Invalid index parameter: {}", e)))?;
 
     unsafe {
@@ -278,43 +427,26 @@ async fn get_block_by_index(params: Params) -> JsonRpcResult<JsonValue> {
     }
 }
 
-fn start_rpc_server() {
+async fn start_rpc_server() {
     let mut io = IoHandler::new();
 
     io.add_method("get_latest_block", |params| {
-        async move {
-            get_latest_block(params).await
-        }.boxed()
+        futures::future::ready(get_latest_block(params)).boxed()
     });
 
     io.add_method("get_chain_id", |params| {
-        async move {
-            get_chain_id(params).await
-        }.boxed()
+        futures::future::ready(get_chain_id(params)).boxed()
     });
 
     io.add_method("get_block_by_index", |params| {
-        async move {
-            get_block_by_index(params).await
-        }.boxed()
-    });
-
-    io.add_method("get_total_tokens", |_params| {
-        async move {
-            unsafe {
-                Ok(JsonValue::Number(TOTAL_TOKENS.into()))
-            }
-        }.boxed()
+        futures::future::ready(get_block_by_index(params)).boxed()
     });
 
     let server = ServerBuilder::new(io)
-        .cors(DomainsValidation::AllowOnly(vec![
-            AccessControlAllowOrigin::Any,
-        ]))
+        .cors(DomainsValidation::AllowOnly(vec![AccessControlAllowOrigin::Any]))
         .start_http(&"127.0.0.1:3030".parse().unwrap())
         .expect("Unable to start RPC server");
 
     println!("RPC server running on http://127.0.0.1:3030");
-
     server.wait();
 }
