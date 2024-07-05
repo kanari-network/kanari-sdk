@@ -1,0 +1,1 @@
+Kari chain (POW)
