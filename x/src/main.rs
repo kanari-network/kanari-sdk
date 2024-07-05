@@ -3,17 +3,18 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
-use bincode::Options;
 use digest::Digest;
 use serde::{Deserialize, Serialize};
-use hex;
+use std::ptr::addr_of;
 use sha2::Sha256;
 use jsonrpc_core::futures::FutureExt;
 use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult};
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
 use serde_json::Value as JsonValue;
-use secp256k1::{Secp256k1, PublicKey, SecretKey};
+use bip39::{Mnemonic};
+use secp256k1::{Secp256k1};
 use rand::rngs::OsRng;
+use hex;
 
 
 static CHAIN_ID: u64 = 1; // หรือค่าอื่นที่คุณต้องการ
@@ -87,10 +88,13 @@ impl Block {
     }
 }
 
+// สร้างตัวแปร global สำหรับเก็บจำนวน token ทั้งหมด
 static mut TOTAL_TOKENS: u64 = 0;
 
+// สร้าง blockchain แบบ global ให้ thread สามารถเข้าถึงได้
 static mut BLOCKCHAIN: VecDeque<Block> = VecDeque::new();
 
+// Blockchain simulation
 fn run_blockchain(running: Arc<Mutex<bool>>) {
     let max_tokens = 11_000_000;
     let mut tokens_per_block = 25;
@@ -139,13 +143,16 @@ fn run_blockchain(running: Arc<Mutex<bool>>) {
     }
 }
 
+// Save blockchain to file
 fn save_blockchain() {
+    // Adjusted serialization call using addr_of!
     unsafe {
-        let data = bincode::serialize(&BLOCKCHAIN).expect("Failed to serialize blockchain");
+        let data = bincode::serialize(addr_of!(BLOCKCHAIN).as_ref().unwrap()).expect("Failed to serialize blockchain");
         std::fs::write("blockchain.bin", data).expect("Unable to write to file");
     }
 }
 
+// Load blockchain from file
 fn load_blockchain() {
     unsafe {
         if std::path::Path::new("blockchain.bin").exists() {
@@ -155,16 +162,36 @@ fn load_blockchain() {
     }
 }
 
-fn generate_address() -> (String, String) {
+// Corrected Mnemonic generation
+fn generate_karix_address() -> (String, String, String) {
     let secp = Secp256k1::new();
     let (secret_key, public_key) = secp.generate_keypair(&mut OsRng);
 
+    // Serialize and encode the public key
+    let mut hex_encoded = hex::encode(&public_key.serialize_uncompressed()[1..]);
+    hex_encoded.truncate(64); // Adjust as needed
+
+    let karix_public_address = format!("0x{}", hex_encoded);
+
+    // Corrected Mnemonic generation
+    // Assuming you want a 12-word mnemonic, adjust the word_count accordingly
+    let mnemonic_result = Mnemonic::generate(12);
+    // Assuming mnemonic_result is a Result<Mnemonic, bip39::Error>
+    let mnemonic = match mnemonic_result {
+        Ok(m) => m,
+        Err(e) => panic!("Failed to generate mnemonic: {:?}", e),
+    };
+    let seed_phrase = mnemonic.to_string(); // Directly convert Mnemonic to String
+
     (
         secret_key.display_secret().to_string(),
-        hex::encode(&public_key.serialize_uncompressed()[1..]) // Remove the first byte (0x04) which indicates uncompressed key
+        karix_public_address,
+        seed_phrase
     )
 }
 
+
+// Main function
 fn main() {
     let mut input = String::new();
     load_blockchain();
@@ -201,10 +228,11 @@ fn main() {
                 });
             }
             "keytool" => {
-                let (private_key, public_address) = generate_address();
+                let (private_key, public_address, seed_phrase) = generate_karix_address();
                 println!("New address generated:");
                 println!("Private Key: {}", private_key);
                 println!("Public Address: {}", public_address);
+                println!("Seed Phrase: {}", seed_phrase);
             }
             "stop" => {
                 *running.lock().unwrap() = false;
@@ -223,6 +251,7 @@ fn main() {
 }
 
 
+// RPC server
 async fn get_latest_block(_params: Params) -> JsonRpcResult<JsonValue> {
     unsafe {
         if let Some(block) = BLOCKCHAIN.back() {
