@@ -311,6 +311,10 @@ fn generate_karix_address(word_count: usize) -> (String, String, String) {
         seed_phrase
     )
 }
+fn print_coin_icon() {
+    // Placeholder for the coin icon in CLI
+    println!("Coin Icon: {}", "🪙"); // Using a Unicode emoji as a placeholder
+}
 
 
 // Main function
@@ -325,6 +329,7 @@ async fn main() {
     }
 
     println!("{}", "Welcome to the Rust Blockchain CLI".bold().cyan());
+    print_coin_icon();
 
     let mut miner_address = String::new();
 
