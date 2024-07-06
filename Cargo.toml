@@ -38,3 +38,4 @@ x = { path = "x" }
 consensus-core = { path = "consensus/core" }
 consensus-pow  = { path = "consensus/pow" }
 api = { path = "api" }
+p2p = { path = "p2p" }
