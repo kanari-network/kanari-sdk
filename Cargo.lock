@@ -173,6 +173,9 @@ dependencies = [
 [[package]]
 name = "consensus-pow"
 version = "0.1.0"
+dependencies = [
+ "sha2",
+]
 
 [[package]]
 name = "cpufeatures"
@@ -1188,6 +1191,7 @@ dependencies = [
  "bip39",
  "colored",
  "consensus-core",
+ "consensus-pow",
  "digest",
  "dirs",
  "futures",

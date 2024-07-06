@@ -21,3 +21,4 @@ dirs.workspace = true
 tokio.workspace = true
 
 consensus-core.workspace = true
+consensus-pow.workspace = true

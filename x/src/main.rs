@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use dirs;
 use consensus_core::NetworkConfig;
 
-static CHAIN_ID: u64 = 1; // หรือค่าอื่นที่คุณต้องการ
+static CHAIN_ID: u64 = 1000000;
 
 #[derive(Serialize, Deserialize, Clone)]
 struct Transaction {
