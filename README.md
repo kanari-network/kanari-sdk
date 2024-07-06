@@ -1,5 +1,5 @@
 Kari chain (POW)
-To work with and use the Kari chain (Proof of Work), follow these steps:
+To work with and use the rust-blockchain (Proof of Work), follow these steps:
 
 ### 1. Setup Environment
 - Ensure you have Ubuntu or a similar Linux distribution.
@@ -32,8 +32,9 @@ To work with and use the Kari chain (Proof of Work), follow these steps:
 ./build_ubuntu.sh
 
 # Clone the Kari chain repo (example command, replace with actual repository URL)
-git clone https://example.com/kari-chain.git
-cd kari-chain
+git clone  https://github.com/jamesatomc/rust-blockchain.git
+
+cd rust-blockchain
 
 # Build the project
 cargo build --release
