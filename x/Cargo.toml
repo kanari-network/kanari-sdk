@@ -19,3 +19,5 @@ bip39.workspace = true
 colored.workspace = true
 dirs.workspace = true
 tokio.workspace = true
+
+consensus-core.workspace = true

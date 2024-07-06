@@ -165,6 +165,10 @@ dependencies = [
 [[package]]
 name = "consensus-core"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "consensus-pow"
@@ -1183,6 +1187,7 @@ dependencies = [
  "bincode",
  "bip39",
  "colored",
+ "consensus-core",
  "digest",
  "dirs",
  "futures",

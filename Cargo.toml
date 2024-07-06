@@ -36,6 +36,6 @@ tokio = { version = "1.38.0", features = ["rt", "rt-multi-thread", "macros"] }
 
 #Path List
 x = { path = "x" }
-consensus_core = { path = "consensus/core" }
-consensus_pow  = { path = "consensus/pow" }
+consensus-core = { path = "consensus/core" }
+consensus-pow  = { path = "consensus/pow" }
 api = { path = "api" }
