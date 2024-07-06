@@ -10,7 +10,7 @@ use sha2::Sha256;
 use jsonrpc_core::futures::FutureExt;
 use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult};
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
-use serde_json::Value as JsonValue;
+use serde_json::{json, Value as JsonValue};
 use bip39::{Mnemonic};
 use colored::Colorize;
 use secp256k1::{Secp256k1};
@@ -19,6 +19,7 @@ use hex;
 use std::fs;
 use std::path::PathBuf;
 use dirs;
+use consensus_core::NetworkConfig;
 
 static CHAIN_ID: u64 = 1; // หรือค่าอื่นที่คุณต้องการ
 
@@ -288,10 +289,32 @@ fn print_coin_icon() {
     println!("Coin Icon: {}", "🪙"); // Using a Unicode emoji as a placeholder
 }
 
+fn save_chain_id(chain_id: &str) -> std::io::Result<()> {
+    let home_dir = dirs::home_dir().expect("Unable to find home directory");
+    let config_path = home_dir.join(".kari").join("network");
+    fs::create_dir_all(&config_path)?;
+
+    let config_file_path = config_path.join("config.json");
+    let chain_id_json = json!({ "chain_id": chain_id });
+    fs::write(config_file_path, serde_json::to_string_pretty(&chain_id_json)?)?;
+    Ok(())
+}
 
 // Main function
 #[tokio::main]
 async fn main() {
+    let config = NetworkConfig {
+        node_address: "127.0.0.1".to_string(),
+        port: 8080,
+        peers: vec![],
+        chain_id: "1".to_string(), // Example chain_id
+        max_connections: 100,
+        api_enabled: true,
+    };
+
+    save_chain_id(&config.chain_id).expect("Failed to save chain id");
+
+
     let mut input = String::new();
     load_blockchain();
     let running = Arc::new(Mutex::new(true));

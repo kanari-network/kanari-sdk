@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
+use serde_json;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::Path;
 
 #[derive(Serialize, Deserialize)]
@@ -9,11 +10,12 @@ pub struct NetworkConfig {
     pub port: u16,
     pub peers: Vec<String>,
     pub chain_id: String,
-    pub max_connections: u32, // New field for maximum connections
-    pub api_enabled: bool,    // New field to toggle API interface
+    pub max_connections: u32,
+    pub api_enabled: bool,
 }
 
 impl NetworkConfig {
+    // Loads configuration from a specified file
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
         let mut file = File::open(path)?;
         let mut contents = String::new();
@@ -21,8 +23,22 @@ impl NetworkConfig {
         let config: NetworkConfig = serde_json::from_str(&contents)?;
         Ok(config)
     }
-}
 
- // The  NetworkConfig  struct now has two new fields:  max_connections  and  api_enabled . The  max_connections  field is used to specify the maximum number of connections that the node can have. The  api_enabled  field is used to toggle the API interface on or off.
- // The  load_from_file  function now reads the  max_connections  and  api_enabled  fields from the JSON file.
- // Next, we need to update the  main  function in  src/main.rs  to use the new fields.
+    // Saves the current configuration to a specified file
+    pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
+        let serialized = serde_json::to_string_pretty(&self)?;
+        let mut file = File::create(path)?;
+        file.write_all(serialized.as_bytes())?;
+        Ok(())
+    }
+
+    // Updates the configuration with new values
+    pub fn update(&mut self, new_config: NetworkConfig) {
+        self.node_address = new_config.node_address;
+        self.port = new_config.port;
+        self.peers = new_config.peers;
+        self.chain_id = new_config.chain_id;
+        self.max_connections = new_config.max_connections;
+        self.api_enabled = new_config.api_enabled;
+    }
+}
