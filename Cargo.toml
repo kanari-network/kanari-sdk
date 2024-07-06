@@ -19,3 +19,9 @@ serde = { version = "1.0.202", features = ["derive"] }
 hex = "0.4.3"
 serde_json = "1.0.117"
 bincode = "1.3"
+
+
+x = { path = "x" }
+consensus_core = { path = "consensus/core" }
+consensus_pow  = { path = "consensus/pow" }
+api = { path = "api" }

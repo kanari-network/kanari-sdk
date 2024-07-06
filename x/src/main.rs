@@ -19,7 +19,6 @@ use hex;
 use std::fs;
 use std::path::PathBuf;
 use dirs;
-use jsonrpc_http_server::tokio::runtime::Runtime;
 
 static CHAIN_ID: u64 = 1; // หรือค่าอื่นที่คุณต้องการ
 
@@ -111,31 +110,6 @@ fn get_kari_dir() -> PathBuf {
     path
 }
 
-fn create_transaction(sender: String, receiver: String, amount: u64) -> Option<Transaction> {
-    let mut balances = unsafe { BALANCES.as_ref().unwrap().lock().unwrap() };
-
-    // Check if the sender has enough balance
-    if let Some(sender_balance) = balances.get(&sender) {
-        if *sender_balance >= amount {
-            // Create the transaction
-            let transaction = Transaction {
-                sender,
-                receiver,
-                amount,
-            };
-
-            // Deduct the amount from the sender's balance temporarily
-            *balances.entry(transaction.sender.clone()).or_insert(0) -= amount;
-
-            // Add the amount to the receiver's balance temporarily
-            *balances.entry(transaction.receiver.clone()).or_insert(0) += amount;
-
-            return Some(transaction);
-        }
-    }
-    None
-}
-
 fn send_coins(sender: String, receiver: String, amount: u64) -> bool {
     let mut balances = unsafe { BALANCES.as_ref().unwrap().lock().unwrap() };
 
@@ -166,8 +140,6 @@ fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
     // Assume there's a global variable for pending transactions
     static mut PENDING_TRANSACTIONS: Vec<Transaction> = Vec::new();
 
-    // Inside the run_blockchain loop, before creating a new block
-    let transactions = unsafe { PENDING_TRANSACTIONS.clone() };
     // Clear the pending transactions after copying them
     unsafe { PENDING_TRANSACTIONS.clear(); }
 
@@ -381,18 +353,6 @@ async fn main() {
 
     // รอให้ RPC server หยุดทำงาน
     rpc_handle.abort();
-}
-
-fn update_balances_from_blockchain() {
-    unsafe {
-        let mut balances = BALANCES.as_mut().unwrap().lock().unwrap();
-        for block in &BLOCKCHAIN {
-            balances.entry(block.miner_address.clone())
-                .and_modify(|balance| *balance += block.tokens)
-                .or_insert(block.tokens);
-        }
-    }
-    println!("BALANCES updated from blockchain");
 }
 
 fn handle_keytool_command() -> Option<String> {
