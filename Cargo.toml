@@ -8,7 +8,6 @@ members = [
     "consensus/pow",
     "api",
     "p2p",
-    "rpc",
 ]
 
 [workspace.package]

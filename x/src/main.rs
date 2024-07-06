@@ -20,6 +20,7 @@ use std::fs;
 use std::path::PathBuf;
 use dirs;
 use consensus_core::NetworkConfig;
+use consensus_pow::adjust_difficulty;
 
 static CHAIN_ID: u64 = 1000000;
 
@@ -137,6 +138,10 @@ fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
     let mut tokens_per_block = 25;
     let halving_interval = 210_000;
     let block_size = 2_250_000; // 2.25 MB in bytes
+
+    // Adjust difficulty based on some criteria, e.g., number of miners
+    let current_miners = 10; // Example value, replace with actual logic to determine the number of miners
+    let _difficulty = adjust_difficulty(current_miners);
 
     // Assume there's a global variable for pending transactions
     static mut PENDING_TRANSACTIONS: Vec<Transaction> = Vec::new();
