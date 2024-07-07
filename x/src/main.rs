@@ -23,8 +23,7 @@ use consensus_core::NetworkConfig;
 use consensus_pow::adjust_difficulty;
 use p2p_protocol::P2PNetwork;
 
-
-static CHAIN_ID: u64 = 1000000;
+static CHAIN_ID: &str = "kari-c1";
 
 #[derive(Serialize, Deserialize, Clone)]
 struct Transaction {
@@ -35,7 +34,7 @@ struct Transaction {
 
 #[derive(Serialize, Deserialize, Clone)]
 struct Block {
-    chain_id: u64,
+    chain_id: String,
     index: u32,
     timestamp: u64,
     data: Vec<u8>, // เปลี่ยนเป็น Vec<u8> เพื่อเก็บข้อมูลแบบไบนารี
@@ -63,7 +62,7 @@ impl Block {
         let hash = hex::encode(hasher.finalize());
 
         Block {
-            chain_id: CHAIN_ID,
+            chain_id: CHAIN_ID.to_string(), // Use to_string() to create a String from &str
             index,
             timestamp,
             data,
@@ -314,13 +313,12 @@ async fn main() {
         node_address: "127.0.0.1".to_string(),
         port: 8080,
         peers: vec![],
-        chain_id: "1".to_string(), // Example chain_id
+        chain_id: "kari-c1".to_string(), // Updated chain_id to "kari-c1"
         max_connections: 100,
         api_enabled: true,
     };
 
     save_chain_id(&config.chain_id).expect("Failed to save chain id");
-
 
     // Initialize and start the P2P network
     let p2p_network = P2PNetwork {
@@ -495,7 +493,7 @@ fn get_latest_block(_params: Params) -> JsonRpcResult<JsonValue> {
 }
 
 fn get_chain_id(_params: Params) -> JsonRpcResult<JsonValue> {
-    Ok(JsonValue::Number(CHAIN_ID.into()))
+    Ok(JsonValue::String(CHAIN_ID.to_string()))
 }
 
 fn get_block_by_index(params: Params) -> JsonRpcResult<JsonValue> {
