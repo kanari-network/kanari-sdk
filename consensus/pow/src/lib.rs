@@ -1,28 +1,28 @@
 use sha2::{Sha256, Digest};
 
-#[derive(Debug)]
-// Block structure
-struct PoWBlock {
-    index: u64,
-    timestamp: u128,
-    data: String,
-    prev_block_hash: String,
-    nonce: u64,
+pub struct PoWBlock {
+    pub index: u64,
+    pub timestamp: u128,
+    pub data: String,
+    pub prev_block_hash: String,
+    pub hash: String,
+    pub nonce: u64,
 }
 
 // Block implementation
 impl PoWBlock {
-    fn new(index: u64, timestamp: u128, data: String, prev_block_hash: String) -> Self {
+    pub fn new(index: u64, timestamp: u128, data: String, prev_block_hash: String) -> Self {
         PoWBlock {
             index,
             timestamp,
             data,
             prev_block_hash,
+            hash: String::new(),
             nonce: 0,
         }
     }
 
-    fn calculate_hash(&self) -> String {
+    pub fn calculate_hash(&self) -> String {
         let mut hasher = Sha256::new();
         hasher.update(self.index.to_string().as_bytes());
         hasher.update(self.timestamp.to_string().as_bytes());
@@ -34,7 +34,7 @@ impl PoWBlock {
 }
 
 // Proof of work function
-fn proof_of_work(block: &mut PoWBlock, difficulty: usize) {
+pub fn proof_of_work(block: &mut PoWBlock, difficulty: usize) {
     while &block.calculate_hash()[..difficulty] != &"0".repeat(difficulty) {
         block.nonce += 1;
     }

@@ -21,6 +21,8 @@ use std::path::PathBuf;
 use dirs;
 use consensus_core::NetworkConfig;
 use consensus_pow::adjust_difficulty;
+use p2p_protocol::P2PNetwork;
+
 
 static CHAIN_ID: u64 = 1000000;
 
@@ -236,7 +238,7 @@ fn save_wallet(address: &str, private_key: &str, seed_phrase: &str) {
     fs::create_dir_all(&wallet_dir).expect("Unable to create wallets directory");
 
     let wallet_file = wallet_dir.join(format!("{}.json", address));
-    let wallet_data = serde_json::json!({
+    let wallet_data = json!({
         "address": address,
         "private_key": private_key,
         "seed_phrase": seed_phrase
@@ -294,7 +296,7 @@ fn print_coin_icon() {
     println!("Coin Icon: {}", "🪙"); // Using a Unicode emoji as a placeholder
 }
 
-fn save_chain_id(chain_id: &str) -> std::io::Result<()> {
+fn save_chain_id(chain_id: &str) -> io::Result<()> {
     let home_dir = dirs::home_dir().expect("Unable to find home directory");
     let config_path = home_dir.join(".kari").join("network");
     fs::create_dir_all(&config_path)?;
@@ -319,6 +321,18 @@ async fn main() {
 
     save_chain_id(&config.chain_id).expect("Failed to save chain id");
 
+
+    // Initialize and start the P2P network
+    let p2p_network = P2PNetwork {
+        peers: Arc::new(Mutex::new(HashMap::new())),
+    };
+
+    // If you plan to use it later, prefix with an underscore
+    let _p2p_network_clone = p2p_network.peers.clone();
+
+    tokio::spawn(async move {
+        p2p_network.start_listener("127.0.0.1:8080").await.unwrap();
+    });
 
     let mut input = String::new();
     load_blockchain();

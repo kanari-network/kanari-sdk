@@ -6,9 +6,11 @@ members = [
     "x",
     "consensus/core",
     "consensus/pow",
-    "api",
     "p2p",
 ]
+
+[profile.release]
+opt-level = 3
 
 [workspace.package]
 version = "0.2.0"
@@ -31,11 +33,10 @@ bip39 = { version = "2.0.0", features = ["rand"] }
 colored = "2.0"
 dirs = "5.0.1"
 tokio = { version = "1.38.0", features = ["rt", "rt-multi-thread", "macros"] }
-
+tokio-rustls = "0.26.0"
 
 #Path List
 x = { path = "x" }
 consensus-core = { path = "consensus/core" }
 consensus-pow  = { path = "consensus/pow" }
-api = { path = "api" }
-p2p = { path = "p2p" }
+p2p-protocol = { path = "p2p" }
