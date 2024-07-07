@@ -42,3 +42,8 @@ cargo build --release
 # Run the node
 cargo run --release
 ```
+### Donate
+SUI: 0x2fa1945d0df10e88cbc6779d65f12d156e5f33d4cde90dde4992b56ee388870e
+
+EVM: 0x953526292a65ef8107f338B270E60d32d8Ea2b67
+```

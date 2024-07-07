@@ -318,6 +318,7 @@ async fn main() {
         api_enabled: true,
     };
 
+
     save_chain_id(&config.chain_id).expect("Failed to save chain id");
 
     // Initialize and start the P2P network
