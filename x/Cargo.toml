@@ -23,4 +23,3 @@ tokio.workspace = true
 consensus-core.workspace = true
 consensus-pow.workspace = true
 p2p-protocol.workspace = true
-node.workspace = true
