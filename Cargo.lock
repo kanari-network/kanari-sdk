@@ -549,6 +549,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "node"
+version = "0.2.0"
+dependencies = [
+ "lazy_static",
+]
+
+[[package]]
 name = "num_cpus"
 version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1177,6 +1184,7 @@ dependencies = [
  "hex",
  "jsonrpc-core",
  "jsonrpc-http-server",
+ "node",
  "p2p-protocol",
  "rand",
  "secp256k1",

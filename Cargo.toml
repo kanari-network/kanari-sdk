@@ -7,6 +7,7 @@ members = [
     "consensus/core",
     "consensus/pow",
     "p2p",
+    "node",
 ]
 
 [profile.release]
@@ -40,3 +41,4 @@ x = { path = "x" }
 consensus-core = { path = "consensus/core" }
 consensus-pow  = { path = "consensus/pow" }
 p2p-protocol = { path = "p2p" }
+node = { path = "node" }

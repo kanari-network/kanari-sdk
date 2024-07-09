@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
-use std::{env, process, thread};
+use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 use digest::Digest;
 use serde::{Deserialize, Serialize};
@@ -351,21 +351,17 @@ async fn main() {
         start_rpc_server().await;
     });
 
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        println!("Usage: kari.exe <COMMAND>\n");
-        println!("Commands:");
-        println!("  start                  Start kar network");
-        println!("  keytool                kari keystore tool");
-        println!("  move                   Tool to build and test Move applications");
-        println!(" ....");
-        println!("\nOptions:");
-        println!("  -h, --help     Print help");
-        println!("  -V, --version  Print version");
-        process::exit(1);
-    }
+    loop {
+        println!("\nAvailable Commands:");
+        println!("1. {} - Start the blockchain network", "start".green());
+        println!("2. {} - Generate a new address or check balance", "keytool".green());
+        println!("3. {} - Stop the blockchain and exit", "stop".red());
+        println!("Enter your choice:");
 
-        match args[1].as_str() {
+        io::stdout().flush().unwrap();
+        io::stdin().read_line(&mut input).unwrap();
+
+        match input.trim() {
             "start" => {
                 if miner_address.is_empty() {
                     println!("Please generate an address first using the keytool command.");
@@ -389,28 +385,12 @@ async fn main() {
                 *running.lock().unwrap() = false;
                 println!("{}", "Stopping blockchain...".red());
                 save_blockchain();
+                break;
             },
-            "-h" | "--help" => {
-                println!("Usage: kari.exe <COMMAND>\n");
-                println!("Commands:");
-                println!("  start                  Start kar network");
-                println!("  keytool                kari keystore tool");
-                println!("  move                   Tool to build and test Move applications");
-                println!(" ....");
-                println!("\nOptions:");
-                println!("  -h, --help     Print help");
-                println!("  -V, --version  Print version");
-            },
-            "-V" | "--version" => {
-                // Implement the logic to print version
-                println!("kari.exe version 1.0.0");
-            },
-            _ => {
-                println!("Invalid command. Use -h or --help for usage.");
-            }
+            _ => println!("{}", "Invalid command".red()),
         }
         input.clear();
-
+    }
 
     // รอให้ RPC server หยุดทำงาน
     rpc_handle.abort();
