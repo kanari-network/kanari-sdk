@@ -23,6 +23,10 @@ use consensus_core::NetworkConfig;
 use consensus_pow::adjust_difficulty;
 use p2p_protocol::P2PNetwork;
 
+use evm::{executor::stack, Config, Context, ExitReason};
+use evm_runtime::{Handler, Runtime};
+use ethereum_types::{H160, H256, U256};
+
 static CHAIN_ID: &str = "kari-c1";
 
 #[derive(Serialize, Deserialize, Clone)]

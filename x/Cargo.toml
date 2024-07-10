@@ -19,7 +19,11 @@ bip39.workspace = true
 colored.workspace = true
 dirs.workspace = true
 tokio.workspace = true
-
+evm = "0.41.1"
+evm-core = "0.41.0"
+evm-gasometer = "0.41.0"
+evm-runtime = "0.41.0"
+ethereum-types = "0.14.1"
 consensus-core.workspace = true
 consensus-pow.workspace = true
 p2p-protocol.workspace = true

@@ -7,7 +7,7 @@ members = [
     "consensus/core",
     "consensus/pow",
     "p2p",
-    "node",
+    "node", "crates/kanari-framework",
 ]
 
 [profile.release]
@@ -35,6 +35,12 @@ colored = "2.0"
 dirs = "5.0.1"
 tokio = { version = "1.38.0", features = ["rt", "rt-multi-thread", "macros"] }
 tokio-rustls = "0.26.0"
+
+#EVM
+evm = "0.41.1"
+evm-core = "0.41.0"
+evm-gasometer = "0.41.0"
+evm-runtime = "0.41.0"
 
 #Path List
 x = { path = "x" }
