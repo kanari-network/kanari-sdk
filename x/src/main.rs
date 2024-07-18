@@ -401,7 +401,11 @@ async fn main() {
 }
 
 fn handle_keytool_command() -> Option<String> {
-    println!("Enter command (1: Generate new address, 2: Check balance, 3: Load existing wallet):");
+    println!("Enter command");
+    println!("1: Generate new address");
+    println!("2: Check balance");
+    println!("3: Load existing wallet");
+    println!("4: Send coins");
     let mut command_str = String::new();
     io::stdin().read_line(&mut command_str).unwrap();
     let command: usize = command_str.trim().parse().expect("Invalid input");
