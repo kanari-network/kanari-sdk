@@ -1,4 +1,4 @@
-Kari chain (POW)
+Kari chain L1 (POW)
 To work with and use the rust-blockchain (Proof of Work), follow these steps:
 
 ### 1. Setup Environment
@@ -32,9 +32,9 @@ To work with and use the rust-blockchain (Proof of Work), follow these steps:
 ./build_ubuntu.sh
 
 # Clone the Kari chain repo (example command, replace with actual repository URL)
-git clone  https://github.com/jamesatomc/rust-blockchain.git
+git clone  https://github.com/jamesatomc/kanari-network.git
 
-cd rust-blockchain
+cd kanari-network
 
 # Build the project
 cargo build --release
