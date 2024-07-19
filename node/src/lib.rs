@@ -6,7 +6,7 @@ lazy_static! {
     static ref BLOCK_HASHES: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
 }
 
-#[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct Block {
     index: u32,
     timestamp: u64,
@@ -14,6 +14,7 @@ struct Block {
     // Other fields...
 }
 
+#[allow(dead_code)]
 impl Block {
     fn new(index: u32, timestamp: u64, hash: &str) -> Self {
         Block {
