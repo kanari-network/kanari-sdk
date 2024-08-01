@@ -1,4 +1,4 @@
-mod powtest;
+// mod powtest;
 
 use sha2::{Sha256, Digest};
 pub struct Sha256Algorithm;

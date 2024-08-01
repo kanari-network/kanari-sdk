@@ -20,9 +20,10 @@ use hex;
 use std::fs;
 use std::path::PathBuf;
 use dirs;
-use consensus_core::NetworkConfig;
+use consensus_core::{NetworkConfig, NetworkType};
 use consensus_pow::adjust_difficulty;
 use p2p_protocol::P2PNetwork;
+use kari_evm::EvmVm;
 
 use crate::rpc::start_rpc_server;
 
@@ -309,6 +310,8 @@ fn save_chain_id(chain_id: &str) -> io::Result<()> {
     Ok(())
 }
 
+
+
 // Main function
 #[tokio::main]
 async fn main() {
@@ -319,6 +322,7 @@ async fn main() {
         chain_id: "kari-c1".to_string(), // Updated chain_id to "kari-c1"
         max_connections: 100,
         api_enabled: true,
+        network_type: NetworkType::Mainnet,
     };
 
 
@@ -405,6 +409,7 @@ fn handle_keytool_command() -> Option<String> {
     println!("2: Check balance");
     println!("3: Load existing wallet");
     println!("4: Send coins");
+    println!("5: Deploy Solidity contract");
     let mut command_str = String::new();
     io::stdin().read_line(&mut command_str).unwrap();
     let command: usize = command_str.trim().parse().expect("Invalid input");
@@ -432,7 +437,6 @@ fn handle_keytool_command() -> Option<String> {
             io::stdin().read_line(&mut public_address).unwrap();
             public_address = public_address.trim().to_string();
 
-            // โหลด blockchain ก่อนตรวจสอบยอดคงเหลือ
             load_blockchain();
 
             let balance = unsafe {
@@ -479,6 +483,29 @@ fn handle_keytool_command() -> Option<String> {
                 println!("Transaction successful.");
             } else {
                 println!("Transaction failed.");
+            }
+            None
+        },
+        5 => {
+            println!("Enter Solidity code:");
+            let mut solidity_code = String::new();
+            io::stdin().read_line(&mut solidity_code).unwrap();
+
+            let vm = EvmVm::new();
+            match vm.compile_solidity(&solidity_code) {
+                Ok(bytecode) => {
+                    match vm.deploy_contract(&bytecode) {
+                        Ok(contract_address) => {
+                            println!("Contract deployed at address: {}", contract_address.green());
+                        },
+                        Err(e) => {
+                            println!("Deployment failed: {}", e.red());
+                        }
+                    }
+                },
+                Err(e) => {
+                    println!("Compilation failed: {}", e.red());
+                }
             }
             None
         },

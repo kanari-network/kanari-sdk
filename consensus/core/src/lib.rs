@@ -5,6 +5,13 @@ use std::io::{Read, Write};
 use std::path::Path;
 
 #[derive(Serialize, Deserialize)]
+pub enum NetworkType {
+    Mainnet,
+    Testnet,
+    Devnet,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct NetworkConfig {
     pub node_address: String,
     pub port: u16,
@@ -12,6 +19,7 @@ pub struct NetworkConfig {
     pub chain_id: String,
     pub max_connections: u32,
     pub api_enabled: bool,
+    pub network_type: NetworkType,
 }
 
 impl NetworkConfig {
@@ -40,5 +48,6 @@ impl NetworkConfig {
         self.chain_id = new_config.chain_id;
         self.max_connections = new_config.max_connections;
         self.api_enabled = new_config.api_enabled;
+        self.network_type = new_config.network_type;
     }
 }
