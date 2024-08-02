@@ -1,9 +1,13 @@
 [package]
-name = "consensus-pow"
+name = "consensus-pos"
 version.workspace = true
 license = "Apache-2.0"
 edition = "2021"
 publish = false
 
+
 [dependencies]
 sha2.workspace = true
+blake3 = "1.5.3"
+hex = "0.4.3"
+serde = { version = "1.0.204", features = ["derive"] }

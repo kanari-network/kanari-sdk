@@ -2,7 +2,8 @@ use futures::FutureExt;
 use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult};
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
 use serde_json::Value as JsonValue;
-use crate::{BLOCKCHAIN, CHAIN_ID};
+use crate::blockchain::BLOCKCHAIN;
+use crate::CHAIN_ID;
 
 // RPC server
 fn get_latest_block(_params: Params) -> JsonRpcResult<JsonValue> {

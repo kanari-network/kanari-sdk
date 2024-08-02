@@ -3,9 +3,9 @@ resolver = "2"
 
 #Members List
 members = [
-    "x",
+    "kari",
     "consensus/core",
-    "consensus/pow",
+    "consensus/pos",
     "p2p",
     "node", "crates/kanari-framework", "crates/kari-evm",
 ]
@@ -44,8 +44,8 @@ evm-runtime = "0.41.0"
 ethereum-types = "0.14.1"
 
 #Path List
-x = { path = "x" }
+kari = { path = "kari" }
 consensus-core = { path = "consensus/core" }
-consensus-pow  = { path = "consensus/pow" }
+consensus-pos  = { path = "consensus/pos" }
 p2p-protocol = { path = "p2p" }
 node = { path = "node" }

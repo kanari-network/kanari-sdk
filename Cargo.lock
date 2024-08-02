@@ -38,6 +38,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "arrayref"
+version = "0.3.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d151e35f61089500b617991b791fc8bfd237ae50cd5950803758a179b41e67a"
+
+[[package]]
 name = "arrayvec"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -170,6 +176,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "blake3"
+version = "1.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9ec96fe9a81b5e365f9db71fe00edc4fe4ca2cc7dcb7861f0603012a7caa210"
+dependencies = [
+ "arrayref",
+ "arrayvec",
+ "cc",
+ "cfg-if 1.0.0",
+ "constant_time_eq 0.3.0",
+]
+
+[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -297,9 +316,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "consensus-pow"
+name = "consensus-pos"
 version = "0.2.0"
 dependencies = [
+ "blake3",
+ "hex",
+ "serde",
  "sha2",
 ]
 
@@ -327,6 +349,12 @@ name = "constant_time_eq"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "245097e9a4535ee1e3e3931fcfcd55a796a44c643e8596ff6566d68f09b87bbc"
+
+[[package]]
+name = "constant_time_eq"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7144d30dcf0fafbce74250a3963025d8d52177934239851c917d29f1df280c2"
 
 [[package]]
 name = "core-foundation"
@@ -1220,6 +1248,32 @@ dependencies = [
 [[package]]
 name = "kanari-framework"
 version = "0.2.0"
+
+[[package]]
+name = "kari"
+version = "0.2.0"
+dependencies = [
+ "bincode",
+ "bip39",
+ "colored",
+ "consensus-core",
+ "consensus-pos",
+ "digest",
+ "dirs",
+ "futures",
+ "hex",
+ "jsonrpc-core",
+ "jsonrpc-http-server",
+ "kari-evm",
+ "node",
+ "p2p-protocol",
+ "rand",
+ "secp256k1",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+]
 
 [[package]]
 name = "kari-evm"
@@ -2131,18 +2185,18 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.203"
+version = "1.0.204"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7253ab4de971e72fb7be983802300c30b5a7f0c2e56fab8abfc6a214307c0094"
+checksum = "bc76f558e0cbb2a839d37354c575f1dc3fdc6546b5be373ba43d95f231bf7c12"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.203"
+version = "1.0.204"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "500cbc0ebeb6f46627f50f3f5811ccf6bf00643be300b4c3eabc0ef55dc5b5ba"
+checksum = "e0cd7e117be63d3c3678776753929474f3b04a43a080c744d6b0ae2a8c28e222"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3008,32 +3062,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "x"
-version = "0.2.0"
-dependencies = [
- "bincode",
- "bip39",
- "colored",
- "consensus-core",
- "consensus-pow",
- "digest",
- "dirs",
- "futures",
- "hex",
- "jsonrpc-core",
- "jsonrpc-http-server",
- "kari-evm",
- "node",
- "p2p-protocol",
- "rand",
- "secp256k1",
- "serde",
- "serde_json",
- "sha2",
- "tokio",
-]
-
-[[package]]
 name = "yansi"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3054,7 +3082,7 @@ dependencies = [
  "aes",
  "byteorder",
  "bzip2",
- "constant_time_eq",
+ "constant_time_eq 0.1.5",
  "crc32fast",
  "crossbeam-utils",
  "flate2",

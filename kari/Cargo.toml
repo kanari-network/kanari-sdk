@@ -1,5 +1,5 @@
 [package]
-name = "x"
+name = "kari"
 version.workspace = true
 edition = "2021"
 
@@ -20,7 +20,7 @@ colored.workspace = true
 dirs.workspace = true
 tokio.workspace = true
 consensus-core.workspace = true
-consensus-pow.workspace = true
+consensus-pos.workspace = true
 p2p-protocol.workspace = true
 node.workspace = true
 
