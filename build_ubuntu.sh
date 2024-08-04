@@ -7,6 +7,7 @@ echo "================================================"
 # Install Ubuntu dependencies
 
 sudo apt-get update
+
 sudo apt-get install -y \
 	build-essential \
 	curl \
@@ -29,4 +30,3 @@ source $HOME/.cargo/env
 # Install snarkOS
 # cargo clean
 cargo install --locked --path .
-

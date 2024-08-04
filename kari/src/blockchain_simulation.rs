@@ -1,4 +1,3 @@
-// x/src/blockchain_simulation.rs
 use std::sync::{Arc, Mutex};
 use std::thread;
 use crate::block::Block;
@@ -47,8 +46,8 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             let new_data = vec![0; block_size];
 
             let transactions = vec![
-                Transaction { sender: String::from("Alice"), receiver: String::from("Bob"), amount: 10 },
-                Transaction { sender: String::from("Charlie"), receiver: String::from("Dave"), amount: 20 },
+                Transaction::new(String::from("Alice"), String::from("Bob"), 10),
+                Transaction::new(String::from("Charlie"), String::from("Dave"), 20),
             ];
 
             let hasher = Blake3Algorithm;

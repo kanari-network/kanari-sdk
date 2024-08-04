@@ -5,6 +5,7 @@ mod blockchain;
 mod keytool;
 mod blockchain_simulation;
 mod wallet;
+mod gas;
 
 use std::collections::HashMap;
 use std::io::{self, Write};
@@ -37,6 +38,7 @@ fn save_chain_id(chain_id: &str) -> io::Result<()> {
 
 #[tokio::main]
 async fn main() {
+    
     let config = NetworkConfig {
         node_address: "127.0.0.1".to_string(),
         port: 8080,

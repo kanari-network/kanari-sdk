@@ -1,5 +1,5 @@
 Kari chain L1 (POS)
-To work with and use the rust-blockchain (Proof of Work), follow these steps:
+To work with and use the rust-blockchain (Proof of Stake), follow these steps:
 
 ### 1. Setup Environment
 - Ensure you have Ubuntu or a similar Linux distribution.
