@@ -1,6 +1,5 @@
 use std::io;
 use colored::Colorize;
-use kari_evm::EvmVm;
 
 use crate::blockchain::{BALANCES, load_blockchain};
 use crate::wallet::{generate_karix_address, load_wallet, save_wallet, send_coins};
@@ -88,29 +87,7 @@ pub fn handle_keytool_command() -> Option<String> {
             }
             None
         },
-        5 => {
-            println!("Enter Solidity code:");
-            let mut solidity_code = String::new();
-            io::stdin().read_line(&mut solidity_code).unwrap();
 
-            let vm = EvmVm::new();
-            match vm.compile_solidity(&solidity_code) {
-                Ok(bytecode) => {
-                    match vm.deploy_contract(&bytecode) {
-                        Ok(contract_address) => {
-                            println!("Contract deployed at address: {}", contract_address.green());
-                        },
-                        Err(e) => {
-                            println!("Deployment failed: {}", e.red());
-                        }
-                    }
-                },
-                Err(e) => {
-                    println!("Compilation failed: {}", e.red());
-                }
-            }
-            None
-        },
         _ => {
             println!("{}", "Invalid command".red());
             None

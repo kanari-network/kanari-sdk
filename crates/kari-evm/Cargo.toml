@@ -1,9 +1,0 @@
-[package]
-name = "kari-evm"
-edition = "2021"
-version.workspace = true
-
-[dependencies]
-hex = "0.4.3"
-ethers-solc = "2.0.5"
-
