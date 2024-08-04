@@ -12,8 +12,8 @@ use move_vm_runtime::{
 use move_vm_types::{
     loaded_data::runtime_types::Type, natives::function::NativeResult, pop_arg, values::Value,
 };
-use sha2::{Digest, Sha256};
-use sha3::Sha3_256;
+use sha2::{Digest as Sha2Digest, Sha256};
+use sha3::{Digest as Sha3Digest, Sha3_256};
 use smallvec::smallvec;
 use std::{collections::VecDeque, sync::Arc};
 

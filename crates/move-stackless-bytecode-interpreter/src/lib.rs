@@ -93,6 +93,7 @@ fn parse_entrypoint(input: &str) -> Result<(ModuleId, Identifier)> {
     Ok((module_id, func_name))
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Eq, PartialEq)]
 struct ExecutionResult {
     vm_result: VMResult<Vec<TypedValue>>,

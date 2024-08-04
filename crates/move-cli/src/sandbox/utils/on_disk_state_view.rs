@@ -262,11 +262,17 @@ impl Default for OnDiskStateView {
     }
 }
 
-// wrappers of TypeTag, StructTag, Vec<TypeTag> to allow us to implement the FromStr/ToString traits
+// wrappers of TypeTag, StructTag, Vec<TypeTag> to allow us to implement the FromStr/ToString traits]
+#[allow(dead_code)]
 #[derive(Debug)]
 struct TypeID(TypeTag);
+
+#[allow(dead_code)]
+
 #[derive(Debug)]
 struct StructID(StructTag);
+
+#[allow(dead_code)]
 #[derive(Debug)]
 struct Generics(Vec<TypeTag>);
 

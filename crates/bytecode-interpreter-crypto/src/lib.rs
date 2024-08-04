@@ -17,8 +17,8 @@ use ed25519_dalek::{
     PublicKey as Ed25519PublicKey, Signature as Ed25519Signature,
     PUBLIC_KEY_LENGTH as ED25519_PUBLIC_KEY_LENGTH, SIGNATURE_LENGTH as ED25519_SIGNATURE_LENGTH,
 };
-use sha2::{Digest, Sha256};
-use sha3::Sha3_256;
+use sha2::{Digest as Sha2Digest, Sha256};
+use sha3::{Digest as Sha3Digest, Sha3_256};
 use std::cmp::Ordering;
 
 /// The order of ed25519 as defined in [RFC8032](https://tools.ietf.org/html/rfc8032).
