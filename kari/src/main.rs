@@ -12,6 +12,7 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use serde_json::json;
 use colored::Colorize;
+use transaction::Transaction;
 use std::fs;
 use dirs;
 use consensus_core::{NetworkConfig, NetworkType};
@@ -38,7 +39,13 @@ fn save_chain_id(chain_id: &str) -> io::Result<()> {
 
 #[tokio::main]
 async fn main() {
+
+
+    let transaction = Transaction { sender: "Alice".to_string(), receiver: "Bob".to_string(), amount: 10, gas_cost: 0.1 };
+    let total_cost = transaction.calculate_total_cost();
+    println!("Total cost: {}", total_cost);
     
+
     let config = NetworkConfig {
         node_address: "127.0.0.1".to_string(),
         port: 8080,
