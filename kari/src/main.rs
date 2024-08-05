@@ -39,8 +39,6 @@ fn save_chain_id(chain_id: &str) -> io::Result<()> {
 
 #[tokio::main]
 async fn main() {
-
-
     let transaction = Transaction { sender: "Alice".to_string(), receiver: "Bob".to_string(), amount: 10, gas_cost: 0.1 };
     let total_cost = transaction.calculate_total_cost();
     println!("Total cost: {}", total_cost);

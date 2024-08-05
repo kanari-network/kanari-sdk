@@ -42,6 +42,23 @@ pub fn load_blockchain() {
         unsafe {
             let data = fs::read(&blockchain_file).expect("Unable to read blockchain file");
             BLOCKCHAIN = bincode::deserialize(&data).expect("Failed to deserialize blockchain");
+
+            // After loading the blockchain, update BALANCES and TOTAL_TOKENS
+            let mut balances = HashMap::new();
+            let mut total_tokens = 0;
+            for block in BLOCKCHAIN.iter() {
+                total_tokens += block.tokens;
+                *balances.entry(block.miner_address.clone()).or_insert(0) += block.tokens;
+                for tx in &block.transactions {
+                    // Deduct the amount from the sender's balance
+                    *balances.entry(tx.sender.clone()).or_insert(0) -= tx.amount;
+
+                    // Add the amount to the receiver's balance
+                    *balances.entry(tx.receiver.clone()).or_insert(0) += tx.amount;
+                }
+            }
+            BALANCES = Some(Mutex::new(balances));
+            TOTAL_TOKENS = total_tokens;
         }
         println!("Blockchain loaded from {:?}", blockchain_file);
     }
