@@ -4,9 +4,9 @@ use bip39::Mnemonic;
 use secp256k1::Secp256k1;
 use rand::rngs::OsRng;
 use hex;
-use crate::blockchain::{BALANCES, get_kari_dir};
+use crate::{blockchain::{get_kari_dir, BALANCES}, transaction::Transaction};
 
-pub fn send_coins(sender: String, receiver: String, amount: u64) -> bool {
+pub fn send_coins(sender: String, receiver: String, amount: u64) -> Option<Transaction> {
     let mut balances = unsafe { BALANCES.as_ref().unwrap().lock().unwrap() };
 
     if let Some(sender_balance) = balances.get(&sender) {
@@ -17,13 +17,18 @@ pub fn send_coins(sender: String, receiver: String, amount: u64) -> bool {
             // Add the amount to the receiver's balance
             *balances.entry(receiver.clone()).or_insert(0) += amount;
 
-            // Here, you would also add the transaction to a list of pending transactions
-            // For simplicity, this step is omitted
+            // Create and return the transaction
+            let transaction = Transaction {
+                sender,
+                receiver,
+                amount,
+                gas_cost: 0.00000150, // You should have a mechanism to determine gas cost
+            };
 
-            return true;
+            return Some(transaction);
         }
     }
-    false
+    None // Return None if the transaction fails
 }
 
 pub fn save_wallet(address: &str, private_key: &str, seed_phrase: &str) {

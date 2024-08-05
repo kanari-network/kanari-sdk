@@ -2,6 +2,7 @@ use std::io;
 use colored::Colorize;
 
 use crate::blockchain::{BALANCES, load_blockchain};
+use crate::blockchain_simulation;
 use crate::wallet::{generate_karix_address, load_wallet, save_wallet, send_coins};
 
 pub fn handle_keytool_command() -> Option<String> {
@@ -10,7 +11,6 @@ pub fn handle_keytool_command() -> Option<String> {
     println!("2: Check balance");
     println!("3: Load existing wallet");
     println!("4: Send coins");
-    println!("5: Deploy Solidity contract");
     let mut command_str = String::new();
     io::stdin().read_line(&mut command_str).unwrap();
     let command: usize = command_str.trim().parse().expect("Invalid input");
@@ -80,8 +80,15 @@ pub fn handle_keytool_command() -> Option<String> {
             io::stdin().read_line(&mut amount_str).unwrap();
             let amount: u64 = amount_str.trim().parse().expect("Invalid input for amount");
 
-            if send_coins(sender_address, receiver_address, amount) {
-                println!("Transaction successful.");
+            if let Some(transaction) = send_coins(sender_address, receiver_address, amount) {
+                // Send the transaction to the blockchain simulation thread
+                unsafe { // Access static variable within an unsafe block
+                    if let Err(e) = blockchain_simulation::TRANSACTION_SENDER.as_ref().unwrap().send(transaction) {
+                        println!("Failed to send transaction: {}", e);
+                    } else {
+                        println!("Transaction added to pending transactions.");
+                    }
+                }
             } else {
                 println!("Transaction failed.");
             }

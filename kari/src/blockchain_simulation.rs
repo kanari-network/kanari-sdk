@@ -5,6 +5,11 @@ use crate::gas::TRANSACTION_GAS_COST;
 use crate::transaction::Transaction;
 use crate::blockchain::{BALANCES, BLOCKCHAIN, TOTAL_TOKENS, save_blockchain};
 use consensus_pos::Blake3Algorithm;
+use std::sync::mpsc::{self, Sender, Receiver}; // Import Sender and Receiver
+
+// Define the Sender and Receiver separately
+pub static mut TRANSACTION_SENDER: Option<Sender<Transaction>> = None;
+pub static mut TRANSACTION_RECEIVER: Option<Receiver<Transaction>> = None;
 
 pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
     let max_tokens = 11_000_000;
@@ -16,6 +21,11 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
     static mut PENDING_TRANSACTIONS: Vec<Transaction> = Vec::new();
 
     unsafe {
+        // Initialize the channel within the function
+        let (sender, receiver) = mpsc::channel();
+        TRANSACTION_SENDER = Some(sender);
+        TRANSACTION_RECEIVER = Some(receiver);        
+
         if BLOCKCHAIN.is_empty() {
             let genesis_data = vec![0; block_size];
             let genesis_transactions = vec![];
@@ -34,6 +44,11 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
         }
 
         loop { 
+            // Receive transactions from the channel
+            if let Ok(transaction) = TRANSACTION_RECEIVER.as_ref().unwrap().try_recv() {
+                PENDING_TRANSACTIONS.push(transaction);
+            }
+
             let _running = running.lock().unwrap();
 
             if TOTAL_TOKENS >= max_tokens {

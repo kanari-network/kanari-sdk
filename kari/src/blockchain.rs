@@ -50,12 +50,25 @@ pub fn load_blockchain() {
                 total_tokens += block.tokens;
                 *balances.entry(block.miner_address.clone()).or_insert(0) += block.tokens;
                 for tx in &block.transactions {
-                    // Deduct the amount from the sender's balance
-                    *balances.entry(tx.sender.clone()).or_insert(0) -= tx.amount;
-
-                    // Add the amount to the receiver's balance
-                    *balances.entry(tx.receiver.clone()).or_insert(0) += tx.amount;
-                }
+                    // Check if the sender exists and has enough balance
+                    if let Some(sender_balance) = balances.get_mut(&tx.sender) {
+                        if *sender_balance >= tx.amount {
+                            // Deduct the amount from the sender's balance
+                            *sender_balance -= tx.amount;
+                
+                            // Add the amount to the receiver's balance
+                            *balances.entry(tx.receiver.clone()).or_insert(0) += tx.amount;
+                        } else {
+                            // Handle insufficient funds
+                            eprintln!("Transaction failed: Insufficient funds for sender {}", tx.sender);
+                            // You might want to handle this more gracefully, like reverting the transaction
+                        }
+                    } else {
+                        // Handle case where sender is not found
+                        eprintln!("Transaction failed: Sender {} not found", tx.sender);
+                        // This could indicate a corrupted blockchain
+                    }
+                }                
             }
             BALANCES = Some(Mutex::new(balances));
             TOTAL_TOKENS = total_tokens;
