@@ -7,16 +7,17 @@ use crate::wallet::{generate_karix_address, load_wallet, save_wallet, send_coins
 
 pub fn handle_keytool_command() -> Option<String> {
     println!("Enter command");
-    println!("1: Generate new address");
-    println!("2: Check balance");
-    println!("3: Load existing wallet");
-    println!("4: Send coins");
+    println!("generate  Generate new address");
+    println!("balance   Check balance");
+    println!("wallet    Load existing wallet");
+    println!("send      Send coins");
     let mut command_str = String::new();
     io::stdin().read_line(&mut command_str).unwrap();
-    let command: usize = command_str.trim().parse().expect("Invalid input");
+    let command = command_str.trim(); // Remove whitespace
 
+    // Use string comparison in the match statement
     match command {
-        1 => {
+        "generate" => { 
             println!("Enter mnemonic length (12 or 24):");
             let mut mnemonic_length_str = String::new();
             io::stdin().read_line(&mut mnemonic_length_str).unwrap();
@@ -32,7 +33,7 @@ pub fn handle_keytool_command() -> Option<String> {
 
             Some(public_address)
         },
-        2 => {
+        "balance" => { // String comparison for "balance"
             println!("Enter public address:");
             let mut public_address = String::new();
             io::stdin().read_line(&mut public_address).unwrap();
@@ -47,7 +48,7 @@ pub fn handle_keytool_command() -> Option<String> {
             println!("Balance for {}: {}", public_address.green(), balance.to_string().green());
             None
         },
-        3 => {
+        "wallet" => { // String comparison for "wallet"
             println!("Enter public address to load:");
             let mut public_address = String::new();
             io::stdin().read_line(&mut public_address).unwrap();
@@ -64,7 +65,7 @@ pub fn handle_keytool_command() -> Option<String> {
                 None
             }
         },
-        4 => {
+        "send"  => { // String comparison for "send"
             println!("Enter sender's public address:");
             let mut sender_address = String::new();
             io::stdin().read_line(&mut sender_address).unwrap();
