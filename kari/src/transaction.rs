@@ -10,6 +10,7 @@ pub struct Transaction {
 }
 
 impl Transaction {
+    #[allow(dead_code)]
     pub fn new(sender: String, receiver: String, amount: u64) -> Self {
         Self {
             sender,

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json;
+use std::fmt;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -20,6 +21,17 @@ pub struct NetworkConfig {
     pub max_connections: u32,
     pub api_enabled: bool,
     pub network_type: NetworkType,
+}
+
+
+impl fmt::Display for NetworkType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            NetworkType::Mainnet => write!(f, "mainnet"),
+            NetworkType::Testnet => write!(f, "testnet"),
+            NetworkType::Devnet => write!(f, "devnet"),
+        }
+    }
 }
 
 impl NetworkConfig {

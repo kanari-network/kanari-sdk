@@ -83,10 +83,6 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
                     gas_cost: TRANSACTION_GAS_COST, // ให้ค่าธรรมเนียม 0.00000150 KI
                 });
             }
-            
-            // สร้างธุรกรรมจำลองเพิ่มเติม (ถ้าต้องการ)
-            transactions.push(Transaction::new(String::from("Alice"), String::from("Bob"), 10));
-            transactions.push(Transaction::new(String::from("Charlie"), String::from("Dave"), 20));
 
             let hasher = Blake3Algorithm;
             let new_block = Block::new(
