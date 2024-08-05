@@ -21,6 +21,7 @@ use crate::keytool::handle_keytool_command;
 use crate::rpc::start_rpc_server;
 use crate::wallet::print_coin_icon;
 
+
 static CHAIN_ID: &str = "kari-c1";
 static VERSION: &str = "0.3.0";
 
@@ -63,6 +64,7 @@ async fn main() {
         println!("\nAvailable Commands:");
         println!("{} - Start a local network", "start".green());
         println!("{} - kari keystore tool", "keytool".green());
+        println!("{} - move", "move".green());
         println!("{} - Stop the blockchain and exit", "stop".red());
         println!("{} - Show version", "version, --V".blue());
 
@@ -104,6 +106,9 @@ async fn main() {
                 if let Some(address) = result {
                     miner_address = address;
                 }
+            },
+            "move" => {
+                
             },
             "stop" => {
                 *running.lock().unwrap() = false;
