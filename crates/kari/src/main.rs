@@ -25,9 +25,7 @@ use crate::wallet::print_coin_icon;
 static CHAIN_ID: &str = "kari-c1";
 static VERSION: &str = "0.3.0";
 
-
-#[tokio::main]
-async fn main() {
+fn main() {
     let config = load_config().expect("Failed to load configuration");
 
     let _chain_id = config.get("chain_id").and_then(|v| v.as_str()).unwrap_or(CHAIN_ID);
