@@ -69,11 +69,11 @@ exclude = [
 ]
 #Members List
 members = [
-    "kari",
+    "crates/kari",
     "consensus/core",
     "consensus/pos",
-    "p2p",
-    "node",
+    "crates/p2p",
+    "crates/node",
 ]
 
 [profile.bench]
@@ -116,11 +116,11 @@ tokio = { version = "1.38.0", features = ["rt", "rt-multi-thread", "macros"] }
 tokio-rustls = "0.26.0"
 
 #Path List
-kari = { path = "kari" }
+kari = { path = "crates/kari" }
 consensus-core = { path = "consensus/core" }
 consensus-pos  = { path = "consensus/pos" }
-p2p-protocol = { path = "p2p" }
-node = { path = "node" }
+p2p-protocol = { path = "crates/p2p" }
+node = { path = "crates/node" }
 
 
 # Move dependencies
