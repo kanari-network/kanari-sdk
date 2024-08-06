@@ -1,5 +1,5 @@
 [package]
-name = "node"
+name = "node-kari"
 edition = "2021"
 version.workspace = true
 
