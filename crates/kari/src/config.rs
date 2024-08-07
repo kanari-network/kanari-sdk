@@ -51,6 +51,30 @@ pub fn prompt_for_value(prompt: &str, default: &str) -> String {
 pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
     let mut config = load_config()?;
 
+    // Check if the configuration already exists
+    if config.get("network_type").is_some() && config.get("rpc_port").is_some() && config.get("domain").is_some() && config.get("chain_id").is_some() {
+        println!("Configuration already exists. Skipping configuration process.");
+        let network_type = match config.get("network_type").unwrap().as_str().unwrap() {
+            "devnet" => NetworkType::Devnet,
+            "testnet" => NetworkType::Testnet,
+            "mainnet" => NetworkType::Mainnet,
+            _ => unreachable!(),
+        };
+        let rpc_port = config.get("rpc_port").unwrap().as_u64().unwrap() as u16;
+        let domain = config.get("domain").unwrap().as_str().unwrap().to_string();
+        let chain_id = config.get("chain_id").unwrap().as_str().unwrap().to_string();
+
+        return Ok(NetworkConfig {
+            node_address: "127.0.0.1".to_string(),
+            port: rpc_port,
+            peers: vec![],
+            chain_id,
+            max_connections: 100,
+            api_enabled: true,
+            network_type,
+        });
+    }
+
     println!("Choose a network type:");
     println!("1. devnet");
     println!("2. testnet");

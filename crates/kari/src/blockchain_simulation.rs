@@ -13,7 +13,7 @@ pub static mut TRANSACTION_RECEIVER: Option<Receiver<Transaction>> = None;
 
 pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
     let max_tokens = 11_000_000;
-    let mut tokens_per_block = 250000;
+    let mut tokens_per_block = 25;
     let halving_interval = 210_000;
     let block_size = 2_250_000; // 2.25 MB in bytes
 
