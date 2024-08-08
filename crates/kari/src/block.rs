@@ -1,9 +1,9 @@
+// block.rs
 use serde::{Deserialize, Serialize};
 use crate::transaction::Transaction;
 use consensus_pos::HashAlgorithm;
 use crate::CHAIN_ID;
 
-// Define the Block struct
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Block<T: HashAlgorithm> {
     pub chain_id: String,
@@ -19,7 +19,6 @@ pub struct Block<T: HashAlgorithm> {
     pub hasher: T,
 }
 
-// Implement the Block struct
 impl<T: HashAlgorithm> Block<T> {
     pub fn new(index: u32, data: Vec<u8>, prev_hash: String, tokens: u64, transactions: Vec<Transaction>, miner_address: String, hasher: T) -> Block<T> {
         let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
@@ -40,7 +39,6 @@ impl<T: HashAlgorithm> Block<T> {
         block
     }
 
-    // Add a method to calculate the hash of the block
     pub fn calculate_hash(&self) -> String {
         let mut input = Vec::new();
         input.extend_from_slice(self.chain_id.as_bytes());
@@ -51,7 +49,6 @@ impl<T: HashAlgorithm> Block<T> {
         input.extend_from_slice(&self.tokens.to_le_bytes());
         input.extend_from_slice(self.token_name.as_bytes());
         
-        // Serialize transactions
         let transactions_serialized = serde_json::to_string(&self.transactions).unwrap();
         input.extend_from_slice(transactions_serialized.as_bytes());
 
@@ -59,7 +56,6 @@ impl<T: HashAlgorithm> Block<T> {
         self.hasher.hash(&input)
     }
 
-    // Add a method to verify the block
     pub fn verify(&self, prev_block: &Block<T>) -> bool {
         if self.index != prev_block.index + 1 {
             return false;

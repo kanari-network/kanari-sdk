@@ -1,3 +1,4 @@
+// blockchain.rs
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use std::ptr::addr_of;
@@ -8,14 +9,10 @@ use bincode;
 use consensus_pos::Blake3Algorithm;
 use crate::block::Block;
 
-// Define global variables for the blockchain
 pub static mut BALANCES: Option<Mutex<HashMap<String, u64>>> = None;
-// Define global variables for the blockchain
 pub static mut TOTAL_TOKENS: u64 = 0;
-// Define global variables for the blockchain
 pub static mut BLOCKCHAIN: VecDeque<Block<Blake3Algorithm>> = VecDeque::new();
 
-// Get the path to the .kari directory
 pub fn get_kari_dir() -> PathBuf {
     let mut path = dirs::home_dir().expect("Unable to find home directory");
     path.push(".kari");
@@ -23,7 +20,6 @@ pub fn get_kari_dir() -> PathBuf {
     path
 }
 
-// Save the blockchain to the file system
 pub fn save_blockchain() {
     let kari_dir = get_kari_dir();
     let blockchain_file = kari_dir.join("blockchain.bin");
@@ -34,7 +30,6 @@ pub fn save_blockchain() {
     println!("Blockchain saved to {:?}", blockchain_file);
 }
 
-// Load the blockchain from the file system
 pub fn load_blockchain() {
     let kari_dir = get_kari_dir();
     let blockchain_file = kari_dir.join("blockchain.bin");
@@ -43,30 +38,21 @@ pub fn load_blockchain() {
             let data = fs::read(&blockchain_file).expect("Unable to read blockchain file");
             BLOCKCHAIN = bincode::deserialize(&data).expect("Failed to deserialize blockchain");
 
-            // After loading the blockchain, update BALANCES and TOTAL_TOKENS
             let mut balances = HashMap::new();
             let mut total_tokens = 0;
             for block in BLOCKCHAIN.iter() {
                 total_tokens += block.tokens;
                 *balances.entry(block.miner_address.clone()).or_insert(0) += block.tokens;
                 for tx in &block.transactions {
-                    // Check if the sender exists and has enough balance
                     if let Some(sender_balance) = balances.get_mut(&tx.sender) {
                         if *sender_balance >= tx.amount {
-                            // Deduct the amount from the sender's balance
                             *sender_balance -= tx.amount;
-                
-                            // Add the amount to the receiver's balance
                             *balances.entry(tx.receiver.clone()).or_insert(0) += tx.amount;
                         } else {
-                            // Handle insufficient funds
                             eprintln!("Transaction failed: Insufficient funds for sender {}", tx.sender);
-                            // You might want to handle this more gracefully, like reverting the transaction
                         }
                     } else {
-                        // Handle case where sender is not found
                         eprintln!("Transaction failed: Sender {} not found", tx.sender);
-                        // This could indicate a corrupted blockchain
                     }
                 }                
             }

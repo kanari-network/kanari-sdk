@@ -4,31 +4,39 @@ use bip39::Mnemonic;
 use secp256k1::Secp256k1;
 use rand::rngs::OsRng;
 use hex;
-use crate::{blockchain::{get_kari_dir, BALANCES}, transaction::Transaction};
+use crate::{blockchain::{get_kari_dir, BALANCES}, transaction::Transaction, gas::TRANSACTION_GAS_COST};
 
 pub fn send_coins(sender: String, receiver: String, amount: u64) -> Option<Transaction> {
-    let mut balances = unsafe { BALANCES.as_ref().unwrap().lock().unwrap() };
+    // Use a safe access pattern with a match statement
+    let balances_option = unsafe { BALANCES.as_ref() };
 
-    if let Some(sender_balance) = balances.get(&sender) {
-        if *sender_balance >= amount {
-            // Deduct the amount from the sender's balance
-            *balances.entry(sender.clone()).or_insert(0) -= amount;
+    if let Some(balances_mutex) = balances_option {
+        let mut balances = balances_mutex.lock().unwrap(); 
 
-            // Add the amount to the receiver's balance
-            *balances.entry(receiver.clone()).or_insert(0) += amount;
+        if let Some(sender_balance) = balances.get_mut(&sender) {
+            if *sender_balance >= amount {
+                *sender_balance -= amount;
+                *balances.entry(receiver.clone()).or_insert(0) += amount;
 
-            // Create and return the transaction
-            let transaction = Transaction {
-                sender,
-                receiver,
-                amount,
-                gas_cost: 0.00000150, // You should have a mechanism to determine gas cost
-            };
+                let transaction = Transaction {
+                    sender,
+                    receiver,
+                    amount,
+                    gas_cost: TRANSACTION_GAS_COST, 
+                };
 
-            return Some(transaction);
+                return Some(transaction);
+            } else {
+                println!("Insufficient funds in sender's account.");
+            }
+        } else {
+            println!("Sender's address not found in balances.");
         }
+    } else {
+        println!("BALANCES is not initialized!");
     }
-    None // Return None if the transaction fails
+
+    None 
 }
 
 pub fn save_wallet(address: &str, private_key: &str, seed_phrase: &str) {
@@ -88,6 +96,23 @@ pub fn generate_karix_address(word_count: usize) -> (String, String, String) {
         karix_public_address,
         seed_phrase
     )
+}
+
+pub fn list_wallet_files() -> Result<Vec<String>, std::io::Error> {
+    let kari_dir = get_kari_dir();
+    let wallet_dir = kari_dir.join("wallets");
+
+    let mut wallets = Vec::new();
+    for entry in fs::read_dir(wallet_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
+                wallets.push(filename.to_string());
+            }
+        }
+    }
+    Ok(wallets)
 }
 
 pub fn print_coin_icon() {

@@ -33,7 +33,7 @@ async fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     // Check if any arguments were provided
-    if args.len() > 1 {
+    if !args.len() > 1 {
         let command = &args[1];
 
         match command.as_str() {
@@ -122,6 +122,26 @@ async fn start_node() {
     println!("{}", "Welcome to the Rust Blockchain CLI".bold().cyan());
     print_coin_icon();
 
+        // Load miner address from config if it exists, otherwise generate a new one
+        let _miner_address = match config.get("miner_address").and_then(|v| v.as_str()) {
+            Some(address) => address.to_string(),
+            None => {
+                println!("No miner address found. Generating a new one...");
+                let (private_key, public_address, seed_phrase) = generate_karix_address(24); // Use 24 words for security
+                println!("New address generated:");
+                println!("Private Key: {}", private_key.green());
+                println!("Public Address: {}", public_address.green());
+                println!("Seed Phrase: {}", seed_phrase.green());
+    
+                save_wallet(&public_address, &private_key, &seed_phrase);
+    
+                // Save the new address to the configuration
+                config.as_object_mut().unwrap().insert("miner_address".to_string(), json!(public_address));
+                save_config(&config).expect("Failed to save configuration");
+    
+                public_address
+            }
+        };
         // Load miner address from config if it exists, otherwise generate a new one
         let miner_address = match config.get("miner_address").and_then(|v| v.as_str()) {
             Some(address) => address.to_string(),

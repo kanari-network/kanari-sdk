@@ -61,7 +61,7 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
             _ => unreachable!(),
         };
         let rpc_port = config.get("rpc_port").unwrap().as_u64().unwrap() as u16;
-        let domain = config.get("domain").unwrap().as_str().unwrap().to_string();
+        let _domain = config.get("domain").unwrap().as_str().unwrap().to_string();
         let chain_id = config.get("chain_id").unwrap().as_str().unwrap().to_string();
 
         return Ok(NetworkConfig {

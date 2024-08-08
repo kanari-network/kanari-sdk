@@ -1,3 +1,4 @@
+// blockchain_sim// blockchain_simulation.rs
 use std::sync::{Arc, Mutex};
 use std::thread;
 use crate::block::Block;
@@ -5,9 +6,8 @@ use crate::gas::TRANSACTION_GAS_COST;
 use crate::transaction::Transaction;
 use crate::blockchain::{BALANCES, BLOCKCHAIN, TOTAL_TOKENS, save_blockchain};
 use consensus_pos::Blake3Algorithm;
-use std::sync::mpsc::{self, Sender, Receiver}; // Import Sender and Receiver
+use std::sync::mpsc::{self, Sender, Receiver};
 
-// Define the Sender and Receiver separately
 pub static mut TRANSACTION_SENDER: Option<Sender<Transaction>> = None;
 pub static mut TRANSACTION_RECEIVER: Option<Receiver<Transaction>> = None;
 
@@ -15,13 +15,11 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
     let max_tokens = 11_000_000;
     let mut tokens_per_block = 25;
     let halving_interval = 210_000;
-    let block_size = 2_250_000; // 2.25 MB in bytes
+    let block_size = 2_250_000;
 
-    // Assume there's a global variable for pending transactions
     static mut PENDING_TRANSACTIONS: Vec<Transaction> = Vec::new();
 
     unsafe {
-        // Initialize the channel within the function
         let (sender, receiver) = mpsc::channel();
         TRANSACTION_SENDER = Some(sender);
         TRANSACTION_RECEIVER = Some(receiver);        
@@ -44,7 +42,6 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
         }
 
         loop { 
-            // Receive transactions from the channel
             if let Ok(transaction) = TRANSACTION_RECEIVER.as_ref().unwrap().try_recv() {
                 PENDING_TRANSACTIONS.push(transaction);
             }
@@ -53,10 +50,9 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
 
             if TOTAL_TOKENS >= max_tokens {
                 println!("Reached maximum token supply. Only processing transactions.");
-                tokens_per_block = 0; // Set block reward to 0
+                tokens_per_block = 0;
             }
 
-            // Calculate miner reward based on token supply
             let miner_reward = if TOTAL_TOKENS < max_tokens {
                 tokens_per_block
             } else {
@@ -66,21 +62,18 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             let prev_block = BLOCKCHAIN.back().unwrap();
             let new_data = vec![0; block_size];
 
-            // Move the clearing of pending transactions inside the loop
             PENDING_TRANSACTIONS.clear(); 
 
             let mut transactions = vec![];
 
-            // ดึงธุรกรรมจาก PENDING_TRANSACTIONS
             transactions.append(&mut (PENDING_TRANSACTIONS.clone()));
 
-            // ถ้าไม่มีธุรกรรมเลย ให้สร้างธุรกรรมค่าธรรมเนียม 0 ให้นักขุด
             if transactions.is_empty() {
                 transactions.push(Transaction {
-                    sender: "system".to_string(), // หรือใช้ address พิเศษอื่นๆ 
+                    sender: String::from("system"),
                     receiver: miner_address.clone(),
                     amount: 0,
-                    gas_cost: TRANSACTION_GAS_COST, // ให้ค่าธรรมเนียม 0.00000150 KI
+                    gas_cost: TRANSACTION_GAS_COST,
                 });
             }
 
@@ -89,7 +82,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
                 prev_block.index + 1, 
                 new_data, 
                 prev_block.hash.clone(), 
-                miner_reward, // Use calculated miner_reward
+                miner_reward, 
                 transactions, 
                 miner_address.clone(), 
                 hasher
@@ -102,16 +95,13 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
 
             BLOCKCHAIN.push_back(new_block.clone());
 
-            // เพิ่มรางวัลให้กับนักขุดจากค่าธรรมเนียมธุรกรรม
             let transaction_fees: u64 = new_block.transactions.iter().map(|tx| tx.calculate_total_cost() as u64).sum();
             BALANCES.as_mut().unwrap().lock().unwrap().entry(miner_address.clone()).and_modify(|balance| *balance += transaction_fees + miner_reward).or_insert(transaction_fees + miner_reward);
 
-            // Update TOTAL_TOKENS only if it's less than the max supply
             if TOTAL_TOKENS < max_tokens {
-                TOTAL_TOKENS += tokens_per_block; 
+                TOTAL_TOKENS += miner_reward;
             }
 
-            // Save blockchain every time a new block is created
             save_blockchain();
 
             println!("New block hash: {}", new_block.hash);
