@@ -1,45 +1,11 @@
 use futures::FutureExt;
 use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult, Error as JsonRpcError};
-use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation, Response};
-use serde_json::{json, Value as JsonValue};
-use crate::blockchain::{BLOCKCHAIN, save_blockchain};
+use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
+use serde_json::{json, Value as JsonValue, Value}; // Import Value from serde_json
+use crate::blockchain::{BLOCKCHAIN, BALANCES};
 use crate::CHAIN_ID;
-use crate::block::Block;
-use consensus_pos::Blake3Algorithm;
-use crate::transaction::Transaction;
+use crate::wallet::send_coins;
 
-fn create_block(params: Params) -> JsonRpcResult<JsonValue> {
-    // 1. Receive and parse the request parameters (if any)
-    // let params: MyBlockCreationParams = params.parse().map_err(|e| jsonrpc_core::Error::invalid_params(e))?;
-
-    // 2. Process the request
-    let prev_block = unsafe { BLOCKCHAIN.back().unwrap() };
-    let new_data = vec![0; 2_250_000]; // Replace with actual block data
-    let new_block = Block::new(
-        prev_block.index + 1,
-        new_data,
-        prev_block.hash.clone(),
-        25, // Replace with actual token reward
-        vec![Transaction { // Replace with actual transactions
-            sender: "system".to_string(),
-            receiver: "miner_address".to_string(), // Replace with actual miner address
-            amount: 0,
-            gas_cost: 0.00000150,
-        }],
-        "miner_address".to_string(), // Replace with actual miner address
-        Blake3Algorithm,
-    );
-
-    // ... (Verify the block, add it to the blockchain, broadcast it)
-
-    unsafe {
-        BLOCKCHAIN.push_back(new_block.clone());
-        save_blockchain();
-    }
-
-    // 3. Return a success response
-    Ok(json!({ "message": "Block created successfully", "block": new_block }))
-}
 
 // RPC server
 fn get_latest_block(_params: Params) -> JsonRpcResult<JsonValue> {
@@ -68,6 +34,45 @@ fn get_block_by_index(params: Params) -> JsonRpcResult<JsonValue> {
     }
 }
 
+// New API: Get balance by address
+fn get_balance(params: Params) -> JsonRpcResult<JsonValue> {
+    let address: String = params.parse().map_err(|e| 
+        jsonrpc_core::Error::invalid_params(format!("Invalid address parameter: {}", e))
+    )?;
+
+    let balances = unsafe { BALANCES.as_ref().unwrap().lock().unwrap() };
+    let balance = balances.get(&address).cloned().unwrap_or(0);
+
+    Ok(json!(balance))
+}
+
+// New API: Send Transaction
+fn send_transaction(params: Params) -> JsonRpcResult<JsonValue> {
+    let params: serde_json::Map<String, Value> = params.parse().map_err(|e| 
+        jsonrpc_core::Error::invalid_params(format!("Invalid parameters: {}", e))
+    )?;
+
+    let sender = params.get("sender").and_then(|v| v.as_str()).ok_or(
+        JsonRpcError::invalid_params("Missing 'sender' parameter")
+    )?;
+
+    let receiver = params.get("receiver").and_then(|v| v.as_str()).ok_or(
+        JsonRpcError::invalid_params("Missing 'receiver' parameter")
+    )?;
+
+    let amount: u64 = params.get("amount").and_then(|v| v.as_u64()).ok_or(
+        JsonRpcError::invalid_params("Missing or invalid 'amount' parameter")
+    )?;
+
+    if let Some(transaction) = send_coins(sender.to_string(), receiver.to_string(), amount) {
+        // ... (Add logic to broadcast the transaction to the network)
+
+        Ok(json!({ "message": "Transaction sent successfully", "transaction": transaction }))
+    } else {
+        Err(JsonRpcError::internal_error()) // Remove the string argument
+    }
+}
+
 pub async fn start_rpc_server() {
     let mut io = IoHandler::new();
 
@@ -83,8 +88,12 @@ pub async fn start_rpc_server() {
         futures::future::ready(get_block_by_index(params)).boxed()
     });
 
-    io.add_method("create_block", |params| {
-        futures::future::ready(create_block(params)).boxed()
+    io.add_method("get_balance", |params| {
+        futures::future::ready(get_balance(params)).boxed()
+    });
+
+    io.add_method("send_transaction", |params| {
+        futures::future::ready(send_transaction(params)).boxed()
     });
 
     let server = ServerBuilder::new(io)
