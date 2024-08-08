@@ -4,7 +4,7 @@ use std::process::exit;
 
 use crate::blockchain::{BALANCES, load_blockchain};
 use crate::blockchain_simulation;
-use crate::wallet::{generate_karix_address, load_wallet, save_wallet, send_coins};
+use crate::wallet::{generate_karix_address, list_wallet_files, load_wallet, save_wallet, send_coins};
 
 pub fn handle_keytool_command() -> Option<String> {
     // Collect command line arguments
@@ -96,7 +96,20 @@ pub fn handle_keytool_command() -> Option<String> {
                     return None; // Return None if send_coins fails
                 }
             },
-
+            "list" => { // String comparison for "list"}
+                match list_wallet_files() {
+                    Ok(wallets) => {
+                        println!("Wallet files:");
+                        for wallet in wallets {
+                            println!("{}", wallet.green());
+                        }
+                    },
+                    Err(e) => {
+                        println!("Failed to list wallet files: {}", e);
+                    }
+                }
+                return None;
+            },
             _ => {
                 println!("{}", "Invalid command".red());
                 println!("Usage: kari keytool <command> [options]");
@@ -105,8 +118,9 @@ pub fn handle_keytool_command() -> Option<String> {
                 println!("  {} - Check balance", "balance".green());
                 println!("  {} - Load existing wallet", "wallet".green());
                 println!("  {} - Send coins", "send".green());
+                println!("  {} - List wallet files", "list".green());
                 exit(1); // Exit with an error code
-               
+        
             },
         }
     } else {
@@ -117,7 +131,7 @@ pub fn handle_keytool_command() -> Option<String> {
         println!("  {} - Check balance", "balance".green());
         println!("  {} - Load existing wallet", "wallet".green());
         println!("  {} - Send coins", "send".green());
+        println!("  {} - List wallet files", "list".green());
         exit(1); // Exit with an error code
-        return None; // Explicitly return None after exit
     }
 }
