@@ -17,6 +17,7 @@ use config::{configure_network, load_config, save_config};
 use consensus_core::{NetworkConfig, NetworkType};
 use p2p_protocol::P2PNetwork;
 use serde_json::json;
+use wallet::{generate_karix_address, save_wallet};
 use crate::blockchain::{BALANCES, load_blockchain, save_blockchain};
 use crate::blockchain_simulation::run_blockchain;
 use crate::keytool::handle_keytool_command;
@@ -67,7 +68,7 @@ async fn main() {
 }
 
 async fn start_node() {
-    let config = load_config().expect("Failed to load configuration");
+    let mut config = load_config().expect("Failed to load configuration");
 
     let _chain_id = config.get("chain_id").and_then(|v| v.as_str()).unwrap_or(CHAIN_ID);
 
@@ -99,7 +100,7 @@ async fn start_node() {
             Ok(config) => config,
             Err(err) => {
                 eprintln!("Error configuring network: {}", err);
-                return;
+                exit(1);
             }
         }
     };
@@ -121,8 +122,26 @@ async fn start_node() {
     println!("{}", "Welcome to the Rust Blockchain CLI".bold().cyan());
     print_coin_icon();
 
-    // Load miner address from config if it exists
-    let mut miner_address = config.get("miner_address").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        // Load miner address from config if it exists, otherwise generate a new one
+        let miner_address = match config.get("miner_address").and_then(|v| v.as_str()) {
+            Some(address) => address.to_string(),
+            None => {
+                println!("No miner address found. Generating a new one...");
+                let (private_key, public_address, seed_phrase) = generate_karix_address(24); // Use 24 words for security
+                println!("New address generated:");
+                println!("Private Key: {}", private_key.green());
+                println!("Public Address: {}", public_address.green());
+                println!("Seed Phrase: {}", seed_phrase.green());
+    
+                save_wallet(&public_address, &private_key, &seed_phrase);
+    
+                // Save the new address to the configuration
+                config.as_object_mut().unwrap().insert("miner_address".to_string(), json!(public_address));
+                save_config(&config).expect("Failed to save configuration");
+    
+                public_address
+            }
+        };
 
     loop {
         if miner_address.is_empty() {
