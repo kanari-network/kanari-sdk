@@ -45,6 +45,9 @@ async fn main() {
             "keytool" => {
                 handle_keytool_command();
             },
+            "move" => {
+                println!("Move command not implemented yet");
+            },
             "version" | "--V" => {
                 println!("CLI Version: {}", VERSION);
             },
