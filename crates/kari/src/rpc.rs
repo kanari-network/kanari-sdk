@@ -1,4 +1,4 @@
-use jsonrpc_core::{IoHandler, Result};
+use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::{ServerBuilder, DomainsValidation, AccessControlAllowOrigin};
 use serde_json::json;
 

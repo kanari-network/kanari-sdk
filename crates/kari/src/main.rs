@@ -35,7 +35,7 @@ async fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     // Check if any arguments were provided
-    if !args.len() > 1 {
+    if args.len() > 1 {
         let command = &args[1];
 
         match command.as_str() {

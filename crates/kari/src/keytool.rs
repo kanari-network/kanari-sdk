@@ -3,7 +3,7 @@ use colored::Colorize;
 use std::process::exit;
 
 use crate::blockchain::{BALANCES, load_blockchain};
-use crate::blockchain_simulation;
+
 use crate::wallet::{generate_karix_address, list_wallet_files, load_wallet, save_wallet, send_coins};
 
 pub fn handle_keytool_command() -> Option<String> {
@@ -64,13 +64,13 @@ pub fn handle_keytool_command() -> Option<String> {
                     return None; // Return None to indicate no address to be used further
                 }
             },
-            "send"  => { // String comparison for "send"
-                println!("Enter sender's public address:");
+            "send" => { // String comparison for "send"
+                println!("Enter sender public address:");
                 let mut sender_address = String::new();
                 io::stdin().read_line(&mut sender_address).unwrap();
                 let sender_address = sender_address.trim().to_string();
 
-                println!("Enter receiver's public address:");
+                println!("Enter receiver public address:");
                 let mut receiver_address = String::new();
                 io::stdin().read_line(&mut receiver_address).unwrap();
                 let receiver_address = receiver_address.trim().to_string();
@@ -78,22 +78,21 @@ pub fn handle_keytool_command() -> Option<String> {
                 println!("Enter amount to send:");
                 let mut amount_str = String::new();
                 io::stdin().read_line(&mut amount_str).unwrap();
-                let amount: u64 = amount_str.trim().parse().expect("Invalid input for amount");
+                let amount: u64 = amount_str.trim().parse().expect("Invalid input");
 
-                if let Some(transaction) = send_coins(sender_address, receiver_address, amount) {
-                    // Send the transaction to the blockchain simulation thread
-                    unsafe { // Access static variable within an unsafe block
-                        if let Err(e) = blockchain_simulation::TRANSACTION_SENDER.as_ref().unwrap().send(transaction) {
-                            println!("Failed to send transaction: {}", e);
-                            return None; // Return None after handling the error
-                        } else {
-                            println!("Transaction added to pending transactions.");
-                            return None; // Return None after successful sending
-                        }
-                    }
+                load_blockchain();
+
+                let transaction = send_coins(sender_address, receiver_address, amount);
+
+                if let Some(transaction) = transaction {
+                    println!("Transaction successful:");
+                    println!("Sender: {}", transaction.sender.green());
+                    println!("Receiver: {}", transaction.receiver.green());
+                    println!("Amount: {}", transaction.amount.to_string().green());
+                    println!("Gas Cost: {}", transaction.gas_cost.to_string().green());
+                    return None; // Return None to indicate no address to be used further
                 } else {
-                    println!("Transaction failed.");
-                    return None; // Return None if send_coins fails
+                    return None; // Return None to indicate no address to be used further
                 }
             },
             "list" => { // String comparison for "list"}
