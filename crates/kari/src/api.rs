@@ -1,8 +1,11 @@
+use std::net::SocketAddr;
+
 use futures::FutureExt;
 use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult, Error as JsonRpcError};
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
 use serde_json::{json, Value as JsonValue, Value}; // Import Value from serde_json
 use crate::blockchain::{BLOCKCHAIN, BALANCES};
+use crate::config::load_config;
 use crate::CHAIN_ID;
 use crate::wallet::send_coins;
 
@@ -74,6 +77,17 @@ fn send_transaction(params: Params) -> JsonRpcResult<JsonValue> {
 }
 
 pub async fn start_api_server() {
+    // Load configuration
+    let config = load_config().expect("Failed to load configuration");
+
+    // Get API port from configuration
+    let api_port = config.get("api_port")
+        .and_then(|v| v.as_u64())
+        .and_then(|port| u16::try_from(port).ok())
+        .expect("Invalid or missing 'api_port' in config");
+
+    let addr: SocketAddr = format!("127.0.0.1:{}", api_port).parse().expect("Invalid address");
+
     let mut io = IoHandler::new();
 
     io.add_method("get_latest_block", |params| {
@@ -98,9 +112,9 @@ pub async fn start_api_server() {
 
     let server = ServerBuilder::new(io)
         .cors(DomainsValidation::AllowOnly(vec![AccessControlAllowOrigin::Any]))
-        .start_http(&"127.0.0.1:3030".parse().unwrap())
+        .start_http(&addr)
         .expect("Unable to start API server");
 
-    println!("API server running on http://127.0.0.1:3030");
+    println!("API server running on http://{}", addr);
     server.wait();
 }
