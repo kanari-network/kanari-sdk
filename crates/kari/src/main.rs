@@ -8,6 +8,8 @@ mod wallet;
 mod gas;
 mod config;
 mod rpc;
+mod movekari;
+
 
 use std::collections::HashMap;
 use std::io::{self, Write};
@@ -16,6 +18,7 @@ use std::process::exit;
 use colored::Colorize;
 use config::{configure_network, load_config, save_config};
 use consensus_core::{NetworkConfig, NetworkType};
+use movekari::handle_move_command;
 use p2p_protocol::P2PNetwork;
 use serde_json::json;
 use wallet::{generate_karix_address, save_wallet};
@@ -43,7 +46,7 @@ async fn main() {
                 start_node().await;
             },
             "move" => {
-                println!("Move command not implemented yet");
+                handle_move_command();
             },
             "keytool" => {
                 handle_keytool_command();
