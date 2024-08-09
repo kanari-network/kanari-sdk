@@ -73,7 +73,7 @@ fn send_transaction(params: Params) -> JsonRpcResult<JsonValue> {
     }
 }
 
-pub async fn start_rpc_server() {
+pub async fn start_api_server() {
     let mut io = IoHandler::new();
 
     io.add_method("get_latest_block", |params| {
@@ -99,8 +99,8 @@ pub async fn start_rpc_server() {
     let server = ServerBuilder::new(io)
         .cors(DomainsValidation::AllowOnly(vec![AccessControlAllowOrigin::Any]))
         .start_http(&"127.0.0.1:3030".parse().unwrap())
-        .expect("Unable to start RPC server");
+        .expect("Unable to start API server");
 
-    println!("RPC server running on http://127.0.0.1:3030");
+    println!("API server running on http://127.0.0.1:3030");
     server.wait();
 }

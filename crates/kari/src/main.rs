@@ -1,4 +1,4 @@
-mod rpc;
+mod api;
 mod block;
 mod transaction;
 mod blockchain;
@@ -21,7 +21,7 @@ use wallet::{generate_karix_address, save_wallet};
 use crate::blockchain::{BALANCES, load_blockchain, save_blockchain};
 use crate::blockchain_simulation::run_blockchain;
 use crate::keytool::handle_keytool_command;
-use crate::rpc::start_rpc_server;
+use crate::api::start_api_server;
 use crate::wallet::print_coin_icon;
 
 static CHAIN_ID: &str = "kari-c1";
@@ -184,8 +184,8 @@ async fn start_node() {
             });
 
             tokio::spawn(async move {
-                println!("Starting RPC server...");
-                start_rpc_server().await;
+                println!("Starting API server...");
+                start_api_server().await;
             });
 
             tokio::spawn(async move {
