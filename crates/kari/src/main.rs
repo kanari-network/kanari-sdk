@@ -42,11 +42,11 @@ async fn main() {
             "start" => {
                 start_node().await;
             },
-            "keytool" => {
-                handle_keytool_command();
-            },
             "move" => {
                 println!("Move command not implemented yet");
+            },
+            "keytool" => {
+                handle_keytool_command();
             },
             "version" | "--V" => {
                 println!("CLI Version: {}", VERSION);
@@ -56,6 +56,7 @@ async fn main() {
                 println!("Usage: kari <command> [options]");
                 println!("Commands:");
                 println!("  {} - Start a local network", "start".green());
+                println!("  {} - MoveVM", "move".green());
                 println!("  {} - kari keystore tool", "keytool".green());
                 println!("  {} - Show version", "version, --V".blue());
                 exit(1);
@@ -66,6 +67,7 @@ async fn main() {
         println!("Usage: kari <command> [options]");
         println!("Commands:");
         println!("  {} - Start a local network", "start".green());
+        println!("  {} - MoveVM", "move".green());
         println!("  {} - kari keystore tool", "keytool".green());
         println!("  {} - Show version", "version, --V".blue());
         exit(1);
