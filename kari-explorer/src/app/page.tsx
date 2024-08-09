@@ -9,6 +9,7 @@ const KanariBlockchainExplorer = () => {
   const [totalBlocks, setTotalBlocks] = useState(0);
   const [totalTokens, setTotalTokens] = useState(0);
   const [searchTx, setSearchTx] = useState('');
+  const [isDarkMode, setIsDarkMode] = useState(false);
 
   const fetchBlocks = async () => {
     try {
@@ -45,6 +46,10 @@ const KanariBlockchainExplorer = () => {
     setSearchTx(event.target.value);
   };
 
+  const toggleTheme = () => {
+    setIsDarkMode(!isDarkMode);
+  };
+
   const filteredBlocks = blocks?.filter((block) => 
     block.transactions.some((tx) =>
       tx.sender.includes(searchTx) ||
@@ -53,11 +58,15 @@ const KanariBlockchainExplorer = () => {
   );
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-4 sm:p-8 md:p-16 lg:p-24 bg-gradient-to-r from-pink-100 to-purple-100">
+    <main className={`flex min-h-screen flex-col items-center justify-between p-4 sm:p-8 md:p-16 lg:p-24 ${isDarkMode ? 'bg-gray-900 text-white' : 'bg-gradient-to-r from-pink-100 to-purple-100'}`}>
       <div className="container mx-auto max-w-6xl">
-        <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-center text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-purple-500 mb-8">
+        <h1 className={`text-3xl sm:text-4xl md:text-5xl font-bold text-center ${isDarkMode ? 'text-white' : 'text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-purple-500'} mb-8`}>
           Kanari Blockchain Explorer
         </h1>
+
+        <button onClick={toggleTheme} className="mb-4 px-4 py-2 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-pink-300">
+         {isDarkMode ? 'Light' : 'Dark'} Mode
+        </button>
 
         {error && <p className="text-red-500 text-center mb-4 p-2 bg-red-100 rounded">{error}</p>}
 
@@ -67,11 +76,11 @@ const KanariBlockchainExplorer = () => {
             placeholder="Search by Transaction Sender or Receiver"
             value={searchTx}
             onChange={handleSearchTxChange}
-            className="w-full px-4 py-2 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-pink-300"
+            className={`w-full px-4 py-2 border rounded-lg shadow-sm focus:outline-none focus:ring-2 ${isDarkMode ? 'bg-gray-800 text-white border-gray-600 focus:ring-gray-400' : 'bg-white text-black border-gray-300 focus:ring-pink-300'}`}
           />
         </div>
 
-        <ul className="bg-white rounded-lg shadow-md p-4 sm:p-6 w-full divide-y divide-gray-200">
+        <ul className={`rounded-lg shadow-md p-4 sm:p-6 w-full divide-y ${isDarkMode ? 'bg-gray-800 divide-gray-700' : 'bg-white divide-gray-200'}`}>
           <li className="py-4 text-center">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
