@@ -70,13 +70,13 @@ exclude = [
 #Members List
 members = [
     "crates/kari",
-    "crates/network",
+    "crates/kari-node", 
+    "crates/kari-move", 
     "consensus/pos",
-    "crates/p2p",
-    "core/crates/kari-node", 
-    "core/crates/kari-move", 
-    "core/crates/wallet/key", 
-    "core/crates/simulation",
+    "crates/core/network",
+    "crates/core/p2p",
+    "crates/core/wallet/key",
+    "crates/core/simulation",
 ]
 
 [profile.bench]
@@ -412,10 +412,10 @@ kari-move = { path = "crates/kari-move" }
 consensus-pos  = { path = "consensus/pos" }
 
 #Core Path List
-network = { path = "core/crates/network" }
-p2p-protocol = { path = "core/crates/p2p" }
-key = { path = "core/crates/wallet/key" }
-simulation = { path = "core/crates/simulation" }
+network = { path = "crates/core/network" }
+p2p-protocol = { path = "crates/core/p2p" }
+key = { path = "crates/core/wallet/key" }
+simulation = { path = "crates/core/simulation" }
 
 # Move dependencies
 move-binary-format = { path = "external-crates/move/crates/move-binary-format" }
