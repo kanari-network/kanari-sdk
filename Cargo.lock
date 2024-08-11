@@ -1923,6 +1923,9 @@ name = "node-kari"
 version = "0.2.1"
 dependencies = [
  "lazy_static",
+ "move-vm-config",
+ "move-vm-runtime",
+ "move-vm-types",
 ]
 
 [[package]]
