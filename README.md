@@ -32,7 +32,7 @@ To work with and use the rust-blockchain (Proof of Stake), follow these steps:
 ./build_ubuntu.sh
 
 # Clone the Kari chain repo (example command, replace with actual repository URL)
-git clone  https://github.com/jamesatomc/kanari-network.git
+git clone  https://github.com/kanari-network/kanari-network.git
 
 cd kanari-network
 
