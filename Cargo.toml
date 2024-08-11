@@ -2,7 +2,6 @@
 resolver = "2"
 
 exclude = [
-#   "examples/tic-tac-toe/cli",
   "external-crates/move/crates/bytecode-interpreter-crypto",
   "external-crates/move/crates/bytecode-verifier-libfuzzer",
   "external-crates/move/crates/bytecode-verifier-tests",
@@ -65,8 +64,8 @@ exclude = [
   "external-crates/move/move-execution/v2/crates/move-bytecode-verifier",
   "external-crates/move/move-execution/v2/crates/move-stdlib-natives",
   "external-crates/move/move-execution/v2/crates/move-vm-runtime",
-#   "sdk/move-bytecode-template",
 ]
+
 #Members List
 members = [
     "crates/kari",
@@ -432,6 +431,7 @@ move-vm-config = { path = "external-crates/move/crates/move-vm-config" }
 move-vm-test-utils = { path = "external-crates/move/crates/move-vm-test-utils/", features = [
   "tiered-gas",
 ] }
+move-vm-runtime = { path = "external-crates/move/crates/move-vm-runtime" }
 move-vm-types = { path = "external-crates/move/crates/move-vm-types" }
 move-vm-profiler = { path = "external-crates/move/crates/move-vm-profiler" }
 move-command-line-common = { path = "external-crates/move/crates/move-command-line-common" }
