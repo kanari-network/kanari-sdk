@@ -6,16 +6,15 @@ RUN USER=root cargo new --bin kanari-network
 WORKDIR /kanari-network
 
 # Copy your project's files into the Docker container
-COPY ./Cargo.toml ./Cargo.toml
-COPY ./Cargo.lock ./Cargo.lock
-COPY ./src ./src
-COPY ./consensus ./consensus
-COPY ./p2p ./p2p
-COPY ./crates ./crates
-COPY ./kari ./kari
-COPY ./kari-explorer ./kari-explorer
-COPY ./move-execution ./move-execution
-COPY ./node ./node
+COPY Cargo.toml Cargo.lock ./
+COPY src src
+COPY consensus consensus
+COPY p2p p2p
+COPY crates crates
+COPY kari kari
+COPY kari-explorer kari-explorer
+COPY move-execution move-execution
+COPY node node
 
 # Build your project
 RUN cargo build --release
