@@ -42,14 +42,8 @@ cargo build --release
 # Run the node
 cargo run --release
 ```
-### Donate
 
-SUI:
+### Kari CLI Install
 ```shell
-0x2fa1945d0df10e88cbc6779d65f12d156e5f33d4cde90dde4992b56ee388870e
-```
-
-EVM:
-```shell
-0x953526292a65ef8107f338B270E60d32d8Ea2b67
+cargo install --locked --git https://github.com/jamesatomc/kanari-network.git --branch main kari
 ```
