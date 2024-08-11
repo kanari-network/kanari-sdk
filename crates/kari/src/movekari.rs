@@ -80,7 +80,6 @@ pub fn handle_move_command() -> Option<String> {
             },
         }
     } else {
-        println!("{}", "Invalid command".red());
         println!("Usage: kari move [OPTIONS] <COMMAND>");
         println!("Commands:");
         println!("  {} - Build the package at `path`. If no path is provided defaults to current directory", "build".green());
