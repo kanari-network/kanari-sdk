@@ -1,10 +1,12 @@
+
 use std::fs;
 use serde_json::json;
 use bip39::Mnemonic;
 use secp256k1::Secp256k1;
 use rand::rngs::OsRng;
 use hex;
-use crate::{blockchain::{get_kari_dir, BALANCES}, transaction::Transaction, gas::TRANSACTION_GAS_COST};
+use simulation::{blockchain::{get_kari_dir, BALANCES}, gas::TRANSACTION_GAS_COST, transaction::Transaction};
+
 
 pub fn send_coins(sender: String, receiver: String, amount: u64) -> Option<Transaction> {
     // Use a safe access pattern with a match statement

@@ -3,11 +3,10 @@ use std::net::SocketAddr;
 use futures::FutureExt;
 use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult, Error as JsonRpcError};
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
-use serde_json::{json, Value as JsonValue, Value}; // Import Value from serde_json
-use crate::blockchain::{BLOCKCHAIN, BALANCES};
+use key::send_coins;
+use serde_json::{json, Value as JsonValue, Value};
+use simulation::{blockchain::{BALANCES, BLOCKCHAIN}, chain_id::CHAIN_ID}; // Import Value from serde_json
 use crate::config::load_config;
-use crate::CHAIN_ID;
-use crate::wallet::send_coins;
 
 
 // RPC server

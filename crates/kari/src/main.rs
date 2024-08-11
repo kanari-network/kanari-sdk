@@ -1,11 +1,6 @@
 mod api;
-mod block;
-mod transaction;
-mod blockchain;
 mod keytool;
 mod blockchain_simulation;
-mod wallet;
-mod gas;
 mod config;
 mod rpc;
 mod movekari;
@@ -17,19 +12,19 @@ use std::sync::{Arc, Mutex};
 use std::process::exit;
 use colored::Colorize;
 use config::{configure_network, load_config, save_config};
-use consensus_core::{NetworkConfig, NetworkType};
+use key::{generate_karix_address, print_coin_icon, save_wallet};
+use network::{NetworkConfig, NetworkType};
 use movekari::handle_move_command;
 use p2p_protocol::P2PNetwork;
 use serde_json::json;
-use wallet::{generate_karix_address, save_wallet};
-use crate::blockchain::{BALANCES, load_blockchain, save_blockchain};
+use simulation::blockchain::{load_blockchain, save_blockchain, BALANCES};
+use simulation::chain_id::CHAIN_ID;
 use crate::blockchain_simulation::run_blockchain;
 use crate::keytool::handle_keytool_command;
 use crate::api::start_api_server;
-use crate::wallet::print_coin_icon;
 use crate::rpc::start_rpc_server;
 
-static CHAIN_ID: &str = "kari-c1";
+
 static VERSION: &str = "0.3.0";
 
 #[tokio::main]

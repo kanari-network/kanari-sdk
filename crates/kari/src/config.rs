@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use serde_json::{json, Value};
 use std::fs::{self, File};
 use dirs;
-use consensus_core::{NetworkConfig, NetworkType};
+use network::{NetworkConfig, NetworkType};
 
 // Function to get the configuration directory
 pub fn get_config_dir() -> io::Result<PathBuf> {

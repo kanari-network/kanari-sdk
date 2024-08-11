@@ -1,11 +1,11 @@
 // blockchain_sim// blockchain_simulation.rs
 use std::sync::{Arc, Mutex};
 use std::thread;
-use crate::block::Block;
-use crate::gas::TRANSACTION_GAS_COST;
-use crate::transaction::Transaction;
-use crate::blockchain::{BALANCES, BLOCKCHAIN, TOTAL_TOKENS, save_blockchain};
 use consensus_pos::Blake3Algorithm;
+use simulation::block::Block;
+use simulation::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN, TOTAL_TOKENS};
+use simulation::gas::TRANSACTION_GAS_COST;
+use simulation::transaction::Transaction;
 use std::sync::mpsc::{self, Sender, Receiver};
 
 pub static mut TRANSACTION_SENDER: Option<Sender<Transaction>> = None;

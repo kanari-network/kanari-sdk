@@ -1,0 +1,12 @@
+[package]
+name = "key"
+edition = "2021"
+version.workspace = true
+
+[dependencies]
+bip39.workspace = true
+secp256k1.workspace = true
+rand.workspace = true
+hex.workspace = true
+serde_json.workspace = true
+simulation.workspace = true

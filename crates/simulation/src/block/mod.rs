@@ -1,8 +1,8 @@
 // block.rs
 use serde::{Deserialize, Serialize};
-use crate::transaction::Transaction;
+use crate::{chain_id::CHAIN_ID, transaction::Transaction};
 use consensus_pos::HashAlgorithm;
-use crate::CHAIN_ID;
+
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Block<T: HashAlgorithm> {
