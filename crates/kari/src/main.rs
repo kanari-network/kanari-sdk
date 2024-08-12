@@ -24,7 +24,7 @@ use crate::api::start_api_server;
 use crate::rpc::start_rpc_server;
 
 
-static VERSION: &str = "0.3.0";
+static VERSION: &str = "0.2.2";
 
 #[tokio::main]
 async fn main() {

@@ -43,8 +43,16 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
 
         loop { 
             if let Ok(transaction) = TRANSACTION_RECEIVER.as_ref().unwrap().try_recv() {
-                PENDING_TRANSACTIONS.push(transaction);
+                // Before adding the transaction to the pending list, verify it
+                if transaction.is_valid() {
+                    PENDING_TRANSACTIONS.push(transaction.clone());
+                    println!("Transaction added to pending list: {:?}", transaction); // Debugging line
+                } else {
+                    println!("Invalid transaction received and discarded."); // Debugging line
+                }
             }
+
+            
 
             let _running = running.lock().unwrap();
 
@@ -67,6 +75,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             let mut transactions = vec![];
 
             transactions.append(&mut (PENDING_TRANSACTIONS.clone()));
+            PENDING_TRANSACTIONS.clear(); 
 
             if transactions.is_empty() {
                 transactions.push(Transaction {

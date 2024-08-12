@@ -447,7 +447,7 @@ dependencies = [
 
 [[package]]
 name = "command"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "colored",
  "key",
@@ -456,7 +456,7 @@ dependencies = [
 
 [[package]]
 name = "consensus-pos"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "bincode",
  "blake3",
@@ -1182,7 +1182,7 @@ dependencies = [
 
 [[package]]
 name = "kari"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "bincode",
  "bip39",
@@ -1209,7 +1209,7 @@ dependencies = [
 
 [[package]]
 name = "kari-move"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "move-binary-format",
  "move-cli",
@@ -1232,7 +1232,7 @@ dependencies = [
 
 [[package]]
 name = "key"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "bip39",
  "hex",
@@ -1922,7 +1922,7 @@ dependencies = [
 
 [[package]]
 name = "network"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -1930,7 +1930,7 @@ dependencies = [
 
 [[package]]
 name = "node-kari"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "lazy_static",
  "move-vm-config",
@@ -2074,7 +2074,7 @@ dependencies = [
 
 [[package]]
 name = "p2p-protocol"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "bincode",
  "serde",
@@ -2717,7 +2717,7 @@ dependencies = [
 
 [[package]]
 name = "simulation"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "bincode",
  "consensus-pos",
