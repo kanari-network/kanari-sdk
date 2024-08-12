@@ -33,6 +33,8 @@ pub fn send_coins(sender: String, receiver: String, amount: u64) -> Option<Trans
                 // Inside the send_coins function:
                 PENDING_TRANSACTIONS.lock().unwrap().push(transaction.clone()); 
 
+                println!("Transaction added to pending queue."); // For debugging
+
                 return Some(transaction);
             } else {
                 println!("Insufficient funds in sender's account.");
