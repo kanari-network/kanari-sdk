@@ -1,5 +1,4 @@
 mod api;
-mod keytool;
 mod blockchain_simulation;
 mod config;
 mod rpc;
@@ -10,6 +9,7 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::process::exit;
 use colored::Colorize;
+use command::keytool_cli::handle_keytool_command;
 use command::move_cli::handle_move_command;
 use config::{configure_network, load_config, save_config};
 use key::{generate_karix_address, print_coin_icon, save_wallet};
@@ -20,7 +20,6 @@ use serde_json::json;
 use simulation::blockchain::{load_blockchain, save_blockchain, BALANCES};
 use simulation::chain_id::CHAIN_ID;
 use crate::blockchain_simulation::run_blockchain;
-use crate::keytool::handle_keytool_command;
 use crate::api::start_api_server;
 use crate::rpc::start_rpc_server;
 

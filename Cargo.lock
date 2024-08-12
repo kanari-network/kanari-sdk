@@ -450,6 +450,8 @@ name = "command"
 version = "0.2.1"
 dependencies = [
  "colored",
+ "key",
+ "simulation",
 ]
 
 [[package]]
