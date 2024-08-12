@@ -92,7 +92,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
                 new_data, 
                 prev_block.hash.clone(), 
                 miner_reward, 
-                transactions, 
+                transactions.clone(), 
                 miner_address.clone(), 
                 hasher
             );
@@ -114,12 +114,17 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             save_blockchain();
 
             println!("New block hash: {}", new_block.hash);
+            print!("tx: ");
+            for transaction in &transactions {
+                println!("{:?}", transaction); // Or use a custom formatting for Transaction
+            }
+
             println!("Miner reward (transaction fees): {} tokens", transaction_fees);
 
             if BLOCKCHAIN.len() % halving_interval == 0 && TOTAL_TOKENS < max_tokens {
                 tokens_per_block /= 2;
             }
-
+            
             println!("blocks: {}, Total tokens: {}", BLOCKCHAIN.len(), TOTAL_TOKENS);
             thread::sleep(std::time::Duration::from_secs(1));
         }
