@@ -1,7 +1,7 @@
 // blockchain_sim// blockchain_simulation.rs
 use std::sync::{Arc, Mutex};
 use std::thread;
-use consensus_pos::{Blake3Algorithm, HashAlgorithm};
+use consensus_pos::Blake3Algorithm;
 use simulation::block::Block;
 use simulation::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN, TOTAL_TOKENS};
 use simulation::gas::TRANSACTION_GAS_COST;
@@ -114,13 +114,26 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             save_blockchain();
 
             println!("New block hash: {}", new_block.hash);
+
+            // Check if there are any user-generated transactions
+            let has_user_transactions = transactions.iter().any(|tx| tx.sender != "system");
+
             print!("tx: ");
-            for transaction in &transactions {
-                println!("  - Sender: {}", transaction.sender);
-                println!("    Receiver: {}", transaction.receiver);
-                println!("    Amount: {}", transaction.amount);
-                println!("    Fee: {:.8} KI", transaction.gas_cost); // Format fee to 8 decimal places
-                println!("    Transaction Hash: {}", Blake3Algorithm.hash(serde_json::to_string(transaction).unwrap().as_bytes())); // Calculate and print a unique hash for each transaction
+            if transactions.is_empty() || !has_user_transactions { 
+                // No user transactions, add a fee-less system transaction for mining reward
+                transactions.push(Transaction {
+                    sender: String::from("system"),
+                    receiver: miner_address.clone(),
+                    amount: 0,
+                    gas_cost: 0.0, // No fee for system transactions
+                });
+            } else {
+                // User transactions exist, apply fees
+                for transaction in &mut transactions {
+                    if transaction.sender != "system" {
+                        transaction.gas_cost = TRANSACTION_GAS_COST; 
+                    }
+                }
             }
 
             println!("Miner reward (transaction fees): {} tokens", transaction_fees);
