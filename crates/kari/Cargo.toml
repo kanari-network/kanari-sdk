@@ -25,3 +25,4 @@ p2p-protocol.workspace = true
 
 key.workspace = true
 simulation.workspace = true 
+command.workspace = true

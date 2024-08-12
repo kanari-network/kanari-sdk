@@ -75,7 +75,8 @@ members = [
     "crates/core/network",
     "crates/core/p2p",
     "crates/core/wallet/key",
-    "crates/core/simulation",
+    "crates/core/simulation", 
+    "crates/command",
 ]
 
 [profile.bench]
@@ -415,6 +416,8 @@ network = { path = "crates/core/network" }
 p2p-protocol = { path = "crates/core/p2p" }
 key = { path = "crates/core/wallet/key" }
 simulation = { path = "crates/core/simulation" }
+
+command = { path = "crates/command" }
 
 # Move dependencies
 move-binary-format = { path = "external-crates/move/crates/move-binary-format" }

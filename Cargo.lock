@@ -446,6 +446,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "command"
+version = "0.2.1"
+dependencies = [
+ "colored",
+]
+
+[[package]]
 name = "consensus-pos"
 version = "0.2.1"
 dependencies = [
@@ -1178,6 +1185,7 @@ dependencies = [
  "bincode",
  "bip39",
  "colored",
+ "command",
  "consensus-pos",
  "digest 0.10.7",
  "dirs",

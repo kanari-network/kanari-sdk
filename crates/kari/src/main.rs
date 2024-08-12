@@ -3,7 +3,6 @@ mod keytool;
 mod blockchain_simulation;
 mod config;
 mod rpc;
-mod movekari;
 
 
 use std::collections::HashMap;
@@ -11,10 +10,11 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::process::exit;
 use colored::Colorize;
+use command::move_cli::handle_move_command;
 use config::{configure_network, load_config, save_config};
 use key::{generate_karix_address, print_coin_icon, save_wallet};
 use network::{NetworkConfig, NetworkType};
-use movekari::handle_move_command;
+
 use p2p_protocol::P2PNetwork;
 use serde_json::json;
 use simulation::blockchain::{load_blockchain, save_blockchain, BALANCES};
