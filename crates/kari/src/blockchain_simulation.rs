@@ -47,6 +47,29 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
                 if transaction.is_valid() {
                     PENDING_TRANSACTIONS.lock().unwrap().push(transaction.clone()); 
                     println!("Transaction added to pending list: {:?}", transaction); // Debugging line
+
+                    // Update sender and receiver balances
+                    let mut balances = BALANCES.as_mut().unwrap().lock().unwrap();
+                    let sender_balance = balances.entry(transaction.sender.clone()).or_insert(0);
+
+                    // Check for underflow when subtracting amount
+                    if let Some(new_balance) = sender_balance.checked_sub(transaction.amount) {
+                        *sender_balance = new_balance;
+                    } else {
+                        println!("Error: Insufficient funds for sender: {}", transaction.sender);
+                        continue; // Skip to the next iteration of the loop
+                    }
+
+                    // Check for underflow when subtracting gas cost
+                    if let Some(new_balance) = sender_balance.checked_sub(transaction.calculate_total_cost() as u64) {
+                        *sender_balance = new_balance;
+                    } else {
+                        println!("Error: Insufficient funds for gas cost: {}", transaction.sender);
+                        continue;
+                    }
+
+                    let receiver_balance = balances.entry(transaction.receiver.clone()).or_insert(0);
+                    *receiver_balance += transaction.amount;
                 } else {
                     println!("Invalid transaction received and discarded."); // Debugging line
                 }
@@ -110,6 +133,8 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
 
             let transaction_fees: u64 = new_block.transactions.iter().map(|tx| tx.calculate_total_cost() as u64).sum();
             BALANCES.as_mut().unwrap().lock().unwrap().entry(miner_address.clone()).and_modify(|balance| *balance += transaction_fees + miner_reward).or_insert(transaction_fees + miner_reward);
+
+            
 
             if TOTAL_TOKENS < max_tokens {
                 TOTAL_TOKENS += miner_reward;

@@ -1,7 +1,7 @@
 use crate::gas::TRANSACTION_GAS_COST;
 use serde::{Serialize, Deserialize};
 
-#[derive(Debug,Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Transaction {
     pub sender: String,
     pub receiver: String,
@@ -10,7 +10,6 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    #[allow(dead_code)]
     pub fn new(sender: String, receiver: String, amount: u64) -> Self {
         Self {
             sender,
