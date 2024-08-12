@@ -2,6 +2,7 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
 use consensus_pos::Blake3Algorithm;
+use key::PENDING_TRANSACTIONS;
 use simulation::block::Block;
 use simulation::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN, TOTAL_TOKENS};
 use simulation::gas::TRANSACTION_GAS_COST;
@@ -17,7 +18,6 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
     let halving_interval = 210_000;
     let block_size = 2_250_000;
 
-    static mut PENDING_TRANSACTIONS: Vec<Transaction> = Vec::new();
 
     unsafe {
         let (sender, receiver) = mpsc::channel();
@@ -45,7 +45,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             if let Ok(transaction) = TRANSACTION_RECEIVER.as_ref().unwrap().try_recv() {
                 // Before adding the transaction to the pending list, verify it
                 if transaction.is_valid() {
-                    PENDING_TRANSACTIONS.push(transaction.clone());
+                    PENDING_TRANSACTIONS.lock().unwrap().push(transaction.clone()); 
                     println!("Transaction added to pending list: {:?}", transaction); // Debugging line
                 } else {
                     println!("Invalid transaction received and discarded."); // Debugging line
@@ -70,12 +70,16 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             let prev_block = BLOCKCHAIN.back().unwrap();
             let new_data = vec![0; block_size];
 
-            PENDING_TRANSACTIONS.clear(); 
+            
 
             let mut transactions = vec![];
 
-            transactions.append(&mut (PENDING_TRANSACTIONS.clone()));
-            PENDING_TRANSACTIONS.clear(); 
+        // Correctly access and clear PENDING_TRANSACTIONS
+        {
+            let mut pending_txs = PENDING_TRANSACTIONS.lock().unwrap();
+            transactions.append(&mut pending_txs);
+            pending_txs.clear();
+        }
 
             if transactions.is_empty() {
                 transactions.push(Transaction {

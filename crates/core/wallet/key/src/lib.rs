@@ -1,5 +1,5 @@
 
-use std::fs;
+use std::{fs, sync::{Arc, LazyLock, Mutex}}; // Import LazyLock
 use serde_json::json;
 use bip39::Mnemonic;
 use secp256k1::Secp256k1;
@@ -7,13 +7,16 @@ use rand::rngs::OsRng;
 use hex;
 use simulation::{blockchain::{get_kari_dir, BALANCES}, gas::TRANSACTION_GAS_COST, transaction::Transaction};
 
+// Declare PENDING_TRANSACTIONS as a global static using LazyLock
+pub static PENDING_TRANSACTIONS: LazyLock<Arc<Mutex<Vec<Transaction>>>> = LazyLock::new(|| {
+    Arc::new(Mutex::new(Vec::new()))
+});
 
 pub fn send_coins(sender: String, receiver: String, amount: u64) -> Option<Transaction> {
-    // Use a safe access pattern with a match statement
     let balances_option = unsafe { BALANCES.as_ref() };
 
     if let Some(balances_mutex) = balances_option {
-        let mut balances = balances_mutex.lock().unwrap(); 
+        let mut balances = balances_mutex.lock().unwrap();
 
         if let Some(sender_balance) = balances.get_mut(&sender) {
             if *sender_balance >= amount {
@@ -24,8 +27,11 @@ pub fn send_coins(sender: String, receiver: String, amount: u64) -> Option<Trans
                     sender,
                     receiver,
                     amount,
-                    gas_cost: TRANSACTION_GAS_COST, 
+                    gas_cost: TRANSACTION_GAS_COST,
                 };
+
+                // Inside the send_coins function:
+                PENDING_TRANSACTIONS.lock().unwrap().push(transaction.clone()); 
 
                 return Some(transaction);
             } else {
@@ -38,7 +44,7 @@ pub fn send_coins(sender: String, receiver: String, amount: u64) -> Option<Trans
         println!("BALANCES is not initialized!");
     }
 
-    None 
+    None
 }
 
 pub fn save_wallet(address: &str, private_key: &str, seed_phrase: &str) {
