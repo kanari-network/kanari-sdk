@@ -9,24 +9,27 @@ echo "================================================"
 sudo apt-get update
 
 sudo apt-get install -y \
-	build-essential \
 	curl \
+ 	git-all \
+  	cmake \
+   	gcc \
+    	libssl-dev \
+     	pkg-config \
+      	libclang-dev \
+       	libpq-dev \
+	build-essential \
 	clang \
-	gcc \
-	libssl-dev \
 	llvm \
 	make \
-	pkg-config \
 	tmux \
 	xz-utils \
 	ufw
 
+# Install Rust nightly
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly
 
-# Install Rust
-
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+# Source the environment
 source $HOME/.cargo/env
 
-# Install snarkOS
-# cargo clean
-cargo install --locked --path .
+# Install Kari CLI
+cargo install --locked kari
