@@ -1,4 +1,3 @@
-// blockchain.rs
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use std::ptr::addr_of;
@@ -17,12 +16,12 @@ pub fn get_kari_dir() -> PathBuf {
     let mut path = dirs::home_dir().expect("Unable to find home directory");
     path.push(".kari");
     fs::create_dir_all(&path).expect("Unable to create .kari directory");
-    PathBuf::new()
+    path
 }
 
 pub fn save_blockchain() {
     let kari_dir = get_kari_dir();
-    let blockchain_file = kari_dir.join("blockchain.bin");
+    let blockchain_file = kari_dir.join("data.log");
     
     unsafe {
         let data = bincode::serialize(addr_of!(BLOCKCHAIN).as_ref().unwrap()).expect("Failed to serialize blockchain");
@@ -33,7 +32,7 @@ pub fn save_blockchain() {
 
 pub fn load_blockchain() {
     let kari_dir = get_kari_dir();
-    let blockchain_file = kari_dir.join("blockchain.bin");
+    let blockchain_file = kari_dir.join("data.log");
     if blockchain_file.exists() {
         unsafe {
             let data = match fs::read(&blockchain_file) {
