@@ -41,6 +41,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             BALANCES.as_mut().unwrap().lock().unwrap().entry(miner_address.clone()).and_modify(|balance| *balance += tokens_per_block).or_insert(tokens_per_block);
         }
 
+        
         loop { 
             if let Ok(transaction) = TRANSACTION_RECEIVER.as_ref().unwrap().try_recv() {
                 // Before adding the transaction to the pending list, verify it
@@ -167,6 +168,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
 
             println!("Miner reward (transaction fees): {} tokens", transaction_fees);
 
+            
             if BLOCKCHAIN.len() % halving_interval == 0 && TOTAL_TOKENS < max_tokens {
                 tokens_per_block /= 2;
             }
