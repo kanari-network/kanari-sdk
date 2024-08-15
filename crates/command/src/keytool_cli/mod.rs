@@ -31,7 +31,7 @@ pub fn handle_keytool_command() -> Option<String> {
 
                 return Some(public_address);
             },
-            "balance" => { // String comparison for "balance"
+            "balance" => { 
                 println!("Enter public address:");
                 let mut public_address = String::new();
                 io::stdin().read_line(&mut public_address).unwrap();
@@ -39,13 +39,21 @@ pub fn handle_keytool_command() -> Option<String> {
 
                 load_blockchain();
 
+                // Check if BALANCES is initialized before accessing it
                 let balance = unsafe {
-                    BALANCES.as_ref().unwrap().lock().unwrap().get(&public_address).cloned().unwrap_or(0)
+                    if let Some(balances) = BALANCES.as_ref() {
+                        balances.lock().unwrap().get(&public_address).cloned().unwrap_or(0)
+                    } else {
+                        // Handle the case where BALANCES is None (blockchain loading failed)
+                        eprintln!("Error: Blockchain is invalid. Cannot retrieve balance.");
+                        return None;
+                    }
                 };
 
                 println!("Balance for {}: {}", public_address.green(), balance.to_string().green());
-                return None; // Return None to indicate no address to be used further
+                return None;
             },
+
             "wallet" => { // String comparison for "wallet"
                 println!("Enter public address to load:");
                 let mut public_address = String::new();
