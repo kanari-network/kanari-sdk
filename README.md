@@ -45,5 +45,5 @@ cargo run --release
 
 ### Kari CLI Install
 ```shell
-cargo install --locked --git https://github.com/jamesatomc/kanari-network.git --branch main kari
+cargo install --locked --git https://github.com/jamesatomc/kanari-network.git --branch main kari --force
 ```
