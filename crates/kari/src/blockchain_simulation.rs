@@ -1,3 +1,4 @@
+// blockchain_sim// blockchain_simulation.rs
 use std::sync::{Arc, Mutex};
 use std::thread;
 use consensus_pos::Blake3Algorithm;
@@ -16,6 +17,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
     let mut tokens_per_block = 25;
     let halving_interval = 210_000;
     let block_size = 2_250_000;
+
 
     unsafe {
         let (sender, receiver) = mpsc::channel();
@@ -39,10 +41,14 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             BALANCES.as_mut().unwrap().lock().unwrap().entry(miner_address.clone()).and_modify(|balance| *balance += tokens_per_block).or_insert(tokens_per_block);
         }
 
+        
         loop { 
             if let Ok(transaction) = TRANSACTION_RECEIVER.as_ref().unwrap().try_recv() {
                 // Before adding the transaction to the pending list, verify it
                 if transaction.is_valid() {
+                    PENDING_TRANSACTIONS.lock().unwrap().push(transaction.clone()); 
+                    println!("Transaction added to pending list: {:?}", transaction); // Debugging line
+
                     // Update sender and receiver balances
                     let mut balances = BALANCES.as_mut().unwrap().lock().unwrap();
                     let sender_balance = balances.entry(transaction.sender.clone()).or_insert(0);
@@ -65,13 +71,12 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
 
                     let receiver_balance = balances.entry(transaction.receiver.clone()).or_insert(0);
                     *receiver_balance += transaction.amount;
-
-                    PENDING_TRANSACTIONS.lock().unwrap().push(transaction.clone()); 
-                    println!("Transaction added to pending list: {:?}", transaction); // Debugging line
                 } else {
                     println!("Invalid transaction received and discarded."); // Debugging line
                 }
             }
+
+            
 
             let _running = running.lock().unwrap();
 
@@ -89,14 +94,16 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             let prev_block = BLOCKCHAIN.back().unwrap();
             let new_data = vec![0; block_size];
 
+            
+
             let mut transactions = vec![];
 
-            // Correctly access and clear PENDING_TRANSACTIONS
-            {
-                let mut pending_txs = PENDING_TRANSACTIONS.lock().unwrap();
-                transactions.append(&mut pending_txs);
-                pending_txs.clear();
-            }
+        // Correctly access and clear PENDING_TRANSACTIONS
+        {
+            let mut pending_txs = PENDING_TRANSACTIONS.lock().unwrap();
+            transactions.append(&mut pending_txs);
+            pending_txs.clear();
+        }
 
             if transactions.is_empty() {
                 transactions.push(Transaction {
@@ -127,6 +134,8 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
 
             let transaction_fees: u64 = new_block.transactions.iter().map(|tx| tx.calculate_total_cost() as u64).sum();
             BALANCES.as_mut().unwrap().lock().unwrap().entry(miner_address.clone()).and_modify(|balance| *balance += transaction_fees + miner_reward).or_insert(transaction_fees + miner_reward);
+
+            
 
             if TOTAL_TOKENS < max_tokens {
                 TOTAL_TOKENS += miner_reward;
@@ -159,6 +168,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
 
             println!("Miner reward (transaction fees): {} tokens", transaction_fees);
 
+            
             if BLOCKCHAIN.len() % halving_interval == 0 && TOTAL_TOKENS < max_tokens {
                 tokens_per_block /= 2;
             }
