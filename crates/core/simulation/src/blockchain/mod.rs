@@ -60,8 +60,8 @@ pub fn load_blockchain() {
                 // Validate transactions before applying them to the balances
                 for tx in &block.transactions {
                     if !tx.is_valid() {
-                        eprintln!("Invalid transaction found during blockchain loading. Skipping.");
-                        continue; // Skip to the next transaction
+                        eprintln!("Error: Invalid transaction found during blockchain loading. Aborting.");
+                        return; // Stop loading the blockchain
                     }
 
                     if let Some(sender_balance) = balances.get_mut(&tx.sender) {
