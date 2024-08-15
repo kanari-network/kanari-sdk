@@ -11,6 +11,7 @@ use crate::block::Block;
 pub static mut BALANCES: Option<Mutex<HashMap<String, u64>>> = None;
 pub static mut TOTAL_TOKENS: u64 = 0;
 pub static mut BLOCKCHAIN: VecDeque<Block<Blake3Algorithm>> = VecDeque::new();
+pub static mut BLOCKCHAIN_VALID: bool = true; // Flag to track blockchain validity
 
 pub fn get_kari_dir() -> PathBuf {
     let mut path = dirs::home_dir().expect("Unable to find home directory");
@@ -60,8 +61,10 @@ pub fn load_blockchain() {
                 // Validate transactions before applying them to the balances
                 for tx in &block.transactions {
                     if !tx.is_valid() {
-                        eprintln!("Error: Invalid transaction found during blockchain loading. Aborting.");
-                        return; // Stop loading the blockchain
+                        eprintln!("Error: Invalid transaction found during blockchain loading. Blockchain marked as invalid.");
+                        BLOCKCHAIN_VALID = false; // Mark blockchain as invalid
+                        // You might want to log more details about the invalid transaction here
+                        return; // Stop processing the blockchain
                     }
 
                     if let Some(sender_balance) = balances.get_mut(&tx.sender) {
@@ -70,9 +73,13 @@ pub fn load_blockchain() {
                             *balances.entry(tx.receiver.clone()).or_insert(0) += tx.amount;
                         } else {
                             eprintln!("Transaction failed: Insufficient funds for sender {}", tx.sender);
+                            BLOCKCHAIN_VALID = false; // Mark blockchain as invalid
+                            return; // Stop processing the blockchain
                         }
                     } else {
                         eprintln!("Transaction failed: Sender {} not found", tx.sender);
+                        BLOCKCHAIN_VALID = false; // Mark blockchain as invalid
+                        return; // Stop processing the blockchain
                     }
                 }                
             }
