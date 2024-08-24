@@ -18,7 +18,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
     let halving_interval = 210_000;
     let block_size = 2_250_000;
 
-    // Initialize the blockchain with the genesis block
+
     unsafe {
         let (sender, receiver) = mpsc::channel();
         TRANSACTION_SENDER = Some(sender);
@@ -41,7 +41,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             BALANCES.as_mut().unwrap().lock().unwrap().entry(miner_address.clone()).and_modify(|balance| *balance += tokens_per_block).or_insert(tokens_per_block);
         }
 
-        // Start the blockchain simulation loop
+        
         loop { 
             if let Ok(transaction) = TRANSACTION_RECEIVER.as_ref().unwrap().try_recv() {
                 // Before adding the transaction to the pending list, verify it
