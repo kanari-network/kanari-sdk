@@ -20,7 +20,6 @@ pub fn load_config() -> io::Result<Value> {
     if !config_file_path.exists() {
         return Ok(json!({})); // Return an empty JSON object if the file doesn't exist
     }
-    // Read the configuration file and parse it as JSON
     let config_str = fs::read_to_string(config_file_path)?;
     Ok(serde_json::from_str(&config_str)?)
 }
