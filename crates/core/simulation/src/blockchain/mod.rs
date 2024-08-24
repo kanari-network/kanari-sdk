@@ -1,3 +1,4 @@
+// blockchain.rs
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use std::ptr::addr_of;
@@ -21,8 +22,7 @@ pub fn get_kari_dir() -> PathBuf {
 
 pub fn save_blockchain() {
     let kari_dir = get_kari_dir();
-    let blockchain_file = kari_dir.join("data.log");
-    
+    let blockchain_file = kari_dir.join("blockchain.bin");
     unsafe {
         let data = bincode::serialize(addr_of!(BLOCKCHAIN).as_ref().unwrap()).expect("Failed to serialize blockchain");
         fs::write(&blockchain_file, data).expect("Unable to write blockchain to file");
@@ -32,38 +32,18 @@ pub fn save_blockchain() {
 
 pub fn load_blockchain() {
     let kari_dir = get_kari_dir();
-    let blockchain_file = kari_dir.join("data.log");
+    let blockchain_file = kari_dir.join("blockchain.bin");
     if blockchain_file.exists() {
         unsafe {
-            let data = match fs::read(&blockchain_file) {
-                Ok(data) => data,
-                Err(e) => {
-                    eprintln!("Unable to read blockchain file: {:?}", e);
-                    return;
-                }
-            };
-
-            BLOCKCHAIN = match bincode::deserialize(&data) {
-                Ok(blockchain) => blockchain,
-                Err(e) => {
-                    eprintln!("Failed to deserialize blockchain: {:?}", e);
-                    return;
-                }
-            };
+            let data = fs::read(&blockchain_file).expect("Unable to read blockchain file");
+            BLOCKCHAIN = bincode::deserialize(&data).expect("Failed to deserialize blockchain");
 
             let mut balances = HashMap::new();
             let mut total_tokens = 0;
             for block in BLOCKCHAIN.iter() {
                 total_tokens += block.tokens;
                 *balances.entry(block.miner_address.clone()).or_insert(0) += block.tokens;
-
-                // Validate transactions before applying them to the balances
                 for tx in &block.transactions {
-                    if !tx.is_valid() {
-                        eprintln!("Invalid transaction found during blockchain loading. Skipping.");
-                        continue; // Skip to the next transaction
-                    }
-
                     if let Some(sender_balance) = balances.get_mut(&tx.sender) {
                         if *sender_balance >= tx.amount {
                             *sender_balance -= tx.amount;
@@ -79,7 +59,6 @@ pub fn load_blockchain() {
             BALANCES = Some(Mutex::new(balances));
             TOTAL_TOKENS = total_tokens;
         }
-    } else {
-        eprintln!("Blockchain file does not exist.");
+        println!("Blockchain loaded from {:?}", blockchain_file);
     }
 }
