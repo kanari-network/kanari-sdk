@@ -1,4 +1,3 @@
-mod api;
 mod blockchain_simulation;
 mod config;
 mod rpc;
@@ -20,7 +19,6 @@ use serde_json::json;
 use simulation::blockchain::{load_blockchain, save_blockchain, BALANCES};
 use simulation::chain_id::CHAIN_ID;
 use crate::blockchain_simulation::run_blockchain;
-use crate::api::start_api_server;
 use crate::rpc::start_rpc_server;
 
 
@@ -126,26 +124,26 @@ async fn start_node() {
     println!("{}", "Welcome to the Rust Blockchain CLI".bold().cyan());
     print_coin_icon();
 
-    // Load miner address from config if it exists, otherwise generate a new one
-    let miner_address = match config.get("miner_address").and_then(|v| v.as_str()) {
-        Some(address) => address.to_string(),
-        None => {
-            println!("No miner address found. Generating a new one...");
-            let (private_key, public_address, seed_phrase) = generate_karix_address(24); // Use 24 words for security
-            println!("New address generated:");
-            println!("Private Key: {}", private_key.green());
-            println!("Public Address: {}", public_address.green());
-            println!("Seed Phrase: {}", seed_phrase.green());
-
-            save_wallet(&public_address, &private_key, &seed_phrase);
-
-            // Save the new address to the configuration
-            config.as_object_mut().unwrap().insert("miner_address".to_string(), json!(public_address));
-            save_config(&config).expect("Failed to save configuration");
-
-            public_address
-        }
-    };
+        // Load miner address from config if it exists, otherwise generate a new one
+        let miner_address = match config.get("miner_address").and_then(|v| v.as_str()) {
+            Some(address) => address.to_string(),
+            None => {
+                println!("No miner address found. Generating a new one...");
+                let (private_key, public_address, seed_phrase) = generate_karix_address(24); // Use 24 words for security
+                println!("New address generated:");
+                println!("Private Key: {}", private_key.green());
+                println!("Public Address: {}", public_address.green());
+                println!("Seed Phrase: {}", seed_phrase.green());
+    
+                save_wallet(&public_address, &private_key, &seed_phrase);
+    
+                // Save the new address to the configuration
+                config.as_object_mut().unwrap().insert("miner_address".to_string(), json!(public_address));
+                save_config(&config).expect("Failed to save configuration");
+    
+                public_address
+            }
+        };
 
     loop {
         if miner_address.is_empty() {
@@ -168,20 +166,13 @@ async fn start_node() {
             });
 
             tokio::spawn(async move {
-                println!("Starting API server...");
-                start_api_server().await;
+                println!("Starting RPC server...");
+                start_rpc_server().await;
             });
 
             tokio::spawn(async move {
                 println!("Running blockchain simulation...");
                 run_blockchain(running_clone, miner_address_clone);
-            });
-
-            // Start RPC server
-            let rpc_port = network_config.port;
-            tokio::spawn(async move {
-                println!("Starting RPC server...");
-                start_rpc_server(rpc_port);
             });
         }
 
