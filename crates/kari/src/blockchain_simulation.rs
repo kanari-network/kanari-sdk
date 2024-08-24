@@ -2,7 +2,6 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
 use consensus_pos::Blake3Algorithm;
-use key::PENDING_TRANSACTIONS;
 use simulation::block::Block;
 use simulation::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN, TOTAL_TOKENS};
 use simulation::gas::TRANSACTION_GAS_COST;
