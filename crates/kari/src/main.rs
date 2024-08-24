@@ -11,7 +11,7 @@ use colored::Colorize;
 use command::keytool_cli::handle_keytool_command;
 use command::move_cli::handle_move_command;
 use config::{configure_network, load_config, save_config};
-use key::{generate_karix_address, print_coin_icon, save_wallet};
+use key::{generate_karix_address, save_wallet};
 use network::{NetworkConfig, NetworkType};
 
 use p2p_protocol::P2PNetwork;
@@ -121,8 +121,7 @@ async fn start_node() {
         BALANCES = Some(Mutex::new(HashMap::new()));
     }
 
-    println!("{}", "Welcome to the Rust Blockchain CLI".bold().cyan());
-    print_coin_icon();
+
 
         // Load miner address from config if it exists, otherwise generate a new one
         let miner_address = match config.get("miner_address").and_then(|v| v.as_str()) {

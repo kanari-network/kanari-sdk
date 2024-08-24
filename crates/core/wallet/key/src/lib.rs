@@ -117,7 +117,3 @@ pub fn list_wallet_files() -> Result<Vec<String>, std::io::Error> {
     Ok(wallets)
 }
 
-pub fn print_coin_icon() {
-    // Placeholder for the coin icon in CLI
-    println!("Coin Icon: {}", "🪙"); // Using a Unicode emoji as a placeholder
-}
