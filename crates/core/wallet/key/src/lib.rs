@@ -9,17 +9,24 @@ use simulation::{blockchain::{get_kari_dir, BALANCES}, gas::TRANSACTION_GAS_COST
 
 
 pub fn send_coins(sender: String, receiver: String, amount: u64) -> Option<Transaction> {
-    // Use a safe access pattern with a match statement
+    // Access BALANCES safely
     let balances_option = unsafe { BALANCES.as_ref() };
 
+    // Check if BALANCES is initialized
     if let Some(balances_mutex) = balances_option {
+        // Lock the mutex to access balances
         let mut balances = balances_mutex.lock().unwrap(); 
 
+        // Check if sender's balance exists
         if let Some(sender_balance) = balances.get_mut(&sender) {
+            // Check if sender has enough balance
             if *sender_balance >= amount {
+                // Deduct amount from sender
                 *sender_balance -= amount;
+                // Add amount to receiver
                 *balances.entry(receiver.clone()).or_insert(0) += amount;
 
+                // Create and return the transaction
                 let transaction = Transaction {
                     sender,
                     receiver,
@@ -29,15 +36,19 @@ pub fn send_coins(sender: String, receiver: String, amount: u64) -> Option<Trans
 
                 return Some(transaction);
             } else {
+                // Insufficient funds
                 println!("Insufficient funds in sender's account.");
             }
         } else {
+            // Sender's address not found
             println!("Sender's address not found in balances.");
         }
     } else {
+        // BALANCES is not initialized
         println!("BALANCES is not initialized!");
     }
 
+    // Return None if any check fails
     None 
 }
 
