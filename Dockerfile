@@ -1,3 +1,5 @@
+t
+
 # Use the official Rust image as the base
 FROM rust:1.82 as builder
 
