@@ -128,3 +128,18 @@ pub fn list_wallet_files() -> Result<Vec<String>, std::io::Error> {
     Ok(wallets)
 }
 
+pub fn create_wallet_from_private_key(private_key: &str) -> Result<(String, String), &'static str> {
+    let secp = Secp256k1::new();
+    let secret_key = secp256k1::SecretKey::from_slice(&hex::decode(private_key).map_err(|_| "Invalid private key")?)
+        .map_err(|_| "Invalid private key")?;
+    let public_key = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
+
+    // Serialize and encode the public key
+    let mut hex_encoded = hex::encode(&public_key.serialize_uncompressed()[1..]);
+    hex_encoded.truncate(64); // Adjust as needed
+
+    let karix_public_address = format!("0x{}", hex_encoded);
+
+    Ok((karix_public_address, private_key.to_string()))
+}
+
