@@ -1,5 +1,6 @@
-Kari chain L1 (POS)
-To work with and use the rust-blockchain (Proof of Stake), follow these steps:
+Kanari SDK
+
+<img src="https://raw.githubusercontent.com/kanari-network/about/main/kari1.png">
 
 ### 1. Setup Environment
 - Ensure you have Ubuntu or a similar Linux distribution.
