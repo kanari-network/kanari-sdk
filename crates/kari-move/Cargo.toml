@@ -4,31 +4,12 @@ edition = "2021"
 version.workspace = true
 
 [dependencies]
-# Move dependencies
-move-binary-format = { path = "external-crates/move/crates/move-binary-format" }
-move-bytecode-utils = { path = "external-crates/move/crates/move-bytecode-utils" }
-move-bytecode-source-map = { path = "external-crates/move/crates/move-bytecode-source-map" }
-move-bytecode-verifier-meter = { path = "external-crates/move/crates/move-bytecode-verifier-meter" }
-move-cli = { path = "external-crates/move/crates/move-cli" }
-move-compiler = { path = "external-crates/move/crates/move-compiler" }
-move-core-types = { path = "external-crates/move/crates/move-core-types" }
-move-disassembler = { path = "external-crates/move/crates/move-disassembler" }
-move-package = { path = "external-crates/move/crates/move-package" }
-move-unit-test = { path = "external-crates/move/crates/move-unit-test" }
-move-vm-config = { path = "external-crates/move/crates/move-vm-config" }
-move-vm-test-utils = { path = "external-crates/move/crates/move-vm-test-utils/", features = [
-  "tiered-gas",
-] }
-move-vm-runtime = { path = "external-crates/move/crates/move-vm-runtime" }
-move-vm-types = { path = "external-crates/move/crates/move-vm-types" }
-move-vm-profiler = { path = "external-crates/move/crates/move-vm-profiler" }
-move-command-line-common = { path = "external-crates/move/crates/move-command-line-common" }
-move-transactional-test-runner = { path = "external-crates/move/crates/move-transactional-test-runner" }
-move-ir-types = { path = "external-crates/move/crates/move-ir-types" }
-move-prover = { path = "external-crates/move/crates/move-prover" }
-move-stackless-bytecode = { path = "external-crates/move/crates/move-stackless-bytecode" }
-move-symbol-pool = { path = "external-crates/move/crates/move-symbol-pool" }
-move-abstract-interpreter = { path = "external-crates/move/crates/move-abstract-interpreter" }
-move-abstract-stack = { path = "external-crates/move/crates/move-abstract-stack" }
-move-analyzer = { path = "external-crates/move/crates/move-analyzer" }
+move-binary-format.workspace = true
+move-cli.workspace = true
+move-compiler.workspace = true
+move-disassembler.workspace = true
+move-ir-types.workspace = true
+move-package.workspace = true
+move-prover.workspace = true
+move-unit-test.workspace = true
 
