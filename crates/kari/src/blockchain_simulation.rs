@@ -1,10 +1,10 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
 use consensus_pos::Blake3Algorithm;
-use simulation::block::Block;
-use simulation::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN, TOTAL_TOKENS};
-use simulation::gas::TRANSACTION_GAS_COST;
-use simulation::transaction::Transaction;
+use k2::block::Block;
+use k2::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN, TOTAL_TOKENS};
+use k2::gas::TRANSACTION_GAS_COST;
+use k2::transaction::Transaction;
 use std::sync::mpsc::{self, Sender, Receiver}; // Import Sender and Receiver
 
 // Define the Sender and Receiver separately

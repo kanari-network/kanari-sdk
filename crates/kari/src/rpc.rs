@@ -2,7 +2,7 @@ use futures::FutureExt;
 use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult};
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
 use serde_json::Value as JsonValue;
-use simulation::blockchain::BLOCKCHAIN;
+use k2::blockchain::BLOCKCHAIN;
 use crate::CHAIN_ID;
 
 // RPC server

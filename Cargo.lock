@@ -450,8 +450,8 @@ name = "command"
 version = "0.2.2"
 dependencies = [
  "colored",
+ "k2",
  "key",
- "simulation",
 ]
 
 [[package]]
@@ -1181,6 +1181,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "k1"
+version = "0.2.2"
+
+[[package]]
+name = "k2"
+version = "0.2.2"
+dependencies = [
+ "bincode",
+ "consensus-pos",
+ "dirs",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "kari"
 version = "0.2.2"
 dependencies = [
@@ -1195,6 +1210,7 @@ dependencies = [
  "hex",
  "jsonrpc-core",
  "jsonrpc-http-server",
+ "k2",
  "key",
  "network",
  "p2p-protocol",
@@ -1203,7 +1219,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.8",
- "simulation",
  "tokio",
 ]
 
@@ -1236,10 +1251,10 @@ version = "0.2.2"
 dependencies = [
  "bip39",
  "hex",
+ "k2",
  "rand 0.8.5",
  "secp256k1",
  "serde_json",
- "simulation",
 ]
 
 [[package]]
@@ -2723,17 +2738,6 @@ dependencies = [
  "chrono",
  "log",
  "termcolor",
-]
-
-[[package]]
-name = "simulation"
-version = "0.2.2"
-dependencies = [
- "bincode",
- "consensus-pos",
- "dirs",
- "serde",
- "serde_json",
 ]
 
 [[package]]

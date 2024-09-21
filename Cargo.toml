@@ -75,9 +75,10 @@ members = [
     "crates/core/network",
     "crates/core/p2p",
     "crates/core/wallet/key",
-    "crates/core/simulation", 
+    "crates/core/k1",
+    "crates/core/k2", 
     "crates/command", 
-    "consensus/pow",
+    "consensus/pow", 
 ]
 
 [profile.bench]
@@ -416,7 +417,8 @@ consensus-pos  = { path = "consensus/pos" }
 network = { path = "crates/core/network" }
 p2p-protocol = { path = "crates/core/p2p" }
 key = { path = "crates/core/wallet/key" }
-simulation = { path = "crates/core/simulation" }
+k1 = { path = "crates/core/k1" }
+k2 = { path = "crates/core/k2" }
 
 command = { path = "crates/command" }
 

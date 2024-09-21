@@ -16,8 +16,8 @@ use network::{NetworkConfig, NetworkType};
 
 use p2p_protocol::P2PNetwork;
 use serde_json::json;
-use simulation::blockchain::{load_blockchain, save_blockchain, BALANCES};
-use simulation::chain_id::CHAIN_ID;
+use k2::blockchain::{load_blockchain, save_blockchain, BALANCES};
+use k2::chain_id::CHAIN_ID;
 use crate::blockchain_simulation::run_blockchain;
 use crate::rpc::start_rpc_server;
 

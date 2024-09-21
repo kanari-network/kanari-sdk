@@ -5,7 +5,7 @@ use bip39::Mnemonic;
 use secp256k1::Secp256k1;
 use rand::rngs::OsRng;
 use hex;
-use simulation::{blockchain::{get_kari_dir, BALANCES}, gas::TRANSACTION_GAS_COST, transaction::Transaction};
+use k2::{blockchain::{get_kari_dir, BALANCES}, gas::TRANSACTION_GAS_COST, transaction::Transaction};
 
 
 pub fn send_coins(sender: String, receiver: String, amount: u64) -> Option<Transaction> {

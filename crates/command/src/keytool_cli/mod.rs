@@ -1,7 +1,7 @@
 use std::io;
 use colored::Colorize;
 use key::{generate_karix_address, list_wallet_files, load_wallet, save_wallet, send_coins};
-use simulation::blockchain::{load_blockchain, BALANCES};
+use k2::blockchain::{load_blockchain, BALANCES};
 use std::process::exit;
 
 

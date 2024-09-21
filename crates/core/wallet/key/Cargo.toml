@@ -11,4 +11,4 @@ hex.workspace = true
 serde_json.workspace = true
 
 # This is a workspace crate, so we need to include the following dependencies
-simulation.workspace = true
+k2.workspace = true

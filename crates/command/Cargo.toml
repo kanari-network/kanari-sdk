@@ -6,4 +6,4 @@ version.workspace = true
 [dependencies]
 colored.workspace =  true
 key.workspace = true
-simulation.workspace = true
+k2.workspace = true

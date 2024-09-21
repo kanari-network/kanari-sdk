@@ -24,5 +24,5 @@ consensus-pos.workspace = true
 p2p-protocol.workspace = true
 
 key.workspace = true
-simulation.workspace = true 
+k2.workspace = true 
 command.workspace = true
