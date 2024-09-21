@@ -1,4 +1,4 @@
-mod postest;
+mod test;
 
 use serde::{Deserialize, Serialize};
 use blake3::Hasher;
