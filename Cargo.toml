@@ -412,6 +412,7 @@ kari-move = { path = "crates/kari-move" }
 
 #Consensus Path List
 consensus-pos  = { path = "consensus/pos" }
+consensus-pow  = { path = "consensus/pow" }
 
 #Core Path List
 network = { path = "crates/core/network" }
