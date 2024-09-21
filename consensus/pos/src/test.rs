@@ -1,8 +1,6 @@
-use crate::{Blake3Algorithm, PoSBlock, proof_of_stake};
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::{Blake3Algorithm, PoSBlock, proof_of_stake};
 
     #[test]
     fn test_pos_block_creation() {
