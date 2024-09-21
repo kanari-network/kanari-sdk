@@ -1,1 +1,1 @@
-pub static CHAIN_ID: &str = "kari-c1";
+pub static CHAIN_ID: &str = "kari-k2";
