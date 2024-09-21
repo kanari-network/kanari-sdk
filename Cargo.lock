@@ -1193,6 +1193,13 @@ dependencies = [
 [[package]]
 name = "k1"
 version = "0.2.2"
+dependencies = [
+ "bincode",
+ "consensus-pow",
+ "dirs",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "k2"

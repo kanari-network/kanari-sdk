@@ -1,0 +1,1 @@
+pub static CHAIN_ID: &str = "kari-k1";
