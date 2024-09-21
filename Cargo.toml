@@ -76,7 +76,8 @@ members = [
     "crates/core/p2p",
     "crates/core/wallet/key",
     "crates/core/simulation", 
-    "crates/command",
+    "crates/command", 
+    "consensus/pow",
 ]
 
 [profile.bench]

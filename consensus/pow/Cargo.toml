@@ -1,0 +1,10 @@
+[package]
+name = "pow"
+edition = "2021"
+version.workspace = true
+
+[dependencies]
+blake3 = "1.5.3"
+hex = "0.4.3"
+serde = { version = "1.0.204", features = ["derive"] }
+bincode = "1.3"
