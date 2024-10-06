@@ -4,6 +4,8 @@ edition = "2021"
 version.workspace = true
 
 [dependencies]
+tempfile.workspace = true
+
 # Move dependencies
 move-binary-format.workspace = true
 move-bytecode-utils.workspace = true
