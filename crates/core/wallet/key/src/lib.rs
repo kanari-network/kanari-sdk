@@ -15,41 +15,43 @@ pub fn send_coins(sender: String, receiver: String, amount: u64) -> Option<Trans
     // Check if BALANCES is initialized
     if let Some(balances_mutex) = balances_option {
         // Lock the mutex to access balances
-        let mut balances = balances_mutex.lock().unwrap(); 
+        match balances_mutex.lock() {
+            Ok(mut balances) => {
+                // Check if sender's balance exists
+                if let Some(sender_balance) = balances.get_mut(&sender) {
+                    // Check if sender has enough balance
+                    if *sender_balance >= amount {
+                        // Deduct amount from sender
+                        *sender_balance -= amount;
+                        // Add amount to receiver
+                        *balances.entry(receiver.clone()).or_insert(0) += amount;
 
-        // Check if sender's balance exists
-        if let Some(sender_balance) = balances.get_mut(&sender) {
-            // Check if sender has enough balance
-            if *sender_balance >= amount {
-                // Deduct amount from sender
-                *sender_balance -= amount;
-                // Add amount to receiver
-                *balances.entry(receiver.clone()).or_insert(0) += amount;
+                        // Create and return the transaction
+                        let transaction = Transaction {
+                            sender,
+                            receiver,
+                            amount,
+                            gas_cost: TRANSACTION_GAS_COST,
+                        };
 
-                // Create and return the transaction
-                let transaction = Transaction {
-                    sender,
-                    receiver,
-                    amount,
-                    gas_cost: TRANSACTION_GAS_COST, 
-                };
-
-                return Some(transaction);
-            } else {
-                // Insufficient funds
-                println!("Insufficient funds in sender's account.");
+                        return Some(transaction);
+                    } else {
+                        eprintln!("Insufficient funds in sender's account.");
+                    }
+                } else {
+                    eprintln!("Sender's address not found in balances.");
+                }
+            },
+            Err(_) => {
+                eprintln!("Failed to lock the balances mutex.");
             }
-        } else {
-            // Sender's address not found
-            println!("Sender's address not found in balances.");
         }
     } else {
-        // BALANCES is not initialized
-        println!("BALANCES is not initialized!");
+        eprintln!("BALANCES is not initialized!");
     }
 
     // Return None if any check fails
-    None 
+    None
 }
 
 pub fn save_wallet(address: &str, private_key: &str, seed_phrase: &str) {
