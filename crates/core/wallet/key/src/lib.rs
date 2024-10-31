@@ -129,4 +129,3 @@ pub fn list_wallet_files() -> Result<Vec<String>, std::io::Error> {
     }
     Ok(wallets)
 }
-
