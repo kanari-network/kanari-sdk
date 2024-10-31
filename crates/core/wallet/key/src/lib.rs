@@ -1,4 +1,3 @@
-
 use std::fs;
 use serde_json::json;
 use bip39::Mnemonic;
@@ -6,7 +5,6 @@ use secp256k1::Secp256k1;
 use rand::rngs::OsRng;
 use hex;
 use k2::{blockchain::{get_kari_dir, BALANCES}, gas::TRANSACTION_GAS_COST, transaction::Transaction};
-
 
 pub fn send_coins(sender: String, receiver: String, amount: u64) -> Option<Transaction> {
     // Access BALANCES safely
@@ -17,6 +15,9 @@ pub fn send_coins(sender: String, receiver: String, amount: u64) -> Option<Trans
         // Lock the mutex to access balances
         match balances_mutex.lock() {
             Ok(mut balances) => {
+                // Log the current balances for debugging
+                println!("Current balances: {:?}", balances);
+
                 // Check if sender's balance exists
                 if let Some(sender_balance) = balances.get_mut(&sender) {
                     // Check if sender has enough balance
