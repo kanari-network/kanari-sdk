@@ -41,10 +41,6 @@ pub fn handle_move_command() -> Option<String> {
                 std::io::stdin().read_line(&mut project_name).unwrap();
                 let project_name = project_name.trim();
 
-                match create_move_project(project_name) {
-                    Ok(_) => println!("Move project '{}' created successfully.", project_name),
-                    Err(e) => eprintln!("Failed to create Move project: {}", e),
-                }
                 return None;
             },
             "prove" => { // String comparison for "prove"
