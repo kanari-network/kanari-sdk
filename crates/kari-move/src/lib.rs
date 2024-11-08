@@ -23,7 +23,7 @@ pub fn compile_move_script(script_path: &str) -> Result<(), Box<dyn std::error::
     }
     Ok(())
 }
-
+// move_vm_runtime::move_vm::MoveVM
 pub fn execute_move_script(
     script_path: &str,
     sender: AccountAddress,
