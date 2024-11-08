@@ -63,23 +63,23 @@ pub fn create_move_project(name: &str) -> std::io::Result<()> {
     let move_toml_path = project_dir.join("Move.toml");
     let mut move_toml_file = fs::File::create(move_toml_path)?;
     writeln!(move_toml_file, r#"[package]
-name = "kanari_network"
-version = "0.0.1"
-license = "Academic Free License v3.0"
-authors = ["James Atomc (co-founder@kanari.network)"]
-published-at = "0xedb4864f8021cb6191028e0389312f058104bca6b68667789177db5f98ebae19"
-edition = "2024.beta"
+        name = "kanari_network"
+        version = "0.0.1"
+        license = "Academic Free License v3.0"
+        authors = ["James Atomc (co-founder@kanari.network)"]
+        published-at = "0xedb4864f8021cb6191028e0389312f058104bca6b68667789177db5f98ebae19"
+        edition = "2024.beta"
 
-[dependencies]
-Sui = {{ git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }}
-MoveStdlib = {{ git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "framework/testnet" }}
-DeepBook = {{ git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/deepbook", rev = "framework/testnet" }}
+        [dependencies]
+        Sui = {{ git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }}
+        MoveStdlib = {{ git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "framework/testnet" }}
+        DeepBook = {{ git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/deepbook", rev = "framework/testnet" }}
 
-[addresses]
-kanari_network = "0x0"
-std = "0x1"
-sui = "0x2"
-deepbook = "0xdee9"
+        [addresses]
+        kanari_network = "0x0"
+        std = "0x1"
+        sui = "0x2"
+        deepbook = "0xdee9"
 "#)?;
 
     println!("Move project '{}' created successfully.", name);
