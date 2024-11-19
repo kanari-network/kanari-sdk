@@ -9,7 +9,7 @@ use lazy_static::lazy_static;
 
 
 // Import Mutex and HashMap from std::sync
-use k2::{blockchain::{get_kari_dir, BALANCES}, gas::TRANSACTION_GAS_COST, transaction::Transaction};
+use k2::{blockchain::{get_kari_dir, BALANCES}, gas::{TRANSACTION_GAS_COST, TRANSACTION_SENDER}, transaction::Transaction};
 
 pub fn check_wallet_exists() -> bool {
     match list_wallet_files() {
@@ -107,13 +107,12 @@ pub fn send_coins(from_address: &str, to_address: &str, amount: u64) -> Result<S
         .ok_or("Invalid wallet format")?;
 
     // Properly unwrap BALANCES Option<Mutex>
-    let balances = unsafe { BALANCES.as_ref().expect("BALANCES not initialized").lock().unwrap() };
+    let mut balances = unsafe { BALANCES.as_ref().expect("BALANCES not initialized").lock().unwrap() };
     let sender_balance = balances.get(from_address).unwrap_or(&0);
     
     if *sender_balance < amount + TRANSACTION_GAS_COST {
         return Err("Insufficient balance".to_string());
     }
-    drop(balances); // Release lock before creating transaction
 
     // Create and sign transaction (now with 3 params)
     let secp = Secp256k1::new();
@@ -129,13 +128,19 @@ pub fn send_coins(from_address: &str, to_address: &str, amount: u64) -> Result<S
     let signature = transaction.sign(&secp, &private_key_bytes)?;
 
     // Update balances with proper mutex handling
-    let mut balances = unsafe {
-        BALANCES.as_ref().expect("BALANCES not initialized").lock().unwrap()
-    };
     *balances.entry(from_address.to_string())
         .or_insert(0) -= amount + TRANSACTION_GAS_COST;
     *balances.entry(to_address.to_string())
         .or_insert(0) += amount;
+
+    // Send the transaction to the blockchain simulation
+    unsafe {
+        if let Some(sender) = TRANSACTION_SENDER.as_ref() {
+            sender.send(transaction).expect("Failed to send transaction");
+        } else {
+            return Err("Transaction sender not initialized".to_string());
+        }
+    }
 
     Ok(signature)
 }

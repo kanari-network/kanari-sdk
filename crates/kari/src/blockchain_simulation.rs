@@ -66,13 +66,10 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             let prev_block = BLOCKCHAIN.back().unwrap();
             let new_data = vec![0; block_size];
 
-            // Move the clearing of pending transactions inside the loop
-            PENDING_TRANSACTIONS.clear(); 
-
             let mut transactions = vec![];
 
-            // ดึงธุรกรรมจาก PENDING_TRANSACTIONS
-            transactions.append(&mut (PENDING_TRANSACTIONS.clone()));
+            // Move the clearing of pending transactions after they are processed
+            transactions.append(&mut PENDING_TRANSACTIONS);
 
             // ถ้าไม่มีธุรกรรมเลย ให้สร้างธุรกรรมค่าธรรมเนียม 0 ให้นักขุด
             if transactions.is_empty() {
@@ -95,7 +92,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
                 new_data, 
                 prev_block.hash.clone(), 
                 miner_reward, // Use calculated miner_reward
-                transactions, 
+                transactions.clone(), 
                 miner_address.clone(), 
                 hasher
             );
@@ -106,6 +103,15 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             }
 
             BLOCKCHAIN.push_back(new_block.clone());
+
+            // Update balances for each transaction
+            for tx in transactions.iter() {
+                let mut balances = BALANCES.as_mut().unwrap().lock().unwrap();
+                if let Some(sender_balance) = balances.get_mut(&tx.sender) {
+                    *sender_balance -= tx.amount + tx.gas_cost;
+                }
+                *balances.entry(tx.receiver.clone()).or_insert(0) += tx.amount;
+            }
 
             // เพิ่มรางวัลให้กับนักขุดจากค่าธรรมเนียมธุรกรรม
             let transaction_fees: u64 = new_block.transactions.iter().map(|tx| tx.calculate_total_cost() as u64).sum();
