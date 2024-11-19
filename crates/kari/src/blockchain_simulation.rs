@@ -77,10 +77,14 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             // ถ้าไม่มีธุรกรรมเลย ให้สร้างธุรกรรมค่าธรรมเนียม 0 ให้นักขุด
             if transactions.is_empty() {
                 transactions.push(Transaction {
-                    sender: "system".to_string(), // หรือใช้ address พิเศษอื่นๆ 
+                    sender: "system".to_string(),
                     receiver: miner_address.clone(),
                     amount: 0,
-                    gas_cost: TRANSACTION_GAS_COST, // ให้ค่าธรรมเนียม 0.00000150 KI
+                    gas_cost: TRANSACTION_GAS_COST,
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
                 });
             }
 

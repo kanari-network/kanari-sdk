@@ -9,6 +9,7 @@ secp256k1.workspace = true
 rand.workspace = true
 hex.workspace = true
 serde_json.workspace = true
+lazy_static = "1.4"
 
 # This is a workspace crate, so we need to include the following dependencies
 k2.workspace = true

@@ -11,12 +11,12 @@ use colored::Colorize;
 use command::keytool_cli::handle_keytool_command;
 use command::move_cli::handle_move_command;
 use config::{configure_network, load_config, save_config};
-use key::{generate_karix_address, save_wallet};
+use key::{check_wallet_exists, generate_karix_address, save_wallet};
 use network::{NetworkConfig, NetworkType};
 
 use p2p_protocol::P2PNetwork;
 use serde_json::json;
-use k2::blockchain::{load_blockchain, save_blockchain, BALANCES};
+use k2::blockchain::{get_kari_dir, load_blockchain, save_blockchain, BALANCES};
 use k2::chain_id::CHAIN_ID;
 use crate::blockchain_simulation::run_blockchain;
 use crate::rpc::start_rpc_server;
@@ -70,6 +70,17 @@ async fn main() {
 }
 
 async fn start_node() {
+
+        // Check if any wallet exists first
+        if !check_wallet_exists() {
+            println!("{}", "No wallet found!".red());
+            println!("Please create a wallet first using:");
+            println!("{}", "kari keytool create".green());
+            println!("Or import existing wallet using:");
+            println!("{}", "kari keytool import".green());
+            exit(1);
+        }
+
     let mut config = load_config().expect("Failed to load configuration");
 
     let _chain_id = config.get("chain_id").and_then(|v| v.as_str()).unwrap_or(CHAIN_ID);
@@ -122,27 +133,23 @@ async fn start_node() {
     }
 
 
-
-        // Load miner address from config if it exists, otherwise generate a new one
-        let miner_address = match config.get("miner_address").and_then(|v| v.as_str()) {
-            Some(address) => address.to_string(),
-            None => {
-                println!("No miner address found. Generating a new one...");
-                let (private_key, public_address, seed_phrase) = generate_karix_address(24); // Use 24 words for security
-                println!("New address generated:");
-                println!("Private Key: {}", private_key.green());
-                println!("Public Address: {}", public_address.green());
-                println!("Seed Phrase: {}", seed_phrase.green());
-    
-                save_wallet(&public_address, &private_key, &seed_phrase);
-    
-                // Save the new address to the configuration
-                config.as_object_mut().unwrap().insert("miner_address".to_string(), json!(public_address));
-                save_config(&config).expect("Failed to save configuration");
-    
-                public_address
+    // Load miner address with validation
+    let miner_address = match config.get("miner_address").and_then(|v| v.as_str()) {
+        Some(address) => {
+            // Verify wallet file exists for this address
+            if !std::path::Path::new(&get_kari_dir().join("wallets").join(format!("{}.json", address))).exists() {
+                println!("{}", "Configured miner address wallet not found!".red());
+                println!("Please create or import wallet first");
+                exit(1);
             }
-        };
+            address.to_string()
+        },
+        None => {
+            println!("{}", "No miner address configured!".red());
+            println!("Please set miner address in config or create new wallet");
+            exit(1);
+        }
+    };
 
     loop {
         if miner_address.is_empty() {

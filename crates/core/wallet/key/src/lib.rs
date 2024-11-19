@@ -4,55 +4,70 @@ use bip39::Mnemonic;
 use secp256k1::Secp256k1;
 use rand::rngs::OsRng;
 use hex;
+use std::sync::Mutex;
+use std::collections::HashMap;
+
+// Import Mutex and HashMap from std::sync
 use k2::{blockchain::{get_kari_dir, BALANCES}, gas::TRANSACTION_GAS_COST, transaction::Transaction};
 
-pub fn send_coins(sender: String, receiver: String, amount: u64) -> Option<Transaction> {
-    // Access BALANCES safely
-    let balances_option = unsafe { BALANCES.as_ref() };
+pub fn check_wallet_exists() -> bool {
+    match list_wallet_files() {
+        Ok(wallets) => !wallets.is_empty(),
+        Err(_) => false
+    }
+}
 
-    // Check if BALANCES is initialized
-    if let Some(balances_mutex) = balances_option {
-        // Lock the mutex to access balances
-        match balances_mutex.lock() {
-            Ok(mut balances) => {
-                // Log the current balances for debugging
-                println!("Current balances: {:?}", balances);
 
-                // Check if sender's balance exists
-                if let Some(sender_balance) = balances.get_mut(&sender) {
-                    // Check if sender has enough balance
-                    if *sender_balance >= amount {
-                        // Deduct amount from sender
-                        *sender_balance -= amount;
-                        // Add amount to receiver
-                        *balances.entry(receiver.clone()).or_insert(0) += amount;
-
-                        // Create and return the transaction
-                        let transaction = Transaction {
-                            sender,
-                            receiver,
-                            amount,
-                            gas_cost: TRANSACTION_GAS_COST,
-                        };
-
-                        return Some(transaction);
-                    } else {
-                        eprintln!("Insufficient funds in sender's account.");
-                    }
-                } else {
-                    eprintln!("Sender's address not found in balances.");
-                }
-            },
-            Err(_) => {
-                eprintln!("Failed to lock the balances mutex.");
-            }
+// Initialize BALANCES if not already initialized
+fn init_balances() {
+    unsafe {
+        if BALANCES.is_none() {
+            let balances = HashMap::new();
+            BALANCES = Some(Mutex::new(balances));
         }
-    } else {
-        eprintln!("BALANCES is not initialized!");
+    }
+}
+
+// Modified send_coins function
+pub fn send_coins(sender: String, receiver: String, amount: u64) -> Option<Transaction> {
+    init_balances();
+    
+    // Get balances mutex and lock it
+    let balances = unsafe { BALANCES.as_ref()? };
+    let mut balances = balances.lock().unwrap();
+
+    // Get sender's current balance
+    let sender_balance = *balances.get(&sender).unwrap_or(&0);
+
+    // Calculate total cost including gas
+    let total_cost = amount + TRANSACTION_GAS_COST;
+
+    // Check if sender has sufficient balance
+    if sender_balance < total_cost {
+        println!("Insufficient balance: {} < {}", sender_balance, total_cost);
+        return None;
     }
 
-    // Return None if any check fails
-    None
+    // Update sender balance
+    *balances.entry(sender.clone()).or_insert(0) -= total_cost;
+
+    // Update receiver balance 
+    *balances.entry(receiver.clone()).or_insert(0) += amount;
+
+    // Create transaction record
+    let transaction = Transaction {
+        sender,
+        receiver,
+        amount,
+        gas_cost: TRANSACTION_GAS_COST,
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+    };
+
+    println!("Transfer successful: {} coins sent", amount);
+    Some(transaction)
 }
 
 pub fn save_wallet(address: &str, private_key: &str, seed_phrase: &str) {
