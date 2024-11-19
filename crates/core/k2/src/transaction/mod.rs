@@ -8,7 +8,7 @@ pub struct Transaction {
     pub sender: String,
     pub receiver: String, 
     pub amount: u64,
-    pub gas_cost: u64,
+    pub gas_cost: f64,
     pub timestamp: u64,
     pub signature: Option<String>, // Add signature field
 }
@@ -29,13 +29,13 @@ impl Transaction {
     }
 
     pub fn calculate_total_cost(&self) -> u64 {
-        self.amount + self.gas_cost
+        self.amount + self.gas_cost as u64
     }
 
     // Add signing functionality
     pub fn sign(&mut self, secp: &Secp256k1<secp256k1::All>, private_key: &[u8]) -> Result<String, String> {
         let tx_hash = self.hash();
-        let message = Message::from_slice(&tx_hash)
+        let message = Message::from_digest_slice(&tx_hash)
             .map_err(|e| format!("Message creation error: {}", e))?;
         
         let secret_key = SecretKey::from_slice(private_key)
@@ -83,7 +83,7 @@ mod tests {
     #[test]
     fn test_calculate_total_cost() {
         let tx = Transaction::new(String::from("Alice"), String::from("Bob"), 10);
-        let expected_total_cost = 10 + TRANSACTION_GAS_COST;
+        let expected_total_cost = 10 + TRANSACTION_GAS_COST as u64;
         assert_eq!(tx.calculate_total_cost(), expected_total_cost);
     }
 

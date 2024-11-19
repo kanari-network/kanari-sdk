@@ -4,7 +4,7 @@ use bip39::Mnemonic;
 use secp256k1::Secp256k1;
 use rand::rngs::OsRng;
 use hex;
-use lazy_static::lazy_static;
+
 
 
 
@@ -127,11 +127,11 @@ pub fn send_coins(from_address: &str, to_address: &str, amount: u64) -> Result<S
         .map_err(|_| "Invalid private key")?;
     let signature = transaction.sign(&secp, &private_key_bytes)?;
 
-    // Update balances with proper mutex handling
-    *balances.entry(from_address.to_string())
-        .or_insert(0) -= amount + TRANSACTION_GAS_COST;
-    *balances.entry(to_address.to_string())
-        .or_insert(0) += amount;
+    // // Update balances with proper mutex handling
+    // *balances.entry(from_address.to_string())
+    //     .or_insert(0) -= amount + TRANSACTION_GAS_COST;
+    // *balances.entry(to_address.to_string())
+    //     .or_insert(0) += amount;
 
     // Send the transaction to the blockchain simulation
     unsafe {

@@ -114,7 +114,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             }
 
             // เพิ่มรางวัลให้กับนักขุดจากค่าธรรมเนียมธุรกรรม
-            let transaction_fees: u64 = new_block.transactions.iter().map(|tx| tx.calculate_total_cost() as u64).sum();
+            let transaction_fees: u64 = new_block.transactions.iter().map(|tx| tx.gas_cost).sum();
             BALANCES.as_mut().unwrap().lock().unwrap().entry(miner_address.clone()).and_modify(|balance| *balance += transaction_fees + miner_reward).or_insert(transaction_fees + miner_reward);
 
             // Update TOTAL_TOKENS only if it's less than the max supply
