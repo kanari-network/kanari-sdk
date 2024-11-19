@@ -141,8 +141,8 @@ async fn start_node() {
                 // Try to find any existing wallet
                 match list_wallet_files() {
                     Ok(wallets) if !wallets.is_empty() => {
-                        // Use first available wallet
-                        let first_wallet = wallets[0].trim_end_matches(".json").to_string();
+                        // Access first element of tuple (filename)
+                        let first_wallet = wallets[0].0.trim_end_matches(".json").to_string();
                         println!("Using existing wallet as miner address: {}", first_wallet.green());
                         
                         // Update config with new miner address
@@ -167,7 +167,7 @@ async fn start_node() {
             // Try to find any existing wallet
             match list_wallet_files() {
                 Ok(wallets) if !wallets.is_empty() => {
-                    let first_wallet = wallets[0].trim_end_matches(".json").to_string();
+                    let first_wallet = wallets[0].0.trim_end_matches(".json").to_string();
                     println!("Setting miner address to existing wallet: {}", first_wallet.green());
                     
                     // Update config with new miner address

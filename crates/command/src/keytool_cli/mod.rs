@@ -92,16 +92,24 @@ pub fn handle_keytool_command() -> Option<String> {
                 }
                 return None; // Return None to indicate no address to be used further
             }
-            "list" => { // String comparison for "list"}
+            "list" => {
                 match list_wallet_files() {
                     Ok(wallets) => {
-                        println!("Wallet files:");
-                        for wallet in wallets {
-                            println!("{}", wallet.green());
+                        println!("\nAvailable Wallets:");
+                        println!("------------------");
+                        for (wallet_name, is_selected) in wallets {
+                            let status_symbol = if is_selected { "✓ " } else { "  " };
+                            let wallet_display = wallet_name.trim_end_matches(".json");
+                            if is_selected {
+                                println!("{}{}", status_symbol, wallet_display.green().bold());
+                            } else {
+                                println!("{}{}", status_symbol, wallet_display);
+                            }
                         }
+                        println!("------------------");
                     },
                     Err(e) => {
-                        println!("Failed to list wallet files: {}", e);
+                        println!("{}Failed to list wallet files: {}", "ERROR: ".red().bold(), e);
                     }
                 }
                 return None;

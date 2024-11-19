@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, str::FromStr as _, sync::Mutex};
+use std::{collections::HashMap, fs, path::PathBuf, str::FromStr as _, sync::Mutex};
 use serde_json::json;
 use bip39::Mnemonic;
 
@@ -34,13 +34,33 @@ pub fn save_wallet(address: &str, private_key: &str, seed_phrase: &str) {
     println!("Wallet saved to {:?}", wallet_file);
 }
 
+/// Loads a wallet from the filesystem given an address
+/// 
+/// # Arguments
+/// * `address` - The wallet address string
+/// 
+/// # Returns
+/// * `Option<serde_json::Value>` - The wallet data if found, None otherwise 
+/// 
+/// # Errors
+/// Returns None if:
+/// - Address is empty
+/// - File cannot be read
+/// - JSON parsing fails
 pub fn load_wallet(address: &str) -> Option<serde_json::Value> {
+    // Validate input
+    if address.trim().is_empty() {
+        return None;
+    }
+
     let kari_dir = get_kari_dir();
-    let wallet_file = kari_dir.join("wallets").join(format!("{}.json", address));
+    let wallet_file: PathBuf = kari_dir.join("wallets").join(format!("{}.json", address));
 
     if wallet_file.exists() {
-        let data = fs::read_to_string(wallet_file).expect("Unable to read wallet file");
-        Some(serde_json::from_str(&data).expect("Unable to parse wallet data"))
+        // Handle potential IO and parsing errors gracefully
+        fs::read_to_string(&wallet_file)
+            .ok()
+            .and_then(|data| serde_json::from_str(&data).ok())
     } else {
         None
     }
@@ -76,9 +96,16 @@ pub fn generate_karix_address(word_count: usize) -> (String, String, String) {
     )
 }
 
-pub fn list_wallet_files() -> Result<Vec<String>, std::io::Error> {
+/// Returns list of wallet files with selection status
+/// 
+/// # Returns
+/// * `Result<Vec<(String, bool)>>` - List of (wallet_filename, is_selected) tuples
+pub fn list_wallet_files() -> Result<Vec<(String, bool)>, std::io::Error> {
     let kari_dir = get_kari_dir();
     let wallet_dir = kari_dir.join("wallets");
+    
+    // Get currently selected wallet
+    let selected = get_selected_wallet().unwrap_or_default();
 
     let mut wallets = Vec::new();
     for entry in fs::read_dir(wallet_dir)? {
@@ -86,11 +113,22 @@ pub fn list_wallet_files() -> Result<Vec<String>, std::io::Error> {
         let path = entry.path();
         if path.is_file() {
             if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
-                wallets.push(filename.to_string());
+                // Check if this wallet is selected
+                let is_selected = filename.trim_end_matches(".json") == selected;
+                wallets.push((filename.to_string(), is_selected));
             }
         }
     }
     Ok(wallets)
+}
+
+/// Read currently selected wallet from config
+fn get_selected_wallet() -> Option<String> {
+    let config_path = get_kari_dir().join("config.json");
+    fs::read_to_string(config_path)
+        .ok()
+        .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
+        .and_then(|json| json.get("selected_wallet")?.as_str().map(String::from))
 }
 
 // Initialize global state
