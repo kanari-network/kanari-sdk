@@ -6,6 +6,8 @@ use k2::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN, TOTAL_TOKENS};
 use k2::gas::TRANSACTION_GAS_COST;
 use k2::transaction::Transaction;
 use std::sync::mpsc::{self, Sender, Receiver}; // Import Sender and Receiver
+use std::time::{SystemTime, UNIX_EPOCH};
+use log::{info, warn, error};
 
 // Define the Sender and Receiver separately
 pub static mut TRANSACTION_SENDER: Option<Sender<Transaction>> = None;
@@ -41,18 +43,20 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             ));
             TOTAL_TOKENS += tokens_per_block;
             BALANCES.as_mut().unwrap().lock().unwrap().entry(miner_address.clone()).and_modify(|balance| *balance += tokens_per_block).or_insert(tokens_per_block);
+            info!("Genesis block created with hash: {}", BLOCKCHAIN.back().unwrap().hash);
         }
 
         loop { 
             // Receive transactions from the channel
             if let Ok(transaction) = TRANSACTION_RECEIVER.as_ref().unwrap().try_recv() {
+                info!("Received new transaction: {:?}", transaction);
                 PENDING_TRANSACTIONS.push(transaction);
             }
 
             let _running = running.lock().unwrap();
 
             if TOTAL_TOKENS >= max_tokens {
-                println!("Reached maximum token supply. Only processing transactions.");
+                warn!("Reached maximum token supply. Only processing transactions.");
                 tokens_per_block = 0; // Set block reward to 0
             }
 
@@ -71,19 +75,20 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             // Move the clearing of pending transactions after they are processed
             transactions.append(&mut PENDING_TRANSACTIONS);
 
-            // ถ้าไม่มีธุรกรรมเลย ให้สร้างธุรกรรมค่าธรรมเนียม 0 ให้นักขุด
+            // If there are no transactions, create a zero-fee transaction for the miner
             if transactions.is_empty() {
                 transactions.push(Transaction {
                     sender: "system".to_string(),
                     receiver: miner_address.clone(),
                     amount: 0,
                     gas_cost: TRANSACTION_GAS_COST,
-                    timestamp: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
+                    timestamp: SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
                         .unwrap()
                         .as_secs(),
                     signature: None, // Add an empty signature or a valid one if available
                 });
+                info!("No transactions found. Created a zero-fee transaction for the miner.");
             }
 
             let hasher = Blake3Algorithm;
@@ -98,7 +103,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             );
 
             if !new_block.verify(prev_block) {
-                println!("Block verification failed!");
+                error!("Block verification failed!");
                 break;
             }
 
@@ -113,7 +118,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
                 *balances.entry(tx.receiver.clone()).or_insert(0) += tx.amount;
             }
 
-            // เพิ่มรางวัลให้กับนักขุดจากค่าธรรมเนียมธุรกรรม
+            // Add transaction fees to the miner's reward
             let transaction_fees: u64 = new_block.transactions.iter().map(|tx| tx.gas_cost as u64).sum();
             BALANCES.as_mut().unwrap().lock().unwrap().entry(miner_address.clone()).and_modify(|balance| *balance += transaction_fees + miner_reward).or_insert(transaction_fees + miner_reward);
 
@@ -125,14 +130,15 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             // Save blockchain every time a new block is created
             save_blockchain();
 
-            println!("New block hash: {}", new_block.hash);
-            println!("Miner reward (transaction fees): {} tokens", transaction_fees);
+            info!("New block created with hash: {}", new_block.hash);
+            info!("Miner reward (transaction fees): {} tokens", transaction_fees);
 
             if BLOCKCHAIN.len() % halving_interval == 0 && TOTAL_TOKENS < max_tokens {
                 tokens_per_block /= 2;
+                info!("Block reward halved to: {}", tokens_per_block);
             }
 
-            println!("blocks: {}, Total tokens: {}", BLOCKCHAIN.len(), TOTAL_TOKENS);
+            info!("Total blocks: {}, Total tokens: {}", BLOCKCHAIN.len(), TOTAL_TOKENS);
             thread::sleep(std::time::Duration::from_secs(1));
         }
     }
