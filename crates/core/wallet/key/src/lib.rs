@@ -1,16 +1,14 @@
 use std::{collections::HashMap, fs, str::FromStr as _, sync::Mutex};
 use serde_json::json;
 use bip39::Mnemonic;
-use consensus_pos::Blake3Algorithm;
+
 use secp256k1::{Secp256k1, Message, SecretKey};
 use rand::rngs::OsRng;
 use hex;
 
 
-
-
 // Import Mutex and HashMap from std::sync
-use k2::{block::Block, blockchain::{get_kari_dir, BALANCES, BLOCKCHAIN}, gas::TRANSACTION_GAS_COST, transaction::Transaction};
+use k2::{blockchain::{get_kari_dir,  BALANCES}, gas::TRANSACTION_GAS_COST, transaction::Transaction};
 
 pub fn check_wallet_exists() -> bool {
     match list_wallet_files() {
@@ -157,26 +155,6 @@ pub fn send_coins(from_address: &str, to_address: &str, amount: u64) -> Result<S
     *balances.get_mut(from_address).unwrap() -= amount + TRANSACTION_GAS_COST as u64;
     *balances.entry(to_address.to_string()).or_insert(0) += amount;
 
-
-    // Add transaction to blockchain with proper Block::new parameters
-    unsafe {
-        let index = BLOCKCHAIN.len() as u32;
-        let prev_hash = BLOCKCHAIN.back()
-            .map(|b| b.hash.clone())
-            .unwrap_or_default();
-        
-        let block = Block::new(
-            index,
-            Vec::new(), // data
-            prev_hash,
-            0, // tokens
-            vec![transaction],
-            from_address.to_string(),
-            Blake3Algorithm {} // Create Blake3Algorithm instance directly
-        );
-        
-        BLOCKCHAIN.push_back(block);
-    }
 
     Ok("Transaction successful".to_string())
 }
