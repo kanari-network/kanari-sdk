@@ -11,7 +11,7 @@ use colored::Colorize;
 use command::keytool_cli::handle_keytool_command;
 use command::move_cli::handle_move_command;
 use config::{configure_network, load_config, save_config};
-use key::{check_wallet_exists, generate_karix_address, save_wallet};
+use key::{check_wallet_exists, list_wallet_files};
 use network::{NetworkConfig, NetworkType};
 
 use p2p_protocol::P2PNetwork;
@@ -81,7 +81,7 @@ async fn start_node() {
             exit(1);
         }
 
-    let mut config = load_config().expect("Failed to load configuration");
+    let mut config = load_config().expect("Failed to load configuration file");
 
     let _chain_id = config.get("chain_id").and_then(|v| v.as_str()).unwrap_or(CHAIN_ID);
 
@@ -138,16 +138,52 @@ async fn start_node() {
         Some(address) => {
             // Verify wallet file exists for this address
             if !std::path::Path::new(&get_kari_dir().join("wallets").join(format!("{}.json", address))).exists() {
-                println!("{}", "Configured miner address wallet not found!".red());
-                println!("Please create or import wallet first");
-                exit(1);
+                // Try to find any existing wallet
+                match list_wallet_files() {
+                    Ok(wallets) if !wallets.is_empty() => {
+                        // Use first available wallet
+                        let first_wallet = wallets[0].trim_end_matches(".json").to_string();
+                        println!("Using existing wallet as miner address: {}", first_wallet.green());
+                        
+                        // Update config with new miner address
+                        let config = config.as_object_mut().unwrap();
+                        config.insert("miner_address".to_string(), json!(first_wallet.clone()));
+                        save_config(&json!(config)).expect("Failed to save configuration");
+                        
+                        first_wallet
+                    },
+                    _ => {
+                        println!("{}", "No valid wallets found!".red());
+                        println!("Please create a wallet first using:");
+                        println!("{}", "kari keytool create".green());
+                        exit(1);
+                    }
+                }
+            } else {
+                address.to_string()
             }
-            address.to_string()
         },
         None => {
-            println!("{}", "No miner address configured!".red());
-            println!("Please set miner address in config or create new wallet");
-            exit(1);
+            // Try to find any existing wallet
+            match list_wallet_files() {
+                Ok(wallets) if !wallets.is_empty() => {
+                    let first_wallet = wallets[0].trim_end_matches(".json").to_string();
+                    println!("Setting miner address to existing wallet: {}", first_wallet.green());
+                    
+                    // Update config with new miner address
+                    let config = config.as_object_mut().unwrap();
+                    config.insert("miner_address".to_string(), json!(first_wallet.clone()));
+                    save_config(&json!(config)).expect("Failed to save configuration");
+                    
+                    first_wallet
+                },
+                _ => {
+                    println!("{}", "No wallets found!".red());
+                    println!("Please create a wallet first using:");
+                    println!("{}", "kari keytool create".green());
+                    exit(1);
+                }
+            }
         }
     };
 

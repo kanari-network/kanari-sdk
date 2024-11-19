@@ -4,8 +4,9 @@ use bip39::Mnemonic;
 use secp256k1::Secp256k1;
 use rand::rngs::OsRng;
 use hex;
-use std::sync::Mutex;
-use std::collections::HashMap;
+use lazy_static::lazy_static;
+
+
 
 // Import Mutex and HashMap from std::sync
 use k2::{blockchain::{get_kari_dir, BALANCES}, gas::TRANSACTION_GAS_COST, transaction::Transaction};
@@ -15,59 +16,6 @@ pub fn check_wallet_exists() -> bool {
         Ok(wallets) => !wallets.is_empty(),
         Err(_) => false
     }
-}
-
-
-// Initialize BALANCES if not already initialized
-fn init_balances() {
-    unsafe {
-        if BALANCES.is_none() {
-            let balances = HashMap::new();
-            BALANCES = Some(Mutex::new(balances));
-        }
-    }
-}
-
-// Modified send_coins function
-pub fn send_coins(sender: String, receiver: String, amount: u64) -> Option<Transaction> {
-    init_balances();
-    
-    // Get balances mutex and lock it
-    let balances = unsafe { BALANCES.as_ref()? };
-    let mut balances = balances.lock().unwrap();
-
-    // Get sender's current balance
-    let sender_balance = *balances.get(&sender).unwrap_or(&0);
-
-    // Calculate total cost including gas
-    let total_cost = amount + TRANSACTION_GAS_COST;
-
-    // Check if sender has sufficient balance
-    if sender_balance < total_cost {
-        println!("Insufficient balance: {} < {}", sender_balance, total_cost);
-        return None;
-    }
-
-    // Update sender balance
-    *balances.entry(sender.clone()).or_insert(0) -= total_cost;
-
-    // Update receiver balance 
-    *balances.entry(receiver.clone()).or_insert(0) += amount;
-
-    // Create transaction record
-    let transaction = Transaction {
-        sender,
-        receiver,
-        amount,
-        gas_cost: TRANSACTION_GAS_COST,
-        timestamp: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs(),
-    };
-
-    println!("Transfer successful: {} coins sent", amount);
-    Some(transaction)
 }
 
 pub fn save_wallet(address: &str, private_key: &str, seed_phrase: &str) {
@@ -144,4 +92,50 @@ pub fn list_wallet_files() -> Result<Vec<String>, std::io::Error> {
         }
     }
     Ok(wallets)
+}
+
+
+pub fn send_coins(from_address: &str, to_address: &str, amount: u64) -> Result<String, String> {
+    // Load sender's wallet
+    let sender_wallet = match load_wallet(from_address) {
+        Some(wallet) => wallet,
+        None => return Err("Sender wallet not found".to_string())
+    };
+
+    // Get sender's private key
+    let private_key = sender_wallet["private_key"].as_str()
+        .ok_or("Invalid wallet format")?;
+
+    // Properly unwrap BALANCES Option<Mutex>
+    let balances = unsafe { BALANCES.as_ref().expect("BALANCES not initialized").lock().unwrap() };
+    let sender_balance = balances.get(from_address).unwrap_or(&0);
+    
+    if *sender_balance < amount + TRANSACTION_GAS_COST {
+        return Err("Insufficient balance".to_string());
+    }
+    drop(balances); // Release lock before creating transaction
+
+    // Create and sign transaction (now with 3 params)
+    let secp = Secp256k1::new();
+    let mut transaction = Transaction::new(
+        from_address.to_string(),
+        to_address.to_string(),
+        amount
+    );
+
+    // Sign transaction
+    let private_key_bytes = hex::decode(private_key)
+        .map_err(|_| "Invalid private key")?;
+    let signature = transaction.sign(&secp, &private_key_bytes)?;
+
+    // Update balances with proper mutex handling
+    let mut balances = unsafe {
+        BALANCES.as_ref().expect("BALANCES not initialized").lock().unwrap()
+    };
+    *balances.entry(from_address.to_string())
+        .or_insert(0) -= amount + TRANSACTION_GAS_COST;
+    *balances.entry(to_address.to_string())
+        .or_insert(0) += amount;
+
+    Ok(signature)
 }

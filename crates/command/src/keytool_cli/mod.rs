@@ -64,59 +64,33 @@ pub fn handle_keytool_command() -> Option<String> {
                 }
             },
             "send" => {
-                // Debug print args
-                println!("Args received: {:?}", args);
-                
-                if args.len() != 6 {
-                    println!("Usage: send <from_address> <to_address> <amount>");
-                    return None;
-                }
-            
-                let sender = args[3].clone();
-                let receiver = args[4].clone();
-                let amount = match args[5].parse::<u64>() {
-                    Ok(value) => value,
-                    Err(_) => {
-                        println!("Invalid amount: must be a positive number");
-                        return None;
-                    }
-                };
-            
-                // Debug print balance before transaction
-                let sender_balance = unsafe {
-                    BALANCES.as_ref()
-                        .and_then(|b| b.lock().ok())
-                        .map(|b| *b.get(&sender).unwrap_or(&0))
-                        .unwrap_or(0)
-                };
-                println!("Sender balance before transfer: {}", sender_balance);
-                println!("Attempting transfer of {} coins plus gas cost", amount);
-            
-                match send_coins(sender.clone(), receiver, amount) {
-                    Some(transaction) => {
-                        println!("Transaction successful!");
-                        println!("Transaction details:");
-                        println!("  From: {}", transaction.sender);
-                        println!("  To: {}", transaction.receiver);
-                        println!("  Amount: {}", transaction.amount);
-                        println!("  Gas cost: {}", transaction.gas_cost);
-                        println!("  Timestamp: {}", transaction.timestamp);
-                        
-                        // Debug print final balance
-                        let final_balance = unsafe {
-                            BALANCES.as_ref()
-                                .and_then(|b| b.lock().ok())
-                                .map(|b| *b.get(&sender).unwrap_or(&0))
-                                .unwrap_or(0)
-                        };
-                        println!("Sender balance after transfer: {}", final_balance);
-                        Some(sender)
-                    }
-                    None => {
-                        println!("Transaction failed - insufficient funds or internal error");
-                        None
+                println!("Enter sender public address:");
+                let mut sender_address = String::new();
+                io::stdin().read_line(&mut sender_address).unwrap();
+                let sender_address = sender_address.trim().to_string();
+
+                println!("Enter receiver public address:");
+                let mut receiver_address = String::new();
+                io::stdin().read_line(&mut receiver_address).unwrap();
+                let receiver_address = receiver_address.trim().to_string();
+
+                println!("Enter amount to send:");
+                let mut amount_str = String::new();
+                io::stdin().read_line(&mut amount_str).unwrap();
+                let amount: u64 = amount_str.trim().parse().expect("Invalid input");
+
+                load_blockchain();
+
+                let result = send_coins(&sender_address, &receiver_address, amount);
+                match result {
+                    Ok(tx_hash) => {
+                        println!("Transaction successful. Tx Hash: {}", tx_hash.green());
+                    },
+                    Err(e) => {
+                        println!("Transaction failed: {}", e.red());
                     }
                 }
+                return None; // Return None to indicate no address to be used further
             }
             "list" => { // String comparison for "list"}
                 match list_wallet_files() {

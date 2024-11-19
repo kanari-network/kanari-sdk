@@ -85,6 +85,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
                         .as_secs(),
+                    signature: None, // Add an empty signature or a valid one if available
                 });
             }
 
