@@ -1,7 +1,8 @@
-use std::fs;
+use std::{collections::HashMap, fs, str::FromStr as _, sync::Mutex};
 use serde_json::json;
 use bip39::Mnemonic;
-use secp256k1::Secp256k1;
+use consensus_pos::Blake3Algorithm;
+use secp256k1::{Secp256k1, Message, SecretKey};
 use rand::rngs::OsRng;
 use hex;
 
@@ -9,7 +10,7 @@ use hex;
 
 
 // Import Mutex and HashMap from std::sync
-use k2::{blockchain::{get_kari_dir, BALANCES}, gas::{TRANSACTION_GAS_COST, TRANSACTION_SENDER}, transaction::Transaction};
+use k2::{block::Block, blockchain::{get_kari_dir, BALANCES, BLOCKCHAIN}, gas::TRANSACTION_GAS_COST, transaction::Transaction};
 
 pub fn check_wallet_exists() -> bool {
     match list_wallet_files() {
@@ -94,6 +95,14 @@ pub fn list_wallet_files() -> Result<Vec<String>, std::io::Error> {
     Ok(wallets)
 }
 
+// Initialize global state
+pub fn initialize_globals() {
+    unsafe {
+        if BALANCES.is_none() {
+            BALANCES = Some(Mutex::new(HashMap::new()));
+        }
+    }
+}
 
 pub fn send_coins(from_address: &str, to_address: &str, amount: u64) -> Result<String, String> {
     // Load sender's wallet
@@ -102,19 +111,32 @@ pub fn send_coins(from_address: &str, to_address: &str, amount: u64) -> Result<S
         None => return Err("Sender wallet not found".to_string())
     };
 
+    initialize_globals();
+
     // Get sender's private key
     let private_key = sender_wallet["private_key"].as_str()
         .ok_or("Invalid wallet format")?;
 
     // Properly unwrap BALANCES Option<Mutex>
-    let mut balances = unsafe { BALANCES.as_ref().expect("BALANCES not initialized").lock().unwrap() };
+    let mut balances = unsafe {
+        BALANCES.as_ref()
+            .ok_or("BALANCES not initialized")?
+            .lock()
+            .map_err(|_| "Failed to lock BALANCES mutex")?
+    };
+
+    // Ensure sender's address is in the balances map
+    if !balances.contains_key(from_address) {
+        return Err("Transaction sender not initialized".to_string());
+    }
+
     let sender_balance = balances.get(from_address).unwrap_or(&0);
-    
+
     if *sender_balance < amount + TRANSACTION_GAS_COST as u64 {
         return Err("Insufficient balance".to_string());
     }
 
-    // Create and sign transaction (now with 3 params)
+    // Proceed with the transaction
     let secp = Secp256k1::new();
     let mut transaction = Transaction::new(
         from_address.to_string(),
@@ -122,25 +144,39 @@ pub fn send_coins(from_address: &str, to_address: &str, amount: u64) -> Result<S
         amount
     );
 
-    // Sign transaction
-    let private_key_bytes = hex::decode(private_key)
-        .map_err(|_| "Invalid private key")?;
-    let signature = transaction.sign(&secp, &private_key_bytes)?;
+    // Sign the transaction using updated Message creation
+    let message = Message::from_digest_slice(&transaction.hash()).expect("32 bytes");
+    let secret_key = SecretKey::from_str(private_key).expect("Valid private key");
+    let signature = secp.sign_ecdsa(&message, &secret_key);
+    
+    // Convert signature to hex string
+    let sig_hex = hex::encode(signature.serialize_compact());
+    transaction.signature = Some(sig_hex);
 
-    // Update balances with proper mutex handling
-    *balances.entry(from_address.to_string())
-        .or_insert(0) -= amount + TRANSACTION_GAS_COST as u64;
-    *balances.entry(to_address.to_string())
-        .or_insert(0) += amount;
+    // Update balances
+    *balances.get_mut(from_address).unwrap() -= amount + TRANSACTION_GAS_COST as u64;
+    *balances.entry(to_address.to_string()).or_insert(0) += amount;
 
-    // Send the transaction to the blockchain simulation
+
+    // Add transaction to blockchain with proper Block::new parameters
     unsafe {
-        if let Some(sender) = TRANSACTION_SENDER.as_ref() {
-            sender.send(transaction).expect("Failed to send transaction");
-        } else {
-            return Err("Transaction sender not initialized".to_string());
-        }
+        let index = BLOCKCHAIN.len() as u32;
+        let prev_hash = BLOCKCHAIN.back()
+            .map(|b| b.hash.clone())
+            .unwrap_or_default();
+        
+        let block = Block::new(
+            index,
+            Vec::new(), // data
+            prev_hash,
+            0, // tokens
+            vec![transaction],
+            from_address.to_string(),
+            Blake3Algorithm {} // Create Blake3Algorithm instance directly
+        );
+        
+        BLOCKCHAIN.push_back(block);
     }
 
-    Ok(signature)
+    Ok("Transaction successful".to_string())
 }
