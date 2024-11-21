@@ -170,3 +170,5 @@ move-symbol-pool = { path = "external-crates/move/crates/move-symbol-pool" }
 move-abstract-interpreter = { path = "external-crates/move/crates/move-abstract-interpreter" }
 move-abstract-stack = { path = "external-crates/move/crates/move-abstract-stack" }
 move-analyzer = { path = "external-crates/move/crates/move-analyzer" }
+move-stdlib = { path = "external-crates/move/crates/move-stdlib" }
+move-stdlib-natives = { path = "external-crates/move/crates/move-stdlib-natives" }

@@ -1,4 +1,3 @@
-
 use serde::{Deserialize, Serialize};
 use crate::{chain_id::CHAIN_ID, transaction::Transaction};
 use consensus_pos::HashAlgorithm;
@@ -74,4 +73,7 @@ impl<T: HashAlgorithm> Block<T> {
         }
         true
     }
+
+
+
 }
