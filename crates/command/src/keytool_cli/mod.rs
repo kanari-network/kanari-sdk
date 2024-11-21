@@ -40,7 +40,12 @@ pub fn handle_keytool_command() -> Option<String> {
                 load_blockchain();
 
                 let balance = unsafe {
-                    BALANCES.as_ref().unwrap().lock().unwrap().get(&public_address).cloned().unwrap_or(0)
+                    if let Some(balances) = BALANCES.as_ref() {
+                        balances.lock().unwrap().get(&public_address).cloned().unwrap_or(0)
+                    } else {
+                        println!("Balances data is not available.");
+                        return None;
+                    }
                 };
 
                 println!("Balance for {}: {}", public_address.green(), balance.to_string().green());

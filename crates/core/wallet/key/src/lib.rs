@@ -9,7 +9,6 @@ use hex;
 
 // Import Mutex and HashMap from std::sync
 use k2::{blockchain::{get_kari_dir,  BALANCES}, gas::TRANSACTION_GAS_COST, transaction::Transaction};
-use k2::simulation::TRANSACTION_SENDER;
 
 pub fn check_wallet_exists() -> bool {
     match list_wallet_files() {
@@ -150,11 +149,6 @@ pub fn send_coins(from_address: &str, to_address: &str, amount: u64) -> Result<S
 
     initialize_globals();
 
-    // รับค่า TRANSACTION_SENDER
-    let transaction_sender = unsafe {
-        TRANSACTION_SENDER.as_ref().ok_or("Transaction sender not initialized")?
-    };
-
     // Get sender's private key
     let private_key = sender_wallet["private_key"].as_str()
         .ok_or("Invalid wallet format")?;
@@ -204,9 +198,6 @@ pub fn send_coins(from_address: &str, to_address: &str, amount: u64) -> Result<S
     // Update balances
     *balances.get_mut(from_address).unwrap() -= amount + TRANSACTION_GAS_COST as u64;
     *balances.entry(to_address.to_string()).or_insert(0) += amount;
-
-    // ส่งธุรกรรมไปยัง TRANSACTION_SENDER
-    transaction_sender.send(transaction).map_err(|e| e.to_string())?;
 
     Ok("Transaction sent to the node successfully".to_string())
 }
