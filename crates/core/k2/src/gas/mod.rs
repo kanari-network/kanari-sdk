@@ -1,5 +1,4 @@
 // kari/src/gas.rs
-// kari/src/gas.rs
 use std::sync::mpsc::Sender;
 use crate::transaction::Transaction;
 

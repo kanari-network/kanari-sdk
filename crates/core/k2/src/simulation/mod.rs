@@ -1,13 +1,14 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
 use consensus_pos::Blake3Algorithm;
-use k2::block::Block;
-use k2::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN, TOTAL_TOKENS};
-use k2::gas::TRANSACTION_GAS_COST;
-use k2::transaction::Transaction;
 use std::sync::mpsc::{self, Sender, Receiver}; // Import Sender and Receiver
 use std::time::{SystemTime, UNIX_EPOCH};
 use log::{info, warn, error};
+
+use crate::block::Block;
+use crate::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN, TOTAL_TOKENS};
+use crate::gas::TRANSACTION_GAS_COST;
+use crate::transaction::Transaction;
 
 // Define the Sender and Receiver separately
 pub static mut TRANSACTION_SENDER: Option<Sender<Transaction>> = None;
