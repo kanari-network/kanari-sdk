@@ -15,11 +15,11 @@ use key::{check_wallet_exists, list_wallet_files};
 use network::{NetworkConfig, NetworkType};
 
 use p2p_protocol::P2PNetwork;
+use rpc::start_rpc_server;
 use serde_json::json;
 use k2::blockchain::{get_kari_dir, load_blockchain, save_blockchain, BALANCES};
 use k2::chain_id::CHAIN_ID;
 use crate::blockchain_simulation::run_blockchain;
-use crate::rpc::start_rpc_server;
 
 
 static VERSION: &str = "0.2.2";
@@ -207,9 +207,10 @@ async fn start_node() {
                 }
             });
 
+     
             tokio::spawn(async move {
                 println!("Starting RPC server...");
-                start_rpc_server().await;
+                start_rpc_server(network_config).await;
             });
 
             tokio::spawn(async move {

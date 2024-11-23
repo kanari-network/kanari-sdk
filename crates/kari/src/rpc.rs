@@ -1,6 +1,9 @@
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
 use futures::FutureExt;
 use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult};
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
+use network::NetworkConfig;
 use serde_json::Value as JsonValue;
 use k2::blockchain::BLOCKCHAIN;
 use crate::CHAIN_ID;
@@ -32,9 +35,10 @@ fn get_block_by_index(params: Params) -> JsonRpcResult<JsonValue> {
     }
 }
 
-pub async fn start_rpc_server() {
+pub async fn start_rpc_server(network_config: NetworkConfig) {
     let mut io = IoHandler::new();
 
+    // Existing methods
     io.add_method("get_latest_block", |params| {
         futures::future::ready(get_latest_block(params)).boxed()
     });
@@ -47,11 +51,23 @@ pub async fn start_rpc_server() {
         futures::future::ready(get_block_by_index(params)).boxed()
     });
 
-    let server = ServerBuilder::new(io)
-        .cors(DomainsValidation::AllowOnly(vec![AccessControlAllowOrigin::Any]))
-        .start_http(&"127.0.0.1:3030".parse().unwrap())
-        .expect("Unable to start RPC server");
+    // Create socket address from network config
+    let addr = SocketAddr::new(
+        IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+        network_config.port
+    );
 
-    println!("RPC server running on http://127.0.0.1:3030");
-    server.wait();
+    match ServerBuilder::new(io)
+        .cors(DomainsValidation::AllowOnly(vec![AccessControlAllowOrigin::Any]))
+        .start_http(&addr)
+    {
+        Ok(server) => {
+            println!("RPC server running on http://127.0.0.1:{}", network_config.port);
+            server.wait();
+        }
+        Err(e) => {
+            eprintln!("Failed to start RPC server: {}", e);
+            std::process::exit(1);
+        }
+    }
 }
