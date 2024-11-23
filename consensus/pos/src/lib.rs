@@ -26,6 +26,7 @@ impl HashAlgorithm for Blake3Algorithm {
     }
 }
 
+
 #[derive(Serialize, Deserialize)]
 pub struct PoSBlock<T: HashAlgorithm> {
     pub index: u64,
@@ -35,6 +36,8 @@ pub struct PoSBlock<T: HashAlgorithm> {
     pub hash: String,
     pub validator: String,
     pub hasher: T,
+    pub tokens: u64, // Add this field
+    pub miner_address: String, // Add this field
 }
 
 impl<T: HashAlgorithm> PoSBlock<T> {
@@ -47,6 +50,8 @@ impl<T: HashAlgorithm> PoSBlock<T> {
             hash: String::new(),
             validator,
             hasher,
+            tokens: 0,
+            miner_address: String::new(),
         }
     }
 
@@ -64,6 +69,7 @@ impl<T: HashAlgorithm> PoSBlock<T> {
         self.hasher.log_input(&serialized_input);
         self.hasher.hash(&serialized_input)
     }
+
 }
 
 pub fn proof_of_stake<T: HashAlgorithm>(block: &mut PoSBlock<T>) {
@@ -77,3 +83,4 @@ pub fn process_blocks_in_parallel<T: HashAlgorithm + Send + Sync>(blocks: &mut [
     });
 }
 
+// Function to display information for all blocks in the blockchain

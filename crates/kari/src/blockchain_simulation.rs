@@ -8,6 +8,8 @@ use k2::transaction::Transaction;
 use std::sync::mpsc::{self, Sender, Receiver}; // Import Sender and Receiver
 use std::time::{SystemTime, UNIX_EPOCH};
 use log::{info, warn, error};
+use colored::*;
+use chrono::Local;
 
 // Define the Sender and Receiver separately
 pub static mut TRANSACTION_SENDER: Option<Sender<Transaction>> = None;
@@ -18,6 +20,8 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
     let mut tokens_per_block = 25; // Initial block reward
     let halving_interval = 210_000; // Halve the block reward every 210,000 blocks
     let block_size = 2_250_000; // 2.25 MB in bytes
+
+      
 
     // Assume there's a global variable for pending transactions
     static mut PENDING_TRANSACTIONS: Vec<Transaction> = Vec::new();
@@ -130,16 +134,36 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             // Save blockchain every time a new block is created
             save_blockchain();
 
-            info!("New block created with hash: {}", new_block.hash);
-            info!("Miner reward (transaction fees): {} tokens", transaction_fees);
+            // Replace the UI code block:
+            println!("{}", "╔══════════════════ NEW BLOCK CREATED ══════════════════╗".bright_green());
+            println!("║ Time: {:<48} ║", Local::now().format("%Y-%m-%d %H:%M:%S").to_string().bright_white());
+            println!("╟──────────────────────────────────────────────────────╢");
+            println!("║ Hash: {:<48} ║", new_block.hash[..48].bright_yellow());
+            println!("║ Previous Hash: {:<42} ║", new_block.prev_hash[..42].bright_yellow());
+            println!("╟──────────────────────────────────────────────────────╢");
+            println!("║ Miner Reward: {:<42} ║", format!("{} tokens", transaction_fees).bright_cyan());
+            println!("║ Block Reward: {:<42} ║", format!("{} tokens", tokens_per_block).bright_cyan());
 
             if BLOCKCHAIN.len() % halving_interval == 0 && TOTAL_TOKENS < max_tokens {
                 tokens_per_block /= 2;
-                info!("Block reward halved to: {}", tokens_per_block);
+                println!("║ {:<52} ║", "⚠ HALVING EVENT OCCURRED!".bright_red());
+                println!("║ New Block Reward: {:<39} ║", format!("{} tokens", tokens_per_block).bright_red());
             }
 
-            info!("Total blocks: {}, Total tokens: {}", BLOCKCHAIN.len(), TOTAL_TOKENS);
+            println!("╟──────────────────────────────────────────────────────╢");
+            println!("║ BLOCKCHAIN STATUS                                    ║");
+            println!("║ Blocks: {:<46} ║", BLOCKCHAIN.len().to_string().bright_blue());
+            println!("║ Total Supply: {:<42} ║", format!("{} Kanari", TOTAL_TOKENS).bright_blue());
+            // println!("║ Difficulty: {:<43} ║", current_difficulty.to_string().bright_blue());
+            println!("{}", "╚══════════════════════════════════════════════════════╝".bright_green());
+            println!(); // Empty line for spacing
+
             thread::sleep(std::time::Duration::from_secs(1));
         }
     }
+
+
+   
+
 }
+
