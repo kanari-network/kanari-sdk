@@ -17,11 +17,25 @@ pub fn get_config_dir() -> io::Result<PathBuf> {
 // Function to load the configuration from file
 pub fn load_config() -> io::Result<Value> {
     let config_file_path = get_config_dir()?.join("config.json");
+    
+    // If file doesn't exist, return empty JSON object
     if !config_file_path.exists() {
-        return Ok(json!({})); // Return an empty JSON object if the file doesn't exist
+        return Ok(json!({}));
     }
-    let config_str = fs::read_to_string(config_file_path)?;
-    Ok(serde_json::from_str(&config_str)?)
+    
+    // Read the file content
+    let config_str = fs::read_to_string(&config_file_path)?;
+    
+    // If the file is empty, return empty JSON object
+    if config_str.trim().is_empty() {
+        return Ok(json!({}));
+    }
+    
+    // Parse the JSON, convert parsing errors to io::Error
+    serde_json::from_str(&config_str).map_err(|e| io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("Failed to parse config file: {}", e)
+    ))
 }
 
 // Function to save the configuration to file
