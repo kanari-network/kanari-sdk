@@ -117,6 +117,7 @@ bip39 = { version = "2.0.0", features = ["rand"] }
 colored = "2.0"
 dirs = "5.0.1"
 log = "0.4.14"
+env_logger = "0.11.5"
 lazy_static = "1.5.0"
 serde = { version = "1.0.144", features = ["derive", "rc"] }
 serde_json = { version = "1.0.95", features = [

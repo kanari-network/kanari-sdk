@@ -19,13 +19,14 @@ bip39.workspace = true
 colored.workspace = true
 dirs.workspace = true
 tokio.workspace = true
-network.workspace = true
-consensus-pos.workspace = true
-p2p-protocol.workspace = true
-tui = "0.19"
-crossterm = "0.25"
-log = "0.4"
-env_logger = "0.9"  # Optional, for easy logging setup
+log.workspace = true    
+env_logger.workspace = true
+
+
+# This is a workspace crate, so we need to include the following dependencies
 key.workspace = true
 k2.workspace = true 
 command.workspace = true
+network.workspace = true
+consensus-pos.workspace = true
+p2p-protocol.workspace = true
