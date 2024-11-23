@@ -8,7 +8,7 @@ use hex;
 
 
 // Import Mutex and HashMap from std::sync
-use k2::{blockchain::{get_kari_dir,  BALANCES}, gas::TRANSACTION_GAS_COST, transaction::Transaction};
+use k2::{blockchain::{get_kari_dir, save_blockchain, BALANCES}, gas::TRANSACTION_GAS_COST, transaction::Transaction};
 
 pub fn check_wallet_exists() -> bool {
     match list_wallet_files() {
@@ -193,6 +193,8 @@ pub fn send_coins(from_address: &str, to_address: &str, amount: u64) -> Result<S
     *balances.get_mut(from_address).unwrap() -= amount + TRANSACTION_GAS_COST as u64;
     *balances.entry(to_address.to_string()).or_insert(0) += amount;
 
-
+    // After updating balances, save blockchain state
+    save_blockchain();
+        
     Ok("Transaction successful".to_string())
 }
