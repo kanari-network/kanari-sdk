@@ -1,4 +1,3 @@
-pub mod simulation;
 pub mod blockchain;
 pub mod transaction;
 pub mod gas;

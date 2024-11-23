@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, path::PathBuf, str::FromStr as _, sync::Mutex, time::{SystemTime, UNIX_EPOCH}};
+use std::{collections::HashMap, fs, path::PathBuf, str::FromStr as _, sync::Mutex};
 use serde_json::json;
 use bip39::Mnemonic;
 
@@ -152,7 +152,7 @@ pub fn send_coins(from_address: &str, to_address: &str, amount: u64) -> Result<S
     // Get sender's private key
     let private_key = sender_wallet["private_key"].as_str()
         .ok_or("Invalid wallet format")?;
-    
+
     // Properly unwrap BALANCES Option<Mutex>
     let mut balances = unsafe {
         BALANCES.as_ref()
@@ -189,15 +189,10 @@ pub fn send_coins(from_address: &str, to_address: &str, amount: u64) -> Result<S
     let sig_hex = hex::encode(signature.serialize_compact());
     transaction.signature = Some(sig_hex);
 
-    // ตั้งค่า timestamp
-    transaction.timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-
     // Update balances
     *balances.get_mut(from_address).unwrap() -= amount + TRANSACTION_GAS_COST as u64;
     *balances.entry(to_address.to_string()).or_insert(0) += amount;
 
-    Ok("Transaction sent to the node successfully".to_string())
+
+    Ok("Transaction successful".to_string())
 }

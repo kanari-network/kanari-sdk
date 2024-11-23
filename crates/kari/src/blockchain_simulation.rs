@@ -1,15 +1,17 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
 use consensus_pos::Blake3Algorithm;
+use k2::block::Block;
+use k2::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN, TOTAL_TOKENS};
+use k2::gas::TRANSACTION_GAS_COST;
+use k2::transaction::Transaction;
+use std::sync::mpsc::{self, Sender, Receiver}; // Import Sender and Receiver
 use std::time::{SystemTime, UNIX_EPOCH};
 use log::{info, warn, error};
 
-use crate::block::Block;
-use crate::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN, TOTAL_TOKENS};
-use crate::gas::{TRANSACTION_GAS_COST, TRANSACTION_RECEIVER};
-use crate::transaction::Transaction;
-
-
+// Define the Sender and Receiver separately
+pub static mut TRANSACTION_SENDER: Option<Sender<Transaction>> = None;
+pub static mut TRANSACTION_RECEIVER: Option<Receiver<Transaction>> = None;
 
 pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
     let max_tokens = 11_000_000; // Maximum token supply   
@@ -20,7 +22,11 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
     // Assume there's a global variable for pending transactions
     static mut PENDING_TRANSACTIONS: Vec<Transaction> = Vec::new();
 
-    unsafe {      
+    unsafe {
+        // Initialize the channel within the function
+        let (sender, receiver) = mpsc::channel();
+        TRANSACTION_SENDER = Some(sender);
+        TRANSACTION_RECEIVER = Some(receiver);        
 
         if BLOCKCHAIN.is_empty() {
             let genesis_data = vec![0; block_size];

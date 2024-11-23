@@ -1,4 +1,4 @@
-
+mod blockchain_simulation;
 mod config;
 mod rpc;
 
@@ -11,7 +11,6 @@ use colored::Colorize;
 use command::keytool_cli::handle_keytool_command;
 use command::move_cli::handle_move_command;
 use config::{configure_network, load_config, save_config};
-use k2::simulation::run_blockchain;
 use key::{check_wallet_exists, list_wallet_files};
 use network::{NetworkConfig, NetworkType};
 
@@ -19,7 +18,7 @@ use p2p_protocol::P2PNetwork;
 use serde_json::json;
 use k2::blockchain::{get_kari_dir, load_blockchain, save_blockchain, BALANCES};
 use k2::chain_id::CHAIN_ID;
-
+use crate::blockchain_simulation::run_blockchain;
 use crate::rpc::start_rpc_server;
 
 
