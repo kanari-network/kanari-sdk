@@ -5,6 +5,3 @@ version.workspace = true
 
 [dependencies]
 lazy_static = "1.5.0"
-move-vm-types.workspace = true
-move-vm-runtime.workspace = true
-move-vm-config.workspace = true

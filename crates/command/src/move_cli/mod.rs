@@ -1,5 +1,4 @@
 use colored::Colorize;
-use kari_move::create_move_project;
 use std::process::exit;
 
 pub fn handle_move_command() -> Option<String> {
@@ -42,35 +41,9 @@ pub fn handle_move_command() -> Option<String> {
                 return None;
             }
             "new" => {
-                if let Some(project_name) = args.get(2) {
-                    // Validate project name
-                    if !is_valid_project_name(project_name) {
-                        eprintln!("❌ Invalid project name: {}", project_name);
-                        eprintln!("Project name must:");
-                        eprintln!("- Start with a letter");
-                        eprintln!("- Contain only letters, numbers, or underscores");
-                        return Some(1.to_string());
-                    }
-
-                    // Create project directory
-                    match create_move_project(project_name) {
-                        Ok(_) => {
-                            println!("✨ Created new Move project: {}", project_name);
-                            println!("\nNext steps:");
-                            println!("  cd {}", project_name);
-                            println!("  kari move build");
-                            return Some(0.to_string());
-                        }
-                        Err(e) => {
-                            eprintln!("❌ Failed to create project: {}", e);
-                            return Some(1.to_string());
-                        }
-                    }
-                } else {
-                    eprintln!("Usage: kari move new <project-name>");
-                    eprintln!("Example: kari move new my_move_project");
-                    return Some(1.to_string());
-                }
+                // String comparison for "info"
+                println!("Printing address information...");
+                return None;                
             }
 
             "prove" => {
@@ -165,18 +138,4 @@ pub fn handle_move_command() -> Option<String> {
         );
         exit(1); // Exit with an error code
     }
-}
-
-// Add helper function for name validation
-fn is_valid_project_name(name: &str) -> bool {
-    if name.is_empty() {
-        return false;
-    }
-
-    let first_char = name.chars().next().unwrap();
-    if !first_char.is_ascii_alphabetic() {
-        return false;
-    }
-
-    name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }

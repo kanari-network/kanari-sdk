@@ -1,149 +1,130 @@
-use move_compiler::compiled_unit::CompiledUnit;
-use move_compiler::shared::NumericalAddress;
-use move_vm_runtime::move_vm::MoveVM;
-use move_vm_test_utils::InMemoryStorage;
-use move_core_types::language_storage::ModuleId;
-use move_core_types::account_address::AccountAddress;
-use move_vm_runtime::native_functions::NativeFunctionTable;
-use std::collections::BTreeMap;
-use std::path::Path;
-use std::io::Write;
-use std::fs;
+// Copyright (c) The Diem Core Contributors
+// Copyright (c) The Move Contributors
+// SPDX-License-Identifier: Apache-2.0
 
-pub fn compile_move_script(script_path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let path = Path::new(script_path);
-    let (compiled_units, _) = move_compiler::Compiler::from_files(
-        None,
-        vec![path.to_str().unwrap().to_string()],
-        vec![],
-        BTreeMap::<String, NumericalAddress>::new(),
-    ).build()?;
-    for unit in compiled_units {
-        println!("Compiled unit: {:?}", unit);
-    }
-    Ok(())
-}
-// move_vm_runtime::move_vm::MoveVM
-pub fn execute_move_script(
-    script_path: &str,
-    sender: AccountAddress,
-    natives: NativeFunctionTable,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let storage = InMemoryStorage::new();
-    let vm = MoveVM::new(natives)?;
-    let path = Path::new(script_path);
-    let (compiled_units, _) = move_compiler::Compiler::from_files(
-        None,
-        vec![path.to_str().unwrap().to_string()],
-        vec![],
-        BTreeMap::<String, NumericalAddress>::new(),
-    ).build()?;
-    for unit in compiled_units {
+use base::{
+    build::Build, coverage::Coverage, disassemble::Disassemble, docgen::Docgen, errmap::Errmap,
+    info::Info, migrate::Migrate, new::New, test::Test,
+};
+use move_package::BuildConfig;
 
-    }
-    Ok(())
-}
+pub mod base;
+pub mod sandbox;
 
+/// Default directory where saved Move resources live
+pub const DEFAULT_STORAGE_DIR: &str = "storage";
 
-pub fn create_move_project(name: &str) -> std::io::Result<()> {
-    let project_dir = Path::new(name);
-    let sources_dir = project_dir.join("sources");
-    let tests_dir = project_dir.join("tests");
+/// Default directory for build output
+pub const DEFAULT_BUILD_DIR: &str = ".";
 
-    // Create directories
-    fs::create_dir_all(&sources_dir)?;
-    fs::create_dir_all(&tests_dir)?;
+use anyhow::Result;
+use clap::Parser;
+use move_core_types::{
+    account_address::AccountAddress, errmap::ErrorMapping, identifier::Identifier,
+};
+use move_vm_runtime::native_functions::NativeFunction;
+use move_vm_test_utils::gas_schedule::CostTable;
+use std::path::PathBuf;
 
-    // Create a sample Move file
-    let move_file_path = sources_dir.join(format!("{}.move", name));
-    let mut move_file = fs::File::create(move_file_path)?;
-    writeln!(move_file, "// Sample Move file for {}", name)?;
+type NativeFunctionRecord = (AccountAddress, Identifier, Identifier, NativeFunction);
 
-    // Create Move.toml file
-    let move_toml_path = project_dir.join("Move.toml");
-    let mut move_toml_file = fs::File::create(move_toml_path)?;
-    writeln!(move_toml_file, r#"[package]
-        name = "kanari_network"
-        version = "0.0.1"
-        license = "Academic Free License v3.0"
-        authors = ["James Atomc (co-founder@kanari.network)"]
-        published-at = "0xedb4864f8021cb6191028e0389312f058104bca6b68667789177db5f98ebae19"
-        edition = "2024.beta"
+#[derive(Parser)]
+#[clap(author, version, about)]
+pub struct Move {
+    /// Path to a package which the command should be run with respect to.
+    #[clap(long = "path", short = 'p', global = true)]
+    pub package_path: Option<PathBuf>,
 
-        [dependencies]
-        Sui = {{ git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }}
-        MoveStdlib = {{ git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "framework/testnet" }}
-        DeepBook = {{ git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/deepbook", rev = "framework/testnet" }}
+    /// Print additional diagnostics if available.
+    #[clap(short = 'v', global = true)]
+    pub verbose: bool,
 
-        [addresses]
-        kanari_network = "0x0"
-        std = "0x1"
-        sui = "0x2"
-        deepbook = "0xdee9"
-"#)?;
-
-    println!("Move project '{}' created successfully.", name);
-    Ok(())
+    /// Package build options
+    #[clap(flatten)]
+    pub build_config: BuildConfig,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use move_core_types::account_address::AccountAddress;
-    use move_vm_runtime::native_functions::NativeFunctionTable;
-    use std::fs::File;
-    use std::io::Write;
-    use tempfile::tempdir;
+/// MoveCLI is the CLI that will be executed by the `move-cli` command
+/// The `cmd` argument is added here rather than in `Move` to make it
+/// easier for other crates to extend `move-cli`
+#[derive(Parser)]
+pub struct MoveCLI {
+    #[clap(flatten)]
+    pub move_args: Move,
 
-    #[test]
-    fn test_compile_move_script() {
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("test_script.move");
-        let mut file = File::create(&file_path).unwrap();
-        writeln!(file, "script {{ module 0x42::test {{
-    struct Example has copy, drop {{ i: u64 }}
+    #[clap(subcommand)]
+    pub cmd: Command,
+}
 
-    use std::debug;
-    friend 0x42::another_test;
+#[derive(Parser)]
+pub enum Command {
+    Build(Build),
+    Coverage(Coverage),
+    Disassemble(Disassemble),
+    Docgen(Docgen),
+    Errmap(Errmap),
+    Info(Info),
+    Migrate(Migrate),
+    New(New),
+    Test(Test),
+    /// Execute a sandbox command.
+    #[clap(name = "sandbox")]
+    Sandbox {
+        /// Directory storing Move resources, events, and module bytecodes produced by module publishing
+        /// and script execution.
+        #[clap(long, default_value = DEFAULT_STORAGE_DIR)]
+        storage_dir: PathBuf,
+        #[clap(subcommand)]
+        cmd: sandbox::cli::SandboxCommand,
+    },
+}
 
-    const ONE: u64 = 1;
-
-    public fun print(x: u64) {{
-        let sum = x + ONE;
-        let example = Example {{ i: sum }};
-        debug::print(&sum)
-    }}
-}}
- }}").unwrap();
-
-        let result = compile_move_script(file_path.to_str().unwrap());
-        assert!(result.is_ok());
+pub fn run_cli(
+    natives: Vec<NativeFunctionRecord>,
+    cost_table: &CostTable,
+    error_descriptions: &ErrorMapping,
+    move_args: Move,
+    cmd: Command,
+) -> Result<()> {
+    // TODO: right now, the gas metering story for move-cli (as a library) is a bit of a mess.
+    //         1. It's still using the old CostTable.
+    //         2. The CostTable only affects sandbox runs, but not unit tests, which use a unit cost table.
+    match cmd {
+        Command::Build(c) => c.execute(move_args.package_path, move_args.build_config),
+        Command::Coverage(c) => c.execute(move_args.package_path, move_args.build_config),
+        Command::Disassemble(c) => c.execute(move_args.package_path, move_args.build_config),
+        Command::Docgen(c) => c.execute(move_args.package_path, move_args.build_config),
+        Command::Errmap(c) => c.execute(move_args.package_path, move_args.build_config),
+        Command::Info(c) => c.execute(move_args.package_path, move_args.build_config),
+        Command::Migrate(c) => c.execute(move_args.package_path, move_args.build_config),
+        Command::New(c) => c.execute_with_defaults(move_args.package_path),
+        Command::Test(c) => c.execute(
+            move_args.package_path,
+            move_args.build_config,
+            natives,
+            Some(cost_table.clone()),
+        ),
+        Command::Sandbox { storage_dir, cmd } => cmd.handle_command(
+            natives,
+            cost_table,
+            error_descriptions,
+            &move_args,
+            &storage_dir,
+        ),
     }
+}
 
-    #[test]
-    fn test_execute_move_script() {
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("test_script.move");
-        let mut file = File::create(&file_path).unwrap();
-        writeln!(file, "script {{ module 0x42::test {{
-    struct Example has copy, drop {{ i: u64 }}
-
-    use std::debug;
-    friend 0x42::another_test;
-
-    const ONE: u64 = 1;
-
-    public fun print(x: u64) {{
-        let sum = x + ONE;
-        let example = Example {{ i: sum }};
-        debug::print(&sum)
-    }}
-}}
- }}").unwrap();
-
-        let sender = AccountAddress::random();
-        let natives = NativeFunctionTable::new();
-        let result = execute_move_script(file_path.to_str().unwrap(), sender, natives);
-        assert!(result.is_ok());
-    }
+pub fn move_cli(
+    natives: Vec<NativeFunctionRecord>,
+    cost_table: &CostTable,
+    error_descriptions: &ErrorMapping,
+) -> Result<()> {
+    let args = MoveCLI::parse();
+    run_cli(
+        natives,
+        cost_table,
+        error_descriptions,
+        args.move_args,
+        args.cmd,
+    )
 }
