@@ -4,7 +4,12 @@ edition = "2021"
 version.workspace = true
 
 [dependencies]
-colored.workspace =  true
+colored.workspace = true
 key.workspace = true
 k2.workspace = true
 kari-move.workspace = true
+move-vm-test-utils = { workspace = true }
+move-core-types = { workspace = true }
+move-package = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+anyhow = { workspace = true }
