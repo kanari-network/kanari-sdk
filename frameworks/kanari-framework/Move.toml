@@ -1,0 +1,10 @@
+[package]
+name = "kanari_framework"
+version = "0.0.0"
+
+[dependencies]
+MoveStdlib = { git = "https://github.com/move-language/move.git", subdir = "language/move-stdlib", rev = "main" }
+
+[addresses]
+kanari_framework = "0x0"
+std =  "0x1"

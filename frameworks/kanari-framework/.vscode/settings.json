@@ -1,0 +1,5 @@
+{
+    "aptos-move-analyzer.server.path": "aptos-move-analyzer",
+    "move-analyzer.server.path": "move-analyzer",
+    "move-analyzer.trace.server": "verbose"
+}

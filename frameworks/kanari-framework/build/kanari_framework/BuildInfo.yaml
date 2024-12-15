@@ -1,0 +1,22 @@
+---
+compiled_package_info:
+  package_name: kanari_framework
+  address_alias_instantiation:
+    kanari_framework: "00000000000000000000000000000000"
+    std: "00000000000000000000000000000001"
+  source_digest: BE5FF9C12A80B8D7083C21C1870AFF4EF50970DF4E03F8CA10C7523E83A002F3
+  build_flags:
+    dev_mode: false
+    test_mode: false
+    generate_docs: false
+    generate_abis: false
+    install_dir: ~
+    force_recompilation: false
+    lock_file: ~
+    additional_named_addresses: {}
+    architecture: ~
+    fetch_deps_only: false
+    skip_fetch_latest_git_deps: false
+    bytecode_version: ~
+dependencies:
+  - MoveStdlib
