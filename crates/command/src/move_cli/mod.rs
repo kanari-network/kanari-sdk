@@ -1,4 +1,5 @@
 use colored::Colorize;
+use kari_move::create_move_project;
 use std::process::exit;
 
 pub fn handle_move_command() -> Option<String> {
@@ -35,13 +36,22 @@ pub fn handle_move_command() -> Option<String> {
                 println!("Printing address information...");
                 return None;
             },
-            "new" => { // String comparison for "new"
-                println!("Enter project name:");
-                let mut project_name = String::new();
-                std::io::stdin().read_line(&mut project_name).unwrap();
-                let project_name = project_name.trim();
-
-                return None;
+            "new" => {
+                if let Some(name) = args.get(2) {
+                    match create_move_project(name) {
+                        Ok(_) => {
+                            println!("Created new Move project: {}", name);
+                            return Some(0.to_string());
+                        },
+                        Err(e) => {
+                            eprintln!("Failed to create project: {}", e);
+                            return Some(1.to_string());
+                        }
+                    }
+                } else {
+                    eprintln!("Usage: kari move new <project-name>");
+                    return Some(1.to_string());
+                }
             },
             "prove" => { // String comparison for "prove"
                 println!("Running Move prover...");
