@@ -33,7 +33,7 @@ Kanari SDK
 ./build_ubuntu.sh
 
 # Clone the Kari chain repo (example command, replace with actual repository URL)
-git clone  https://github.com/kanari-network/kanari-network.git
+git clone  https://github.com/kanari-network/kanari-sdk.git
 
 cd kanari-network
 
@@ -46,5 +46,5 @@ cargo run --release
 
 ### Kari CLI Install
 ```shell
-cargo install --locked --git https://github.com/kanari-network/kanari-network.git --branch main kari
+cargo install --locked --git https://github.com/kanari-network/kanari-sdk.git --branch main kari
 ```
