@@ -23,18 +23,38 @@ pub fn handle_move_command() {
     let error_mapping = ErrorMapping::default();
     
 
+    struct CommandInfo {
+        name: &'static str,
+        description: &'static str,
+    }
+    
+    const COMMANDS: &[CommandInfo] = &[
+        CommandInfo { name: "build", description: "Build the package" },
+        CommandInfo { name: "coverage", description: "Inspect test coverage" },
+        CommandInfo { name: "disassemble", description: "Disassemble Move bytecode" },
+        CommandInfo { name: "docgen", description: "Generate documentation" },
+        CommandInfo { name: "errmap", description: "Generate error map" },
+        CommandInfo { name: "info", description: "Print address information" },
+        CommandInfo { name: "new", description: "Create new Move package" },
+        CommandInfo { name: "test", description: "Run Move unit tests" },
+        CommandInfo { name: "sandbox", description: "Execute sandbox commands" },
+    ];
+    
     if args.len() <= 2 {
-        println!("{}", "Usage: move <command> [options]".red());
-        println!("Available commands:");
-        println!("  {} - Build the package", "build".green());
-        println!("  {} - Inspect test coverage", "coverage".green());
-        println!("  {} - Disassemble Move bytecode", "disassemble".green());
-        println!("  {} - Generate documentation", "docgen".green());
-        println!("  {} - Generate error map", "errmap".green());
-        println!("  {} - Print address information", "info".green());
-        println!("  {} - Create new Move package", "new".green());
-        println!("  {} - Run Move unit tests", "test".green());
-        println!("  {} - Execute sandbox commands", "sandbox".green());
+        println!("\n{}", "Usage: move <command> [options]".bright_white().bold());
+        println!("\n{}\n", "Available commands:".bright_white());
+        
+        let max_name_len = COMMANDS.iter().map(|cmd| cmd.name.len()).max().unwrap_or(0);
+        
+        for cmd in COMMANDS {
+            println!(
+                "  {}{}  {}", 
+                cmd.name.green(),
+                " ".repeat(max_name_len - cmd.name.len() + 2),
+                cmd.description.bright_white()
+            );
+        }
+        println!();
         exit(1);
     }
 
@@ -47,13 +67,12 @@ pub fn handle_move_command() {
 
     let cmd = match command.as_str() {
         "build" => Command::Build(Build {}),
-        // "coverage" => Command::Coverage(Coverage {
-        //     options: vec![
-        //         CoverageSummaryOptions::ModuleSummary,
-        //         CoverageSummaryOptions::FunctionSummary,
-        //         CoverageSummaryOptions::BytecodeSummary { module_name: None }
-        //     ]
-        // }),
+        "coverage" => Command::Coverage(Coverage {
+            options: CoverageSummaryOptions::Summary {
+                functions: false,
+                output_csv: false
+            }
+        }),
         "disassemble" => Command::Disassemble(Disassemble {
             interactive: false,
             package_name: None,
