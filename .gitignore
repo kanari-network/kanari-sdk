@@ -4,3 +4,4 @@
 target
 tmp
 Cargo.lock
+frameworks/kanari-framework/build
