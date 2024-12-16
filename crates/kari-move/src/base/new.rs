@@ -18,6 +18,8 @@ use std::{
 // }";
 pub const MOVE_STDLIB_ADDR_NAME: &str = "std";
 pub const MOVE_STDLIB_ADDR_VALUE: &str = "0x1";
+pub const KANARI_FRAMEWORK_ADDR_NAME: &str = "kanari";
+pub const KANARI_FRAMEWORK_ADDR_VALUE: &str = "0x2";
 
 /// Create a new Move package with name `name` at `path`. If `path` is not provided the package
 /// will be created in the directory `name`.
@@ -74,6 +76,7 @@ edition = "legacy" # edition = "legacy" to use legacy (pre-2024) Move
         writeln!(
             w,
             r#"
+KanariFramework = {{ git = "https://github.com/kanari-network/kanari-sdk.git", subdir = "framework/kanari_framework", rev = "main" }}
 MoveStdlib = {{ git = "https://github.com/kanari-network/kanari-sdk.git", subdir = "framework/move-stdlib", rev = "main" }}
 # For remote import, use the `{{ git = "...", subdir = "...", rev = "..." }}`.
 # Revision can be a branch, a tag, and a commit hash.
@@ -97,8 +100,9 @@ MoveStdlib = {{ git = "https://github.com/kanari-network/kanari-sdk.git", subdir
         writeln!(
             w,
             r#"
-{name} = "0x0"
+{name} = "0x1"
 std = "0x1"
+kanari = "0x2"
 # Named addresses will be accessible in Move as `@name`. They're also exported:
 # for example, `std = "0x1"` is exported by the Standard Library.
 # alice = "0xA11CE"
