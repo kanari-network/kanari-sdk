@@ -98,7 +98,7 @@ codegen-units = 16
 opt-level = 3
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.3"
 
 #Dependencies Workspace
 [workspace.dependencies]

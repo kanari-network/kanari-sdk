@@ -5,6 +5,47 @@ use k2::blockchain::{load_blockchain, BALANCES};
 use std::process::exit;
 
 
+struct CommandInfo {
+    name: &'static str,
+    description: &'static str,
+}
+
+const COMMANDS: &[CommandInfo] = &[
+    CommandInfo { name: "generate", description: "Generate new address" },
+    CommandInfo { name: "balance", description: "Check balance" },
+    CommandInfo { name: "wallet", description: "Load existing wallet" },
+    CommandInfo { name: "send", description: "Send coins" },
+    CommandInfo { name: "list", description: "List wallet files" },
+];
+
+fn display_help(show_error: bool) {
+    if show_error {
+        println!("\n{}", "ERROR: Invalid command".red().bold());
+    }
+
+    // Usage section
+    println!("{}", "USAGE:".bright_yellow().bold());
+    println!("  kari keytool <command> [options]\n");
+
+    // Commands section
+    println!("{}", "COMMANDS:".bright_yellow().bold());
+    
+    let max_name_len = COMMANDS.iter().map(|cmd| cmd.name.len()).max().unwrap_or(0);
+    
+    for cmd in COMMANDS {
+        println!(
+            "  {}{}  {}", 
+            cmd.name.green().bold(),
+            " ".repeat(max_name_len - cmd.name.len() + 2),
+            cmd.description.bright_white()
+        );
+    }
+    println!();
+    
+    exit(1);
+}
+
+
 pub fn handle_keytool_command() -> Option<String> {
     // Collect command line arguments
     let args: Vec<String> = std::env::args().collect();
@@ -115,27 +156,12 @@ pub fn handle_keytool_command() -> Option<String> {
                 return None;
             },
             _ => {
-                println!("{}", "Invalid command".red());
-                println!("Usage: kari keytool <command> [options]");
-                println!("Commands:");
-                println!("  {} - Generate new address", "generate".green());
-                println!("  {} - Check balance", "balance".green());
-                println!("  {} - Load existing wallet", "wallet".green());
-                println!("  {} - Send coins", "send".green());
-                println!("  {} - List wallet files", "list".green());
-                exit(1); // Exit with an error code
-        
+                display_help(true);
+                return None;
             },
         }
     } else {
-        // No command provided, print usage
-        println!("Usage: kari keytool <command> [options]");
-        println!("Commands:");
-        println!("  {} - Generate new address", "generate".green());
-        println!("  {} - Check balance", "balance".green());
-        println!("  {} - Load existing wallet", "wallet".green());
-        println!("  {} - Send coins", "send".green());
-        println!("  {} - List wallet files", "list".green());
-        exit(1); // Exit with an error code
+        display_help(false);
+        return None;
     }
 }
