@@ -18,7 +18,7 @@ use std::{
 // }";
 pub const MOVE_STDLIB_ADDR_NAME: &str = "std";
 pub const MOVE_STDLIB_ADDR_VALUE: &str = "0x1";
-pub const KANARI_FRAMEWORK_ADDR_NAME: &str = "kanari";
+pub const KANARI_FRAMEWORK_ADDR_NAME: &str = "kanari_framework";
 pub const KANARI_FRAMEWORK_ADDR_VALUE: &str = "0x2";
 
 /// Create a new Move package with name `name` at `path`. If `path` is not provided the package
@@ -100,8 +100,9 @@ MoveStdlib = {{ git = "https://github.com/kanari-network/kanari-sdk.git", subdir
         writeln!(
             w,
             r#"
+{name} = "0x1"
 std = "0x1"
-kanari = "0x2"
+kanari_framework = "0x2"
 # Named addresses will be accessible in Move as `@name`. They're also exported:
 # for example, `std = "0x1"` is exported by the Standard Library.
 # alice = "0xA11CE"
