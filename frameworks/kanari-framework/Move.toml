@@ -1,11 +1,10 @@
 [package]
 name = "KanariFramework"
 version = "1.0.0"
-edition = "legacy" # edition = "legacy" to use legacy (pre-2024) Move
 
 [dependencies]
 MoveStdlib = { local = "../../frameworks/move-stdlib" }
 
 [addresses]
 std =  "0x1"
-kanari_framework = "0x2"
+kanari_framework = "_"
