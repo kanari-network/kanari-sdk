@@ -38,6 +38,13 @@ move-prover.workspace = true
 move-unit-test.workspace = true
 move-errmapgen.workspace = true
 move-bytecode-viewer.workspace = true
+key.workspace = true
+k2.workspace = true 
+command.workspace = true
+network.workspace = true
+consensus-pos.workspace = true
+p2p-protocol.workspace = true
+
 
 [dev-dependencies]
 datatest-stable.workspace = true
@@ -60,3 +67,6 @@ harness = false
 
 [features]
 tiered-gas = [ "move-vm-test-utils/tiered-gas" ]
+
+
+
