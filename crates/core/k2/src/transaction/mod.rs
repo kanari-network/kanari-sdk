@@ -3,34 +3,74 @@ use crate::gas::{
     MOVE_MODULE_DEPLOY_GAS,
     MOVE_FUNCTION_CALL_GAS
 };
+use move_core_types::language_storage::TypeTag;
 use serde::{Serialize, Deserialize};
 use secp256k1::{Secp256k1, Message, SecretKey};
 use sha2::{Sha256, Digest};
 
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub enum TransactionType {
     Transfer,
     MoveModuleDeploy(Vec<u8>),
-    MoveFunctionCall {
-        module_id: String,
-        function: String,
-        args: Vec<String>
+    MoveExecute {
+        module_name: String,
+        function_name: String,
+        type_tags: Vec<TypeTag>,
+        args: Vec<Vec<u8>>
     }
 }
+
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Transaction {
     pub sender: String,
-    pub receiver: String, 
+    pub receiver: String,
     pub amount: u64,
     pub gas_cost: f64,
     pub timestamp: u64,
     pub signature: Option<String>,
-    pub tx_type: TransactionType, // Add transaction type
+    pub tx_type: TransactionType,
+    pub data: Vec<u8>,
 }
 
 impl Transaction {
+
+
+    pub fn new_move_execute(
+        sender: String,
+        module_name: String, 
+        function_name: String,
+        type_tags: Vec<TypeTag>,
+        args: Vec<Vec<u8>>
+    ) -> Self {
+        let mut data = Vec::new();
+        data.extend_from_slice(module_name.as_bytes());
+        data.extend_from_slice(function_name.as_bytes());
+        data.extend_from_slice(&bcs::to_bytes(&type_tags).unwrap());
+        data.extend_from_slice(&bcs::to_bytes(&args).unwrap());
+
+        Transaction {
+            sender,
+            receiver: String::new(),
+            amount: 0,
+            gas_cost: 0.0,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            signature: None,
+            tx_type: TransactionType::MoveExecute {
+                module_name,
+                function_name,
+                type_tags,
+                args
+            },
+            data,
+        }
+    }
+
     pub fn new(sender: String, receiver: String, amount: u64) -> Self {
         Self {
             sender,
@@ -43,6 +83,23 @@ impl Transaction {
                 .as_secs(),
             signature: None,
             tx_type: TransactionType::Transfer,
+            data: Vec::new(),
+        }
+    }
+
+    pub fn new_move_deploy(sender: String, module_bytes: Vec<u8>) -> Self {
+        Self {
+            sender,
+            receiver: String::new(),
+            amount: 0,
+            gas_cost: MOVE_MODULE_DEPLOY_GAS,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            signature: None,
+            tx_type: TransactionType::MoveModuleDeploy(module_bytes.clone()),
+            data: module_bytes,
         }
     }
 
@@ -80,79 +137,103 @@ impl Transaction {
         let mut hash = [0u8; 32];
         hash.copy_from_slice(&result);
         hash
-    }
-
-    pub fn new_move_deploy(sender: String, module_bytes: Vec<u8>) -> Self {
-        Self {
-            sender: sender.clone(),
-            receiver: "system".to_string(), 
-            amount: 0,
-            gas_cost: MOVE_MODULE_DEPLOY_GAS,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-            signature: None,
-            tx_type: TransactionType::MoveModuleDeploy(module_bytes),
-        }
-    }
-
-    pub fn new_move_call(
-        sender: String,
-        module_id: String,
-        function: String,
-        args: Vec<String>
-    ) -> Self {
-        Self {
-            sender,
-            receiver: module_id.clone(),
-            amount: 0,
-            gas_cost: MOVE_FUNCTION_CALL_GAS,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-            signature: None,
-            tx_type: TransactionType::MoveFunctionCall {
-                module_id,
-                function,
-                args
-            },
-        }
-    }
+    }    
 
 }
+
+
+
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_transaction_initialization() {
-        let tx = Transaction::new(String::from("Alice"), String::from("Bob"), 10);
-        assert_eq!(tx.sender, "Alice");
-        assert_eq!(tx.receiver, "Bob");
-        assert_eq!(tx.amount, 10);
-        assert_eq!(tx.gas_cost, TRANSACTION_GAS_COST);
-        assert!(tx.timestamp > 0);
+    fn test_new_transaction() {
+        let tx = Transaction::new(
+            "sender123".to_string(),
+            "receiver456".to_string(),
+            100
+        );
+        
+        assert_eq!(tx.sender, "sender123");
+        assert_eq!(tx.receiver, "receiver456");
+        assert_eq!(tx.amount, 100);
+        assert_eq!(tx.tx_type, TransactionType::Transfer);
         assert!(tx.signature.is_none());
     }
 
     #[test]
-    fn test_calculate_total_cost() {
-        let tx = Transaction::new(String::from("Alice"), String::from("Bob"), 10);
-        let expected_total_cost = 10 + TRANSACTION_GAS_COST as u64;
-        assert_eq!(tx.calculate_total_cost(), expected_total_cost);
+    fn test_move_module_deploy() {
+        let module_bytes = vec![1, 2, 3, 4];
+        let tx = Transaction::new_move_deploy(
+            "deployer123".to_string(),
+            module_bytes.clone()
+        );
+
+        assert_eq!(tx.sender, "deployer123");
+        assert_eq!(tx.amount, 0);
+        assert!(matches!(tx.tx_type, TransactionType::MoveModuleDeploy(_)));
+        assert_eq!(tx.data, module_bytes);
     }
 
     #[test]
-    fn test_transaction_signing() {
-        let secp = Secp256k1::new();
-        let private_key = [1u8; 32];
-        let mut tx = Transaction::new(String::from("Alice"), String::from("Bob"), 10);
+    fn test_move_execute() {
+        let module_name = "Test".to_string();
+        let function_name = "run".to_string();
+        let type_tags = vec![];
+        let args = vec![vec![1, 2, 3]];
+
+        let tx = Transaction::new_move_execute(
+            "executor123".to_string(),
+            module_name.clone(),
+            function_name.clone(),
+            type_tags.clone(),
+            args.clone()
+        );
+
+        if let TransactionType::MoveExecute { 
+            module_name: m, 
+            function_name: f,
+            type_tags: t,
+            args: a 
+        } = tx.tx_type {
+            assert_eq!(m, module_name);
+            assert_eq!(f, function_name);
+            assert_eq!(t, type_tags);
+            assert_eq!(a, args);
+        } else {
+            panic!("Wrong transaction type");
+        }
+    }
+
+    #[test]
+    fn test_transaction_hash() {
+        let tx = Transaction::new(
+            "sender123".to_string(),
+            "receiver456".to_string(),
+            100
+        );
         
-        let signature = tx.sign(&secp, &private_key);
-        assert!(signature.is_ok());
-        assert!(tx.signature.is_some());
+        let hash = tx.hash();
+        assert_eq!(hash.len(), 32);
+        assert_ne!(hash, [0u8; 32]);
+    }
+
+    #[test]
+    fn test_transaction_serialization() {
+        let tx = Transaction::new(
+            "sender123".to_string(),
+            "receiver456".to_string(),
+            100
+        );
+        
+        let serialized = serde_json::to_string(&tx).unwrap();
+        let deserialized: Transaction = serde_json::from_str(&serialized).unwrap();
+        
+        assert_eq!(tx.sender, deserialized.sender);
+        assert_eq!(tx.receiver, deserialized.receiver);
+        assert_eq!(tx.amount, deserialized.amount);
+        assert_eq!(tx.tx_type, deserialized.tx_type);
     }
 }

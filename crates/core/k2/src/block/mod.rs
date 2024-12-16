@@ -1,6 +1,16 @@
 use crate::{chain_id::CHAIN_ID, gas::MOVE_MODULE_DEPLOY_GAS, transaction::Transaction};
 use consensus_pos::HashAlgorithm;
 use serde::{Deserialize, Serialize};
+use move_core_types::language_storage::TypeTag;
+use move_core_types::{account_address::AccountAddress};
+use std::collections::HashMap;
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct MoveVMState {
+    pub state_updates: HashMap<AccountAddress, HashMap<Vec<u8>, Vec<u8>>>,
+    pub events: Vec<Vec<u8>>,
+    pub module_bytes: Option<Vec<u8>>,
+}
 
 // Define the Block struct
 #[derive(Serialize, Deserialize, Clone)]
@@ -16,6 +26,7 @@ pub struct Block<T: HashAlgorithm> {
     pub transactions: Vec<Transaction>,
     pub address: String,
     pub hasher: T,
+    pub move_state: MoveVMState, // New field
 }
 
 // Implement the Block struct
@@ -28,6 +39,32 @@ impl<T: HashAlgorithm> Block<T> {
             module_bytes
         ));
         self.hash = self.calculate_hash();
+    }
+
+    // Add Move module execution
+    pub fn execute_move_module(
+        &mut self,
+        sender: String,
+        module_name: String,
+        function_name: String,
+        type_tags: Vec<TypeTag>,
+        args: Vec<Vec<u8>>,
+    ) {
+        let transaction = Transaction::new_move_execute(
+            sender,
+            module_name,
+            function_name, 
+            type_tags,
+            args
+        );
+        
+        self.data = transaction.data.clone();
+        self.transactions.push(transaction);
+        self.hash = self.calculate_hash();
+    }
+
+    pub fn get_move_state(&self) -> &MoveVMState {
+        &self.move_state
     }
 
     pub fn new(
@@ -55,6 +92,11 @@ impl<T: HashAlgorithm> Block<T> {
             transactions,
             address,
             hasher,
+            move_state: MoveVMState {
+                state_updates: HashMap::new(),
+                events: Vec::new(),
+                module_bytes: None,
+            },
         };
         block.hash = block.calculate_hash();
         block
