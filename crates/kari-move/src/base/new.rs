@@ -100,7 +100,6 @@ MoveStdlib = {{ git = "https://github.com/kanari-network/kanari-sdk.git", subdir
         writeln!(
             w,
             r#"
-{name} = "0x1"
 std = "0x1"
 kanari = "0x2"
 # Named addresses will be accessible in Move as `@name`. They're also exported:
