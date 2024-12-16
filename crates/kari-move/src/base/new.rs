@@ -76,8 +76,8 @@ edition = "legacy" # edition = "legacy" to use legacy (pre-2024) Move
         writeln!(
             w,
             r#"
-KanariFramework = {{ git = "https://github.com/kanari-network/kanari-sdk.git", subdir = "framework/kanari_framework", rev = "main" }}
-MoveStdlib = {{ git = "https://github.com/kanari-network/kanari-sdk.git", subdir = "framework/move-stdlib", rev = "main" }}
+KanariFramework = {{ git = "https://github.com/kanari-network/kanari-sdk.git", subdir = "frameworks/kanari_framework", rev = "main" }}
+MoveStdlib = {{ git = "https://github.com/kanari-network/kanari-sdk.git", subdir = "frameworks/move-stdlib", rev = "main" }}
 # For remote import, use the `{{ git = "...", subdir = "...", rev = "..." }}`.
 # Revision can be a branch, a tag, and a commit hash.
 # MyRemotePackage = {{ git = "https://some.remote/host.git", subdir = "remote/path", rev = "main" }}
