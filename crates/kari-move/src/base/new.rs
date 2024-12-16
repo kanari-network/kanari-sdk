@@ -61,7 +61,7 @@ impl New {
             w,
             r#"[package]
 name = "{name}"
-edition = "2024.beta" # edition = "legacy" to use legacy (pre-2024) Move
+edition = "legacy" # edition = "legacy" to use legacy (pre-2024) Move
 # license = ""           # e.g., "MIT", "GPL", "Apache 2.0"
 # authors = ["..."]      # e.g., ["Joe Smith (joesmith@noemail.com)", "John Snow (johnsnow@noemail.com)"]
 
@@ -74,6 +74,7 @@ edition = "2024.beta" # edition = "legacy" to use legacy (pre-2024) Move
         writeln!(
             w,
             r#"
+MoveStdlib = {{ git = "https://github.com/kanari-network/kanari-sdk.git", subdir = "framework", rev = "main" }}
 # For remote import, use the `{{ git = "...", subdir = "...", rev = "..." }}`.
 # Revision can be a branch, a tag, and a commit hash.
 # MyRemotePackage = {{ git = "https://some.remote/host.git", subdir = "remote/path", rev = "main" }}
@@ -96,6 +97,8 @@ edition = "2024.beta" # edition = "legacy" to use legacy (pre-2024) Move
         writeln!(
             w,
             r#"
+{name} = "0x0"
+std = "0x1"
 # Named addresses will be accessible in Move as `@name`. They're also exported:
 # for example, `std = "0x1"` is exported by the Standard Library.
 # alice = "0xA11CE"
