@@ -84,8 +84,8 @@ impl Transaction {
 
     pub fn new_move_deploy(sender: String, module_bytes: Vec<u8>) -> Self {
         Self {
-            sender,
-            receiver: "system".to_string(),
+            sender: sender.clone(),
+            receiver: "system".to_string(), 
             amount: 0,
             gas_cost: MOVE_MODULE_DEPLOY_GAS,
             timestamp: std::time::SystemTime::now()

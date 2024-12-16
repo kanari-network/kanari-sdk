@@ -22,11 +22,10 @@ pub struct Block<T: HashAlgorithm> {
 impl<T: HashAlgorithm> Block<T> {
     // Add Move module deployment
     pub fn deploy_move_module(&mut self, module_bytes: Vec<u8>, sender: String) {
-        self.data = module_bytes;
-        self.transactions.push(Transaction::new(
+        self.data = module_bytes.clone();
+        self.transactions.push(Transaction::new_move_deploy(
             sender,
-            "system".to_string(),
-            MOVE_MODULE_DEPLOY_GAS as u64,
+            module_bytes
         ));
         self.hash = self.calculate_hash();
     }
