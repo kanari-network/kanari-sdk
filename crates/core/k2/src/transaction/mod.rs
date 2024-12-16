@@ -1,7 +1,23 @@
-use crate::gas::TRANSACTION_GAS_COST;
+use crate::gas::{
+    TRANSACTION_GAS_COST, 
+    MOVE_MODULE_DEPLOY_GAS,
+    MOVE_FUNCTION_CALL_GAS
+};
 use serde::{Serialize, Deserialize};
 use secp256k1::{Secp256k1, Message, SecretKey};
 use sha2::{Sha256, Digest};
+
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum TransactionType {
+    Transfer,
+    MoveModuleDeploy(Vec<u8>),
+    MoveFunctionCall {
+        module_id: String,
+        function: String,
+        args: Vec<String>
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Transaction {
@@ -10,7 +26,8 @@ pub struct Transaction {
     pub amount: u64,
     pub gas_cost: f64,
     pub timestamp: u64,
-    pub signature: Option<String>, // Add signature field
+    pub signature: Option<String>,
+    pub tx_type: TransactionType, // Add transaction type
 }
 
 impl Transaction {
@@ -25,6 +42,7 @@ impl Transaction {
                 .unwrap()
                 .as_secs(),
             signature: None,
+            tx_type: TransactionType::Transfer,
         }
     }
 
@@ -63,6 +81,46 @@ impl Transaction {
         hash.copy_from_slice(&result);
         hash
     }
+
+    pub fn new_move_deploy(sender: String, module_bytes: Vec<u8>) -> Self {
+        Self {
+            sender,
+            receiver: "system".to_string(),
+            amount: 0,
+            gas_cost: MOVE_MODULE_DEPLOY_GAS,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            signature: None,
+            tx_type: TransactionType::MoveModuleDeploy(module_bytes),
+        }
+    }
+
+    pub fn new_move_call(
+        sender: String,
+        module_id: String,
+        function: String,
+        args: Vec<String>
+    ) -> Self {
+        Self {
+            sender,
+            receiver: module_id.clone(),
+            amount: 0,
+            gas_cost: MOVE_FUNCTION_CALL_GAS,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            signature: None,
+            tx_type: TransactionType::MoveFunctionCall {
+                module_id,
+                function,
+                args
+            },
+        }
+    }
+
 }
 
 #[cfg(test)]

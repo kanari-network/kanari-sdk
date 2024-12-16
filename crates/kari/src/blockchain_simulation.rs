@@ -4,7 +4,7 @@ use consensus_pos::Blake3Algorithm;
 use k2::block::Block;
 use k2::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN, TOTAL_TOKENS};
 use k2::gas::TRANSACTION_GAS_COST;
-use k2::transaction::Transaction;
+use k2::transaction::{Transaction, TransactionType};
 use std::sync::mpsc::{self, Sender, Receiver}; // Import Sender and Receiver
 use std::time::{SystemTime, UNIX_EPOCH};
 use log::{info, warn, error};
@@ -91,6 +91,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
                         .unwrap()
                         .as_secs(),
                     signature: None, // Add an empty signature or a valid one if available
+                    tx_type: TransactionType::Transfer, // Add default transfer type 
                 });
                 info!("No transactions found. Created a zero-fee transaction for the miner.");
             }

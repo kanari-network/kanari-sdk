@@ -67,6 +67,7 @@ pub enum Command {
     Migrate(Migrate),
     New(New),
     Test(Test),
+    Publish(base::publish::Publish),
     /// Execute a sandbox command.
     #[clap(name = "sandbox")]
     Sandbox {
@@ -104,6 +105,7 @@ pub fn run_cli(
             natives,
             Some(cost_table.clone()),
         ),
+        Command::Publish(c) => c.execute(move_args.package_path, move_args.build_config, cost_table),
         Command::Sandbox { storage_dir, cmd } => cmd.handle_command(
             natives,
             cost_table,

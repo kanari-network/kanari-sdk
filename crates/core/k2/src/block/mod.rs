@@ -1,7 +1,6 @@
-
-use serde::{Deserialize, Serialize};
-use crate::{chain_id::CHAIN_ID, transaction::Transaction};
+use crate::{chain_id::CHAIN_ID, gas::MOVE_MODULE_DEPLOY_GAS, transaction::Transaction};
 use consensus_pos::HashAlgorithm;
+use serde::{Deserialize, Serialize};
 
 // Define the Block struct
 #[derive(Serialize, Deserialize, Clone)]
@@ -21,8 +20,30 @@ pub struct Block<T: HashAlgorithm> {
 
 // Implement the Block struct
 impl<T: HashAlgorithm> Block<T> {
-    pub fn new(index: u32, data: Vec<u8>, prev_hash: String, tokens: u64, transactions: Vec<Transaction>, miner_address: String, hasher: T) -> Block<T> {
-        let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    // Add Move module deployment
+    pub fn deploy_move_module(&mut self, module_bytes: Vec<u8>, sender: String) {
+        self.data = module_bytes;
+        self.transactions.push(Transaction::new(
+            sender,
+            "system".to_string(),
+            MOVE_MODULE_DEPLOY_GAS as u64,
+        ));
+        self.hash = self.calculate_hash();
+    }
+
+    pub fn new(
+        index: u32,
+        data: Vec<u8>,
+        prev_hash: String,
+        tokens: u64,
+        transactions: Vec<Transaction>,
+        miner_address: String,
+        hasher: T,
+    ) -> Block<T> {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let mut block = Block {
             chain_id: CHAIN_ID.to_string(),
             index,
@@ -50,7 +71,7 @@ impl<T: HashAlgorithm> Block<T> {
         input.extend_from_slice(self.prev_hash.as_bytes());
         input.extend_from_slice(&self.tokens.to_le_bytes());
         input.extend_from_slice(self.token_name.as_bytes());
-        
+
         // Serialize transactions
         let transactions_serialized = serde_json::to_string(&self.transactions).unwrap();
         input.extend_from_slice(transactions_serialized.as_bytes());

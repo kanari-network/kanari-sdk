@@ -10,3 +10,7 @@ pub static mut TRANSACTION_SENDER: Option<Sender<Transaction>> = None; // Change
 pub const MINT_NFT_TRANSACTION_GAS_COST: f64 = 0.00010000; // 0.00010000 KI
 pub const TRANSFER_NFT_TRANSACTION_GAS_COST: f64 = 0.00000100; // 0.00000100 KI
 pub const PAYMENT_TRANSACTION_GAS_COST: f64 = 0.00020000; // 0.00020000 KI
+
+// Add Move operation gas costs
+pub const MOVE_MODULE_DEPLOY_GAS: f64 = 0.00050000; // 0.0005 KI
+pub const MOVE_FUNCTION_CALL_GAS: f64 = 0.00001000; // 0.00001 KI

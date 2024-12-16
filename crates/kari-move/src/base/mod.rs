@@ -10,6 +10,7 @@ pub mod info;
 pub mod migrate;
 pub mod new;
 pub mod test;
+pub mod publish;
 
 use move_package::source_package::layout::SourcePackageLayout;
 use std::path::PathBuf;

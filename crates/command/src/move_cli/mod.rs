@@ -5,15 +5,7 @@ use move_package::BuildConfig;
 use std::{path::PathBuf, process::exit};
 use kari_move::{
     base::{
-        build::Build,
-        coverage::{Coverage, CoverageSummaryOptions},
-        disassemble::Disassemble,
-        docgen::Docgen,
-        errmap::Errmap,
-        info::Info,
-        migrate::Migrate,
-        new::New,
-        test::Test,
+        build::Build, coverage::{Coverage, CoverageSummaryOptions}, disassemble::Disassemble, docgen::Docgen, errmap::Errmap, info::Info, migrate::Migrate, new::New, publish::Publish, test::Test
     }, run_cli, sandbox, Command, Move
 };
 
@@ -31,6 +23,7 @@ const COMMANDS: &[CommandInfo] = &[
     CommandInfo { name: "info", description: "Print address information" },
     CommandInfo { name: "new", description: "Create new Move package" },
     CommandInfo { name: "test", description: "Run Move unit tests" },
+    CommandInfo { name: "publish", description: "Publish Move module" },
     CommandInfo { name: "sandbox", description: "Execute sandbox commands" },
 ];
 
@@ -125,6 +118,12 @@ pub fn handle_move_command() {
             verbose_mode: false,
             compute_coverage: false,
             gas_limit: None
+        }),
+        Some("publish") => Command::Publish(Publish {
+            module_path: PathBuf::new(),
+            gas_budget: 1000000,
+            address: None,
+            skip_verify: false
         }),
         Some("sandbox") => Command::Sandbox {
             storage_dir: PathBuf::from(kari_move::DEFAULT_STORAGE_DIR),
