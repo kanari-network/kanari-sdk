@@ -14,7 +14,7 @@ pub struct Block<T: HashAlgorithm> {
     pub tokens: u64,
     pub token_name: String,
     pub transactions: Vec<Transaction>,
-    pub miner_address: String,
+    pub address: String,
     pub hasher: T,
 }
 
@@ -36,7 +36,7 @@ impl<T: HashAlgorithm> Block<T> {
         prev_hash: String,
         tokens: u64,
         transactions: Vec<Transaction>,
-        miner_address: String,
+        address: String,
         hasher: T,
     ) -> Block<T> {
         let timestamp = std::time::SystemTime::now()
@@ -53,7 +53,7 @@ impl<T: HashAlgorithm> Block<T> {
             tokens,
             token_name: String::from("Kanari"),
             transactions,
-            miner_address,
+            address,
             hasher,
         };
         block.hash = block.calculate_hash();

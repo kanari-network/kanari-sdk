@@ -1,6 +1,5 @@
 use std::{collections::HashMap, fs, io::Write, path::PathBuf, str::FromStr as _, sync::Mutex};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use bip39::Mnemonic;
 
 use secp256k1::{Secp256k1, Message, SecretKey};

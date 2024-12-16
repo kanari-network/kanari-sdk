@@ -78,7 +78,7 @@ pub fn load_blockchain() {
             // Process blocks
             for block in BLOCKCHAIN.iter() {
                 total_tokens += block.tokens;
-                *balances.entry(block.miner_address.clone()).or_insert(0) += block.tokens;
+                *balances.entry(block.address.clone()).or_insert(0) += block.tokens;
 
                 // Process transactions
                 for tx in &block.transactions {
