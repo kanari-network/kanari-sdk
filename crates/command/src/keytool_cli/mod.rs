@@ -1,6 +1,7 @@
 use std::io;
 use colored::Colorize;
-use key::{generate_karix_address, list_wallet_files, load_wallet, save_wallet, send_coins, };
+use key::{generate_karix_address, list_wallet_files, load_wallet, save_wallet,  };
+
 use k2::blockchain::{load_blockchain, BALANCES};
 use std::process::exit;
 
@@ -62,7 +63,8 @@ pub fn handle_keytool_command() -> Option<String> {
                 io::stdin().read_line(&mut mnemonic_length_str).unwrap();
                 let mnemonic_length: usize = mnemonic_length_str.trim().parse().expect("Invalid input");
 
-                let (private_key, public_address, seed_phrase) = generate_karix_address(mnemonic_length);
+                let custom_name = "custom_name"; // Replace with actual custom name
+                let (private_key, public_address, seed_phrase) = generate_karix_address(custom_name, mnemonic_length);
                 println!("New address generated:");
                 println!("Private Key: {}", private_key.green());
                 println!("Public Address: {}", public_address.green());
@@ -92,47 +94,47 @@ pub fn handle_keytool_command() -> Option<String> {
                 let mut public_address = String::new();
                 io::stdin().read_line(&mut public_address).unwrap();
                 let public_address = public_address.trim().to_string();
-
+            
                 if let Some(wallet_data) = load_wallet(&public_address) {
                     println!("Wallet loaded:");
-                    println!("Address: {}", wallet_data["address"].as_str().unwrap().green());
-                    println!("Private Key: {}", wallet_data["private_key"].as_str().unwrap().green());
-                    println!("Seed Phrase: {}", wallet_data["seed_phrase"].as_str().unwrap().green());
+                    println!("Address: {}", wallet_data.address.green());
+                    println!("Private Key: {}", wallet_data.private_key.green());
+                    println!("Seed Phrase: {}", wallet_data.seed_phrase.green());
                     return Some(public_address);
                 } else {
                     println!("Wallet not found for address: {}", public_address.red());
                     return None; // Return None to indicate no address to be used further
                 }
             },
-            "send" => {
-                println!("Enter sender public address:");
-                let mut sender_address = String::new();
-                io::stdin().read_line(&mut sender_address).unwrap();
-                let sender_address = sender_address.trim().to_string();
+            // "send" => {
+            //     println!("Enter sender public address:");
+            //     let mut sender_address = String::new();
+            //     io::stdin().read_line(&mut sender_address).unwrap();
+            //     let sender_address = sender_address.trim().to_string();
 
-                println!("Enter receiver public address:");
-                let mut receiver_address = String::new();
-                io::stdin().read_line(&mut receiver_address).unwrap();
-                let receiver_address = receiver_address.trim().to_string();
+            //     println!("Enter receiver public address:");
+            //     let mut receiver_address = String::new();
+            //     io::stdin().read_line(&mut receiver_address).unwrap();
+            //     let receiver_address = receiver_address.trim().to_string();
 
-                println!("Enter amount to send:");
-                let mut amount_str = String::new();
-                io::stdin().read_line(&mut amount_str).unwrap();
-                let amount: u64 = amount_str.trim().parse().expect("Invalid input");
+            //     println!("Enter amount to send:");
+            //     let mut amount_str = String::new();
+            //     io::stdin().read_line(&mut amount_str).unwrap();
+            //     let amount: u64 = amount_str.trim().parse().expect("Invalid input");
 
-                load_blockchain();
+            //     load_blockchain();
 
-                let result = send_coins(&sender_address, &receiver_address, amount);
-                match result {
-                    Ok(tx_hash) => {
-                        println!("Transaction successful. Tx Hash: {}", tx_hash.green());
-                    },
-                    Err(e) => {
-                        println!("Transaction failed: {}", e.red());
-                    }
-                }
-                return None; // Return None to indicate no address to be used further
-            }
+            //     let result = send_coins(&sender_address, &receiver_address, amount);
+            //     match result {
+            //         Ok(tx_hash) => {
+            //             println!("Transaction successful. Tx Hash: {}", tx_hash.green());
+            //         },
+            //         Err(e) => {
+            //             println!("Transaction failed: {}", e.red());
+            //         }
+            //     }
+            //     return None; // Return None to indicate no address to be used further
+            // }
             "list" => {
                 match list_wallet_files() {
                     Ok(wallets) => {

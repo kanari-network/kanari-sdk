@@ -160,12 +160,12 @@ async fn start_node() {
     let miner_address = match config.get("miner_address").and_then(|v| v.as_str()) {
         Some(address) => {
             // Verify wallet file exists for this address
-            if !std::path::Path::new(&get_kari_dir().join("wallets").join(format!("{}.json", address))).exists() {
+            if !std::path::Path::new(&get_kari_dir().join("wallets").join(format!("{}.toml", address))).exists() {
                 // Try to find any existing wallet
                 match list_wallet_files() {
                     Ok(wallets) if !wallets.is_empty() => {
                         // Access first element of tuple (filename)
-                        let first_wallet = wallets[0].0.trim_end_matches(".json").to_string();
+                        let first_wallet = wallets[0].0.trim_end_matches(".toml").to_string();
                         println!("Using existing wallet as miner address: {}", first_wallet.green());
                         
                         // Update config with new miner address
@@ -190,7 +190,7 @@ async fn start_node() {
             // Try to find any existing wallet
             match list_wallet_files() {
                 Ok(wallets) if !wallets.is_empty() => {
-                    let first_wallet = wallets[0].0.trim_end_matches(".json").to_string();
+                    let first_wallet = wallets[0].0.trim_end_matches(".toml").to_string();
                     println!("Setting miner address to existing wallet: {}", first_wallet.green());
                     
                     // Update config with new miner address
