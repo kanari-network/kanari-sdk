@@ -63,8 +63,7 @@ pub fn handle_keytool_command() -> Option<String> {
                 io::stdin().read_line(&mut mnemonic_length_str).unwrap();
                 let mnemonic_length: usize = mnemonic_length_str.trim().parse().expect("Invalid input");
 
-                let custom_name = "custom_name"; // Replace with actual custom name
-                let (private_key, public_address, seed_phrase) = generate_karix_address(custom_name, mnemonic_length);
+                let (private_key, public_address, seed_phrase) = generate_karix_address(mnemonic_length);
                 println!("New address generated:");
                 println!("Private Key: {}", private_key.green());
                 println!("Public Address: {}", public_address.green());

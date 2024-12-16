@@ -63,7 +63,7 @@ pub fn load_wallet(address: &str) -> Option<Wallet> {
     }
 }
 
-pub fn generate_karix_address(custom_name: &str, word_count: usize) -> (String, String, String) {
+pub fn generate_karix_address(word_count: usize) -> (String, String, String) {
     let secp = Secp256k1::new();
     let (secret_key, public_key) = secp.generate_keypair(&mut OsRng);
 
@@ -71,7 +71,7 @@ pub fn generate_karix_address(custom_name: &str, word_count: usize) -> (String, 
     let mut hex_encoded = hex::encode(&public_key.serialize_uncompressed()[1..]);
     hex_encoded.truncate(64); // Adjust as needed
 
-    let karix_public_address = format!("{}", custom_name);
+    let karix_public_address = format!("0x{}", hex_encoded);
 
     // Generate mnemonic with specified word count
     let mnemonic_result = match word_count {
@@ -86,30 +86,12 @@ pub fn generate_karix_address(custom_name: &str, word_count: usize) -> (String, 
     };
     let seed_phrase = mnemonic.to_string(); // Directly convert Mnemonic to String
 
-    // Save the wallet to a .toml file
-    let wallet_data = Wallet {
-        address: karix_public_address.clone(),
-        private_key: secret_key.display_secret().to_string(),
-        seed_phrase: seed_phrase.clone(),
-    };
-
-    let kari_dir = get_kari_dir();
-    let wallet_dir = kari_dir.join("wallets");
-    fs::create_dir_all(&wallet_dir).expect("Unable to create wallets directory");
-
-    let wallet_file = wallet_dir.join(format!("{}.toml", custom_name));
-    let toml_string = toml::to_string(&wallet_data).expect("Unable to serialize wallet to TOML");
-    let mut file = fs::File::create(&wallet_file).expect("Unable to create wallet file");
-    file.write_all(toml_string.as_bytes()).expect("Unable to write wallet to file");
-    println!("Wallet saved to {:?}", wallet_file);
-
     (
         secret_key.display_secret().to_string(),
         karix_public_address,
         seed_phrase
     )
 }
-
 
 
 /// Returns list of wallet files with selection status
