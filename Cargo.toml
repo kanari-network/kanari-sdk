@@ -98,7 +98,11 @@ codegen-units = 16
 opt-level = 3
 
 [workspace.package]
-version = "0.2.3"
+name = "kanari-sdk"
+version = "0.2.2"
+edition = "2021"
+authors = ["Kanari Network"]
+license = "Apache-2.0"
 
 #Dependencies Workspace
 [workspace.dependencies]
