@@ -168,9 +168,9 @@ pub fn send_coins(from_address: &str, to_address: &str, amount: u64) -> Result<S
 
     let sender_balance = balances.get(from_address).unwrap_or(&0);
 
-    if *sender_balance < amount + TRANSACTION_GAS_COST as u64 {
-        return Err("Insufficient balance".to_string());
-    }
+//     if *sender_balance < amount + TRANSACTION_GAS_COST as u64 {
+//         return Err("Insufficient balance".to_string());
+//     }
 
     // Proceed with the transaction
     let secp = Secp256k1::new();
