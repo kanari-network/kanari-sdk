@@ -1,7 +1,6 @@
 use crate::gas::{
     TRANSACTION_GAS_COST, 
     MOVE_MODULE_DEPLOY_GAS,
-    MOVE_FUNCTION_CALL_GAS
 };
 use move_core_types::language_storage::TypeTag;
 use serde::{Serialize, Deserialize};

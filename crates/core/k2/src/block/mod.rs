@@ -1,8 +1,8 @@
-use crate::{chain_id::CHAIN_ID, gas::MOVE_MODULE_DEPLOY_GAS, transaction::Transaction};
+use crate::{chain_id::CHAIN_ID,  transaction::Transaction};
 use consensus_pos::HashAlgorithm;
 use serde::{Deserialize, Serialize};
 use move_core_types::language_storage::TypeTag;
-use move_core_types::{account_address::AccountAddress};
+use move_core_types::account_address::AccountAddress;
 use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Clone)]
