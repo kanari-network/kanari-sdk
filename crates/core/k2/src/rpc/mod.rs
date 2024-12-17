@@ -5,8 +5,9 @@ use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult};
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
 use network::NetworkConfig;
 use serde_json::Value as JsonValue;
-use k2::blockchain::BLOCKCHAIN;
-use crate::CHAIN_ID;
+
+use crate::{blockchain::BLOCKCHAIN, chain_id::CHAIN_ID};
+
 
 // RPC server
 fn get_latest_block(_params: Params) -> JsonRpcResult<JsonValue> {
