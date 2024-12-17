@@ -1,4 +1,4 @@
-use crate::{chain_id::CHAIN_ID,  transaction::Transaction};
+use crate::{chain_id::CHAIN_ID, transaction::Transaction};
 use consensus_pos::HashAlgorithm;
 use serde::{Deserialize, Serialize};
 use move_core_types::language_storage::TypeTag;

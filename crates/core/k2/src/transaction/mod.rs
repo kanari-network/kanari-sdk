@@ -7,8 +7,6 @@ use serde::{Serialize, Deserialize};
 use secp256k1::{Secp256k1, Message, SecretKey};
 use sha2::{Sha256, Digest};
 
-
-
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub enum TransactionType {
     Transfer,
@@ -21,6 +19,13 @@ pub enum TransactionType {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MoveModuleTransaction {
+    pub sender: String,
+    pub module_bytes: Vec<u8>,
+    pub gas_cost: f64,
+    pub timestamp: u64,
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Transaction {
@@ -35,8 +40,6 @@ pub struct Transaction {
 }
 
 impl Transaction {
-
-
     pub fn new_move_execute(
         sender: String,
         module_name: String, 
@@ -137,11 +140,7 @@ impl Transaction {
         hash.copy_from_slice(&result);
         hash
     }    
-
 }
-
-
-
 
 #[cfg(test)]
 mod tests {
