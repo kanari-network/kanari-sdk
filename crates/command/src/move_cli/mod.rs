@@ -106,9 +106,15 @@ pub fn handle_move_command() {
         }),
         Some("info") => Command::Info(Info {}),
         Some("migrate") => Command::Migrate(Migrate {}),
-        Some("new") => Command::New(New {
-            name: args.get(3).map(String::from).unwrap_or_default()
-        }),
+        Some("new") => {
+            match args.get(3).map(String::from) {
+                Some(name) if !name.is_empty() => Command::New(New { name }),
+                _ => {
+                    eprintln!("Error: Project name is required. Usage: kari move new <project_name>");
+                    std::process::exit(1);
+                }
+            }
+        },
         Some("test") => Command::Test(Test {
             filter: None,
             list: false,

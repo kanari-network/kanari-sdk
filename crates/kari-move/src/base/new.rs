@@ -5,7 +5,7 @@ use clap::*;
 use move_package::source_package::layout::SourcePackageLayout;
 use std::{
     fmt::Display,
-    fs::create_dir_all,
+    fs::{create_dir_all, File},
     io::Write,
     path::{Path, PathBuf},
 };
@@ -59,6 +59,12 @@ impl New {
         };
         create_dir_all(path.join(SourcePackageLayout::Sources.path()))?;
         let mut w = std::fs::File::create(path.join(SourcePackageLayout::Manifest.path()))?;
+        let file_path = path
+            .join(SourcePackageLayout::Sources.path())
+            .join(format!("{}.move", name));
+        let mut file = File::create(file_path)?;
+        write!(file, "module {}::{} {{\n\n}}", name, name)?;
+
         writeln!(
             w,
             r#"[package]
@@ -67,7 +73,7 @@ edition = "legacy" # edition = "legacy" to use legacy (pre-2024) Move
 # license = ""           # e.g., "MIT", "GPL", "Apache 2.0"
 # authors = ["..."]      # e.g., ["Joe Smith (joesmith@noemail.com)", "John Snow (johnsnow@noemail.com)"]
 
-[dependencies]"#
+"#
         )?;
         for (dep_name, dep_val) in deps {
             writeln!(w, "{dep_name} = {dep_val}")?;
@@ -76,6 +82,7 @@ edition = "legacy" # edition = "legacy" to use legacy (pre-2024) Move
         writeln!(
             w,
             r#"
+[dependencies]
 KanariFramework = {{ git = "https://github.com/kanari-network/kanari-sdk.git", subdir = "frameworks/kanari-framework", rev = "main" }}
 MoveStdlib = {{ git = "https://github.com/kanari-network/kanari-sdk.git", subdir = "frameworks/move-stdlib", rev = "main" }}
 # For remote import, use the `{{ git = "...", subdir = "...", rev = "..." }}`.
@@ -89,7 +96,7 @@ MoveStdlib = {{ git = "https://github.com/kanari-network/kanari-sdk.git", subdir
 # override use `override = true`
 # Override = {{ local = "../conflicting/version", override = true }}
 
-[addresses]"#
+"#
         )?;
 
         // write named addresses
@@ -100,6 +107,7 @@ MoveStdlib = {{ git = "https://github.com/kanari-network/kanari-sdk.git", subdir
         writeln!(
             w,
             r#"
+[addresses]
 {name} = "0x0"
 std = "0x1"
 kanari_framework = "0x2"
@@ -124,6 +132,31 @@ kanari_framework = "0x2"
             writeln!(w, "{}", custom)?;
         }
 
+        create_gitignore(path)?;
+
         Ok(())
     }
+}
+
+fn create_gitignore(project_path: &Path) -> std::io::Result<()> {
+    let gitignore_content = r#"# Move build output
+build/
+
+# Move cache
+.move/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Move coverage and test files
+*.coverage
+*.test
+"#;
+
+    std::fs::write(project_path.join(".gitignore"), gitignore_content)
 }
