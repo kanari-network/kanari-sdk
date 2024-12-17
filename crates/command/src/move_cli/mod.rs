@@ -5,7 +5,7 @@ use move_package::BuildConfig;
 use std::{path::PathBuf, process::exit};
 use kari_move::{
     base::{
-        build::Build, coverage::{Coverage, CoverageSummaryOptions}, disassemble::Disassemble, docgen::Docgen, errmap::Errmap, info::Info, migrate::Migrate, new::New, publish::Publish, test::Test
+        build::Build, coverage::{Coverage, CoverageSummaryOptions}, disassemble::Disassemble, docgen::Docgen, errmap::Errmap, info::Info, migrate::Migrate, new::New, publish::Publish, call::Call, test::Test
     }, run_cli, sandbox, Command, Move
 };
 
@@ -16,14 +16,18 @@ struct CommandInfo {
 
 const COMMANDS: &[CommandInfo] = &[
     CommandInfo { name: "build", description: "Build the package" },
-    CommandInfo { name: "coverage", description: "Inspect test coverage" },
+    CommandInfo { name: "coverage", description: "Inspect test coverage for this package. A previous test run with the `--coverage` flag must have" },
+    CommandInfo { name: "", description: "previously been run" },
     CommandInfo { name: "disassemble", description: "Disassemble Move bytecode" },
     CommandInfo { name: "docgen", description: "Generate documentation" },
     CommandInfo { name: "errmap", description: "Generate error map" },
     CommandInfo { name: "info", description: "Print address information" },
-    CommandInfo { name: "new", description: "Create new Move package" },
+    CommandInfo { name: "migrate", description: "Migrate Move module" },
+    CommandInfo { name: "new", description: "Create a new Move package with name `name` at `path`. If `path` is not provided the package will" },
+    CommandInfo { name: "", description: "be created in the directory `name`" },
     CommandInfo { name: "test", description: "Run Move unit tests" },
     CommandInfo { name: "publish", description: "Publish Move module" },
+    CommandInfo { name: "call", description: "Call a function in a Move module" },
     CommandInfo { name: "sandbox", description: "Execute sandbox commands" },
 ];
 
@@ -83,7 +87,7 @@ pub fn handle_move_command() {
             interactive: false,
             package_name: None,
             module_or_script_name: String::new(),
-            debug: false
+            debug: true
         }),
         Some("docgen") => Command::Docgen(Docgen {
             section_level_start: Some(0),
@@ -130,6 +134,13 @@ pub fn handle_move_command() {
             gas_budget: 1000000,
             address: None,
             skip_verify: false
+        }),
+        Some("call") => Command::Call(Call {
+            package: String::new(),
+            module: String::new(),
+            function: String::new(),
+            args: Vec::new(),
+            gas_budget: 1000000
         }),
         Some("sandbox") => Command::Sandbox {
             storage_dir: PathBuf::from(kari_move::DEFAULT_STORAGE_DIR),

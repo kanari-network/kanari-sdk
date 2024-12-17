@@ -3,8 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use base::{
-    build::Build, coverage::Coverage, disassemble::Disassemble, docgen::Docgen, errmap::Errmap,
-    info::Info, migrate::Migrate, new::New, test::Test,
+    build::Build, call::Call, coverage::Coverage, disassemble::Disassemble, docgen::Docgen, errmap::Errmap, info::Info, migrate::Migrate, new::New, test::Test
 };
 use move_package::BuildConfig;
 
@@ -67,6 +66,7 @@ pub enum Command {
     Migrate(Migrate),
     New(New),
     Test(Test),
+    Call(Call),
     Publish(base::publish::Publish),
     /// Execute a sandbox command.
     #[clap(name = "sandbox")]
@@ -105,6 +105,7 @@ pub fn run_cli(
             natives,
             Some(cost_table.clone()),
         ),
+        Command::Call(c) => c.execute(move_args.package_path, move_args.build_config),
         Command::Publish(c) => c.execute(move_args.package_path, move_args.build_config, cost_table),
         Command::Sandbox { storage_dir, cmd } => cmd.handle_command(
             natives,
@@ -130,3 +131,4 @@ pub fn move_cli(
         args.cmd,
     )
 }
+
