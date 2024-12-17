@@ -71,9 +71,7 @@ impl New {
 name = "{name}"
 edition = "legacy" # edition = "legacy" to use legacy (pre-2024) Move
 # license = ""           # e.g., "MIT", "GPL", "Apache 2.0"
-# authors = ["..."]      # e.g., ["Joe Smith (joesmith@noemail.com)", "John Snow (johnsnow@noemail.com)"]
-
-"#
+# authors = ["..."]      # e.g., ["Joe Smith (joesmith@noemail.com)", "John Snow (johnsnow@noemail.com)"]"#
         )?;
         for (dep_name, dep_val) in deps {
             writeln!(w, "{dep_name} = {dep_val}")?;
@@ -94,9 +92,7 @@ MoveStdlib = {{ git = "https://github.com/kanari-network/kanari-sdk.git", subdir
 
 # To resolve a version conflict and force a specific version for dependency
 # override use `override = true`
-# Override = {{ local = "../conflicting/version", override = true }}
-
-"#
+# Override = {{ local = "../conflicting/version", override = true }}"#
         )?;
 
         // write named addresses
@@ -123,8 +119,7 @@ kanari_framework = "0x2"
 [dev-addresses]
 # The dev-addresses section allows overwriting named addresses for the `--test`
 # and `--dev` modes.
-# alice = "0xB0B"
-"#
+# alice = "0xB0B""#
         )?;
 
         // custom addition in the end
