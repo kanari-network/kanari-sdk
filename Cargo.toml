@@ -144,6 +144,9 @@ toml_edit = "0.22.22"
 colored = "2.2.0"
 bcs = "0.1.4"
 
+#Database Dependencies
+rocksdb = "0.22.0"
+
 
 datatest-stable = "0.2.10"
 #Hashing Dependencies
