@@ -28,6 +28,7 @@ struct CommandInfo {
     alias: Option<&'static str>,
     description: &'static str,
 }
+ำ
 
 const COMMANDS: &[CommandInfo] = &[
     CommandInfo { name: "start", alias: None, description: "Start a local network" },
