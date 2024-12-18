@@ -117,7 +117,7 @@ impl<T: HashAlgorithm> Block<T> {
         let transactions_serialized = serde_json::to_string(&self.transactions).unwrap();
         input.extend_from_slice(transactions_serialized.as_bytes());
 
-        self.hasher.log_input(&input);
+        // self.hasher.log_input(&input);
         self.hasher.hash(&input)
     }
 
