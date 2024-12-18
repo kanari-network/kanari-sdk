@@ -51,4 +51,5 @@ move-bytecode-viewer.workspace = true
 
 consensus-pos.workspace = true
 network.workspace = true
-
+kari-node.workspace = true
+kari-move.workspace = true

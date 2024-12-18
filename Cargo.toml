@@ -75,10 +75,11 @@ members = [
     "crates/core/network",
     "crates/core/p2p",
     "crates/core/wallet/key",
+    "crates/rpc/rpc-api",
     
     "crates/core/k2", 
     "crates/command", 
-    "consensus/pow", 
+    "consensus/pow", "crates/rpc/rpc-api", 
 ]
 
 [profile.bench]
@@ -151,7 +152,7 @@ rocksdb = "0.22.0"
 datatest-stable = "0.2.10"
 #Hashing Dependencies
 chacha20poly1305 = "0.10.1"
-thiserror = "2.0.7"
+thiserror = "2.0.8"
 argon2 = "0.5.3"
 
 #Path List
@@ -170,8 +171,11 @@ key = { path = "crates/core/wallet/key" }
 k2 = { path = "crates/core/k2" }
 command = { path = "crates/command" }
 
+#RPC Path List
+rpc-api = { path = "crates/rpc/rpc-api" }
 
 
+#Move Path List
 bytecode-interpreter-crypto = { path = "external-crates/move/crates/bytecode-interpreter-crypto" }
 enum-compat-util = { path = "external-crates/move/crates/enum-compat-util"}
 invalid-mutations = { path = "external-crates/move/crates/invalid-mutations" }
