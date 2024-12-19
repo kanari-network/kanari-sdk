@@ -7,14 +7,14 @@ module kanari_framework::deny_list {
     use kanari_framework::bag::{Self, Bag};
     use kanari_framework::vec_set::{Self, VecSet};
 
-    friend kanari_framework::kari;
+    friend kanari_framework::coin;
 
     /// Trying to create a deny list object when not called by the system address.
     const ENotSystemAddress: u64 = 0;
     /// The specified address to be removed is not already in the deny list.
     const ENotDenied: u64 = 1;
 
-    /// The index into the deny list vector for the `sui::coin::Coin` type.
+    /// The index into the deny list vector for the `kanari_framework::coin::Coin` type.
     const COIN_INDEX: u64 = 0;
 
     /// A shared object that stores the addresses that are blocked for a given core type.
@@ -31,7 +31,7 @@ module kanari_framework::deny_list {
         /// Used to quickly skip checks for most addresses.
         denied_count: Table<address, u64>,
         /// Set of addresses that are banned for a given type.
-        /// For example with `sui::coin::Coin`: If addresses A and B are banned from using
+        /// For example with `kanari_framework::coin::Coin`: If addresses A and B are banned from using
         /// "0...0123::my_coin::MY_COIN", this will be "0...0123::my_coin::MY_COIN" -> {A, B}.
         denied_addresses: Table<vector<u8>, VecSet<address>>,
     }
@@ -126,11 +126,11 @@ module kanari_framework::deny_list {
     /// via a system transaction.
     fun create(ctx: &mut TxContext) {
         assert!(tx_context::sender(ctx) == @0x0, ENotSystemAddress);
-
+    
         let lists = bag::new(ctx);
         bag::add(&mut lists, COIN_INDEX, per_type_list(ctx));
         let deny_list_object = DenyList {
-            id: object::sui_deny_list_object_id(),
+            id: object::kari_deny_list_object_id(), // Fixed function name
             lists,
         };
         transfer::share_object(deny_list_object);

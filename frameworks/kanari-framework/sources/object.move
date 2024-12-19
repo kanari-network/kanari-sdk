@@ -15,7 +15,7 @@ module kanari_framework::object {
     // #[test_only]
     // friend kanari_framework::test_scenario;
 
-    /// The hardcoded ID for the singleton Sui System State Object.
+    /// The hardcoded ID for the singleton kari System State Object.
     const KARI_SYSTEM_STATE_OBJECT_ID: address = @0x5;
 
     /// The hardcoded ID for the singleton Clock Object.
@@ -33,7 +33,7 @@ module kanari_framework::object {
     /// Sender is not @0x0 the system address.
     const ENotSystemAddress: u64 = 0;
 
-    /// An object ID. This is used to reference Sui Objects.
+    /// An object ID. This is used to reference kari Objects.
     /// This is *not* guaranteed to be globally unique--anyone can create an `ID` from a `UID` or
     /// from an object, and ID's can be freely copied and dropped.
     /// Here, the values are not globally unique because there can be multiple values of type `ID`
@@ -47,7 +47,7 @@ module kanari_framework::object {
         bytes: address
     }
 
-    /// Globally unique IDs that define an object's ID in storage. Any Sui Object, that is a struct
+    /// Globally unique IDs that define an object's ID in storage. Any kari Object, that is a struct
     /// with the `key` ability, must have `id: UID` as its first field.
     /// These are globally unique in the sense that no two values of type `UID` are ever equal, in
     /// other words for any two values `id1: UID` and `id2: UID`, `id1` != `id2`.
@@ -82,9 +82,9 @@ module kanari_framework::object {
     // === uid ===
 
     #[allow(unused_function)]
-    /// Create the `UID` for the singleton `SuiSystemState` object.
-    /// This should only be called once from `sui_system`.
-    fun sui_system_state(ctx: &TxContext): UID {
+    /// Create the `UID` for the singleton `kariSystemState` object.
+    /// This should only be called once from `kari_system`.
+    fun kari_system_state(ctx: &TxContext): UID {
         assert!(tx_context::sender(ctx) == @0x0, ENotSystemAddress);
         UID {
             id: ID { bytes: KARI_SYSTEM_STATE_OBJECT_ID },
@@ -117,7 +117,7 @@ module kanari_framework::object {
 
     /// Create the `UID` for the singleton `DenyList` object.
     /// This should only be called once from `deny_list`.
-    public(friend) fun sui_deny_list_object_id(): UID {
+    public(friend) fun kari_deny_list_object_id(): UID {
         UID {
             id: ID { bytes: KARI_DENY_LIST_OBJECT_ID }
         }
@@ -145,7 +145,7 @@ module kanari_framework::object {
 
     // === any object ===
 
-    /// Create a new object. Returns the `UID` that must be stored in a Sui object.
+    /// Create a new object. Returns the `UID` that must be stored in a kari object.
     /// This is the only way to create `UID`s.
     public fun new(ctx: &mut TxContext): UID {
         UID {
@@ -154,10 +154,10 @@ module kanari_framework::object {
     }
 
     /// Delete the object and it's `UID`. This is the only way to eliminate a `UID`.
-    // This exists to inform Sui of object deletions. When an object
+    // This exists to inform kari of object deletions. When an object
     // gets unpacked, the programmer will have to do something with its
     // `UID`. The implementation of this function emits a deleted
-    // system event so Sui knows to process the object deletion
+    // system event so kari knows to process the object deletion
     public fun delete(id: UID) {
         let UID { id: ID { bytes } } = id;
         delete_impl(bytes)
@@ -184,7 +184,7 @@ module kanari_framework::object {
     }
 
     /// Get the `UID` for `obj`.
-    /// Safe because Sui has an extra bytecode verifier pass that forces every struct with
+    /// Safe because kari has an extra bytecode verifier pass that forces every struct with
     /// the `key` ability to have a distinguished `UID` field.
     /// Cannot be made public as the access to `UID` for a given object must be privileged, and
     /// restrictable in the object's module.
