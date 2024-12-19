@@ -27,17 +27,17 @@ module kanari_framework::kari {
     struct KARI has drop {}
 
     // #[allow(unused_function)]
-    /// Register the `SUI` Coin to acquire its `Supply`.
-    /// This should be called only once during genesis creation.
-    // fun new(ctx: &mut TxContext): Balance<SUI> {
+    // Register the `SUI` Coin to acquire its `Supply`.
+    // This should be called only once during genesis creation.
+    // fun new(ctx: &mut TxContext): Balance<KARI> {
     //     assert!(tx_context::sender(ctx) == @0x0, ENotSystemAddress);
     //     assert!(tx_context::epoch(ctx) == 0, EAlreadyMinted);
 
     //     let (treasury, metadata) = coin::create_currency(
-    //         SUI {},
+    //         KARI {},
     //         9,
-    //         b"SUI",
-    //         b"Sui",
+    //         b"KARI",
+    //         b"Karura Network Coin",
     //         // TODO: add appropriate description and logo url
     //         b"",
     //         option::none(),
