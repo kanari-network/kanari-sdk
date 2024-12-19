@@ -1,4 +1,4 @@
-/// Coin<KARI> is the token used to pay for gas in Sui.
+/// Coin<KARI> is the token used to pay for gas in Kari.
 /// It has 9 decimals, and the smallest unit (10^-9) is called "mist".
 module kanari_framework::kari {
     use std::option;
@@ -12,16 +12,16 @@ module kanari_framework::kari {
     const ENotSystemAddress: u64 = 1;
 
     #[allow(unused_const)]
-    /// The amount of Mist per Sui token based on the the fact that mist is
-    /// 10^-9 of a Sui token
+    /// The amount of Mist per Kari token based on the the fact that mist is
+    /// 10^-9 of a Kari token
     const MIST_PER_KARI: u64 = 1_000_000_000;
 
     #[allow(unused_const)]
-    /// The total supply of Sui denominated in whole Sui tokens (10 Billion)
+    /// The total supply of Kari denominated in whole Kari tokens (10 Billion)
     const TOTAL_SUPPLY_KARI: u64 = 10_000_000_000;
 
-    /// The total supply of Sui denominated in Mist (10 Billion * 10^9)
-    const TOTAL_SUPPLY_MIST: u64 = 10_000_000_000_000_000_000;
+    /// The total supply of Kari denominated in Mist (10 Billion * 10^9)
+    const TOTAL_SUPPLY_MIST: u64 = 200_000_000_000_000_000;
 
     /// Name of the coin
     struct KARI has drop {}
@@ -45,9 +45,9 @@ module kanari_framework::kari {
         );
         transfer::public_freeze_object(metadata);
         let supply = coin::treasury_into_supply(treasury);
-        let total_sui = balance::increase_supply(&mut supply, TOTAL_SUPPLY_MIST);
+        let total_kari = balance::increase_supply(&mut supply, TOTAL_SUPPLY_MIST);
         balance::destroy_supply(supply);
-        total_sui
+        total_kari
     }
 
     public entry fun transfer(c: coin::Coin<KARI>, recipient: address) {
