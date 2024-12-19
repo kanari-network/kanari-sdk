@@ -1,5 +1,5 @@
 module kanari_framework::url {
-    use std::string::{Self, String};
+    use std::ascii::{Self, String};
 
     /// Standard Uniform Resource Locator (URL) string.
     struct Url has store, copy, drop {
@@ -15,12 +15,12 @@ module kanari_framework::url {
     /// Create a `Url` with no validation from bytes
     /// Note: this will abort if `bytes` is not valid ASCII
     public fun new_unsafe_from_bytes(bytes: vector<u8>): Url {
-        let url = string::utf8(bytes);
+        let url = ascii::string(bytes);
         Url { url }
     }
 
     /// Get inner URL
-    public fun inner_url(self: &Url): String {
+    public fun inner_url(self: &Url): String{
         self.url
     }
 
@@ -28,5 +28,4 @@ module kanari_framework::url {
     public fun update(self: &mut Url, url: String) {
         self.url = url;
     }
-
 }

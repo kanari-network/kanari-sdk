@@ -6,4 +6,4 @@ MoveStdlib = { local = "../../frameworks/move-stdlib" }
 
 [addresses]
 std =  "0x1"
-kanari_framework = "_"
+kanari_framework = "0x2"
