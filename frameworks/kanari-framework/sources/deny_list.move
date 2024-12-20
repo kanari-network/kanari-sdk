@@ -1,3 +1,6 @@
+/// Defines the `DenyList` type. The `DenyList` shared object is used to restrict access to
+/// instances of certain core types from being used as inputs by specified addresses in the deny
+/// list.
 module kanari_framework::deny_list {
     use kanari_framework::tx_context::TxContext;
     use kanari_framework::object::{Self, UID};

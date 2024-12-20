@@ -1,10 +1,9 @@
 #[allow(unused_const)]
 module kanari_framework::transfer {
-
     use kanari_framework::object::{Self, ID, UID};
 
-    // #[test_only]
-    // friend kanari_framework::test_scenario;
+    #[test_only]
+    friend kanari_framework::test_scenario;
 
     /// This represents the ability to `receive` an object of type `T`.
     /// This type is ephemeral per-transaction and cannot be stored on-chain.
