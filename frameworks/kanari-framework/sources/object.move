@@ -204,11 +204,10 @@ module kanari_framework::object {
     // marks newly created UIDs from hash
     native fun record_new_uid(id: address);
 
-    // #[test_only]
-    // /// Return the most recent created object ID.
-    // public fun last_created(ctx: &TxContext): ID {
-    //     ID { bytes: tx_context::last_created_object_id(ctx) }
-    // }
-
+    #[test_only]
+    /// Return the most recent created object ID.
+    public fun last_created(ctx: &TxContext): ID {
+        ID { bytes: tx_context::last_created_object_id(ctx) }
+    }
 
 }
