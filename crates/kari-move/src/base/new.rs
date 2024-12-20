@@ -127,6 +127,21 @@ kanari_framework = "0x2"
             writeln!(w, "{}", custom)?;
         }
 
+        // Create tests directory
+        create_dir_all(path.join("tests"))?;
+
+        // Create basic test file
+        let test_file_path = path.join("tests").join(format!("{}_tests.move", name));
+        let mut test_file = File::create(test_file_path)?;
+        write!(
+            test_file,
+            r#"#[test_only]
+module {}::{}_tests {{
+
+}}"#,
+            name, name
+        )?;
+
         create_gitignore(path)?;
 
         Ok(())
