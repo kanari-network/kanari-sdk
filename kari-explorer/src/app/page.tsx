@@ -58,69 +58,98 @@ const KanariBlockchainExplorer = () => {
   );
 
   return (
-    <main className={`flex min-h-screen flex-col items-center justify-between p-4 sm:p-8 md:p-16 lg:p-24 ${isDarkMode ? 'bg-gray-900 text-white' : 'bg-gradient-to-r from-pink-100 to-purple-100'}`}>
-      <div className="container mx-auto max-w-6xl">
-        <h1 className={`text-3xl sm:text-4xl md:text-5xl font-bold text-center ${isDarkMode ? 'text-white' : 'text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-purple-500'} mb-8`}>
-          Kanari Blockchain Explorer
-        </h1>
-
-        <button onClick={toggleTheme} className="mb-4 px-4 py-2 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-pink-300">
-         {isDarkMode ? 'Light' : 'Dark'} Mode
-        </button>
-
-        {error && <p className="text-red-500 text-center mb-4 p-2 bg-red-100 rounded">{error}</p>}
-
-        <div className="mb-8 w-full max-w-md mx-auto">
-          <input
-            type="text"
-            placeholder="Search by Transaction Sender or Receiver"
-            value={searchTx}
-            onChange={handleSearchTxChange}
-            className={`w-full px-4 py-2 border rounded-lg shadow-sm focus:outline-none focus:ring-2 ${isDarkMode ? 'bg-gray-800 text-white border-gray-600 focus:ring-gray-400' : 'bg-white text-black border-gray-300 focus:ring-pink-300'}`}
-          />
+    <main className={`min-h-screen ${isDarkMode ? 'bg-gray-900 text-white' : 'bg-gradient-to-r from-orange-50 to-yellow-50'}`}>
+      {/* Header */}
+      <div className="container mx-auto max-w-7xl px-4 py-6">
+        <div className="flex justify-between items-center mb-12">
+          <h1 className={`text-4xl md:text-5xl font-bold ${isDarkMode ? 'text-white' : 'text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-yellow-600'}`}>
+            Kanari Blockchain Explorer
+          </h1>
+          <button 
+            onClick={toggleTheme} 
+            className={`px-4 py-2 rounded-lg transition-colors ${
+              isDarkMode 
+                ? 'bg-gray-800 hover:bg-gray-700 border-gray-700' 
+                : 'bg-white hover:bg-orange-50 border-orange-200'
+            } border shadow-sm`}
+          >
+            {isDarkMode ? '🌞' : '🌙'}
+          </button>
         </div>
-
-        <ul className={`rounded-lg shadow-md p-4 sm:p-6 w-full divide-y ${isDarkMode ? 'bg-gray-800 divide-gray-700' : 'bg-white divide-gray-200'}`}>
-          <li className="py-4 text-center">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <p className="text-lg font-semibold text-pink-500">Total Blocks</p>
-                <p className="text-2xl font-bold">{totalBlocks}</p>
-              </div>
-              <div>
-                <p className="text-lg font-semibold text-purple-500">Total Transactions</p>
-                <p className="text-2xl font-bold">{filteredBlocks.reduce((sum, block) => sum + block.transactions.length, 0)}</p>
-              </div>
-              <div>
-                <p className="text-lg font-semibold text-indigo-500">Total Tokens</p>
-                <p className="text-2xl font-bold">{totalTokens}</p>
-              </div>
-            </div>
-          </li>
+  
+        {/* Search */}
+        <div className="max-w-3xl mx-auto mb-12">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search transactions by sender or receiver address..."
+              value={searchTx}
+              onChange={handleSearchTxChange}
+              className={`w-full px-6 py-4 rounded-xl text-lg shadow-sm border ${
+                isDarkMode 
+                  ? 'bg-gray-800 border-gray-700 focus:border-orange-500' 
+                  : 'bg-white border-orange-200 focus:border-orange-500'
+              } focus:outline-none focus:ring-2 focus:ring-orange-300`}
+            />
+            <span className="absolute right-6 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
+          </div>
+        </div>
+  
+        {/* Error Message */}
+        {error && (
+          <div className="max-w-3xl mx-auto mb-8">
+            <p className="text-red-500 text-center p-4 bg-red-50 rounded-lg border border-red-100">
+              {error}
+            </p>
+          </div>
+        )}
+  
+        {/* Statistics */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+          <div className={`p-6 rounded-xl shadow-sm ${isDarkMode ? 'bg-gray-800' : 'bg-white border border-orange-100'}`}>
+            <p className="text-orange-500 text-lg mb-1">Total Blocks</p>
+            <p className="text-3xl font-bold">{totalBlocks}</p>
+          </div>
+          <div className={`p-6 rounded-xl shadow-sm ${isDarkMode ? 'bg-gray-800' : 'bg-white border border-orange-100'}`}>
+            <p className="text-orange-600 text-lg mb-1">Total Transactions</p>
+            <p className="text-3xl font-bold">{filteredBlocks.reduce((sum, block) => sum + block.transactions.length, 0)}</p>
+          </div>
+          <div className={`p-6 rounded-xl shadow-sm ${isDarkMode ? 'bg-gray-800' : 'bg-white border border-orange-100'}`}>
+            <p className="text-orange-700 text-lg mb-1">Total Tokens</p>
+            <p className="text-3xl font-bold">{totalTokens}</p>
+          </div>
+        </div>
+  
+        {/* Blocks List */}
+        <div className={`rounded-xl shadow-sm ${isDarkMode ? 'bg-gray-800' : 'bg-white border border-orange-100'}`}>
           {filteredBlocks.length > 0 ? (
             filteredBlocks.map((block) => (
-              <li key={block.hash} className="py-4">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-                  <h2 className="text-xl font-medium text-pink-500 mb-2 sm:mb-0">Block {block.index}</h2>
+              <div key={block.hash} className="p-6 border-b last:border-b-0 border-orange-100">
+                <div className="flex flex-col md:flex-row md:items-center justify-between mb-4">
+                  <h2 className="text-xl font-medium text-orange-500">Block #{block.index}</h2>
                   <span className="text-gray-500 text-sm">{new Date(block.timestamp).toLocaleString()}</span>
                 </div>
-                <p className="text-gray-700 mt-1 break-all">Hash: {block.hash}</p>
-                <h3 className="text-lg font-semibold mt-4">Transactions: {block.transactions.length}</h3>
-                <ul className="list-disc list-inside ml-2 sm:ml-6 mt-2">
-                  {block.transactions.map((tx, index) => (
-                    <li key={index} className="text-gray-800 break-all">
-                      <span className="font-medium">{tx.sender}</span> sent {tx.amount} to <span className="font-medium">{tx.receiver}</span> (Gas: {tx.gas_cost})
-                    </li>
+                <p className="text-sm text-gray-600 break-all mb-4">Hash: {block.hash}</p>
+                <div className="space-y-2">
+                  {block.transactions.map((tx, idx) => (
+                    <div key={idx} className={`p-3 rounded-lg ${isDarkMode ? 'bg-gray-700' : 'bg-orange-50'}`}>
+                      <p className="text-sm break-all">
+                        <span className="font-medium text-orange-500">{tx.sender}</span>
+                        <span className="mx-2">→</span>
+                        <span className="font-medium text-orange-500">{tx.receiver}</span>
+                        <span className="ml-2 text-gray-500">({tx.amount} tokens)</span>
+                      </p>
+                    </div>
                   ))}
-                </ul>
-              </li>
+                </div>
+              </div>
             ))
           ) : (
-            <li className="py-4">
-              <p className="text-center text-gray-500">No blocks found.</p>
-            </li>
+            <div className="p-8 text-center text-gray-500">
+              No blocks found matching your search.
+            </div>
           )}
-        </ul>
+        </div>
       </div>
     </main>
   );
