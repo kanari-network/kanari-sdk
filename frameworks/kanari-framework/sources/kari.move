@@ -17,10 +17,10 @@ module kanari_framework::kari {
     const MIST_PER_KARI: u64 = 1_000_000_000;
 
     #[allow(unused_const)]
-    /// The total supply of Kari denominated in whole Kari tokens (200M)
-    const TOTAL_SUPPLY_KARI: u64 = 10_000_000_000;
+    /// The total supply of Kari denominated in whole Kari tokens (200 Million)
+    const TOTAL_SUPPLY_KARI: u64 = 200_000_000;
 
-    /// The total supply of Kari denominated in Mist (200M * 10^9)
+    /// The total supply of Kari denominated in Mist (200 Million * 10^9)
     const TOTAL_SUPPLY_MIST: u64 = 200_000_000_000_000_000;
 
     /// Name of the coin
