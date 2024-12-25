@@ -79,7 +79,7 @@ members = [
     
     "crates/core/k2", 
     "crates/command", 
-    "consensus/pow", "crates/rpc/rpc-api", 
+    "consensus/pow", "crates/rpc/rpc-api", "frameworks/kanari-framework", "frameworks/move-stdlib", 
 ]
 
 [profile.bench]
