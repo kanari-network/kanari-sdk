@@ -5,7 +5,7 @@ module kanari_framework::kari {
     use kanari_framework::tx_context::{Self, TxContext};
     use kanari_framework::balance::{Self, Balance};
     use kanari_framework::transfer;
-    use kanari_framework::coin;
+    use kanari_framework::coin::{Self, Coin, TreasuryCap};
 
     const EAlreadyMinted: u64 = 0;
     /// Sender is not @0x0 the system address.
@@ -50,7 +50,13 @@ module kanari_framework::kari {
         total_kari
     }
 
+    /// KARI tokens to the treasury
     public entry fun transfer(c: coin::Coin<KARI>, recipient: address) {
         transfer::public_transfer(c, recipient)
+    }
+
+    /// Burns KARI tokens, decreasing total supply
+    public entry fun burn(treasury_cap: &mut TreasuryCap<KARI>, coin: Coin<KARI>) {
+        coin::burn(treasury_cap, coin);
     }
 }
