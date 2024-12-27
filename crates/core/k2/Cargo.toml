@@ -2,6 +2,8 @@
 name = "k2"
 edition = "2021"
 version.workspace = true
+authors.workspace = true
+license.workspace = true
 
 [dependencies]
 rocksdb.workspace = true
@@ -52,4 +54,3 @@ move-bytecode-viewer.workspace = true
 consensus-pos.workspace = true
 network.workspace = true
 
-kari-move.workspace = true
