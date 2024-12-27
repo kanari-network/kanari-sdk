@@ -71,8 +71,13 @@ pub fn load_blockchain() {
             }
 
             if !block.data.is_empty() {
-                if let Ok(mut modules) = MOVE_MODULES.as_ref().unwrap().lock() {
-                    modules.insert(block.hash.clone(), block.data.clone());
+                if let Some(modules_mutex) = MOVE_MODULES.as_ref() {
+                    if let Ok(mut modules) = modules_mutex.lock() {
+                        modules.insert(block.hash.clone(), block.data.clone());
+                    }
+                } else {
+                    // Handle the case where MOVE_MODULES is None
+                    eprintln!("MOVE_MODULES is not initialized");
                 }
             }
         }
