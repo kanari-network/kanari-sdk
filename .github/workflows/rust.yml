@@ -17,12 +17,15 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            binary_name: kari
             artifact_name: kari-linux-x64
           - os: windows-latest 
             target: x86_64-pc-windows-gnu
-            artifact_name: kari-windows-x64.exe
+            binary_name: kari.exe
+            artifact_name: kari-windows-x64
           - os: macos-latest
             target: aarch64-apple-darwin
+            binary_name: kari
             artifact_name: kari-macos-arm64
 
     runs-on: ${{ matrix.os }}
@@ -80,25 +83,26 @@ jobs:
     #   env:
     #     OPENSSL_DIR: /usr/local/opt/openssl@3
 
+    - name: Debug binary location
+      run: ls -la target/${{ matrix.target }}/release/
+
     - name: Compress artifacts (Linux/MacOS)
       if: matrix.os != 'windows-latest'
       run: |
         cd target/${{ matrix.target }}/release
-        tar -czf ${{ matrix.artifact_name }}.tar.gz ${{ matrix.artifact_name }}
+        tar -czf ${{ matrix.artifact_name }}.tar.gz ${{ matrix.binary_name }}
 
     - name: Compress artifacts (Windows)
       if: matrix.os == 'windows-latest'
       run: |
         cd target/${{ matrix.target }}/release
-        Compress-Archive -Path ${{ matrix.artifact_name }} -DestinationPath ${{ matrix.artifact_name }}.zip
+        Compress-Archive -Path ${{ matrix.binary_name }} -DestinationPath ${{ matrix.artifact_name }}.zip
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
       with:
-        name: ${{ matrix.artifact_name }}-compressed
-        path: |
-          target/${{ matrix.target }}/release/${{ matrix.artifact_name }}.tar.gz
-          target/${{ matrix.target }}/release/${{ matrix.artifact_name }}.zip
+        name: ${{ matrix.artifact_name }}
+        path: target/${{ matrix.target }}/release/${{ matrix.artifact_name }}.*
 
   release:
     needs: build
