@@ -1,6 +1,8 @@
 # Move build output
 build/
 
+# Move cache
+.move/
 
 # IDE
 .idea/
