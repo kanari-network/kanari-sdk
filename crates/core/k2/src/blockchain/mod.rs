@@ -34,7 +34,7 @@ pub fn save_blockchain() {
             .expect("Failed to serialize blockchain");
         db.put(b"blockchain", data).expect("Unable to write blockchain to RocksDB");
     }
-    println!("Blockchain saved to RocksDB");
+    // println!("Blockchain saved to RocksDB");
 }
 
 pub fn load_blockchain() {

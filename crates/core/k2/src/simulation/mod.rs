@@ -137,29 +137,31 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             // Save blockchain every time a new block is created
             save_blockchain();
 
-            // Replace the UI code block:
-            println!("{}", "╔══════════════════ NEW BLOCK CREATED ══════════════════╗".bright_green());
-            println!("║ Time: {:<48} ║", Local::now().format("%Y-%m-%d %H:%M:%S").to_string().bright_white());
-            println!("╟──────────────────────────────────────────────────────╢");
-            println!("║ Hash: {:<48} ║", new_block.hash[..48].bright_yellow());
-            println!("║ Previous Hash: {:<42} ║", new_block.prev_hash[..42].bright_yellow());
-            println!("╟──────────────────────────────────────────────────────╢");
-            println!("║ Miner Reward: {:<42} ║", format!("{} tokens", transaction_fees).bright_cyan());
-            println!("║ Block Reward: {:<42} ║", format!("{} tokens", tokens_per_block).bright_cyan());
-
+            
+            println!("{} {} | block={} | hash={:}... | prev={:}... | miner={} | reward={}", 
+                "[INFO]".green(),
+                Local::now().format("%Y-%m-%d %H:%M:%S"),
+                BLOCKCHAIN.len().to_string().blue(),
+                new_block.hash[..48].yellow(),
+                new_block.prev_hash[..42].yellow(),
+                format!("{}t", transaction_fees).cyan(),
+                format!("{}t", tokens_per_block).cyan()
+            );
+            
             if BLOCKCHAIN.len() % halving_interval == 0 && TOTAL_TOKENS < max_tokens {
                 tokens_per_block /= 2;
-                println!("║ {:<52} ║", "⚠ HALVING EVENT OCCURRED!".bright_red());
-                println!("║ New Block Reward: {:<39} ║", format!("{} tokens", tokens_per_block).bright_red());
+                println!("{} Block reward halved to {}", 
+                    "[HALV]".red(),
+                    format!("{} tokens", tokens_per_block).red()
+                );
             }
-
-            println!("╟──────────────────────────────────────────────────────╢");
-            println!("║ BLOCKCHAIN STATUS                                    ║");
-            println!("║ Blocks: {:<46} ║", BLOCKCHAIN.len().to_string().bright_blue());
-            println!("║ Total Supply: {:<42} ║", format!("{} Kanari", TOTAL_TOKENS).bright_blue());
-            // println!("║ Difficulty: {:<43} ║", current_difficulty.to_string().bright_blue());
-            println!("{}", "╚══════════════════════════════════════════════════════╝".bright_green());
-            println!(); // Empty line for spacing
+            
+            println!("{} blocks={} supply={}", 
+                "[STAT]".magenta(),
+                BLOCKCHAIN.len().to_string().blue(),
+                TOTAL_TOKENS.to_string().magenta()
+            );
+            println!();
 
             thread::sleep(std::time::Duration::from_secs(1));
         }
