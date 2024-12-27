@@ -45,6 +45,15 @@ cargo run --release
 ```
 
 ### Kari CLI Install
+
+#### Prerequisites for Windows
+- Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+- Install [Rust](https://www.rust-lang.org/tools/install)
+- Install MinGW via chocolatey:
+```shell
+choco install mingw
+```
+
 ```shell
 cargo install --locked --git https://github.com/kanari-network/kanari-sdk.git --branch main kari
 ```
