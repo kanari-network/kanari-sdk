@@ -66,13 +66,13 @@ impl Blockchain {
                     _ => {
                         // Handle other transaction types
                         {
-                            let mut blocks = blocks.lock().unwrap();
+                            let mut _blocks = blocks.lock().unwrap();
                             // Add transaction to the latest block or create a new block
                             // Update block hash, etc.
                         }
 
                         {
-                            let mut balances = balances.lock().unwrap();
+                            let mut _balances = balances.lock().unwrap();
                             // Update balances based on the transaction
                         }
                     }

@@ -2,7 +2,7 @@ use crate::block::Block;
 use bincode;
 use consensus_pos::Blake3Algorithm;
 use dirs;
-use rocksdb::{DB, Options};
+use rocksdb::*;
 use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::PathBuf;

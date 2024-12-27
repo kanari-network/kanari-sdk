@@ -18,6 +18,8 @@ pub struct Call {
 
 impl Call {
     pub fn execute(self, package_path: Option<PathBuf>, build_config: BuildConfig) -> anyhow::Result<()> {
+        let _ = build_config;
+        let _ = package_path;
         // Implement the logic to call the function in the specified module
         // using the provided package, module, function, args, and gas budget.
         // This is a placeholder implementation.
