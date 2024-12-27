@@ -109,10 +109,11 @@ jobs:
         Compress-Archive -Path ${{ matrix.binary_name }} -DestinationPath ${{ matrix.artifact_name }}.zip
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.artifact_name }}
         path: target/${{ matrix.target }}/release/${{ matrix.artifact_name }}.*
+        retention-days: 5
 
   release:
     needs: build
@@ -120,14 +121,18 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     
     steps:
-    - uses: actions/download-artifact@v3
-
-    - name: Create Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          **/kari-linux-x64.tar.gz
-          **/kari-windows-x64.zip
-          **/kari-macos-arm64.tar.gz
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: kari-*
+          merge-multiple: true
+  
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/kari-linux-x64.tar.gz
+            artifacts/kari-windows-x64.zip
+            artifacts/kari-macos-arm64.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
