@@ -11,7 +11,6 @@ env:
 
 jobs:
   build:
-
     strategy:
       matrix:
         include:
@@ -24,6 +23,16 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
     - name: Install dependencies
       if: matrix.os == 'ubuntu-latest'
       run: |
@@ -47,7 +56,33 @@ jobs:
           gcc-mingw-w64-x86-64 \
           g++-mingw-w64-x86-64 \
           x86_64-linux-gnu-gcc
+
     - name: Install Rust toolchain
-      run: rustup target add ${{ matrix.target }}
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        target: ${{ matrix.target }}
+        components: clippy, rustfmt
+        override: true
+
+    - name: Check formatting
+      run: cargo fmt -- --check
+
+    - name: Clippy
+      run: cargo clippy --target ${{ matrix.target }} -- -D warnings
+
     - name: Build
       run: cargo build --target ${{ matrix.target }} --verbose
+
+    - name: Run tests
+      run: cargo test --target ${{ matrix.target }} --verbose
+
+    - name: Generate coverage
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        cargo install cargo-tarpaulin
+        cargo tarpaulin --ignore-tests --target ${{ matrix.target }} --out Xml
+
+    - name: Upload coverage
+      if: matrix.os == 'ubuntu-latest'
+      uses: codecov/codecov-action@v3
