@@ -84,6 +84,13 @@ jobs:
     #     OPENSSL_DIR: /usr/local/opt/openssl@3
 
     - name: Debug binary location
+      if: matrix.os == 'windows-latest'
+      run: |
+        dir target\${{ matrix.target }}\release\
+      shell: cmd
+
+    - name: Debug binary location
+      if: matrix.os != 'windows-latest'
       run: ls -la target/${{ matrix.target }}/release/
 
     - name: Compress artifacts (Linux/MacOS)
@@ -94,8 +101,10 @@ jobs:
 
     - name: Compress artifacts (Windows)
       if: matrix.os == 'windows-latest'
+      shell: pwsh
       run: |
-        cd target/${{ matrix.target }}/release
+        cd target\${{ matrix.target }}\release
+        dir
         Compress-Archive -Path ${{ matrix.binary_name }} -DestinationPath ${{ matrix.artifact_name }}.zip
 
     - name: Upload artifacts
