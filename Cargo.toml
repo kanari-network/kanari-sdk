@@ -90,7 +90,7 @@ opt-level = 3
 
 [workspace.package]
 name = "kanari-sdk"
-version = "0.2.2"
+version = "0.1.0"
 edition = "2021"
 authors = ["Kanari Network"]
 license = "Apache-2.0"
