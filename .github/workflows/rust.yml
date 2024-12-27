@@ -14,8 +14,11 @@ jobs:
 
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        target: [x86_64-unknown-linux-gnu, x86_64-pc-windows-gnu]
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-gnu
 
     runs-on: ${{ matrix.os }}
 
@@ -25,7 +28,25 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 gcc g++
+        sudo apt-get install -y \
+          curl \
+          git-all \
+          cmake \
+          gcc \
+          libssl-dev \
+          pkg-config \
+          libclang-dev \
+          libpq-dev \
+          build-essential \
+          clang \
+          llvm \
+          make \
+          tmux \
+          xz-utils \
+          ufw \
+          gcc-mingw-w64-x86-64 \
+          g++-mingw-w64-x86-64 \
+          x86_64-linux-gnu-gcc
     - name: Install Rust toolchain
       run: rustup target add ${{ matrix.target }}
     - name: Build
