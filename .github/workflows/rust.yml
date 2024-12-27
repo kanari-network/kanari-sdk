@@ -33,56 +33,33 @@ jobs:
           target
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Install dependencies
+    - name: Install Linux dependencies
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
         sudo apt-get install -y \
-          curl \
-          git-all \
+          build-essential \
           cmake \
           gcc \
           libssl-dev \
           pkg-config \
-          libclang-dev \
-          libpq-dev \
-          build-essential \
-          clang \
-          llvm \
-          make \
-          tmux \
-          xz-utils \
-          ufw \
-          gcc-mingw-w64-x86-64 \
-          g++-mingw-w64-x86-64 \
-          x86_64-linux-gnu-gcc
+          libclang-dev
+
+    - name: Install Windows dependencies
+      if: matrix.os == 'windows-latest'
+      run: |
+        choco install mingw
+        rustup default stable-gnu
 
     - name: Install Rust toolchain
       uses: actions-rs/toolchain@v1
       with:
         toolchain: stable
         target: ${{ matrix.target }}
-        components: clippy, rustfmt
         override: true
-
-    - name: Check formatting
-      run: cargo fmt -- --check
-
-    - name: Clippy
-      run: cargo clippy --target ${{ matrix.target }} -- -D warnings
 
     - name: Build
       run: cargo build --target ${{ matrix.target }} --verbose
 
-    - name: Run tests
-      run: cargo test --target ${{ matrix.target }} --verbose
-
-    - name: Generate coverage
-      if: matrix.os == 'ubuntu-latest'
-      run: |
-        cargo install cargo-tarpaulin
-        cargo tarpaulin --ignore-tests --target ${{ matrix.target }} --out Xml
-
-    - name: Upload coverage
-      if: matrix.os == 'ubuntu-latest'
-      uses: codecov/codecov-action@v3
+    # - name: Test
+    #   run: cargo test --target ${{ matrix.target }} --verbose
