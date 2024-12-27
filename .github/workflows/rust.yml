@@ -17,10 +17,13 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-          - os: windows-latest
+            artifact_name: kari-linux-x64
+          - os: windows-latest 
             target: x86_64-pc-windows-gnu
+            artifact_name: kari-windows-x64.exe
           - os: macos-latest
             target: aarch64-apple-darwin
+            artifact_name: kari-macos-arm64
 
     runs-on: ${{ matrix.os }}
 
@@ -68,12 +71,35 @@ jobs:
         override: true
 
     - name: Build
-      run: cargo build --target ${{ matrix.target }} --verbose
-      # add the following line to the env section to fix the openssl error
+      run: cargo build --release --target ${{ matrix.target }} --verbose
       env:
         OPENSSL_DIR: /usr/local/opt/openssl@3
-
+    
     # - name: Test
     #   run: cargo test --target ${{ matrix.target }} --verbose
     #   env:
     #     OPENSSL_DIR: /usr/local/opt/openssl@3
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ matrix.artifact_name }}
+        path: target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+    - uses: actions/download-artifact@v3
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          kari-linux-x64
+          kari-windows-x64.exe
+          kari-macos-arm64
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
