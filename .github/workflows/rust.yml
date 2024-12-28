@@ -23,7 +23,7 @@ jobs:
             binary_name: kari
             artifact_name: kari-linux-x64
           - os: windows-latest 
-            target: x86_64-pc-windows-gnu
+            target: x86_64-pc-windows-msvc  # Changed from gnu to msvc
             binary_name: kari.exe
             artifact_name: kari-windows-x64
           - os: macos-latest
@@ -61,8 +61,16 @@ jobs:
     - name: Install Windows dependencies
       if: matrix.os == 'windows-latest'
       run: |
-        choco install mingw
-        rustup default stable-gnu
+        choco install visualstudio2019buildtools
+        choco install visualstudio2019-workload-vctools
+        rustup default stable-msvc
+        
+    - name: Setup Windows environment
+      if: matrix.os == 'windows-latest'
+      run: |
+        echo "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Redist\MSVC\14.29.30133\x64" >> $GITHUB_PATH
+        copy "C:\Windows\System32\vcruntime140.dll" "target\${{ matrix.target }}\release\"
+        copy "C:\Windows\System32\msvcp140.dll" "target\${{ matrix.target }}\release\"
 
     - name: Install macOS dependencies
       if: matrix.os == 'macos-latest'
@@ -109,7 +117,7 @@ jobs:
       run: |
         cd target\${{ matrix.target }}\release
         dir
-        Compress-Archive -Path ${{ matrix.binary_name }} -DestinationPath ${{ matrix.artifact_name }}.zip
+        Compress-Archive -Path @("${{ matrix.binary_name }}", "vcruntime140.dll", "msvcp140.dll") -DestinationPath ${{ matrix.artifact_name }}.zip
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
