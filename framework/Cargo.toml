@@ -8,3 +8,5 @@ repository.workspace = true
 description.workspace = true
 
 [dependencies]
+move-binary-format.workspace = true
+move-core-types.workspace = true
