@@ -1,9 +1,15 @@
 [package]
 name = "kari-move"
-edition = "2021"
+edition.workspace = true
+categories.workspace = true
+keywords.workspace = true
+homepage.workspace = true
+documentation.workspace = true
 version.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
+description.workspace = true
 
 
 [dependencies]
