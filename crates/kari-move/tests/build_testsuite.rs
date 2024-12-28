@@ -20,6 +20,4 @@ fn run_all(args_path: &Path) -> datatest_stable::Result<()> {
 }
 
 // runs all the tests
-datatest_stable::harness! {
-    { test = run_all, root = "tests/build_tests", pattern = r"args\.txt$" },
-}
+datatest_stable::harness!(run_all, "tests/build_tests", r"args\.txt$");
