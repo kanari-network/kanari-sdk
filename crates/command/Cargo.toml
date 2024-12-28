@@ -2,6 +2,10 @@
 name = "command"
 edition.workspace = true
 version.workspace = true
+categories.workspace = true
+keywords.workspace = true
+homepage.workspace = true
+documentation.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
