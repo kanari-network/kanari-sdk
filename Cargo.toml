@@ -69,7 +69,7 @@ members = [
     "crates/rpc/rpc-api",
     "crates/core/k2", 
     "crates/command", 
-    "consensus/pow", 
+    "consensus/pow", "frameworks", 
 ]
 
 [profile.bench]
