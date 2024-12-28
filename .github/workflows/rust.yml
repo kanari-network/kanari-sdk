@@ -67,10 +67,19 @@ jobs:
         
     - name: Setup Windows environment
       if: matrix.os == 'windows-latest'
+      shell: pwsh
       run: |
-        echo "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Redist\MSVC\14.29.30133\x64" >> $GITHUB_PATH
-        copy "C:\Windows\System32\vcruntime140.dll" "target\${{ matrix.target }}\release\"
-        copy "C:\Windows\System32\msvcp140.dll" "target\${{ matrix.target }}\release\"
+        $ReleasePath = "target\${{ matrix.target }}\release"
+        New-Item -ItemType Directory -Force -Path $ReleasePath
+        $env:Path += ";C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Redist\MSVC\14.29.30133\x64"
+        
+        # Copy DLLs after build completes
+        if (Test-Path "C:\Windows\System32\vcruntime140.dll") {
+            Copy-Item "C:\Windows\System32\vcruntime140.dll" -Destination $ReleasePath
+        }
+        if (Test-Path "C:\Windows\System32\msvcp140.dll") {
+            Copy-Item "C:\Windows\System32\msvcp140.dll" -Destination $ReleasePath
+        }
 
     - name: Install macOS dependencies
       if: matrix.os == 'macos-latest'
@@ -115,9 +124,21 @@ jobs:
       if: matrix.os == 'windows-latest'
       shell: pwsh
       run: |
-        cd target\${{ matrix.target }}\release
-        dir
-        Compress-Archive -Path @("${{ matrix.binary_name }}", "vcruntime140.dll", "msvcp140.dll") -DestinationPath ${{ matrix.artifact_name }}.zip
+        $ReleasePath = "target\${{ matrix.target }}\release"
+        Set-Location $ReleasePath
+        
+        $Files = @()
+        if (Test-Path "${{ matrix.binary_name }}") { 
+            $Files += "${{ matrix.binary_name }}" 
+        }
+        if (Test-Path "vcruntime140.dll") { 
+            $Files += "vcruntime140.dll" 
+        }
+        if (Test-Path "msvcp140.dll") { 
+            $Files += "msvcp140.dll" 
+        }
+        
+        Compress-Archive -Path $Files -DestinationPath ${{ matrix.artifact_name }}.zip -Force
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
