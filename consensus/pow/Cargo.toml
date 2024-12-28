@@ -2,6 +2,10 @@
 name = "consensus-pow"
 edition = "2021"
 version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
 
 [dependencies]
 blake3 = "1.5.3"

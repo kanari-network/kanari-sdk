@@ -2,6 +2,10 @@
 name = "node-kari"
 edition = "2021"
 version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
 
 [dependencies]
 lazy_static = "1.5.0"

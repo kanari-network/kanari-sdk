@@ -1,5 +1,9 @@
 [workspace]
 resolver = "2"
+name = "kanari-sdk"
+edition = "2021"
+categories = ["development-tools"]
+keywords = ["blockchain", "sdk"]
 
 exclude = [
   "external-crates/move/crates/bytecode-interpreter-crypto",
@@ -66,7 +70,6 @@ members = [
     "crates/core/p2p",
     "crates/core/wallet/key",
     "crates/rpc/rpc-api",
-    
     "crates/core/k2", 
     "crates/command", 
     "consensus/pow", 
@@ -98,15 +101,11 @@ strip = true
 debug = false
 
 [workspace.package]
-name = "kanari-sdk"
 version = "0.1.0"
-edition = "2021"
 authors = ["Kanari Network"]
 license = "Apache-2.0"
 repository = "https://github.com/kanari-network/kanari-sdk"
 description = "Kanari Network SDK"
-categories = ["development-tools"]
-keywords = ["blockchain", "sdk"]
 
 #Dependencies Workspace
 [workspace.dependencies]

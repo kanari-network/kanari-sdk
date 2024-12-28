@@ -2,6 +2,10 @@
 name = "command"
 edition = "2021"
 version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
 
 [dependencies]
 colored.workspace = true
