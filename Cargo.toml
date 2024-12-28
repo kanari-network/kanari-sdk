@@ -70,7 +70,7 @@ members = [
     "crates/core/k2", 
     "crates/command", 
     "consensus/pow", 
-    "framework", 
+    "framework", "crates/storage", 
 ]
 
 [profile.bench]
@@ -184,6 +184,8 @@ command = { path = "crates/command" }
 #RPC Path List
 rpc-api = { path = "crates/rpc/rpc-api" }
 
+#Storage Path List
+storage = { path = "crates/storage" }
 
 #Move Path List
 bytecode-interpreter-crypto = { path = "external-crates/move/crates/bytecode-interpreter-crypto" }
