@@ -1,3 +1,8 @@
+# categories = ["development-tools"]
+# keywords = ["blockchain", "sdk"]
+# homepage = "https://kanari.network"
+# documentation = "https://kanari.network/docs"
+
 [workspace]
 resolver = "2"
 
@@ -98,11 +103,8 @@ strip = true
 debug = false
 
 [workspace.package]
+name = "kanari-sdk"
 edition = "2021"
-categories = ["development-tools"]
-keywords = ["blockchain", "sdk"]
-homepage = "https://kanari.network"
-documentation = "https://kanari.network/docs"
 version = "0.1.0"
 authors = ["Kanari Network"]
 license = "Apache-2.0"
