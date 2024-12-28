@@ -1,0 +1,22 @@
+[package]
+name = "token"
+edition = "legacy" # edition = "legacy" to use legacy (pre-2024) Move
+# license = ""           # e.g., "MIT", "GPL", "Apache 2.0"
+# authors = ["..."]      # e.g., ["Joe Smith (joesmith@noemail.com)", "John Snow (johnsnow@noemail.com)"]
+
+[dependencies]
+KanariFramework = { git = "https://github.com/kanari-network/kanari-sdk.git", subdir = "framework/kanari-framework", rev = "main" }
+MoveStdlib = { git = "https://github.com/kanari-network/kanari-sdk.git", subdir = "framework/move-stdlib", rev = "main" }
+
+
+[addresses]
+token = "0x0"
+std = "0x1"
+kanari_framework = "0x2"
+
+
+[dev-dependencies]
+
+
+[dev-addresses]
+
