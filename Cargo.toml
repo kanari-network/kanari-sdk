@@ -1,13 +1,11 @@
-# name = "kanari-sdk"
-# edition = "2021"
-# categories = ["development-tools"]
-# keywords = ["blockchain", "sdk"]
-# homepage = "https://kanari.network"
-# documentation = "https://kanari.network/docs"
-
 [workspace]
 resolver = "2"
-
+name = "kanari-sdk"
+edition = "2021"
+categories = ["development-tools"]
+keywords = ["blockchain", "sdk"]
+homepage = "https://kanari.network"
+documentation = "https://kanari.network/docs"
 
 exclude = [
   "external-crates/move/crates/bytecode-interpreter-crypto",
