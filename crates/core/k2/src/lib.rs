@@ -5,5 +5,4 @@ pub mod block;
 pub mod chain_id;
 
 pub mod simulation;
-pub mod rpc;
 pub mod config;

@@ -12,28 +12,38 @@ repository.workspace = true
 description.workspace = true
 
 [dependencies]
-rocksdb.workspace = true
-digest.workspace = true
-serde.workspace = true
-hex.workspace = true
-serde_json.workspace = true
+
+# Cryptography
+secp256k1.workspace = true
 sha2.workspace = true
+rand.workspace = true
+bip39.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
 bincode.workspace = true
+bcs.workspace = true
+
+# Database
+rocksdb.workspace = true
+
+# Networking
 jsonrpc-core.workspace = true
 jsonrpc-http-server.workspace = true
 futures.workspace = true
-secp256k1.workspace = true
-rand.workspace = true
-bip39.workspace = true
-colored.workspace = true
+tokio.workspace = true
+
+# Utilities
+digest.workspace = true
+hex.workspace = true
 chrono.workspace = true
 dirs.workspace = true
-tokio.workspace = true
 log.workspace = true    
 env_logger.workspace = true
-bcs.workspace = true
+colored.workspace = true
 
-
+# MoveVM
 move-bytecode-verifier.workspace = true
 move-disassembler.workspace = true
 move-docgen.workspace = true
@@ -57,6 +67,7 @@ move-unit-test.workspace = true
 move-errmapgen.workspace = true
 move-bytecode-viewer.workspace = true
 
+# Unit k2
 consensus-pos.workspace = true
 network.workspace = true
-
+k2.workspace = true

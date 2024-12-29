@@ -12,3 +12,16 @@ repository.workspace = true
 description.workspace = true
 
 [dependencies]
+# Networking
+jsonrpc-core.workspace = true
+jsonrpc-http-server.workspace = true
+futures.workspace = true
+tokio.workspace = true
+
+
+
+# Serialization
+serde_json.workspace = true
+serde.workspace = true
+
+network.workspace = true
