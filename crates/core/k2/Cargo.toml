@@ -70,4 +70,3 @@ move-bytecode-viewer.workspace = true
 # Unit k2
 consensus-pos.workspace = true
 network.workspace = true
-k2.workspace = true

@@ -13,11 +13,11 @@ use network::{NetworkConfig, NetworkType};
 
 use p2p_protocol::P2PNetwork;
 
+use rpc_api::start_rpc_server;
 use serde_json::json;
 use k2::blockchain::{get_kari_dir, load_blockchain, save_blockchain, BALANCES};
 use k2::chain_id::CHAIN_ID;
 use k2::config::{configure_network, load_config, save_config};
-use k2::rpc::start_rpc_server;
 
 
 static VERSION: &str = env!("CARGO_PKG_VERSION");
