@@ -48,9 +48,5 @@ jobs:
           
         - name: Run Kari Node
           run: | 
-           ./target/release/kari start \
-                --network ${{ env.NETWORK_TYPE }} \
-                --rpc-port ${{ env.RPC_PORT }} \
-                --domain ${{ env.NETWORK_DOMAIN }} \
-                --non-interactive \
-                --headless
+            echo "devnet" | echo "3031" | echo "devnet.kari.network" | cargo run --release --bin kari start 
+   
