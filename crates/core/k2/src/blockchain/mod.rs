@@ -35,6 +35,10 @@ pub fn save_blockchain() {
         db.put(b"blockchain", data).expect("Unable to write blockchain to RocksDB");
     }
     // println!("Blockchain saved to RocksDB");
+
+    db.flush().expect("Failed to flush RocksDB");
+    drop(db); // Ensure the database is properly closed
+    // println!("Blockchain saved to RocksDB");
 }
 
 pub fn load_blockchain() {
@@ -87,4 +91,7 @@ pub fn load_blockchain() {
 
         println!("Blockchain loaded successfully from RocksDB");
     }
+
+    db.flush().expect("Failed to flush RocksDB");
+    drop(db); // Ensure the database is properly closed
 }
