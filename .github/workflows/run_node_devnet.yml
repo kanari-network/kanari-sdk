@@ -46,14 +46,7 @@ jobs:
           run: |
             echo "24" | cargo run --release --bin kari keytool generate
           
-        - name: Deploy to Server
-          run: |
-            ssh user@${{ env.NETWORK_DOMAIN }} "sh deploy-script.sh"
-          env:
-            SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-            SERVER_HOST: ${{ env.NETWORK_DOMAIN }}
-            SERVER_USER: user
-
         - name: Run Kari Node
           run: |
             (echo "1" && echo "3031" && echo "devnet.kanari.network") | cargo run --release --bin kari start
+   
