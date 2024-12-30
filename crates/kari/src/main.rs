@@ -98,8 +98,6 @@ async fn start_node() {
             println!("{}", "No wallet found!".red());
             println!("Please create a wallet first using:");
             println!("{}", "kari keytool generate".green());
-            // println!("Or import existing wallet using:");
-            // println!("{}", "kari keytool import".green());
             exit(1);
         }
 
@@ -140,12 +138,6 @@ async fn start_node() {
         }
     };
 
-    save_config(&json!({
-        "chain_id": network_config.chain_id,
-        "network_type": network_config.network_type.to_string(),
-        "rpc_port": network_config.port,
-        "domain": "kari.network"
-    })).expect("Failed to save configuration");
 
     load_blockchain();
     let running = Arc::new(Mutex::new(true));
@@ -153,7 +145,6 @@ async fn start_node() {
     unsafe {
         BALANCES = Some(Mutex::new(HashMap::new()));
     }
-
 
     // Load miner address with validation
     let miner_address = match config.get("miner_address").and_then(|v| v.as_str()) {
@@ -208,6 +199,15 @@ async fn start_node() {
             }
         }
     };
+
+    let final_config = json!({
+        "chain_id": network_config.chain_id,
+        "network_type": network_config.network_type.to_string(),
+        "rpc_port": network_config.port,
+        "domain": "kari.network",
+        "miner_address": miner_address,
+    });
+    save_config(&final_config).expect("Failed to save configuration");
 
     loop {
         if miner_address.is_empty() {
