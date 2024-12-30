@@ -27,24 +27,38 @@ pub fn get_kari_dir() -> PathBuf {
 pub fn save_blockchain() {
     let kari_dir = get_kari_dir();
     let db_path = kari_dir.join("blockchain_db");
-    let db = DB::open_default(db_path).expect("Unable to open RocksDB");
+    let db = match DB::open_default(&db_path) {
+        Ok(db) => db,
+        Err(e) => {
+            eprintln!("Unable to open RocksDB: {}", e);
+            return;
+        }
+    };
 
     unsafe {
         let data = bincode::serialize(addr_of!(BLOCKCHAIN).as_ref().unwrap())
             .expect("Failed to serialize blockchain");
-        db.put(b"blockchain", data).expect("Unable to write blockchain to RocksDB");
+        if let Err(e) = db.put(b"blockchain", data) {
+            eprintln!("Unable to write blockchain to RocksDB: {}", e);
+        }
     }
-    // println!("Blockchain saved to RocksDB");
 
-    db.flush().expect("Failed to flush RocksDB");
+    if let Err(e) = db.flush() {
+        eprintln!("Failed to flush RocksDB: {}", e);
+    }
     drop(db); // Ensure the database is properly closed
-    // println!("Blockchain saved to RocksDB");
 }
 
 pub fn load_blockchain() {
     let kari_dir = get_kari_dir();
     let db_path = kari_dir.join("blockchain_db");
-    let db = DB::open_default(db_path).expect("Unable to open RocksDB");
+    let db = match DB::open_default(&db_path) {
+        Ok(db) => db,
+        Err(e) => {
+            eprintln!("Unable to open RocksDB: {}", e);
+            return;
+        }
+    };
 
     unsafe {
         match db.get(b"blockchain") {
