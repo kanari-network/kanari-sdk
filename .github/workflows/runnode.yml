@@ -47,9 +47,10 @@ jobs:
             echo "24" | cargo run --release --bin kari keytool generate
           
         - name: Run Kari Node
-          run: |
-            ./target/release/kari start \
-                --network devnet \
-                --rpc-port 3031 \
-                --domain devnet.kari.network \
-                 --headless
+          run: | 
+           ./target/release/kari start \
+                --network ${{ env.NETWORK_TYPE }} \
+                --rpc-port ${{ env.RPC_PORT }} \
+                --domain ${{ env.NETWORK_DOMAIN }} \
+                --non-interactive \
+                --headless

@@ -97,9 +97,9 @@ async fn start_node() {
         if !check_wallet_exists() {
             println!("{}", "No wallet found!".red());
             println!("Please create a wallet first using:");
-            println!("{}", "kari keytool create".green());
-            println!("Or import existing wallet using:");
-            println!("{}", "kari keytool import".green());
+            println!("{}", "kari keytool generate".green());
+            // println!("Or import existing wallet using:");
+            // println!("{}", "kari keytool import".green());
             exit(1);
         }
 
@@ -177,7 +177,7 @@ async fn start_node() {
                     _ => {
                         println!("{}", "No valid wallets found!".red());
                         println!("Please create a wallet first using:");
-                        println!("{}", "kari keytool create".green());
+                        println!("{}", "kari keytool generate".green());
                         exit(1);
                     }
                 }
