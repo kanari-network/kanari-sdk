@@ -2,10 +2,10 @@ name: rust
 
 on:
     push:
-      branches: [ "main" ]
+      branches: [ "moveVM" ]
       tags: "v*"
     pull_request:
-      branches: [ "main" ]
+      branches: [ "moveVM" ]
   
 env:
     CARGO_TERM_COLOR: always
