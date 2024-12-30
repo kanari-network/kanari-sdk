@@ -48,5 +48,5 @@ jobs:
           
         - name: Run Kari Node
           run: |
-            (echo "1" && echo "3031" && echo "devnet.kari.network") | cargo run --release --bin kari start
+            (echo "1" && echo "3031" && echo "devnet.kanari.network") | cargo run --release --bin kari start
    
