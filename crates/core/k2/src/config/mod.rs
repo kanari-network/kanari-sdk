@@ -5,6 +5,9 @@ use serde_json::{json, Value};
 use std::fs::{self, File};
 use dirs;
 use network::{NetworkConfig, NetworkType};
+use std::net::{TcpStream, ToSocketAddrs};
+use std::time::Duration;
+
 
 // Function to get the configuration directory
 pub fn get_config_dir() -> io::Result<PathBuf> {
@@ -96,6 +99,11 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
     println!("2. testnet");
     println!("3. mainnet");
 
+    // Function to check if a domain is reachable
+    fn is_domain_reachable(domain: &str) -> bool {
+        TcpStream::connect_timeout(&(domain, 80).to_socket_addrs().unwrap().next().unwrap(), Duration::from_secs(5)).is_ok()
+    }
+
     let network_type_input = loop {
         print!("Enter your choice [1-3]: ");
         io::stdout().flush().unwrap();
@@ -126,6 +134,7 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
         "mainnet" => "3030",
         _ => "3030", // Default to mainnet port
     };
+
     let rpc_port = prompt_for_value("Enter RPC port", default_rpc_port)
         .parse::<u16>()
         .expect("Invalid port number");
@@ -137,12 +146,21 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
         "mainnet" => "mainnet.kanari.network",
         _ => "mainnet.kanari.network", // Default to mainnet domain
     };
+
+    // Check if the default domain is reachable
+    if !is_domain_reachable(default_domain) {
+        eprintln!("The domain {} is not reachable. Please check your network connection or try again later.", default_domain);
+        return Err(io::Error::new(io::ErrorKind::Other, "Domain not reachable"));
+    }
+    
+    // Prompt the user for the network domain
     let domain = prompt_for_value("Enter network domain", default_domain);
     config.as_object_mut().unwrap().insert("domain".to_string(), json!(domain));
 
     // Save the chain ID to the configuration
     config.as_object_mut().unwrap().insert("chain_id".to_string(), json!(chain_id));
 
+    // Save the configuration to file
     let network_config = NetworkConfig {
         node_address: "127.0.0.1".to_string(),
         domain: domain,         // Add configured domain
