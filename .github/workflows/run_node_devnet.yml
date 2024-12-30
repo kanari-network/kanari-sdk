@@ -47,6 +47,6 @@ jobs:
             echo "24" | cargo run --release --bin kari keytool generate
           
         - name: Run Kari Node
-          run: | 
-            echo "devnet" | echo "3031" | echo "devnet.kari.network" | cargo run --release --bin kari start 
+          run: |
+            (echo "1" && echo "3031" && echo "devnet.kari.network") | cargo run --release --bin kari start
    
