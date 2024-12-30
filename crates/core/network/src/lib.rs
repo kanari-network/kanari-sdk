@@ -15,6 +15,7 @@ pub enum NetworkType {
 #[derive(Serialize, Deserialize)]
 pub struct NetworkConfig {
     pub node_address: String,
+    pub domain: String,     // Add this field
     pub port: u16,
     pub peers: Vec<String>,
     pub chain_id: String,

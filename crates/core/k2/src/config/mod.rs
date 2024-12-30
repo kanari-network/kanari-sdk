@@ -66,23 +66,25 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
     let mut config = load_config()?;
 
     // Check if the configuration already exists
-    if config.get("network_type").is_some() && config.get("rpc_port").is_some() && config.get("domain").is_some() && config.get("chain_id").is_some() {
+    if config.get("network_type").is_some() && config.get("rpc_port").is_some() && 
+       config.get("domain").is_some() && config.get("chain_id").is_some() {
         println!("Configuration already exists. Skipping configuration process.");
         let network_type = match config.get("network_type").unwrap().as_str().unwrap() {
             "devnet" => NetworkType::Devnet,
             "testnet" => NetworkType::Testnet,
             "mainnet" => NetworkType::Mainnet,
-            _ => unreachable!(),
+            _ => NetworkType::Mainnet,
         };
-        let rpc_port = config.get("rpc_port").unwrap().as_u64().unwrap() as u16;
+
         let _domain = config.get("domain").unwrap().as_str().unwrap().to_string();
         let chain_id = config.get("chain_id").unwrap().as_str().unwrap().to_string();
 
         return Ok(NetworkConfig {
             node_address: "127.0.0.1".to_string(),
-            port: rpc_port,
+            domain: config.get("domain").unwrap().as_str().unwrap().to_string(),
+            port: config.get("rpc_port").unwrap().as_u64().unwrap() as u16,
             peers: vec![],
-            chain_id,
+            chain_id: chain_id.to_string(),
             max_connections: 100,
             api_enabled: true,
             network_type,
@@ -130,10 +132,10 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
     config.as_object_mut().unwrap().insert("rpc_port".to_string(), json!(rpc_port));
 
     let default_domain = match network_type_input {
-        "devnet" => "devnet.kari.network",
-        "testnet" => "testnet.kari.network",
-        "mainnet" => "kari.network",
-        _ => "kari.network", // Default to mainnet domain
+        "devnet" => "devnet.kanari.network",
+        "testnet" => "testnet.kanari.network",
+        "mainnet" => "mainnet.kanari.network",
+        _ => "mainnet.kanari.network", // Default to mainnet domain
     };
     let domain = prompt_for_value("Enter network domain", default_domain);
     config.as_object_mut().unwrap().insert("domain".to_string(), json!(domain));
@@ -143,6 +145,7 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
 
     let network_config = NetworkConfig {
         node_address: "127.0.0.1".to_string(),
+        domain: domain,         // Add configured domain
         port: rpc_port, // Use the parsed rpc_port
         peers: vec![],
         chain_id: chain_id.to_string(),

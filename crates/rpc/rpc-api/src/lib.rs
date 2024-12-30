@@ -38,7 +38,7 @@ fn get_block_by_index(params: Params) -> JsonRpcResult<JsonValue> {
 pub async fn start_rpc_server(network_config: NetworkConfig) {
     let mut io = IoHandler::new();
 
-    // Existing methods
+    // Add RPC methods
     io.add_method("get_latest_block", |params| {
         futures::future::ready(get_latest_block(params)).boxed()
     });
@@ -51,18 +51,25 @@ pub async fn start_rpc_server(network_config: NetworkConfig) {
         futures::future::ready(get_block_by_index(params)).boxed()
     });
 
-    // Create socket address from network config
-    let addr = SocketAddr::new(
+    // Configure socket address
+    let local_addr = SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         network_config.port
     );
 
+    // Create CORS settings that allow the domain pattern
+    let allowed_origins = vec![
+        AccessControlAllowOrigin::Any, // Allow all during development
+        AccessControlAllowOrigin::Value(format!("https://{}", network_config.domain).into()),
+    ];
+
     match ServerBuilder::new(io)
-        .cors(DomainsValidation::AllowOnly(vec![AccessControlAllowOrigin::Any]))
-        .start_http(&addr)
+        .cors(DomainsValidation::AllowOnly(allowed_origins))
+        .start_http(&local_addr)
     {
         Ok(server) => {
             println!("RPC server running on http://127.0.0.1:{}", network_config.port);
+            println!("Accessible via https://{}", network_config.domain);
             server.wait();
         }
         Err(e) => {
