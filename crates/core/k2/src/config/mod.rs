@@ -34,11 +34,14 @@ pub fn load_config() -> io::Result<Value> {
         return Ok(json!({}));
     }
     
-    // Parse the JSON, convert parsing errors to io::Error
-    serde_json::from_str(&config_str).map_err(|e| io::Error::new(
-        io::ErrorKind::InvalidData,
-        format!("Failed to parse config file: {}", e)
-    ))
+    // Parse the JSON, handle parsing errors explicitly
+    match serde_json::from_str(&config_str) {
+        Ok(json) => Ok(json),
+        Err(e) => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Failed to parse config file: {}", e)
+        )),
+    }
 }
 
 // Function to save the configuration to file
@@ -52,15 +55,25 @@ pub fn save_config(config: &Value) -> Result<(), std::io::Error> {
 
 // Function to prompt the user for a value with a default
 pub fn prompt_for_value(prompt: &str, default: &str) -> String {
-    print!("{} [{}]: ", prompt, default);
-    io::stdout().flush().unwrap();
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).unwrap();
-    let trimmed_input = input.trim();
-    if trimmed_input.is_empty() {
-        default.to_string()
-    } else {
-        trimmed_input.to_string()
+    loop {
+        print!("{} [{}]: ", prompt, default);
+        io::stdout().flush().unwrap();
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+        let trimmed_input = input.trim();
+        if trimmed_input.is_empty() {
+            return default.to_string();
+        } else {
+            if prompt == "Enter RPC port" {
+                if trimmed_input.parse::<u16>().is_ok() {
+                    return trimmed_input.to_string();
+                } else {
+                    println!("Invalid port number. Please enter a valid u16 value.");
+                    continue;
+                }
+            }
+            return trimmed_input.to_string();
+        }
     }
 }
 
