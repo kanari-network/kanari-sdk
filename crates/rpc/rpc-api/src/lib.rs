@@ -1,12 +1,10 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-
 use futures::FutureExt;
 use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult};
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
 use k2::{blockchain::BLOCKCHAIN, chain_id::CHAIN_ID};
 use network::NetworkConfig;
 use serde_json::Value as JsonValue;
-
 
 // RPC server
 fn get_latest_block(_params: Params) -> JsonRpcResult<JsonValue> {
