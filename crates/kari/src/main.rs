@@ -90,6 +90,7 @@ async fn main() {
     }
 }
 
+// Start the Kari node
 async fn start_node() {
 
         // Check if any wallet exists first
