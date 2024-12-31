@@ -1,0 +1,11 @@
+[alias]
+a = "add"
+au = "audit"
+b = "build"
+br = "build --release"
+c = "check"
+cl = "clean"
+d = "doc --open"
+r = "run"
+rr = "run --release"
+up = "update"
