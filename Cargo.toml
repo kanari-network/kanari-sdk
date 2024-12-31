@@ -71,7 +71,7 @@ members = [
     "crates/core/k2", 
     "crates/command", 
     "consensus/pow", 
-    "framework", "crates/storage", 
+    "framework", "crates/storage", "moveos/types", 
 ]
 
 [profile.bench]

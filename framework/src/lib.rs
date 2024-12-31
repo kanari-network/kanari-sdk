@@ -1,14 +1,14 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+// use move_binary_format::binary_config::BinaryConfig;
+// use move_binary_format::compatibility::Compatibility;
+// use move_binary_format::file_format::{Ability, AbilitySet};
+// use move_binary_format::CompiledModule;
+// use move_core_types::gas_algebra::InternalGas;
+// use once_cell::sync::Lazy;
+// use serde::{Deserialize, Serialize};
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+// // #[derive(Clone, Serialize, PartialEq, Eq, Deserialize)]
+// // pub struct SystemPackage {
+// //     pub id: ObjectID,
+// //     pub bytes: Vec<Vec<u8>>,
+// //     pub dependencies: Vec<ObjectID>,
+// // }
