@@ -12,3 +12,10 @@ repository.workspace = true
 description.workspace = true
 
 [dependencies]
+bcs.workspace = true
+serde.workspace = true
+once_cell.workspace = true 
+tracing.workspace = true
+
+move-binary-format.workspace = true
+move-core-types.workspace = true
