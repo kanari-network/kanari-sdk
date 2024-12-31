@@ -1,11 +1,12 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
 use consensus_pos::Blake3Algorithm;
-use std::sync::mpsc::{self, Sender, Receiver}; // Import Sender and Receiver
+use crossbeam::channel::{unbounded, Sender, Receiver};
 use std::time::{SystemTime, UNIX_EPOCH};
 use log::{info, warn, error};
 use colored::*;
 use chrono::Local;
+use std::time::Duration;
 
 use crate::block::Block;
 use crate::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN, TOTAL_TOKENS};
@@ -25,13 +26,13 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
       
 
     // Assume there's a global variable for pending transactions
-    static mut PENDING_TRANSACTIONS: Vec<Transaction> = Vec::new();
+    static PENDING_TRANSACTIONS: Mutex<Vec<Transaction>> = Mutex::new(Vec::new());
 
     unsafe {
         // Initialize the channel within the function
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = unbounded();
         TRANSACTION_SENDER = Some(sender);
-        TRANSACTION_RECEIVER = Some(receiver);        
+        TRANSACTION_RECEIVER = Some(receiver);  
 
         if BLOCKCHAIN.is_empty() {
             let genesis_data = vec![0; block_size];
@@ -55,7 +56,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             // Receive transactions from the channel
             if let Ok(transaction) = TRANSACTION_RECEIVER.as_ref().unwrap().try_recv() {
                 info!("Received new transaction: {:?}", transaction);
-                PENDING_TRANSACTIONS.push(transaction);
+                PENDING_TRANSACTIONS.lock().unwrap().push(transaction);
             }
 
             let _running = running.lock().unwrap();
@@ -78,7 +79,10 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             let mut transactions = vec![];
 
             // Move the clearing of pending transactions after they are processed
-            transactions.append(&mut PENDING_TRANSACTIONS);
+            {
+                let mut pending = PENDING_TRANSACTIONS.lock().unwrap();
+                transactions.append(&mut pending);
+            }
 
             // If there are no transactions, create a zero-fee transaction for the miner
             if transactions.is_empty() {
@@ -163,7 +167,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             );
             println!();
 
-            thread::sleep(std::time::Duration::from_secs(1));
+            thread::sleep(Duration::from_millis(550));
         }
     }
 

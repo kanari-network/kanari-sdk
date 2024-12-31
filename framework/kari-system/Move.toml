@@ -1,0 +1,13 @@
+[package]
+name = "KariSystem"
+edition = "legacy" # edition = "legacy" to use legacy (pre-2024) Move
+
+
+[dependencies]
+KanariFramework = { local = "../../framework/kanari-framework" }
+MoveStdlib = { local = "../../framework/move-stdlib" }
+
+
+[addresses]
+kari_system = "0x3"
+

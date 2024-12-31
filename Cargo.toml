@@ -146,12 +146,12 @@ dirs = "5.0.1"
 walkdir = "2.3.2"
 difference = "2.0.0"
 tempfile = "3.3.0"
-
+crossbeam = "0.8.4"
 # Logging and Error Handling
 log = "0.4.14"
 env_logger = "0.11.6"
 lazy_static = "1.5.0"
-anyhow = "1.0.41"
+anyhow = "1.0.95"
 thiserror = "2.0.9"
 
 # CLI and Output
