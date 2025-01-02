@@ -105,35 +105,62 @@ pub fn handle_keytool_command() -> Option<String> {
                     return None; // Return None to indicate no address to be used further
                 }
             },
-            // "send" => {
-            //     println!("Enter sender public address:");
-            //     let mut sender_address = String::new();
-            //     io::stdin().read_line(&mut sender_address).unwrap();
-            //     let sender_address = sender_address.trim().to_string();
+            
+            "send" => {
+                load_blockchain();
 
-            //     println!("Enter receiver public address:");
-            //     let mut receiver_address = String::new();
-            //     io::stdin().read_line(&mut receiver_address).unwrap();
-            //     let receiver_address = receiver_address.trim().to_string();
+                println!("Enter sender public address:");
+                let mut sender_address = String::new();
+                io::stdin().read_line(&mut sender_address).unwrap();
+                let sender_address = sender_address.trim().to_string();
 
-            //     println!("Enter amount to send:");
-            //     let mut amount_str = String::new();
-            //     io::stdin().read_line(&mut amount_str).unwrap();
-            //     let amount: u64 = amount_str.trim().parse().expect("Invalid input");
+                println!("Enter receiver public address:");
+                let mut receiver_address = String::new();
+                io::stdin().read_line(&mut receiver_address).unwrap();
+                let receiver_address = receiver_address.trim().to_string();
 
-            //     load_blockchain();
+                println!("Enter amount to send:");
+                let mut amount_str = String::new();
+                io::stdin().read_line(&mut amount_str).unwrap();
+                let amount: u64 = amount_str.trim().parse().expect("Invalid input");
 
-            //     let result = send_coins(&sender_address, &receiver_address, amount);
-            //     match result {
-            //         Ok(tx_hash) => {
-            //             println!("Transaction successful. Tx Hash: {}", tx_hash.green());
-            //         },
-            //         Err(e) => {
-            //             println!("Transaction failed: {}", e.red());
-            //         }
-            //     }
-            //     return None; // Return None to indicate no address to be used further
-            // }
+                // Optional coin type
+                println!("Enter coin type (leave blank for default):");
+                let mut coin_type_input = String::new();
+                io::stdin().read_line(&mut coin_type_input).unwrap();
+                let coin_type = {
+                    let c = coin_type_input.trim();
+                    if c.is_empty() { None } else { Some(c.to_string()) }
+                };
+
+                // Create a transaction
+                let tx = k2::transaction::Transaction {
+                    sender: sender_address.clone(),
+                    receiver: receiver_address.clone(),
+                    amount,
+                    gas_cost: k2::gas::TRANSACTION_GAS_COST,
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                    signature: None,
+                    tx_type: k2::transaction::TransactionType::Transfer,
+                    data: vec![],
+                    coin_type,
+                };
+
+                unsafe {
+                    if let Some(ref s) = k2::simulation::TRANSACTION_SENDER {
+                        s.send(tx).expect("Failed to send transaction");
+                        println!("Transaction broadcasted. It will be processed in the next block.");
+                    } else {
+                        println!("Transaction channel is not set.");
+                    }
+                }
+
+                return None;
+            }
+
             "list" => {
                 match list_wallet_files() {
                     Ok(wallets) => {

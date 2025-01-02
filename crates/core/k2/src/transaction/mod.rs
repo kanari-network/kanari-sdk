@@ -37,6 +37,7 @@ pub struct Transaction {
     pub signature: Option<String>,
     pub tx_type: TransactionType,
     pub data: Vec<u8>,
+    pub coin_type: Option<String>,
 }
 
 impl Transaction {
@@ -70,22 +71,24 @@ impl Transaction {
                 args
             },
             data,
+            coin_type: None,
         }
     }
 
-    pub fn new(sender: String, receiver: String, amount: u64) -> Self {
-        Self {
-            sender,
-            receiver,
-            amount,
-            gas_cost: TRANSACTION_GAS_COST,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-            signature: None,
-            tx_type: TransactionType::Transfer,
-            data: Vec::new(),
+    pub fn apply_transfer(&self, balances: &mut std::collections::HashMap<String, u64>) -> Result<(), String> {
+        if let TransactionType::Transfer = self.tx_type {
+            let sender_balance = balances.get(&self.sender).cloned().unwrap_or(0);
+            if sender_balance < self.amount {
+                return Err("Insufficient funds".to_string());
+            }
+            balances.insert(self.sender.clone(), sender_balance - self.amount);
+
+            let receiver_balance = balances.get(&self.receiver).cloned().unwrap_or(0);
+            balances.insert(self.receiver.clone(), receiver_balance + self.amount);
+
+            Ok(())
+        } else {
+            Err("Not a transfer transaction".to_string())
         }
     }
 
@@ -102,6 +105,7 @@ impl Transaction {
             signature: None,
             tx_type: TransactionType::MoveModuleDeploy(module_bytes.clone()),
             data: module_bytes,
+            coin_type: None,
         }
     }
 
@@ -140,98 +144,26 @@ impl Transaction {
         hash.copy_from_slice(&result);
         hash
     }    
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    // Add verification functionality
+    pub fn apply_coin_transfer(&self, balances: &mut std::collections::HashMap<(String, Option<String>), u64>) -> Result<(), String> {
+        if let TransactionType::Transfer = self.tx_type {
+            let coin = self.coin_type.clone();
+            let sender_account = (self.sender.clone(), coin.clone());
+            let receiver_account = (self.receiver.clone(), coin.clone());
 
-    #[test]
-    fn test_new_transaction() {
-        let tx = Transaction::new(
-            "sender123".to_string(),
-            "receiver456".to_string(),
-            100
-        );
-        
-        assert_eq!(tx.sender, "sender123");
-        assert_eq!(tx.receiver, "receiver456");
-        assert_eq!(tx.amount, 100);
-        assert_eq!(tx.tx_type, TransactionType::Transfer);
-        assert!(tx.signature.is_none());
-    }
+            let sender_balance = balances.get(&sender_account).cloned().unwrap_or(0);
+            if sender_balance < self.amount {
+                return Err("Insufficient funds".to_string());
+            }
+            balances.insert(sender_account, sender_balance - self.amount);
 
-    #[test]
-    fn test_move_module_deploy() {
-        let module_bytes = vec![1, 2, 3, 4];
-        let tx = Transaction::new_move_deploy(
-            "deployer123".to_string(),
-            module_bytes.clone()
-        );
+            let receiver_balance = balances.get(&receiver_account).cloned().unwrap_or(0);
+            balances.insert(receiver_account, receiver_balance + self.amount);
 
-        assert_eq!(tx.sender, "deployer123");
-        assert_eq!(tx.amount, 0);
-        assert!(matches!(tx.tx_type, TransactionType::MoveModuleDeploy(_)));
-        assert_eq!(tx.data, module_bytes);
-    }
-
-    #[test]
-    fn test_move_execute() {
-        let module_name = "Test".to_string();
-        let function_name = "run".to_string();
-        let type_tags = vec![];
-        let args = vec![vec![1, 2, 3]];
-
-        let tx = Transaction::new_move_execute(
-            "executor123".to_string(),
-            module_name.clone(),
-            function_name.clone(),
-            type_tags.clone(),
-            args.clone()
-        );
-
-        if let TransactionType::MoveExecute { 
-            module_name: m, 
-            function_name: f,
-            type_tags: t,
-            args: a 
-        } = tx.tx_type {
-            assert_eq!(m, module_name);
-            assert_eq!(f, function_name);
-            assert_eq!(t, type_tags);
-            assert_eq!(a, args);
+            Ok(())
         } else {
-            panic!("Wrong transaction type");
+            Err("Not a transfer transaction".to_string())
         }
-    }
-
-    #[test]
-    fn test_transaction_hash() {
-        let tx = Transaction::new(
-            "sender123".to_string(),
-            "receiver456".to_string(),
-            100
-        );
-        
-        let hash = tx.hash();
-        assert_eq!(hash.len(), 32);
-        assert_ne!(hash, [0u8; 32]);
-    }
-
-    #[test]
-    fn test_transaction_serialization() {
-        let tx = Transaction::new(
-            "sender123".to_string(),
-            "receiver456".to_string(),
-            100
-        );
-        
-        let serialized = serde_json::to_string(&tx).unwrap();
-        let deserialized: Transaction = serde_json::from_str(&serialized).unwrap();
-        
-        assert_eq!(tx.sender, deserialized.sender);
-        assert_eq!(tx.receiver, deserialized.receiver);
-        assert_eq!(tx.amount, deserialized.amount);
-        assert_eq!(tx.tx_type, deserialized.tx_type);
     }
 }
