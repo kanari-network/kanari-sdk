@@ -12,6 +12,8 @@ repository.workspace = true
 description.workspace = true
 
 [dependencies]
+
+libp2p.workspace = true
 tokio.workspace = true
 serde.workspace = true
 bincode.workspace = true

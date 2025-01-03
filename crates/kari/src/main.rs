@@ -11,7 +11,7 @@ use k2::simulation::run_blockchain;
 use key::{check_wallet_exists, list_wallet_files};
 use network::{NetworkConfig, NetworkType};
 
-use p2p_protocol::P2PNetwork;
+
 
 use rpc_api::start_rpc_server;
 use serde_json::json;
@@ -31,6 +31,7 @@ struct CommandInfo {
 
 const COMMANDS: &[CommandInfo] = &[
     CommandInfo { name: "start", alias: None, description: "Start a local network" },
+    CommandInfo { name: "Public", alias: None, description: "Public file Web3" },
     CommandInfo { name: "move", alias: None, description: "MoveVM" },
     CommandInfo { name: "keytool", alias: None, description: "Kari keystore tool" },
     CommandInfo { name: "version", alias: Some("--V"), description: "Show version" },
@@ -81,6 +82,9 @@ async fn main() {
 
     match args.get(1).map(|s| s.as_str()) {
         Some("start") => start_node().await,
+        Some("Public") => {
+            println!("Public file Web3");
+        },
         Some("move") => handle_move_command(),
         Some("keytool") => {
             let _ = handle_keytool_command(); // Ignore Option<String> return value
@@ -221,16 +225,7 @@ async fn start_node() {
             let running_clone = Arc::clone(&running);
             let miner_address_clone = miner_address.clone();
 
-            let p2p_network = P2PNetwork::new();
 
-            tokio::spawn(async move {
-                println!("Starting P2P network listener...");
-                if let Err(e) = p2p_network.start_listener("127.0.0.1:8080").await {
-                    println!("Failed to start P2P network listener: {}", e);
-                }
-            });
-
-     
             tokio::spawn(async move {
                 println!("Starting RPC server...");
                 start_rpc_server(network_config).await;
