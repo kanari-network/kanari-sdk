@@ -2,10 +2,10 @@ name: Run Kari Node
 
 on:
     push:
-      branches: [ "moveVM" ]
+      branches: [ "main" ]
       tags: "v*"
     pull_request:
-      branches: [ "moveVM" ]
+      branches: [ "main" ]
   
 env:
     CARGO_TERM_COLOR: always
