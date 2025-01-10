@@ -32,16 +32,37 @@ Kanari SDK
 # Update and install dependencies
 ./build_ubuntu.sh
 
-# Clone the Kari chain repo (example command, replace with actual repository URL)
+# Clone the Kari chain repo 
 git clone  https://github.com/kanari-network/kanari-sdk.git
-
 cd kanari-network
+
+# Initialize and update submodules
+git submodule init
+git submodule update --init --recursive
 
 # Build the project
 cargo build --release
+```
 
-# Run the node
-cargo run --release
+### Environment Setup
+```shell
+
+# Generate wallet
+cargo run --release --bin kari keytool generate
+
+# Configure and start node
+# Interactive prompts will ask for:
+# 1. Node type (enter 1 for validator)
+# 2. RPC port (default: 3031)
+# 3. Network domain (default: devnet.kari.network)
+cargo run --release --bin kari start
+
+# Start Kari node
+# Windows
+cargo run --release --bin kari start
+
+# Linux/MacOS
+cargo run --release --bin kari start
 ```
 
 ### Kari CLI Install
