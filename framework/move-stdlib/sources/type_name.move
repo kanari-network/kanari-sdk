@@ -96,7 +96,8 @@ module std::type_name {
 
         ascii::string(addr_bytes)
     }
-
+    
+    #[allow(implicit_const_copy)]
     /// Get name of the module.
     /// Aborts if given a primitive type.
     public fun get_module(self: &TypeName): String {
