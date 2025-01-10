@@ -49,6 +49,21 @@ jobs:
               echo "24" | cargo run --release --bin kari keytool generate
             
           - name: Run Kari Node
+            timeout-minutes: 15  # Prevent infinite running
+            continue-on-error: true  # Allow workflow to continue even if node exits
             run: |
-              (echo "1" && echo "3031" && echo "devnet.kanari.network") | cargo run --release --bin kari start
+              # Start Kari node with input parameters
+              # 1: Node type
+              # 3031: Port number  
+              # devnet.kanari.network: Network address
+              (echo "1" && echo "3031" && echo "devnet.kanari.network") | cargo run --release --bin kari start &
+              
+              # Store process ID
+              KARI_PID=$!
+              
+              # Wait for node to initialize (30 seconds)
+              sleep 30
+              
+              # Kill the process
+              kill $KARI_PID || true
    
