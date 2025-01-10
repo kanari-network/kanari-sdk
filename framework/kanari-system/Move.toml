@@ -1,5 +1,5 @@
 [package]
-name = "KariSystem"
+name = "KanariSystem"
 edition = "legacy" # edition = "legacy" to use legacy (pre-2024) Move
 
 
@@ -9,5 +9,5 @@ MoveStdlib = { local = "../../framework/move-stdlib" }
 
 
 [addresses]
-kari_system = "0x3"
+kanari_system = "0x3"
 
