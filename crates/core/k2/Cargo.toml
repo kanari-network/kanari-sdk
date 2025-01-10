@@ -42,6 +42,7 @@ dirs.workspace = true
 log.workspace = true    
 env_logger.workspace = true
 colored.workspace = true
+thiserror.workspace = true
 
 # MoveVM
 move-bytecode-verifier.workspace = true

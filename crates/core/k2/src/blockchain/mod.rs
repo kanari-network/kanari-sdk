@@ -3,6 +3,7 @@ use bincode;
 use consensus_pos::Blake3Algorithm;
 use dirs;
 use rocksdb::*;
+use thiserror::Error;
 use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::PathBuf;
@@ -15,7 +16,68 @@ pub static mut TOTAL_TOKENS: u64 = 0;
 pub static mut BLOCKCHAIN: VecDeque<Block<Blake3Algorithm>> = VecDeque::new();
 pub static mut MOVE_MODULES: Option<Mutex<HashMap<String, Vec<u8>>>> = None;
 
+#[derive(Error, Debug)]
+pub enum StateError {
+    #[error("State already initialized")]
+    AlreadyInitialized,
+    #[error("State not initialized")]
+    NotInitialized,
+}
 
+pub type Result<T> = std::result::Result<T, StateError>;
+
+pub fn initialize_state() -> Result<()> {
+    unsafe {
+        if BALANCES.is_some() {
+            return Err(StateError::AlreadyInitialized);
+        }
+        
+        BALANCES = Some(Mutex::new(HashMap::new()));
+        TOTAL_TOKENS = 0;
+        BLOCKCHAIN = VecDeque::new();
+        MOVE_MODULES = Some(Mutex::new(HashMap::new()));
+        
+        Ok(())
+    }
+}
+
+pub fn reset_state() {
+    unsafe {
+        BALANCES = None;
+        TOTAL_TOKENS = 0;
+        BLOCKCHAIN = VecDeque::new();
+        MOVE_MODULES = None;
+    }
+}
+
+pub fn get_balance(address: &str) -> Result<u64> {
+    unsafe {
+        match &BALANCES {
+            Some(balances) => Ok(*balances.lock().unwrap().get(address).unwrap_or(&0)),
+            None => Err(StateError::NotInitialized)
+        }
+    }
+}
+
+pub fn set_balance(address: String, amount: u64) -> Result<()> {
+    unsafe {
+        match &BALANCES {
+            Some(balances) => {
+                balances.lock().unwrap().insert(address, amount);
+                Ok(())
+            },
+            None => Err(StateError::NotInitialized)
+        }
+    }
+}
+
+pub fn get_total_tokens() -> u64 {
+    unsafe { TOTAL_TOKENS }
+}
+
+pub fn set_total_tokens(amount: u64) {
+    unsafe { TOTAL_TOKENS = amount; }
+}
 
 pub fn get_kari_dir() -> PathBuf {
     let mut path = dirs::home_dir().expect("Unable to find home directory");
