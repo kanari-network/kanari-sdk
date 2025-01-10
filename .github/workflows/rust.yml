@@ -35,7 +35,9 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-
+      with:
+        submodules: 'recursive'  # Add this to fetch submodules
+        
     - name: Cache Rust dependencies
       uses: actions/cache@v3
       with:
