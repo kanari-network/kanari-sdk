@@ -155,12 +155,12 @@ log = "0.4.14"
 env_logger = "0.11.6"
 lazy_static = "1.5.0"
 anyhow = "1.0.95"
-thiserror = "2.0.9"
+thiserror = "2.0.10"
 
 # CLI and Output
-clap = "4.5.23"
+clap = "4.5.26"
 codespan-reporting = "0.11.0"
-colored = "2.2.0"
+colored = "3.0.0"
 
 # Database
 rocksdb = "0.23.0"
@@ -168,7 +168,6 @@ rocksdb = "0.23.0"
 # Testing
 datatest-stable = "0.3.2"
 
-libp2p = "0.54.1"
 
 #Path List
 kari = { path = "crates/kari" }
