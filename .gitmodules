@@ -1,2 +1,2 @@
-[submodule "D:/Work/kanari-sdk/external-crates/move"]
+[submodule "https://github.com/kanari-network/move.git"]
 	shallow = true
