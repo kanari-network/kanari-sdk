@@ -16,6 +16,7 @@
 - [Signer](signer.md)
 - [References](references.md)
 - [Tuples and Unit](tuples.md)
+- [Kari](kari.md)
 
 ## Basic Concepts
 
