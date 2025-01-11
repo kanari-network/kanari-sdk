@@ -7,3 +7,13 @@
     path = documentation/kanari-docs
     url = https://github.com/kanari-network/kanari-docs.git
     shallow = true
+
+[submodule "web/kanari-web"]
+    path = web/kanari-web
+    url = https://github.com/kanari-network/kanari-web.git 
+    shallow = true
+
+[submodule "web/kanari-blog"]
+	path = web/kanari-blog
+	url = https://github.com/jamesatomc/kanari-blog.git
+    shallow = true
