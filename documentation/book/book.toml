@@ -11,7 +11,7 @@ preferred-dark-theme = "ayu"
 git-repository-url = "https://github.com/kanari-network/kanari-sdk"
 edit-url-template = "https://github.com/kanari-network/kanari-sdk/edit/main/documentation/book/{path}"
 site-url = "/kanari-sdk/"
-cname = "karimove.docs.kanari.network"
+cname = "karimove.kanari.network"
 mathjax-support = true
 
 [output.html.search]
