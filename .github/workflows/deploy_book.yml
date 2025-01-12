@@ -5,8 +5,13 @@ on:
     branches: [main]
     paths: ['documentation/**']
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -17,42 +22,58 @@ jobs:
           profile: minimal
           toolchain: stable
 
-      - name: Cache Rust dependencies
+      - name: Cache dependencies
         uses: actions/cache@v3
         with:
           path: |
             ~/.cargo/bin/
             ~/.cargo/registry/
-            ~/.cargo/git/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-mdbook-${{ hashFiles('**/book.toml') }}
 
       - name: Install mdBook
         run: cargo install mdbook mdbook-linkcheck
 
-      - name: Build Documentation
+      - name: Build docs
         run: |
           cd documentation/book
           mdbook build
-
-      - name: Setup Jekyll structure
+          
+      - name: Setup Jekyll
         run: |
           mkdir -p _site
           cp -r documentation/book/book/* _site/
-          echo "theme: jekyll-theme-cayman" > _config.yml
-          echo "title: Kanari SDK Documentation" >> _config.yml
-          echo "description: Documentation for the Kanari SDK" >> _config.yml
-          echo "---" > _site/index.html.tmp
-          echo "layout: default" >> _site/index.html.tmp
-          echo "---" >> _site/index.html.tmp
-          cat _site/index.html >> _site/index.html.tmp
-          mv _site/index.html.tmp _site/index.html
-
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./_site
-          enable_jekyll: true
+          cat > _site/_config.yml <<EOL
+          remote_theme: pages-themes/cayman@v0.2.0
+          plugins:
+          - jekyll-remote-theme
+          title: Kanari SDK Documentation
+          description: Documentation for the Kanari SDK
+          EOL
           
+          find _site -type f -name "*.html" -exec sh -c '
+            tempfile=\$(mktemp)
+            echo "---" > "\$tempfile"
+            echo "layout: default" >> "\$tempfile"
+            echo "---" >> "\$tempfile"
+            cat "{}" >> "\$tempfile"
+            mv "\$tempfile" "{}"
+          ' \;
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v2
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v2
+
           
