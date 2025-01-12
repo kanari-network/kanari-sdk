@@ -1,0 +1,57 @@
+name: Deploy Documentation
+
+on:
+  push:
+    branches: [main]
+    paths: ['documentation/**']
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/
+            ~/.cargo/git/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install mdBook
+        run: cargo install mdbook mdbook-linkcheck
+
+      - name: Build Documentation
+        run: |
+          cd documentation/book
+          mdbook build
+
+      - name: Setup Jekyll structure
+        run: |
+          mkdir -p _site
+          cp -r documentation/book/book/* _site/
+          echo "theme: jekyll-theme-cayman" > _config.yml
+          echo "title: Kanari SDK Documentation" >> _config.yml
+          echo "description: Documentation for the Kanari SDK" >> _config.yml
+          echo "---" > _site/index.html.tmp
+          echo "layout: default" >> _site/index.html.tmp
+          echo "---" >> _site/index.html.tmp
+          cat _site/index.html >> _site/index.html.tmp
+          mv _site/index.html.tmp _site/index.html
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_site
+          enable_jekyll: true
+          
