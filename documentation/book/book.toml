@@ -1,4 +1,3 @@
-
 [book]
 authors = ["Kanari Network"]
 language = "en"
@@ -6,18 +5,14 @@ multilingual = false
 src = "src"
 title = "Kanari SDK Move Documentation"
 
-[build]
-build-dir = "book"
-create-missing = true
-use-default-preprocessors = true
-
 [output.html]
 default-theme = "rust"
 preferred-dark-theme = "ayu"
 git-repository-url = "https://github.com/kanari-network/kanari-sdk"
 edit-url-template = "https://github.com/kanari-network/kanari-sdk/edit/main/documentation/book/{path}"
 site-url = "/kanari-sdk/"
-no-section-label = false
+cname = "karimove.docs.kanari.network"
+mathjax-support = true
 
 [output.html.search]
 enable = true
@@ -29,15 +24,3 @@ boost-hierarchy = 1
 boost-paragraph = 1
 expand = true
 heading-split-level = 3
-
-[build.environment]
-RUST_VERSION = "1.82.0"
-
-[[plugins]]
-package = "@netlify/plugin-sitemap"
-
-[context.production]
-command = "curl -sSL https://github.com/rust-lang/mdBook/releases/download/v0.4.36/mdbook-v0.4.36-x86_64-unknown-linux-gnu.tar.gz | tar -xz && ./mdbook build"
-
-[context.deploy-preview]
-command = "curl -sSL https://github.com/rust-lang/mdBook/releases/download/v0.4.36/mdbook-v0.4.36-x86_64-unknown-linux-gnu.tar.gz | tar -xz && ./mdbook build"
