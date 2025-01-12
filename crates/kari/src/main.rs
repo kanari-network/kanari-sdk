@@ -29,10 +29,11 @@ struct CommandInfo {
     description: &'static str,
 }
 
+
 const COMMANDS: &[CommandInfo] = &[
     CommandInfo { name: "start", alias: None, description: "Start a local network" },
-    CommandInfo { name: "Public", alias: None, description: "Public file Web3" },
-    CommandInfo { name: "move", alias: None, description: "MoveVM" },
+    CommandInfo { name: "public", alias: None, description: "Public file Web3" },
+    CommandInfo { name: "move", alias: None, description: "MoveVM " },
     CommandInfo { name: "keytool", alias: None, description: "Kari keystore tool" },
     CommandInfo { name: "version", alias: Some("--V"), description: "Show version" },
 ];

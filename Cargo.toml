@@ -71,7 +71,11 @@ members = [
     "crates/core/k2", 
     "crates/command", 
     "consensus/pow", 
-    "framework", "crates/storage", "moveos/types", 
+    "framework", 
+
+    #Move Crates
+    "moveos/storage", 
+    "moveos/types", 
 ]
 
 [profile.bench]
@@ -155,7 +159,7 @@ log = "0.4.14"
 env_logger = "0.11.6"
 lazy_static = "1.5.0"
 anyhow = "1.0.95"
-thiserror = "2.0.10"
+thiserror = "2.0.11"
 
 # CLI and Output
 clap = "4.5.26"
@@ -189,7 +193,7 @@ command = { path = "crates/command" }
 rpc-api = { path = "crates/rpc/rpc-api" }
 
 #Storage Path List
-storage = { path = "crates/storage" }
+storage = { path = "moveos/storage" }
 
 framework = { path = "framework" }
 
