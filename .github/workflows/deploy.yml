@@ -7,9 +7,14 @@ on:
     paths:
       - 'documentation/**'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
@@ -21,13 +26,32 @@ jobs:
           profile: minimal
           toolchain: stable
 
+      - name: Cache Rust dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
       - name: Install mdBook
-        run: cargo install mdbook
+        run: cargo install mdbook mdbook-linkcheck
+
+      - name: Verify links
+        run: |
+          cd documentation/book
+          mdbook test
 
       - name: Build Documentation
         run: |
           cd documentation/book
           mdbook build
+
+      - name: Check build output
+        run: |
+          test -d documentation/book/book || exit 1
+          test -f documentation/book/book/index.html || exit 1
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
