@@ -1,3 +1,4 @@
+
 [book]
 authors = ["Kanari Network"]
 language = "en"
@@ -5,14 +6,18 @@ multilingual = false
 src = "src"
 title = "Kanari SDK Move Documentation"
 
+[build]
+build-dir = "book"
+create-missing = true
+use-default-preprocessors = true
+
 [output.html]
 default-theme = "rust"
 preferred-dark-theme = "ayu"
 git-repository-url = "https://github.com/kanari-network/kanari-sdk"
 edit-url-template = "https://github.com/kanari-network/kanari-sdk/edit/main/documentation/book/{path}"
 site-url = "/kanari-sdk/"
-cname = "karimove.docs.kanari.network"
-mathjax-support = true
+no-section-label = false
 
 [output.html.search]
 enable = true
@@ -24,3 +29,15 @@ boost-hierarchy = 1
 boost-paragraph = 1
 expand = true
 heading-split-level = 3
+
+[build.environment]
+RUST_VERSION = "1.70.0"
+
+[[plugins]]
+package = "@netlify/plugin-sitemap"
+
+[context.production]
+command = "mdbook build"
+
+[context.deploy-preview]
+command = "mdbook build"
