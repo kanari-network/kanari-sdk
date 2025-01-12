@@ -1,8 +1,8 @@
-use std::{collections::HashMap, fs, io::{self, Write}, path::PathBuf, str::FromStr as _, sync::Mutex};
+use std::{fs, io::{self, Write}, path::PathBuf, };
 use serde::{Deserialize, Serialize};
 use bip39::Mnemonic;
 use log::{debug, error};
-use secp256k1::{Secp256k1, Message, SecretKey};
+use secp256k1::Secp256k1;
 use rand::rngs::OsRng;
 use hex;
 

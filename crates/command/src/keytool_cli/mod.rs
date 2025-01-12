@@ -2,7 +2,7 @@ use std::io;
 use colored::Colorize;
 use key::{generate_karix_address, list_wallet_files, load_wallet, save_wallet, set_selected_wallet,  };
 
-use k2::blockchain::{load_blockchain, BALANCES};
+use k2::blockchain::{get_balance, load_blockchain, transfer_coins, BALANCES};
 use std::process::exit;
 
 
@@ -74,20 +74,37 @@ pub fn handle_keytool_command() -> Option<String> {
 
                 return Some(public_address);
             },
-            "balance" => { // String comparison for "balance"
+            "balance" => {
                 println!("Enter public address:");
                 let mut public_address = String::new();
-                io::stdin().read_line(&mut public_address).unwrap();
-                let public_address = public_address.trim().to_string();
-
-                load_blockchain();
-
-                let balance = unsafe {
-                    BALANCES.as_ref().unwrap().lock().unwrap().get(&public_address).cloned().unwrap_or(0)
-                };
-
-                println!("Balance for {}: {}", public_address.green(), balance.to_string().green());
-                return None; // Return None to indicate no address to be used further
+                match io::stdin().read_line(&mut public_address) {
+                    Ok(_) => {
+                        let public_address = public_address.trim().to_string();
+                        
+                        match load_blockchain() {
+                            Ok(_) => {
+                                match get_balance(&public_address) {
+                                    Ok(balance) => {
+                                        println!("Balance for {}: {}", 
+                                            public_address.green(), 
+                                            balance.to_string().green()
+                                        );
+                                    },
+                                    Err(e) => {
+                                        println!("{}: {}", "Error getting balance".red(), e);
+                                    }
+                                }
+                            },
+                            Err(e) => {
+                                println!("{}: {}", "Error loading blockchain".red(), e);
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        println!("{}: {}", "Error reading input".red(), e);
+                    }
+                }
+                return None;
             },
 
             "select" => {
@@ -142,59 +159,46 @@ pub fn handle_keytool_command() -> Option<String> {
             },
             
             "send" => {
-                load_blockchain();
-
-                println!("Enter sender public address:");
-                let mut sender_address = String::new();
-                io::stdin().read_line(&mut sender_address).unwrap();
-                let sender_address = sender_address.trim().to_string();
-
-                println!("Enter receiver public address:");
-                let mut receiver_address = String::new();
-                io::stdin().read_line(&mut receiver_address).unwrap();
-                let receiver_address = receiver_address.trim().to_string();
-
+                // Get sender
+                println!("Enter sender address:");
+                let mut sender = String::new();
+                io::stdin().read_line(&mut sender);
+                let sender = sender.trim().to_string();
+            
+                // Get receiver
+                println!("Enter receiver address:");
+                let mut receiver = String::new();
+                io::stdin().read_line(&mut receiver);
+                let receiver = receiver.trim().to_string();
+            
+                // Get amount
                 println!("Enter amount to send:");
-                let mut amount_str = String::new();
-                io::stdin().read_line(&mut amount_str).unwrap();
-                let amount: u64 = amount_str.trim().parse().expect("Invalid input");
-
-                // Optional coin type
-                println!("Enter coin type (leave blank for default):");
-                let mut coin_type_input = String::new();
-                io::stdin().read_line(&mut coin_type_input).unwrap();
-                let coin_type = {
-                    let c = coin_type_input.trim();
-                    if c.is_empty() { None } else { Some(c.to_string()) }
+                let mut amount = String::new();
+                io::stdin().read_line(&mut amount);
+                let amount: u64 = match amount.trim().parse() {
+                    Ok(num) => num,
+                    Err(_) => {
+                        println!("{}", "Invalid amount".red());
+                        return None;
+                    }
                 };
-
-                // Create a transaction
-                let tx = k2::transaction::Transaction {
-                    sender: sender_address.clone(),
-                    receiver: receiver_address.clone(),
-                    amount,
-                    gas_cost: k2::gas::TRANSACTION_GAS_COST,
-                    timestamp: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs(),
-                    signature: None,
-                    tx_type: k2::transaction::TransactionType::Transfer,
-                    data: vec![],
-                    coin_type,
-                };
-
-                unsafe {
-                    if let Some(ref s) = k2::simulation::TRANSACTION_SENDER {
-                        s.send(tx).expect("Failed to send transaction");
-                        println!("Transaction broadcasted. It will be processed in the next block.");
-                    } else {
-                        println!("Transaction channel is not set.");
+            
+                // Execute transfer
+                match transfer_coins(sender.clone(), receiver.clone(), amount) {
+                    Ok(_) => {
+                        println!("{}", "Transaction successful!".green());
+                        println!("Sent {} tokens from {} to {}", 
+                            amount.to_string().green(),
+                            sender.green(),
+                            receiver.green()
+                        );
+                    },
+                    Err(e) => {
+                        println!("{}: {}", "Transaction failed".red(), e);
                     }
                 }
-
                 return None;
-            }
+            },
 
             "list" => {
                 match list_wallet_files() {
