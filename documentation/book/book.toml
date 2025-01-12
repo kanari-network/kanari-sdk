@@ -31,13 +31,13 @@ expand = true
 heading-split-level = 3
 
 [build.environment]
-RUST_VERSION = "1.70.0"
+RUST_VERSION = "1.82.0"
 
 [[plugins]]
 package = "@netlify/plugin-sitemap"
 
 [context.production]
-command = "mdbook build"
+command = "curl -sSL https://github.com/rust-lang/mdBook/releases/download/v0.4.36/mdbook-v0.4.36-x86_64-unknown-linux-gnu.tar.gz | tar -xz && ./mdbook build"
 
 [context.deploy-preview]
-command = "mdbook build"
+command = "curl -sSL https://github.com/rust-lang/mdBook/releases/download/v0.4.36/mdbook-v0.4.36-x86_64-unknown-linux-gnu.tar.gz | tar -xz && ./mdbook build"
