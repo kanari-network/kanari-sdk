@@ -3,7 +3,6 @@ use bincode;
 use consensus_pos::Blake3Algorithm;
 use dirs;
 use rocksdb::*;
-use thiserror::Error;
 use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::PathBuf;
@@ -86,17 +85,6 @@ pub fn load_blockchain() {
             for tx in &block.transactions {
                 *balances.entry(tx.sender.clone()).or_insert(0) -= tx.amount;
                 *balances.entry(tx.receiver.clone()).or_insert(0) += tx.amount;
-            }
-
-            if !block.data.is_empty() {
-                if let Some(modules_mutex) = MOVE_MODULES.as_ref() {
-                    if let Ok(mut modules) = modules_mutex.lock() {
-                        modules.insert(block.hash.clone(), block.data.clone());
-                    }
-                } else {
-                    // Handle the case where MOVE_MODULES is None
-                    eprintln!("MOVE_MODULES is not initialized");
-                }
             }
         }
 

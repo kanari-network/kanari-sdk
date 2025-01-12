@@ -5,6 +5,7 @@ use crate::gas::{
 use move_core_types::language_storage::TypeTag;
 use serde::{Serialize, Deserialize};
 use secp256k1::{Secp256k1, Message, SecretKey};
+use secp256k1::ecdsa::Signature;
 use sha2::{Sha256, Digest};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -58,7 +59,7 @@ impl Transaction {
             sender,
             receiver: String::new(),
             amount: 0,
-            gas_cost: 0.0,
+            gas_cost: 0.0, 
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -72,23 +73,6 @@ impl Transaction {
             },
             data,
             coin_type: None,
-        }
-    }
-
-    pub fn apply_transfer(&self, balances: &mut std::collections::HashMap<String, u64>) -> Result<(), String> {
-        if let TransactionType::Transfer = self.tx_type {
-            let sender_balance = balances.get(&self.sender).cloned().unwrap_or(0);
-            if sender_balance < self.amount {
-                return Err("Insufficient funds".to_string());
-            }
-            balances.insert(self.sender.clone(), sender_balance - self.amount);
-
-            let receiver_balance = balances.get(&self.receiver).cloned().unwrap_or(0);
-            balances.insert(self.receiver.clone(), receiver_balance + self.amount);
-
-            Ok(())
-        } else {
-            Err("Not a transfer transaction".to_string())
         }
     }
 
@@ -118,14 +102,14 @@ impl Transaction {
         let tx_hash = self.hash();
         let message = Message::from_digest_slice(&tx_hash)
             .map_err(|e| format!("Message creation error: {}", e))?;
-        
+
         let secret_key = SecretKey::from_slice(private_key)
             .map_err(|e| format!("Invalid private key: {}", e))?;
-            
+
         let signature = secp.sign_ecdsa(&message, &secret_key);
         let signature_hex = hex::encode(signature.serialize_compact());
         self.signature = Some(signature_hex.clone());
-        
+
         Ok(signature_hex)
     }
 
@@ -143,9 +127,26 @@ impl Transaction {
         let mut hash = [0u8; 32];
         hash.copy_from_slice(&result);
         hash
-    }    
+    }
 
     // Add verification functionality
+    pub fn verify_signature(&self, secp: &Secp256k1<secp256k1::All>, public_key: &[u8]) -> Result<bool, String> {
+        let tx_hash = self.hash();
+        let message = Message::from_digest_slice(&tx_hash)
+            .map_err(|e| format!("Message creation error: {}", e))?;
+    
+        let public_key = secp256k1::PublicKey::from_slice(public_key)
+            .map_err(|e| format!("Invalid public key: {}", e))?;
+    
+        let signature = Signature::from_compact(
+            &hex::decode(self.signature.as_ref().unwrap())
+                .map_err(|e| format!("Invalid signature: {}", e))?
+        )
+        .map_err(|e| format!("Invalid signature: {}", e))?;
+    
+        Ok(secp.verify_ecdsa(&message, &signature, &public_key).is_ok())
+    }
+
     pub fn apply_coin_transfer(&self, balances: &mut std::collections::HashMap<(String, Option<String>), u64>) -> Result<(), String> {
         if let TransactionType::Transfer = self.tx_type {
             let coin = self.coin_type.clone();

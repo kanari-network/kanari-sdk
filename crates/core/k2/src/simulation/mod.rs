@@ -18,12 +18,10 @@ pub static mut TRANSACTION_SENDER: Option<Sender<Transaction>> = None;
 pub static mut TRANSACTION_RECEIVER: Option<Receiver<Transaction>> = None;
 
 pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
-    let max_tokens = 11_000_000; // Maximum token supply   
+    let max_tokens = 11_000_000; // Maximum token supply
     let mut tokens_per_block = 25; // Initial block reward
     let halving_interval = 210_000; // Halve the block reward every 210,000 blocks
     let block_size = 2_250_000; // 2.25 MB in bytes
-
-      
 
     // Assume there's a global variable for pending transactions
     static PENDING_TRANSACTIONS: Mutex<Vec<Transaction>> = Mutex::new(Vec::new());
@@ -32,7 +30,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
         // Initialize the channel within the function
         let (sender, receiver) = unbounded();
         TRANSACTION_SENDER = Some(sender);
-        TRANSACTION_RECEIVER = Some(receiver);  
+        TRANSACTION_RECEIVER = Some(receiver);
 
         if BLOCKCHAIN.is_empty() {
             let genesis_data = vec![0; block_size];
@@ -45,14 +43,14 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
                 tokens_per_block,
                 genesis_transactions,
                 miner_address.clone(),
-                hasher
+                hasher,
             ));
             TOTAL_TOKENS += tokens_per_block;
             BALANCES.as_mut().unwrap().lock().unwrap().entry(miner_address.clone()).and_modify(|balance| *balance += tokens_per_block).or_insert(tokens_per_block);
             info!("Genesis block created with hash: {}", BLOCKCHAIN.back().unwrap().hash);
         }
 
-        loop { 
+        loop {
             // Receive transactions from the channel
             if let Ok(transaction) = TRANSACTION_RECEIVER.as_ref().unwrap().try_recv() {
                 info!("Received new transaction: {:?}", transaction);
@@ -70,7 +68,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             let miner_reward = if TOTAL_TOKENS < max_tokens {
                 tokens_per_block
             } else {
-                0 
+                0
             };
 
             let prev_block = BLOCKCHAIN.back().unwrap();
@@ -97,7 +95,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
                         .as_secs(),
                     signature: None, // Add an empty signature or a valid one if available
                     tx_type: TransactionType::Transfer, // Add default transfer type
-                    data: vec![], // Add empty data 
+                    data: vec![], // Add empty data
                     coin_type: None, // Add coin type if available
                 });
                 info!("No transactions found. Created a zero-fee transaction for the miner.");
@@ -105,13 +103,13 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
 
             let hasher = Blake3Algorithm;
             let new_block = Block::new(
-                prev_block.index + 1, 
-                new_data, 
-                prev_block.hash.clone(), 
+                prev_block.index + 1,
+                new_data,
+                prev_block.hash.clone(),
                 miner_reward, // Use calculated miner_reward
-                transactions.clone(), 
-                miner_address.clone(), 
-                hasher
+                transactions.clone(),
+                miner_address.clone(),
+                hasher,
             );
 
             if !new_block.verify(prev_block) {
@@ -136,14 +134,14 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
 
             // Update TOTAL_TOKENS only if it's less than the max supply
             if TOTAL_TOKENS < max_tokens {
-                TOTAL_TOKENS += tokens_per_block; 
+                TOTAL_TOKENS += tokens_per_block;
             }
 
             // Save blockchain every time a new block is created
             save_blockchain();
 
-            
-            println!("{} {} | block={} | hash={:}... | prev={:}... | miner={} | reward={}", 
+            println!(
+                "{} {} | block={} | hash={:}... | prev={:}... | miner={} | reward={}",
                 "[INFO]".green(),
                 Local::now().format("%Y-%m-%d %H:%M:%S"),
                 BLOCKCHAIN.len().to_string().blue(),
@@ -152,16 +150,18 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
                 format!("{}t", transaction_fees).cyan(),
                 format!("{}t", tokens_per_block).cyan()
             );
-            
+
             if BLOCKCHAIN.len() % halving_interval == 0 && TOTAL_TOKENS < max_tokens {
                 tokens_per_block /= 2;
-                println!("{} Block reward halved to {}", 
+                println!(
+                    "{} Block reward halved to {}",
                     "[HALV]".red(),
                     format!("{} tokens", tokens_per_block).red()
                 );
             }
-            
-            println!("{} blocks={} supply={}", 
+
+            println!(
+                "{} blocks={} supply={}",
                 "[STAT]".magenta(),
                 BLOCKCHAIN.len().to_string().blue(),
                 TOTAL_TOKENS.to_string().magenta()
@@ -171,9 +171,4 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             thread::sleep(Duration::from_millis(550));
         }
     }
-
-
-   
-
 }
-

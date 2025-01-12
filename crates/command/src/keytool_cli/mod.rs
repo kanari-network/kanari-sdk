@@ -1,6 +1,6 @@
 use std::io;
 use colored::Colorize;
-use key::{generate_karix_address, list_wallet_files, load_wallet, save_wallet,  };
+use key::{generate_karix_address, list_wallet_files, load_wallet, save_wallet, set_selected_wallet,  };
 
 use k2::blockchain::{load_blockchain, BALANCES};
 use std::process::exit;
@@ -14,6 +14,7 @@ struct CommandInfo {
 const COMMANDS: &[CommandInfo] = &[
     CommandInfo { name: "generate", description: "Generate new address" },
     CommandInfo { name: "balance", description: "Check balance" },
+    CommandInfo { name: "select", description: "Select wallet" },
     CommandInfo { name: "wallet", description: "Load existing wallet" },
     CommandInfo { name: "send", description: "Send coins" },
     CommandInfo { name: "list", description: "List wallet files" },
@@ -88,6 +89,40 @@ pub fn handle_keytool_command() -> Option<String> {
                 println!("Balance for {}: {}", public_address.green(), balance.to_string().green());
                 return None; // Return None to indicate no address to be used further
             },
+
+            "select" => {
+                match list_wallet_files() {
+                    Ok(wallets) => {
+                        if wallets.is_empty() {
+                            println!("{}", "No wallets found!".red());
+                            return None;
+                        }
+        
+                        println!("\nAvailable wallets:");
+                        for (i, (wallet, _)) in wallets.iter().enumerate() {
+                            println!("{}. {}", i + 1, wallet.trim_end_matches(".toml"));
+                        }
+        
+                        println!("\nEnter wallet number to select:");
+                        let mut input = String::new();
+                        let _ = io::stdin().read_line(&mut input);
+                        
+                        if let Ok(index) = input.trim().parse::<usize>() {
+                            if index > 0 && index <= wallets.len() {
+                                let selected = wallets[index - 1].0.trim_end_matches(".toml");
+                                if let Err(e) = set_selected_wallet(selected) {
+                                    println!("Error setting wallet: {}", e);
+                                } else {
+                                    println!("Selected wallet: {}", selected.green());
+                                }
+                            }
+                        }
+                    },
+                    Err(e) => println!("Error listing wallets: {}", e),
+                }
+                None
+            },
+
             "wallet" => { // String comparison for "wallet"
                 println!("Enter public address to load:");
                 let mut public_address = String::new();

@@ -1,14 +1,15 @@
-use std::{collections::HashMap, fs, io::Write, path::PathBuf, str::FromStr as _, sync::Mutex};
+use std::{collections::HashMap, fs, io::{self, Write}, path::PathBuf, str::FromStr as _, sync::Mutex};
 use serde::{Deserialize, Serialize};
 use bip39::Mnemonic;
-
+use log::{debug, error};
 use secp256k1::{Secp256k1, Message, SecretKey};
 use rand::rngs::OsRng;
 use hex;
 
 
 // Import Mutex and HashMap from std::sync
-use k2::{blockchain::{get_kari_dir, save_blockchain, BALANCES}, gas::TRANSACTION_GAS_COST, transaction::Transaction};
+use k2::{blockchain::{get_kari_dir, save_blockchain, BALANCES}, config::{load_config, save_config}, gas::TRANSACTION_GAS_COST, transaction::Transaction};
+use serde_json::json;
 
 pub fn check_wallet_exists() -> bool {
     match list_wallet_files() {
@@ -42,22 +43,48 @@ pub fn save_wallet(address: &str, private_key: &str, seed_phrase: &str) {
     println!("Wallet saved to {:?}", wallet_file);
 }
 
+/// Set the selected wallet address in the configuration
+pub fn set_selected_wallet(wallet_address: &str) -> io::Result<()> {
+    // Load existing config
+    let mut config = load_config()?;
+    
+    // Update miner_address in config
+    if let Some(obj) = config.as_object_mut() {
+        obj.insert("miner_address".to_string(), json!(wallet_address));
+    }
+
+    // Save updated config
+    save_config(&config)
+}
 
 pub fn load_wallet(address: &str) -> Option<Wallet> {
-    // Validate input
+    // Input validation with logging
     if address.trim().is_empty() {
+        debug!("Attempted to load wallet with empty address");
         return None;
     }
 
     let kari_dir = get_kari_dir();
     let wallet_file: PathBuf = kari_dir.join("wallets").join(format!("{}.toml", address));
 
+    debug!("Attempting to load wallet from: {}", wallet_file.display());
+
     if wallet_file.exists() {
-        // Handle potential IO and parsing errors gracefully
+        // Handle potential IO and parsing errors with logging
         fs::read_to_string(&wallet_file)
+            .map_err(|e| {
+                error!("Failed to read wallet file: {}", e);
+                e
+            })
             .ok()
-            .and_then(|data| toml::from_str(&data).ok())
+            .and_then(|data| {
+                toml::from_str(&data).map_err(|e| {
+                    error!("Failed to parse wallet TOML: {}", e);
+                    e
+                }).ok()
+            })
     } else {
+        debug!("Wallet file not found: {}", wallet_file.display());
         None
     }
 }
