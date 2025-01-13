@@ -65,7 +65,7 @@ jobs:
       run: |
         choco install visualstudio2019buildtools
         choco install visualstudio2019-workload-vctools
-        rustup default stable-msvc
+        rustup default nightly-x86_64-pc-windows-msvc
         
     - name: Setup Windows environment
       if: matrix.os == 'windows-latest'
@@ -92,7 +92,7 @@ jobs:
     - name: Install Rust toolchain
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: stable
+        toolchain: nightly
         target: ${{ matrix.target }}
         override: true
 
