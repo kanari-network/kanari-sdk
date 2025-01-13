@@ -6,7 +6,6 @@ use consensus_pos::Blake3Algorithm;
 use dirs;
 use serde::{Deserialize, Serialize};
 use storage::{BlockchainStorage, RocksDBStorage, StorageError};
-mod Storage;
 mod storage;
 
 use std::collections::{HashMap, VecDeque};
