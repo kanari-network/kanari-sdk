@@ -8,7 +8,7 @@ use hex;
 
 
 // Import Mutex and HashMap from std::sync
-use k2::{blockchain::{get_kari_dir, save_blockchain, BALANCES}, config::{load_config, save_config}, gas::TRANSACTION_GAS_COST, transaction::Transaction};
+use k2::{blockchain::get_kari_dir, config::{load_config, save_config}};
 use serde_json::json;
 
 pub fn check_wallet_exists() -> bool {

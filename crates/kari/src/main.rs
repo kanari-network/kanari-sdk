@@ -145,7 +145,7 @@ async fn start_node() {
     };
 
 
-    load_blockchain();
+    let _ = load_blockchain();
     let running = Arc::new(Mutex::new(true));
 
     unsafe {
@@ -245,7 +245,7 @@ async fn start_node() {
 
         *running.lock().unwrap() = false;
         println!("{}", "Stopping blockchain...".red());
-        save_blockchain();
+        let _ = save_blockchain();
         break;
     }
 }

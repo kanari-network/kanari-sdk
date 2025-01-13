@@ -2,7 +2,7 @@ use std::io;
 use colored::Colorize;
 use key::{generate_karix_address, list_wallet_files, load_wallet, save_wallet, set_selected_wallet,  };
 
-use k2::blockchain::{get_balance, load_blockchain, transfer_coins, BALANCES};
+use k2::blockchain::{get_balance, load_blockchain, transfer_coins};
 use std::process::exit;
 
 
@@ -162,19 +162,19 @@ pub fn handle_keytool_command() -> Option<String> {
                 // Get sender
                 println!("Enter sender address:");
                 let mut sender = String::new();
-                io::stdin().read_line(&mut sender);
+                let _ = io::stdin().read_line(&mut sender);
                 let sender = sender.trim().to_string();
             
                 // Get receiver
                 println!("Enter receiver address:");
                 let mut receiver = String::new();
-                io::stdin().read_line(&mut receiver);
+                let _ = io::stdin().read_line(&mut receiver);
                 let receiver = receiver.trim().to_string();
             
                 // Get amount
                 println!("Enter amount to send:");
                 let mut amount = String::new();
-                io::stdin().read_line(&mut amount);
+                let _ = io::stdin().read_line(&mut amount);
                 let amount: u64 = match amount.trim().parse() {
                     Ok(num) => num,
                     Err(_) => {

@@ -4,7 +4,6 @@ use crate::transaction::{Transaction, TransactionType};
 use bincode;
 use consensus_pos::Blake3Algorithm;
 use dirs;
-use serde::{Deserialize, Serialize};
 use storage::{BlockchainStorage, RocksDBStorage, StorageError};
 mod storage;
 
