@@ -1,5 +1,4 @@
-use crate::transaction::Transaction;
-use std::sync::mpsc::Sender;
+
 
 /// Trait for gas calculation operations
 pub trait GasCalculator {
@@ -9,17 +8,17 @@ pub trait GasCalculator {
 /// Gas calculation implementation
 pub struct TransactionGas;
 
-pub enum Transaction {
+pub enum GasTransaction {
     Basic(BasicTransaction),
     SmartContract(SmartContractTransaction),
     MintNFT(MintNFTTransaction),
     TransferNFT(TransferNFTTransaction),
     Payment(PaymentTransaction),
     MoveModuleDeploy(MoveModuleDeployTransaction),
-    MoveFunctionCall(MoveFunctionCallTransaction),
+    MoveFunctionCall(MoveFunctionCallTransact),
 }
 
-// Add struct definitions for each transaction type
+// Transaction type definitions
 pub struct BasicTransaction;
 pub struct SmartContractTransaction;
 pub struct MintNFTTransaction;
@@ -49,7 +48,7 @@ impl TransactionDensity {
         if self.transactions_per_block <= BASE_TXS_PER_BLOCK {
             1.0
         } else {
-            let density_factor = (self.transactions_per_block as f64 / BASE_TXS_PER_BLOCK as f64);
+            let density_factor = self.transactions_per_block as f64 / BASE_TXS_PER_BLOCK as f64;
             (density_factor * self.base_density).min(MAX_MULTIPLIER)
         }
     }
@@ -98,20 +97,80 @@ impl TransactionGas {
     }
 }
 
-impl GasCalculator for Transaction {
+
+impl GasCalculator for BasicTransaction {
     fn calculate_gas(&self) -> f64 {
-        let density = TransactionDensity::new(get_current_block_transaction_count());
-        let base_gas = match self {
-            Transaction::Basic(_) => TransactionGas::basic_transaction(),
-            Transaction::SmartContract(_) => TransactionGas::deploy_smart_contract(),
-            Transaction::MintNFT(_) => TransactionGas::mint_nft(),
-            Transaction::TransferNFT(_) => TransactionGas::transfer_nft(),
-            Transaction::Payment(_) => TransactionGas::payment(),
-            Transaction::MoveModuleDeploy(_) => TransactionGas::move_module_deploy(),
-            Transaction::MoveFunctionCall(_) => TransactionGas::move_function_call(),
-            _ => TRANSACTION_GAS_COST
-        };
-        TransactionGas::with_density(base_gas, &density)
+        TransactionGas::with_density(
+            TransactionGas::basic_transaction(),
+            &TransactionDensity::new(get_current_block_transaction_count())
+        )
+    }
+}
+
+impl GasCalculator for SmartContractTransaction {
+    fn calculate_gas(&self) -> f64 {
+        TransactionGas::with_density(
+            TransactionGas::deploy_smart_contract(),
+            &TransactionDensity::new(get_current_block_transaction_count())
+        )
+    }
+}
+
+impl GasCalculator for MintNFTTransaction {
+    fn calculate_gas(&self) -> f64 {
+        TransactionGas::with_density(
+            TransactionGas::mint_nft(),
+            &TransactionDensity::new(get_current_block_transaction_count())
+        )
+    }
+}
+
+impl GasCalculator for TransferNFTTransaction {
+    fn calculate_gas(&self) -> f64 {
+        TransactionGas::with_density(
+            TransactionGas::transfer_nft(),
+            &TransactionDensity::new(get_current_block_transaction_count())
+        )
+    }
+}
+
+impl GasCalculator for PaymentTransaction {
+    fn calculate_gas(&self) -> f64 {
+        TransactionGas::with_density(
+            TransactionGas::payment(),
+            &TransactionDensity::new(get_current_block_transaction_count())
+        )
+    }
+}
+
+impl GasCalculator for MoveModuleDeployTransaction {
+    fn calculate_gas(&self) -> f64 {
+        TransactionGas::with_density(
+            TransactionGas::move_module_deploy(),
+            &TransactionDensity::new(get_current_block_transaction_count())
+        )
+    }
+}
+
+impl GasCalculator for MoveFunctionCallTransact {
+    fn calculate_gas(&self) -> f64 {
+        TransactionGas::with_density(
+            TransactionGas::move_function_call(),
+            &TransactionDensity::new(get_current_block_transaction_count())
+        )
+    }
+}
+impl GasTransaction {
+    pub fn calculate_gas(&self) -> f64 {
+        match self {
+            GasTransaction::Basic(tx) => tx.calculate_gas(),
+            GasTransaction::SmartContract(tx) => tx.calculate_gas(),
+            GasTransaction::MintNFT(tx) => tx.calculate_gas(),
+            GasTransaction::TransferNFT(tx) => tx.calculate_gas(),
+            GasTransaction::Payment(tx) => tx.calculate_gas(),
+            GasTransaction::MoveModuleDeploy(tx) => tx.calculate_gas(),
+            GasTransaction::MoveFunctionCall(tx) => tx.calculate_gas(),
+        }
     }
 }
 
@@ -125,7 +184,7 @@ fn get_current_block_transaction_count() -> u32 {
 // Constants remain unchanged
 pub const TRANSACTION_GAS_COST: f64 = 0.00000150;
 pub const DEPLOY_SM_TRANSACTION_GAS_COST: f64 = 0.00005000;
-pub static mut TRANSACTION_SENDER: Option<Sender<Transaction>> = None;
+
 pub const MINT_NFT_TRANSACTION_GAS_COST: f64 = 0.00010000;
 pub const TRANSFER_NFT_TRANSACTION_GAS_COST: f64 = 0.00000100;
 pub const PAYMENT_TRANSACTION_GAS_COST: f64 = 0.00020000;
