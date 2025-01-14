@@ -149,7 +149,7 @@ tokio = { version = "1", features = ["full"] }
 rand = "0.8.5"
 bip39 = { version = "2.0.0", features = ["rand"] }
 chrono = "0.4.38"
-dirs = "5.0.1"
+dirs = "6.0.0"
 walkdir = "2.3.2"
 difference = "2.0.0"
 tempfile = "3.3.0"
@@ -197,7 +197,7 @@ storage = { path = "moveos/storage" }
 
 framework = { path = "framework" }
 
-#Move Path List
+#Move SUI Path List
 bytecode-interpreter-crypto = { path = "external-crates/move/crates/bytecode-interpreter-crypto" }
 enum-compat-util = { path = "external-crates/move/crates/enum-compat-util"}
 invalid-mutations = { path = "external-crates/move/crates/invalid-mutations" }
