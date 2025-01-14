@@ -9,6 +9,24 @@ pub trait GasCalculator {
 /// Gas calculation implementation
 pub struct TransactionGas;
 
+pub enum Transaction {
+    Basic(BasicTransaction),
+    SmartContract(SmartContractTransaction),
+    MintNFT(MintNFTTransaction),
+    TransferNFT(TransferNFTTransaction),
+    Payment(PaymentTransaction),
+    MoveModuleDeploy(MoveModuleDeployTransaction),
+    MoveFunctionCall(MoveFunctionCallTransaction),
+}
+
+// Add struct definitions for each transaction type
+pub struct BasicTransaction;
+pub struct SmartContractTransaction;
+pub struct MintNFTTransaction;
+pub struct TransferNFTTransaction;
+pub struct PaymentTransaction;
+pub struct MoveModuleDeployTransaction;
+pub struct MoveFunctionCallTransact;
 
 /// Transaction density metrics
 pub struct TransactionDensity {
