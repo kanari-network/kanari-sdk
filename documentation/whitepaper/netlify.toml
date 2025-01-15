@@ -1,6 +1,6 @@
 [build]
 base = "documentation/whitepaper"
-publish = "whitepaper"
+publish = "book"
 command = """
 curl -sSL https://github.com/rust-lang/mdBook/releases/download/v0.4.36/mdbook-v0.4.36-x86_64-unknown-linux-gnu.tar.gz | tar -xz && \
 ./mdbook build
