@@ -4,7 +4,7 @@ use bip39::Mnemonic;
 use log::{debug, error};
 use move_core_types::{
     account_address::AccountAddress,
-    identifier::Identifier,
+    // identifier::Identifier,
 };
 use secp256k1::{Secp256k1, SecretKey, PublicKey};
 use rand::rngs::OsRng;

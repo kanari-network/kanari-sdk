@@ -1,5 +1,5 @@
 use crate::gas::{
-    TRANSACTION_GAS_COST, 
+    // TRANSACTION_GAS_COST, 
     MOVE_MODULE_DEPLOY_GAS,
 };
 use move_core_types::language_storage::TypeTag;

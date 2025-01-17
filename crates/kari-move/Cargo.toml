@@ -23,7 +23,6 @@ walkdir.workspace = true
 codespan-reporting.workspace = true
 toml_edit.workspace = true
 consensus-pos.workspace = true
-
 bcs.workspace = true
 bincode.workspace = true
 
