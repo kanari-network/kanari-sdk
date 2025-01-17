@@ -1,11 +1,15 @@
-use std::{fs, io::{self, Write}, path::PathBuf, };
+use std::{fs, io::{self, Write}, path::PathBuf, str::FromStr, };
 use serde::{Deserialize, Serialize};
 use bip39::Mnemonic;
 use log::{debug, error};
-use secp256k1::Secp256k1;
+use move_core_types::{
+    account_address::AccountAddress,
+    identifier::Identifier,
+};
+use secp256k1::{Secp256k1, SecretKey, PublicKey};
 use rand::rngs::OsRng;
 use hex;
-
+use thiserror::Error;
 
 // Import Mutex and HashMap from std::sync
 use k2::{blockchain::get_kari_dir, config::{load_config, save_config}};
@@ -156,4 +160,78 @@ fn get_selected_wallet() -> Option<String> {
 }
 
 
+#[derive(Error, Debug)]
+pub enum KeyError {
+    #[error("Invalid seed phrase")]
+    InvalidSeedPhrase,
+    #[error("Invalid key format")]
+    InvalidKeyFormat,
+    #[error("Address generation failed")]
+    AddressGenerationFailed,
+}
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MoveKeyPair {
+    pub private_key: String,
+    pub public_key: String,
+    pub address: AccountAddress,
+    pub seed_phrase: String,
+}
+
+impl MoveKeyPair {
+    pub fn generate(word_count: usize) -> Result<Self, KeyError> {
+        let (secret_key, pub_addr, seed) = generate_karix_address(word_count);
+        
+        // Convert to Move address format
+        let address_bytes = hex::decode(&pub_addr[2..])
+            .map_err(|_| KeyError::AddressGenerationFailed)?;
+        let move_address = AccountAddress::new(
+            address_bytes.try_into()
+                .map_err(|_| KeyError::AddressGenerationFailed)?
+        );
+
+        Ok(Self {
+            private_key: secret_key,
+            public_key: pub_addr,
+            address: move_address,
+            seed_phrase: seed,
+        })
+    }
+
+    pub fn from_private_key(private_key: &str) -> Result<Self, KeyError> {
+        let secp = Secp256k1::new();
+        let secret_key = SecretKey::from_str(private_key)
+            .map_err(|_| KeyError::InvalidKeyFormat)?;
+        let public_key = PublicKey::from_secret_key(&secp, &secret_key);
+
+        // Generate Move address from public key
+        let pub_bytes = public_key.serialize_uncompressed();
+        let move_address = AccountAddress::new(
+            pub_bytes[1..33].try_into()
+                .map_err(|_| KeyError::AddressGenerationFailed)?
+        );
+
+        Ok(Self {
+            private_key: private_key.to_string(),
+            public_key: hex::encode(&pub_bytes[1..]),
+            address: move_address,
+            seed_phrase: String::new(), // Empty for key-derived wallets
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_keypair_generation() {
+        let result = MoveKeyPair::generate(12);
+        assert!(result.is_ok());
+        let keypair = result.unwrap();
+        println!("Private key: {}", keypair.private_key);
+        assert!(!keypair.private_key.is_empty());
+        println!("Public key: {}", keypair.public_key);
+        assert!(!keypair.seed_phrase.is_empty());
+    }
+}
