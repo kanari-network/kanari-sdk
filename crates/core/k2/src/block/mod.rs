@@ -1,9 +1,91 @@
 use crate::{chain_id::CHAIN_ID, transaction::Transaction};
+use bcs::to_bytes;
 use consensus_pos::HashAlgorithm;
 use serde::{Deserialize, Serialize};
-use move_core_types::language_storage::TypeTag;
-use move_core_types::account_address::AccountAddress;
 use std::collections::HashMap;
+use move_core_types::{
+    language_storage::{ModuleId, TypeTag},
+    account_address::AccountAddress,
+    identifier::Identifier,
+};
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct MoveModulePublish {
+    pub module_id: ModuleId,
+    pub module_bytes: Vec<u8>,
+    pub publisher: AccountAddress,
+}
+
+impl MoveModulePublish {
+    pub fn new(
+        publisher: AccountAddress,
+        module_name: &str,
+        module_bytes: Vec<u8>
+    ) -> Result<Self, String> {
+        let identifier = Identifier::new(module_name)
+            .map_err(|e| format!("Invalid module name: {}", e))?;
+        
+        let module_id = ModuleId::new(publisher, identifier);
+        
+        Ok(Self {
+            module_id,
+            module_bytes,
+            publisher,
+        })
+    }
+
+    pub fn to_vm_state(&self) -> MoveVMState {
+        let mut state = HashMap::new();
+        let mut modules = HashMap::new();
+        
+        // Serialize ModuleId using BCS
+        let module_key = to_bytes(&self.module_id)
+            .expect("Failed to serialize ModuleId");
+            
+        modules.insert(
+            module_key,
+            self.module_bytes.clone()
+        );
+        
+        state.insert(self.publisher, modules);
+
+        MoveVMState {
+            state_updates: state,
+            events: vec![],
+            module_bytes: Some(self.module_bytes.clone()),
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.module_bytes.is_empty() {
+            return Err("Module bytecode cannot be empty".into());
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_module_publish() {
+        let publisher = AccountAddress::random();
+        let bytes = vec![1, 2, 3, 4];
+        
+        let publish = MoveModulePublish::new(
+            publisher,
+            "TestModule",
+            bytes.clone()
+        ).unwrap();
+        
+        assert!(publish.validate().is_ok());
+        let state = publish.to_vm_state();
+        assert!(state.module_bytes.is_some());
+    }
+}
+
+
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct MoveVMState {
@@ -137,3 +219,4 @@ impl<T: HashAlgorithm> Block<T> {
         true
     }
 }
+

@@ -73,3 +73,5 @@ consensus-pos.workspace = true
 network.workspace = true
 
 crossbeam.workspace = true
+
+kari-move.workspace = true
