@@ -2,10 +2,10 @@
 # name = "kanari-sdk"
 resolver = "2"
 
-#Exclude List
-exclude = ["external-crates/move"]
+# Exclude List
+exclude = ["third_party/move"]
 
-#Members List
+# Members List
 members = [
   "crates/kari",
   "crates/kari-node",
@@ -20,9 +20,8 @@ members = [
   "consensus/pow",
   "framework",
 
-  #Move Crates
+  # Move Crates
   "moveos/storage",
-  "moveos/types",
 ]
 
 [profile.bench]
@@ -62,7 +61,7 @@ license = "Apache-2.0"
 repository = "https://github.com/kanari-network/kanari-sdk"
 description = "Kanari Network SDK"
 
-#Dependencies Workspace
+# Dependencies Workspace
 [workspace.dependencies]
 # Cryptography
 crypto = "0.5.1"
@@ -104,6 +103,7 @@ walkdir = "2.3.2"
 difference = "2.0.0"
 tempfile = "3.3.0"
 crossbeam = "0.8.4"
+
 # Logging and Error Handling
 log = "0.4.25"
 env_logger = "0.11.6"
@@ -147,47 +147,48 @@ storage         = { path = "moveos/storage" }
 
 framework       = { path = "framework" }
 
+
 #Move SUI Path List
-bytecode-interpreter-crypto         = { path = "external-crates/move/crates/bytecode-interpreter-crypto" }
-enum-compat-util                    = { path = "external-crates/move/crates/enum-compat-util" }
-invalid-mutations                   = { path = "external-crates/move/crates/invalid-mutations" }
-module-generation                   = { path = "external-crates/move/crates/module-generation" }
-move-abstract-stack                 = { path = "external-crates/move/crates/move-abstract-stack" }
-move-binary-format                  = { path = "external-crates/move/crates/move-binary-format" }
-move-borrow-graph                   = { path = "external-crates/move/crates/move-borrow-graph" }
-move-bytecode-source-map            = { path = "external-crates/move/crates/move-bytecode-source-map" }
-move-bytecode-utils                 = { path = "external-crates/move/crates/move-bytecode-utils" }
-move-bytecode-verifier              = { path = "external-crates/move/crates/move-bytecode-verifier" }
-move-bytecode-verifier-meter        = { path = "external-crates/move/crates/move-bytecode-verifier-meter" }
-move-bytecode-viewer                = { path = "external-crates/move/crates/move-bytecode-viewer" }
-move-cli                            = { path = "external-crates/move/crates/move-cli" }
-move-command-line-common            = { path = "external-crates/move/crates/move-command-line-common" }
-move-compiler                       = { path = "external-crates/move/crates/move-compiler" }
-move-core-types                     = { path = "external-crates/move/crates/move-core-types" }
-move-coverage                       = { path = "external-crates/move/crates/move-coverage" }
-move-disassembler                   = { path = "external-crates/move/crates/move-disassembler" }
-move-docgen                         = { path = "external-crates/move/crates/move-docgen" }
-move-errmapgen                      = { path = "external-crates/move/crates/move-errmapgen" }
-move-ir-compiler                    = { path = "external-crates/move/crates/move-ir-compiler" }
-move-ir-to-bytecode                 = { path = "external-crates/move/crates/move-ir-to-bytecode" }
-move-ir-to-bytecode-syntax          = { path = "external-crates/move/crates/move-ir-to-bytecode-syntax" }
-move-ir-types                       = { path = "external-crates/move/crates/move-ir-types" }
-move-model                          = { path = "external-crates/move/crates/move-model" }
-move-package                        = { path = "external-crates/move/crates/move-package" }
-move-proc-macros                    = { path = "external-crates/move/crates/move-proc-macros" }
-move-prover                         = { path = "external-crates/move/crates/move-prover" }
-move-prover-test-utils              = { path = "external-crates/move/crates/move-prover-test-utils" }
-move-read-write-set-types           = { path = "external-crates/move/crates/move-read-write-set-types" }
-move-stackless-bytecode             = { path = "external-crates/move/crates/move-stackless-bytecode" }
-move-stackless-bytecode-interpreter = { path = "external-crates/move/crates/move-stackless-bytecode-interpreter" }
-move-stdlib                         = { path = "external-crates/move/crates/move-stdlib" }
-move-stdlib-natives                 = { path = "external-crates/move/crates/move-stdlib-natives" }
-move-symbol-pool                    = { path = "external-crates/move/crates/move-symbol-pool" }
-move-transactional-test-runner      = { path = "external-crates/move/crates/move-transactional-test-runner" }
-move-unit-test                      = { path = "external-crates/move/crates/move-unit-test" }
-move-vm-config                      = { path = "external-crates/move/crates/move-vm-config" }
-move-vm-profiler                    = { path = "external-crates/move/crates/move-vm-profiler" }
-move-vm-runtime                     = { path = "external-crates/move/crates/move-vm-runtime" }
-move-vm-test-utils                  = { path = "external-crates/move/crates/move-vm-test-utils" }
-move-vm-types                       = { path = "external-crates/move/crates/move-vm-types" }
-prover_bytecode                     = { path = "external-crates/move/crates/move-stackless-bytecode", package = "move-stackless-bytecode" }
+bytecode-interpreter-crypto         = { path = "third_party/move/crates/bytecode-interpreter-crypto" }
+enum-compat-util                    = { path = "third_party/move/crates/enum-compat-util" }
+invalid-mutations                   = { path = "third_party/move/crates/invalid-mutations" }
+module-generation                   = { path = "third_party/move/crates/module-generation" }
+move-abstract-stack                 = { path = "third_party/move/crates/move-abstract-stack" }
+move-binary-format                  = { path = "third_party/move/crates/move-binary-format" }
+move-borrow-graph                   = { path = "third_party/move/crates/move-borrow-graph" }
+move-bytecode-source-map            = { path = "third_party/move/crates/move-bytecode-source-map" }
+move-bytecode-utils                 = { path = "third_party/move/crates/move-bytecode-utils" }
+move-bytecode-verifier              = { path = "third_party/move/crates/move-bytecode-verifier" }
+move-bytecode-verifier-meter        = { path = "third_party/move/crates/move-bytecode-verifier-meter" }
+move-bytecode-viewer                = { path = "third_party/move/crates/move-bytecode-viewer" }
+move-cli                            = { path = "third_party/move/crates/move-cli" }
+move-command-line-common            = { path = "third_party/move/crates/move-command-line-common" }
+move-compiler                       = { path = "third_party/move/crates/move-compiler" }
+move-core-types                     = { path = "third_party/move/crates/move-core-types" }
+move-coverage                       = { path = "third_party/move/crates/move-coverage" }
+move-disassembler                   = { path = "third_party/move/crates/move-disassembler" }
+move-docgen                         = { path = "third_party/move/crates/move-docgen" }
+move-errmapgen                      = { path = "third_party/move/crates/move-errmapgen" }
+move-ir-compiler                    = { path = "third_party/move/crates/move-ir-compiler" }
+move-ir-to-bytecode                 = { path = "third_party/move/crates/move-ir-to-bytecode" }
+move-ir-to-bytecode-syntax          = { path = "third_party/move/crates/move-ir-to-bytecode-syntax" }
+move-ir-types                       = { path = "third_party/move/crates/move-ir-types" }
+move-model                          = { path = "third_party/move/crates/move-model" }
+move-package                        = { path = "third_party/move/crates/move-package" }
+move-proc-macros                    = { path = "third_party/move/crates/move-proc-macros" }
+move-prover                         = { path = "third_party/move/crates/move-prover" }
+move-prover-test-utils              = { path = "third_party/move/crates/move-prover-test-utils" }
+move-read-write-set-types           = { path = "third_party/move/crates/move-read-write-set-types" }
+move-stackless-bytecode             = { path = "third_party/move/crates/move-stackless-bytecode" }
+move-stackless-bytecode-interpreter = { path = "third_party/move/crates/move-stackless-bytecode-interpreter" }
+move-stdlib                         = { path = "third_party/move/crates/move-stdlib" }
+move-stdlib-natives                 = { path = "third_party/move/crates/move-stdlib-natives" }
+move-symbol-pool                    = { path = "third_party/move/crates/move-symbol-pool" }
+move-transactional-test-runner      = { path = "third_party/move/crates/move-transactional-test-runner" }
+move-unit-test                      = { path = "third_party/move/crates/move-unit-test" }
+move-vm-config                      = { path = "third_party/move/crates/move-vm-config" }
+move-vm-profiler                    = { path = "third_party/move/crates/move-vm-profiler" }
+move-vm-runtime                     = { path = "third_party/move/crates/move-vm-runtime" }
+move-vm-test-utils                  = { path = "third_party/move/crates/move-vm-test-utils" }
+move-vm-types                       = { path = "third_party/move/crates/move-vm-types" }
+prover_bytecode                     = { path = "third_party/move/crates/move-stackless-bytecode", package = "move-stackless-bytecode" }
