@@ -1,6 +1,6 @@
 Kanari SDK
 
-<img src="https://raw.githubusercontent.com/kanari-network/about/main/kari1.png">
+<!-- <img src="https://raw.githubusercontent.com/kanari-network/about/main/kari1.png"> -->
 
 ### 1. Setup Environment
 - Ensure you have Ubuntu or a similar Linux distribution.

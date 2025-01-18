@@ -1,6 +1,6 @@
 [submodule "third_party/move"]
-    path = third_party/move
-    url = https://github.com/kanari-network/move.git
+	path = third_party/move
+	url = https://github.com/kanari-network/move.git
     shallow = true
 
 [submodule "documentation/kanari-docs"]
