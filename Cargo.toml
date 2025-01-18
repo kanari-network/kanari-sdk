@@ -146,6 +146,7 @@ rpc-api         = { path = "crates/rpc/rpc-api" }
 #Storage Path List
 storage         = { path = "monaos/storage" }
 mona-types      = { path = "monaos/mona-types" }
+mona-enum-compat-util = { path = "monaos/mona-enum-compat-util" }
 
 framework       = { path = "framework" }
 
