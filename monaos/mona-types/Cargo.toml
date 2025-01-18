@@ -12,7 +12,3 @@ repository.workspace = true
 description.workspace = true
 
 [dependencies]
-move_bynary_format.workspace = true
-move_bytecode.workspace = true
-move_core_types.workspace = true
-schemars = { version = "*"}
