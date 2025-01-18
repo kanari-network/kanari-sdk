@@ -21,7 +21,7 @@ members = [
   "framework",
 
   # Move Crates
-  "moveos/storage",
+  "monaos/*",
 ]
 
 [profile.bench]
@@ -123,6 +123,7 @@ rocksdb = "0.23.0"
 datatest-stable = "0.3.2"
 
 
+
 #Path List
 kari            = { path = "crates/kari" }
 kari-node       = { path = "crates/kari-node" }
@@ -134,7 +135,7 @@ consensus-pow   = { path = "consensus/pow" }
 
 #Core Path List
 network         = { path = "crates/core/network" }
-p2p-protocol              = { path = "crates/core/p2p" }
+p2p-protocol    = { path = "crates/core/p2p" }
 key             = { path = "crates/core/wallet/key" }
 k2              = { path = "crates/core/k2" }
 command         = { path = "crates/command" }
@@ -143,7 +144,8 @@ command         = { path = "crates/command" }
 rpc-api         = { path = "crates/rpc/rpc-api" }
 
 #Storage Path List
-storage         = { path = "moveos/storage" }
+storage         = { path = "monaos/storage" }
+mona-types      = { path = "monaos/mona-types" }
 
 framework       = { path = "framework" }
 

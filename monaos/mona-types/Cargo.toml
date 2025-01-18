@@ -1,0 +1,18 @@
+[package]
+name = "mona-types"
+edition.workspace = true
+categories.workspace = true
+keywords.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[dependencies]
+move_bynary_format.workspace = true
+move_bytecode.workspace = true
+move_core_types.workspace = true
+schemars = { version = "*"}
