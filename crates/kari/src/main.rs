@@ -7,6 +7,7 @@ use colored::Colorize;
 use command::keytool_cli::handle_keytool_command;
 use command::move_cli::handle_move_command;
 
+use command::public_cli::handle_public_command;
 use k2::simulation::run_blockchain;
 use key::{check_wallet_exists, list_wallet_files};
 use network::{NetworkConfig, NetworkType};
@@ -83,8 +84,8 @@ async fn main() {
 
     match args.get(1).map(|s| s.as_str()) {
         Some("start") => start_node().await,
-        Some("Public") => {
-            println!("Public file Web3");
+        Some("public") => {
+            let _ = handle_public_command(); // Ignore Option<String> return value
         },
         Some("move") => handle_move_command(),
         Some("keytool") => {
