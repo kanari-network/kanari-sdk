@@ -15,6 +15,46 @@ use thiserror::Error;
 use k2::{blockchain::get_kari_dir, config::{load_config, save_config}};
 use serde_json::json;
 
+use aes_gcm::{
+    aead::{Aead, KeyInit},
+    Aes256Gcm, Nonce,
+};
+use argon2::{
+    password_hash::{PasswordHasher, SaltString},
+    Argon2, PasswordHash,
+};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+
+
+#[derive(Error, Debug)]
+pub enum WalletError {
+    #[error("Encryption error: {0}")]
+    EncryptionError(String),
+    #[error("Decryption error: {0}")]
+    DecryptionError(String),
+    #[error("IO error: {0}")]
+    IoError(#[from] io::Error),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct EncryptedData {
+    ciphertext: Vec<u8>,
+    salt: String,  
+    nonce: Vec<u8>,
+}
+
+fn derive_key(password: &str, salt: &SaltString) -> Result<[u8; 32], WalletError> {
+    let argon2 = Argon2::default();
+    let password_hash = argon2
+        .hash_password(password.as_bytes(), salt)
+        .map_err(|e| WalletError::EncryptionError(e.to_string()))?;
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&password_hash.hash.unwrap().as_bytes()[0..32]);
+    Ok(key)
+}
+
+
+
 pub fn check_wallet_exists() -> bool {
     match list_wallet_files() {
         Ok(wallets) => !wallets.is_empty(),
@@ -27,24 +67,6 @@ pub struct Wallet {
     pub address: String,
     pub private_key: String,
     pub seed_phrase: String,
-}
-
-pub fn save_wallet(address: &str, private_key: &str, seed_phrase: &str) {
-    let kari_dir = get_kari_dir();
-    let wallet_dir = kari_dir.join("wallets");
-    fs::create_dir_all(&wallet_dir).expect("Unable to create wallets directory");
-
-    let wallet_file = wallet_dir.join(format!("{}.toml", address));
-    let wallet_data = Wallet {
-        address: address.to_string(),
-        private_key: private_key.to_string(),
-        seed_phrase: seed_phrase.to_string(),
-    };
-
-    let toml_string = toml::to_string(&wallet_data).expect("Unable to serialize wallet to TOML");
-    let mut file = fs::File::create(&wallet_file).expect("Unable to create wallet file");
-    file.write_all(toml_string.as_bytes()).expect("Unable to write wallet to file");
-    println!("Wallet saved to {:?}", wallet_file);
 }
 
 /// Set the selected wallet address in the configuration
@@ -61,36 +83,70 @@ pub fn set_selected_wallet(wallet_address: &str) -> io::Result<()> {
     save_config(&config)
 }
 
-pub fn load_wallet(address: &str) -> Option<Wallet> {
-    // Input validation with logging
-    if address.trim().is_empty() {
-        debug!("Attempted to load wallet with empty address");
-        return None;
-    }
+pub fn save_wallet(address: &str, private_key: &str, seed_phrase: &str, password: &str) -> Result<(), WalletError> {
+    let wallet_data = Wallet {
+        address: address.to_string(),
+        private_key: private_key.to_string(),
+        seed_phrase: seed_phrase.to_string(),
+    };
+
+    let salt = SaltString::generate(&mut OsRng);
+    let key = derive_key(password, &salt)?;
+    let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
+    let binding = rand::random::<[u8; 12]>();
+    let nonce = Nonce::from_slice(&binding);
+
+    let toml_string = toml::to_string(&wallet_data)
+        .map_err(|e| WalletError::EncryptionError(e.to_string()))?;
+    
+    let encrypted = cipher
+        .encrypt(nonce, toml_string.as_bytes())
+        .map_err(|e| WalletError::EncryptionError(e.to_string()))?;
+
+    let encrypted_data = EncryptedData {
+        ciphertext: encrypted,
+        salt: salt.to_string(),
+        nonce: nonce.to_vec(),
+    };
 
     let kari_dir = get_kari_dir();
-    let wallet_file: PathBuf = kari_dir.join("wallets").join(format!("{}.toml", address));
+    let wallet_dir = kari_dir.join("wallets");
+    fs::create_dir_all(&wallet_dir)?;
 
-    debug!("Attempting to load wallet from: {}", wallet_file.display());
+    let wallet_file = wallet_dir.join(format!("{}.enc", address));
+    let encrypted_json = serde_json::to_string(&encrypted_data)
+        .map_err(|e| WalletError::EncryptionError(e.to_string()))?;
+    
+    fs::write(wallet_file, encrypted_json)?;
+    Ok(())
+}
 
-    if wallet_file.exists() {
-        // Handle potential IO and parsing errors with logging
-        fs::read_to_string(&wallet_file)
-            .map_err(|e| {
-                error!("Failed to read wallet file: {}", e);
-                e
-            })
-            .ok()
-            .and_then(|data| {
-                toml::from_str(&data).map_err(|e| {
-                    error!("Failed to parse wallet TOML: {}", e);
-                    e
-                }).ok()
-            })
-    } else {
-        debug!("Wallet file not found: {}", wallet_file.display());
-        None
-    }
+pub fn load_wallet(address: &str, password: &str) -> Result<Wallet, WalletError> {
+    let kari_dir = get_kari_dir();
+    let wallet_file = kari_dir.join("wallets").join(format!("{}.enc", address));
+
+    let encrypted_json = fs::read_to_string(wallet_file)?;
+    let encrypted_data: EncryptedData = serde_json::from_str(&encrypted_json)
+        .map_err(|e| WalletError::DecryptionError(e.to_string()))?;
+
+    let salt = SaltString::from_b64(&encrypted_data.salt)
+        .map_err(|e| WalletError::DecryptionError(e.to_string()))?;
+    let key = derive_key(password, &salt)?;
+    
+    let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
+    let nonce = Nonce::from_slice(&encrypted_data.nonce);
+
+    let decrypted = cipher
+        .decrypt(nonce, encrypted_data.ciphertext.as_slice())
+        .map_err(|e| WalletError::DecryptionError(e.to_string()))?;
+
+    let decrypted_str = String::from_utf8(decrypted)
+        .map_err(|e| WalletError::DecryptionError(e.to_string()))?;
+
+    let wallet: Wallet = toml::from_str(&decrypted_str)
+        .map_err(|e| WalletError::DecryptionError(e.to_string()))?;
+
+    Ok(wallet)
 }
 
 pub fn generate_karix_address(word_count: usize) -> (String, String, String) {

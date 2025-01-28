@@ -1,4 +1,4 @@
-use std::io;
+use std::io::{self, Write};
 use colored::Colorize;
 use key::{generate_karix_address, import_from_private_key, import_from_seed_phrase, list_wallet_files, load_wallet, save_wallet, set_selected_wallet  };
 
@@ -60,22 +60,49 @@ pub fn handle_keytool_command() -> Option<String> {
         let command = &args[2];
         // Use string comparison in the match statement
         match command.as_str() {
-            "generate" => { 
+            "generate" => {
                 println!("Enter mnemonic length (12 or 24):");
                 let mut mnemonic_length_str = String::new();
-                io::stdin().read_line(&mut mnemonic_length_str).unwrap();
-                let mnemonic_length: usize = mnemonic_length_str.trim().parse().expect("Invalid input");
-
-                let (private_key, public_address, seed_phrase) = generate_karix_address(mnemonic_length);
-                println!("New address generated:");
-                println!("Private Key: {}", private_key.green());
-                println!("Public Address: {}", public_address.green());
-                println!("Seed Phrase: {}", seed_phrase.green());
-
-                save_wallet(&public_address, &private_key, &seed_phrase);
-
-                return Some(public_address);
+                match io::stdin().read_line(&mut mnemonic_length_str) {
+                    Ok(_) => {
+                        match mnemonic_length_str.trim().parse::<usize>() {
+                            Ok(mnemonic_length) => {
+                                if mnemonic_length != 12 && mnemonic_length != 24 {
+                                    println!("{}", "Invalid mnemonic length. Must be 12 or 24.".red());
+                                    return None;
+                                }
+            
+                                let (private_key, public_address, seed_phrase) = generate_karix_address(mnemonic_length);
+                                println!("New address generated:");
+                                println!("Private Key: {}", private_key.green());
+                                println!("Public Address: {}", public_address.green());
+                                println!("Seed Phrase: {}", seed_phrase.green());
+            
+                                let password = prompt_password(true);
+                                match save_wallet(&public_address, &private_key, &seed_phrase, &password) {
+                                    Ok(_) => {
+                                        println!("Wallet saved successfully!");
+                                        return Some(public_address);
+                                    },
+                                    Err(e) => {
+                                        println!("{}", format!("Failed to save wallet: {}", e).red());
+                                        return None;
+                                    }
+                                }
+                            },
+                            Err(_) => {
+                                println!("{}", "Invalid input - please enter 12 or 24".red());
+                                return None;
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        println!("{}", format!("Failed to read input: {}", e).red());
+                        return None;
+                    }
+                }
             },
+
             "balance" => {
                 println!("Enter public address:");
                 let mut public_address = String::new();
@@ -142,21 +169,32 @@ pub fn handle_keytool_command() -> Option<String> {
                 None
             },
 
-            "wallet" => { // String comparison for "wallet"
+            "wallet" => {
                 println!("Enter public address to load:");
                 let mut public_address = String::new();
-                io::stdin().read_line(&mut public_address).unwrap();
-                let public_address = public_address.trim().to_string();
-            
-                if let Some(wallet_data) = load_wallet(&public_address) {
-                    println!("Wallet loaded:");
-                    println!("Address: {}", wallet_data.address.green());
-                    println!("Private Key: {}", wallet_data.private_key.green());
-                    println!("Seed Phrase: {}", wallet_data.seed_phrase.green());
-                    return Some(public_address);
-                } else {
-                    println!("Wallet not found for address: {}", public_address.red());
-                    return None; // Return None to indicate no address to be used further
+                match io::stdin().read_line(&mut public_address) {
+                    Ok(_) => {
+                        let public_address = public_address.trim().to_string();
+                        let password = prompt_password(false);
+                        
+                        match load_wallet(&public_address, &password) {
+                            Ok(wallet_data) => {
+                                println!("Wallet loaded:");
+                                println!("Address: {}", wallet_data.address.green());
+                                println!("Private Key: {}", wallet_data.private_key.green());
+                                println!("Seed Phrase: {}", wallet_data.seed_phrase.green());
+                                return Some(public_address);
+                            },
+                            Err(e) => {
+                                println!("{}", format!("Failed to load wallet: {}", e).red());
+                                return None;
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        println!("{}", format!("Failed to read input: {}", e).red());
+                        return None;
+                    }
                 }
             },
             
@@ -232,13 +270,28 @@ pub fn handle_keytool_command() -> Option<String> {
                 
                 match import_from_seed_phrase(phrase.trim()) {
                     Ok((private_key, _, public_address)) => {
-                        save_wallet(&public_address, &private_key, phrase.trim());
-                        set_selected_wallet(&public_address).expect("Failed to set selected wallet");
-                        println!("Imported wallet with address: {}", public_address);
-                        return Some(public_address);
+                        let password = prompt_password(true);
+                        match save_wallet(&public_address, &private_key, phrase.trim(), &password) {
+                            Ok(_) => {
+                                match set_selected_wallet(&public_address) {
+                                    Ok(_) => {
+                                        println!("Imported wallet with address: {}", public_address);
+                                        return Some(public_address);
+                                    },
+                                    Err(e) => {
+                                        println!("{}", format!("Failed to set selected wallet: {}", e).red());
+                                        return None;
+                                    }
+                                }
+                            },
+                            Err(e) => {
+                                println!("{}", format!("Failed to save wallet: {}", e).red());
+                                return None;
+                            }
+                        }
                     },
                     Err(e) => {
-                        println!("Failed to import seed phrase: {}", e);
+                        println!("{}", format!("Failed to import seed phrase: {}", e).red());
                         return None;
                     }
                 }
@@ -251,13 +304,28 @@ pub fn handle_keytool_command() -> Option<String> {
                 
                 match import_from_private_key(private_key.trim()) {
                     Ok((private_key, _, public_address)) => {
-                        save_wallet(&public_address, &private_key, "");
-                        set_selected_wallet(&public_address).expect("Failed to set selected wallet");
-                        println!("Imported wallet with address: {}", public_address);
-                        return Some(public_address);
+                        let password = prompt_password(true);
+                        match save_wallet(&public_address, &private_key, "", &password) {
+                            Ok(_) => {
+                                match set_selected_wallet(&public_address) {
+                                    Ok(_) => {
+                                        println!("Imported wallet with address: {}", public_address);
+                                        return Some(public_address);
+                                    },
+                                    Err(e) => {
+                                        println!("{}", format!("Failed to set selected wallet: {}", e).red());
+                                        return None;
+                                    }
+                                }
+                            },
+                            Err(e) => {
+                                println!("{}", format!("Failed to save wallet: {}", e).red());
+                                return None;
+                            }
+                        }
                     },
                     Err(e) => {
-                        println!("Failed to import private key: {}", e);
+                        println!("{}", format!("Failed to import private key: {}", e).red());
                         return None;
                     }
                 }
@@ -271,4 +339,25 @@ pub fn handle_keytool_command() -> Option<String> {
         display_help(false);
         return None;
     }
+}
+
+
+fn prompt_password(confirm: bool) -> String {
+    print!("Enter password for wallet: ");
+    io::stdout().flush().unwrap();
+    let mut password = String::new();
+    io::stdin().read_line(&mut password).unwrap();
+    let password = password.trim().to_string();
+
+    if confirm {
+        print!("Confirm password: ");
+        io::stdout().flush().unwrap();
+        let mut confirm = String::new();
+        io::stdin().read_line(&mut confirm).unwrap();
+        if password != confirm.trim() {
+            println!("{}", "Passwords do not match!".red());
+            return prompt_password(true);
+        }
+    }
+    password
 }
