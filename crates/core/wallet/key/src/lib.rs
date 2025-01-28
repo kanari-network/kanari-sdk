@@ -150,6 +150,7 @@ pub fn list_wallet_files() -> Result<Vec<(String, bool)>, std::io::Error> {
     Ok(wallets)
 }
 
+// import_from_seed_phrase
 pub fn import_from_seed_phrase(phrase: &str) -> Result<(String, String, String), Box<dyn std::error::Error>> {
     // Validate and create mnemonic
     let mnemonic = Mnemonic::parse_in(Language::English, phrase)?;
@@ -171,7 +172,7 @@ pub fn import_from_seed_phrase(phrase: &str) -> Result<(String, String, String),
     Ok((private_key, hex_encoded, public_address))
 }
 
-
+// import_from_private_key
 pub fn import_from_private_key(private_key: &str) -> Result<(String, String, String), Box<dyn std::error::Error>> {
     // Convert hex private key to bytes
     let private_key_bytes = hex::decode(private_key)?;
