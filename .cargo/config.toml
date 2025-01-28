@@ -13,3 +13,8 @@ d = "doc --open"
 r = "run"
 rr = "run --release"
 up = "update"
+
+kb = "build -p kari"                # Build kari package
+kbr = "build -p kari --release"     # Build kari package in release mode
+kr = "run -p kari"                  # Run kari package
+krr = "run -p kari --release"       # Run kari package in release mode
