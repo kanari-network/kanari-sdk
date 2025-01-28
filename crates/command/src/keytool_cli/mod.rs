@@ -143,30 +143,56 @@ pub fn handle_keytool_command() -> Option<String> {
                             println!("{}", "No wallets found!".red());
                             return None;
                         }
-        
+
                         println!("\nAvailable wallets:");
-                        for (i, (wallet, _)) in wallets.iter().enumerate() {
-                            println!("{}. {}", i + 1, wallet.trim_end_matches(".toml"));
+                        for (i, (wallet, is_selected)) in wallets.iter().enumerate() {
+                            let wallet_name = wallet.trim_end_matches(".enc");
+                            if *is_selected {
+                                println!("{}. {} {}", i + 1, wallet_name, "(current)".green());
+                            } else {
+                                println!("{}. {}", i + 1, wallet_name);
+                            }
                         }
-        
-                        println!("\nEnter wallet number to select:");
+
+                        println!("\nEnter wallet number to select (or press Enter to cancel):");
                         let mut input = String::new();
-                        let _ = io::stdin().read_line(&mut input);
-                        
-                        if let Ok(index) = input.trim().parse::<usize>() {
-                            if index > 0 && index <= wallets.len() {
-                                let selected = wallets[index - 1].0.trim_end_matches(".toml");
-                                if let Err(e) = set_selected_wallet(selected) {
-                                    println!("Error setting wallet: {}", e);
-                                } else {
-                                    println!("Selected wallet: {}", selected.green());
+                        match io::stdin().read_line(&mut input) {
+                            Ok(_) => {
+                                if input.trim().is_empty() {
+                                    return None;
                                 }
+                                
+                                match input.trim().parse::<usize>() {
+                                    Ok(index) if index > 0 && index <= wallets.len() => {
+                                        let selected = wallets[index - 1].0.trim_end_matches(".enc");
+                                        match set_selected_wallet(selected) {
+                                            Ok(_) => {
+                                                println!("{}", format!("Selected wallet: {}", selected).green());
+                                                Some(selected.to_string())
+                                            },
+                                            Err(e) => {
+                                                println!("{}", format!("Error setting wallet: {}", e).red());
+                                                None
+                                            }
+                                        }
+                                    },
+                                    _ => {
+                                        println!("{}", format!("Invalid selection. Please enter a number between 1 and {}", wallets.len()).red());
+                                        None
+                                    }
+                                }
+                            },
+                            Err(e) => {
+                                println!("{}", format!("Error reading input: {}", e).red());
+                                None
                             }
                         }
                     },
-                    Err(e) => println!("Error listing wallets: {}", e),
+                    Err(e) => {
+                        println!("{}", format!("Error listing wallets: {}", e).red());
+                        None
+                    }
                 }
-                None
             },
 
             "wallet" => {
@@ -247,7 +273,7 @@ pub fn handle_keytool_command() -> Option<String> {
                         println!("------------------");
                         for (wallet_name, is_selected) in wallets {
                             let status_symbol = if is_selected { "✓ " } else { "  " };
-                            let wallet_display = wallet_name.trim_end_matches(".json");
+                            let wallet_display = wallet_name.trim_end_matches(".enc");
                             if is_selected {
                                 println!("{}{}", status_symbol, wallet_display.green().bold());
                             } else {
