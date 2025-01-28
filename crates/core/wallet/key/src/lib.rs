@@ -188,6 +188,11 @@ pub fn list_wallet_files() -> Result<Vec<(String, bool)>, std::io::Error> {
     let kari_dir = get_kari_dir();
     let wallet_dir = kari_dir.join("wallets");
     
+    // Create wallet directory if it doesn't exist
+    if !wallet_dir.exists() {
+        fs::create_dir_all(&wallet_dir)?;
+    }
+
     // Get currently selected wallet
     let selected = get_selected_wallet().unwrap_or_default();
 
@@ -197,12 +202,20 @@ pub fn list_wallet_files() -> Result<Vec<(String, bool)>, std::io::Error> {
         let path = entry.path();
         if path.is_file() {
             if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
-                // Check if this wallet is selected
-                let is_selected = filename.trim_end_matches(".toml") == selected;
-                wallets.push((filename.to_string(), is_selected));
+                // Only include .enc files
+                if filename.ends_with(".enc") {
+                    // Check if this wallet is selected
+                    let wallet_name = filename.trim_end_matches(".enc");
+                    let is_selected = wallet_name == selected;
+                    wallets.push((filename.to_string(), is_selected));
+                }
             }
         }
     }
+
+    // Sort wallets alphabetically
+    wallets.sort_by(|a, b| a.0.cmp(&b.0));
+    
     Ok(wallets)
 }
 
