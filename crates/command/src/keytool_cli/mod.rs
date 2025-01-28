@@ -1,6 +1,6 @@
 use std::io;
 use colored::Colorize;
-use key::{generate_karix_address, list_wallet_files, load_wallet, save_wallet, set_selected_wallet,  };
+use key::{generate_karix_address, import_from_private_key, import_from_seed_phrase, list_wallet_files, load_wallet, save_wallet, set_selected_wallet  };
 
 use k2::blockchain::{get_balance, load_blockchain, transfer_coins};
 use std::process::exit;
@@ -18,6 +18,8 @@ const COMMANDS: &[CommandInfo] = &[
     CommandInfo { name: "wallet", description: "Load existing wallet" },
     CommandInfo { name: "send", description: "Send coins" },
     CommandInfo { name: "list", description: "List wallet files" },
+    CommandInfo { name: "import", description: "Import from seed phrase" },
+    CommandInfo { name: "privatekey", description: "Import from private key" },
 ];
 
 fn display_help(show_error: bool) {
@@ -221,6 +223,44 @@ pub fn handle_keytool_command() -> Option<String> {
                     }
                 }
                 return None;
+            },
+
+            "import" => {
+                println!("Enter seed phrase:");
+                let mut phrase = String::new();
+                io::stdin().read_line(&mut phrase).expect("Failed to read line");
+                
+                match import_from_seed_phrase(phrase.trim()) {
+                    Ok((private_key, _, public_address)) => {
+                        save_wallet(&public_address, &private_key, phrase.trim());
+                        set_selected_wallet(&public_address).expect("Failed to set selected wallet");
+                        println!("Imported wallet with address: {}", public_address);
+                        return Some(public_address);
+                    },
+                    Err(e) => {
+                        println!("Failed to import seed phrase: {}", e);
+                        return None;
+                    }
+                }
+            },
+            
+            "privatekey" => {
+                println!("Enter private key:");
+                let mut private_key = String::new();
+                io::stdin().read_line(&mut private_key).expect("Failed to read line");
+                
+                match import_from_private_key(private_key.trim()) {
+                    Ok((private_key, _, public_address)) => {
+                        save_wallet(&public_address, &private_key, "");
+                        set_selected_wallet(&public_address).expect("Failed to set selected wallet");
+                        println!("Imported wallet with address: {}", public_address);
+                        return Some(public_address);
+                    },
+                    Err(e) => {
+                        println!("Failed to import private key: {}", e);
+                        return None;
+                    }
+                }
             },
             _ => {
                 display_help(true);

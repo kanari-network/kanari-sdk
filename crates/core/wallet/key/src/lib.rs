@@ -1,6 +1,6 @@
 use std::{fs, io::{self, Write}, path::PathBuf, str::FromStr, };
 use serde::{Deserialize, Serialize};
-use bip39::Mnemonic;
+use bip39::{Mnemonic, Language};
 use log::{debug, error};
 use move_core_types::{
     account_address::AccountAddress,
@@ -148,6 +148,45 @@ pub fn list_wallet_files() -> Result<Vec<(String, bool)>, std::io::Error> {
         }
     }
     Ok(wallets)
+}
+
+pub fn import_from_seed_phrase(phrase: &str) -> Result<(String, String, String), Box<dyn std::error::Error>> {
+    // Validate and create mnemonic
+    let mnemonic = Mnemonic::parse_in(Language::English, phrase)?;
+    
+    // Generate seed from mnemonic
+    let seed = mnemonic.to_seed("");
+    
+    // Create private key from seed
+    let secp = Secp256k1::new();
+    let secret_key = SecretKey::from_slice(&seed[0..32])?;
+    let public_key = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
+    
+    // Generate addresses
+    let private_key = hex::encode(secret_key.as_ref());
+    let mut hex_encoded = hex::encode(&public_key.serialize_uncompressed()[1..]);
+    hex_encoded.truncate(64);
+    let public_address = format!("0x{}", hex_encoded);
+    
+    Ok((private_key, hex_encoded, public_address))
+}
+
+
+pub fn import_from_private_key(private_key: &str) -> Result<(String, String, String), Box<dyn std::error::Error>> {
+    // Convert hex private key to bytes
+    let private_key_bytes = hex::decode(private_key)?;
+    
+    // Create secret key and generate public key
+    let secp = Secp256k1::new();
+    let secret_key = SecretKey::from_slice(&private_key_bytes)?;
+    let public_key = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
+    
+    // Generate addresses
+    let mut hex_encoded = hex::encode(&public_key.serialize_uncompressed()[1..]);
+    hex_encoded.truncate(64);
+    let public_address = format!("0x{}", hex_encoded);
+    
+    Ok((private_key.to_string(), hex_encoded, public_address))
 }
 
 /// Read currently selected wallet from config
