@@ -61,6 +61,7 @@ license = "Apache-2.0"
 repository = "https://github.com/kanari-network/kanari-sdk"
 description = "Kanari Network SDK"
 
+
 # Dependencies Workspace
 [workspace.dependencies]
 # Cryptography
@@ -125,30 +126,36 @@ datatest-stable = "0.3.2"
 
 
 #Path List
-kari            = { path = "crates/kari" }
-kari-node       = { path = "crates/kari-node" }
-kari-move       = { path = "crates/kari-move" }
+kari                                = { path = "crates/kari" }
+kari-node                           = { path = "crates/kari-node" }
+kari-move                           = { path = "crates/kari-move" }
+
 
 #Consensus Path List
-consensus-pos   = { path = "consensus/pos" }
-consensus-pow   = { path = "consensus/pow" }
+consensus-pos                       = { path = "consensus/pos" }
+consensus-pow                       = { path = "consensus/pow" }
+
 
 #Core Path List
-network         = { path = "crates/core/network" }
-p2p-protocol    = { path = "crates/core/p2p" }
-key             = { path = "crates/core/wallet/key" }
-k2              = { path = "crates/core/k2" }
-command         = { path = "crates/command" }
+network                             = { path = "crates/core/network" }
+p2p-protocol                        = { path = "crates/core/p2p" }
+key                                 = { path = "crates/core/wallet/key" }
+k2                                  = { path = "crates/core/k2" }
+command                             = { path = "crates/command" }
+
 
 #RPC Path List
-rpc-api         = { path = "crates/rpc/rpc-api" }
+rpc-api                             = { path = "crates/rpc/rpc-api" }
+
 
 #Storage Path List
-storage         = { path = "monaos/storage" }
-mona-types      = { path = "monaos/mona-types" }
-mona-enum-compat-util = { path = "monaos/mona-enum-compat-util" }
+storage                             = { path = "monaos/storage" }
+mona-types                          = { path = "monaos/mona-types" }
+mona-enum-compat-util               = { path = "monaos/mona-enum-compat-util" }
 
-framework       = { path = "framework" }
+
+#Framework Move Path List 
+framework                           = { path = "framework" }
 
 
 #Move SUI Path List
