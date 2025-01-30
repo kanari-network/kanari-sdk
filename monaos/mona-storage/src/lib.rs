@@ -2,7 +2,13 @@ use std::{fs, path::PathBuf, time::Duration};
 use thiserror::Error;
 use rocksdb::{DB, Error as RocksError};
 use bincode;
-mod FileStorage;
+mod file_storage;
+
+pub use file_storage::{
+    FileStorage,
+    StorageError2,
+    FileMetadata
+};
 
 #[derive(Error, Debug)]
 pub enum StorageError {

@@ -20,8 +20,8 @@ anyhow = { workspace = true }
 key.workspace = true
 k2.workspace = true
 kari-move.workspace = true
-
-
+mona-storage.workspace = true
+tokio.workspace = true
 
 move-vm-test-utils = { workspace = true }
 move-core-types = { workspace = true }
