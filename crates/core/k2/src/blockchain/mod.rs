@@ -4,8 +4,8 @@ use crate::transaction::{Transaction, TransactionType};
 use bincode;
 use consensus_pos::Blake3Algorithm;
 use dirs;
-use storage::{BlockchainStorage, RocksDBStorage, StorageError};
-mod storage;
+use mona_storage::{BlockchainStorage, RocksDBStorage, StorageError};
+
 
 use std::collections::{HashMap, VecDeque};
 use std::fs;

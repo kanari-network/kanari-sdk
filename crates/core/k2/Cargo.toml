@@ -44,6 +44,9 @@ env_logger.workspace = true
 colored.workspace = true
 thiserror.workspace = true
 
+
+mona-storage.workspace = true
+
 # MoveVM
 move-bytecode-verifier.workspace = true
 move-disassembler.workspace = true

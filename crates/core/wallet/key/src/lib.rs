@@ -1,7 +1,7 @@
-use std::{fs, io::{self, Write}, path::PathBuf, str::FromStr, };
+use std::{fs, io, str::FromStr };
 use serde::{Deserialize, Serialize};
 use bip39::{Mnemonic, Language};
-use log::{debug, error};
+use log::error;
 use move_core_types::{
     account_address::AccountAddress,
     // identifier::Identifier,
@@ -21,9 +21,9 @@ use aes_gcm::{
 };
 use argon2::{
     password_hash::{PasswordHasher, SaltString},
-    Argon2, PasswordHash,
+    Argon2, 
 };
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+
 
 
 #[derive(Error, Debug)]
