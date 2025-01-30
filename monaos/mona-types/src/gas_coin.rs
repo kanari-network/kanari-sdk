@@ -11,7 +11,7 @@ use move_core_types::{
 pub const MIST_PER_KARI: u64 = 1_000_000_000;
 
 /// Total supply denominated in KARI
-pub const TOTAL_SUPPLY_KARI: u64 = 10_000_000_000;
+pub const TOTAL_SUPPLY_KARI: u64 = 100_000_000;
 
 // Note: cannot use checked arithmetic here since `const unwrap` is still unstable.
 /// Total supply denominated in Mist
