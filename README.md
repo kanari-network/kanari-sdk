@@ -3,21 +3,24 @@ Kanari SDK
 # Kanari SDK Architecture
 
 ```mermaid
-flowchart TB
+flowchart LR
     %% Main Layers
     subgraph Application["Application Layer"]
+        direction LR
         WebExplorer["Web Explorer"]
         CLI["CLI Tools"]
         RPC["RPC API"]
     end
 
     subgraph Framework["Framework Layer"]
+        direction LR
         KanariFramework["Kanari Framework"]
         StandardLib["Standard Library"]
         SystemFramework["System Framework"]
     end
 
     subgraph Core["Core Layer"]
+        direction LR
         subgraph Blockchain
             K2Core["K2 Core"]
             Transaction
@@ -36,11 +39,13 @@ flowchart TB
     end
 
     subgraph Network["Network Layer"]
+        direction LR
         P2P["P2P Network"]
         RPCNetwork["RPC Network"]
     end
 
     subgraph Storage["Storage Layer"]
+        direction LR
         WalletMgmt["Wallet Management"]
         FileStorage["File Storage"]
         StateDB["State Database"]
