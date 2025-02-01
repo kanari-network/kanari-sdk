@@ -3,35 +3,59 @@ Kanari SDK
 # Kanari SDK Architecture
 
 ```mermaid
-flowchart LR
-    %% Main Components
-    SDK[Kanari SDK] --> Auth[Authentication]
-    SDK --> Network[Network Layer]
-    SDK --> Data[Data Handler]
+flowchart TB
+    %% Main Layers
+    subgraph Application["Application Layer"]
+        WebExplorer["Web Explorer"]
+        CLI["CLI Tools"]
+        RPC["RPC API"]
+    end
 
-    %% Authentication Flow
-    Auth --> Token[Token Management]
-    Auth --> Session[Session Handler]
+    subgraph Framework["Framework Layer"]
+        KanariFramework["Kanari Framework"]
+        StandardLib["Standard Library"]
+        SystemFramework["System Framework"]
+    end
 
-    %% Network Components
-    Network --> REST[REST Client]
-    Network --> WS[WebSocket Client]
+    subgraph Core["Core Layer"]
+        subgraph Blockchain
+            K2Core["K2 Core"]
+            Transaction
+            State
+        end
+        
+        subgraph Runtime
+            MoveVM["Move VM"]
+            MoveCompiler["Move Compiler"]
+        end
 
-    %% Data Handling
-    Data --> Cache[Cache Manager]
-    Data --> Storage[Local Storage]
+        subgraph Consensus
+            PoW["Proof of Work"]
+            PoS["Proof of Stake"]
+        end
+    end
+
+    subgraph Network["Network Layer"]
+        P2P["P2P Network"]
+        RPCNetwork["RPC Network"]
+    end
+
+    subgraph Storage["Storage Layer"]
+        WalletMgmt["Wallet Management"]
+        FileStorage["File Storage"]
+        StateDB["State Database"]
+    end
 
     %% Relationships
-    Token --> REST
-    Session --> WS
-    REST --> Cache
-    WS --> Cache
-    Cache --> Storage
+    Application --> Framework
+    Framework --> Core
+    Core --> Network
+    Core --> Storage
 
     %% Styling
-    classDef default fill:#f9f9f9,stroke:#333,stroke-width:2px;
-    classDef highlight fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
-    class SDK highlight
+    classDef default fill:#f9f9f9,stroke:#333,stroke-width:1px
+    classDef layer fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    class Application,Framework,Core,Network,Storage layer
    
 ```
 
