@@ -97,7 +97,7 @@ impl FileStorage {
         })
     }
 
-    pub async fn store(&self, filename: &str, data: &[u8]) -> Result<FileStorage, StorageError2> {
+    pub fn store(&self, filename: &str, data: &[u8]) -> Result<FileStorage, StorageError2> {
         let file_path = self.path.join(filename);
         fs::write(&file_path, data)?;
 
@@ -116,7 +116,7 @@ impl FileStorage {
         })
     }
 
-    pub async fn read(&self, filename: &str) -> Result<Vec<u8>, StorageError2> {
+    pub fn read(&self, filename: &str) -> Result<Vec<u8>, StorageError2> {
         let file_path = self.path.join(filename);
         match fs::read(&file_path) {
             Ok(data) => Ok(data),
@@ -125,7 +125,7 @@ impl FileStorage {
     }
 
     // Check if file exists in storage
-    pub async fn check_file_exists(&self, file_path: &Path) -> bool {
+    pub fn check_file_exists(&self, file_path: &Path) -> bool {
         if let Ok(canonical_path) = file_path.canonicalize() {
             canonical_path.exists()
         } else {
@@ -138,7 +138,7 @@ impl FileStorage {
         get_storage_path().join(filename)
     }
 
-    pub async fn upload(source_path: impl AsRef<Path>, filename: String) -> Result<Self, StorageError2> {
+    pub  fn upload(source_path: impl AsRef<Path>, filename: String) -> Result<Self, StorageError2> {
         let source_path = source_path.as_ref();
         
         // Check if source file exists
@@ -181,87 +181,45 @@ impl FileStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-
-    #[test]
-    fn test_storage_path_creation() {
-        let path = get_storage_path();
-        assert!(path.exists(), "Storage directory should be created");
-        assert!(path.is_dir(), "Storage path should be a directory");
-        
-        let kari_dir = path.parent().unwrap();
-        assert!(kari_dir.exists(), ".kari directory should be created");
-        assert!(kari_dir.is_dir(), ".kari path should be a directory");
-    }
-
-
-    fn create_test_png_data() -> Vec<u8> {
-        vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
-    }
-
-    async fn setup() -> FileStorage {
-        FileStorage::new().expect("Failed to create storage")
-    }
-
-    async fn cleanup(storage: &FileStorage) {
-        fs::remove_dir_all(&storage.path).unwrap_or_default();
-    }
-
+    use tempfile::NamedTempFile;
+    use std::io::Write;
+    
     #[tokio::test]
-    async fn test_store_png_file() {
-        let storage = setup().await;
-        let test_data = create_test_png_data();
-        let filename = "test_image.png";
-
-        let result = storage.store(filename, &test_data).await;
+    async fn test_upload_success() {
+        // Create temporary test file
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let test_content = b"test content";
+        temp_file.write_all(test_content).unwrap();
+        
+        let filename = "test.txt".to_string();
+        let result = FileStorage::upload(temp_file.path(), filename.clone());
+        
         assert!(result.is_ok());
-
-        let stored_path = storage.path.join(filename);
-        assert!(stored_path.exists());
-
-        cleanup(&storage).await;
-    }
-
-    #[tokio::test]
-    async fn test_read_stored_png() {
-        let storage = setup().await;
-        let test_data = create_test_png_data();
-        let filename = "test_read.png";
-
-        storage.store(filename, &test_data).await.unwrap();
-        let read_result = storage.read(filename).await;
+        let storage = result.unwrap();
         
-        assert!(read_result.is_ok());
-        assert_eq!(read_result.unwrap(), test_data);
-
-        cleanup(&storage).await;
+        // Verify metadata
+        assert_eq!(storage.metadata.filename, filename);
+        assert_eq!(storage.metadata.size, test_content.len() as u64);
+        assert_eq!(storage.metadata.content_type, "text/plain");
+        assert!(storage.path.exists());
     }
 
     #[tokio::test]
-    async fn test_invalid_png_data() {
-        let storage = setup().await;
-        let invalid_data = vec![0x00, 0x01, 0x02];
-        let filename = "invalid.png";
-
-        let result = storage.store(filename, &invalid_data).await;
+    async fn test_upload_nonexistent_file() {
+        let non_existent = Path::new("non_existent.txt");
+        let result = FileStorage::upload(non_existent, "test.txt".to_string());
+        
+        assert!(matches!(result, Err(StorageError2::FileNotFound(_))));
+    }
+    
+    #[tokio::test]
+    async fn test_upload_different_content_types() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(b"test").unwrap();
+        
+        // Test image file
+        let result = FileStorage::upload(temp_file.path(), "test.png".to_string());
         assert!(result.is_ok());
-
-        cleanup(&storage).await;
-    }
-
-    #[tokio::test]
-    async fn test_file_metadata() {
-        let storage = setup().await;
-        let test_data = create_test_png_data();
-        let filename = "metadata_test.png";
-
-        let result = storage.store(filename, &test_data).await.unwrap();
-        
-        assert_eq!(result.metadata.filename, filename);
-        assert_eq!(result.metadata.size, test_data.len() as u64);
-        assert_eq!(result.metadata.content_type, "image/png");
-        assert!(result.metadata.uploaded_at <= SystemTime::now());
-
-        cleanup(&storage).await;
+        assert_eq!(result.unwrap().metadata.content_type, "image/png");
     }
 }

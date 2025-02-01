@@ -1,5 +1,6 @@
-use std::{path::PathBuf, process::exit};
-
+use std::process::exit;
+use std::path::Path;
+use mona_storage::file_storage::FileStorage;
 use colored::Colorize;
 
 struct CommandInfo {
@@ -50,7 +51,7 @@ fn display_help(show_error: bool) {
 }
 
 // Handle public commands
-pub async fn handle_public_command() -> Option<String> {
+pub fn handle_public_command() -> Option<String> {
     // Collect command line arguments
     let args: Vec<String> = std::env::args().collect();
 
@@ -61,16 +62,36 @@ pub async fn handle_public_command() -> Option<String> {
         // Use string comparison in the match statement
         match command.as_str() {
             "upload" => {
-                let cmd = UploadCommand::parse();
-                match cmd.execute().await {
-                    Ok(_) => Some("upload".to_string()),
-                    Err(e) => {
-                        eprintln!("Upload failed: {}", e);
-                        Some("upload".to_string())
-                    }
+                if args.len() != 3 {
+                    return Some("Usage: mona-storage upload <file_path>".to_string());
+                }
+            
+                // Get file path from correct argument index
+                let file_path = Path::new(&args[2]);
+                
+                // Validate file exists
+                if !file_path.exists() {
+                    return Some(format!("Error: File '{}' not found", args[2]));
+                }
+            
+                let filename = file_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unnamed")
+                    .to_string();
+            
+                // Upload file
+                match FileStorage::upload(file_path, filename) {
+                    Ok(storage) => Some(format!(
+                        "File uploaded successfully!\nID: {}\nLocation: {}\nSize: {} bytes\nType: {}",
+                        storage.id,
+                        storage.path.display(),
+                        storage.metadata.size,
+                        storage.metadata.content_type
+                    )),
+                    Err(e) => Some(format!("Upload failed: {}", e))
                 }
             },
-
             "download" => Some("download".to_string()),
 
             "delete" => Some("delete".to_string()),
@@ -87,55 +108,3 @@ pub async fn handle_public_command() -> Option<String> {
 }
 
 
-
-use clap::Parser;
-use mona_storage::FileStorage;
-use std::path::Path;
-
-#[derive(Parser, Debug)]
-pub struct UploadCommand {
-    /// File path to upload
-    #[clap(name = "FILE")]
-    pub file: PathBuf,
-
-    /// Custom filename (optional)
-    #[clap(short, long)]
-    pub name: Option<String>,
-}
-
-impl UploadCommand {
-    pub async fn execute(self) -> anyhow::Result<()> {
-        // Initialize storage directories
-        mona_storage::FileStorage::init_storage();
-
-        // Rest of upload logic
-        let file_path = Path::new(&self.file).canonicalize()?;
-        
-        println!("Uploading file: {}", file_path.display());
-
-        let storage = FileStorage::new()?;
-
-        let filename = self.name.unwrap_or_else(|| {
-            file_path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string()
-        });
-
-        println!("Using filename: {}", filename);
-
-        match FileStorage::upload(&file_path, filename).await {
-            Ok(file) => {
-                println!("Upload successful!");
-                println!("Stored at: {}", file.path.display());
-                println!("File size: {} bytes", file.metadata.size);
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("Upload failed: {}", e);
-                Err(anyhow::anyhow!(e))
-            }
-        }
-    }
-}

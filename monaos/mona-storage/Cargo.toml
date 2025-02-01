@@ -24,3 +24,4 @@ rocksdb.workspace = true
 bincode.workspace = true
 thiserror.workspace = true
 chrono = { version = "0.4", features = ["serde"] }
+tempfile = "3.2.0"
