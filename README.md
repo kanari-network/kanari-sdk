@@ -1,33 +1,37 @@
 Kanari SDK
 
+# Kanari SDK Architecture
+
 ```mermaid
-    flowchart LR
-        SDK[Kanari SDK] --> Auth[Authentication]
-        SDK --> Chain[Chain Integration]
-        SDK --> Wallet[Wallet Management]
-        
-        Auth --> Login[Login/Register]
-        Auth --> Token[Token Management]
-        
-        Chain --> TX[Transaction]
-        Chain --> Query[Query]
-        Chain --> Contract[Smart Contract]
-        
-        Wallet --> Create[Create Wallet]
-        Wallet --> Import[Import Wallet]
-        Wallet --> Balance[Check Balance]
-        
-        TX --> Send[Send Token]
-        TX --> Stake[Staking]
-        TX --> Reward[Claim Reward]
-        
-        Query --> Account[Account Info]
-        Query --> History[Transaction History]
-        Query --> Market[Market Data]
-        
-        Contract --> Deploy[Deploy Contract]
-        Contract --> Interact[Contract Interaction]
-        Contract --> Read[Read Contract]
+flowchart LR
+    %% Main Components
+    SDK[Kanari SDK] --> Auth[Authentication]
+    SDK --> Network[Network Layer]
+    SDK --> Data[Data Handler]
+
+    %% Authentication Flow
+    Auth --> Token[Token Management]
+    Auth --> Session[Session Handler]
+
+    %% Network Components
+    Network --> REST[REST Client]
+    Network --> WS[WebSocket Client]
+
+    %% Data Handling
+    Data --> Cache[Cache Manager]
+    Data --> Storage[Local Storage]
+
+    %% Relationships
+    Token --> REST
+    Session --> WS
+    REST --> Cache
+    WS --> Cache
+    Cache --> Storage
+
+    %% Styling
+    classDef default fill:#f9f9f9,stroke:#333,stroke-width:2px;
+    classDef highlight fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
+    class SDK highlight
    
 ```
 
