@@ -15,7 +15,7 @@ description.workspace = true
 colored.workspace = true
 clap = { workspace = true, features = ["derive"] }
 anyhow = { workspace = true }
-
+dirs = { workspace = true }
 
 key.workspace = true
 k2.workspace = true

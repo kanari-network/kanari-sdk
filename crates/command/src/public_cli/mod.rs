@@ -1,5 +1,5 @@
 use std::process::exit;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use mona_storage::file_storage::FileStorage;
 use colored::Colorize;
 
@@ -62,16 +62,24 @@ pub fn handle_public_command() -> Option<String> {
         // Use string comparison in the match statement
         match command.as_str() {
             "upload" => {
-                if args.len() != 3 {
-                    return Some("Usage: mona-storage upload <file_path>".to_string());
+                if args.len() != 4 {  // Changed from 3 to 4 since command is at index 2
+                    return Some("Usage: kari public upload <file_path>".to_string());
                 }
             
-                // Get file path from correct argument index
-                let file_path = Path::new(&args[2]);
+                // Initialize storage first
+                if let Err(e) = FileStorage::init_storage() {
+                    return Some(format!("Failed to initialize storage: {}", e));
+                }
+            
+                // Get file path from correct argument index (3 instead of 2)
+                let file_path = Path::new(&args[3]);
                 
-                // Validate file exists
+                // Debug print
+                println!("Attempting to upload file: {}", file_path.display());
+                println!("Storage path: {}", get_storage_path().display());
+                
                 if !file_path.exists() {
-                    return Some(format!("Error: File '{}' not found", args[2]));
+                    return Some(format!("Error: File '{}' not found", file_path.display()));
                 }
             
                 let filename = file_path
@@ -80,7 +88,6 @@ pub fn handle_public_command() -> Option<String> {
                     .unwrap_or("unnamed")
                     .to_string();
             
-                // Upload file
                 match FileStorage::upload(file_path, filename) {
                     Ok(storage) => Some(format!(
                         "File uploaded successfully!\nID: {}\nLocation: {}\nSize: {} bytes\nType: {}",
@@ -107,4 +114,7 @@ pub fn handle_public_command() -> Option<String> {
     }
 }
 
-
+fn get_storage_path() -> PathBuf {
+    let home_dir = dirs::home_dir().expect("Could not find home directory");
+    home_dir.join(".kari").join("storage")
+}
