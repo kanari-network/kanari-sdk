@@ -53,8 +53,11 @@ flowchart TB
     Core --> Storage
 
     %% Styling
-    classDef default fill:#f9f9f9,stroke:#333,stroke-width:1px
-    classDef layer fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef default fill:#ffffff,stroke:#333,stroke-width:2px,color:#333
+    classDef layer fill:#e3f2fd,stroke:#1976d2,stroke-width:3px,color:#0d47a1
+    classDef critical fill:#fff8e1,stroke:#ffa000,stroke-width:3px,color:#ff6f00
+    classDef storage fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#1b5e20
+    classDef network fill:#fce4ec,stroke:#c2185b,stroke-width:2px,color:#880e4f
     class Application,Framework,Core,Network,Storage layer
    
 ```
