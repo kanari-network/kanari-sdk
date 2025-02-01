@@ -1,6 +1,35 @@
 Kanari SDK
 
-<!-- <img src="https://raw.githubusercontent.com/kanari-network/about/main/kari1.png"> -->
+```mermaid
+    flowchart LR
+        SDK[Kanari SDK] --> Auth[Authentication]
+        SDK --> Chain[Chain Integration]
+        SDK --> Wallet[Wallet Management]
+        
+        Auth --> Login[Login/Register]
+        Auth --> Token[Token Management]
+        
+        Chain --> TX[Transaction]
+        Chain --> Query[Query]
+        Chain --> Contract[Smart Contract]
+        
+        Wallet --> Create[Create Wallet]
+        Wallet --> Import[Import Wallet]
+        Wallet --> Balance[Check Balance]
+        
+        TX --> Send[Send Token]
+        TX --> Stake[Staking]
+        TX --> Reward[Claim Reward]
+        
+        Query --> Account[Account Info]
+        Query --> History[Transaction History]
+        Query --> Market[Market Data]
+        
+        Contract --> Deploy[Deploy Contract]
+        Contract --> Interact[Contract Interaction]
+        Contract --> Read[Read Contract]
+   
+```
 
 ### 1. Setup Environment
 - Ensure you have Ubuntu or a similar Linux distribution.
