@@ -1,5 +1,6 @@
 use std::process::exit;
 use std::path::{Path, PathBuf};
+
 use mona_storage::file_storage::FileStorage;
 use colored::Colorize;
 
@@ -14,13 +15,10 @@ const COMMANDS: &[CommandInfo] = &[
         description: "Upload a file to storage",
     },
     CommandInfo {
-        name: "download",
-        description: "Download a file from storage",
+        name: "search",
+        description: "Search for files in storage",
     },
-    CommandInfo {
-        name: "delete",
-        description: "Delete a file from storage",
-    },
+
 ];
 
 fn display_help(show_error: bool) {
@@ -99,9 +97,10 @@ pub fn handle_public_command() -> Option<String> {
                     Err(e) => Some(format!("Upload failed: {}", e))
                 }
             },
-            "download" => Some("download".to_string()),
 
-            "delete" => Some("delete".to_string()),
+            "search" => {
+
+            },
 
             _ => {
                 display_help(true);
