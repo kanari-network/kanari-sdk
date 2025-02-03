@@ -5,7 +5,8 @@ use bincode;
 use consensus_pos::Blake3Algorithm;
 use dirs;
 use mona_storage::{BlockchainStorage, RocksDBStorage, StorageError};
-
+use mona_storage::{FileStorage, StorageError2};
+use std::path::Path;
 
 use std::collections::{HashMap, VecDeque};
 use std::fs;
@@ -65,6 +66,7 @@ pub enum BlockchainError {
     Storage(StorageError),
     Balance(String),
     Initialization(String),
+    FileStorage(StorageError2),
 }
 
 impl From<StorageError> for BlockchainError {
@@ -73,12 +75,58 @@ impl From<StorageError> for BlockchainError {
     }
 }
 
+impl From<StorageError2> for BlockchainError {
+    fn from(error: StorageError2) -> Self {
+        BlockchainError::FileStorage(error)
+    }
+}
+
+
+// Add file storage function
+pub fn store_file(file_path: &Path) -> Result<String, BlockchainError> {
+    let filename = file_path.file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("")
+        .to_string();
+
+    let storage = FileStorage::upload(file_path, filename)?;
+    let file_id = storage.id.to_string();
+    
+    // Create file storage transaction
+    let transaction = Transaction {
+        sender: "system".to_string(),
+        receiver: file_id.clone(),
+        amount: 0,
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+        gas_cost: TRANSACTION_GAS_COST,
+        signature: None,
+        tx_type: TransactionType::FileStore,
+        data: storage.path.to_str().unwrap_or("").as_bytes().to_vec(),
+        coin_type: None
+    };
+
+    // Add transaction to current block
+    unsafe {
+        if let Some(last_block) = BLOCKCHAIN.back_mut() {
+            last_block.transactions.push(transaction);
+            save_blockchain()?;
+        }
+    }
+
+    Ok(file_id)
+}
+
+
 impl std::fmt::Display for BlockchainError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             BlockchainError::Storage(e) => write!(f, "Storage error: {}", e),
             BlockchainError::Balance(e) => write!(f, "Balance error: {}", e),
             BlockchainError::Initialization(e) => write!(f, "Initialization error: {}", e),
+            BlockchainError::FileStorage(storage_error2) => write!(f, "File storage error: {}", storage_error2),
         }
     }
 }

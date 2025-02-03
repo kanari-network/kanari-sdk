@@ -11,6 +11,7 @@ use sha2::{Sha256, Digest};
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub enum TransactionType {
     Transfer,
+    FileStore,
     MoveModuleDeploy(Vec<u8>),
     MoveExecute {
         module_name: String,
