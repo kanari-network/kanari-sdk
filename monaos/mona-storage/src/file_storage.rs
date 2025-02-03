@@ -15,6 +15,16 @@ pub struct FileStorage {
 
 #[derive(Error, Debug)]
 pub enum StorageError2 {
+    #[error("File not found")]
+    InvalidId,
+
+    #[error("File not found")]
+    Serialization(serde_json::Error),  // Make sure this variant can hold serde_json::Error
+
+
+    #[error("File not found")]
+    NotFound,
+
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -138,88 +148,93 @@ impl FileStorage {
     // file from storage
     pub fn upload(source_path: impl AsRef<Path>, filename: String) -> Result<Self, StorageError2> {
         let source_path = source_path.as_ref();
-
-        // Check if source file exists
+        
+        // Check source file
         if !source_path.exists() {
             return Err(StorageError2::FileNotFound(
                 source_path.to_string_lossy().to_string(),
             ));
         }
-
-        // Ensure storage directory exists
+    
+        // Initialize storage
         FileStorage::init_storage()?;
-
-        let file_size = fs::metadata(source_path)?.len();
+    
+        // Generate new UUID for file
+        let id = Uuid::new_v4();
         let storage_path = get_storage_path();
-        let unique_filename = format!("{}.{}", Uuid::new_v4(), filename);
-        let dest_path = storage_path.join(&unique_filename);
-
+        
+        // Create paths
+        let file_ext = source_path.extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("");
+        let dest_filename = format!("{}.{}", id, file_ext);
+        let dest_path = storage_path.join(&dest_filename);
+        
+        // Create metadata
         let metadata = FileMetadata {
             filename,
-            size: file_size,
+            size: fs::metadata(source_path)?.len(),
             content_type: mime_guess::from_path(source_path)
                 .first_or_octet_stream()
                 .to_string(),
             uploaded_at: SystemTime::now(),
         };
-
-        // Copy file to storage with error handling
-        match fs::copy(source_path, &dest_path) {
-            Ok(_) => Ok(FileStorage {
-                id: Uuid::new_v4(),
-                metadata,
-                path: dest_path,
-                created_at: SystemTime::now(),
-            }),
-            Err(e) => Err(StorageError2::Io(e)),
-        }
-    }
-
-    pub fn search_files_list(pattern: &str) -> Result<Vec<FileStorage>, StorageError2> {
-        // Initialize storage if needed
-        FileStorage::init_storage()?;
+    
+        // Save file
+        fs::copy(source_path, &dest_path)?;
         
-        let storage_path = get_storage_path();
-        let mut results = Vec::new();
-
-        // Read directory entries
-        for entry in fs::read_dir(storage_path)? {
-            let entry = entry?;
-            let path = entry.path();
-            
-            // Skip if not a file
-            if !path.is_file() {
-                continue;
-            }
-
-            // Get filename and check if matches pattern
-            if let Some(filename) = path.file_name()
-                .and_then(|n| n.to_str())
-                .filter(|name| name.contains(pattern))
-            {
-                // Extract original filename from UUID.filename format
-                let orig_filename = filename.split('.').nth(1).unwrap_or(filename);
-                
-                let metadata = FileMetadata {
-                    filename: orig_filename.to_string(),
-                    size: entry.metadata()?.len(),
-                    content_type: mime_guess::from_path(&path)
-                        .first_or_octet_stream()
-                        .to_string(),
-                    uploaded_at: entry.metadata()?.created()?,
-                };
-
-                results.push(FileStorage {
-                    id: Uuid::parse_str(filename.split('.').next().unwrap_or_default())
-                        .unwrap_or_else(|_| Uuid::new_v4()),
-                    metadata,
-                    path,
-                    created_at: entry.metadata()?.created()?,
-                });
-            }
-        }
-
-        Ok(results)
+        // Save metadata
+        let metadata_path = storage_path.join(format!("{}.json", id));
+        let metadata_json = serde_json::to_string(&metadata)?;
+        fs::write(&metadata_path, metadata_json)?;
+    
+        Ok(FileStorage {
+            id,
+            metadata,
+            path: dest_path,
+            created_at: SystemTime::now(),
+        })
     }
+
+
+    pub fn get_by_id(id_str: &str) -> Result<Self, StorageError2> {
+        // Parse UUID
+        let id = Uuid::parse_str(id_str)
+            .map_err(|_| StorageError2::InvalidId)?;
+    
+        // Get storage path
+        let storage_path = get_storage_path();
+        
+        // Find file by looking for metadata first
+        let metadata_path = storage_path.join(format!("{}.json", id_str));
+        if !metadata_path.exists() {
+            return Err(StorageError2::NotFound);
+        }
+    
+        // Load metadata
+        let metadata = std::fs::read_to_string(&metadata_path)
+            .map_err(|e| StorageError2::Io(e))?;
+        let metadata: FileMetadata = serde_json::from_str(&metadata)
+            .map_err(StorageError2::Serialization)?;
+    
+        // Find actual file by extension
+        let file_ext = Path::new(&metadata.filename)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("");
+        let file_path = storage_path.join(format!("{}.{}", id_str, file_ext));
+    
+        if !file_path.exists() {
+            return Err(StorageError2::NotFound);
+        }
+    
+        Ok(Self {
+            id,
+            path: file_path,
+            metadata,
+            created_at: SystemTime::now(),
+        })
+    }
+
 }
 

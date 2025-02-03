@@ -15,8 +15,8 @@ const COMMANDS: &[CommandInfo] = &[
         description: "Upload a file to storage",
     },
     CommandInfo {
-        name: "search",
-        description: "Search for files in storage",
+        name: "get <id>",
+        description: " Get a file from storage by ID Image/File",
     },
 
 ];
@@ -75,6 +75,7 @@ pub fn handle_public_command() -> Option<String> {
                 // Debug print
                 println!("Attempting to upload file: {}", file_path.display());
                 println!("Storage path: {}", get_storage_path().display());
+                println!("File exists: {}", file_path.exists());
                 
                 if !file_path.exists() {
                     return Some(format!("Error: File '{}' not found", file_path.display()));
@@ -87,19 +88,61 @@ pub fn handle_public_command() -> Option<String> {
                     .to_string();
             
                 match FileStorage::upload(file_path, filename) {
-                    Ok(storage) => Some(format!(
-                        "File uploaded successfully!\nID: {}\nLocation: {}\nSize: {} bytes\nType: {}",
-                        storage.id,
-                        storage.path.display(),
-                        storage.metadata.size,
-                        storage.metadata.content_type
-                    )),
-                    Err(e) => Some(format!("Upload failed: {}", e))
+                    Ok(storage) => {
+                        // Debug print
+                        println!("Debug: Storage ID = {}", storage.id);
+                        
+                        Some(format!(
+                            "\n{}\n\nFile ID: {}\nLocation: {}\nSize: {} bytes\nType: {}\n\n{}\n    kari public get {}\n",
+                            "✓ File uploaded successfully!".green().bold(),
+                            storage.id.to_string().yellow().bold(),
+                            storage.path.display(),
+                            storage.metadata.size,
+                            storage.metadata.content_type,
+                            "To download this file, use:".bright_blue(),
+                            storage.id
+                        ))
+                    },
+                    Err(e) => {
+                        // Debug print
+                        println!("Debug: Upload error = {:?}", e);
+                        Some(format!("{}: {}", "Upload failed".red().bold(), e))
+                    }
                 }
             },
-
-            "search" => {
-
+            
+            "get" => {
+                if args.len() != 4 {
+                    return Some("Usage: kari public get <file_id>".to_string());
+                }
+            
+                let file_id = &args[3];
+            
+                if let Err(e) = FileStorage::init_storage() {
+                    return Some(format!("Failed to initialize storage: {}", e));
+                }
+            
+                match FileStorage::get_by_id(file_id) {
+                    Ok(storage) => {
+                        // Get current directory for saving the file
+                        let current_dir = std::env::current_dir()
+                            .expect("Failed to get current directory");
+                        let target_path = current_dir.join(&storage.metadata.filename);
+            
+                        // Copy file to current directory
+                        match std::fs::copy(&storage.path, &target_path) {
+                            Ok(_) => Some(format!(
+                                "File downloaded successfully!\nID: {}\nSaved as: {}\nSize: {} bytes\nType: {}",
+                                storage.id,
+                                target_path.display(),
+                                storage.metadata.size,
+                                storage.metadata.content_type
+                            )),
+                            Err(e) => Some(format!("Failed to save file: {}", e))
+                        }
+                    },
+                    Err(e) => Some(format!("Failed to get file: {}", e))
+                }
             },
 
             _ => {
