@@ -1,8 +1,8 @@
+use std::path::Path;
 use std::process::exit;
-use std::path::{Path, PathBuf};
 
-use mona_storage::file_storage::FileStorage;
 use colored::Colorize;
+use mona_storage::file_storage::FileStorage;
 
 struct CommandInfo {
     name: &'static str,
@@ -18,7 +18,6 @@ const COMMANDS: &[CommandInfo] = &[
         name: "get <id>",
         description: " Get a file from storage by ID Image/File",
     },
-
 ];
 
 fn display_help(show_error: bool) {
@@ -60,39 +59,32 @@ pub fn handle_public_command() -> Option<String> {
         // Use string comparison in the match statement
         match command.as_str() {
             "upload" => {
-                if args.len() != 4 {  // Changed from 3 to 4 since command is at index 2
+                if args.len() != 4 {
+                    // Changed from 3 to 4 since command is at index 2
                     return Some("Usage: kari public upload <file_path>".to_string());
                 }
-            
+
                 // Initialize storage first
                 if let Err(e) = FileStorage::init_storage() {
                     return Some(format!("Failed to initialize storage: {}", e));
                 }
-            
+
                 // Get file path from correct argument index (3 instead of 2)
                 let file_path = Path::new(&args[3]);
-                
-                // Debug print
-                println!("Attempting to upload file: {}", file_path.display());
-                println!("Storage path: {}", get_storage_path().display());
-                println!("File exists: {}", file_path.exists());
-                
+
                 if !file_path.exists() {
                     return Some(format!("Error: File '{}' not found", file_path.display()));
                 }
-            
+
                 let filename = file_path
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("unnamed")
                     .to_string();
-            
+
                 match FileStorage::upload(file_path, filename) {
                     Ok(storage) => {
-                        // Debug print
-                        println!("Debug: Storage ID = {}", storage.id);
-                        
-                        Some(format!(
+                        println!(
                             "\n{}\n\nFile ID: {}\nLocation: {}\nSize: {} bytes\nType: {}\n\n{}\n    kari public get {}\n",
                             "✓ File uploaded successfully!".green().bold(),
                             storage.id.to_string().yellow().bold(),
@@ -101,34 +93,34 @@ pub fn handle_public_command() -> Option<String> {
                             storage.metadata.content_type,
                             "To download this file, use:".bright_blue(),
                             storage.id
-                        ))
-                    },
+                        );
+                        None
+                    }
                     Err(e) => {
-                        // Debug print
                         println!("Debug: Upload error = {:?}", e);
                         Some(format!("{}: {}", "Upload failed".red().bold(), e))
                     }
                 }
-            },
-            
+            }
+
             "get" => {
                 if args.len() != 4 {
                     return Some("Usage: kari public get <file_id>".to_string());
                 }
-            
+
                 let file_id = &args[3];
-            
+
                 if let Err(e) = FileStorage::init_storage() {
                     return Some(format!("Failed to initialize storage: {}", e));
                 }
-            
+
                 match FileStorage::get_by_id(file_id) {
                     Ok(storage) => {
                         // Get current directory for saving the file
-                        let current_dir = std::env::current_dir()
-                            .expect("Failed to get current directory");
+                        let current_dir =
+                            std::env::current_dir().expect("Failed to get current directory");
                         let target_path = current_dir.join(&storage.metadata.filename);
-            
+
                         // Copy file to current directory
                         match std::fs::copy(&storage.path, &target_path) {
                             Ok(_) => Some(format!(
@@ -140,10 +132,10 @@ pub fn handle_public_command() -> Option<String> {
                             )),
                             Err(e) => Some(format!("Failed to save file: {}", e))
                         }
-                    },
-                    Err(e) => Some(format!("Failed to get file: {}", e))
+                    }
+                    Err(e) => Some(format!("Failed to get file: {}", e)),
                 }
-            },
+            }
 
             _ => {
                 display_help(true);
@@ -154,9 +146,4 @@ pub fn handle_public_command() -> Option<String> {
         display_help(false);
         return None;
     }
-}
-
-fn get_storage_path() -> PathBuf {
-    let home_dir = dirs::home_dir().expect("Could not find home directory");
-    home_dir.join(".kari").join("storage")
 }
