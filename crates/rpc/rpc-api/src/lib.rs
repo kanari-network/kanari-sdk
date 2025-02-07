@@ -30,36 +30,48 @@ fn upload_file(params: Params) -> JsonRpcResult<JsonValue> {
     let upload_params: UploadParams = params.parse()
         .map_err(|e| RpcError::invalid_params(format!("Invalid parameters: {}", e)))?;
 
-    // Decode base64 data
-    let file_data = BASE64.decode(upload_params.data)
-        .map_err(|e| RpcError::invalid_params(format!("Invalid base64 data: {}", e)))?;
-
     // Initialize storage
     FileStorage::init_storage()
-        .map_err(|e| RpcError::internal_error())?;
+        .map_err(|_| RpcError::internal_error())?;
 
-    // Create new storage instance
-    let storage = FileStorage::new()
-        .map_err(|e| RpcError::internal_error())?;
+    // Create temporary file from base64 data
+    let file_data = BASE64.decode(upload_params.data)
+        .map_err(|e| RpcError::invalid_params(format!("Invalid base64 data: {}", e)))?;
+    
+    let temp_dir = std::env::temp_dir();
+    let temp_path = temp_dir.join(&upload_params.filename);
+    std::fs::write(&temp_path, &file_data)
+        .map_err(|_| RpcError::internal_error())?;
 
-    // Store the file
-    match storage.store(&upload_params.filename, &file_data) {
-        Ok(stored) => {
-            let file_info = FileInfo {
-                id: stored.id.to_string(),
-                filename: stored.metadata.filename,
-                size: stored.metadata.size,
-                content_type: stored.metadata.content_type,
-            };
-            Ok(serde_json::to_value(file_info).unwrap())
+    // Use FileStorage::upload like CLI
+    match FileStorage::upload(&temp_path, upload_params.filename) {
+        Ok(storage) => {
+            // Clean up temp file
+            let _ = std::fs::remove_file(temp_path);
+            
+            let response = json!({
+                "id": storage.id.to_string(),
+                "filename": storage.metadata.filename,
+                "location": storage.path.to_string_lossy(),
+                "size": storage.metadata.size,
+                "content_type": storage.metadata.content_type
+            });
+            Ok(response)
         },
-        Err(e) => Err(RpcError::internal_error())
+        Err(e) => {
+            let _ = std::fs::remove_file(temp_path);
+            Err(RpcError::internal_error())
+        }
     }
 }
 
 fn get_file(params: Params) -> JsonRpcResult<JsonValue> {
     let file_id: String = params.parse()
         .map_err(|e| RpcError::invalid_params(format!("Invalid file ID: {}", e)))?;
+
+    // Initialize storage
+    FileStorage::init_storage()
+        .map_err(|_| RpcError::internal_error())?;
 
     match FileStorage::get_by_id(&file_id) {
         Ok(storage) => {
@@ -71,7 +83,8 @@ fn get_file(params: Params) -> JsonRpcResult<JsonValue> {
                 "filename": storage.metadata.filename,
                 "size": storage.metadata.size,
                 "content_type": storage.metadata.content_type,
-                "data": BASE64.encode(file_data)
+                "data": BASE64.encode(file_data),
+                "location": storage.path.to_string_lossy()
             });
             
             Ok(response)
