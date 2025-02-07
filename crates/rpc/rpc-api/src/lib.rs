@@ -7,17 +7,8 @@ use network::NetworkConfig;
 use serde_json::{json, Value as JsonValue};
 use mona_storage::file_storage::{FileStorage, StorageError2};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-
-
-#[derive(Serialize)]
-struct FileInfo {
-    id: String,
-    filename: String,
-    size: u64,
-    content_type: String,
-}
 
 #[derive(Deserialize)]
 struct UploadParams {
@@ -58,7 +49,7 @@ fn upload_file(params: Params) -> JsonRpcResult<JsonValue> {
             });
             Ok(response)
         },
-        Err(e) => {
+        Err(_e) => {
             let _ = std::fs::remove_file(temp_path);
             Err(RpcError::internal_error())
         }
