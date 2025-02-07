@@ -9,7 +9,7 @@ module kanari_framework::metadata {
         const EINVALID_OWNER: u64 = 2;
     
         /// Represents file metadata stored on chain
-        struct Metad ata has key, store {
+        struct Metadata has key, store {
             owner: address,
             content_hash: vector<u8>,
             created_at: u64,
