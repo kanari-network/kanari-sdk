@@ -1,123 +1,135 @@
 [workspace]
-# name = "kanari-sdk"
-resolver = "2"
+# Workspace configuration for the "kanari-sdk" project.
+# Defines the overall structure and settings for the workspace.
+name = "kanari-sdk"
+resolver = "2" # Use the version 2 feature resolver for more consistent feature resolution.
 
-# Exclude List
-exclude = ["third_party/move"]
+# Exclude List: Directories to be excluded from the workspace build.
+# This can be useful for excluding third-party code or components 
+# that are not directly part of the workspace's build process.
+exclude = ["third_party/move"] # Exclude the 'third_party/move' directory from workspace builds.
 
-# Members List
+# Members List: Crates that are part of this workspace.
+# These are the core components of the "kanari-sdk" project.
 members = [
-  "crates/kari",
-  "crates/kari-node",
-  "crates/kari-move",
-  "consensus/pos",
-  "crates/core/network",
-  "crates/core/p2p",
-  "crates/core/wallet/key",
-  "crates/rpc/rpc-api",
-  "crates/core/k2",
-  "crates/command",
-  "consensus/pow",
-  "framework",
+    "crates/kari",            # Core crate for the Kanari SDK.
+    "crates/kari-node",       # Crate for running a Kanari node.
+    "crates/kari-move",       # Crate related to MoveVM integration within Kanari.
+    "consensus/pos",          # Crate implementing Proof-of-Stake consensus.
+    "crates/core/network",    # Crate for network functionalities.
+    "crates/core/p2p",        # Crate for peer-to-peer networking.
+    "crates/core/wallet/key", # Crate for key management and wallet functionalities.
+    "crates/rpc/rpc-api",     # Crate defining the RPC API for Kanari.
+    "crates/core/k2",         # Core crate likely related to Kanari's architecture (K2 could be a codename).
+    "crates/command",         # Crate for command-line interface utilities.
+    "consensus/pow",          # Crate implementing Proof-of-Work consensus.
+    "framework",              # High-level framework crate for the SDK.
 
-  # Move Crates
-  "monaos/*",
+    # Move Crates: Crates specifically related to MoveVM integration.
+    "monaos/*",               # Include all crates under the 'monaos' directory, likely storage or Move related.
 ]
 
-[profile.bench]
-debug = true
-opt-level = 3
-lto = "thin"
-codegen-units = 1
 
-[profile.dev]
-debug = true
-opt-level = 0
-split-debuginfo = "unpacked"
+# Profile Configurations: Define different build profiles for various scenarios.
+[profile.bench]       # Profile for benchmarking.
+debug = true          # Include debug information for profiling.
+opt-level = 3         # Maximum optimization level for performance.
+lto = "thin"          # Enable Link-Time Optimization (thin LTO for faster linking).
+codegen-units = 1     # Reduce codegen units to improve LTO effectiveness (may increase compile time).
 
-[profile.ci]
-inherits = "test"
-debug = 0
-incremental = false
-codegen-units = 16
-opt-level = 1
+[profile.dev]                 # Profile for development builds.
+debug = true                  # Enable debug information for easier debugging.
+opt-level = 0                 # No optimization for faster compile times.
+split-debuginfo = "unpacked"  # Configure debug info splitting for better debugger experience.
 
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-strip = true
-debug = false
+[profile.ci]            # Profile for Continuous Integration builds.
+inherits = "test"       # Inherit settings from the 'test' profile (if defined, otherwise defaults).
+debug = 0               # Disable debug information for potentially faster and smaller builds.
+incremental = false     # Disable incremental compilation for cleaner and more reliable CI builds.
+codegen-units = 16      # Increase codegen units for potentially faster parallel compilation in CI.
+opt-level = 1           # Moderate optimization level for a balance of speed and performance.
 
+[profile.release]       # Profile for release builds.
+opt-level = 3           # Maximum optimization level for performance.
+lto = true              # Enable full Link-Time Optimization for maximum performance and smaller binaries.
+codegen-units = 1       # Reduce codegen units to improve LTO effectiveness.
+strip = true            # Strip debug symbols from the final binary to reduce size.
+debug = false           # Disable debug information for release binaries.
+
+
+# Workspace Package Configuration: Metadata for the entire workspace as a package.
+# This information is used when publishing the SDK as a crate.
 [workspace.package]
-edition = "2021"
-categories = ["development-tools"]
-keywords = ["blockchain", "sdk"]
-homepage = "https://kanari.network"
-documentation = "https://docs.kanari.network"
-version = "0.0.4"
-authors = ["Kanari Network"]
-license = "Apache-2.0"
-repository = "https://github.com/kanari-network/kanari-sdk"
-description = "Kanari Network SDK"
+edition = "2021"        # Use Rust 2021 edition.
+categories = ["development-tools"] # Categorize as development tools on crates.io.
+keywords = ["blockchain", "sdk"]     # Keywords for crates.io search.
+homepage = "https://kanari.network"   # Project homepage.
+documentation = "https://docs.kanari.network" # Link to project documentation.
+version = "0.0.4"       # Current version of the SDK.
+authors = ["Kanari Network"] # Authors of the SDK.
+license = "Apache-2.0"    # License information.
+repository = "https://github.com/kanari-network/kanari-sdk" # Link to the code repository.
+description = "Kanari Network SDK" # Short description of the SDK.
 
 
-# Dependencies Workspace
+# Workspace Dependencies: Dependencies that are shared across multiple crates in the workspace.
+# Centralized dependency management for consistent versions.
 [workspace.dependencies]
-# Cryptography
+# Cryptography & Security
+argon2 = "0.5.3"
+blake3 = "1.5.3"
+chacha20poly1305 = "0.10.1"
 crypto = "0.5.1"
 digest = "0.10.7"
-sha2 = "0.10.8"
-blake3 = "1.5.3"
 hex = "0.4.3"
 secp256k1 = { version = "0.30.0", features = ["rand"] }
-chacha20poly1305 = "0.10.1"
-argon2 = "0.5.3"
+sha2 = "0.10.8"
 
-once_cell = "1.20.2"
-tracing = "0.1.41"
-
-# Serialization
-bincode = "1.3"
-serde = { version = "1.0.217", features = ["derive", "rc"] }
-serde_json = { version = "1.0.134", features = [
-  "preserve_order",
-  "arbitrary_precision",
-] }
-serde_yaml = "0.9.33"
-toml = "0.8.19"
-toml_edit = "0.22.22"
+# Serialization & Data Formats
 bcs = "0.1.4"
+bincode = "1.3"
+mime_guess = "2.0.5"
+serde = { version = "1.0.217", features = ["derive", "rc"] }
+serde_json = { version = "1.0.134", features = ["preserve_order", "arbitrary_precision"] }
+serde_yaml = "0.9.33"
+toml = "0.8.20"
+toml_edit = "0.22.23"
 
-# RPC and Networking
+# Async & Network Programming
+async-trait = "0.1"
+futures = "0.3.30"
 jsonrpc-core = "18.0"
 jsonrpc-http-server = "18.0"
-futures = "0.3.30"
 tokio = { version = "1", features = ["full"] }
 
-# Utilities
-rand = "0.8.5"
+# Core Utilities
 bip39 = { version = "2.0.0", features = ["rand"] }
 chrono = "0.4.38"
-dirs = "6.0.0"
-walkdir = "2.3.2"
-difference = "2.0.0"
-tempfile = "3.3.0"
 crossbeam = "0.8.4"
+difference = "2.0.0"
+dirs = "6.0.0"
+once_cell = "1.20.2"
+rand = "0.8.5"
+tempfile = "3.3.0"
+uuid = { version = "1.12", features = ["v4", "serde"] }
+walkdir = "2.3.2"
 
-# Logging and Error Handling
-log = "0.4.25"
+# Logging & Diagnostics
 env_logger = "0.11.6"
-lazy_static = "1.5.0"
+log = "0.4.25"
+tracing = "0.1.41"
+
+# Error Handling
 anyhow = "1.0.95"
+lazy_static = "1.5.0"
 thiserror = "2.0.11"
 
-# CLI and Output
+# CLI & User Interface
 clap = "4.5.26"
 codespan-reporting = "0.11.0"
 colored = "3.0.0"
 
-# Database
+# Storage & Database
 rocksdb = "0.23.0"
 
 # Testing
@@ -125,40 +137,44 @@ datatest-stable = "0.3.2"
 
 
 
-#Path List
-kari                                = { path = "crates/kari" }
-kari-node                           = { path = "crates/kari-node" }
-kari-move                           = { path = "crates/kari-move" }
+# Path Definitions for Workspace Members: Define paths for each crate in the workspace.
+# Allows referencing these crates as dependencies within other workspace crates using their names.
+# Path List
+kari                      = { path = "crates/kari" }
+kari-node                 = { path = "crates/kari-node" }
+kari-move                 = { path = "crates/kari-move" }
 
 
-#Consensus Path List
-consensus-pos                       = { path = "consensus/pos" }
-consensus-pow                       = { path = "consensus/pow" }
+# Consensus Path List
+consensus-pos             = { path = "consensus/pos" }
+consensus-pow             = { path = "consensus/pow" }
 
 
-#Core Path List
-network                             = { path = "crates/core/network" }
-p2p-protocol                        = { path = "crates/core/p2p" }
-key                                 = { path = "crates/core/wallet/key" }
-k2                                  = { path = "crates/core/k2" }
-command                             = { path = "crates/command" }
+# Core Path List
+network                   = { path = "crates/core/network" }
+p2p-protocol              = { path = "crates/core/p2p" }
+key                       = { path = "crates/core/wallet/key" }
+k2                        = { path = "crates/core/k2" }
+command                   = { path = "crates/command" }
 
 
-#RPC Path List
-rpc-api                             = { path = "crates/rpc/rpc-api" }
+# RPC Path List
+rpc-api                   = { path = "crates/rpc/rpc-api" }
 
 
-#Storage Path List
-mona-storage                        = { path = "monaos/mona-storage" }
-mona-types                          = { path = "monaos/mona-types" }
-mona-enum-compat-util               = { path = "monaos/mona-enum-compat-util" }
+# Storage Path List
+mona-storage              = { path = "monaos/mona-storage" }
+mona-types                = { path = "monaos/mona-types" }
+mona-enum-compat-util     = { path = "monaos/mona-enum-compat-util" }
 
 
-#Framework Move Path List 
-framework                           = { path = "framework" }
+# Framework Move Path List
+framework                 = { path = "framework" }
 
 
-#Move SUI Path List
+# Move SUI Path List: Paths defined for Move related crates, even though 'third_party/move' is excluded.
+# These paths are likely used for dependency resolution or reference within the workspace, 
+# even if they are not directly built as part of the workspace in the default configuration.
 bytecode-interpreter-crypto         = { path = "third_party/move/crates/bytecode-interpreter-crypto" }
 enum-compat-util                    = { path = "third_party/move/crates/enum-compat-util" }
 invalid-mutations                   = { path = "third_party/move/crates/invalid-mutations" }

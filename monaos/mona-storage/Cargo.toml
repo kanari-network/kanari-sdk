@@ -13,15 +13,15 @@ description.workspace = true
 
 [dependencies]
 move-core-types.workspace =true 
-async-trait = "0.1"
+async-trait.workspace = true
 dirs.workspace = true
-mime_guess = "2.0"
-serde = { version = "1.0.217", features = ["derive"] }
-serde_json = "1.0.134"
-tokio = { version = "1.0", features = ["full"] }
-uuid = { version = "1.12", features = ["v4", "serde"] }
+mime_guess.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+uuid.workspace = true
 rocksdb.workspace = true
 bincode.workspace = true
 thiserror.workspace = true
-chrono = { version = "0.4", features = ["serde"] }
-tempfile = "3.2.0"
+chrono.workspace = true
+tempfile.workspace = true
