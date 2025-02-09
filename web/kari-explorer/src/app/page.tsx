@@ -3,9 +3,22 @@
 import axios from 'axios';
 import React, { useState, useEffect } from 'react';
 
+interface Transaction {
+  sender: string;
+  receiver: string;
+  amount: number;
+}
+
+interface Block {
+  hash: string;
+  index: number;
+  timestamp: number;
+  transactions: Transaction[];
+}
+
 const KanariBlockchainExplorer = () => {
   const [error, setError] = useState('');
-  const [blocks, setBlocks] = useState([]);
+  const [blocks, setBlocks] = useState<Block[]>([]);
   const [totalBlocks, setTotalBlocks] = useState(0);
   const [totalTokens, setTotalTokens] = useState(0);
   const [searchTx, setSearchTx] = useState('');
@@ -42,15 +55,17 @@ const KanariBlockchainExplorer = () => {
     return () => clearInterval(intervalId);
   }, []);
 
-  const handleSearchTxChange = (event) => {
+
+  const handleSearchTxChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTx(event.target.value);
   };
+
 
   const toggleTheme = () => {
     setIsDarkMode(!isDarkMode);
   };
 
-  const filteredBlocks = blocks?.filter((block) => 
+  const filteredBlocks = blocks?.filter((block) =>
     block.transactions.some((tx) =>
       tx.sender.includes(searchTx) ||
       tx.receiver.includes(searchTx)
@@ -65,18 +80,17 @@ const KanariBlockchainExplorer = () => {
           <h1 className={`text-4xl md:text-5xl font-bold ${isDarkMode ? 'text-white' : 'text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-yellow-600'}`}>
             Kanari Blockchain Explorer
           </h1>
-          <button 
-            onClick={toggleTheme} 
-            className={`px-4 py-2 rounded-lg transition-colors ${
-              isDarkMode 
-                ? 'bg-gray-800 hover:bg-gray-700 border-gray-700' 
+          <button
+            onClick={toggleTheme}
+            className={`px-4 py-2 rounded-lg transition-colors ${isDarkMode
+                ? 'bg-gray-800 hover:bg-gray-700 border-gray-700'
                 : 'bg-white hover:bg-orange-50 border-orange-200'
-            } border shadow-sm`}
+              } border shadow-sm`}
           >
             {isDarkMode ? '🌞' : '🌙'}
           </button>
         </div>
-  
+
         {/* Search */}
         <div className="max-w-3xl mx-auto mb-12">
           <div className="relative">
@@ -85,16 +99,15 @@ const KanariBlockchainExplorer = () => {
               placeholder="Search transactions by sender or receiver address..."
               value={searchTx}
               onChange={handleSearchTxChange}
-              className={`w-full px-6 py-4 rounded-xl text-lg shadow-sm border ${
-                isDarkMode 
-                  ? 'bg-gray-800 border-gray-700 focus:border-orange-500' 
+              className={`w-full px-6 py-4 rounded-xl text-lg shadow-sm border ${isDarkMode
+                  ? 'bg-gray-800 border-gray-700 focus:border-orange-500'
                   : 'bg-white border-orange-200 focus:border-orange-500'
-              } focus:outline-none focus:ring-2 focus:ring-orange-300`}
+                } focus:outline-none focus:ring-2 focus:ring-orange-300`}
             />
             <span className="absolute right-6 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
           </div>
         </div>
-  
+
         {/* Error Message */}
         {error && (
           <div className="max-w-3xl mx-auto mb-8">
@@ -103,7 +116,7 @@ const KanariBlockchainExplorer = () => {
             </p>
           </div>
         )}
-  
+
         {/* Statistics */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
           <div className={`p-6 rounded-xl shadow-sm ${isDarkMode ? 'bg-gray-800' : 'bg-white border border-orange-100'}`}>
@@ -119,7 +132,7 @@ const KanariBlockchainExplorer = () => {
             <p className="text-3xl font-bold">{totalTokens}</p>
           </div>
         </div>
-  
+
         {/* Blocks List */}
         <div className={`rounded-xl shadow-sm ${isDarkMode ? 'bg-gray-800' : 'bg-white border border-orange-100'}`}>
           {filteredBlocks.length > 0 ? (
