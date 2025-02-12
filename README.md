@@ -3,62 +3,61 @@ Kanari SDK
 # Kanari SDK Architecture
 
 ```mermaid
-graph LR
-    subgraph Application Layer
+flowchart LR
+    subgraph "Application Layer"
         direction LR
-        A[Web Explorer]
-        B[CLI Tools]
-        C[RPC API]
+        CLI["CLI Tools"]
+        Web["Web Explorer"]
+        RPC["RPC API"]
     end
 
-    subgraph Core Layer
+    subgraph "Framework Layer"
+        direction LR
+        Kanari["Kanari Framework"]
+        Std["Move Standard Library"]
+        Sys["System Framework"]
+    end
+
+    subgraph "Core Layer"
         direction LR
         subgraph Blockchain
-            D[K2 Core]
-            E[Transaction Management]
-            F[State Management]
+            K2["K2 Core"]
+            TX["Transaction Management"]
+            State["State Management"]
         end
         subgraph Runtime
-            G[Move VM Runtime]
-            H[Move Compiler]
+            VM["Move VM Runtime"]
+            Compiler["Move Compiler"]
         end
         subgraph Consensus
-            I[Proof of Stake]
-            J[Proof of Work]
+            PoW["Proof of Work"]
+            PoS["Proof of Stake"]
         end
     end
 
-    subgraph Framework Layer
+    subgraph "Network Layer"
         direction LR
-        K[Kanari Framework]
-        L[Move Standard Library]
-        M[System Framework]
+        P2P["P2P Network"]
+        RPCNet["RPC Network"]
     end
 
-    subgraph Network Layer
+    subgraph "Storage Layer"
         direction LR
-        N[P2P Network]
-        O[RPC Network]
+        Wallet["Wallet Management"]
+        File["File Storage"]
+        DB["State Database"]
     end
 
-    subgraph Storage Layer
-        direction LR
-        P[Wallet Management]
-        Q[File Storage]
-        R[State Database]
-    end
+    Application --> Framework
+    Framework --> Core
+    Core --> Network
+    Core --> Storage
 
-    Application Layer --> Framework Layer
-    Framework Layer --> Core Layer
-    Core Layer --> Network Layer
-    Core Layer --> Storage Layer
-
-    style Application Layer fill:#e3f2fd,stroke:#1976d2,stroke-width:3px,color:#0d47a1
-    style Core Layer fill:#ffffff,stroke:#333,stroke-width:2px,color:#333
-    style Framework Layer fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#1b5e20
-    style Network Layer fill:#fce4ec,stroke:#c2185b,stroke-width:2px,color:#880e4f
-    style Storage Layer fill:#fff8e1,stroke:#ffa000,stroke-width:3px,color:#ff6f00
-   
+    style Application fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
+    style Framework fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
+    style Core fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
+    style Network fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    style Storage fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
 ```
 
 ### 1. Setup Environment
