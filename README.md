@@ -77,12 +77,6 @@ flowchart TB
     TX --> Wallet
     VM --> File
 
-    %% Styling with improved colors and consistency
-    classDef app fill:#f0f7ff,stroke:#0366d6,stroke-width:2px,rx:5px
-    classDef framework fill:#e6f6ff,stroke:#2188ff,stroke-width:2px,rx:5px
-    classDef core fill:#f6f8fa,stroke:#24292e,stroke-width:2px,rx:5px
-    classDef network fill:#ffeef0,stroke:#d73a49,stroke-width:2px,rx:5px
-    classDef storage fill:#f0fff4,stroke:#28a745,stroke-width:2px,rx:5px
 
     class APP,CLI,Web,RPC app
     class FW,Kanari,Std,Sys framework
