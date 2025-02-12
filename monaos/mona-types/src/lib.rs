@@ -12,3 +12,5 @@ pub mod signer;
 pub mod string;
 pub mod vector;
 pub mod type_name;
+
+pub mod kanari_framework;
