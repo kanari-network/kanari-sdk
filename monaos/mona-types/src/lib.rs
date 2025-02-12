@@ -8,3 +8,4 @@ pub mod error;
 pub mod fixed_point32;
 pub mod hash;
 pub mod option;
+pub mod signer;
