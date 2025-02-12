@@ -3,67 +3,61 @@ Kanari SDK
 # Kanari SDK Architecture
 
 ```mermaid
-flowchart LR
-    %% Main Layers
-    subgraph Application["Application Layer"]
+graph LR
+    subgraph Application Layer
         direction LR
-        WebExplorer["Web Explorer"]
-        CLI["CLI Tools"]
-        RPC["RPC API"]
+        A[Web Explorer]
+        B[CLI Tools]
+        C[RPC API]
     end
 
-    subgraph Framework["Framework Layer"]
-        direction LR
-        KanariFramework["Kanari Framework"]
-        StandardLib["Standard Library"]
-        SystemFramework["System Framework"]
-    end
-
-    subgraph Core["Core Layer"]
+    subgraph Core Layer
         direction LR
         subgraph Blockchain
-            K2Core["K2 Core"]
-            Transaction
-            State
+            D[K2 Core]
+            E[Transaction Management]
+            F[State Management]
         end
-        
         subgraph Runtime
-            MoveVM["Move VM"]
-            MoveCompiler["Move Compiler"]
+            G[Move VM Runtime]
+            H[Move Compiler]
         end
-
         subgraph Consensus
-            PoW["Proof of Work"]
-            PoS["Proof of Stake"]
+            I[Proof of Stake]
+            J[Proof of Work]
         end
     end
 
-    subgraph Network["Network Layer"]
+    subgraph Framework Layer
         direction LR
-        P2P["P2P Network"]
-        RPCNetwork["RPC Network"]
+        K[Kanari Framework]
+        L[Move Standard Library]
+        M[System Framework]
     end
 
-    subgraph Storage["Storage Layer"]
+    subgraph Network Layer
         direction LR
-        WalletMgmt["Wallet Management"]
-        FileStorage["File Storage"]
-        StateDB["State Database"]
+        N[P2P Network]
+        O[RPC Network]
     end
 
-    %% Relationships
-    Application --> Framework
-    Framework --> Core
-    Core --> Network
-    Core --> Storage
+    subgraph Storage Layer
+        direction LR
+        P[Wallet Management]
+        Q[File Storage]
+        R[State Database]
+    end
 
-    %% Styling
-    classDef default fill:#ffffff,stroke:#333,stroke-width:2px,color:#333
-    classDef layer fill:#e3f2fd,stroke:#1976d2,stroke-width:3px,color:#0d47a1
-    classDef critical fill:#fff8e1,stroke:#ffa000,stroke-width:3px,color:#ff6f00
-    classDef storage fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#1b5e20
-    classDef network fill:#fce4ec,stroke:#c2185b,stroke-width:2px,color:#880e4f
-    class Application,Framework,Core,Network,Storage layer
+    Application Layer --> Framework Layer
+    Framework Layer --> Core Layer
+    Core Layer --> Network Layer
+    Core Layer --> Storage Layer
+
+    style Application Layer fill:#e3f2fd,stroke:#1976d2,stroke-width:3px,color:#0d47a1
+    style Core Layer fill:#ffffff,stroke:#333,stroke-width:2px,color:#333
+    style Framework Layer fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#1b5e20
+    style Network Layer fill:#fce4ec,stroke:#c2185b,stroke-width:2px,color:#880e4f
+    style Storage Layer fill:#fff8e1,stroke:#ffa000,stroke-width:3px,color:#ff6f00
    
 ```
 
