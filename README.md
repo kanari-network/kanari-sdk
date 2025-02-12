@@ -3,61 +3,92 @@ Kanari SDK
 # Kanari SDK Architecture
 
 ```mermaid
-flowchart LR
-    subgraph "Application Layer"
+flowchart TB
+    %% Application Layer
+    subgraph APP ["Application Layer"]
         direction LR
         CLI["CLI Tools"]
         Web["Web Explorer"]
         RPC["RPC API"]
     end
 
-    subgraph "Framework Layer"
+    %% Framework Layer
+    subgraph FW ["Framework Layer"]
         direction LR
-        Kanari["Kanari Framework"]
-        Std["Move Standard Library"]
-        Sys["System Framework"]
+        Kanari["Kanari SDK"]
+        Std["Move Std Lib"]
+        Sys["System SDK"]
     end
 
-    subgraph "Core Layer"
-        direction LR
-        subgraph Blockchain
+    %% Core Layer with detailed connections
+    subgraph CORE ["Core Layer"]
+        direction TB
+        subgraph BC ["Blockchain"]
             K2["K2 Core"]
-            TX["Transaction Management"]
-            State["State Management"]
+            TX["Transaction Mgmt"]
+            State["State Mgmt"]
+            K2 --> TX
+            K2 --> State
         end
-        subgraph Runtime
-            VM["Move VM Runtime"]
+        subgraph RT ["Runtime"]
+            VM["Move VM"]
             Compiler["Move Compiler"]
+            VM --> Compiler
         end
-        subgraph Consensus
-            PoW["Proof of Work"]
-            PoS["Proof of Stake"]
+        subgraph CON ["Consensus"]
+            PoW["PoW Engine"]
+            PoS["PoS Engine"]
         end
+        BC <--> RT
+        BC <--> CON
     end
 
-    subgraph "Network Layer"
+    %% Network Layer with P2P details
+    subgraph NET ["Network Layer"]
         direction LR
         P2P["P2P Network"]
         RPCNet["RPC Network"]
+        P2P <--> RPCNet
     end
 
-    subgraph "Storage Layer"
+    %% Storage Layer with connections
+    subgraph STORE ["Storage Layer"]
         direction LR
-        Wallet["Wallet Management"]
-        File["File Storage"]
-        DB["State Database"]
+        Wallet["Wallet Store"]
+        File["File Store"]
+        DB["State DB"]
+        Wallet --> DB
+        File --> DB
     end
 
-    Application --> Framework
-    Framework --> Core
-    Core --> Network
-    Core --> Storage
+    %% Inter-layer connections
+    CLI --> Kanari
+    Web --> RPC
+    RPC --> Kanari
+    
+    Kanari --> K2
+    Std --> VM
+    Sys --> State
 
-    style Application fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
-    style Framework fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
-    style Core fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
-    style Network fill:#fce4ec,stroke:#c2185b,stroke-width:2px
-    style Storage fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+    K2 --> P2P
+    K2 --> RPCNet
+    
+    State --> DB
+    TX --> Wallet
+    VM --> File
+
+    %% Styling
+    classDef app fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
+    classDef framework fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
+    classDef core fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
+    classDef network fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef storage fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+
+    class APP,CLI,Web,RPC app
+    class FW,Kanari,Std,Sys framework
+    class CORE,BC,RT,CON core
+    class NET,P2P,RPCNet network
+    class STORE,Wallet,File,DB storage
 ```
 
 ### 1. Setup Environment
