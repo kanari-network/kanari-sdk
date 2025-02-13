@@ -19,7 +19,7 @@ tracing.workspace = true
 
 move-binary-format.workspace = true
 move-core-types.workspace = true
-
+mona-types.workspace = true
 
 
 [build-dependencies]
