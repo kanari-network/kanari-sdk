@@ -30,7 +30,8 @@ dirs.workspace = true
 tokio.workspace = true
 log.workspace = true    
 env_logger.workspace = true
-
+semver = "1.0"
+reqwest = { version = "0.12.12", features = ["json"] }
 
 # This is a workspace crate, so we need to include the following dependencies
 key.workspace = true

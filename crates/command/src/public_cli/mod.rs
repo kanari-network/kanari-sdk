@@ -16,7 +16,7 @@ const COMMANDS: &[CommandInfo] = &[
     },
     CommandInfo {
         name: "get <id>",
-        description: " Get a file from storage by ID Image/File",
+        description: "Get a file from storage by ID Image/File",
     },
 ];
 

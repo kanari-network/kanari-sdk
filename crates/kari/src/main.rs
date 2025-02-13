@@ -19,7 +19,8 @@ use serde_json::json;
 use k2::blockchain::{get_kari_dir, load_blockchain, save_blockchain, BALANCES};
 use k2::chain_id::CHAIN_ID;
 use k2::config::{configure_network, load_config, save_config};
-
+use std::process::Command;
+use semver::Version;
 
 static VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -32,11 +33,36 @@ struct CommandInfo {
 
 
 const COMMANDS: &[CommandInfo] = &[
-    CommandInfo { name: "start", alias: None, description: "Start a local network" },
-    CommandInfo { name: "public", alias: None, description: "Public file Web3" },
-    CommandInfo { name: "move", alias: None, description: "MoveVM " },
-    CommandInfo { name: "keytool", alias: None, description: "Kari keystore tool" },
-    CommandInfo { name: "version", alias: Some("--V"), description: "Show version" },
+    CommandInfo { 
+        name: "start", 
+        alias: None, 
+        description: "Start a local Kari blockchain node" 
+    },
+    CommandInfo { 
+        name: "public", 
+        alias: None, 
+        description: "Manage Web3 public files and IPFS storage" 
+    },
+    CommandInfo { 
+        name: "move", 
+        alias: None, 
+        description: "Execute and manage Move VM smart contracts" 
+    },
+    CommandInfo { 
+        name: "keytool", 
+        alias: None, 
+        description: "Manage Kari accounts and cryptographic keys" 
+    },
+    CommandInfo { 
+        name: "update", 
+        alias: Some("--update"), 
+        description: "Update Kari tools to latest version from GitHub" 
+    },
+    CommandInfo { 
+        name: "version", 
+        alias: Some("--V"), 
+        description: "Display CLI version information" 
+    },
 ];
 
 fn display_help(show_error: bool) {
@@ -46,7 +72,7 @@ fn display_help(show_error: bool) {
 
     // Usage
     println!("{}", "USAGE:".bright_yellow().bold());
-    println!("  kari <command> [options]\n");
+    println!("kari <command> [options]\n");
 
     // Commands
     println!("{}", "COMMANDS:".bright_yellow().bold());
@@ -90,6 +116,12 @@ async fn main() {
         Some("move") => handle_move_command(),
         Some("keytool") => {
             let _ = handle_keytool_command(); // Ignore Option<String> return value
+        },
+        Some("update") | Some("--update") => {
+            if let Err(err) = handle_update().await {
+                eprintln!("Update failed: {}", err);
+                exit(1);
+            }
         },
         Some("version") | Some("--V") => println!("CLI Version: {}", VERSION),
         _ => display_help(true),
@@ -249,4 +281,69 @@ async fn start_node() {
         let _ = save_blockchain();
         break;
     }
+}
+
+// Add new function for update handling
+async fn handle_update() -> Result<(), Box<dyn std::error::Error>> {
+    println!("{}", "Checking for updates...".bright_yellow());
+    
+    // Check current version
+    let current_version = Version::parse(VERSION)?;
+    
+    // Fetch latest version from GitHub
+    let latest_version = fetch_latest_version().await?;
+    
+    if latest_version > current_version {
+        println!("New version available: {} -> {}", 
+            current_version.to_string().red(),
+            latest_version.to_string().green()
+        );
+        
+        println!("{}", "Updating Kari tools...".bright_yellow());
+        
+        // Run git pull to update
+        let status = Command::new("git")
+            .args(&["pull", "https://github.com/kanari-network/kanari-sdk.git", "main"])
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .status()?;
+
+        if status.success() {
+            // Rebuild after update
+            let build_status = Command::new("cargo")
+                .args(&["build", "--release"])
+                .current_dir(env!("CARGO_MANIFEST_DIR"))
+                .status()?;
+
+            if build_status.success() {
+                println!("{}", "Update completed successfully!".green());
+                println!("Please restart Kari to use the new version");
+            } else {
+                println!("{}", "Failed to rebuild after update".red());
+            }
+        } else {
+            println!("{}", "Update failed".red());
+        }
+    } else {
+        println!("{}", "Already at latest version".green());
+    }
+    
+    Ok(())
+}
+
+// Add helper function to fetch latest version
+async fn fetch_latest_version() -> Result<Version, Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+    let response = client
+        .get("https://api.github.com/repos/kanari-network/kanari-sdk/releases/latest")
+        .header("User-Agent", "Kari-CLI")
+        .send()
+        .await?;
+    
+    let release = response.json::<serde_json::Value>().await?;
+    let version = release["tag_name"]
+        .as_str()
+        .ok_or("No version tag found")?
+        .trim_start_matches('v');
+    
+    Ok(Version::parse(version)?)
 }
