@@ -55,7 +55,7 @@ const COMMANDS: &[CommandInfo] = &[
     },
     CommandInfo { 
         name: "update", 
-        alias: Some("--update"), 
+        alias: Some("--up"), 
         description: "Update Kari tools to latest version from GitHub" 
     },
     CommandInfo { 
@@ -117,7 +117,7 @@ async fn main() {
         Some("keytool") => {
             let _ = handle_keytool_command(); // Ignore Option<String> return value
         },
-        Some("update") | Some("--update") => {
+        Some("update") | Some("--up") => {
             if let Err(err) = handle_update().await {
                 eprintln!("Update failed: {}", err);
                 exit(1);
@@ -303,7 +303,7 @@ async fn handle_update() -> Result<(), Box<dyn std::error::Error>> {
         
         // Run git pull to update
         let status = Command::new("git")
-            .args(&["pull", "https://github.com/kanari-network/kanari-sdk.git", "main"])
+            .args(&["pull", "https://github.com/kanari-network/kanari-sdk.git", "kanari-sdk"])
             .current_dir(env!("CARGO_MANIFEST_DIR"))
             .status()?;
 
