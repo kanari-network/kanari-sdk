@@ -18,10 +18,10 @@ module kanari_framework::kari {
 
     #[allow(unused_const)]
     /// The total supply of Kari denominated in whole Kari tokens (200 Million)
-    const TOTAL_SUPPLY_KARI: u64 = 200_000_000;
+    const TOTAL_SUPPLY_KARI: u64 = 100_000_000;
 
     /// The total supply of Kari denominated in Mist (200 Million * 10^9)
-    const TOTAL_SUPPLY_MIST: u64 = 200_000_000_000_000_000;
+    const TOTAL_SUPPLY_MIST: u64 = 100_000_000_000_000_000;
 
     /// Name of the coin
     struct KARI has drop {}
@@ -37,7 +37,7 @@ module kanari_framework::kari {
             KARI {},
             9,
             b"KARI",
-            b"Karura Network Coin",
+            b"Kanara Network Coin",
             // TODO: add appropriate description and logo url
             b"",
             option::none(),

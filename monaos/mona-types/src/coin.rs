@@ -1,4 +1,24 @@
 use std::marker::PhantomData;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum CoinError {
+    #[error("Invalid decimals")]
+    InvalidDecimals,
+    #[error("Supply overflow")]
+    SupplyOverflow,
+    #[error("Insufficient balance")]
+    InsufficientBalance,
+}
+
+/// Metadata for a coin type
+pub struct CoinMetadata {
+    pub decimals: u8,
+    pub symbol: String,
+    pub name: String,
+    pub description: String,
+    pub logo_url: Option<String>,
+}
 
 /// A coin of type `T` worth `value`. Transferable and storable
 pub struct Coin<T> {
@@ -87,4 +107,63 @@ impl<T> TreasuryCap<T> {
         self.total_supply.value -= coin.value();
         coin.value()
     }
+
+        /// Create a new currency with given parameters
+        pub fn create_currency(
+            _witness: T,
+            decimals: u8,
+            symbol: &str,
+            name: &str,
+            description: &str,
+            logo_url: Option<&str>,
+            _ctx: &mut crate::tx_context::TxContext,
+        ) -> Result<(TreasuryCap<T>, CoinMetadata), CoinError> {
+            if decimals > 18 {
+                return Err(CoinError::InvalidDecimals);
+            }
+    
+            let metadata = CoinMetadata {
+                decimals,
+                symbol: symbol.to_string(),
+                name: name.to_string(),
+                description: description.to_string(),
+                logo_url: logo_url.map(String::from),
+            };
+    
+            let treasury_cap = TreasuryCap {
+                id: 0, // Simple ID for demo
+                total_supply: Supply {
+                    value: 0,
+                    _phantom: PhantomData,
+                },
+            };
+    
+            Ok((treasury_cap, metadata))
+        }
+    
+        /// Convert treasury cap into supply
+        pub fn treasury_into_supply(self) -> Supply<T> {
+            self.total_supply
+        }
 }
+
+
+impl<T> Supply<T> {
+    /// Increase supply by amount
+    pub fn increase_supply(&mut self, amount: u64) -> Result<Balance<T>, CoinError> {
+        let new_supply = self.value.checked_add(amount)
+            .ok_or(CoinError::SupplyOverflow)?;
+        
+        self.value = new_supply;
+        Ok(Balance {
+            value: amount,
+            _phantom: PhantomData,
+        })
+    }
+
+    /// Destroy the supply
+    pub fn destroy(self) {
+        // Supply is dropped here
+    }
+}
+

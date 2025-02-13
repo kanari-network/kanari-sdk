@@ -1,4 +1,3 @@
-
 use serde::{Deserialize, Serialize};
 
 use bcs::to_bytes;
@@ -10,16 +9,16 @@ pub const KARI_CLOCK_OBJECT_ID: [u8; 32] = [0x6; 32];
 pub const KARI_AUTHENTICATOR_STATE_ID: [u8; 32] = [0x7; 32];
 pub const KARI_RANDOM_ID: [u8; 32] = [0x8; 32];
 pub const KARI_DENY_LIST_OBJECT_ID: [u8; 32] = [
-    0x03, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // First 8 bytes
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // Next 8 bytes
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // Next 8 bytes
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00   // Final 8 bytes
+    0x03, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // First 8 bytes
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Next 8 bytes
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Next 8 bytes
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Final 8 bytes
 ];
 
 /// An object ID used to reference Kari Objects
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ID {
-    bytes: [u8; 32],  // Using 32 bytes for address
+    bytes: [u8; 32], // Using 32 bytes for address
 }
 
 /// Globally unique ID that must be the first field of any Kari Object
@@ -49,8 +48,7 @@ impl ID {
 
     /// Get the raw bytes of the ID
     pub fn to_bytes(&self) -> Result<Vec<u8>, ObjectError> {
-        bcs::to_bytes(&self.bytes)
-            .map_err(ObjectError::SerializationError)
+        bcs::to_bytes(&self.bytes).map_err(ObjectError::SerializationError)
     }
 
     /// Get the address bytes directly
@@ -63,16 +61,16 @@ impl UID {
     /// Create a new UID from a context
     pub fn new(ctx: &mut TxContext) -> Self {
         Self {
-            id: ID { bytes: ctx.fresh_object_address() }
+            id: ID {
+                bytes: ctx.fresh_object_address(),
+            },
         }
     }
 
     /// Create UID from hash
     pub(crate) fn new_from_hash(bytes: [u8; 32]) -> Self {
         record_new_uid(&bytes);
-        Self {
-            id: ID { bytes }
-        }
+        Self { id: ID { bytes } }
     }
 
     /// Get the inner ID
@@ -88,6 +86,11 @@ impl UID {
     /// Get the address bytes
     pub fn address_bytes(&self) -> &[u8; 32] {
         &self.id.bytes
+    }
+
+    /// Convert the UID to an address represented as [u8; 32]
+    pub fn to_address(&self) -> [u8; 32] {
+        *self.address_bytes()
     }
 }
 
@@ -135,5 +138,15 @@ mod tests {
         let hash = [2u8; 32];
         let uid = UID::new_from_hash(hash);
         assert_eq!(uid.address_bytes(), &hash);
+    }
+
+    #[test]
+    fn test_uid_to_address() {
+        let hash = [3u8; 32];
+        let uid = UID::new_from_hash(hash);
+        assert_eq!(uid.to_address(), hash);
+        
+        // Test that to_address matches address_bytes
+        assert_eq!(&uid.to_address(), uid.address_bytes());
     }
 }
