@@ -20,7 +20,11 @@ tracing.workspace = true
 move-binary-format.workspace = true
 move-core-types.workspace = true
 mona-types.workspace = true
-
+move-bytecode-utils = { workspace = true, optional = true }
+move-command-line-common = { workspace = true, optional = true }
+move-vm-test-utils = { workspace = true, optional = true }
+move-vm-types = { workspace = true, optional = true }
+move-vm-profiler = { workspace = true, optional = true }
 
 [build-dependencies]
 anyhow.workspace = true
