@@ -99,7 +99,9 @@ jobs:
     - name: Build
       run: cargo build --release --target ${{ matrix.target }} --verbose
       env:
-        OPENSSL_DIR: /usr/local/opt/openssl@3
+        OPENSSL_DIR: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3' || '/usr' }}
+        OPENSSL_LIB_DIR: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3/lib' || '/usr/lib/x86_64-linux-gnu' }}
+        OPENSSL_INCLUDE_DIR: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3/include' || '/usr/include' }}
     
     # - name: Test
     #   run: cargo test --target ${{ matrix.target }} --verbose
