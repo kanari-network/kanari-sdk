@@ -2,10 +2,10 @@ name: Rust
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "kanari-sdk" ]
     tags: "v*"
   pull_request:
-    branches: [ "main" ]
+    branches: [ "kanari-sdk" ]
 
 env:
   CARGO_TERM_COLOR: always
