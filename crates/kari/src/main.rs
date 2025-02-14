@@ -63,6 +63,16 @@ const COMMANDS: &[CommandInfo] = &[
         alias: Some("--V"), 
         description: "Display CLI version information" 
     },
+    CommandInfo {
+        name: "help",
+        alias: Some("-h"),
+        description: "Display this help message"
+    },
+    CommandInfo { 
+        name: "info", 
+        alias: Some("--i"), 
+        description: "Display information about the Kari node" 
+    },
 ];
 
 fn display_help(show_error: bool) {
@@ -111,11 +121,11 @@ async fn main() {
     match args.get(1).map(|s| s.as_str()) {
         Some("start") => start_node().await,
         Some("public") => {
-            let _ = handle_public_command(); // Ignore Option<String> return value
+            let _ = handle_public_command();
         },
         Some("move") => handle_move_command(),
         Some("keytool") => {
-            let _ = handle_keytool_command(); // Ignore Option<String> return value
+            let _ = handle_keytool_command();
         },
         Some("update") | Some("--up") => {
             if let Err(err) = handle_update().await {
@@ -124,6 +134,27 @@ async fn main() {
             }
         },
         Some("version") | Some("--V") => println!("CLI Version: {}", VERSION),
+        Some("help") | Some("--h") => display_help(false),
+        Some("info") | Some("--i") => {
+            println!("{}", "Opening Kari documentation...".bright_yellow());
+            #[cfg(target_os = "windows")]
+            Command::new("cmd")
+                .args(["/C", "start", "https://docs.kanari.network"])
+                .spawn()
+                .expect("Failed to open documentation");
+        
+            #[cfg(target_os = "linux")]
+            Command::new("xdg-open")
+                .arg("https://docs.kanari.network")
+                .spawn()
+                .expect("Failed to open documentation");
+        
+            #[cfg(target_os = "macos")]
+            Command::new("open")
+                .arg("https://docs.kanari.network")
+                .spawn()
+                .expect("Failed to open documentation");
+        },
         _ => display_help(true),
     }
 }
