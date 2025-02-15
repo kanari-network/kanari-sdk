@@ -160,3 +160,6 @@ choco install mingw
 ```shell
 cargo install --locked --git https://github.com/kanari-network/kanari-sdk.git --branch main kari
 ```
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=kanari-network/kanari-sdk&type=Timeline)](https://star-history.com/#kanari-network/kanari-sdk&Timeline)
