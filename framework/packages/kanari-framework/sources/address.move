@@ -4,7 +4,7 @@ module kanari_framework::address {
     use std::bcs;
     use std::string;
     use std::vector;
-
+    
     /// The length of an address, in bytes
     const LENGTH: u64 = 32;
 
@@ -68,26 +68,7 @@ module kanari_framework::address {
         else abort EAddressParseError
     }
 
-    /// Length of a Kari    /// Converts an ASCII string to an address. The string must be Base16 encoded,
-    /// and thus exactly 64 characters long.
-    /// For example, "00000000000000000000000000000000000000000000000000000000DEADB33F"
-    /// will be converted to the address [0x..DEADB33F].
-    pub fn from_ascii_bytes(bytes: &[u8]) -> Result<[u8; LENGTH], AddressError> {
-        if bytes.len() != 64 {
-            return Err(AddressError::ParseError);
-        }
-    
-        let decoded = hex::decode(bytes).map_err(|_| AddressError::ParseError)?;
-        if decoded.length() != LENGTH {
-            return Err(AddressError::ParseError);
-        }
-    
-        let mut addr = [0u8; LENGTH];
-        for i in 0..LENGTH {
-            addr[i] = *decoded.borrow(i).map_err(|_| AddressError::ParseError)?;
-        }
-        Ok(addr)
-    } address in bytes
+    /// Length of a Sui address in bytes
     public fun length(): u64 {
         LENGTH
     }
@@ -95,5 +76,5 @@ module kanari_framework::address {
     /// Largest possible address
     public fun max(): u256 {
         MAX
-    }    
+    }
 }

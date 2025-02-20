@@ -4,8 +4,8 @@ edition = "legacy" # edition = "legacy" to use legacy (pre-2024) Move
 
 
 [dependencies]
-KanariFramework = { local = "../../framework/kanari-framework" }
-MoveStdlib = { local = "../../framework/move-stdlib" }
+KanariFramework = { local = "../../../framework/packages/kanari-framework" }
+MoveStdlib = { local = "../../../framework/packages/move-stdlib" }
 
 
 [addresses]

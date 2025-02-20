@@ -2,7 +2,7 @@
 name = "KanariFramework"
 
 [dependencies]
-MoveStdlib = { local = "../../framework/move-stdlib" }
+MoveStdlib = { local = "../../../framework/packages/move-stdlib" }
 
 [addresses]
 std =  "0x1"
