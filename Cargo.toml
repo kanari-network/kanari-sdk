@@ -15,6 +15,7 @@ members = [
     "crates/kari",            # Core crate for the Kanari SDK.
     "crates/kari-node",       # Crate for running a Kanari node.
     "crates/kari-move",       # Crate related to MoveVM integration within Kanari.
+    "crates/kari-move-analyzer", # Crate for MoveVM bytecode analysis.
     "consensus/pos",          # Crate implementing Proof-of-Stake consensus.
     "crates/core/network",    # Crate for network functionalities.
     "crates/core/p2p",        # Crate for peer-to-peer networking.
@@ -129,7 +130,14 @@ thiserror = "2.0.11"
 clap = "4.5.26"
 codespan-reporting = "0.11.0"
 colored = "3.0.0"
-
+derivative = "2.2.0"
+dunce = "1.0.5"
+im = "15.1.0"
+itertools = "0.14.0"
+lsp-server = "0.7.8"
+lsp-types = "0.97.0"
+url = "2.5.4"
+vfs = "0.10.0"
 # Storage & Database
 rocksdb = "0.23.0"
 
@@ -142,7 +150,7 @@ datatest-stable = "0.3.2"
 kari                      = { path = "crates/kari" }
 kari-node                 = { path = "crates/kari-node" }
 kari-move                 = { path = "crates/kari-move" }
-
+kari-move-analyzer        = { path = "crates/kari-move-analyzer" }
 
 # Consensus Path List
 consensus-pos             = { path = "consensus/pos" }

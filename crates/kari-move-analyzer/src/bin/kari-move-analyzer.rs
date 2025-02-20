@@ -18,7 +18,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use move_analyzer::{
+use kari_move_analyzer::{
     completion::on_completion_request, context::Context, symbols,
     vfs::on_text_document_sync_notification,
 };
@@ -78,7 +78,7 @@ fn main() {
                 // data be sent "over the wire." However, to do so, our language server would need
                 // to be capable of applying deltas to its view of the client's open files. See the
                 // 'move_analyzer::vfs' module for details.
-                change: Some(TextDocumentSyncKind::Full),
+                change: Some(TextDocumentSyncKind::FULL),
                 will_save: None,
                 will_save_wait_until: None,
                 save: Some(
@@ -105,6 +105,7 @@ fn main() {
             work_done_progress_options: WorkDoneProgressOptions {
                 work_done_progress: None,
             },
+            completion_item: Default::default(), // Add this line
         }),
         definition_provider: Some(OneOf::Left(symbols::DEFS_AND_REFS_SUPPORT)),
         type_definition_provider: Some(TypeDefinitionProviderCapability::Simple(
@@ -155,15 +156,21 @@ fn main() {
         // main reason for this is to enable unit tests that rely on the symbolication information
         // to be available right after the client is initialized.
         if let Some(uri) = initialize_params.root_uri {
-            if let Some(p) = symbols::SymbolicatorRunner::root_dir(&uri.to_file_path().unwrap()) {
-                if let Ok((Some(new_symbols), _)) = symbols::get_symbols(
-                    Arc::new(Mutex::new(BTreeMap::new())),
-                    ide_files_root.clone(),
-                    p.as_path(),
-                    lint,
-                ) {
-                    let mut old_symbols = symbols.lock().unwrap();
-                    (*old_symbols).merge(new_symbols);
+            // First convert lsp_types::Uri to url::Url
+            if let Ok(url) = url::Url::parse(uri.as_str()) {
+                // Then convert url::Url to PathBuf
+                if let Ok(file_path) = url.to_file_path() {
+                    if let Some(p) = symbols::SymbolicatorRunner::root_dir(&file_path) {
+                        if let Ok((Some(new_symbols), _)) = symbols::get_symbols(
+                            Arc::new(Mutex::new(BTreeMap::new())),
+                            ide_files_root.clone(), 
+                            p.as_path(),
+                            lint,
+                        ) {
+                            let mut old_symbols = symbols.lock().unwrap();
+                            (*old_symbols).merge(new_symbols);
+                        }
+                    }
                 }
             }
         }
@@ -189,18 +196,24 @@ fn main() {
                             Ok(diags) => {
                                 for (k, v) in diags {
                                     let url = Url::from_file_path(k).unwrap();
-                                    let params = lsp_types::PublishDiagnosticsParams::new(url, v, None);
-                                    let notification = Notification::new(lsp_types::notification::PublishDiagnostics::METHOD.to_string(), params);
+                                    // Convert url::Url to lsp_types::Url
+                                    let uri: lsp_types::Uri = url.as_str().parse().unwrap();
+                                    let params = lsp_types::PublishDiagnosticsParams::new(uri, v, None);
+                                    let notification = Notification::new(
+                                        lsp_types::notification::PublishDiagnostics::METHOD.to_string(),
+                                        params,
+                                    );
                                     if let Err(err) = context
                                         .connection
                                         .sender
-                                        .send(lsp_server::Message::Notification(notification)) {
-                                            eprintln!("could not send diagnostics response: {:?}", err);
-                                        };
+                                        .send(lsp_server::Message::Notification(notification))
+                                    {
+                                        eprintln!("could not send diagnostics response: {:?}", err);
+                                    };
                                 }
-                            },
+                            }
                             Err(err) => {
-                                let typ = lsp_types::MessageType::Error;
+                                let typ = lsp_types::MessageType::ERROR;
                                 let message = format!("{err}");
                                     // report missing manifest only once to avoid re-generating
                                     // user-visible error in cases when the developer decides to

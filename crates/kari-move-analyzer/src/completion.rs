@@ -23,6 +23,7 @@ use move_compiler::{
     shared::Identifier,
 };
 use move_symbol_pool::Symbol;
+use url::Url;
 use std::{
     collections::{BTreeMap, HashSet},
     path::{Path, PathBuf},
@@ -52,9 +53,9 @@ fn keywords() -> Vec<CompletionItem> {
         .chain(PRIMITIVE_TYPES.iter())
         .map(|label| {
             let kind = if label == &"copy" || label == &"move" {
-                CompletionItemKind::Operator
+                CompletionItemKind::OPERATOR
             } else {
-                CompletionItemKind::Keyword
+                CompletionItemKind::KEYWORD
             };
             completion_item(label, kind)
         })
@@ -65,7 +66,7 @@ fn keywords() -> Vec<CompletionItem> {
 fn primitive_types() -> Vec<CompletionItem> {
     PRIMITIVE_TYPES
         .iter()
-        .map(|label| completion_item(label, CompletionItemKind::Keyword))
+        .map(|label| completion_item(label, CompletionItemKind::KEYWORD))
         .collect()
 }
 
@@ -73,7 +74,7 @@ fn primitive_types() -> Vec<CompletionItem> {
 fn builtins() -> Vec<CompletionItem> {
     BUILTINS
         .iter()
-        .map(|label| completion_item(label, CompletionItemKind::Function))
+        .map(|label| completion_item(label, CompletionItemKind::FUNCTION))
         .collect()
 }
 
@@ -122,12 +123,12 @@ fn identifiers(buffer: &str, symbols: &Symbols, path: &Path) -> Vec<CompletionIt
                     .iter()
                     .any(|m| m.functions().contains_key(&Symbol::from(*label)))
                 {
-                    completion_item(label, CompletionItemKind::Function)
+                    completion_item(label, CompletionItemKind::FUNCTION)
                 } else {
-                    completion_item(label, CompletionItemKind::Text)
+                    completion_item(label, CompletionItemKind::TEXT)
                 }
             } else {
-                completion_item(label, CompletionItemKind::Text)
+                completion_item(label, CompletionItemKind::TEXT)
             }
         })
         .collect()
@@ -197,10 +198,10 @@ fn context_specific_lbrace(
             let obj_snippet = "\n\tid: UID,\n\t$1\n".to_string();
             let init_completion = CompletionItem {
                 label: "id: UID".to_string(),
-                kind: Some(CompletionItemKind::Snippet),
+                kind: Some(CompletionItemKind::SNIPPET),
                 documentation: Some(Documentation::String("Object snippet".to_string())),
                 insert_text: Some(obj_snippet),
-                insert_text_format: Some(InsertTextFormat::Snippet),
+                insert_text_format: Some(InsertTextFormat::SNIPPET),
                 ..Default::default()
             };
             completions.push(init_completion);
@@ -289,12 +290,12 @@ fn context_specific_no_trigger(
 
             let init_completion = CompletionItem {
                 label: INIT_FN_NAME.to_string(),
-                kind: Some(CompletionItemKind::Snippet),
+                kind: Some(CompletionItemKind::SNIPPET),
                 documentation: Some(Documentation::String(
                     "Module initializer snippet".to_string(),
                 )),
                 insert_text: Some(init_snippet),
-                insert_text_format: Some(InsertTextFormat::Snippet),
+                insert_text_format: Some(InsertTextFormat::SNIPPET),
                 ..Default::default()
             };
             completions.push(init_completion);
@@ -367,13 +368,11 @@ pub fn on_completion_request(
     eprintln!("handling completion request");
     let parameters = serde_json::from_value::<CompletionParams>(request.params.clone())
         .expect("could not deserialize completion request");
-
-    let path = parameters
-        .text_document_position
-        .text_document
-        .uri
-        .to_file_path()
-        .unwrap();
+    
+    let path = Url::parse(parameters.text_document_position.text_document.uri.as_str())
+        .ok()
+        .and_then(|url| url.to_file_path().ok())
+        .unwrap_or_else(|| panic!("Could not convert URI to file path"));
 
     let items = match SymbolicatorRunner::root_dir(&path) {
         Some(pkg_path) => {
