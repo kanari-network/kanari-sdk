@@ -9,7 +9,8 @@ use kari_move::sandbox::commands::test;
 pub const CLI_METATEST_PATH: [&str; 3] = ["tests", "metatests", "args.txt"];
 
 fn get_cli_binary_path() -> PathBuf {
-    let cli_exe = env!("CARGO_BIN_EXE_move");
+    let cli_exe = env::var("CARGO_BIN_EXE_move")
+        .expect("Failed to get move binary path from environment");
     PathBuf::from(cli_exe)
 }
 

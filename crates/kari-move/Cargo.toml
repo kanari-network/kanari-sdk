@@ -55,7 +55,7 @@ move-bytecode-viewer.workspace = true
 datatest-stable.workspace = true
 
 [[bin]]
-name = "move"
+name = "kari-move"
 path = "src/main.rs"
 
 [[test]]
