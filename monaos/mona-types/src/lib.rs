@@ -17,4 +17,4 @@ pub mod object;
 pub mod tx_context;
 pub mod balance;
 pub mod transfer;
-// pub mod kari;
+pub mod gas;
