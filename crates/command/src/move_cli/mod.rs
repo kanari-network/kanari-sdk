@@ -19,7 +19,7 @@ const COMMANDS: &[CommandInfo] = &[
     CommandInfo { name: "coverage", description: "Inspect test coverage for this package. A previous test run with the `--coverage` flag must have" },
     CommandInfo { name: "", description: "previously been run" },
     CommandInfo { name: "disassemble", description: "Disassemble Move bytecode" },
-    CommandInfo { name: "docgen", description: "Generate documentation" },
+    CommandInfo { name: "doc", description: "Generate documentation" },
     CommandInfo { name: "errmap", description: "Generate error map" },
     CommandInfo { name: "info", description: "Print address information" },
     CommandInfo { name: "migrate", description: "Migrate Move module" },
@@ -89,7 +89,7 @@ pub fn handle_move_command() {
             module_or_script_name: String::new(),
             debug: true
         }),
-        Some("docgen") => Command::Docgen(Docgen {
+        Some("doc") => Command::Docgen(Docgen {
             section_level_start: Some(0),
             exclude_private_fun: false,
             exclude_specs: false,
