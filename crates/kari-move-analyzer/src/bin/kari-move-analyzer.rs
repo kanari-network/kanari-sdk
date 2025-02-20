@@ -155,9 +155,9 @@ fn main() {
         // with diagnostics as they will be recomputed whenever the first source file is opened. The
         // main reason for this is to enable unit tests that rely on the symbolication information
         // to be available right after the client is initialized.
-        if let Some(uri) = initialize_params.root_uri {
-            // First convert lsp_types::Uri to url::Url
-            if let Ok(url) = url::Url::parse(uri.as_str()) {
+        if let Some(folder) = initialize_params.workspace_folders.and_then(|folders| folders.first().cloned()) {
+            // Convert lsp_types::Url to url::Url 
+            if let Ok(url) = url::Url::parse(folder.uri.as_str()) {
                 // Then convert url::Url to PathBuf
                 if let Ok(file_path) = url.to_file_path() {
                     if let Some(p) = symbols::SymbolicatorRunner::root_dir(&file_path) {
