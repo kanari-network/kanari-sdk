@@ -5,8 +5,8 @@ edition = "legacy" # edition = "legacy" to use legacy (pre-2024) Move
 # authors = ["..."]      # e.g., ["Joe Smith (joesmith@noemail.com)", "John Snow (johnsnow@noemail.com)"]
 
 [dependencies]
-KanariFramework = { git = "https://github.com/kanari-network/kanari-sdk.git", subdir = "framework/kanari-framework", rev = "main" }
-MoveStdlib = { git = "https://github.com/kanari-network/kanari-sdk.git", subdir = "framework/move-stdlib", rev = "main" }
+KanariFramework = { git = "https://github.com/kanari-network/kanari-sdk.git", subdir = "framework/packages/kanari-framework", rev = "kanari-sdk" }
+MoveStdlib = { git = "https://github.com/kanari-network/kanari-sdk.git", subdir = "framework/packages/move-stdlib", rev = "kanari-sdk" }
 
 [addresses]
 nft = "0x0"
