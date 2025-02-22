@@ -23,13 +23,14 @@ impl Default for GasSchedule {
         let mut custom_costs = BTreeMap::new();
         custom_costs.insert("move_publish".to_string(), 1000);
         custom_costs.insert("move_upgrade".to_string(), 2000);
+        custom_costs.insert("max_gas_per_tx".to_string(), 1_000_000);
 
         Self {
             instruction_cost: 1,
-            read_cost: 5,
-            write_cost: 10,
+            read_cost: 100,
+            write_cost: 300,
             storage_byte_cost: 1,
-            account_creation_cost: 100,
+            account_creation_cost: 1000,
             custom_costs,
         }
     }

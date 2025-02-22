@@ -10,6 +10,10 @@ impl Address {
     pub fn new(bytes: [u8; 32]) -> Self {
         Address(bytes)
     }
+
+    pub fn to_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
 }
 
 impl fmt::Display for Address {
