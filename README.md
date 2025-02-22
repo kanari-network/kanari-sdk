@@ -4,85 +4,127 @@ Kanari SDK
 
 ```mermaid
 flowchart TB
-    %% Application Layer
-    subgraph APP ["Application Layer"]
-        direction LR
-        CLI["CLI Tools"]
-        Web["Web Explorer"]
-        RPC["RPC API"]
+  %% Application Layer
+  subgraph "Application Layer"
+    A1["CLI Tools"]
+    A2["Web Explorer A"]
+    A3["Web Explorer B"]
+    A4["RPC API"]
+  end
+
+  %% Framework Layer
+  subgraph "Framework Layer"
+    F1["Kanari SDK"]
+    F2["Move Standard Library"]
+    F3["System SDK"]
+  end
+
+  %% Core Layer
+  subgraph "Core Layer"
+    %% Blockchain Sub-layer
+    subgraph "Blockchain"
+      C1["K2 Core"]
+      C2["TX Management"]
+      C3["State Management"]
     end
-
-    %% Framework Layer
-    subgraph FW ["Framework Layer"]
-        direction LR
-        Kanari["Kanari SDK"]
-        Std["Move Std Lib"]
-        Sys["System SDK"]
+    %% Runtime Sub-layer
+    subgraph "Runtime"
+      R1["Move VM"]
+      R2["Move Compiler"]
     end
-
-    %% Core Layer with detailed connections
-    subgraph CORE ["Core Layer"]
-        direction TB
-        subgraph BC ["Blockchain"]
-            K2["K2 Core"]
-            TX["Transaction Mgmt"]
-            State["State Mgmt"]
-            K2 --> TX
-            K2 --> State
-        end
-        subgraph RT ["Runtime"]
-            VM["Move VM"]
-            Compiler["Move Compiler"]
-            VM --> Compiler
-        end
-        subgraph CON ["Consensus"]
-            PoW["PoW Engine"]
-            PoS["PoS Engine"]
-        end
-        BC <--> RT
-        BC <--> CON
+    %% Consensus Sub-layer
+    subgraph "Consensus"
+      CS1["PoW Engine"]
+      CS2["PoS Engine"]
     end
+  end
 
-    %% Network Layer with P2P details
-    subgraph NET ["Network Layer"]
-        direction LR
-        P2P["P2P Network"]
-        RPCNet["RPC Network"]
-        P2P <--> RPCNet
-    end
+  %% Network Layer
+  subgraph "Network Layer"
+    N1["P2P Network"]
+    N2["RPC Network"]
+  end
 
-    %% Storage Layer with connections
-    subgraph STORE ["Storage Layer"]
-        direction LR
-        Wallet["Wallet Store"]
-        File["File Store"]
-        DB["State DB"]
-        Wallet --> DB
-        File --> DB
-    end
+  %% Storage Layer
+  subgraph "Storage Layer"
+    S1["Wallet Store"]
+    S2["File Store"]
+    S3["State DB"]
+  end
 
-    %% Inter-layer connections
-    CLI --> Kanari
-    Web --> RPC
-    RPC --> Kanari
-    
-    Kanari --> K2
-    Std --> VM
-    Sys --> State
+  %% Legend
+  subgraph "Legend"
+    L1["Application Layer (Light Blue)"]
+    L2["Framework Layer (Light Green)"]
+    L3["Core Layer (Light Pink)"]
+    L4["Network Layer (Khaki)"]
+    L5["Storage Layer (Light Grey)"]
+  end
 
-    K2 --> P2P
-    K2 --> RPCNet
-    
-    State --> DB
-    TX --> Wallet
-    VM --> File
+  %% Inter-layer Connections
+  %% Application -> Framework
+  A1 --> F1
+  A2 --> F1
+  A3 --> F1
+  A4 --> F1
 
+  %% Framework -> Core
+  F1 --> C1
+  F1 --> R1
 
-    class APP,CLI,Web,RPC app
-    class FW,Kanari,Std,Sys framework
-    class CORE,BC,RT,CON core
-    class NET,P2P,RPCNet network
-    class STORE,Wallet,File,DB storage
+  %% Internal Core - Blockchain, Runtime, Consensus
+  C1 --> C2
+  C1 --> C3
+  R1 --> R2
+  %% Bidirectional interactions between Blockchain and Runtime
+  C1 <--> R1
+  %% Bidirectional interactions between Blockchain and Consensus engines
+  C1 <--> CS1
+  C1 <--> CS2
+
+  %% Core -> Network
+  C1 --> N1
+  C1 --> N2
+
+  %% Network internal bidirectional exchange
+  N1 <--> N2
+
+  %% Core -> Storage
+  C1 --> S3
+  C3 --> S3
+  S1 --> S3
+  S2 --> S3
+
+  %% Class Definitions for color coding
+  class A1,A2,A3,A4 application
+  class F1,F2,F3 framework
+  class C1,C2,C3,R1,R2,CS1,CS2 core
+  class N1,N2 network
+  class S1,S2,S3 storage
+
+  classDef application fill:#ADD8E6,stroke:#333,stroke-width:2px;
+  classDef framework fill:#90EE90,stroke:#333,stroke-width:2px;
+  classDef core fill:#FFB6C1,stroke:#333,stroke-width:2px;
+  classDef network fill:#F0E68C,stroke:#333,stroke-width:2px;
+  classDef storage fill:#D3D3D3,stroke:#333,stroke-width:2px;
+
+  %% Click Events from Component Mapping
+  click A1 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/crates/command"
+  click A2 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/web/kari-explorer"
+  click A3 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/web/tool_mata"
+  click A4 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/crates/rpc/rpc-api"
+  click F1 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/framework/kanari-framework"
+  click F2 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/framework/move-stdlib"
+  click F3 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/framework/kanari-system"
+  click C1 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/crates/core/k2"
+  click R1 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/crates/kari-move"
+  click R2 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/crates/kari-move"
+  click CS1 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/consensus/pow"
+  click CS2 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/consensus/pos"
+  click N1 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/crates/core/p2p"
+  click N2 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/crates/core/network"
+  click S1 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/crates/core/wallet"
+  click S2 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/monaos/mona-storage"
 ```
 
 ### 1. Setup Environment
