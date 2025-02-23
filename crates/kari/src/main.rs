@@ -184,12 +184,12 @@ async fn start_node() {
             _ => unreachable!(),
         };
         let rpc_port = config.get("rpc_port").unwrap().as_u64().unwrap() as u16;
-        let domain = config.get("domain").unwrap().as_str().unwrap().to_string();
+        // let domain = config.get("domain").unwrap().as_str().unwrap().to_string();
         let chain_id = config.get("chain_id").unwrap().as_str().unwrap().to_string();
 
         NetworkConfig {
             node_address: "127.0.0.1".to_string(),
-            domain,
+            domain: "mainnet.kanari.network".to_string(),
             port: rpc_port,
             peers: vec![],
             chain_id,
@@ -274,7 +274,7 @@ async fn start_node() {
         "chain_id": network_config.chain_id,
         "network_type": network_config.network_type.to_string(),
         "rpc_port": network_config.port,
-        "domain": network_config.domain,
+        // "domain": network_config.domain,
         "miner_address": miner_address,
     });
     save_config(&final_config).expect("Failed to save configuration");

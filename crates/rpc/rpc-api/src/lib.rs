@@ -148,7 +148,7 @@ pub async fn start_rpc_server(network_config: NetworkConfig) {
     // Create CORS settings that allow the domain pattern
     let allowed_origins = vec![
         AccessControlAllowOrigin::Any, // Allow all during development
-        AccessControlAllowOrigin::Value(format!("https://{}", network_config.domain).into()),
+        // AccessControlAllowOrigin::Value(format!("https://{}", network_config.domain).into()),
     ];
 
     match ServerBuilder::new(io)
@@ -157,7 +157,7 @@ pub async fn start_rpc_server(network_config: NetworkConfig) {
     {
         Ok(server) => {
             println!("RPC server running on http://127.0.0.1:{}", network_config.port);
-            println!("Accessible via https://{}", network_config.domain);
+            // println!("Accessible via https://{}", network_config.domain);
             server.wait();
         }
         Err(e) => {

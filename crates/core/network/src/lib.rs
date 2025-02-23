@@ -5,12 +5,13 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq)]  // Add PartialEq
 pub enum NetworkType {
     Mainnet,
     Testnet,
     Devnet,
 }
+
 
 #[derive(Serialize, Deserialize)]
 pub struct NetworkConfig {
