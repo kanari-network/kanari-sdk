@@ -18,3 +18,26 @@ kb = "build -p kari"                # Build kari package
 kbr = "build -p kari --release"     # Build kari package in release mode
 kr = "run -p kari"                  # Run kari package
 krr = "run -p kari --release"       # Run kari package in release mode
+
+
+# On Windows
+ # ```
+ # cargoinstall-f cargo-binutils
+ # rustup component add llvm-tools-preview
+ # ```
+ [target.x86_64-pc-windows-msvc]
+ rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+ [target.x86_64-pc-windows-gnu]
+ rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+ # On Linux:
+ #-Ubuntu, `sudo apt-getinstall lldclang`
+ #-Arch, `sudopacman-S lldclang`
+ [target.x86_64-unknown-linux-gnu]
+ rustflags = ["-C", "linker=clang", "-C", "link-arg=-fuse-ld=lld"]
+ # On MacOS, `brew installllvm` andfollow stepsin`brew infollvm`
+ [target.x86_64-apple-darwin]
+ rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+# On MacOS, `brew install llvm` and follow steps in `brew info llvm`
+[target.aarch64-apple-darwin]
+ rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/opt/llvm/bin/ld64.lld"]

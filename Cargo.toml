@@ -1,7 +1,7 @@
 [workspace]
 # Workspace configuration for the "kanari-sdk" project.
 # Defines the overall structure and settings for the workspace.
-name = "kanari-sdk"
+# name = "kanari-sdk"
 resolver = "2" # Use the version 2 feature resolver for more consistent feature resolution.
 
 # Exclude List: Directories to be excluded from the workspace build.
