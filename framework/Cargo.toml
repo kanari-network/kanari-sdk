@@ -17,9 +17,11 @@ serde.workspace = true
 once_cell.workspace = true 
 tracing.workspace = true
 
+mona-types.workspace = true
+
+mona-enum-compat-util = { workspace = true, optional = true }
 move-binary-format.workspace = true
 move-core-types.workspace = true
-mona-types.workspace = true
 move-bytecode-utils = { workspace = true, optional = true }
 move-command-line-common = { workspace = true, optional = true }
 move-vm-test-utils = { workspace = true, optional = true }

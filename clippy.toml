@@ -1,0 +1,24 @@
+# Specify allowed lints
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+
+# Configure specific lints
+cognitive-complexity-threshold = 25
+too-many-arguments-threshold = 7
+type-complexity-threshold = 250
+
+# Documentation settings
+missing-docs-in-crate-items = true
+doc-valid-idents = ["tx", "vm", "sdk", "mona"]
+
+# Threshold configurations
+enum-variant-size-threshold = 200
+upper-case-acronyms-aggressive = true
+
+# Allow specific patterns
+allowed-duplicate-crates = []
+allowed-scripts = []
+allowed-wildcard-imports = [
+    "std::collections::*",
+    "std::sync::*"
+]

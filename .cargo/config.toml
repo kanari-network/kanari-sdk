@@ -2,6 +2,19 @@
 jobs = 4
 incremental = true
 
+rustflags = [
+    "-W", "clippy::all",
+    "-W", "clippy::pedantic",
+    "-W", "clippy::nursery"
+]
+
+[target.'cfg(debug_assertions)']
+rustflags = [
+    "-W", "clippy::dbg_macro",
+    "-W", "clippy::print_stdout",
+]
+
+
 [alias]
 a = "add"
 au = "audit"
