@@ -25,10 +25,10 @@ toml_edit.workspace = true
 consensus-pos.workspace = true
 bcs.workspace = true
 bincode.workspace = true
-
 serde_json.workspace = true
 hex.workspace = true
-
+rand.workspace = true
+dirs.workspace = true
 
 move-bytecode-verifier.workspace = true
 move-disassembler.workspace = true

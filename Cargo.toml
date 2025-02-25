@@ -66,7 +66,7 @@ categories = ["development-tools"] # Categorize as development tools on crates.i
 keywords = ["blockchain", "sdk"]     # Keywords for crates.io search.
 homepage = "https://kanari.network"   # Project homepage.
 documentation = "https://docs.kanari.network" # Link to project documentation.
-version = "0.0.5"       # Current version of the SDK.
+version = "0.0.6"       # Current version of the SDK.
 authors = ["Kanari Network"] # Authors of the SDK.
 license = "Apache-2.0"    # License information.
 repository = "https://github.com/kanari-network/kanari-sdk" # Link to the code repository.
@@ -118,7 +118,7 @@ walkdir = "2.3.2"
 
 # Logging & Diagnostics
 env_logger = "0.11.6"
-log = "0.4.25"
+log = "0.4.26"
 tracing = "0.1.41"
 
 # Error Handling

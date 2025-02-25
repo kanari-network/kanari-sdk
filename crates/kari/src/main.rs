@@ -50,11 +50,6 @@ const COMMANDS: &[CommandInfo] = &[
         description: "Manage Kari accounts and cryptographic keys" 
     },
     CommandInfo { 
-        name: "update", 
-        alias: Some("--up"), 
-        description: "Update Kari tools to latest version from GitHub" 
-    },
-    CommandInfo { 
         name: "version", 
         alias: Some("--V"), 
         description: "Display CLI version information" 
@@ -174,12 +169,12 @@ async fn start_node() {
             _ => unreachable!(),
         };
         let rpc_port = config.get("rpc_port").unwrap().as_u64().unwrap() as u16;
-        // let domain = config.get("domain").unwrap().as_str().unwrap().to_string();
+        let domain = config.get("domain").unwrap().as_str().unwrap().to_string();
         let chain_id = config.get("chain_id").unwrap().as_str().unwrap().to_string();
 
         NetworkConfig {
             node_address: "127.0.0.1".to_string(),
-            domain: "mainnet.kanari.network".to_string(),
+            domain: domain,
             port: rpc_port,
             peers: vec![],
             chain_id,

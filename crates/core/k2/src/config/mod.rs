@@ -15,6 +15,10 @@ pub fn get_config_dir() -> io::Result<PathBuf> {
     Ok(config_path)
 }
 
+pub fn format_address(address: &str) -> String {
+    address.trim_end_matches(".enc").to_string()
+}
+
 // Function to load the configuration from file
 pub fn load_config() -> io::Result<Value> {
     let config_file_path = get_config_dir()?.join("config.yaml");
@@ -32,14 +36,22 @@ pub fn load_config() -> io::Result<Value> {
         return Ok(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
     }
     
-    // Parse the YAML, handle parsing errors explicitly
-    match serde_yaml::from_str(&config_str) {
-        Ok(yaml) => Ok(yaml),
-        Err(e) => Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("Failed to parse config file: {}", e)
-        )),
+    // Parse YAML and clean up address format
+    let mut config: Value = serde_yaml::from_str(&config_str).map_err(|e| {
+        io::Error::new(io::ErrorKind::InvalidData, format!("Failed to parse config file: {}", e))
+    })?;
+
+    // Remove .enc suffix from address if present
+    if let Some(mapping) = config.as_mapping_mut() {
+        if let Some(addr) = mapping.get("address").and_then(|v| v.as_str()) {
+            mapping.insert(
+                Value::String("address".to_string()),
+                Value::String(format_address(addr))
+            );
+        }
     }
+    
+    Ok(config)
 }
 
 // Function to save the configuration to file
@@ -47,7 +59,19 @@ pub fn save_config(config: &Value) -> Result<(), std::io::Error> {
     let config_dir = get_config_dir()?;
     let config_file_path = config_dir.join("config.yaml");
     let mut file = File::create(config_file_path)?;
-    let yaml_str = serde_yaml::to_string(config)
+    
+    // Clean up any .enc suffixes before saving
+    let mut config = config.clone();
+    if let Some(mapping) = config.as_mapping_mut() {
+        if let Some(addr) = mapping.get("address").and_then(|v| v.as_str()) {
+            mapping.insert(
+                Value::String("address".to_string()),
+                Value::String(format_address(addr))
+            );
+        }
+    }
+    
+    let yaml_str = serde_yaml::to_string(&config)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     file.write_all(yaml_str.as_bytes())?;
     Ok(())
