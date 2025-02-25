@@ -17,7 +17,7 @@ use crate::transaction::{Transaction, TransactionType};
 pub static mut TRANSACTION_SENDER: Option<Sender<Transaction>> = None;
 pub static mut TRANSACTION_RECEIVER: Option<Receiver<Transaction>> = None;
 
-pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
+pub fn run_blockchain(running: Arc<Mutex<bool>>, address: String) {
     let max_tokens = 11_000_000; // Maximum token supply
     let mut tokens_per_block = 25; // Initial block reward
     let halving_interval = 210_000; // Halve the block reward every 210,000 blocks
@@ -42,11 +42,11 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
                 String::from("0"),
                 tokens_per_block,
                 genesis_transactions,
-                miner_address.clone(),
+                address.clone(),
                 hasher,
             ));
             TOTAL_TOKENS += tokens_per_block;
-            BALANCES.as_mut().unwrap().lock().unwrap().entry(miner_address.clone()).and_modify(|balance| *balance += tokens_per_block).or_insert(tokens_per_block);
+            BALANCES.as_mut().unwrap().lock().unwrap().entry(address.clone()).and_modify(|balance| *balance += tokens_per_block).or_insert(tokens_per_block);
             info!("Genesis block created with hash: {}", BLOCKCHAIN.back().unwrap().hash);
         }
 
@@ -65,7 +65,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             }
 
             // Calculate miner reward based on token supply
-            let miner_reward = if TOTAL_TOKENS < max_tokens {
+            let reward = if TOTAL_TOKENS < max_tokens {
                 tokens_per_block
             } else {
                 0
@@ -86,7 +86,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
             if transactions.is_empty() {
                 transactions.push(Transaction {
                     sender: "system".to_string(),
-                    receiver: miner_address.clone(),
+                    receiver: address.clone(),
                     amount: 0,
                     gas_cost: TRANSACTION_GAS_COST,
                     timestamp: SystemTime::now()
@@ -98,7 +98,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
                     data: vec![], // Add empty data
                     coin_type: None, // Add coin type if available
                 });
-                info!("No transactions found. Created a zero-fee transaction for the miner.");
+                info!("No transactions found. Created a zero-fee transaction.");
             }
 
             let hasher = Blake3Algorithm;
@@ -106,9 +106,9 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
                 prev_block.index + 1,
                 new_data,
                 prev_block.hash.clone(),
-                miner_reward, // Use calculated miner_reward
+                reward, // Use calculated reward
                 transactions.clone(),
-                miner_address.clone(),
+                address.clone(),
                 hasher,
             );
 
@@ -130,7 +130,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, miner_address: String) {
 
             // Add transaction fees to the miner's reward
             let transaction_fees: u64 = new_block.transactions.iter().map(|tx| tx.gas_cost as u64).sum();
-            BALANCES.as_mut().unwrap().lock().unwrap().entry(miner_address.clone()).and_modify(|balance| *balance += transaction_fees + miner_reward).or_insert(transaction_fees + miner_reward);
+            BALANCES.as_mut().unwrap().lock().unwrap().entry(address.clone()).and_modify(|balance| *balance += transaction_fees + reward).or_insert(transaction_fees + reward);
 
             // Update TOTAL_TOKENS only if it's less than the max supply
             if TOTAL_TOKENS < max_tokens {

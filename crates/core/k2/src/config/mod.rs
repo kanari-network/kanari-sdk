@@ -1,54 +1,43 @@
 // src/config.rs
-use dirs;
-use network::{NetworkConfig, NetworkType};
-use serde_json::{json, Value};
-use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::PathBuf;
-// use std::net::{TcpStream, ToSocketAddrs};
-// use std::time::Duration;
+use serde_yaml::{Value, Mapping};
+use std::fs::{self, File};
+use dirs;
+use network::{NetworkConfig, NetworkType};
 
 
-/// Returns the platform-specific configuration directory
+// Function to get the configuration directory
 pub fn get_config_dir() -> io::Result<PathBuf> {
-    dirs::config_dir()
-        .or_else(|| dirs::home_dir())
-        .map(|dir| dir.join(".kari").join("network"))
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                "Could not determine configuration directory",
-            )
-        })
-        .and_then(|path| {
-            fs::create_dir_all(&path)?;
-            Ok(path)
-        })
+    let home_dir = dirs::home_dir().expect("Unable to find home directory");
+    let config_path = home_dir.join(".kari").join("network");
+    fs::create_dir_all(&config_path)?;
+    Ok(config_path)
 }
 
 // Function to load the configuration from file
 pub fn load_config() -> io::Result<Value> {
-    let config_file_path = get_config_dir()?.join("config.json");
-
-    // If file doesn't exist, return empty JSON object
+    let config_file_path = get_config_dir()?.join("config.yaml");
+    
+    // If file doesn't exist, return empty YAML object
     if !config_file_path.exists() {
-        return Ok(json!({}));
+        return Ok(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
     }
-
+    
     // Read the file content
     let config_str = fs::read_to_string(&config_file_path)?;
-
-    // If the file is empty, return empty JSON object
+    
+    // If the file is empty, return empty YAML object
     if config_str.trim().is_empty() {
-        return Ok(json!({}));
+        return Ok(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
     }
-
-    // Parse the JSON, handle parsing errors explicitly
-    match serde_json::from_str(&config_str) {
-        Ok(json) => Ok(json),
+    
+    // Parse the YAML, handle parsing errors explicitly
+    match serde_yaml::from_str(&config_str) {
+        Ok(yaml) => Ok(yaml),
         Err(e) => Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("Failed to parse config file: {}", e),
+            format!("Failed to parse config file: {}", e)
         )),
     }
 }
@@ -56,9 +45,11 @@ pub fn load_config() -> io::Result<Value> {
 // Function to save the configuration to file
 pub fn save_config(config: &Value) -> Result<(), std::io::Error> {
     let config_dir = get_config_dir()?;
-    let config_file_path = config_dir.join("config.json");
+    let config_file_path = config_dir.join("config.yaml");
     let mut file = File::create(config_file_path)?;
-    file.write_all(config.to_string().as_bytes())?;
+    let yaml_str = serde_yaml::to_string(config)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    file.write_all(yaml_str.as_bytes())?;
     Ok(())
 }
 
@@ -87,63 +78,31 @@ pub fn prompt_for_value(prompt: &str, default: &str) -> String {
 }
 
 
-// Add domain constants at the top of the file
-const BASE_DOMAIN: &str = "kanari.network";
-const NETWORK_DOMAINS: [(NetworkType, &str); 3] = [
-    (NetworkType::Devnet, "devnet"),
-    (NetworkType::Testnet, "testnet"),
-    (NetworkType::Mainnet, "mainnet"),
-];
-
-// Add helper function to get domain
-fn get_network_domain(network_type: &NetworkType) -> String {
-    let subdomain = NETWORK_DOMAINS
-        .iter()
-        .find(|(net_type, _)| *net_type == *network_type)  // Dereference for comparison
-        .map(|(_, subdomain)| *subdomain)  // Dereference subdomain
-        .unwrap_or("mainnet");
-    format!("{}.{}", subdomain, BASE_DOMAIN)
-}
-
 // Function to configure the network settings
 pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
     let mut config = load_config()?;
+    let mut default_mapping = Mapping::new();
+    let mapping = config.as_mapping_mut().unwrap_or(&mut default_mapping);
 
-    // Check if the configuration already exists
-    if config.get("network_type").is_some() {
-        
+    // Check if configuration exists
+    if mapping.contains_key("network_type") && 
+       mapping.contains_key("rpc_port") && 
+       mapping.contains_key("domain") && 
+       mapping.contains_key("chain_id") {
         println!("Configuration already exists. Skipping configuration process.");
-        let network_type = match config.get("network_type").unwrap().as_str().unwrap() {
-            "devnet" => NetworkType::Devnet,
-            "testnet" => NetworkType::Testnet,
-            "mainnet" => NetworkType::Mainnet,
+        let network_type = match mapping.get("network_type").and_then(|v| v.as_str()) {
+            Some("devnet") => NetworkType::Devnet,
+            Some("testnet") => NetworkType::Testnet,
+            Some("mainnet") => NetworkType::Mainnet,
             _ => NetworkType::Mainnet,
         };
 
-        let chain_id = config
-            .get("chain_id")
-            .unwrap()
-            .as_str()
-            .unwrap()
-            .to_string();
-        let node_address = config
-            .get("node_address")
-            .and_then(|v| v.as_str())
-            .unwrap_or("127.0.0.1")
-            .to_string();
-
-        let domain = config
-            .get("domain")
-            .and_then(|v| v.as_str())
-            .unwrap_or("mainnet.kanari.network")
-            .to_string();
-
         return Ok(NetworkConfig {
-            node_address,
-            domain, // Add domain
-            port: config.get("rpc_port").unwrap().as_u64().unwrap() as u16,
+            node_address: "127.0.0.1".to_string(),
+            domain: mapping.get("domain").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+            port: mapping.get("rpc_port").and_then(|v| v.as_u64()).unwrap_or(30030) as u16,
             peers: vec![],
-            chain_id: chain_id.to_string(),
+            chain_id: mapping.get("chain_id").and_then(|v| v.as_str()).unwrap_or(chain_id).to_string(),
             max_connections: 100,
             api_enabled: true,
             network_type,
@@ -177,47 +136,51 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
         _ => unreachable!(), // We already validated the input
     };
 
-    config
-        .as_object_mut()
-        .unwrap()
-        .insert("network_type".to_string(), json!(network_type_input));
-
+    // Update configuration with YAML values
+    mapping.insert(
+        Value::String("network_type".to_string()),
+        Value::String(network_type_input.to_string())
+    );
+    
     let default_rpc_port = match network_type_input {
-        "devnet" => "3031",
-        "testnet" => "3032",
-        "mainnet" => "3030",
-        _ => "3030", // Default to mainnet port
+        "devnet" => "30031",
+        "testnet" => "30032",
+        "mainnet" => "30030",
+        _ => "30030", // Default to mainnet port
     };
 
     let rpc_port = prompt_for_value("Enter RPC port", default_rpc_port)
         .parse::<u16>()
         .expect("Invalid port number");
-    config
-        .as_object_mut()
-        .unwrap()
-        .insert("rpc_port".to_string(), json!(rpc_port));
+    mapping.insert(
+        Value::String("rpc_port".to_string()),
+        Value::Number(rpc_port.into())
+    );
 
-    // Prompt for node address
-    let default_node_address = "127.0.0.1";
-    // Get the node address from the user
-    let node_address = prompt_for_value("Enter node address", default_node_address);
-    // Save the chain ID to the configuration
-    config
-        .as_object_mut()
-        .unwrap()
-        .insert("chain_id".to_string(), json!(chain_id));
+    let default_domain = match network_type_input {
+        "devnet" => "devnet.kanari.network",
+        "testnet" => "testnet.kanari.network",
+        "mainnet" => "mainnet.kanari.network",
+        _ => "mainnet.kanari.network", // Default to mainnet domain
+    };
+    
+    // Prompt the user for the network domain
+    let domain = prompt_for_value("Enter network domain", default_domain);
+    mapping.insert(
+        Value::String("domain".to_string()),
+        Value::String(domain.clone())
+    );
 
-    let domain = get_network_domain(&network_type);
-    config
-        .as_object_mut()
-        .unwrap()
-        .insert("domain".to_string(), json!(domain));
+    mapping.insert(
+        Value::String("chain_id".to_string()),
+        Value::String(chain_id.to_string())
+    );
 
     // Save the configuration to file
     let network_config = NetworkConfig {
-        node_address,
-        domain,
-        port: rpc_port,
+        node_address: "127.0.0.1".to_string(),
+        domain: domain,         // Add configured domain
+        port: rpc_port, // Use the parsed rpc_port
         peers: vec![],
         chain_id: chain_id.to_string(),
         max_connections: 100,
@@ -225,7 +188,11 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
         network_type,
     };
 
-    save_config(&config)?;
+    // Create owned Mapping from mutable reference
+    let owned_mapping = mapping.clone();
+    
+    // Save configuration with owned Mapping
+    save_config(&Value::Mapping(owned_mapping))?;
 
     println!("Network configuration saved successfully.");
     Ok(network_config) // Return the NetworkConfig

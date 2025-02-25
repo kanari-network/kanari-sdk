@@ -12,15 +12,11 @@ use k2::simulation::run_blockchain;
 use key::{check_wallet_exists, list_wallet_files};
 use network::{NetworkConfig, NetworkType};
 
-
-
-use rpc_api::start_rpc_server;
-use serde_json::json;
 use k2::blockchain::{get_kari_dir, load_blockchain, save_blockchain, BALANCES};
 use k2::chain_id::CHAIN_ID;
 use k2::config::{configure_network, load_config, save_config};
 use std::process::Command;
-use semver::Version;
+
 
 static VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -127,12 +123,6 @@ async fn main() {
         Some("keytool") => {
             let _ = handle_keytool_command();
         },
-        Some("update") | Some("--up") => {
-            if let Err(err) = handle_update().await {
-                eprintln!("Update failed: {}", err);
-                exit(1);
-            }
-        },
         Some("version") | Some("--V") => println!("CLI Version: {}", VERSION),
         Some("help") | Some("--h") => display_help(false),
         Some("info") | Some("--i") => {
@@ -216,8 +206,8 @@ async fn start_node() {
         BALANCES = Some(Mutex::new(HashMap::new()));
     }
 
-    // Load miner address with validation
-    let miner_address = match config.get("miner_address").and_then(|v| v.as_str()) {
+    // Load address with validation
+    let address = match config.get("address").and_then(|v| v.as_str()) {
         Some(address) => {
             // Verify wallet file exists for this address
             if !std::path::Path::new(&get_kari_dir().join("wallets").join(format!("{}.toml", address))).exists() {
@@ -226,12 +216,16 @@ async fn start_node() {
                     Ok(wallets) if !wallets.is_empty() => {
                         // Access first element of tuple (filename)
                         let first_wallet = wallets[0].0.trim_end_matches(".toml").to_string();
-                        println!("Using existing wallet as miner address: {}", first_wallet.green());
+                        println!("Using existing wallet as address: {}", first_wallet.green());
                         
-                        // Update config with new miner address
-                        let config = config.as_object_mut().unwrap();
-                        config.insert("miner_address".to_string(), json!(first_wallet.clone()));
-                        save_config(&json!(config)).expect("Failed to save configuration");
+                        // Convert config to Map to modify it
+                        if let serde_yaml::Value::Mapping(ref mut map) = config {
+                            map.insert(
+                                serde_yaml::Value::String("address".to_string()),
+                                serde_yaml::Value::String(first_wallet.clone())
+                            );
+                            save_config(&config).expect("Failed to save configuration");
+                        }
                         
                         first_wallet
                     },
@@ -251,12 +245,16 @@ async fn start_node() {
             match list_wallet_files() {
                 Ok(wallets) if !wallets.is_empty() => {
                     let first_wallet = wallets[0].0.trim_end_matches(".toml").to_string();
-                    println!("Setting miner address to existing wallet: {}", first_wallet.green());
+                    println!("Setting address to existing wallet: {}", first_wallet.green());
                     
-                    // Update config with new miner address
-                    let config = config.as_object_mut().unwrap();
-                    config.insert("miner_address".to_string(), json!(first_wallet.clone()));
-                    save_config(&json!(config)).expect("Failed to save configuration");
+                    // Update config with new address using serde_yaml::Value
+                    if let serde_yaml::Value::Mapping(ref mut map) = config {
+                        map.insert(
+                            serde_yaml::Value::String("address".to_string()),
+                            serde_yaml::Value::String(first_wallet.clone())
+                        );
+                        save_config(&config).expect("Failed to save configuration");
+                    }
                     
                     first_wallet
                 },
@@ -270,111 +268,62 @@ async fn start_node() {
         }
     };
 
-    let final_config = json!({
-        "chain_id": network_config.chain_id,
-        "network_type": network_config.network_type.to_string(),
-        "rpc_port": network_config.port,
-        // "domain": network_config.domain,
-        "miner_address": miner_address,
+    let final_config = serde_yaml::Value::Mapping({
+        let mut map = serde_yaml::Mapping::new();
+        map.insert(
+            serde_yaml::Value::String("chain_id".to_string()),
+            serde_yaml::Value::String(network_config.chain_id)
+        );
+        map.insert(
+            serde_yaml::Value::String("network_type".to_string()),
+            serde_yaml::Value::String(network_config.network_type.to_string().clone())
+        );
+        map.insert(
+            serde_yaml::Value::String("rpc_port".to_string()),
+            serde_yaml::Value::Number(serde_yaml::Number::from(network_config.port))
+        );
+        map.insert(
+            serde_yaml::Value::String("domain".to_string()),
+            serde_yaml::Value::String(network_config.domain)
+        );
+        map.insert(
+            serde_yaml::Value::String("address".to_string()),
+            serde_yaml::Value::String(address.clone())
+        );
+        map
     });
     save_config(&final_config).expect("Failed to save configuration");
 
-    loop {
-        if miner_address.is_empty() {
-            println!("Please generate an address first using the 'kari keytool' command.");
-            break; 
-        } else {
-            println!("Using existing miner address: {}", miner_address);
-            *running.lock().unwrap() = true;
-            println!("{}", "Starting blockchain...".green());
-            let running_clone = Arc::clone(&running);
-            let miner_address_clone = miner_address.clone();
-
-
-            tokio::spawn(async move {
-                println!("Starting RPC server...");
-                start_rpc_server(network_config).await;
-            });
-
-            tokio::spawn(async move {
-                println!("Running blockchain simulation...");
-                run_blockchain(running_clone, miner_address_clone);
-            });
-        }
-
-        let mut input = String::new();
-        println!("{} to stop the node", "Press Enter".yellow());
-        io::stdout().flush().unwrap();
-        io::stdin().read_line(&mut input).unwrap();
-
-        *running.lock().unwrap() = false;
-        println!("{}", "Stopping blockchain...".red());
-        let _ = save_blockchain();
-        break;
-    }
-}
-
-// Add new function for update handling
-async fn handle_update() -> Result<(), Box<dyn std::error::Error>> {
-    println!("{}", "Checking for updates...".bright_yellow());
     
-    // Check current version
-    let current_version = Version::parse(VERSION)?;
-    
-    // Fetch latest version from GitHub
-    let latest_version = fetch_latest_version().await?;
-    
-    if latest_version > current_version {
-        println!("New version available: {} -> {}", 
-            current_version.to_string().red(),
-            latest_version.to_string().green()
-        );
-        
-        println!("{}", "Updating Kari tools...".bright_yellow());
-        
-        // Run git pull to update
-        let status = Command::new("git")
-            .args(&["pull", "https://github.com/kanari-network/kanari-sdk.git", "kanari-sdk"])
-            .current_dir(env!("CARGO_MANIFEST_DIR"))
-            .status()?;
-
-        if status.success() {
-            // Rebuild after update
-            let build_status = Command::new("cargo")
-                .args(&["build", "--release"])
-                .current_dir(env!("CARGO_MANIFEST_DIR"))
-                .status()?;
-
-            if build_status.success() {
-                println!("{}", "Update completed successfully!".green());
-                println!("Please restart Kari to use the new version");
-            } else {
-                println!("{}", "Failed to rebuild after update".red());
-            }
-        } else {
-            println!("{}", "Update failed".red());
-        }
-    } else {
-        println!("{}", "Already at latest version".green());
+    if address.is_empty() {
+        println!("Please generate an address first using the 'kari keytool' command.");
+        exit(1);
     }
     
-    Ok(())
+    println!("Using existing address: {}", address.green());
+    *running.lock().unwrap() = true;
+    println!("{}", "Starting blockchain...".green());
+    
+    let running_clone = Arc::clone(&running);
+    let address_clone = address.clone();
+    
+
+    
+    // Spawn blockchain simulation task
+    tokio::spawn(async move {
+        println!("Running blockchain simulation...");
+        run_blockchain(running_clone, address_clone);
+    });
+    
+    // Wait for shutdown signal
+    println!("{} to stop the node", "Press Enter".yellow());
+    io::stdout().flush().unwrap();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
+    
+    // Graceful shutdown
+    println!("{}", "Stopping blockchain...".red());
+    *running.lock().unwrap() = false;
+    let _ = save_blockchain();
 }
 
-// Add helper function to fetch latest version
-async fn fetch_latest_version() -> Result<Version, Box<dyn std::error::Error>> {
-    let client = reqwest::Client::new();
-    let response = client
-        .get("https://api.github.com/repos/kanari-network/kanari-sdk/releases/latest")
-        .header("User-Agent", "Kari-CLI")
-        .send()
-        .await?;
-    
-    let release = response.json::<serde_json::Value>().await?;
-    let version = release["tag_name"]
-        .as_str()
-        .ok_or("No version tag found")?
-        .trim_start_matches('v');
-    
-    Ok(Version::parse(version)?)
-}

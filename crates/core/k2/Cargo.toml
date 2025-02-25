@@ -33,6 +33,7 @@ jsonrpc-core.workspace = true
 jsonrpc-http-server.workspace = true
 futures.workspace = true
 tokio.workspace = true
+serde_yaml.workspace = true
 
 # Utilities
 digest.workspace = true

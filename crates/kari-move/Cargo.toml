@@ -26,6 +26,10 @@ consensus-pos.workspace = true
 bcs.workspace = true
 bincode.workspace = true
 
+serde_json.workspace = true
+hex.workspace = true
+
+
 move-bytecode-verifier.workspace = true
 move-disassembler.workspace = true
 move-docgen.workspace = true

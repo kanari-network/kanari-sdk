@@ -13,7 +13,7 @@ use thiserror::Error;
 
 // Import Mutex and HashMap from std::sync
 use k2::{blockchain::get_kari_dir, config::{load_config, save_config}};
-use serde_json::json;
+use serde_yaml::{Value, Mapping};
 
 use aes_gcm::{
     aead::{Aead, KeyInit},
@@ -74,9 +74,20 @@ pub fn set_selected_wallet(wallet_address: &str) -> io::Result<()> {
     // Load existing config
     let mut config = load_config()?;
     
-    // Update miner_address in config
-    if let Some(obj) = config.as_object_mut() {
-        obj.insert("miner_address".to_string(), json!(wallet_address));
+    // Update address in config
+    if let Some(mapping) = config.as_mapping_mut() {
+        mapping.insert(
+            Value::String("address".to_string()),
+            Value::String(wallet_address.to_string())
+        );
+    } else {
+        // Create new mapping if none exists
+        let mut mapping = Mapping::new();
+        mapping.insert(
+            Value::String("address".to_string()),
+            Value::String(wallet_address.to_string())
+        );
+        config = Value::Mapping(mapping);
     }
 
     // Save updated config
