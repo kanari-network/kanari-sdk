@@ -1,18 +1,18 @@
 {
 	"name": "move",
 	"displayName": "Move",
-	"description": "A Move language integrated development environment for Sui.",
-	"publisher": "mysten",
+	"description": "A Move language integrated development environment for kari.",
+	"publisher": "kanari-network",
 	"icon": "images/move.png",
 	"license": "Apache-2.0",
-	"version": "0.0.2",
+	"version": "0.0.1",
 	"preview": true,
 	"repository": {
-		"url": "https://github.com/MystenLabs/sui.git",
+		"url": "https://github.com/kanari-network/kanari-sdk.git",
 		"type": "git"
 	},
 	"bugs": {
-		"url": "https://github.com/MystenLabs/sui/issues"
+		"url": "https://github.com/kanari-network/kanari-sdk/issues"
 	},
 	"engines": {
 		"vscode": "^1.61.0"
@@ -22,8 +22,8 @@
 	],
 	"keywords": [
 		"move",
-		"Sui",
-		"Mysten"
+		"Kari",
+		"KanariNetwork"
 	],
 	"main": "./out/src/main.js",
 	"activationEvents": [
@@ -69,16 +69,16 @@
                     ],
                     "scope": "machine-overridable",
                     "default": null,
-                    "markdownDescription": "Path to rust-analyzer executable (points to `~/.sui/bin/move-analyzer` by default)."
+                    "markdownDescription": "Path to rust-analyzer executable (points to `~/.kari/bin/move-analyzer` by default)."
 				},
-				"move.sui.path": {
+				"move.kari.path": {
                     "type": [
                         "null",
                         "string"
                     ],
                     "scope": "machine-overridable",
                     "default": null,
-                    "markdownDescription": "Path to Sui executable (by default assumes that `sui` is on the systems path)."
+                    "markdownDescription": "Path to Kari executable (by default assumes that `kari` is on the systems path)."
 				},
 				"move.trace.server": {
 					"type": "string",
@@ -114,13 +114,13 @@
 		"menus": {
 			"commandPalette": [
 				{
-					"command": "sui.serverVersion"
+					"command": "kari.serverVersion"
 				},
 				{
-					"command": "sui.build"
+					"command": "kari.build"
 				},
 				{
-					"command": "sui.test"
+					"command": "kari.test"
 				}
 			]
 		}

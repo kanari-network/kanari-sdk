@@ -29,7 +29,7 @@ export class Configuration {
 
     constructor() {
         this.configuration = vscode.workspace.getConfiguration('move');
-        this.defaultServerDir = vscode.Uri.joinPath(vscode.Uri.file(os.homedir()), '.sui', 'bin');
+        this.defaultServerDir = vscode.Uri.joinPath(vscode.Uri.file(os.homedir()), '.kari', 'bin');
         if (process.platform === 'win32') {
             this.serverName = 'move-analyzer.exe';
         } else {
@@ -52,17 +52,17 @@ export class Configuration {
         return path.resolve(serverPath);
     }
 
-    /** The path to the Sui binary. */
-    get suiPath(): string {
-        const suiBin = 'sui';
-        const suiPath = this.configuration.get<string | null >('sui.path') ?? suiBin;
-        if (suiPath === suiBin) {
-            return suiPath;
+    /** The path to the Kari binary. */
+    get kariPath(): string {
+        const kariBin = 'kari';
+        const kariPath = this.configuration.get<string | null >('kari.path') ?? kariBin;
+        if (kariPath === kariBin) {
+            return kariPath;
         }
-        if (suiPath.startsWith('~/')) {
-            return os.homedir() + suiPath.slice('~'.length);
+        if (kariPath.startsWith('~/')) {
+            return os.homedir() + kariPath.slice('~'.length);
         }
-        return path.resolve(suiPath);
+        return path.resolve(kariPath);
     }
 
     /**

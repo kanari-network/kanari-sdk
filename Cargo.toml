@@ -106,7 +106,7 @@ tokio = { version = "1", features = ["full"] }
 
 # Core Utilities
 bip39 = { version = "2.0.0", features = ["rand"] }
-chrono = "0.4.38"
+chrono = "0.4.40"
 crossbeam = "0.8.4"
 difference = "2.0.0"
 dirs = "6.0.0"
@@ -127,7 +127,7 @@ lazy_static = "1.5.0"
 thiserror = "2.0.11"
 
 # CLI & User Interface
-clap = "4.5.26"
+clap = "4.5.31"
 codespan-reporting = "0.11.0"
 colored = "3.0.0"
 derivative = "2.2.0"
@@ -170,6 +170,8 @@ rpc-api                   = { path = "crates/rpc/rpc-api" }
 
 
 # Storage Path List
+anorama                   = { path = "monaos/anorama" }
+mona-vm                   = { path = "monaos/mona-vm" }
 mona-storage              = { path = "monaos/mona-storage" }
 mona-types                = { path = "monaos/mona-types" }
 mona-enum-compat-util     = { path = "monaos/mona-enum-compat-util" }
