@@ -30,6 +30,8 @@ hex.workspace = true
 rand.workspace = true
 dirs.workspace = true
 
+mona-types.workspace = true
+
 move-bytecode-verifier.workspace = true
 move-disassembler.workspace = true
 move-docgen.workspace = true
