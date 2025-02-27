@@ -42,8 +42,8 @@ This can be done in two steps:
 as prerequisites for Sui installation - for Linux, macOS and Windows these prerequisites and
 their installation instructions can be found
 [here](https://docs..io/guides/developer/getting-started/-install#additional-prerequisites-by-operating-system)
-2. Invoke `cargo install --git kanari-sdk\crates\kari-move-analyzer move-analyzer` to install the
-`move-analyzer` language server in your Cargo binary directory, which is typically located
+2. Invoke `cargo install --git https://github.com/kanari-network/kanari-sdk kari-move-analyzer` to install the
+`kari move-analyzer` language server in your Cargo binary directory, which is typically located
 in the `~/.cargo/bin` (macOS/Linux) or `C:\Users\USER\.cargo\bin` (Windows) directory.
 3. Copy the move-analyzer binary to `~/./bin` (macOS/Linux) or `C:\Users\USER\.\bin`
 (Windows), which is its default location (create this directory if it does not exist).
