@@ -31,9 +31,9 @@ export class Configuration {
         this.configuration = vscode.workspace.getConfiguration('move');
         this.defaultServerDir = vscode.Uri.joinPath(vscode.Uri.file(os.homedir()), '.kari', 'bin');
         if (process.platform === 'win32') {
-            this.serverName = 'move-analyzer.exe';
+            this.serverName = 'kari-move-analyzer.exe';
         } else {
-            this.serverName = 'move-analyzer';
+            this.serverName = 'kari-move-analyzer';
         }
         this.defaultServerPath = vscode.Uri.joinPath(this.defaultServerDir, this.serverName);
     }
@@ -43,7 +43,7 @@ export class Configuration {
         return JSON.stringify(this.configuration);
     }
 
-    /** The path to the move-analyzer executable. */
+    /** The path to the kari-move-analyzer executable. */
     get serverPath(): string {
         const serverPath = this.configuration.get<string | null>('server.path') ?? this.defaultServerPath.fsPath;
         if (serverPath.startsWith('~/')) {
@@ -98,7 +98,7 @@ export class Configuration {
                 // (and the extension blocks), which can confusing.
                 const items: vscode.MessageItem = { title: 'OK', isCloseAffordance: true };
                 await vscode.window.showInformationMessage(
-                    `The move-analyzer binary at the user-specified path ('${this.serverPath}') ` +
+                    `The kari-move-analyzer binary at the user-specified path ('${this.serverPath}') ` +
                     'is not available. Put the binary in the path or reset user settings and ' +
                     'reinstall the extension to use the bundled binary.',
                     { modal: true },
@@ -128,8 +128,8 @@ export class Configuration {
             // used to override location of the server binary would not be available.
             const items: vscode.MessageItem = { title: 'OK', isCloseAffordance: true };
             await vscode.window.showErrorMessage(
-                'Pre-built move-analyzer binary is not available for this platform. ' +
-                'Follow the instructions in the move-analyzer Visual Studio Code extension ' +
+                'Pre-built kari-move-analyzer binary is not available for this platform. ' +
+                'Follow the instructions in the kari-move-analyzer Visual Studio Code extension ' +
                 'README to manually install the language server.',
                 { modal: true },
                 items,

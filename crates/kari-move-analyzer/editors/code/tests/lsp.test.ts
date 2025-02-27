@@ -22,9 +22,9 @@ const isKeywordInCompletionItems = (label: string, items: vscode.CompletionItem[
 
 const PRIMITIVE_TYPES = ['u8', 'u16', 'u32', 'u64', 'u128', 'u256', 'bool', 'vector'];
 
-Mocha.suite('LSP', () => {
+Mocha.karite('LSP', () => {
     Mocha.test('textDocument/documentSymbol', async () => {
-        const ext = vscode.extensions.getExtension('move.move-analyzer');
+        const ext = vscode.extensions.getExtension('move.kari-move-analyzer');
         assert.ok(ext);
 
         await ext.activate(); // Synchronous waiting for activation to complete
@@ -45,7 +45,7 @@ Mocha.suite('LSP', () => {
 
         const syms: Array<lc.DocumentSymbol> | undefined = await
             vscode.commands.executeCommand(
-                'move-analyzer.textDocumentDocumentSymbol', params,
+                'kari-move-analyzer.textDocumentDocumentSymbol', params,
             );
 
         assert.ok(syms);
@@ -69,7 +69,7 @@ Mocha.suite('LSP', () => {
     });
 
     Mocha.test('textDocument/hover for definition in the same module', async () => {
-        const ext = vscode.extensions.getExtension('move.move-analyzer');
+        const ext = vscode.extensions.getExtension('move.kari-move-analyzer');
         assert.ok(ext);
 
         await ext.activate(); // Synchronous waiting for activation to complete
@@ -96,7 +96,7 @@ Mocha.suite('LSP', () => {
 
         const hoverResult: lc.Hover | undefined =
             await vscode.commands.executeCommand(
-                'move-analyzer.textDocumentHover',
+                'kari-move-analyzer.textDocumentHover',
                 params,
             );
 
@@ -108,7 +108,7 @@ Mocha.suite('LSP', () => {
     });
 
     Mocha.test('textDocument/hover for definition in an external module', async () => {
-        const ext = vscode.extensions.getExtension('move.move-analyzer');
+        const ext = vscode.extensions.getExtension('move.kari-move-analyzer');
         assert.ok(ext);
 
         await ext.activate(); // Synchronous waiting for activation to complete
@@ -135,7 +135,7 @@ Mocha.suite('LSP', () => {
 
         const hoverResult: lc.Hover | undefined =
             await vscode.commands.executeCommand(
-                'move-analyzer.textDocumentHover',
+                'kari-move-analyzer.textDocumentHover',
                 params,
             );
 
@@ -146,7 +146,7 @@ Mocha.suite('LSP', () => {
     });
 
     Mocha.test('textDocument/completion', async () => {
-        const ext = vscode.extensions.getExtension('move.move-analyzer');
+        const ext = vscode.extensions.getExtension('move.kari-move-analyzer');
         assert.ok(ext);
 
         await ext.activate(); // Synchronous waiting for activation to complete
@@ -172,7 +172,7 @@ Mocha.suite('LSP', () => {
         };
 
         const items = await vscode.commands.executeCommand<Array<vscode.CompletionItem>>(
-            'move-analyzer.textDocumentCompletion',
+            'kari-move-analyzer.textDocumentCompletion',
             params,
         );
 
@@ -200,7 +200,7 @@ Mocha.suite('LSP', () => {
         };
 
         const itemsOnColon = await vscode.commands.executeCommand<Array<vscode.CompletionItem>>(
-            'move-analyzer.textDocumentCompletion',
+            'kari-move-analyzer.textDocumentCompletion',
             colonParams,
         );
 

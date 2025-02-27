@@ -104,8 +104,8 @@ export class Context {
      * Configures and starts the client that interacts with the language server.
      *
      * The "client" is an object that sends messages to the language server, which in Move's case is
-     * the `move-analyzer` executable. Unlike registered extension commands such as
-     * `move-analyzer.serverVersion`, which are manually executed by a VS Code user via the command
+     * the `kari-move-analyzer` executable. Unlike registered extension commands such as
+     * `kari-move-analyzer.serverVersion`, which are manually executed by a VS Code user via the command
      * palette or menu, this client sends many of its messages on its own (for example, when it
      * starts, it sends the "initialize" request).
      *

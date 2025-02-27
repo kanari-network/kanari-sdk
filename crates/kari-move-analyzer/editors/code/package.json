@@ -1,11 +1,11 @@
 {
-	"name": "move",
-	"displayName": "Move",
+	"name": "kari-move",
+	"displayName": "Kari-Move",
 	"description": "A Move language integrated development environment for kari.",
 	"publisher": "kanari-network",
 	"icon": "images/move.png",
 	"license": "Apache-2.0",
-	"version": "0.0.1",
+	"version": "1.0.0",
 	"preview": true,
 	"repository": {
 		"url": "https://github.com/kanari-network/kanari-sdk.git",

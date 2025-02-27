@@ -26,7 +26,7 @@ async function serverVersion(context: Readonly<Context>): Promise<void> {
         await vscode.window.showInformationMessage(version.stdout);
     } else if (version.error) {
         await vscode.window.showErrorMessage(
-            `Could not execute move-analyzer: ${version.error.message}.`,
+            `Could not execute kari-move-analyzer: ${version.error.message}.`,
         );
     } else {
         await vscode.window.showErrorMessage(
@@ -125,18 +125,18 @@ export async function activate(extensionContext: Readonly<vscode.ExtensionContex
     log.info(`configuration: ${configuration.toString()}`);
 
     // VSCode does not provide a hook for install/update extension, and we don't want to attempt
-    // installation of move-analyzer binaries every time an extension is activated (e.g. after
+    // installation of kari-move-analyzer binaries every time an extension is activated (e.g. after
     // VSCode restart).
     //
-    // On a happy path (when user does not mock with user settings), we install move-analyzer
+    // On a happy path (when user does not mock with user settings), we install kari-move-analyzer
     // whenever the extension itself is installed or upgraded, and skip installation when
     // the globally stored extension version number does not change. However, even in this
-    // case we want to run the move-analyzer installation procedure if the move-analyzer
+    // case we want to run the kari-move-analyzer installation procedure if the kari-move-analyzer
     // is for some reason unavailable (e.g., because the user messed up user settings between
     // VSCode restarts).
     //
     // We also don't want to update the extension version in the global state until we know
-    // that move-analyzer installation succeeded as the global state change is permanent.
+    // that kari-move-analyzer installation succeeded as the global state change is permanent.
 
     const lastMoveVersion = extensionContext.globalState.get(globalMoveVersionKey);
     let doInstallBinary: boolean;
@@ -168,7 +168,7 @@ export async function activate(extensionContext: Readonly<vscode.ExtensionContex
 
     log.info('Creating extension context');
     const context = Context.create(extensionContext, configuration);
-    // An error here -- for example, if the path to the `move-analyzer` binary that the user
+    // An error here -- for example, if the path to the `kari-move-analyzer` binary that the user
     // specified in their settings is not valid -- prevents the extension from providing any
     // more utility, so return early.
     if (context instanceof Error) {

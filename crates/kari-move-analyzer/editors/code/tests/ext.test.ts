@@ -5,9 +5,9 @@ import * as assert from 'assert';
 import * as Mocha from 'mocha';
 import * as vscode from 'vscode';
 
-Mocha.suite('ext', () => {
+Mocha.karite('ext', () => {
     Mocha.test('ext_exists', () => {
-        const ext = vscode.extensions.getExtension('move.move-analyzer');
+        const ext = vscode.extensions.getExtension('move.kari-move-analyzer');
         assert.ok(ext);
     });
 });
