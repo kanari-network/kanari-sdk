@@ -12,6 +12,7 @@ repository.workspace = true
 description.workspace = true
 
 [dependencies]
+ed25519-dalek.workspace = true
 mona-types = { path = "../mona-types" }
 
 
