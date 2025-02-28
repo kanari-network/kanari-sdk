@@ -45,7 +45,8 @@ env_logger.workspace = true
 colored.workspace = true
 thiserror.workspace = true
 
-
+mona-vm.workspace = true
+mona-types.workspace = true
 mona-storage.workspace = true
 
 # MoveVM
