@@ -1,5 +1,5 @@
 use crate::block::Block;
-use crate::gas::TRANSACTION_GAS_COST;
+use mona_types::gas::GasSchedule;
 use crate::transaction::{Transaction, TransactionType};
 use bincode;
 use consensus_pos::Blake3Algorithm;
@@ -101,7 +101,7 @@ pub fn store_file(file_path: &Path) -> Result<String, BlockchainError> {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs(),
-        gas_cost: TRANSACTION_GAS_COST,
+            gas_cost: GasSchedule::default().contract_execution_base_cost as f64,
         signature: None,
         tx_type: TransactionType::FileStore,
         data: storage.path.to_str().unwrap_or("").as_bytes().to_vec(),
@@ -192,7 +192,7 @@ pub fn transfer_coins(sender: String, receiver: String, amount: u64) -> Result<(
                                 .duration_since(std::time::UNIX_EPOCH)
                                 .unwrap()
                                 .as_secs(),
-                            gas_cost: TRANSACTION_GAS_COST,
+                                gas_cost: GasSchedule::default().contract_execution_base_cost as f64,
                             signature: None,    // Add an empty signature or a valid one if available
                             tx_type: TransactionType::Transfer,
                             data: vec![],      // No additional data for basic transfer

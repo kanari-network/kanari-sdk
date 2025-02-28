@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use crate::block::Block;
 use crate::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN, TOTAL_TOKENS};
-use crate::gas::TRANSACTION_GAS_COST;
+use mona_types::gas::GasSchedule;
 use crate::transaction::{Transaction, TransactionType};
 
 // Define the Sender and Receiver separately
@@ -88,7 +88,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, address: String) {
                     sender: "system".to_string(),
                     receiver: address.clone(),
                     amount: 0,
-                    gas_cost: TRANSACTION_GAS_COST,
+                    gas_cost: GasSchedule::default().contract_execution_base_cost as f64,
                     timestamp: SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .unwrap()
