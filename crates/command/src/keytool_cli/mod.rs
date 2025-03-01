@@ -433,12 +433,30 @@ fn prompt_password(confirm: bool) -> String {
     print!("Enter password for wallet: ");
     io::stdout().flush().unwrap();
 
-    let password = read_password().unwrap();
+    let password = match read_password() {
+        Ok(pwd) => pwd,
+        Err(e) => {
+            eprintln!("Error reading password: {}. Falling back to standard input.", e);
+            // Fallback to standard input when secure input fails
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).expect("Failed to read input");
+            input.trim().to_string()
+        }
+    };
 
     if confirm {
         print!("Confirm password: ");
         io::stdout().flush().unwrap();
-        let confirm = read_password().unwrap();
+        
+        let confirm = match read_password() {
+            Ok(pwd) => pwd,
+            Err(e) => {
+                eprintln!("Error reading password: {}. Falling back to standard input.", e);
+                let mut input = String::new();
+                io::stdin().read_line(&mut input).expect("Failed to read input");
+                input.trim().to_string()
+            }
+        };
 
         if password != confirm {
             println!("{}", "Passwords do not match!".red());
