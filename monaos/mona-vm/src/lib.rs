@@ -2,7 +2,6 @@ use mona_types::address::Address;
 use mona_types::gas::{GasError, GasMeter, GasSchedule};
 use std::collections::BTreeMap;
 
-
 /// VM execution errors with improved error handling
 #[derive(Debug)]
 pub enum VMError {
@@ -47,6 +46,15 @@ impl ChangeSet {
     pub fn record_gas(&mut self, amount: u64) -> &mut Self {
         self.gas_used += amount;
         self
+    }
+
+    // Add these accessor methods
+    pub fn get_writes(&self) -> &BTreeMap<Vec<u8>, Vec<u8>> {
+        &self.writes
+    }
+
+    pub fn get_deletes(&self) -> &Vec<Vec<u8>> {
+        &self.deletes
     }
 }
 
@@ -180,12 +188,17 @@ impl MonaVM {
 
     fn verify_transaction(&self, context: &TransactionContext) -> Result<(), VMError> {
         // Use the correct field from GasSchedule
-        if context.max_gas_units > self.gas_schedule.custom_costs
-            .get("max_gas_per_tx")
-            .copied()
-            .unwrap_or(1_000_000) 
+        if context.max_gas_units
+            > self
+                .gas_schedule
+                .custom_costs
+                .get("max_gas_per_tx")
+                .copied()
+                .unwrap_or(1_000_000)
         {
-            return Err(VMError::InvalidTransaction("Gas limit too high".to_string()));
+            return Err(VMError::InvalidTransaction(
+                "Gas limit too high".to_string(),
+            ));
         }
         Ok(())
     }
@@ -207,7 +220,7 @@ impl MonaVM {
 
     fn get_balance(&self, account: &Address) -> u64 {
         self.state
-            .get(&account.to_bytes().to_vec())  // Convert address bytes to Vec<u8> for BTreeMap key
+            .get(&account.to_bytes().to_vec()) // Convert address bytes to Vec<u8> for BTreeMap key
             .and_then(|bytes| bytes.get(..8))
             .and_then(|slice| slice.try_into().ok())
             .map(u64::from_le_bytes)

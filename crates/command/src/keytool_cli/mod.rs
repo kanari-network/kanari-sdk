@@ -5,9 +5,9 @@ use key::{
 };
 use std::io::{self, Write};
 
-use k2::blockchain::{get_balance, load_blockchain};
-use std::process::exit;
+use k2::blockchain::{get_balance, load_blockchain_with_retry};
 use rpassword::read_password;
+use std::process::exit;
 
 struct CommandInfo {
     name: &'static str,
@@ -22,6 +22,10 @@ const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         name: "balance",
         description: "Check balance",
+    },
+    CommandInfo {
+        name: "transfer",
+        description: "Transfer coins to another address",
     },
     CommandInfo {
         name: "select",
@@ -155,8 +159,9 @@ pub fn handle_keytool_command() -> Option<String> {
                 match io::stdin().read_line(&mut public_address) {
                     Ok(_) => {
                         let public_address = public_address.trim().to_string();
-
-                        match load_blockchain() {
+                        
+                        // Use a more reliable approach
+                        match load_blockchain_with_retry() {
                             Ok(_) => match get_balance(&public_address) {
                                 Ok(balance) => {
                                     println!(
@@ -372,26 +377,37 @@ pub fn handle_keytool_command() -> Option<String> {
                         match public_address.parse() {
                             Ok(address) => {
                                 match save_wallet(&address, &private_key, "", &password) {
-                                    Ok(_) => {
-                                        match set_selected_wallet(&public_address) {
-                                            Ok(_) => {
-                                                println!("Imported wallet with address: {}", public_address);
-                                                return Some(public_address);
-                                            },
-                                            Err(e) => {
-                                                println!("{}", format!("Failed to set selected wallet: {}", e).red());
-                                                return None;
-                                            }
+                                    Ok(_) => match set_selected_wallet(&public_address) {
+                                        Ok(_) => {
+                                            println!(
+                                                "Imported wallet with address: {}",
+                                                public_address
+                                            );
+                                            return Some(public_address);
+                                        }
+                                        Err(e) => {
+                                            println!(
+                                                "{}",
+                                                format!("Failed to set selected wallet: {}", e)
+                                                    .red()
+                                            );
+                                            return None;
                                         }
                                     },
                                     Err(e) => {
-                                        println!("{}", format!("Failed to save wallet: {}", e).red());
+                                        println!(
+                                            "{}",
+                                            format!("Failed to save wallet: {}", e).red()
+                                        );
                                         return None;
                                     }
                                 }
-                            },
+                            }
                             Err(e) => {
-                                println!("{}", format!("Failed to parse public address: {}", e).red());
+                                println!(
+                                    "{}",
+                                    format!("Failed to parse public address: {}", e).red()
+                                );
                                 return None;
                             }
                         }
@@ -412,8 +428,6 @@ pub fn handle_keytool_command() -> Option<String> {
         return None;
     }
 }
-
-
 
 fn prompt_password(confirm: bool) -> String {
     print!("Enter password for wallet: ");
