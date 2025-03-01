@@ -96,7 +96,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, address: String) {
                     signature: None, // Add an empty signature or a valid one if available
                     tx_type: TransactionType::Transfer, // Add default transfer type
                     data: vec![], // Add empty data
-                    coin_type: None, // Add coin type if available
+                    coin_type: Some("KARI".to_string()), // Add coin type if available
                 });
                 info!("No transactions found. Created a zero-fee transaction.");
             }

@@ -105,7 +105,7 @@ pub fn store_file(file_path: &Path) -> Result<String, BlockchainError> {
         signature: None,
         tx_type: TransactionType::FileStore,
         data: storage.path.to_str().unwrap_or("").as_bytes().to_vec(),
-        coin_type: None
+        coin_type: Some("KARI".to_string())
     };
 
     // Add transaction to current block
@@ -159,70 +159,6 @@ pub fn get_balance(address: &str) -> Result<u64, BlockchainError> {
     Err(BlockchainError::Balance(
         "Failed to get balance after retries".to_string(),
     ))
-}
-
-pub fn transfer_coins(sender: String, receiver: String, amount: u64) -> Result<(), BlockchainError> {
-    let max_retries = 3;
-    let mut attempts = 0;
-
-    while attempts < max_retries {
-        // Clean up any stale locks first
-        let _ = cleanup_db_locks();
-        
-        unsafe {
-            if let Some(balances) = &BALANCES {
-                match balances.lock() {
-                    Ok(mut guard) => {
-                        // Check sender balance
-                        let sender_balance = *guard.get(&sender).unwrap_or(&0);
-                        if sender_balance < amount {
-                            return Err(BlockchainError::Balance("Insufficient balance".to_string()));
-                        }
-
-                        // Update balances
-                        *guard.entry(sender.clone()).or_insert(0) -= amount;
-                        *guard.entry(receiver.clone()).or_insert(0) += amount;
-
-                        // Create transaction
-                        let transaction = Transaction {
-                            sender: sender.clone(),
-                            receiver: receiver.clone(),
-                            amount,
-                            timestamp: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap()
-                                .as_secs(),
-                                gas_cost: GasSchedule::default().contract_execution_base_cost as f64,
-                            signature: None,    // Add an empty signature or a valid one if available
-                            tx_type: TransactionType::Transfer,
-                            data: vec![],      // No additional data for basic transfer
-                            coin_type: Some("KARI".to_string())
-                        };
-
-                        // Add to blockchain and save
-                        if let Some(last_block) = BLOCKCHAIN.back_mut() {
-                            last_block.transactions.push(transaction);
-                            drop(guard); // Release lock before saving
-                            save_blockchain()?;
-                            return Ok(());
-                        }
-                    }
-                    Err(_) => {
-                        attempts += 1;
-                        std::thread::sleep(std::time::Duration::from_millis(500));
-                        continue;
-                    }
-                }
-            } else {
-                init_blockchain_state();
-                load_blockchain()?;
-            }
-        }
-        attempts += 1;
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-
-    Err(BlockchainError::Balance("Failed to transfer coins after retries".to_string()))
 }
 
 pub fn load_blockchain() -> Result<(), StorageError> {

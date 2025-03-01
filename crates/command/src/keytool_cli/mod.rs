@@ -5,7 +5,7 @@ use key::{
 };
 use std::io::{self, Write};
 
-use k2::blockchain::{get_balance, load_blockchain, transfer_coins};
+use k2::blockchain::{get_balance, load_blockchain};
 use std::process::exit;
 use rpassword::read_password;
 
@@ -30,10 +30,6 @@ const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         name: "wallet",
         description: "Load existing wallet",
-    },
-    CommandInfo {
-        name: "send",
-        description: "Send coins",
     },
     CommandInfo {
         name: "list",
@@ -276,49 +272,6 @@ pub fn handle_keytool_command() -> Option<String> {
                         return None;
                     }
                 }
-            }
-
-            "send" => {
-                // Get sender
-                println!("Enter sender address:");
-                let mut sender = String::new();
-                let _ = io::stdin().read_line(&mut sender);
-                let sender = sender.trim().to_string();
-
-                // Get receiver
-                println!("Enter receiver address:");
-                let mut receiver = String::new();
-                let _ = io::stdin().read_line(&mut receiver);
-                let receiver = receiver.trim().to_string();
-
-                // Get amount
-                println!("Enter amount to send:");
-                let mut amount = String::new();
-                let _ = io::stdin().read_line(&mut amount);
-                let amount: u64 = match amount.trim().parse() {
-                    Ok(num) => num,
-                    Err(_) => {
-                        println!("{}", "Invalid amount".red());
-                        return None;
-                    }
-                };
-
-                // Execute transfer
-                match transfer_coins(sender.clone(), receiver.clone(), amount) {
-                    Ok(_) => {
-                        println!("{}", "Transaction successful!".green());
-                        println!(
-                            "Sent {} tokens from {} to {}",
-                            amount.to_string().green(),
-                            sender.green(),
-                            receiver.green()
-                        );
-                    }
-                    Err(e) => {
-                        println!("{}: {}", "Transaction failed".red(), e);
-                    }
-                }
-                return None;
             }
 
             "list" => {
