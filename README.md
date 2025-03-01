@@ -200,7 +200,7 @@ cargo run --release --bin kari start
 choco install mingw
 ```
 ```shell
-cargo install --locked --git https://github.com/kanari-network/kanari-sdk.git --branch main kari
+cargo install --locked --git https://github.com/kanari-network/kanari-sdk.git --branch kanari-sdk kari
 ```
 ## Star History
 
