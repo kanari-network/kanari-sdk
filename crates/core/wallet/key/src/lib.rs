@@ -1,19 +1,20 @@
-use std::{fs, io, str::FromStr };
-use serde::{Deserialize, Serialize};
-use bip39::{Mnemonic, Language};
+use bip39::rand::rngs::OsRng;
+use bip39::{rand, Language, Mnemonic};
 use log::error;
-use move_core_types::{
-    account_address::AccountAddress,
-    // identifier::Identifier,
-};
-use secp256k1::{Secp256k1, SecretKey, PublicKey};
-use rand::rngs::OsRng;
+use mona_types::address::Address;
+use serde::{Deserialize, Serialize};
+use std::{fs, io};
+
 use hex;
+use secp256k1::{Secp256k1, SecretKey};
 use thiserror::Error;
 
 // Import Mutex and HashMap from std::sync
-use k2::{blockchain::get_kari_dir, config::{load_config, save_config}};
-use serde_yaml::{Value, Mapping};
+use k2::{
+    blockchain::get_kari_dir,
+    config::{load_config, save_config},
+};
+use serde_yaml::{Mapping, Value};
 
 use aes_gcm::{
     aead::{Aead, KeyInit},
@@ -21,10 +22,8 @@ use aes_gcm::{
 };
 use argon2::{
     password_hash::{PasswordHasher, SaltString},
-    Argon2, 
+    Argon2,
 };
-
-
 
 #[derive(Error, Debug)]
 pub enum WalletError {
@@ -39,7 +38,7 @@ pub enum WalletError {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct EncryptedData {
     ciphertext: Vec<u8>,
-    salt: String,  
+    salt: String,
     nonce: Vec<u8>,
 }
 
@@ -53,18 +52,16 @@ fn derive_key(password: &str, salt: &SaltString) -> Result<[u8; 32], WalletError
     Ok(key)
 }
 
-
-
 pub fn check_wallet_exists() -> bool {
     match list_wallet_files() {
         Ok(wallets) => !wallets.is_empty(),
-        Err(_) => false
+        Err(_) => false,
     }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Wallet {
-    pub address: String,
+    pub address: Address,
     pub private_key: String,
     pub seed_phrase: String,
 }
@@ -73,19 +70,19 @@ pub struct Wallet {
 pub fn set_selected_wallet(wallet_address: &str) -> io::Result<()> {
     // Load existing config
     let mut config = load_config()?;
-    
+
     // Update address in config
     if let Some(mapping) = config.as_mapping_mut() {
         mapping.insert(
             Value::String("address".to_string()),
-            Value::String(wallet_address.to_string())
+            Value::String(wallet_address.to_string()),
         );
     } else {
         // Create new mapping if none exists
         let mut mapping = Mapping::new();
         mapping.insert(
             Value::String("address".to_string()),
-            Value::String(wallet_address.to_string())
+            Value::String(wallet_address.to_string()),
         );
         config = Value::Mapping(mapping);
     }
@@ -94,9 +91,14 @@ pub fn set_selected_wallet(wallet_address: &str) -> io::Result<()> {
     save_config(&config)
 }
 
-pub fn save_wallet(address: &str, private_key: &str, seed_phrase: &str, password: &str) -> Result<(), WalletError> {
+pub fn save_wallet(
+    address: &Address,
+    private_key: &str,
+    seed_phrase: &str,
+    password: &str,
+) -> Result<(), WalletError> {
     let wallet_data = Wallet {
-        address: address.to_string(),
+        address: *address,
         private_key: private_key.to_string(),
         seed_phrase: seed_phrase.to_string(),
     };
@@ -107,9 +109,9 @@ pub fn save_wallet(address: &str, private_key: &str, seed_phrase: &str, password
     let binding = rand::random::<[u8; 12]>();
     let nonce = Nonce::from_slice(&binding);
 
-    let toml_string = toml::to_string(&wallet_data)
-        .map_err(|e| WalletError::EncryptionError(e.to_string()))?;
-    
+    let toml_string =
+        toml::to_string(&wallet_data).map_err(|e| WalletError::EncryptionError(e.to_string()))?;
+
     let encrypted = cipher
         .encrypt(nonce, toml_string.as_bytes())
         .map_err(|e| WalletError::EncryptionError(e.to_string()))?;
@@ -127,7 +129,7 @@ pub fn save_wallet(address: &str, private_key: &str, seed_phrase: &str, password
     let wallet_file = wallet_dir.join(format!("{}.enc", address));
     let encrypted_json = serde_json::to_string(&encrypted_data)
         .map_err(|e| WalletError::EncryptionError(e.to_string()))?;
-    
+
     fs::write(wallet_file, encrypted_json)?;
     Ok(())
 }
@@ -143,7 +145,7 @@ pub fn load_wallet(address: &str, password: &str) -> Result<Wallet, WalletError>
     let salt = SaltString::from_b64(&encrypted_data.salt)
         .map_err(|e| WalletError::DecryptionError(e.to_string()))?;
     let key = derive_key(password, &salt)?;
-    
+
     let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
     let nonce = Nonce::from_slice(&encrypted_data.nonce);
 
@@ -151,13 +153,13 @@ pub fn load_wallet(address: &str, password: &str) -> Result<Wallet, WalletError>
         .decrypt(nonce, encrypted_data.ciphertext.as_slice())
         .map_err(|e| WalletError::DecryptionError(e.to_string()))?;
 
-    let decrypted_str = String::from_utf8(decrypted)
-        .map_err(|e| WalletError::DecryptionError(e.to_string()))?;
+    let decrypted_str =
+        String::from_utf8(decrypted).map_err(|e| WalletError::DecryptionError(e.to_string()))?;
 
-    let wallet: Wallet = toml::from_str(&decrypted_str)
-        .map_err(|e| WalletError::DecryptionError(e.to_string()))?;
+    let wallet_data: Wallet =
+        toml::from_str(&decrypted_str).map_err(|e| WalletError::DecryptionError(e.to_string()))?;
 
-    Ok(wallet)
+    Ok(wallet_data)
 }
 
 pub fn generate_karix_address(word_count: usize) -> (String, String, String) {
@@ -186,19 +188,18 @@ pub fn generate_karix_address(word_count: usize) -> (String, String, String) {
     (
         secret_key.display_secret().to_string(),
         karix_public_address,
-        seed_phrase
+        seed_phrase,
     )
 }
 
-
 /// Returns list of wallet files with selection status
-/// 
+///
 /// # Returns
 /// * `Result<Vec<(String, bool)>>` - List of (wallet_filename, is_selected) tuples
 pub fn list_wallet_files() -> Result<Vec<(String, bool)>, std::io::Error> {
     let kari_dir = get_kari_dir();
     let wallet_dir = kari_dir.join("wallets");
-    
+
     // Create wallet directory if it doesn't exist
     if !wallet_dir.exists() {
         fs::create_dir_all(&wallet_dir)?;
@@ -226,47 +227,51 @@ pub fn list_wallet_files() -> Result<Vec<(String, bool)>, std::io::Error> {
 
     // Sort wallets alphabetically
     wallets.sort_by(|a, b| a.0.cmp(&b.0));
-    
+
     Ok(wallets)
 }
 
 // import_from_seed_phrase
-pub fn import_from_seed_phrase(phrase: &str) -> Result<(String, String, String), Box<dyn std::error::Error>> {
+pub fn import_from_seed_phrase(
+    phrase: &str,
+) -> Result<(String, String, String), Box<dyn std::error::Error>> {
     // Validate and create mnemonic
     let mnemonic = Mnemonic::parse_in(Language::English, phrase)?;
-    
+
     // Generate seed from mnemonic
     let seed = mnemonic.to_seed("");
-    
+
     // Create private key from seed
     let secp = Secp256k1::new();
     let secret_key = SecretKey::from_slice(&seed[0..32])?;
     let public_key = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
-    
+
     // Generate addresses
     let private_key = hex::encode(secret_key.as_ref());
     let mut hex_encoded = hex::encode(&public_key.serialize_uncompressed()[1..]);
     hex_encoded.truncate(64);
     let public_address = format!("0x{}", hex_encoded);
-    
+
     Ok((private_key, hex_encoded, public_address))
 }
 
 // import_from_private_key
-pub fn import_from_private_key(private_key: &str) -> Result<(String, String, String), Box<dyn std::error::Error>> {
+pub fn import_from_private_key(
+    private_key: &str,
+) -> Result<(String, String, String), Box<dyn std::error::Error>> {
     // Convert hex private key to bytes
     let private_key_bytes = hex::decode(private_key)?;
-    
+
     // Create secret key and generate public key
     let secp = Secp256k1::new();
     let secret_key = SecretKey::from_slice(&private_key_bytes)?;
     let public_key = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
-    
+
     // Generate addresses
     let mut hex_encoded = hex::encode(&public_key.serialize_uncompressed()[1..]);
     hex_encoded.truncate(64);
     let public_address = format!("0x{}", hex_encoded);
-    
+
     Ok((private_key.to_string(), hex_encoded, public_address))
 }
 
@@ -277,81 +282,4 @@ fn get_selected_wallet() -> Option<String> {
         .ok()
         .and_then(|data| toml::from_str::<toml::Value>(&data).ok())
         .and_then(|toml| toml.get("selected_wallet")?.as_str().map(String::from))
-}
-
-
-#[derive(Error, Debug)]
-pub enum KeyError {
-    #[error("Invalid seed phrase")]
-    InvalidSeedPhrase,
-    #[error("Invalid key format")]
-    InvalidKeyFormat,
-    #[error("Address generation failed")]
-    AddressGenerationFailed,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MoveKeyPair {
-    pub private_key: String,
-    pub public_key: String,
-    pub address: AccountAddress,
-    pub seed_phrase: String,
-}
-
-impl MoveKeyPair {
-    pub fn generate(word_count: usize) -> Result<Self, KeyError> {
-        let (secret_key, pub_addr, seed) = generate_karix_address(word_count);
-        
-        // Convert to Move address format
-        let address_bytes = hex::decode(&pub_addr[2..])
-            .map_err(|_| KeyError::AddressGenerationFailed)?;
-        let move_address = AccountAddress::new(
-            address_bytes.try_into()
-                .map_err(|_| KeyError::AddressGenerationFailed)?
-        );
-
-        Ok(Self {
-            private_key: secret_key,
-            public_key: pub_addr,
-            address: move_address,
-            seed_phrase: seed,
-        })
-    }
-
-    pub fn from_private_key(private_key: &str) -> Result<Self, KeyError> {
-        let secp = Secp256k1::new();
-        let secret_key = SecretKey::from_str(private_key)
-            .map_err(|_| KeyError::InvalidKeyFormat)?;
-        let public_key = PublicKey::from_secret_key(&secp, &secret_key);
-
-        // Generate Move address from public key
-        let pub_bytes = public_key.serialize_uncompressed();
-        let move_address = AccountAddress::new(
-            pub_bytes[1..33].try_into()
-                .map_err(|_| KeyError::AddressGenerationFailed)?
-        );
-
-        Ok(Self {
-            private_key: private_key.to_string(),
-            public_key: hex::encode(&pub_bytes[1..]),
-            address: move_address,
-            seed_phrase: String::new(), // Empty for key-derived wallets
-        })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_keypair_generation() {
-        let result = MoveKeyPair::generate(12);
-        assert!(result.is_ok());
-        let keypair = result.unwrap();
-        println!("Private key: {}", keypair.private_key);
-        assert!(!keypair.private_key.is_empty());
-        println!("Public key: {}", keypair.public_key);
-        assert!(!keypair.seed_phrase.is_empty());
-    }
 }

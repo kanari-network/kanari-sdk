@@ -43,5 +43,5 @@ gas-profiler = [
 ]
 
 [dev-dependencies]
-hex-literal = "0.4"
+hex-literal = "1.0.0"
 

@@ -1,5 +1,3 @@
-
-use std::collections::HashMap;
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::process::exit;
@@ -12,7 +10,7 @@ use k2::simulation::run_blockchain;
 use key::{check_wallet_exists, list_wallet_files};
 use network::{NetworkConfig, NetworkType};
 
-use k2::blockchain::{get_kari_dir, load_blockchain, save_blockchain, BALANCES};
+use k2::blockchain::{get_kari_dir, load_blockchain, save_blockchain};
 use k2::chain_id::CHAIN_ID;
 use k2::config::{configure_network, load_config, save_config};
 use std::process::Command;
@@ -196,21 +194,18 @@ async fn start_node() {
 
     let _ = load_blockchain();
     let running = Arc::new(Mutex::new(true));
-
-    unsafe {
-        BALANCES = Some(Mutex::new(HashMap::new()));
-    }
+    
 
     // Load address with validation
     let address = match config.get("address").and_then(|v| v.as_str()) {
         Some(address) => {
             // Verify wallet file exists for this address
-            if !std::path::Path::new(&get_kari_dir().join("wallets").join(format!("{}.toml", address))).exists() {
+            if !std::path::Path::new(&get_kari_dir().join("wallets").join(format!("{}.enc", address))).exists() {
                 // Try to find any existing wallet
                 match list_wallet_files() {
                     Ok(wallets) if !wallets.is_empty() => {
                         // Access first element of tuple (filename)
-                        let first_wallet = wallets[0].0.trim_end_matches(".toml").to_string();
+                        let first_wallet = wallets[0].0.trim_end_matches(".enc").to_string();
                         println!("Using existing wallet as address: {}", first_wallet.green());
                         
                         // Convert config to Map to modify it
@@ -239,7 +234,7 @@ async fn start_node() {
             // Try to find any existing wallet
             match list_wallet_files() {
                 Ok(wallets) if !wallets.is_empty() => {
-                    let first_wallet = wallets[0].0.trim_end_matches(".toml").to_string();
+                    let first_wallet = wallets[0].0.trim_end_matches(".enc").to_string();
                     println!("Setting address to existing wallet: {}", first_wallet.green());
                     
                     // Update config with new address using serde_yaml::Value
