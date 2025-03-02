@@ -9,7 +9,7 @@ KanariFramework = { git = "https://github.com/kanari-network/kanari-sdk.git", su
 MoveStdlib = { git = "https://github.com/kanari-network/kanari-sdk.git", subdir = "framework/packages/move-stdlib", rev = "kanari-sdk" }
 
 [addresses]
-nft = "0x0"
+nft = "0x6907882847b2cdc2eb33313911ae7f50d29eed1aca7381e508557a1aae30b714"
 std = "0x1"
 kanari_framework = "0x2"
 

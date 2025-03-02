@@ -1,10 +1,6 @@
 use mona_types::address::Address;
 use mona_types::gas::{GasError, GasMeter, GasSchedule};
-use move_package::source_package::parsed_manifest::PackageInfo;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
-
-pub mod vm;
 
 /// VM execution errors with improved error handling
 #[derive(Debug)]
@@ -15,7 +11,6 @@ pub enum VMError {
     ExecutionError(String),
     StateError(String),
     GasError(GasError),
-    PackageValidationError(String), // Add this error type
 }
 
 /// Result of transaction execution with detailed status
@@ -31,35 +26,6 @@ pub struct ChangeSet {
     writes: BTreeMap<Vec<u8>, Vec<u8>>,
     deletes: Vec<Vec<u8>>,
     gas_used: u64,
-    packages: BTreeMap<Vec<u8>, PackageInfo>, // Add this field to track package deployments
-}
-
-// Package validator for Move contracts
-pub struct PackageValidator {
-    framework_path: PathBuf,
-}
-
-impl PackageValidator {
-    /// Create a new validator with the path to framework packages
-    pub fn new(framework_path: impl Into<PathBuf>) -> Self {
-        Self {
-            framework_path: framework_path.into(),
-        }
-    }
-
-    /// Validate a Move package against framework rules
-    pub fn validate_package(&self, package_bytes: &[u8]) -> Result<PackageInfo, VMError> {
-        // Implementation would:
-        // 1. Parse the Move package from bytes
-        // 2. Check it against framework rules
-        // 3. Verify dependencies exist
-        // 4. Return package info if valid
-
-        // Placeholder implementation
-        Err(VMError::PackageValidationError(
-            "Not implemented".to_string(),
-        ))
-    }
 }
 
 impl ChangeSet {
@@ -74,12 +40,6 @@ impl ChangeSet {
 
     pub fn delete(&mut self, key: Vec<u8>) -> &mut Self {
         self.deletes.push(key);
-        self
-    }
-
-    /// Add a validated package to the changeset
-    pub fn add_package(&mut self, package_id: Vec<u8>, package_info: PackageInfo) -> &mut Self {
-        self.packages.insert(package_id, package_info);
         self
     }
 
