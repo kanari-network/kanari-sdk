@@ -154,6 +154,7 @@ kari-node                 = { path = "crates/kari-node" }
 kari-move                 = { path = "crates/kari-move" }
 kari-move-analyzer        = { path = "crates/kari-move-analyzer" }
 
+
 # Consensus Path List
 consensus-pos             = { path = "consensus/pos" }
 consensus-pow             = { path = "consensus/pow" }
