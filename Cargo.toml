@@ -149,10 +149,11 @@ datatest-stable = "0.3.2"
 # Path Definitions for Workspace Members: Define paths for each crate in the workspace.
 # Allows referencing these crates as dependencies within other workspace crates using their names.
 # Path List
-kari                      = { path = "crates/kari" }
+kari                      = { path = "crates/kari" } 
 kari-node                 = { path = "crates/kari-node" }
 kari-move                 = { path = "crates/kari-move" }
 kari-move-analyzer        = { path = "crates/kari-move-analyzer" }
+
 
 # Consensus Path List
 consensus-pos             = { path = "consensus/pos" }
@@ -171,12 +172,12 @@ command                   = { path = "crates/command" }
 rpc-api                   = { path = "crates/rpc/rpc-api" }
 
 
-# Storage Path List
+# MonaOS Path List
 anorama                   = { path = "monaos/anorama" }
 mona-vm                   = { path = "monaos/mona-vm" }
-mona-storage              = { path = "monaos/mona-storage" }
-mona-types                = { path = "monaos/mona-types" }
+mona-storage              = { path = "monaos/mona-storage" } 
 mona-enum-compat-util     = { path = "monaos/mona-enum-compat-util" }
+mona-types                = { path = "monaos/mona-types" }
 
 
 # Framework Move Path List

@@ -18,8 +18,9 @@ tokio.workspace = true
 
 consensus-pos.workspace = true
 k2.workspace = true
-kari-move.workspace = true
-
+network.workspace = true
+key.workspace = true
+thiserror.workspace = true
 anyhow.workspace = true
 colored.workspace = true
 difference.workspace = true
@@ -32,3 +33,9 @@ toml_edit.workspace = true
 
 bcs.workspace = true
 
+mona-types.workspace = true
+mona-storage.workspace = true
+
+[[bin]]
+name = "node"
+path = "src/main.rs"
