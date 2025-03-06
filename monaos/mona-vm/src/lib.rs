@@ -226,6 +226,90 @@ impl MonaVM {
             .map(u64::from_le_bytes)
             .unwrap_or(0)
     }
+
+    /// Upload a Move module image to the VM
+    pub fn upload_image(&mut self, module_bytes: Vec<u8>) -> Result<(), VMError> {
+        // Verify module structure
+        match self.verify_module_bytecode(&module_bytes) {
+            Ok(_) => {
+                // Calculate module hash for storage key
+                let module_hash = self.hash_module(&module_bytes);
+                
+                // Store module in VM state
+                self.state.insert(module_hash.to_vec(), module_bytes);
+                
+                Ok(())
+            },
+            Err(e) => Err(VMError::InvalidTransaction(format!("Invalid module format: {}", e)))
+        }
+    }
+    
+    /// Execute a Move module function
+    pub fn execute_move_function(
+        &mut self, 
+        module_id: Vec<u8>, 
+        function_name: &str,
+        args: Vec<Vec<u8>>,
+        context: TransactionContext
+    ) -> TransactionStatus {
+        let mut gas_meter = GasMeter::new(context.max_gas_units, self.gas_schedule.clone());
+        let mut changes = ChangeSet::new();
+        
+        match self.execute_move_function_inner(&module_id, function_name, &args, &context, &mut gas_meter, &mut changes) {
+            Ok(()) => TransactionStatus::Success {
+                gas_used: context.max_gas_units - gas_meter.gas_left(),
+                changes,
+            },
+            Err(error) => TransactionStatus::Failed {
+                error,
+                gas_used: context.max_gas_units - gas_meter.gas_left(),
+            },
+        }
+    }
+    
+    fn execute_move_function_inner(
+        &self,
+        module_id: &[u8],
+        function_name: &str,
+        args: &[Vec<u8>],
+        context: &TransactionContext,
+        gas_meter: &mut GasMeter,
+        changes: &mut ChangeSet
+    ) -> Result<(), VMError> {
+        // 1. Look up the module in state
+        let module_bytes = self.state.get(module_id)
+            .ok_or_else(|| VMError::ExecutionError(format!("Module not found")))?;
+        
+        // 2. Charge gas for loading module
+        gas_meter
+            .charge_storage_op(module_bytes.len(), true)
+            .map_err(|e| VMError::GasError(e))?;
+        
+        // 3. Execute function (in a real implementation, this would use a Move VM)
+        // This is a placeholder for the actual Move VM execution
+        
+        // 4. Record changes
+        // In a real implementation, this would capture the state changes from execution
+        
+        Ok(())
+    }
+    
+    fn verify_module_bytecode(&self, bytecode: &[u8]) -> Result<(), String> {
+        // Implement basic bytecode verification
+        if bytecode.is_empty() {
+            return Err("Empty bytecode".to_string());
+        }
+        
+        // Add more verification as needed
+        Ok(())
+    }
+    
+    fn hash_module(&self, bytecode: &[u8]) -> [u8; 32] {
+        use sha2::{Sha256, Digest};
+        let mut hasher = Sha256::new();
+        hasher.update(bytecode);
+        hasher.finalize().into()
+    }
 }
 
 #[cfg(test)]

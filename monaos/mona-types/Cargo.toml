@@ -18,7 +18,7 @@ description.workspace = true
 move-binary-format = { workspace = true, optional = true }
 move-bytecode-utils = { workspace = true, optional = true }
 move-command-line-common = { workspace = true, optional = true }
-move-core-types = { workspace = true, optional = true }
+move-core-types = { workspace = true}
 move-vm-test-utils = { workspace = true, optional = true }
 move-vm-types = { workspace = true, optional = true }
 move-vm-profiler = { workspace = true, optional = true }

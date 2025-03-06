@@ -2,7 +2,30 @@ use std::fmt;
 use std::str::FromStr;
 use hex::FromHex;
 use std::convert::TryFrom;
+
 use serde::{Serialize, Deserialize}; // Import Serialize and Deserialize
+// Add this at the top with other imports
+use move_core_types::account_address::AccountAddress;
+
+// Add this implementation at the end of the file, right before or after the std::error::Error impl
+impl From<AccountAddress> for Address {
+    fn from(addr: AccountAddress) -> Self {
+        // Get the bytes from AccountAddress
+        let move_bytes = addr.to_vec();
+        
+        // Create a 32-byte array filled with zeros
+        let mut bytes = [0u8; Self::LENGTH];
+        
+        // Handle the size difference between Move's AccountAddress and our Address
+        // Copy the bytes from AccountAddress to our Address, right-aligned
+        // This preserves the significant bytes if the sizes differ
+        let start_idx = Self::LENGTH.saturating_sub(move_bytes.len());
+        let copy_len = std::cmp::min(move_bytes.len(), Self::LENGTH);
+        bytes[start_idx..start_idx + copy_len].copy_from_slice(&move_bytes[..copy_len]);
+        
+        Address::new(bytes)
+    }
+}
 
 /// Represents an address in the system
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
