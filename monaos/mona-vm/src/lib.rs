@@ -1,7 +1,10 @@
 use mona_types::address::Address;
 use mona_types::gas::{GasError, GasMeter, GasSchedule};
 use std::collections::BTreeMap;
+pub mod package_validator;
+pub use package_validator::{PackageValidator, PackageInfo};
 
+pub mod vm;
 /// VM execution errors with improved error handling
 #[derive(Debug)]
 pub enum VMError {
@@ -55,6 +58,22 @@ impl ChangeSet {
 
     pub fn get_deletes(&self) -> &Vec<Vec<u8>> {
         &self.deletes
+    }
+
+
+        pub fn add_package(&mut self, package_id: Vec<u8>, package_info: PackageInfo) -> &mut Self {
+        // Store package metadata in a special key format, for example:
+        // We could prefix with "pkg:" to distinguish package metadata from regular data
+        let metadata_key = [b"pkg:".to_vec(), package_id.clone()].concat();
+        
+        // Serialize package_info - in a real implementation you might use serde
+        let metadata_value = vec![
+            package_info.module_count.to_le_bytes().to_vec(),
+            package_info.size_bytes.to_le_bytes().to_vec()
+        ].concat();
+        
+        self.writes.insert(metadata_key, metadata_value);
+        self
     }
 }
 
@@ -311,6 +330,7 @@ impl MonaVM {
         hasher.finalize().into()
     }
 }
+
 
 #[cfg(test)]
 mod tests {
