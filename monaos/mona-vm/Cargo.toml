@@ -13,9 +13,13 @@ description.workspace = true
 
 [dependencies]
 ed25519-dalek.workspace = true
-mona-types = { path = "../mona-types" }
-framework.workspace = true
 sha2.workspace = true
+
+#mona-types Move language
+mona-types = { path = "../mona-types" }
+#framework Move language
+framework.workspace = true
+
 
 # MoveVM
 move-bytecode-verifier.workspace = true
