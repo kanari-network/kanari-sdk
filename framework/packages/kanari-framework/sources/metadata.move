@@ -1,6 +1,5 @@
 module kanari_framework::metadata {
     use std::vector;
-    use std::signer;
 
     /// Metadata stores information about file ownership and content hash
     struct Metadata has key, store, drop {
