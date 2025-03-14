@@ -14,12 +14,19 @@ use crate::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN, TOTAL_TOKENS};
 use crate::transaction::{Transaction, TransactionType};
 use lazy_static::lazy_static;
 
-use mona_types::address::Address;
 use mona_types::gas::GasSchedule;
-use mona_vm::{MonaVM, TransactionContext, TransactionStatus};
-
+use mona_vm::MonaVM;
 // Use Once to safely initialize channels 
 use std::sync::Once;
+
+pub mod process_block_transactions;
+pub mod process_transactions;
+pub mod process_transaction_in_vm;
+pub mod apply_gas_charge;
+pub mod apply_state_changes;
+
+use crate::simulation::process_block_transactions::process_block_transactions;
+
 static INIT: Once = Once::new();
 
 // Custom error types for better error handling
@@ -123,10 +130,10 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, address: String) {
     // Initialize transaction channels
     init_transaction_channel();
 
-    let max_tokens = 11_000_000; // Maximum token supply
+    let max_tokens = 100_000_000; // Maximum token supply
     let mut tokens_per_block = 25; // Initial block reward
-    let halving_interval = 210_000; // Halve the block reward every 210,000 blocks
-    let block_size = 2_250_000; // 2.25 MB in bytes
+    let halving_interval = 2_010_000; // Halve the block reward every 210,000 blocks
+    let block_size = 1_250_000; // 1.25 MB in bytes
 
     // Create genesis block if blockchain is empty
     {
@@ -322,231 +329,5 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, address: String) {
         }
 
         thread::sleep(Duration::from_millis(550));
-    }
-}
-
-// Helper function to process transactions in a block and return valid ones with total fees
-fn process_block_transactions(block: &Block<Blake3Algorithm>) -> Result<(Vec<Transaction>, u64), SimulationError> {
-    let mut valid_transactions = Vec::new();
-    let mut total_fees = 0;
-    
-    // Pre-filter system transactions to reduce lock time
-    for tx in &block.transactions {
-        if tx.sender == "system" {
-            valid_transactions.push(tx.clone());
-        }
-    }
-    
-    // Process non-system transactions
-    let mut balances = get_mutex_lock(&BALANCES, "process_transactions")?;
-    
-    for tx in &block.transactions {
-        // Skip system transactions as they've already been processed
-        if tx.sender == "system" {
-            continue;
-        }
-
-        // Check if sender exists and has sufficient funds
-        if let Some(sender_balance) = balances.get_mut(&tx.sender) {
-            let total_cost = tx.amount + tx.gas_cost as u64;
-            
-            if *sender_balance >= total_cost {
-                // Transaction is valid, process it
-                *sender_balance -= total_cost;
-                
-                // Credit the receiver
-                *balances.entry(tx.receiver.clone()).or_insert(0) += tx.amount;
-                
-                // Add transaction fee to total
-                total_fees += tx.gas_cost as u64;
-                
-                // Add to valid transactions list
-                valid_transactions.push(tx.clone());
-            } else {
-                // Log insufficient funds
-                error!("Transaction failed: insufficient funds. Required: {}, Available: {}, Tx: {}", 
-                       total_cost, *sender_balance, tx.hash);
-                debug!("Transaction details: {:?}", tx);
-            }
-        } else {
-            // Sender not found in balances
-            error!("Transaction failed: sender address not found: {}, Tx: {}", tx.sender, tx.hash);
-        }
-    }
-    
-    Ok((valid_transactions, total_fees))
-}
-
-pub fn process_transactions(running: Arc<Mutex<bool>>) {
-    // Initialize transaction channels if not already done
-    init_transaction_channel();
-    
-    while *running.lock().unwrap() {
-        // Get transaction receiver safely
-        let receiver = match get_transaction_receiver() {
-            Some(rx) => rx,
-            None => {
-                warn!("Transaction receiver not initialized");
-                thread::sleep(Duration::from_millis(100));
-                continue;
-            }
-        };
-
-        // Try to receive a transaction with timeout to avoid blocking
-        match receiver.recv_timeout(Duration::from_millis(100)) {
-            Ok(transaction) => {
-                info!(
-                    "{} Processing transaction: {}",
-                    Local::now().format("[%Y-%m-%d %H:%M:%S]").to_string().blue(),
-                    transaction.hash.green()
-                );
-
-                // Execute transaction in VM - limit mutex lock scope
-                let execution_result = match process_transaction_in_vm(&transaction) {
-                    Ok(result) => result,
-                    Err(e) => {
-                        error!("Failed to process transaction: {}", e);
-                        continue;
-                    }
-                };
-
-                // Process execution result
-                match execution_result {
-                    TransactionStatus::Success { gas_used, changes } => {
-                        info!(
-                            "{} Transaction executed successfully. Gas used: {}",
-                            Local::now().format("[%Y-%m-%d %H:%M:%S]").to_string().blue(),
-                            gas_used
-                        );
-
-                        // Apply state changes safely
-                        if let Err(e) = apply_state_changes(&changes) {
-                            error!("Failed to apply state changes: {}", e);
-                            continue;
-                        }
-
-                        // Add transaction to pending pool for block inclusion
-                        match get_mutex_lock(&PENDING_TRANSACTIONS, "add_successful_transaction") {
-                            Ok(mut pending) => pending.push(transaction),
-                            Err(e) => error!("Failed to add successful transaction to pending pool: {}", e)
-                        }
-                    }
-                    TransactionStatus::Failed { error, gas_used } => {
-                        warn!(
-                            "{} Transaction failed: {:?}. Gas used: {}",
-                            Local::now().format("[%Y-%m-%d %H:%M:%S]").to_string().blue(),
-                            error,
-                            gas_used
-                        );
-
-                        // Charge gas even for failed transactions
-                        if let Err(e) = apply_gas_charge(&transaction.sender, gas_used * transaction.gas_price) {
-                            error!("Failed to charge gas for failed transaction: {}", e);
-                        }
-                    }
-                }
-            },
-            Err(RecvTimeoutError::Timeout) => {
-                // This is normal, just continue
-            },
-            Err(RecvTimeoutError::Disconnected) => {
-                warn!("Transaction channel disconnected");
-                thread::sleep(Duration::from_millis(500));
-            }
-        }
-    }
-}
-
-// Helper function to process a transaction in the VM
-fn process_transaction_in_vm(transaction: &Transaction) -> Result<TransactionStatus, SimulationError> {
-    let mut vm = get_mutex_lock(&VM, "process_transaction_vm")?;
-    
-    // Convert transaction to VM format safely
-    let tx_bytes = transaction.serialize();
-    let sender_address = Address::from_hex(&transaction.sender)
-        .map_err(|e| {
-            error!("Failed to convert sender address: {} for tx: {}", e, transaction.hash);
-            SimulationError::AddressError(e.to_string())
-        })?;
-
-    // Create transaction context
-    let context = TransactionContext {
-        max_gas_units: transaction.gas_limit,
-        gas_unit_price: transaction.gas_price,
-        sender: sender_address,
-        sequence_number: transaction.nonce,
-        expiration_timestamp_secs: transaction.timestamp,
-    };
-
-    // Execute transaction in VM
-    Ok(vm.execute_transaction(tx_bytes, context))
-}
-
-// Helper function to apply VM state changes to the blockchain
-pub fn apply_state_changes(changes: &mona_vm::ChangeSet) -> Result<(), SimulationError> {
-    // Lock balances for minimum time needed
-    let mut balances = get_mutex_lock(&BALANCES, "apply_state_changes")?;
-
-    // Apply writes with proper error handling
-    for (key, value) in changes.get_writes() {
-        if key.len() != 32 {
-            debug!("Invalid key length in state change: {}, skipping", key.len());
-            continue;
-        }
-        
-        // Convert key to address
-        let address = hex::encode(key);
-        
-        // Convert value to u64 balance
-        if value.len() < 8 {
-            debug!("Invalid value length in state change: {}, skipping", value.len());
-            continue;
-        }
-        
-        let balance = match value[..8].try_into() {
-            Ok(bytes) => u64::from_le_bytes(bytes),
-            Err(e) => {
-                debug!("Failed to convert value bytes to u64: {:?}, skipping", e);
-                continue;
-            }
-        };
-        
-        // Update balance
-        debug!("Updating balance for address {}: {}", address, balance);
-        balances.insert(address, balance);
-    }
-
-    // Apply deletes
-    for key in changes.get_deletes() {
-        if key.len() != 32 {
-            debug!("Invalid key length in state delete: {}, skipping", key.len());
-            continue;
-        }
-        
-        let address = hex::encode(key);
-        debug!("Removing balance for address: {}", address);
-        balances.remove(&address);
-    }
-
-    Ok(())
-}
-
-// Helper function to charge gas for failed transactions
-pub fn apply_gas_charge(sender: &str, gas_charge: u64) -> Result<(), SimulationError> {
-    let mut balances = get_mutex_lock(&BALANCES, "apply_gas_charge")?;
-
-    if let Some(balance) = balances.get_mut(sender) {
-        if *balance >= gas_charge {
-            *balance -= gas_charge;
-            Ok(())
-        } else {
-            let err = SimulationError::InsufficientFunds(gas_charge, *balance);
-            error!("{}", err);
-            Err(err)
-        }
-    } else {
-        let err = SimulationError::AddressNotFound(sender.to_string());
-        error!("{}", err);
-        Err(err)
     }
 }
