@@ -23,7 +23,7 @@ flowchart TB
   subgraph "Core Layer"
     %% Blockchain Sub-layer
     subgraph "Blockchain"
-      C1["K2 Core"]
+      C1["Panorama Core"]
       C2["TX Management"]
       C3["State Management"]
     end
