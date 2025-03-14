@@ -116,7 +116,7 @@ flowchart TB
   click F1 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/framework/kanari-framework"
   click F2 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/framework/move-stdlib"
   click F3 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/framework/kanari-system"
-  click C1 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/crates/core/k2"
+  click C1 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/crates/core/panorama"
   click R1 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/crates/kari-move"
   click R2 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/crates/kari-move"
   click CS1 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/consensus/pow"
