@@ -78,14 +78,17 @@ description = "Kanari Network SDK" # Short description of the SDK.
 [workspace.dependencies]
 # Cryptography & Security
 argon2 = "0.5.3"
+bip39 = { version = "2.0.0", features = ["rand"] }
 blake3 = "1.6.1"
 crypto = "0.5.1"
 digest = "0.10.7"
 ed25519-dalek = "2.1.1"
 hex = "0.4.3"
+rand = "0.9.0"  # version 0.8.5 is not compatible with the move-package crate
 secp256k1 = { version = "0.30.0", features = ["rand"] }
 sha2 = "0.10.8"
 sha3 = "0.10.8"
+uuid = { version = "1.15.0", features = ["v4", "serde"] }
 
 # Serialization & Data Formats
 bcs = "0.1.4"
@@ -103,42 +106,40 @@ futures = "0.3.30"
 jsonrpc-core = "18.0"
 jsonrpc-http-server = "18.0"
 tokio = { version = "1", features = ["full"] }
+url = "2.5.4"
 
-# Core Utilities
-bip39 = { version = "2.0.0", features = ["rand"] }
-chrono = "0.4.40"
-crossbeam = "0.8.4"
-difference = "2.0.0"
-dirs = "6.0.0"
-once_cell = "1.20.2"
-# rand = "0.8.5" version 0.8.5 is not compatible with the move-package crate
-rand = "0.9.0"
-tempfile = "3.3.0"
-uuid = { version = "1.15.0", features = ["v4", "serde"] }
-walkdir = "2.3.2"
-
-# Logging & Diagnostics
-env_logger = "0.11.6"
-log = "0.4.26"
-tracing = "0.1.41"
-
-# Error Handling
+# Error Handling & Diagnostics
 anyhow = "1.0.95"
+codespan-reporting = "0.11.0"
+env_logger = "0.11.6"
 lazy_static = "1.5.0"
+log = "0.4.26"
 thiserror = "2.0.11"
+tracing = "0.1.41"
 
 # CLI & User Interface
 clap = "4.5.31"
-codespan-reporting = "0.11.0"
 colored = "3.0.0"
-derivative = "2.2.0"
-dunce = "1.0.5"
-im = "15.1.0"
-itertools = "0.14.0"
 lsp-server = "0.7.8"
 lsp-types = "0.97.0"
-url = "2.5.4"
+
+# File System & I/O
+dirs = "6.0.0"
+dunce = "1.0.5"
+tempfile = "3.3.0"
 vfs = "0.10.0"
+walkdir = "2.3.2"
+
+# Data Structures & Algorithms
+crossbeam = "0.8.4"
+derivative = "2.2.0"
+difference = "2.0.0"
+im = "15.1.0"
+itertools = "0.14.0"
+once_cell = "1.20.2"
+
+# Date & Time
+chrono = "0.4.40"
 
 # Storage & Database
 rocksdb = "0.23.0"
