@@ -13,7 +13,6 @@ exclude = ["third_party/move"] # Exclude the 'third_party/move' directory from w
 # These are the core components of the "kanari-sdk" project.
 members = [
     "crates/kari",            # Core crate for the Kanari SDK.
-    "crates/kari-node",       # Crate for running a Kanari node.
     "crates/kari-move",       # Crate related to MoveVM integration within Kanari.
     "crates/kari-move-analyzer", # Crate for MoveVM bytecode analysis.
     "consensus/pos",          # Crate implementing Proof-of-Stake consensus.
@@ -151,7 +150,6 @@ datatest-stable = "0.3.2"
 # Allows referencing these crates as dependencies within other workspace crates using their names.
 # Path List
 kari                      = { path = "crates/kari" } 
-kari-node                 = { path = "crates/kari-node" }
 kari-move                 = { path = "crates/kari-move" }
 kari-move-analyzer        = { path = "crates/kari-move-analyzer" }
 
