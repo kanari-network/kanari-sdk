@@ -30,7 +30,7 @@ base64 = "0.22.1"
 
 # This is a workspace crate, so we need to include the following dependencies
 mona-types.workspace = true
-k2.workspace = true
+panorama.workspace = true
 
 
 move-core-types = { workspace = true }

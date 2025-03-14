@@ -1,5 +1,5 @@
 [package]
-name = "k2"
+name = "panorama"
 edition.workspace = true
 version.workspace = true
 categories.workspace = true

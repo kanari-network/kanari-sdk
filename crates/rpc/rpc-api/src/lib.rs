@@ -2,7 +2,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use futures::FutureExt;
 use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult, Error as RpcError};
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
-use k2::{blockchain::BLOCKCHAIN, chain_id::CHAIN_ID};
+use panorama::{blockchain::BLOCKCHAIN, chain_id::CHAIN_ID};
 use network::NetworkConfig;
 use serde_json::{json, Value as JsonValue};
 use mona_storage::file_storage::{FileStorage, StorageError2};

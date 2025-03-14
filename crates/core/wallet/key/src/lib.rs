@@ -10,7 +10,7 @@ use secp256k1::{Secp256k1, SecretKey};
 use thiserror::Error;
 
 // Import Mutex and HashMap from std::sync
-use k2::{
+use panorama::{
     blockchain::get_kari_dir,
     config::{load_config, save_config},
 };

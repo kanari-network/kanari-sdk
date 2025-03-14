@@ -20,7 +20,7 @@ members = [
     "crates/core/p2p",        # Crate for peer-to-peer networking.
     "crates/core/wallet/key", # Crate for key management and wallet functionalities.
     "crates/rpc/rpc-api",     # Crate defining the RPC API for Kanari.
-    "crates/core/k2",         # Core crate likely related to Kanari's architecture (K2 could be a codename).
+    "crates/core/panorama",         # Core crate likely related to Kanari's architecture (panorama could be a codename).
     "crates/command",         # Crate for command-line interface utilities.
     "consensus/pow",          # Crate implementing Proof-of-Work consensus.
     "framework",              # High-level framework crate for the SDK.
@@ -163,7 +163,7 @@ consensus-pow             = { path = "consensus/pow" }
 network                   = { path = "crates/core/network" }
 p2p-protocol              = { path = "crates/core/p2p" }
 key                       = { path = "crates/core/wallet/key" }
-k2                        = { path = "crates/core/k2" }
+panorama                  = { path = "crates/core/panorama" }
 command                   = { path = "crates/command" }
 
 

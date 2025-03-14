@@ -5,7 +5,7 @@ use key::{
 };
 use std::io::{self, Write};
 
-use k2::blockchain::{get_balance, load_blockchain_with_retry};
+use panorama::blockchain::{get_balance, load_blockchain_with_retry};
 use rpassword::read_password;
 use std::process::exit;
 

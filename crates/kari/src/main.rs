@@ -6,13 +6,13 @@ use command::keytool_cli::handle_keytool_command;
 use command::move_cli::handle_move_command;
 
 use command::public_cli::handle_public_command;
-use k2::simulation::run_blockchain;
+use panorama::simulation::run_blockchain;
 use key::{check_wallet_exists, list_wallet_files};
 use network::{NetworkConfig, NetworkType};
 
-use k2::blockchain::{get_kari_dir, load_blockchain, save_blockchain};
-use k2::chain_id::CHAIN_ID;
-use k2::config::{configure_network, load_config, save_config};
+use panorama::blockchain::{get_kari_dir, load_blockchain, save_blockchain};
+use panorama::chain_id::CHAIN_ID;
+use panorama::config::{configure_network, load_config, save_config};
 use std::process::Command;
 
 

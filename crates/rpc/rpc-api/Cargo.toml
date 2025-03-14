@@ -25,7 +25,7 @@ serde.workspace = true
 
 network.workspace = true
 consensus-pos.workspace = true
-k2.workspace = true
+panorama.workspace = true
 
 mona-storage = { path = "../../../monaos/mona-storage" }
 base64 = "0.22.1"
