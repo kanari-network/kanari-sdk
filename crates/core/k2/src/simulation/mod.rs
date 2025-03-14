@@ -1,7 +1,7 @@
 use chrono::Local;
 use colored::*;
 use consensus_pos::Blake3Algorithm;
-use crossbeam::channel::{unbounded, Receiver, Sender, RecvTimeoutError};
+use crossbeam::channel::{unbounded, Receiver, Sender};
 use log::{error, info, warn, debug};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;

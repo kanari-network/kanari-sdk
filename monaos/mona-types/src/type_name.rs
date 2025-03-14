@@ -1,6 +1,6 @@
-use crate::ascii::{self, String as AsciiString};
+use crate::ascii::String as AsciiString;
 use crate::address;
-use crate::vector::Vector;
+
 
 /// ASCII Character codes
 const ASCII_COLON: u8 = 58;

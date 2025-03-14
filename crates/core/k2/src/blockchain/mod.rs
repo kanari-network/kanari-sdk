@@ -168,7 +168,7 @@ pub fn init_blockchain_state() {
             // Add any initial balances here if needed
             // For example: balances.insert("genesis_address".to_string(), 1000000);
         }
-
+        
         if BLOCKCHAIN.is_empty() {
             BLOCKCHAIN = VecDeque::new();
         }
