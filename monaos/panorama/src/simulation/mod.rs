@@ -1,333 +1,289 @@
-use chrono::Local;
-use colored::*;
-use consensus_pos::Blake3Algorithm;
-use crossbeam::channel::{unbounded, Receiver, Sender};
 use log::{error, info, warn, debug};
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::thread;
-use std::time::Duration;
-use std::time::{SystemTime, UNIX_EPOCH};
-use thiserror::Error;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use consensus_pos::Blake3Algorithm;
+use rand::{thread_rng, Rng};
 
-use crate::block::Block;
+use crate::block::{Block, Transaction};
 use crate::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN, TOTAL_TOKENS};
-use crate::transaction::{Transaction, TransactionType};
-use lazy_static::lazy_static;
 
-use mona_types::gas::GasSchedule;
-use mona_vm::MonaVM;
-// Use Once to safely initialize channels 
-use std::sync::Once;
-
-pub mod process_block_transactions;
-pub mod process_transactions;
-pub mod process_transaction_in_vm;
-pub mod apply_gas_charge;
-pub mod apply_state_changes;
-
-use crate::simulation::process_block_transactions::process_block_transactions;
-
-static INIT: Once = Once::new();
-
-// Custom error types for better error handling
-#[derive(Error, Debug)]
-pub enum SimulationError {
-    #[error("Lock acquisition failed: {0}")]
-    LockError(String),
-    
-    #[error("Address conversion error: {0}")]
-    AddressError(String),
-    
-    #[error("Insufficient funds: required {0}, available {1}")]
-    InsufficientFunds(u64, u64),
-    
-    #[error("Address not found: {0}")]
-    AddressNotFound(String),
-    
-    #[error("Transaction execution failed: {0}")]
-    TransactionError(String),
-    
-    #[error("State update error: {0}")]
-    StateError(String),
-}
-
-// Use Arc<Mutex<>> instead of static mut for thread safety
-lazy_static! {
-    static ref TRANSACTION_CHANNEL: Arc<Mutex<Option<(Sender<Transaction>, Receiver<Transaction>)>>> = 
-        Arc::new(Mutex::new(None));
-    static ref PENDING_TRANSACTIONS: Mutex<Vec<Transaction>> = Mutex::new(Vec::new());
-    static ref VM: Mutex<MonaVM> = Mutex::new(MonaVM::new());
-}
-
-// Helper function to safely get mutex locks with timeout to prevent deadlocks
-fn get_mutex_lock<'a, T>(mutex: &'a Mutex<T>, operation: &str) -> Result<MutexGuard<'a, T>, SimulationError> {
-    mutex.lock().map_err(|e| {
-        error!("Failed to acquire lock for {}: {:?}", operation, e);
-        SimulationError::LockError(format!("{}: {:?}", operation, e))
-    })
-}
-
-// Initialize transaction channels safely
-fn init_transaction_channel() {
-    INIT.call_once(|| {
-        let (sender, receiver) = unbounded();
-        match get_mutex_lock(&TRANSACTION_CHANNEL, "init_transaction_channel") {
-            Ok(mut channel) => *channel = Some((sender, receiver)),
-            Err(e) => error!("Failed to initialize transaction channel: {}", e),
-        }
-    });
-}
-
-// Safe getters for transaction sender and receiver
-pub fn get_transaction_sender() -> Option<Sender<Transaction>> {
-    match TRANSACTION_CHANNEL.try_lock() {
-        Ok(channel) => channel.as_ref().map(|(sender, _)| sender.clone()),
-        Err(e) => {
-            debug!("Could not acquire lock for transaction sender: {:?}", e);
-            None
-        }
-    }
-}
-
-pub fn get_transaction_receiver() -> Option<Receiver<Transaction>> {
-    match TRANSACTION_CHANNEL.try_lock() {
-        Ok(channel) => channel.as_ref().map(|(_, receiver)| receiver.clone()),
-        Err(e) => {
-            debug!("Could not acquire lock for transaction receiver: {:?}", e);
-            None
-        }
-    }
-}
-
-// Helper function to get blockchain length safely without unsafe
-fn get_blockchain_len() -> usize {
-    // Use a read-only atomic operation if possible in the actual implementation
-    // For now, we'll continue using unsafe but wrap it in a function
-    unsafe { BLOCKCHAIN.len() }
-}
-
-// Helper function to create a blockchain block wrapper to reduce unsafe usage
-fn create_block(
-    index: u32, 
-    data: Vec<u8>, 
-    prev_hash: String, 
-    tokens: u64, 
-    transactions: Vec<Transaction>, 
-    address: String
-) -> Block<Blake3Algorithm> {
-    Block::new(
-        index,
-        data,
-        prev_hash,
-        tokens,
-        transactions,
-        address,
-        Blake3Algorithm,
-    )
-}
+// Constants for Kari token
+const KARI_DECIMALS: u8 = 9;  // 9 decimal places
+const KARI_BASE: u64 = 1_000_000_000;  // 10^9
+const INITIAL_KARI_SUPPLY: u64 = 100_000_000 * KARI_BASE;  // 100 million kari with 9 decimal places
+const BLOCK_TIME: u64 = 5;  // Target time between blocks in seconds
+const TRANSACTION_FEE_PERCENT: u64 = 1;  // 1% transaction fee
 
 pub fn run_blockchain(running: Arc<Mutex<bool>>, address: String) {
-    // Initialize transaction channels
-    init_transaction_channel();
-
-    let max_tokens = 100_000_000; // Maximum token supply
-    let mut tokens_per_block = 25; // Initial block reward
-    let halving_interval = 2_010_000; // Halve the block reward every 210,000 blocks
-    let block_size = 1_250_000; // 1.25 MB in bytes
-
-    // Create genesis block if blockchain is empty
-    {
-        let blockchain_len = get_blockchain_len();
-        if blockchain_len == 0 {
-            let genesis_data = vec![0; block_size];
-            let genesis_transactions = vec![];
+    info!("Initializing blockchain with {} kari (base unit: 10^{} decimals)", 
+          INITIAL_KARI_SUPPLY / KARI_BASE, KARI_DECIMALS);
+    
+    info!("Node address: {}", address);
+    
+    unsafe {
+        if BLOCKCHAIN.is_empty() {
+            // Initialize with genesis block containing all tokens
+            create_genesis_block();
             
-            let genesis_block = create_block(
-                0,
-                genesis_data,
-                String::from("0"),
-                tokens_per_block,
-                genesis_transactions,
-                address.clone()
-            );
-            
-            unsafe {
-                BLOCKCHAIN.push_back(genesis_block);
-                TOTAL_TOKENS += tokens_per_block;
-                
-                // Update miner balance for genesis reward
-                match get_mutex_lock(&BALANCES, "genesis_balance_update") {
-                    Ok(mut balances) => {
-                        balances.entry(address.clone())
-                            .and_modify(|balance| *balance += tokens_per_block)
-                            .or_insert(tokens_per_block);
-                            
-                        info!(
-                            "Genesis block created with hash: {}",
-                            BLOCKCHAIN.back().unwrap().hash
-                        );
-                    },
-                    Err(e) => error!("Failed to update genesis miner balance: {}", e),
-                }
+            // Save initial blockchain state
+            match save_blockchain() {
+                Ok(_) => info!("Genesis blockchain state saved successfully"),
+                Err(e) => error!("Failed to save genesis blockchain state: {}", e),
             }
+        } else {
+            info!("Blockchain already initialized with {} blocks", BLOCKCHAIN.len());
+            info!("Current total supply: {} kari", TOTAL_TOKENS / KARI_BASE);
         }
     }
-
-    // Main blockchain loop
-    loop {
-        // Check if we should continue running
-        if !*running.lock().unwrap() {
+    
+    // Start blockchain processing
+    info!("Blockchain system running - producing blocks every {} seconds", BLOCK_TIME);
+    
+    let mut last_block_time = Instant::now();
+    
+    // Example of using the running flag to control the lifecycle
+    while let Ok(guard) = running.lock() {
+        if !*guard {
             break;
         }
-
-        // Process incoming transactions - limit lock scope
-        if let Some(receiver) = get_transaction_receiver() {
-            while let Ok(transaction) = receiver.try_recv() {
-                info!("Received new transaction: {}", transaction.hash);
-                debug!("Transaction details: {:?}", transaction);
-                
-                match get_mutex_lock(&PENDING_TRANSACTIONS, "add_pending_transaction") {
-                    Ok(mut pending) => pending.push(transaction),
-                    Err(e) => error!("Failed to add transaction to pending pool: {}", e),
-                }
-            }
-        }
-
-        // Calculate miner reward based on token supply
-        let reward = if unsafe { TOTAL_TOKENS } < max_tokens {
-            tokens_per_block
-        } else {
-            if tokens_per_block > 0 {
-                warn!("Reached maximum token supply. Only processing transactions.");
-                tokens_per_block = 0; // Set block reward to 0
-            }
-            0
-        };
-
-        // Safely get pending transactions
-        let transactions = {
-            match get_mutex_lock(&PENDING_TRANSACTIONS, "get_pending_transactions") {
-                Ok(mut pending) => {
-                    if pending.is_empty() {
-                        // Create zero-fee transaction only if there are no pending transactions
-                        vec![Transaction {
-                            sender: "system".to_string(),
-                            receiver: address.clone(),
-                            amount: 0,
-                            gas_cost: GasSchedule::default().contract_execution_base_cost as f64,
-                            timestamp: SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .expect("Time went backwards")
-                                .as_secs(),
-                            signature: None,
-                            tx_type: TransactionType::Transfer,
-                            data: vec![],
-                            coin_type: Some("KARI".to_string()),
-                            hash: "".to_string(),
-                            gas_limit: 1000000,
-                            gas_price: 1,
-                            nonce: 0,
-                        }]
-                    } else {
-                        // Take all pending transactions
-                        std::mem::take(&mut *pending)
+        drop(guard); // Release lock before time-consuming operations
+        
+        // Check if it's time to create a new block
+        if last_block_time.elapsed() >= Duration::from_secs(BLOCK_TIME) {
+            // Mine a new block
+            match mine_new_block(&address) {
+                Ok(block_hash) => {
+                    info!("Created new block with hash: {}", block_hash);
+                    
+                    // Save blockchain after each new block
+                    match save_blockchain() {
+                        Ok(_) => debug!("Blockchain state saved successfully"),
+                        Err(e) => error!("Failed to save blockchain state: {}", e),
                     }
                 },
-                Err(e) => {
-                    error!("Failed to get pending transactions: {}", e);
-                    vec![] // Return empty transactions array on error
-                }
+                Err(e) => error!("Failed to create new block: {}", e),
             }
-        };
-
-        // Create new block
-        let (prev_block, new_block) = unsafe {
-            let prev_block = BLOCKCHAIN.back().unwrap();
-            let new_data = vec![0; block_size];
             
-            let new_block = create_block(
-                prev_block.index + 1,
-                new_data,
-                prev_block.hash.clone(),
-                reward,
-                transactions,
-                address.clone()
-            );
-            
-            (prev_block.clone(), new_block)
-        };
-
-        // Verify block before adding to chain
-        if !new_block.verify(&prev_block) {
-            error!("Block verification failed!");
-            break;
+            last_block_time = Instant::now();
         }
-
-        // Process transactions and update balances - collect valid transactions and failed ones
-        match process_block_transactions(&new_block) {
-            Ok((valid_transactions, transaction_fees)) => {
-                // Only add block to chain if it has valid transactions or is a reward-only block
-                if !valid_transactions.is_empty() || reward > 0 {
-                    unsafe {
-                        // Update blockchain with the new block that has filtered transactions
-                        let mut updated_block = new_block;
-                        updated_block.transactions = valid_transactions;
-                        BLOCKCHAIN.push_back(updated_block.clone());
-                        
-                        // Update miner's balance with transaction fees and block reward
-                        match get_mutex_lock(&BALANCES, "update_miner_balance") {
-                            Ok(mut balances) => {
-                                balances.entry(address.clone())
-                                    .and_modify(|balance| *balance += transaction_fees + reward)
-                                    .or_insert(transaction_fees + reward);
-                            },
-                            Err(e) => error!("Failed to update miner balance: {}", e),
-                        }
-
-                        // Update total tokens only if it won't exceed max supply
-                        if TOTAL_TOKENS < max_tokens {
-                            TOTAL_TOKENS += reward;
-                        }
-
-                        // Save blockchain state
-                        save_blockchain();
-
-                        println!(
-                            "{} {} | block={} | hash={:}... | prev={:}... | miner={} | reward={}",
-                            "[INFO]".green(),
-                            Local::now().format("%Y-%m-%d %H:%M:%S"),
-                            BLOCKCHAIN.len().to_string().blue(),
-                            updated_block.hash[..48.min(updated_block.hash.len())].yellow(),
-                            updated_block.prev_hash[..42.min(updated_block.prev_hash.len())].yellow(),
-                            format!("{}t", transaction_fees).cyan(),
-                            format!("{}t", reward).cyan()
-                        );
-
-                        // Check for halving
-                        if BLOCKCHAIN.len() % halving_interval == 0 && TOTAL_TOKENS < max_tokens && tokens_per_block > 0 {
-                            tokens_per_block /= 2;
-                            println!(
-                                "{} Block reward halved to {}",
-                                "[HALV]".red(),
-                                format!("{} tokens", tokens_per_block).red()
-                            );
-                        }
-
-                        println!(
-                            "{} blocks={} supply={}",
-                            "[STAT]".magenta(),
-                            BLOCKCHAIN.len().to_string().blue(),
-                            TOTAL_TOKENS.to_string().magenta()
-                        );
-                        println!();
-                    }
-                }
-            },
-            Err(e) => {
-                error!("Failed to process block transactions: {}", e);
-            }
-        }
-
-        thread::sleep(Duration::from_millis(550));
+        
+        // Don't burn CPU
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
+    
+    info!("Blockchain system shutting down");
+}
+
+// Helper function to create the genesis block
+fn create_genesis_block() {
+    use consensus_pos::Blake3Algorithm;
+    
+    let genesis_address = "genesis_kari_foundation".to_string();
+    let genesis_data = format!("Genesis Block - Initial Supply: {} kari", 
+                             INITIAL_KARI_SUPPLY / KARI_BASE).into_bytes();
+    
+    info!("Creating genesis block with address: {}", genesis_address);
+    
+    // Create empty transactions vector for genesis block
+    let transactions = Vec::new();
+    
+    // Create the genesis block with Blake3Algorithm instantiated directly
+    let genesis_block = Block::new(
+        0,                  // index
+        genesis_data,       // data
+        "0".to_string(),    // prev_hash (zeros for genesis)
+        INITIAL_KARI_SUPPLY, // tokens - all initial supply
+        transactions,       // empty transactions for genesis
+        genesis_address.clone(), // genesis address
+        Blake3Algorithm{},  // Direct instantiation instead of using ::new()
+    );
+    
+    // Add genesis block to blockchain
+    unsafe {
+        BLOCKCHAIN.push_back(genesis_block);
+        TOTAL_TOKENS = INITIAL_KARI_SUPPLY;
+    }
+    
+    // Update balance for genesis address
+    {
+        let mut balances = BALANCES.lock().unwrap();
+        balances.insert(genesis_address, INITIAL_KARI_SUPPLY);
+    }
+    
+    info!("Genesis block created with hash: {}", 
+          unsafe { BLOCKCHAIN.front().unwrap().hash.clone() });
+    info!("Total supply created: {} kari", INITIAL_KARI_SUPPLY / KARI_BASE);
+}
+
+// Function to mine a new block
+fn mine_new_block(miner_address: &str) -> Result<String, String> {
+    let previous_hash: String;
+    let new_index: u32;
+    
+    unsafe {
+        if BLOCKCHAIN.is_empty() {
+            return Err("Blockchain is empty, cannot mine new block".into());
+        }
+        
+        let prev_block = BLOCKCHAIN.back().unwrap();
+        previous_hash = prev_block.hash.clone();
+        new_index = prev_block.index + 1;
+    }
+    
+    // Generate some transactions for demonstration
+    let transactions = generate_sample_transactions(miner_address);
+    
+    // Calculate total transaction fees (1% of each transaction amount)
+    let total_fees: u64 = transactions.iter()
+        .map(|tx| tx.amount * TRANSACTION_FEE_PERCENT / 100)
+        .sum();
+    
+    // Create block data with timestamp and transaction info
+    let data = format!("Block {} mined by {} at {} with {} transactions", 
+                      new_index, 
+                      miner_address, 
+                      SystemTime::now()
+                          .duration_since(UNIX_EPOCH)
+                          .unwrap()
+                          .as_secs(),
+                      transactions.len())
+                .into_bytes();
+    
+    // Create the new block (with zero new tokens - fixed supply)
+    let new_block = Block::new(
+        new_index,
+        data,
+        previous_hash,
+        0,  // No new tokens created - fixed supply at 100M
+        transactions.clone(),
+        miner_address.to_string(),
+        Blake3Algorithm{},
+    );
+    
+    let block_hash = new_block.hash.clone();
+    
+    // Update blockchain
+    unsafe {
+        BLOCKCHAIN.push_back(new_block);
+        // Total supply remains unchanged since no new tokens are created
+    }
+    
+    // Update balances for transaction fees
+    {
+        let mut balances = BALANCES.lock().unwrap();
+        
+        // Process all transactions, including fee collection
+        for tx in &transactions {
+            // Deduct full amount from sender (including fee)
+            *balances.entry(tx.sender.clone()).or_insert(0) -= tx.amount;
+            
+            // Calculate and deduct fee from the transferred amount
+            let fee = tx.amount * TRANSACTION_FEE_PERCENT / 100;
+            let net_amount = tx.amount - fee;
+            
+            // Add net amount to receiver
+            *balances.entry(tx.receiver.clone()).or_insert(0) += net_amount;
+            
+            // Add fee to miner
+            *balances.entry(miner_address.to_string()).or_insert(0) += fee;
+        }
+        
+        // Log miner's earnings from fees
+        if total_fees > 0 {
+            info!("Miner earned {} kari in transaction fees", total_fees / KARI_BASE);
+            info!("Current miner balance: {} kari", 
+                  balances.get(miner_address).unwrap_or(&0) / KARI_BASE);
+        }
+    }
+    
+    info!("Block {} mined with {} transactions, fees collected: {} kari, total supply: {} kari", 
+          new_index, transactions.len(), total_fees / KARI_BASE, unsafe { TOTAL_TOKENS / KARI_BASE });
+    
+    Ok(block_hash)
+}
+
+// Function to generate sample transactions with transaction fees
+fn generate_sample_transactions(miner_address: &str) -> Vec<Transaction> {
+    let mut transactions = Vec::new();
+    let mut rng = thread_rng();
+    
+    // Number of transactions to generate (random between 0-5 for demonstration)
+    let num_transactions = rng.gen_range(0..=5);
+    
+    // Get balances to check if transactions are valid
+    let balances = BALANCES.lock().unwrap();
+    
+    // Generate random transaction if balances exist
+    if balances.len() > 1 {
+        // Convert hashmap keys to vector for random selection
+        let addresses: Vec<String> = balances.keys().cloned().collect();
+        
+        for _ in 0..num_transactions {
+            // Select random sender and receiver
+            let sender_idx = rng.gen_range(0..addresses.len());
+            let mut receiver_idx = rng.gen_range(0..addresses.len());
+            
+            // Ensure sender and receiver are different
+            while receiver_idx == sender_idx {
+                receiver_idx = rng.gen_range(0..addresses.len());
+            }
+            
+            let sender = &addresses[sender_idx];
+            let receiver = &addresses[receiver_idx];
+            
+            // Get sender balance
+            let sender_balance = *balances.get(sender).unwrap_or(&0);
+            
+            // Only create transaction if sender has sufficient balance
+            // (including the 1% transaction fee)
+            if sender_balance > KARI_BASE {
+                // Random amount between 0.1% and 10% of sender's balance
+                let max_amount = sender_balance / 10;
+                let min_amount = sender_balance / 1000;
+                let amount = if max_amount > min_amount {
+                    rng.gen_range(min_amount..=max_amount)
+                } else {
+                    min_amount
+                };
+                
+                // Ensure sender has enough to cover amount + fee
+                let fee = amount * TRANSACTION_FEE_PERCENT / 100;
+                let total_cost = amount + fee;
+                
+                if sender_balance >= total_cost {
+                    transactions.push(Transaction {
+                        sender: sender.clone(),
+                        receiver: receiver.clone(),
+                        amount,  // The gross amount (fee will be deducted in mining function)
+                        timestamp: SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs(),
+                        signature: None,
+                    });
+                }
+            }
+        }
+    } else {
+        // If there aren't enough addresses yet, create a dummy transaction
+        // from the genesis foundation to the miner (to bootstrap the system)
+        if num_transactions > 0 && balances.contains_key("genesis_kari_foundation") {
+            let genesis_balance = *balances.get("genesis_kari_foundation").unwrap();
+            if genesis_balance > KARI_BASE * 100 {
+                let amount = KARI_BASE * 100;  // Transfer 100 kari
+                transactions.push(Transaction {
+                    sender: "genesis_kari_foundation".to_string(),
+                    receiver: miner_address.to_string(),
+                    amount,
+                    timestamp: SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                    signature: None,
+                });
+            }
+        }
+    }
+    
+    transactions
 }

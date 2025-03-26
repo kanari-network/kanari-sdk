@@ -1,9 +1,9 @@
-use crate::block::Block;
+use crate::block::{Block, Transaction};
 use bincode;
 use consensus_pos::Blake3Algorithm;
 use dirs;
 use mona_storage::{BlockchainStorage, RocksDBStorage, StorageError};
-
+use log::{info, warn, error, debug};
 
 use lazy_static::lazy_static;
 use std::collections::{HashMap, VecDeque};
@@ -11,6 +11,12 @@ use std::fs;
 use std::path::PathBuf;
 use std::ptr::addr_of;
 use std::sync::Mutex;
+
+// Define constants for Kari token
+pub const KARI_DECIMALS: u8 = 9;
+pub const KARI_BASE: u64 = 1_000_000_000;  // 10^9
+pub const INITIAL_KARI_SUPPLY: u64 = 100_000_000 * KARI_BASE;  // 100 million kari
+pub const TRANSACTION_FEE_PERCENT: u64 = 1;  // 1% transaction fee
 
 // Define global variables for the blockchain
 pub static mut TOTAL_TOKENS: u64 = 0;
@@ -27,111 +33,12 @@ pub fn get_kari_dir() -> PathBuf {
     path
 }
 
-pub fn cleanup_db_locks() -> std::io::Result<()> {
-    let lock_path = get_kari_dir().join("blockchain_db").join("LOCK");
-    if lock_path.exists() {
-        // Try to remove the file, but use a retry mechanism for all OS platforms
-        match fs::remove_file(&lock_path) {
-            Ok(_) => {
-                println!("Successfully removed stale lock file");
-                return Ok(());
-            },
-            Err(initial_err) => {
-                // Implement retry logic for all platforms
-                use std::thread::sleep;
-                use std::time::Duration;
-                
-                // Configuration for retry attempts
-                let max_attempts = 5;
-                let initial_delay_ms = 100;
-                let backoff_factor = 2.0;
-                
-                let mut delay_ms = initial_delay_ms;
-                
-               // Try multiple attempts with exponential backoff
-               for attempt in 1..=max_attempts {
-                println!("Attempt {} to remove lock file", attempt);
-                sleep(Duration::from_millis(delay_ms));
-                
-                match fs::remove_file(&lock_path) {
-                    Ok(_) => {
-                        println!("Successfully removed lock file on attempt {}", attempt);
-                        return Ok(());
-                    },
-                    Err(_) => {
-                        // Increase delay with exponential backoff
-                        delay_ms = (delay_ms as f64 * backoff_factor) as u64;
-                        
-                        // Try alternative approaches on later attempts
-                        if attempt > 2 {
-                            // On attempt 3+, try to determine if another process is using the file
-                            #[cfg(target_os = "windows")]
-                            {
-                                // On Windows, use a system command to check processes
-                                let _ = std::process::Command::new("cmd")
-                                    .args(&["/C", "tasklist | findstr kari"])
-                                    .status();
-                            }
-                            
-                            #[cfg(target_os = "macos")]
-                            {
-                                // On macOS, use lsof with special flags
-                                println!("Checking for processes using the lock file on macOS...");
-                                let output = std::process::Command::new("lsof")
-                                    .arg("-F")  // Output format suitable for parsing
-                                    .arg("-n")  // No hostname lookup
-                                    .arg("-P")  // No port name resolution
-                                    .arg(lock_path.to_string_lossy().to_string())
-                                    .output();
-                                
-                                if let Ok(output) = output {
-                                    if !output.stdout.is_empty() {
-                                        println!("Found processes using the lock file. Consider terminating them.");
-                                    }
-                                }
-                                
-                                // Try to force unlock on macOS specifically
-                                if attempt == max_attempts - 1 {
-                                    let _ = std::process::Command::new("rm")
-                                        .arg("-f")
-                                        .arg(lock_path.to_string_lossy().to_string())
-                                        .status();
-                                }
-                            }
-                            
-                            #[cfg(all(target_family = "unix", not(target_os = "macos")))]
-                            {
-                                // On other Unix-like systems, try using lsof
-                                let _ = std::process::Command::new("lsof")
-                                    .arg(lock_path.to_string_lossy().to_string())
-                                    .status();
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // If we get here after all attempts, return the original error
-            println!("Failed to remove lock file after {} attempts", max_attempts);
-            Err(initial_err)
-            }
-        }
-    } else {
-        // Lock file doesn't exist, nothing to do
-        Ok(())
-    }
-}
-
-
 pub fn load_blockchain_with_retry() -> Result<(), StorageError> {
     // First attempt - simple load
     let result = load_blockchain();
     if result.is_ok() {
         return result;
     }
-    
-    // If failed, try cleaning up locks
-    let _ = cleanup_db_locks();
     
     // Second attempt after cleanup
     let result = load_blockchain();
@@ -145,7 +52,6 @@ pub fn load_blockchain_with_retry() -> Result<(), StorageError> {
 }
 
 pub fn save_blockchain() -> Result<(), StorageError> {
-    let _ = cleanup_db_locks();
     let kari_dir = get_kari_dir();
     let db_path = kari_dir.join("blockchain_db");
     let storage = RocksDBStorage::new(db_path)?;
@@ -161,18 +67,17 @@ pub fn save_blockchain() -> Result<(), StorageError> {
 
 pub fn init_blockchain_state() {
     unsafe {
-        // No need to check BALANCES.is_none() anymore - it's initialized by lazy_static
-        // You can still initialize it with default values if needed
-        let balances = BALANCES.lock().unwrap();
-        if balances.is_empty() {
-            // Add any initial balances here if needed
-            // For example: balances.insert("genesis_address".to_string(), 1000000);
-        }
-        
+        // Initialize with empty collections
         if BLOCKCHAIN.is_empty() {
             BLOCKCHAIN = VecDeque::new();
         }
+        
+        // Initialize total tokens to 0 (will be set properly when loading blockchain)
         TOTAL_TOKENS = 0;
+        
+        // Make sure we have a valid balances mutex
+        let balances = BALANCES.lock().unwrap();
+        debug!("Initialized blockchain state with {} balances", balances.len());
     }
 }
 
@@ -189,15 +94,12 @@ impl From<StorageError> for BlockchainError {
     }
 }
 
-
-
 impl std::fmt::Display for BlockchainError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             BlockchainError::Storage(e) => write!(f, "Storage error: {}", e),
             BlockchainError::Balance(e) => write!(f, "Balance error: {}", e),
             BlockchainError::Initialization(e) => write!(f, "Initialization error: {}", e),
-
         }
     }
 }
@@ -226,8 +128,17 @@ pub fn get_balance(address: &str) -> Result<u64, BlockchainError> {
     ))
 }
 
+// Calculate transaction fee
+pub fn calculate_fee(amount: u64) -> u64 {
+    amount * TRANSACTION_FEE_PERCENT / 100
+}
+
+// Calculate net amount after fee deduction
+pub fn calculate_net_amount(amount: u64) -> u64 {
+    amount - calculate_fee(amount)
+}
+
 pub fn load_blockchain() -> Result<(), StorageError> {
-    let _ = cleanup_db_locks();
     let kari_dir = get_kari_dir();
     let db_path = kari_dir.join("blockchain_db");
     let storage = RocksDBStorage::new(db_path)?;
@@ -241,22 +152,35 @@ pub fn load_blockchain() -> Result<(), StorageError> {
             let mut total_tokens = 0;
 
             for block in unsafe { BLOCKCHAIN.iter() } {
+                // Add tokens from block to total supply and miner's balance
                 total_tokens += block.tokens;
                 *balances.entry(block.address.clone()).or_insert(0) += block.tokens;
 
+                // Process all transactions including fees
                 for tx in &block.transactions {
+                    // Calculate fee
+                    let fee = calculate_fee(tx.amount);
+                    let net_amount = tx.amount - fee;
+                    
+                    // Deduct full amount from sender
                     *balances.entry(tx.sender.clone()).or_insert(0) -= tx.amount;
-                    *balances.entry(tx.receiver.clone()).or_insert(0) += tx.amount;
+                    
+                    // Add net amount to receiver
+                    *balances.entry(tx.receiver.clone()).or_insert(0) += net_amount;
+                    
+                    // Add fee to block miner
+                    *balances.entry(block.address.clone()).or_insert(0) += fee;
                 }
             }
 
             *BALANCES.lock().unwrap() = balances;
             unsafe { TOTAL_TOKENS = total_tokens };
 
-            println!("Blockchain loaded successfully");
+            info!("Blockchain loaded successfully with {} blocks", unsafe { BLOCKCHAIN.len() });
+            info!("Total supply: {} kari", total_tokens / KARI_BASE);
         }
         None => {
-            println!("No blockchain data found, initializing new chain");
+            info!("No blockchain data found, initializing new chain");
             unsafe { BLOCKCHAIN = VecDeque::new() };
             *BALANCES.lock().unwrap() = HashMap::new();
             unsafe { TOTAL_TOKENS = 0 };
@@ -265,4 +189,18 @@ pub fn load_blockchain() -> Result<(), StorageError> {
 
     storage.flush()?;
     Ok(())
+}
+
+// Validate if a transaction can be processed (sender has sufficient funds)
+pub fn validate_transaction(tx: &Transaction) -> bool {
+    if let Ok(balances) = BALANCES.lock() {
+        let sender_balance = *balances.get(&tx.sender).unwrap_or(&0);
+        
+        // Calculate total cost including fee
+        let fee = calculate_fee(tx.amount);
+        let total_cost = tx.amount + fee;
+        
+        return sender_balance >= total_cost;
+    }
+    false
 }

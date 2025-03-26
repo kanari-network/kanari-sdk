@@ -1,7 +1,16 @@
-use crate::{chain_id::CHAIN_ID, transaction::Transaction};
+use crate::{chain_id::CHAIN_ID};
 use consensus_pos::HashAlgorithm;
 use serde::{Deserialize, Serialize};
 
+// Define the Transaction struct
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Transaction {
+    pub sender: String,
+    pub receiver: String,
+    pub amount: u64,
+    pub timestamp: u64,
+    pub signature: Option<String>,
+}
 
 // Define the Block struct
 #[derive(Serialize, Deserialize, Clone)]
