@@ -225,6 +225,9 @@ pub fn transfer_tokens(
     amount: u64,
     private_key: &str
 ) -> Result<String, BlockchainError> {
+    // Remove any 0x prefix from private key if present
+    let private_key = private_key.trim_start_matches("0x");
+    
     // Check if sender has enough balance
     let sender_balance = get_balance(sender_address)?;
     if sender_balance < amount {
@@ -241,6 +244,9 @@ pub fn transfer_tokens(
     
     // Create the message to sign: sender+receiver+amount+timestamp
     let message = format!("{}{}{}{}", sender_address, receiver_address, amount, timestamp);
+    
+    log::debug!("Creating transaction: from={}, to={}, amount={}", 
+               sender_address, receiver_address, amount);
     
     // Sign the transaction with the private key
     let signature = match sign_message(&message, private_key) {
@@ -308,7 +314,10 @@ fn verify_transaction(transaction: &Transaction) -> bool {
     // If no signature, reject
     let signature = match &transaction.signature {
         Some(sig) => sig,
-        None => return false
+        None => {
+            log::warn!("Transaction rejected: Missing signature");
+            return false;
+        }
     };
     
     // Recreate the message that was signed
@@ -319,9 +328,27 @@ fn verify_transaction(transaction: &Transaction) -> bool {
         transaction.timestamp
     );
     
+    log::debug!("Verifying transaction: sender={}, receiver={}, amount={}, timestamp={}", 
+              transaction.sender, transaction.receiver, transaction.amount, transaction.timestamp);
+    
+    // Ensure sender address is properly formatted for verification
+    let sender_address = if !transaction.sender.starts_with("0x") {
+        format!("0x{}", transaction.sender)
+    } else {
+        transaction.sender.clone()
+    };
+    
     // Verify the signature against the sender's public key (which is their address)
-    match verify_signature(&message, signature, &transaction.sender) {
-        Ok(valid) => valid,
-        Err(_) => false
+    match verify_signature(&message, signature, &sender_address) {
+        Ok(valid) => {
+            if !valid {
+                log::warn!("Transaction signature verification failed");
+            }
+            valid
+        },
+        Err(e) => {
+            log::error!("Signature verification error: {:?}", e);
+            false
+        }
     }
 }
