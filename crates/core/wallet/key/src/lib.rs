@@ -289,6 +289,9 @@ pub fn sign_message(message: &str, private_key: &str) -> Result<String, String> 
     // Clean private key if it has 0x prefix
     let private_key_clean = private_key.trim_start_matches("0x");
     
+    // Log message being signed (without revealing private key)
+    log::debug!("Signing message: {}", message);
+    
     // Parse private key from hex
     let private_key_bytes = match hex::decode(private_key_clean) {
         Ok(bytes) => bytes,
@@ -317,7 +320,9 @@ pub fn sign_message(message: &str, private_key: &str) -> Result<String, String> 
     let signature = secp.sign_ecdsa(&msg, &secret_key);
     
     // Return signature as hex
-    Ok(hex::encode(signature.serialize_compact()))
+    let sig_hex = hex::encode(signature.serialize_compact());
+    log::debug!("Generated signature: {}", sig_hex);
+    Ok(sig_hex)
 }
 
 pub fn verify_signature(message: &str, signature_hex: &str, address: &str) -> Result<bool, String> {
@@ -327,6 +332,10 @@ pub fn verify_signature(message: &str, signature_hex: &str, address: &str) -> Re
     // Clean signature and address if they have 0x prefix
     let signature_clean = signature_hex.trim_start_matches("0x");
     let address_clean = address.trim_start_matches("0x");
+    
+    log::debug!("Verifying message: {}", message);
+    log::debug!("With signature: {}", signature_clean);
+    log::debug!("For address: {}", address_clean);
     
     // Parse signature from hex
     let signature_bytes = match hex::decode(signature_clean) {
@@ -374,14 +383,19 @@ pub fn verify_signature(message: &str, signature_hex: &str, address: &str) -> Re
                 // Address is the last 20 bytes of the hash
                 let recovered_address = hex::encode(&pubkey_hash[12..32]);
                 
+                log::debug!("Recovery attempt with ID {:?}: recovered address {}", 
+                          recovery_id, recovered_address);
+                
                 // If this recovery ID gave us the right address, return true
                 if address_clean.to_lowercase() == recovered_address.to_lowercase() {
+                    log::debug!("Address match found! Signature valid.");
                     return Ok(true);
                 }
             }
         }
     }
     
+    log::debug!("No matching address found. Signature invalid.");
     // If none of the recovery IDs worked, the signature is invalid
     Ok(false)
 }

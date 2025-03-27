@@ -4,6 +4,7 @@ use consensus_pos::Blake3Algorithm;
 // Replace with common import
 use common::get_kari_dir;
 use mona_storage::{BlockchainStorage, RocksDBStorage, StorageError};
+use mona_types::address::Address;
 use crate::block::Transaction;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -146,11 +147,28 @@ pub fn get_balance(address: &str) -> Result<u64, BlockchainError> {
     let max_retries = 3;
     let mut attempts = 0;
 
+    // Normalize address format to ensure consistent lookup
+    let normalized_address = if !address.starts_with("0x") {
+        format!("0x{}", address)
+    } else {
+        address.to_string()
+    };
+
+    // Debug log the address we're checking
+    log::debug!("Getting balance for normalized address: {}", normalized_address);
+
     while attempts < max_retries {
-        // BALANCES is now directly a Mutex, not an Option<Mutex>
         match BALANCES.lock() {
             Ok(guard) => {
-                return Ok(*guard.get(address).unwrap_or(&0));
+                // Try both with and without 0x prefix to ensure we find the balance
+                let balance = guard.get(&normalized_address)
+                    .or_else(|| {
+                        let no_prefix = normalized_address.trim_start_matches("0x");
+                        guard.get(no_prefix)
+                    })
+                    .unwrap_or(&0);
+                
+                return Ok(*balance);
             }
             Err(_) => {
                 attempts += 1;
@@ -188,12 +206,32 @@ pub fn load_blockchain() -> Result<(), StorageError> {
             // Process blocks for balances and caching
             for (height, block) in chain.iter().enumerate() {
                 total_tokens += block.tokens;
-                *balances.entry(block.address.clone()).or_insert(0) += block.tokens;
+                // Ensure addresses are always stored with 0x prefix
+                let miner_address = if !block.address.starts_with("0x") {
+                    format!("0x{}", block.address)
+                } else {
+                    block.address.clone()
+                };
+                
+                *balances.entry(miner_address).or_insert(0) += block.tokens;
                 block_height_cache.insert(block.hash.clone(), height);
 
                 for tx in &block.transactions {
-                    *balances.entry(tx.sender.clone()).or_insert(0) -= tx.amount;
-                    *balances.entry(tx.receiver.clone()).or_insert(0) += tx.amount;
+                    // Normalize addresses for transactions too
+                    let tx_sender = if !tx.sender.starts_with("0x") {
+                        format!("0x{}", tx.sender)
+                    } else {
+                        tx.sender.clone()
+                    };
+                    
+                    let tx_receiver = if !tx.receiver.starts_with("0x") {
+                        format!("0x{}", tx.receiver)
+                    } else {
+                        tx.receiver.clone()
+                    };
+                    
+                    *balances.entry(tx_sender).or_insert(0) -= tx.amount;
+                    *balances.entry(tx_receiver).or_insert(0) += tx.amount;
                 }
             }
 
@@ -242,28 +280,50 @@ pub fn transfer_tokens(
         .unwrap_or_else(|_| std::time::Duration::from_secs(0))
         .as_secs();
     
-    // Create the message to sign: sender+receiver+amount+timestamp
-    let message = format!("{}{}{}{}", sender_address, receiver_address, amount, timestamp);
+    // Normalize sender and receiver addresses consistently
+    let normalized_sender = if !sender_address.starts_with("0x") {
+        format!("0x{}", sender_address)
+    } else {
+        sender_address.to_string()
+    };
     
-    log::debug!("Creating transaction: from={}, to={}, amount={}", 
-               sender_address, receiver_address, amount);
+    let normalized_receiver = if !receiver_address.starts_with("0x") {
+        format!("0x{}", receiver_address)
+    } else {
+        receiver_address.to_string()
+    };
+    
+    // Create the message to sign using normalized addresses
+    let message = format!("{}{}{}{}", normalized_sender, normalized_receiver, amount, timestamp);
+    
+    log::info!("Creating transaction message: {}", message);
+    log::info!("From: {}, To: {}, Amount: {}, Timestamp: {}", 
+               normalized_sender, normalized_receiver, amount, timestamp);
     
     // Sign the transaction with the private key
     let signature = match sign_message(&message, private_key) {
-        Ok(sig) => sig,
+        Ok(sig) => {
+            log::info!("Signature created successfully: {}", sig);
+            sig
+        },
         Err(e) => return Err(BlockchainError::Balance(format!("Signature error: {}", e)))
     };
     
+    // Create transaction with normalized addresses
     let transaction = Transaction {
-        sender: sender_address.to_string(),
-        receiver: receiver_address.to_string(),
+        sender: normalized_sender.clone(), // Use normalized address
+        receiver: normalized_receiver.clone(), // Use normalized address
         amount,
         timestamp,
-        signature: Some(signature),
+        signature: Some(signature.clone()),
     };
     
     // Verify that this is a valid transaction
     if !verify_transaction(&transaction) {
+        // Add detailed logging here
+        log::error!("Transaction verification failed");
+        log::error!("Signature: {}", signature);
+        log::error!("Address: {}", normalized_sender);
         return Err(BlockchainError::Balance("Transaction signature verification failed".into()));
     }
     
@@ -295,11 +355,11 @@ pub fn transfer_tokens(
     // Add block to blockchain
     BLOCKCHAIN_DATA.add_block(new_block.clone());
     
-    // Update balances
+    // Update balances using normalized addresses
     {
         let mut balances = BALANCES.lock().unwrap();
-        *balances.entry(sender_address.to_string()).or_insert(0) -= amount;
-        *balances.entry(receiver_address.to_string()).or_insert(0) += amount;
+        *balances.entry(normalized_sender).or_insert(0) -= amount;
+        *balances.entry(normalized_receiver).or_insert(0) += amount;
     }
     
     // Save the blockchain
@@ -321,6 +381,7 @@ fn verify_transaction(transaction: &Transaction) -> bool {
     };
     
     // Recreate the message that was signed
+    // Note: transaction.sender should already be normalized
     let message = format!("{}{}{}{}", 
         transaction.sender, 
         transaction.receiver, 
@@ -328,26 +389,37 @@ fn verify_transaction(transaction: &Transaction) -> bool {
         transaction.timestamp
     );
     
-    log::debug!("Verifying transaction: sender={}, receiver={}, amount={}, timestamp={}", 
+    log::info!("Verifying transaction with message: {}", message);
+    log::info!("From: {}, To: {}, Amount: {}, Timestamp: {}", 
               transaction.sender, transaction.receiver, transaction.amount, transaction.timestamp);
     
-    // Ensure sender address is properly formatted for verification
-    let sender_address = if !transaction.sender.starts_with("0x") {
-        format!("0x{}", transaction.sender)
-    } else {
-        transaction.sender.clone()
-    };
-    
     // Verify the signature against the sender's public key (which is their address)
-    match verify_signature(&message, signature, &sender_address) {
+    match verify_signature(&message, signature, &transaction.sender) {
         Ok(valid) => {
             if !valid {
                 log::warn!("Transaction signature verification failed");
+            } else {
+                log::info!("Transaction signature verified successfully");
             }
             valid
         },
         Err(e) => {
             log::error!("Signature verification error: {:?}", e);
+            false
+        }
+    }
+}
+
+// Add a debugging function to directly verify signatures for troubleshooting
+pub fn debug_verify_signature(
+    message: &str,
+    signature: &str,
+    address: &str
+) -> bool {
+    match verify_signature(message, signature, address) {
+        Ok(valid) => valid,
+        Err(e) => {
+            log::error!("Debug signature verification error: {:?}", e);
             false
         }
     }

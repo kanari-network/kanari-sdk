@@ -1,6 +1,6 @@
 use consensus_pos::Blake3Algorithm;
-use log::{error, info, warn};
-
+use log::{error, info, warn, debug};
+use tokio::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -12,7 +12,6 @@ use crate::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN_DATA};
 /// The amount of KA per Kari token based on the the fact that KA is
 /// 10^-9 of a Kari token
 const KA_PER_KARI: u64 = 1_000_000_000;
-
 
 /// The total supply of Kari denominated in whole Kari tokens (100 Million)
 const TOTAL_SUPPLY_KARI: u64 = 100_000_000;
@@ -40,7 +39,11 @@ impl Default for Coin {
     }
 }
 
-pub fn run_blockchain(running: Arc<Mutex<bool>>, address: String) {
+pub fn run_blockchain(
+    running: Arc<Mutex<bool>>, 
+    address: String,
+    tx: mpsc::Sender<String>
+) {
     let coin = Coin::default();
 
     info!("Initializing blockchain with {} coin", coin.name);
@@ -52,6 +55,15 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, address: String) {
         format!("{}A", coin.symbol)
     );
 
+    // Ensure address is normalized for consistent storage
+    let normalized_address = if !address.starts_with("0x") {
+        format!("0x{}", address)
+    } else {
+        address.clone()
+    };
+
+    debug!("Using normalized address: {}", normalized_address);
+
     // Check if blockchain is already initialized
     if !BLOCKCHAIN_DATA.is_empty() {
         info!(
@@ -59,25 +71,57 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, address: String) {
             BLOCKCHAIN_DATA.len()
         );
 
-        match crate::blockchain::get_balance(&address) {
+        // Send initial blockchain status
+        let _ = tx.try_send(format!(
+            "Blockchain loaded with {} blocks",
+            BLOCKCHAIN_DATA.len()
+        ));
+
+        // Check balance using both original and normalized address for troubleshooting
+        match crate::blockchain::get_balance(&normalized_address) {
             Ok(balance) => {
                 let balance_in_kari = balance as f64 / KA_PER_KARI as f64;
                 info!(
                     "Address {} has {:.9} {} ({} {}A)",
-                    address, balance_in_kari, coin.symbol, balance, coin.symbol
+                    normalized_address, balance_in_kari, coin.symbol, balance, coin.symbol
                 );
             }
-            Err(e) => warn!("Failed to get balance for address {}: {}", address, e),
+            Err(e) => warn!("Failed to get balance for address {}: {}", normalized_address, e),
+        }
+
+        // Debug: Also check with original address if they're different
+        if normalized_address != address {
+            match crate::blockchain::get_balance(&address) {
+                Ok(balance) => {
+                    debug!(
+                        "Original address {} has {} {}A",
+                        address, balance, coin.symbol
+                    );
+                }
+                Err(e) => debug!("Failed to get balance for original address {}: {}", address, e),
+            }
         }
     } else {
         // Create genesis block with coin info
-        let genesis_block = create_genesis_block(&address, &coin);
+        let genesis_block = create_genesis_block(&normalized_address, &coin);
         BLOCKCHAIN_DATA.add_block(genesis_block.clone());
 
-        // Update balances
+        // Send genesis block info
+        let _ = tx.try_send(format!(
+            "Genesis Block Created\nHash: {}\nMinter: {}\nTotal Supply: {} {}",
+            &genesis_block.hash, normalized_address, TOTAL_SUPPLY_KARI, coin.symbol
+        ));
+
+        // Update balances with normalized address
         {
             let mut balances = BALANCES.lock().unwrap();
-            balances.insert(address.clone(), coin.total_supply);
+            balances.insert(normalized_address.clone(), coin.total_supply);
+            
+            // Debug: Output all balances
+            debug!("Initial balances after genesis:");
+            for (addr, bal) in balances.iter() {
+                debug!("  {} => {}", addr, bal);
+            }
         }
 
         match save_blockchain() {
@@ -87,7 +131,7 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, address: String) {
 
         info!(
             "Total supply of {} {} ({} {}A) minted to: {}",
-            TOTAL_SUPPLY_KARI, coin.symbol, TOTAL_SUPPLY_KA, coin.symbol, address
+            TOTAL_SUPPLY_KARI, coin.symbol, TOTAL_SUPPLY_KA, coin.symbol, normalized_address
         );
     }
 
@@ -122,12 +166,28 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, address: String) {
             prev_block.hash.clone(),
             0,          // No new tokens in regular blocks
             Vec::new(), // Empty transactions for now
-            address.clone(),
+            normalized_address.clone(), // Use normalized address consistently
             Blake3Algorithm::new(),
         );
 
         // Add block to chain
         BLOCKCHAIN_DATA.add_block(new_block.clone());
+
+        // Convert timestamp to human-readable format
+        let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(new_block.timestamp as i64, 0)
+            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+            .unwrap_or_else(|| "Unknown time".to_string());
+
+        // Send block status update
+        let _ = tx.try_send(format!(
+            "Block #{} mined at {}\nHash: {}\nPrev Hash: {}\nNode Address: {}\nTransactions: {}",
+            new_block.index,
+            datetime,
+            &new_block.hash,
+            &new_block.prev_hash,
+            normalized_address,
+            new_block.transactions.len()
+        ));
 
         // Save blockchain state
         match save_blockchain() {
@@ -137,6 +197,27 @@ pub fn run_blockchain(running: Arc<Mutex<bool>>, address: String) {
                 &new_block.hash[..16]
             ),
             Err(e) => error!("Failed to save blockchain: {}", e),
+        }
+
+        // Check balances periodically to ensure they're consistent
+        if new_block.index % 5 == 0 {
+            match crate::blockchain::get_balance(&normalized_address) {
+                Ok(balance) => {
+                    debug!(
+                        "Current balance for {} is {} {}A",
+                        normalized_address, balance, coin.symbol
+                    );
+                },
+                Err(e) => warn!("Failed to get balance: {}", e),
+            }
+            
+            // Debug: Log all balances for troubleshooting
+            if let Ok(balances) = BALANCES.lock() {
+                debug!("Current balances in system:");
+                for (addr, bal) in balances.iter() {
+                    debug!("  {} => {}", addr, bal);
+                }
+            }
         }
 
         // Sleep to control block creation rate
@@ -163,7 +244,29 @@ fn create_genesis_block(address: &str, coin: &Coin) -> Block<Blake3Algorithm> {
         "0".repeat(64),
         coin.total_supply,
         Vec::new(),
-        address.to_string(),
+        address.to_string(), // Address should already be normalized by caller
         Blake3Algorithm::new(),
     )
+}
+
+// Add helper function to check if an address exists in the blockchain
+pub fn check_address_exists(address: &str) -> bool {
+    // Normalize the address
+    let normalized_address = if !address.starts_with("0x") {
+        format!("0x{}", address)
+    } else {
+        address.to_string()
+    };
+    
+    // Try to get the balance - if it's > 0, address exists
+    match crate::blockchain::get_balance(&normalized_address) {
+        Ok(balance) => {
+            debug!("Address {} has balance {}", normalized_address, balance);
+            true
+        },
+        Err(e) => {
+            debug!("Error getting balance for address {}: {}", normalized_address, e);
+            false
+        }
+    }
 }

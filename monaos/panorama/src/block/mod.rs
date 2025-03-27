@@ -1,4 +1,4 @@
-use crate::{chain_id::CHAIN_ID};
+use crate::chain_id::CHAIN_ID;
 use consensus_pos::HashAlgorithm;
 use serde::{Deserialize, Serialize};
 

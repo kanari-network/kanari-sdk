@@ -298,7 +298,7 @@ async fn start_node() {
     println!("{}", "Starting blockchain...".green());
     
     // Create a channel for block status updates
-    let (_tx, mut rx) = mpsc::channel::<String>(100);
+    let (tx, mut rx) = mpsc::channel::<String>(100);
     
     let running_clone = Arc::clone(&running);
     let address_clone = address.clone();
@@ -306,7 +306,7 @@ async fn start_node() {
     // Spawn blockchain simulation task
     tokio::spawn(async move {
         println!("Running blockchain simulation...");
-        run_blockchain(running_clone, address_clone);
+        run_blockchain(running_clone, address_clone, tx);
     });
     
     // Wait for shutdown signal while showing block status
