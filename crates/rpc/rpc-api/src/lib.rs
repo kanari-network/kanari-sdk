@@ -2,7 +2,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use futures::FutureExt;
 use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult, Error as RpcError};
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
-use panorama::{blockchain::BLOCKCHAIN, chain_id::CHAIN_ID};
+use panorama::{blockchain::BLOCKCHAIN_DATA, chain_id::CHAIN_ID};
 use network::NetworkConfig;
 use serde_json::{json, Value as JsonValue};
 use mona_storage::file_storage::{FileStorage, StorageError2};
@@ -86,14 +86,17 @@ fn get_file(params: Params) -> JsonRpcResult<JsonValue> {
 }
 
 
-// RPC server
+// RPC server - updated to use thread-safe BLOCKCHAIN_DATA
 fn get_latest_block(_params: Params) -> JsonRpcResult<JsonValue> {
-    unsafe {
-        if let Some(block) = BLOCKCHAIN.back() {
-            Ok(serde_json::to_value(block).unwrap())
-        } else {
-            Ok(JsonValue::Null)
-        }
+    let len = BLOCKCHAIN_DATA.len();
+    if len == 0 {
+        return Ok(JsonValue::Null);
+    }
+    
+    if let Some(block) = BLOCKCHAIN_DATA.get_block(len - 1) {
+        Ok(serde_json::to_value(block).unwrap())
+    } else {
+        Ok(JsonValue::Null)
     }
 }
 
@@ -102,15 +105,19 @@ fn get_chain_id(_params: Params) -> JsonRpcResult<JsonValue> {
 }
 
 fn get_block_by_index(params: Params) -> JsonRpcResult<JsonValue> {
-    let index: u32 = params.parse().map_err(|e| jsonrpc_core::Error::invalid_params(format!("Invalid index parameter: {}", e)))?;
+    let index: u32 = params.parse().map_err(|e| 
+        jsonrpc_core::Error::invalid_params(format!("Invalid index parameter: {}", e)))?;
 
-    unsafe {
-        if let Some(block) = BLOCKCHAIN.iter().find(|b| b.index == index) {
-            Ok(serde_json::to_value(block).unwrap())
-        } else {
-            Ok(JsonValue::Null)
+    // Use safer method to find blocks by index
+    for block_idx in 0..BLOCKCHAIN_DATA.len() {
+        if let Some(block) = BLOCKCHAIN_DATA.get_block(block_idx) {
+            if block.index == index {
+                return Ok(serde_json::to_value(block).unwrap());
+            }
         }
     }
+    
+    Ok(JsonValue::Null)
 }
 
 pub async fn start_rpc_server(network_config: NetworkConfig) {

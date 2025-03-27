@@ -5,7 +5,7 @@ use key::{
 };
 use std::io::{self, Write};
 
-use panorama::blockchain::{get_balance, load_blockchain_with_retry};
+use panorama::blockchain::{get_balance, load_blockchain_with_retry, transfer_tokens};
 use rpassword::read_password;
 use std::process::exit;
 
@@ -164,10 +164,12 @@ pub fn handle_keytool_command() -> Option<String> {
                         match load_blockchain_with_retry() {
                             Ok(_) => match get_balance(&public_address) {
                                 Ok(balance) => {
+                                    // Format the balance in a human-readable way
+                                    let formatted_balance = format_balance(balance);
                                     println!(
-                                        "Balance for {}: {}",
+                                        "Balance for {}: {} Kari",
                                         public_address.green(),
-                                        balance.to_string().green()
+                                        formatted_balance.green()
                                     );
                                 }
                                 Err(e) => {
@@ -185,6 +187,73 @@ pub fn handle_keytool_command() -> Option<String> {
                 }
                 return None;
             }
+
+            "transfer" => {
+                println!("Enter your wallet address:");
+                let mut sender_address = String::new();
+                io::stdin().read_line(&mut sender_address).expect("Failed to read line");
+                let sender_address = sender_address.trim();
+                
+                // Get password to unlock wallet
+                let password = prompt_password(false);
+                
+                // Load the wallet to get the private key
+                match load_wallet(sender_address, &password) {
+                    Ok(wallet) => {
+                        println!("Enter recipient address:");
+                        let mut receiver_address = String::new();
+                        io::stdin().read_line(&mut receiver_address).expect("Failed to read line");
+                        let receiver_address = receiver_address.trim();
+                        
+                        println!("Enter amount to transfer (in Kari):");
+                        let mut amount_str = String::new();
+                        io::stdin().read_line(&mut amount_str).expect("Failed to read line");
+                        
+                        // Parse and convert the amount from Kari to KA
+                        match amount_str.trim().parse::<f64>() {
+                            Ok(amount_kari) => {
+                                // Convert from Kari to KA (smallest unit)
+                                const KA_PER_KARI: u64 = 1_000_000_000;
+                                let amount_ka = (amount_kari * KA_PER_KARI as f64) as u64;
+                                
+                                // Load blockchain before performing transfer
+                                match load_blockchain_with_retry() {
+                                    Ok(_) => {
+                                        // Perform the transfer
+                                        match transfer_tokens(
+                                            sender_address, 
+                                            receiver_address, 
+                                            amount_ka,
+                                            &wallet.private_key
+                                        ) {
+                                            Ok(tx_id) => {
+                                                println!("{}", "Transfer successful!".green());
+                                                println!("From: {}", sender_address.green());
+                                                println!("To: {}", receiver_address.green());
+                                                println!("Amount: {} Kari", format_balance(amount_ka).green());
+                                                println!("Transaction ID: {}", tx_id);
+                                            },
+                                            Err(e) => {
+                                                println!("{}", format!("Transfer failed: {}", e).red());
+                                            }
+                                        }
+                                    },
+                                    Err(e) => {
+                                        println!("{}", format!("Failed to load blockchain: {}", e).red());
+                                    }
+                                }
+                            },
+                            Err(e) => {
+                                println!("{}", format!("Invalid amount: {}", e).red());
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        println!("{}", format!("Failed to load wallet: {}", e).red());
+                    }
+                }
+                return None;
+            },
 
             "select" => match list_wallet_files() {
                 Ok(wallets) => {
@@ -427,6 +496,34 @@ pub fn handle_keytool_command() -> Option<String> {
         display_help(false);
         return None;
     }
+}
+
+// Add this function to format KA balance into human-readable Kari format
+fn format_balance(ka_balance: u64) -> String {
+    // KA is 10^-9 of a Kari token
+    const KA_PER_KARI: u64 = 1_000_000_000;
+    
+    // Separate whole Kari and fractional part (KA)
+    let whole_kari = ka_balance / KA_PER_KARI;
+    let fractional_ka = ka_balance % KA_PER_KARI;
+    
+    // Format whole part with thousands separators
+    let whole_part_formatted = format!("{}", whole_kari)
+        .chars()
+        .rev()
+        .collect::<Vec<_>>()
+        .chunks(3)
+        .map(|chunk| chunk.iter().collect::<String>())
+        .collect::<Vec<_>>()
+        .join(",")
+        .chars()
+        .rev()
+        .collect::<String>();
+    
+    // Format fractional part with leading zeros if needed
+    let fractional_part_formatted = format!("{:09}", fractional_ka);
+    
+    format!("{}.{}", whole_part_formatted, fractional_part_formatted)
 }
 
 fn prompt_password(confirm: bool) -> String {

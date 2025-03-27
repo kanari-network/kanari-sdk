@@ -13,7 +13,7 @@ description.workspace = true
 
 [dependencies]
 bip39.workspace = true
-secp256k1.workspace = true
+secp256k1 = { version = "0.27.0", features = ["recovery", "rand-std"] }
 hex.workspace = true
 serde_json = { workspace = true , default-features = true }
 lazy_static.workspace = true
@@ -26,12 +26,13 @@ thiserror.workspace = true
 argon2.workspace = true
 aes-gcm = "0.10.3"
 base64 = "0.22.1"
-
+# Add common dependency
+common = { path = "../../../../crates/common", version = "0.0.7" }
+# Add missing sha3 dependency
+sha3 = "0.10.8"
 
 # This is a workspace crate, so we need to include the following dependencies
 mona-types.workspace = true
-panorama.workspace = true
-
 
 move-core-types = { workspace = true }
 move-ir-types = { workspace = true }

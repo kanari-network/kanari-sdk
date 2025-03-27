@@ -8,6 +8,13 @@ use bincode;
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Blake3Algorithm;
 
+// Add constructor implementation
+impl Blake3Algorithm {
+    pub fn new() -> Self {
+        Blake3Algorithm
+    }
+}
+
 pub trait HashAlgorithm {
     fn hash(&self, input: &[u8]) -> String;
     fn log_input(&self, input: &[u8]);
@@ -37,7 +44,7 @@ pub struct PoSBlock<T: HashAlgorithm> {
     pub validator: String,
     pub hasher: T,
     pub tokens: u64, // Add this field
-    pub miner_address: String, // Add this field
+    pub address: String, // Add this field
 }
 
 impl<T: HashAlgorithm> PoSBlock<T> {
@@ -51,7 +58,7 @@ impl<T: HashAlgorithm> PoSBlock<T> {
             validator,
             hasher,
             tokens: 0,
-            miner_address: String::new(),
+            address: String::new(),
         }
     }
 

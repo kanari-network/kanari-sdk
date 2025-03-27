@@ -50,7 +50,10 @@ mona-vm.workspace = true
 mona-types.workspace = true
 mona-storage.workspace = true
 
-
+# Add common dependency
+common = { path = "../../crates/common", version = "0.0.7" }
+# Keep key dependency but only for signing functions, not circular features
+key = { path = "../../crates/core/wallet/key", version = "0.0.7", default-features = false }
 
 # Unit k2
 consensus-pos.workspace = true

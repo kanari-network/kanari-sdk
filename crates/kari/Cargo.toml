@@ -42,3 +42,4 @@ network.workspace = true
 consensus-pos.workspace = true
 p2p-protocol.workspace = true
 rpc-api.workspace = true
+common.workspace = true

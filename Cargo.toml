@@ -21,6 +21,7 @@ members = [
     "crates/core/wallet/key", # Crate for key management and wallet functionalities.
     "crates/rpc/rpc-api",     # Crate defining the RPC API for Kanari.
     "crates/command",         # Crate for command-line interface utilities.
+    "crates/common",          # Common utilities and types used across the workspace.
     "consensus/pow",          # Crate implementing Proof-of-Work consensus.
     "framework",              # High-level framework crate for the SDK.
 
@@ -64,7 +65,7 @@ categories = ["development-tools"] # Categorize as development tools on crates.i
 keywords = ["blockchain", "sdk", "move", "monaOS", "monaVM", "rust", "ifps", "storage", "wallet", "framework"]     # Keywords for crates.io search.
 homepage = "https://kanari.network"   # Project homepage.
 documentation = "https://docs.kanari.network" # Link to project documentation.
-version = "0.0.7"       # Current version of the SDK.
+version = "0.0.8"       # Current version of the SDK.
 authors = ["Kanari Network"] # Authors of the SDK.
 license = "Apache-2.0"    # License information.
 repository = "https://github.com/kanari-network/kanari-sdk" # Link to the code repository.
@@ -112,11 +113,11 @@ codespan-reporting = "0.11.0"
 env_logger = "0.11.6"
 lazy_static = "1.5.0"
 log = "0.4.26"
-thiserror = "2.0.11"
+thiserror = "2.0.12"
 tracing = "0.1.41"
 
 # CLI & User Interface
-clap = "4.5.31"
+clap = "4.5.34"
 colored = "3.0.0"
 lsp-server = "0.7.8"
 lsp-types = "0.97.0"
@@ -163,6 +164,7 @@ network                   = { path = "crates/core/network" }
 p2p-protocol              = { path = "crates/core/p2p" }
 key                       = { path = "crates/core/wallet/key" }
 command                   = { path = "crates/command" }
+common                   = { path = "crates/common" }
 
 
 # RPC Path List

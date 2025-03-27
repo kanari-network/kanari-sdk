@@ -1,80 +1,14 @@
 // src/config.rs
 use std::io::{self, Write};
-use std::path::PathBuf;
 use serde_yaml::{Value, Mapping};
-use std::fs::{self, File};
-use dirs;
 use network::{NetworkConfig, NetworkType};
 
+// Simply re-export functions from common
+pub use common::{load_config, save_config};
 
-// Function to get the configuration directory
-pub fn get_config_dir() -> io::Result<PathBuf> {
-    let home_dir = dirs::home_dir().expect("Unable to find home directory");
-    let config_path = home_dir.join(".kari").join("network");
-    fs::create_dir_all(&config_path)?;
-    Ok(config_path)
-}
 
 pub fn format_address(address: &str) -> String {
     address.trim_end_matches(".enc").to_string()
-}
-
-// Function to load the configuration from file
-pub fn load_config() -> io::Result<Value> {
-    let config_file_path = get_config_dir()?.join("config.yaml");
-    
-    // If file doesn't exist, return empty YAML object
-    if !config_file_path.exists() {
-        return Ok(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
-    }
-    
-    // Read the file content
-    let config_str = fs::read_to_string(&config_file_path)?;
-    
-    // If the file is empty, return empty YAML object
-    if config_str.trim().is_empty() {
-        return Ok(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
-    }
-    
-    // Parse YAML and clean up address format
-    let mut config: Value = serde_yaml::from_str(&config_str).map_err(|e| {
-        io::Error::new(io::ErrorKind::InvalidData, format!("Failed to parse config file: {}", e))
-    })?;
-
-    // Remove .enc suffix from address if present
-    if let Some(mapping) = config.as_mapping_mut() {
-        if let Some(addr) = mapping.get("address").and_then(|v| v.as_str()) {
-            mapping.insert(
-                Value::String("address".to_string()),
-                Value::String(format_address(addr))
-            );
-        }
-    }
-    
-    Ok(config)
-}
-
-// Function to save the configuration to file
-pub fn save_config(config: &Value) -> Result<(), std::io::Error> {
-    let config_dir = get_config_dir()?;
-    let config_file_path = config_dir.join("config.yaml");
-    let mut file = File::create(config_file_path)?;
-    
-    // Clean up any .enc suffixes before saving
-    let mut config = config.clone();
-    if let Some(mapping) = config.as_mapping_mut() {
-        if let Some(addr) = mapping.get("address").and_then(|v| v.as_str()) {
-            mapping.insert(
-                Value::String("address".to_string()),
-                Value::String(format_address(addr))
-            );
-        }
-    }
-    
-    let yaml_str = serde_yaml::to_string(&config)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    file.write_all(yaml_str.as_bytes())?;
-    Ok(())
 }
 
 // Function to prompt the user for a value with a default
