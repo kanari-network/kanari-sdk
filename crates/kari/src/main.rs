@@ -15,6 +15,8 @@ use panorama::blockchain::{load_blockchain, save_blockchain};
 use panorama::chain_id::CHAIN_ID;
 use panorama::config::{configure_network, load_config, save_config};
 use std::process::Command;
+use tokio::sync::mpsc;
+use tokio::time::{sleep, Duration};
 
 
 static VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -295,10 +297,11 @@ async fn start_node() {
     *running.lock().unwrap() = true;
     println!("{}", "Starting blockchain...".green());
     
+    // Create a channel for block status updates
+    let (_tx, mut rx) = mpsc::channel::<String>(100);
+    
     let running_clone = Arc::clone(&running);
     let address_clone = address.clone();
-    
-
     
     // Spawn blockchain simulation task
     tokio::spawn(async move {
@@ -306,11 +309,32 @@ async fn start_node() {
         run_blockchain(running_clone, address_clone);
     });
     
-    // Wait for shutdown signal
-    println!("{} to stop the node", "Press Enter".yellow());
+    // Wait for shutdown signal while showing block status
+    println!("{}", "Block status will be shown below. Press Enter to stop the node.".yellow());
     io::stdout().flush().unwrap();
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).unwrap();
+    
+    // Spawn a task to listen for Enter key
+    let running_input = Arc::clone(&running);
+    let input_handle = tokio::spawn(async move {
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+        *running_input.lock().unwrap() = false;
+    });
+    
+    // Display block status updates while waiting for Enter
+    while *running.lock().unwrap() {
+        tokio::select! {
+            Some(status) = rx.recv() => {
+                println!("{}", status.bright_cyan());
+            }
+            _ = sleep(Duration::from_millis(100)) => {
+                // Just a short sleep to prevent busy waiting
+            }
+        }
+    }
+    
+    // Wait for input_handle to complete
+    let _ = input_handle.await;
     
     // Graceful shutdown
     println!("{}", "Stopping blockchain...".red());
