@@ -22,7 +22,6 @@ pub struct Block<T: HashAlgorithm> {
     pub hash: String,
     pub prev_hash: String,
     pub tokens: u64,
-    pub token_name: String,
     pub transactions: Vec<Transaction>,
     pub address: String,
     pub hasher: T,
@@ -52,7 +51,6 @@ impl<T: HashAlgorithm> Block<T> {
             hash: String::new(),
             prev_hash,
             tokens,
-            token_name: String::from("Kanari"),
             transactions,
             address,
             hasher,
@@ -70,7 +68,6 @@ impl<T: HashAlgorithm> Block<T> {
         input.extend_from_slice(&self.data);
         input.extend_from_slice(self.prev_hash.as_bytes());
         input.extend_from_slice(&self.tokens.to_le_bytes());
-        input.extend_from_slice(self.token_name.as_bytes());
 
         // Serialize transactions
         let transactions_serialized = serde_json::to_string(&self.transactions).unwrap();
