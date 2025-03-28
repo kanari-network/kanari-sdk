@@ -24,10 +24,10 @@ const COMMANDS: &[CommandInfo] = &[
         name: "balance",
         description: "Check balance",
     },
-    CommandInfo {
-        name: "transfer",
-        description: "Transfer coins to another address",
-    },
+    // CommandInfo {
+    //     name: "transfer",
+    //     description: "Transfer coins to another address",
+    // },
     CommandInfo {
         name: "select",
         description: "Select wallet",

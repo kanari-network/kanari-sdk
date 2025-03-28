@@ -1,26 +1,26 @@
-use std::io::{self, Write};
-use std::sync::{Arc, Mutex};
-use std::process::exit;
 use colored::Colorize;
 use command::keytool_cli::handle_keytool_command;
 use command::move_cli::handle_move_command;
+use std::f64::consts::E;
+use std::io::{self, Write};
+use std::process::exit;
+use std::sync::{Arc, Mutex};
 
 use command::public_cli::handle_public_command;
-use panorama::simulation::run_blockchain;
 use key::{check_wallet_exists, list_wallet_files};
 use network::{NetworkConfig, NetworkType};
+use panorama::simulation::run_blockchain;
 
 use common::get_kari_dir;
 use panorama::blockchain::{load_blockchain, save_blockchain};
 use panorama::chain_id::CHAIN_ID;
 use panorama::config::{configure_network, load_config, save_config};
+use rpc_api::start_rpc_server;
 use std::process::Command;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 
-
 static VERSION: &str = env!("CARGO_PKG_VERSION");
-
 
 struct CommandInfo {
     name: &'static str,
@@ -28,42 +28,41 @@ struct CommandInfo {
     description: &'static str,
 }
 
-
 const COMMANDS: &[CommandInfo] = &[
-    CommandInfo { 
-        name: "start", 
-        alias: None, 
-        description: "Start a local Kari blockchain node" 
+    CommandInfo {
+        name: "start",
+        alias: None,
+        description: "Start a local Kari blockchain node",
     },
-    CommandInfo { 
-        name: "public", 
-        alias: None, 
-        description: "Manage Web3 public files and IPFS storage" 
+    CommandInfo {
+        name: "public",
+        alias: None,
+        description: "Manage Web3 public files and IPFS storage",
     },
-    CommandInfo { 
-        name: "move", 
-        alias: None, 
-        description: "Execute and manage Move VM smart contracts" 
+    CommandInfo {
+        name: "move",
+        alias: None,
+        description: "Execute and manage Move VM smart contracts",
     },
-    CommandInfo { 
-        name: "keytool", 
-        alias: None, 
-        description: "Manage Kari accounts and cryptographic keys" 
+    CommandInfo {
+        name: "keytool",
+        alias: None,
+        description: "Manage Kari accounts and cryptographic keys",
     },
-    CommandInfo { 
-        name: "version", 
-        alias: Some("--V"), 
-        description: "Display CLI version information" 
+    CommandInfo {
+        name: "version",
+        alias: Some("--V"),
+        description: "Display CLI version information",
     },
     CommandInfo {
         name: "help",
         alias: Some("-h"),
-        description: "Display this help message"
+        description: "Display this help message",
     },
-    CommandInfo { 
-        name: "info", 
-        alias: Some("--i"), 
-        description: "Display information about the Kari node" 
+    CommandInfo {
+        name: "info",
+        alias: Some("--i"),
+        description: "Display information about the Kari node",
     },
 ];
 
@@ -78,27 +77,28 @@ fn display_help(show_error: bool) {
 
     // Commands
     println!("{}", "COMMANDS:".bright_yellow().bold());
-    
-    let max_name_len = COMMANDS.iter()
+
+    let max_name_len = COMMANDS
+        .iter()
         .map(|cmd| cmd.name.len() + cmd.alias.map_or(0, |a| a.len() + 2))
         .max()
         .unwrap_or(0);
-    
+
     for cmd in COMMANDS {
         let name = match cmd.alias {
             Some(alias) => format!("{}, {}", cmd.name, alias),
-            None => cmd.name.to_string()
+            None => cmd.name.to_string(),
         };
-        
+
         println!(
-            "  {}{}  {}", 
+            "  {}{}  {}",
             name.green().bold(),
             " ".repeat(max_name_len - name.len() + 2),
             cmd.description.bright_white()
         );
     }
     println!();
-    
+
     exit(1);
 }
 
@@ -114,11 +114,11 @@ async fn main() {
         Some("start") => start_node().await,
         Some("public") => {
             let _ = handle_public_command();
-        },
+        }
         Some("move") => handle_move_command(),
         Some("keytool") => {
             let _ = handle_keytool_command();
-        },
+        }
         Some("version") | Some("--V") => println!("CLI Version: {}", VERSION),
         Some("help") | Some("--h") => display_help(false),
         Some("info") | Some("--i") => {
@@ -128,40 +128,46 @@ async fn main() {
                 .args(["/C", "start", "https://docs.kanari.network"])
                 .spawn()
                 .expect("Failed to open documentation");
-        
+
             #[cfg(target_os = "linux")]
             Command::new("xdg-open")
                 .arg("https://docs.kanari.network")
                 .spawn()
                 .expect("Failed to open documentation");
-        
+
             #[cfg(target_os = "macos")]
             Command::new("open")
                 .arg("https://docs.kanari.network")
                 .spawn()
                 .expect("Failed to open documentation");
-        },
+        }
         _ => display_help(true),
     }
 }
 
 // Start the Kari node
 async fn start_node() {
-
-        // Check if any wallet exists first
-        if !check_wallet_exists() {
-            println!("{}", "No wallet found!".red());
-            println!("Please create a wallet first using:");
-            println!("{}", "kari keytool generate".green());
-            exit(1);
-        }
+    // Check if any wallet exists first
+    if !check_wallet_exists() {
+        println!("{}", "No wallet found!".red());
+        println!("Please create a wallet first using:");
+        println!("{}", "kari keytool generate".green());
+        exit(1);
+    }
 
     let mut config = load_config().expect("Failed to load configuration file");
 
-    let _chain_id = config.get("chain_id").and_then(|v| v.as_str()).unwrap_or(CHAIN_ID);
+    let _chain_id = config
+        .get("chain_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or(CHAIN_ID);
 
     // Check if the configuration already exists
-    let network_config = if config.get("network_type").is_some() && config.get("rpc_port").is_some() && config.get("domain").is_some() && config.get("chain_id").is_some() {
+    let network_config = if config.get("network_type").is_some()
+        && config.get("rpc_port").is_some()
+        && config.get("domain").is_some()
+        && config.get("chain_id").is_some()
+    {
         println!("Configuration already exists. Skipping configuration process.");
         let network_type = match config.get("network_type").unwrap().as_str().unwrap() {
             "devnet" => NetworkType::Devnet,
@@ -171,7 +177,12 @@ async fn start_node() {
         };
         let rpc_port = config.get("rpc_port").unwrap().as_u64().unwrap() as u16;
         let domain = config.get("domain").unwrap().as_str().unwrap().to_string();
-        let chain_id = config.get("chain_id").unwrap().as_str().unwrap().to_string();
+        let chain_id = config
+            .get("chain_id")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
 
         NetworkConfig {
             node_address: "127.0.0.1".to_string(),
@@ -194,34 +205,38 @@ async fn start_node() {
         }
     };
 
-
     let _ = load_blockchain();
     let running = Arc::new(Mutex::new(true));
-    
 
     // Load address with validation
     let address = match config.get("address").and_then(|v| v.as_str()) {
         Some(address) => {
             // Verify wallet file exists for this address
-            if !std::path::Path::new(&get_kari_dir().join("wallets").join(format!("{}.enc", address))).exists() {
+            if !std::path::Path::new(
+                &get_kari_dir()
+                    .join("wallets")
+                    .join(format!("{}.enc", address)),
+            )
+            .exists()
+            {
                 // Try to find any existing wallet
                 match list_wallet_files() {
                     Ok(wallets) if !wallets.is_empty() => {
                         // Access first element of tuple (filename)
                         let first_wallet = wallets[0].0.trim_end_matches(".enc").to_string();
                         println!("Using existing wallet as address: {}", first_wallet.green());
-                        
+
                         // Convert config to Map to modify it
                         if let serde_yaml::Value::Mapping(ref mut map) = config {
                             map.insert(
                                 serde_yaml::Value::String("address".to_string()),
-                                serde_yaml::Value::String(first_wallet.clone())
+                                serde_yaml::Value::String(first_wallet.clone()),
                             );
                             save_config(&config).expect("Failed to save configuration");
                         }
-                        
+
                         first_wallet
-                    },
+                    }
                     _ => {
                         println!("{}", "No valid wallets found!".red());
                         println!("Please create a wallet first using:");
@@ -232,25 +247,28 @@ async fn start_node() {
             } else {
                 address.to_string()
             }
-        },
+        }
         None => {
             // Try to find any existing wallet
             match list_wallet_files() {
                 Ok(wallets) if !wallets.is_empty() => {
                     let first_wallet = wallets[0].0.trim_end_matches(".enc").to_string();
-                    println!("Setting address to existing wallet: {}", first_wallet.green());
-                    
+                    println!(
+                        "Setting address to existing wallet: {}",
+                        first_wallet.green()
+                    );
+
                     // Update config with new address using serde_yaml::Value
                     if let serde_yaml::Value::Mapping(ref mut map) = config {
                         map.insert(
                             serde_yaml::Value::String("address".to_string()),
-                            serde_yaml::Value::String(first_wallet.clone())
+                            serde_yaml::Value::String(first_wallet.clone()),
                         );
                         save_config(&config).expect("Failed to save configuration");
                     }
-                    
+
                     first_wallet
-                },
+                }
                 _ => {
                     println!("{}", "No wallets found!".red());
                     println!("Please create a wallet first using:");
@@ -261,58 +279,67 @@ async fn start_node() {
         }
     };
 
+    // ...existing code...
     let final_config = serde_yaml::Value::Mapping({
         let mut map = serde_yaml::Mapping::new();
         map.insert(
             serde_yaml::Value::String("chain_id".to_string()),
-            serde_yaml::Value::String(network_config.chain_id)
+            serde_yaml::Value::String(network_config.chain_id.clone()),  // Clone here
         );
         map.insert(
             serde_yaml::Value::String("network_type".to_string()),
-            serde_yaml::Value::String(network_config.network_type.to_string().clone())
+            serde_yaml::Value::String(network_config.network_type.to_string()),
         );
         map.insert(
             serde_yaml::Value::String("rpc_port".to_string()),
-            serde_yaml::Value::Number(serde_yaml::Number::from(network_config.port))
+            serde_yaml::Value::Number(serde_yaml::Number::from(network_config.port)),
         );
         map.insert(
             serde_yaml::Value::String("domain".to_string()),
-            serde_yaml::Value::String(network_config.domain)
+            serde_yaml::Value::String(network_config.domain.clone()),  // Clone here
         );
         map.insert(
             serde_yaml::Value::String("address".to_string()),
-            serde_yaml::Value::String(address.clone())
+            serde_yaml::Value::String(address.clone()),
         );
         map
     });
     save_config(&final_config).expect("Failed to save configuration");
 
-    
     if address.is_empty() {
         println!("Please generate an address first using the 'kari keytool' command.");
         exit(1);
     }
-    
+
     println!("Using existing address: {}", address.green());
     *running.lock().unwrap() = true;
     println!("{}", "Starting blockchain...".green());
-    
+
     // Create a channel for block status updates
     let (tx, mut rx) = mpsc::channel::<String>(100);
-    
+
     let running_clone = Arc::clone(&running);
     let address_clone = address.clone();
-    
+
     // Spawn blockchain simulation task
     tokio::spawn(async move {
         println!("Running blockchain simulation...");
         run_blockchain(running_clone, address_clone, tx);
     });
-    
+
+    // Start RPC server 
+    let rpc_handle = tokio::spawn(async move {
+        println!("Starting RPC server...");
+        start_rpc_server(network_config).await;
+    });
+
     // Wait for shutdown signal while showing block status
-    println!("{}", "Block status will be shown below. Press Enter to stop the node.".yellow());
+    println!(
+        "{}",
+        "Block status will be shown below. Press Enter to stop the node.".yellow()
+    );
     io::stdout().flush().unwrap();
-    
+
     // Spawn a task to listen for Enter key
     let running_input = Arc::clone(&running);
     let input_handle = tokio::spawn(async move {
@@ -320,7 +347,7 @@ async fn start_node() {
         io::stdin().read_line(&mut input).unwrap();
         *running_input.lock().unwrap() = false;
     });
-    
+
     // Display block status updates while waiting for Enter
     while *running.lock().unwrap() {
         tokio::select! {
@@ -332,13 +359,13 @@ async fn start_node() {
             }
         }
     }
-    
-    // Wait for input_handle to complete
+
+    // Wait for both blockchain and RPC server to shutdown
     let _ = input_handle.await;
-    
+    let _ = rpc_handle.await;
+
     // Graceful shutdown
     println!("{}", "Stopping blockchain...".red());
     *running.lock().unwrap() = false;
     let _ = save_blockchain();
 }
-

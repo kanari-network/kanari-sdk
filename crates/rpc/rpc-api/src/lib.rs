@@ -1,19 +1,57 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use futures::FutureExt;
-use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult, Error as RpcError};
+use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult, Error as RpcError, ErrorCode};
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
-use panorama::{blockchain::BLOCKCHAIN_DATA, chain_id::CHAIN_ID};
+use panorama::{blockchain::{BLOCKCHAIN_DATA, get_balance, load_blockchain_with_retry}, chain_id::CHAIN_ID, blockchain::BALANCES};
+use panorama::simulation::process_transfer;
+// Remove the missing utils import
 use network::NetworkConfig;
 use serde_json::{json, Value as JsonValue};
 use mona_storage::file_storage::{FileStorage, StorageError2};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
+use key::{load_wallet, list_wallet_files};
 
-
+// File upload parameters
 #[derive(Deserialize)]
 struct UploadParams {
     filename: String,
     data: String, // base64 encoded file content
+}
+
+// Blockchain API structures
+#[derive(Deserialize)]
+struct TransferParams {
+    from: String,
+    to: String,
+    amount: f64,
+    password: String,
+}
+
+
+// Format function locally since panorama::utils is not available
+fn format_kari_amount(ka_amount: u64) -> String {
+    const KA_PER_KARI: u64 = 1_000_000_000;
+    
+    // Calculate whole and fractional parts
+    let whole_kari = ka_amount / KA_PER_KARI;
+    let fractional_ka = ka_amount % KA_PER_KARI;
+    
+    // Format with thousands separators and 9 decimal places
+    let whole_formatted = format!("{}", whole_kari)
+        .chars()
+        .rev()
+        .collect::<Vec<_>>()
+        .chunks(3)
+        .map(|chunk| chunk.iter().collect::<String>())
+        .collect::<Vec<_>>()
+        .join(",")
+        .chars()
+        .rev()
+        .collect::<String>();
+    
+    format!("{}.{:09}", whole_formatted, fractional_ka)
 }
 
 // Add new RPC methods for file operations
@@ -85,41 +123,228 @@ fn get_file(params: Params) -> JsonRpcResult<JsonValue> {
     }
 }
 
-
-// RPC server - updated to use thread-safe BLOCKCHAIN_DATA
-fn get_latest_block(_params: Params) -> JsonRpcResult<JsonValue> {
-    let len = BLOCKCHAIN_DATA.len();
-    if len == 0 {
-        return Ok(JsonValue::Null);
+// Blockchain API methods
+fn get_blockchain_status(_params: Params) -> JsonRpcResult<JsonValue> {
+    // Load blockchain data if needed
+    if let Err(e) = load_blockchain_with_retry() {
+        return Err(RpcError {
+            code: ErrorCode::InternalError,
+            message: format!("Failed to load blockchain: {}", e),
+            data: None,
+        });
     }
     
-    if let Some(block) = BLOCKCHAIN_DATA.get_block(len - 1) {
-        Ok(serde_json::to_value(block).unwrap())
+    let block_count = BLOCKCHAIN_DATA.len();
+    
+    // Get the latest block info
+    let latest_block = if block_count > 0 {
+        let block = BLOCKCHAIN_DATA.get_block(block_count - 1);
+        block.map(|b| json!({
+            "index": b.index,
+            "hash": b.hash,
+            "timestamp": b.timestamp,
+            "transactions": b.transactions.len(),
+            "miner": b.address,
+        }))
     } else {
-        Ok(JsonValue::Null)
+        None
+    };
+    
+    // Get genesis timestamp if available
+    let genesis_timestamp = if block_count > 0 {
+        BLOCKCHAIN_DATA.get_block(0).map(|b| b.timestamp)
+    } else {
+        None
+    };
+    
+    // Count transactions across all blocks
+    let total_transactions = BLOCKCHAIN_DATA.iter()
+        .into_iter() // Add into_iter to fix error
+        .fold(0, |acc, block| acc + block.transactions.len());
+    
+    let response = json!({
+        "chain_id": CHAIN_ID.to_string(),
+        "block_height": block_count,
+        "block_count": block_count,
+        "latest_block": latest_block,
+        "total_transactions": total_transactions,
+        "genesis_timestamp": genesis_timestamp,
+    });
+    
+    Ok(response)
+}
+
+fn get_balance_by_address(params: Params) -> JsonRpcResult<JsonValue> {
+    // Parse address from params
+    let address: String = params.parse()
+        .map_err(|e| RpcError::invalid_params(format!("Invalid address: {}", e)))?;
+    
+    // Load blockchain data if needed
+    if let Err(e) = load_blockchain_with_retry() {
+        return Err(RpcError {
+            code: ErrorCode::InternalError,
+            message: format!("Failed to load blockchain: {}", e),
+            data: None,
+        });
     }
-}
-
-fn get_chain_id(_params: Params) -> JsonRpcResult<JsonValue> {
-    Ok(JsonValue::String(CHAIN_ID.to_string()))
-}
-
-fn get_block_by_index(params: Params) -> JsonRpcResult<JsonValue> {
-    let index: u32 = params.parse().map_err(|e| 
-        jsonrpc_core::Error::invalid_params(format!("Invalid index parameter: {}", e)))?;
-
-    // Use safer method to find blocks by index
-    for block_idx in 0..BLOCKCHAIN_DATA.len() {
-        if let Some(block) = BLOCKCHAIN_DATA.get_block(block_idx) {
-            if block.index == index {
-                return Ok(serde_json::to_value(block).unwrap());
-            }
+    
+    // Get balance
+    match get_balance(&address) {
+        Ok(balance) => {
+            Ok(json!({
+                "address": address,
+                "balance_raw": balance,
+                "balance_formatted": format_kari_amount(balance),
+                "symbol": "KARI",
+            }))
+        },
+        Err(e) => {
+            Err(RpcError {
+                code: ErrorCode::InternalError,
+                message: format!("Failed to get balance: {}", e),
+                data: None,
+            })
         }
     }
-    
-    Ok(JsonValue::Null)
 }
 
+fn list_accounts(_params: Params) -> JsonRpcResult<JsonValue> {
+    // Load blockchain data if needed
+    if let Err(e) = load_blockchain_with_retry() {
+        return Err(RpcError {
+            code: ErrorCode::InternalError,
+            message: format!("Failed to load blockchain: {}", e),
+            data: None,
+        });
+    }
+    
+    let balances = match BALANCES.lock() {
+        Ok(balances) => balances,
+        Err(_) => return Err(RpcError {
+            code: ErrorCode::InternalError,
+            message: "Failed to access balances".to_string(),
+            data: None,
+        }),
+    };
+    
+    let mut accounts = Vec::new();
+    for (address, balance) in balances.iter() {
+        // Count transactions for this account using fold instead of flat_map to avoid lifetime issues
+        let tx_count = BLOCKCHAIN_DATA.iter()
+            .into_iter()
+            .fold(0, |acc, block| {
+                // Count matching transactions in each block and accumulate
+                acc + block.transactions.iter()
+                    .filter(|tx| tx.sender == *address || tx.receiver == *address)
+                    .count()
+            });
+            
+        accounts.push(json!({
+            "address": address,
+            "balance": balance,
+            "balance_formatted": format_kari_amount(*balance),
+            "transaction_count": tx_count,
+            "is_contract": false,
+        }));
+    }
+    
+    Ok(json!({
+        "accounts": accounts,
+        "total": accounts.len(),
+    }))
+}
+
+fn transfer_tokens(params: Params) -> JsonRpcResult<JsonValue> {
+    // Parse transfer params
+    let transfer_params: TransferParams = params.parse()
+        .map_err(|e| RpcError::invalid_params(format!("Invalid parameters: {}", e)))?;
+    
+    // Load blockchain data if needed
+    if let Err(e) = load_blockchain_with_retry() {
+        return Err(RpcError {
+            code: ErrorCode::InternalError,
+            message: format!("Failed to load blockchain: {}", e),
+            data: None,
+        });
+    }
+    
+    // Validate sender's address and password by loading the wallet
+    match load_wallet(&transfer_params.from, &transfer_params.password) {
+        Ok(_) => {
+            // Calculate amount in KA units (1 KARI = 10^9 KA)
+            const KA_PER_KARI: u64 = 1_000_000_000;
+            let amount_ka = (transfer_params.amount * KA_PER_KARI as f64) as u64;
+            
+            // Create a channel for transaction notifications
+            let (tx, _rx) = mpsc::channel::<String>(10);
+            
+            // Process transfer
+            match process_transfer(&transfer_params.from, &transfer_params.to, amount_ka, &tx) {
+                Ok(transaction) => {
+                    // Generate a transaction ID
+                    let tx_id = format!("tx_{}_{}_{}", 
+                        transaction.sender, 
+                        transaction.receiver,
+                        transaction.timestamp);
+                    
+                    Ok(json!({
+                        "transaction_id": tx_id,
+                        "sender": transaction.sender,
+                        "receiver": transaction.receiver,
+                        "amount": transaction.amount,
+                        "amount_formatted": format_kari_amount(transaction.amount),
+                        "timestamp": transaction.timestamp,
+                        "status": "pending",
+                    }))
+                },
+                Err(e) => {
+                    Err(RpcError {
+                        code: ErrorCode::InternalError,
+                        message: format!("Transfer failed: {}", e),
+                        data: None,
+                    })
+                }
+            }
+        },
+        Err(_) => {
+            Err(RpcError {
+                code: ErrorCode::InvalidParams,
+                message: "Invalid wallet password".to_string(),
+                data: None,
+            })
+        }
+    }
+}
+
+fn get_wallets(_params: Params) -> JsonRpcResult<JsonValue> {
+    match list_wallet_files() {
+        Ok(wallets) => {
+            let wallet_list = wallets.into_iter()
+                .map(|(name, is_selected)| {
+                    let address = name.trim_end_matches(".enc");
+                    json!({
+                        "address": address,
+                        "selected": is_selected
+                    })
+                })
+                .collect::<Vec<_>>();
+                
+            Ok(json!({
+                "wallets": wallet_list,
+                "count": wallet_list.len()
+            }))
+        },
+        Err(e) => {
+            Err(RpcError {
+                code: ErrorCode::InternalError,
+                message: format!("Failed to list wallets: {}", e),
+                data: None,
+            })
+        }
+    }
+}
+
+/// Starts the RPC server for file operations
 pub async fn start_rpc_server(network_config: NetworkConfig) {
     let mut io = IoHandler::new();
 
@@ -132,18 +357,25 @@ pub async fn start_rpc_server(network_config: NetworkConfig) {
         futures::future::ready(get_file(params)).boxed()
     });
 
-
-    // Add RPC methods
-    io.add_method("get_latest_block", |params| {
-        futures::future::ready(get_latest_block(params)).boxed()
+    // Add blockchain operations
+    io.add_method("blockchain_status", |params| {
+        futures::future::ready(get_blockchain_status(params)).boxed()
     });
-
-    io.add_method("get_chain_id", |params| {
-        futures::future::ready(get_chain_id(params)).boxed()
+    
+    io.add_method("get_balance", |params| {
+        futures::future::ready(get_balance_by_address(params)).boxed()
     });
-
-    io.add_method("get_block_by_index", |params| {
-        futures::future::ready(get_block_by_index(params)).boxed()
+    
+    io.add_method("list_accounts", |params| {
+        futures::future::ready(list_accounts(params)).boxed()
+    });
+    
+    io.add_method("transfer", |params| {
+        futures::future::ready(transfer_tokens(params)).boxed()
+    });
+    
+    io.add_method("get_wallets", |params| {
+        futures::future::ready(get_wallets(params)).boxed()
     });
 
     // Configure socket address
@@ -152,10 +384,9 @@ pub async fn start_rpc_server(network_config: NetworkConfig) {
         network_config.port
     );
 
-    // Create CORS settings that allow the domain pattern
+    // Create CORS settings that allow all origins during development
     let allowed_origins = vec![
         AccessControlAllowOrigin::Any, // Allow all during development
-        // AccessControlAllowOrigin::Value(format!("https://{}", network_config.domain).into()),
     ];
 
     match ServerBuilder::new(io)
@@ -164,7 +395,7 @@ pub async fn start_rpc_server(network_config: NetworkConfig) {
     {
         Ok(server) => {
             println!("RPC server running on http://127.0.0.1:{}", network_config.port);
-            // println!("Accessible via https://{}", network_config.domain);
+            println!("Blockchain API is now available");
             server.wait();
         }
         Err(e) => {
