@@ -94,7 +94,7 @@ pub fn handle_keytool_command() -> Option<String> {
                     Ok(_) => {
                         match mnemonic_length_str.trim().parse::<usize>() {
                             Ok(mnemonic_length) => {
-                                if (mnemonic_length != 12 && mnemonic_length != 24) {
+                                if mnemonic_length != 12 && mnemonic_length != 24 {
                                     println!(
                                         "{}",
                                         "Invalid mnemonic length. Must be 12 or 24.".red()

@@ -96,16 +96,24 @@ pub fn load_blockchain_with_retry() -> Result<(), StorageError> {
     load_blockchain()
 }
 
+// Improved save function that ensures balances are saved
 pub fn save_blockchain() -> Result<(), StorageError> {
     let kari_dir = get_kari_dir();
     let db_path = kari_dir.join("blockchain_db");
     let storage = RocksDBStorage::new(db_path)?;
 
-    // Use the new BLOCKCHAIN_DATA structure
+    // Save blockchain data
     let data = bincode::serialize(&BLOCKCHAIN_DATA.chain.read().unwrap().clone())?;
     storage.save_data(b"blockchain", &data)?;
-    storage.flush()?;
 
+    // Save balances separately for better reliability
+    let balances = BALANCES.lock().unwrap().clone();
+    let balances_data = bincode::serialize(&balances)?;
+    storage.save_data(b"balances", &balances_data)?;
+    
+    storage.flush()?;
+    log::debug!("Blockchain and balances saved successfully");
+    
     Ok(())
 }
 
@@ -213,6 +221,16 @@ pub fn transfer_tokens(
         signature: None, // In a real implementation we would sign the transaction
     };
     
+    // Save balances immediately to persist changes
+    drop(balances); // Release lock before saving
+    
+    // Save blockchain state to persist the balance changes
+    if let Err(e) = save_blockchain() {
+        log::error!("Failed to save blockchain after transfer: {}", e);
+        // Consider reverting the balance changes if save fails
+        // But be careful about concurrency issues
+    }
+    
     // Log the transfer
     log::info!("Transferred {} tokens from {} to {}", amount, from, to);
     
@@ -257,21 +275,37 @@ pub fn get_balance(address: &str) -> Result<u64, BlockchainError> {
     // Add error handling for the case where all attempts fail
     Err(BlockchainError::Balance(
         "Failed to acquire balance lock after multiple attempts".into(),
-    ))
+     ))
 }
 
+// Modified load method to ensure balances are properly loaded
 pub fn load_blockchain() -> Result<(), StorageError> {
     let kari_dir = get_kari_dir();
     let db_path = kari_dir.join("blockchain_db");
     let storage = RocksDBStorage::new(db_path)?;
     init_blockchain_state();
+    
+    // First, try to load dedicated balances if they exist
+    let mut loaded_balances = HashMap::new();
+    if let Ok(Some(balances_data)) = storage.load_data(b"balances") {
+        if let Ok(balances) = bincode::deserialize::<HashMap<String, u64>>(&balances_data) {
+            loaded_balances = balances;
+            log::info!("Loaded {} balances from dedicated storage", loaded_balances.len());
+        }
+    }
 
+    // Then load blockchain data and calculate balances as a fallback
     match storage.load_data(b"blockchain")? {
         Some(value) => {
             let loaded_chain: VecDeque<Block<Blake3Algorithm>> = bincode::deserialize(&value)?;
             
-            // Calculate balances and total tokens
-            let mut balances = HashMap::new();
+            // Calculate balances and total tokens if we didn't load from dedicated storage
+            let mut balances = if loaded_balances.is_empty() {
+                HashMap::new()
+            } else {
+                loaded_balances.clone()
+            };
+            
             let mut total_tokens = 0;
             let mut block_height_cache = HashMap::new();
             
@@ -280,34 +314,30 @@ pub fn load_blockchain() -> Result<(), StorageError> {
             *chain = loaded_chain;
             
             // Process blocks for balances and caching
-            for (height, block) in chain.iter().enumerate() {
-                total_tokens += block.tokens;
-                // Ensure addresses are always stored with 0x prefix
-                let miner_address = if !block.address.starts_with("0x") {
-                    format!("0x{}", block.address)
-                } else {
-                    block.address.clone()
-                };
-                
-                *balances.entry(miner_address).or_insert(0) += block.tokens;
-                block_height_cache.insert(block.hash.clone(), height);
+            if loaded_balances.is_empty() {
+                for (height, block) in chain.iter().enumerate() {
+                    total_tokens += block.tokens;
+                    
+                    // Ensure addresses are always stored with 0x prefix
+                    let miner_address = normalize_address(&block.address);
+                    
+                    *balances.entry(miner_address).or_insert(0) += block.tokens;
+                    block_height_cache.insert(block.hash.clone(), height);
 
-                for tx in &block.transactions {
-                    // Normalize addresses for transactions too
-                    let tx_sender = if !tx.sender.starts_with("0x") {
-                        format!("0x{}", tx.sender)
-                    } else {
-                        tx.sender.clone()
-                    };
-                    
-                    let tx_receiver = if !tx.receiver.starts_with("0x") {
-                        format!("0x{}", tx.receiver)
-                    } else {
-                        tx.receiver.clone()
-                    };
-                    
-                    *balances.entry(tx_sender).or_insert(0) -= tx.amount;
-                    *balances.entry(tx_receiver).or_insert(0) += tx.amount;
+                    for tx in &block.transactions {
+                        // Normalize addresses for transactions too
+                        let tx_sender = normalize_address(&tx.sender);
+                        let tx_receiver = normalize_address(&tx.receiver);
+                        
+                        *balances.entry(tx_sender).or_insert(0) -= tx.amount;
+                        *balances.entry(tx_receiver).or_insert(0) += tx.amount;
+                    }
+                }
+            } else {
+                // Just calculate total tokens and build cache
+                for (height, block) in chain.iter().enumerate() {
+                    total_tokens += block.tokens;
+                    block_height_cache.insert(block.hash.clone(), height);
                 }
             }
 
@@ -318,10 +348,11 @@ pub fn load_blockchain() -> Result<(), StorageError> {
             // Update balances
             *BALANCES.lock().unwrap() = balances;
 
-            println!("Blockchain loaded successfully");
+            log::info!("Blockchain loaded successfully with {} blocks and {} accounts", 
+                chain.len(), BALANCES.lock().unwrap().len());
         }
         None => {
-            println!("No blockchain data found, initializing new chain");
+            log::info!("No blockchain data found, initializing new chain");
             *BLOCKCHAIN_DATA.chain.write().unwrap() = VecDeque::new();
             BLOCKCHAIN_DATA.total_tokens.store(0, Ordering::Relaxed);
             *BALANCES.lock().unwrap() = HashMap::new();
