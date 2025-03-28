@@ -249,24 +249,3 @@ fn create_genesis_block(address: &str, coin: &Coin) -> Block<Blake3Algorithm> {
     )
 }
 
-// Add helper function to check if an address exists in the blockchain
-pub fn check_address_exists(address: &str) -> bool {
-    // Normalize the address
-    let normalized_address = if !address.starts_with("0x") {
-        format!("0x{}", address)
-    } else {
-        address.to_string()
-    };
-    
-    // Try to get the balance - if it's > 0, address exists
-    match crate::blockchain::get_balance(&normalized_address) {
-        Ok(balance) => {
-            debug!("Address {} has balance {}", normalized_address, balance);
-            true
-        },
-        Err(e) => {
-            debug!("Error getting balance for address {}: {}", normalized_address, e);
-            false
-        }
-    }
-}

@@ -5,7 +5,7 @@ use key::{
 };
 use std::io::{self, Write};
 
-use panorama::blockchain::{get_balance, load_blockchain_with_retry, transfer_tokens};
+use panorama::blockchain::{get_balance, load_blockchain_with_retry};
 use rpassword::read_password;
 use std::process::exit;
 
@@ -189,70 +189,7 @@ pub fn handle_keytool_command() -> Option<String> {
             }
 
             "transfer" => {
-                println!("Enter your wallet address:");
-                let mut sender_address = String::new();
-                io::stdin().read_line(&mut sender_address).expect("Failed to read line");
-                let sender_address = sender_address.trim();
-                
-                // Get password to unlock wallet
-                let password = prompt_password(false);
-                
-                // Load the wallet to get the private key
-                match load_wallet(sender_address, &password) {
-                    Ok(wallet) => {
-                        println!("Enter recipient address:");
-                        let mut receiver_address = String::new();
-                        io::stdin().read_line(&mut receiver_address).expect("Failed to read line");
-                        let receiver_address = receiver_address.trim();
-                        
-                        println!("Enter amount to transfer (in Kari):");
-                        let mut amount_str = String::new();
-                        io::stdin().read_line(&mut amount_str).expect("Failed to read line");
-                        
-                        // Parse and convert the amount from Kari to KA
-                        match amount_str.trim().parse::<f64>() {
-                            Ok(amount_kari) => {
-                                // Convert from Kari to KA (smallest unit)
-                                const KA_PER_KARI: u64 = 1_000_000_000;
-                                let amount_ka = (amount_kari * KA_PER_KARI as f64) as u64;
-                                
-                                // Load blockchain before performing transfer
-                                match load_blockchain_with_retry() {
-                                    Ok(_) => {
-                                        // Perform the transfer
-                                        match transfer_tokens(
-                                            sender_address, 
-                                            receiver_address, 
-                                            amount_ka,
-                                            &wallet.private_key
-                                        ) {
-                                            Ok(tx_id) => {
-                                                println!("{}", "Transfer successful!".green());
-                                                println!("From: {}", sender_address.green());
-                                                println!("To: {}", receiver_address.green());
-                                                println!("Amount: {} Kari", format_balance(amount_ka).green());
-                                                println!("Transaction ID: {}", tx_id);
-                                            },
-                                            Err(e) => {
-                                                println!("{}", format!("Transfer failed: {}", e).red());
-                                            }
-                                        }
-                                    },
-                                    Err(e) => {
-                                        println!("{}", format!("Failed to load blockchain: {}", e).red());
-                                    }
-                                }
-                            },
-                            Err(e) => {
-                                println!("{}", format!("Invalid amount: {}", e).red());
-                            }
-                        }
-                    },
-                    Err(e) => {
-                        println!("{}", format!("Failed to load wallet: {}", e).red());
-                    }
-                }
-                return None;
+                return None; // Placeholder for transfer functionality
             },
 
             "select" => match list_wallet_files() {
@@ -354,12 +291,11 @@ pub fn handle_keytool_command() -> Option<String> {
                         println!("\nAvailable Wallets:");
                         println!("------------------");
                         for (wallet_name, is_selected) in wallets {
-                            let status_symbol = if is_selected { "✓ " } else { "  " };
                             let wallet_display = wallet_name.trim_end_matches(".enc");
                             if is_selected {
-                                println!("{}{}", status_symbol, wallet_display.green().bold());
+                                println!("➤ {} {}", wallet_display.green().bold(), "[SELECTED]".green().bold());
                             } else {
-                                println!("{}{}", status_symbol, wallet_display);
+                                println!("  {}", wallet_display);
                             }
                         }
                         println!("------------------");
