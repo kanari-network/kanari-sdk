@@ -1,4 +1,4 @@
-use crate::block::Block;
+use crate::block::{Block, Transaction};
 use bincode;
 use consensus_pos::Blake3Algorithm;
 // Replace with common import
@@ -123,7 +123,10 @@ pub fn init_blockchain_state() {
 pub enum BlockchainError {
     Storage(StorageError),
     Balance(String),
-    Initialization(String)
+    Initialization(String),
+    Transaction(String),
+    InsufficientFunds(String),
+    InvalidAddress(String)
 }
 
 impl From<StorageError> for BlockchainError {
@@ -138,8 +141,82 @@ impl std::fmt::Display for BlockchainError {
             BlockchainError::Storage(e) => write!(f, "Storage error: {}", e),
             BlockchainError::Balance(e) => write!(f, "Balance error: {}", e),
             BlockchainError::Initialization(e) => write!(f, "Initialization error: {}", e),
+            BlockchainError::Transaction(e) => write!(f, "Transaction error: {}", e),
+            BlockchainError::InsufficientFunds(e) => write!(f, "Insufficient funds: {}", e),
+            BlockchainError::InvalidAddress(e) => write!(f, "Invalid address: {}", e),
         }
     }
+}
+
+// Helper function to normalize addresses
+pub fn normalize_address(address: &str) -> String {
+    if !address.starts_with("0x") {
+        format!("0x{}", address)
+    } else {
+        address.to_string()
+    }
+}
+
+/// Transfer tokens from one address to another
+pub fn transfer_tokens(
+    from_address: &str,
+    to_address: &str,
+    amount: u64,
+) -> Result<Transaction, BlockchainError> {
+    // Validate addresses
+    if from_address.trim().is_empty() || to_address.trim().is_empty() {
+        return Err(BlockchainError::InvalidAddress("Empty address provided".to_string()));
+    }
+    
+    if amount == 0 {
+        return Err(BlockchainError::Transaction("Cannot transfer zero tokens".to_string()));
+    }
+    
+    // Normalize addresses for consistent handling
+    let from = normalize_address(from_address);
+    let to = normalize_address(to_address);
+    
+    // Validate addresses are different
+    if from == to {
+        return Err(BlockchainError::Transaction("Cannot transfer to same address".to_string()));
+    }
+    
+    // Check sender's balance
+    let balance = get_balance(&from)?;
+    if balance < amount {
+        return Err(BlockchainError::InsufficientFunds(
+            format!("Address {} has {} tokens, tried to send {}", from, balance, amount)
+        ));
+    }
+    
+    // Update balances
+    let mut balances = match BALANCES.lock() {
+        Ok(guard) => guard,
+        Err(_) => return Err(BlockchainError::Transaction("Failed to lock balances".to_string())),
+    };
+    
+    // Deduct from sender
+    *balances.entry(from.clone()).or_insert(0) -= amount;
+    
+    // Add to receiver
+    *balances.entry(to.clone()).or_insert(0) += amount;
+    
+    // Create transaction
+    let transaction = Transaction {
+        sender: from.clone(),
+        receiver: to.clone(),
+        amount,
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+        signature: None, // In a real implementation we would sign the transaction
+    };
+    
+    // Log the transfer
+    log::info!("Transferred {} tokens from {} to {}", amount, from, to);
+    
+    Ok(transaction)
 }
 
 pub fn get_balance(address: &str) -> Result<u64, BlockchainError> {

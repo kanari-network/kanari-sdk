@@ -6,6 +6,7 @@ use key::{
 use std::io::{self, Write};
 
 use panorama::blockchain::{get_balance, load_blockchain_with_retry};
+use panorama::simulation::process_transfer;
 use rpassword::read_password;
 use std::process::exit;
 
@@ -93,7 +94,7 @@ pub fn handle_keytool_command() -> Option<String> {
                     Ok(_) => {
                         match mnemonic_length_str.trim().parse::<usize>() {
                             Ok(mnemonic_length) => {
-                                if mnemonic_length != 12 && mnemonic_length != 24 {
+                                if (mnemonic_length != 12 && mnemonic_length != 24) {
                                     println!(
                                         "{}",
                                         "Invalid mnemonic length. Must be 12 or 24.".red()
@@ -189,7 +190,177 @@ pub fn handle_keytool_command() -> Option<String> {
             }
 
             "transfer" => {
-                return None; // Placeholder for transfer functionality
+                // Load blockchain first
+                match load_blockchain_with_retry() {
+                    Ok(_) => {
+                        // Get sender address (current wallet)
+                        let wallets = match list_wallet_files() {
+                            Ok(w) => w,
+                            Err(e) => {
+                                println!("{}", format!("Error listing wallets: {}", e).red());
+                                return None;
+                            }
+                        };
+                        
+                        // Find selected wallet
+                        let selected_wallet = wallets.iter()
+                            .find(|(_, is_selected)| *is_selected)
+                            .map(|(name, _)| name.trim_end_matches(".enc").to_string());
+                        
+                        let sender_address = match selected_wallet {
+                            Some(addr) => addr,
+                            None => {
+                                // Try to select wallet interactively if none is selected
+                                println!("{}", "No wallet selected. Please select a wallet first.".yellow());
+                                
+                                if wallets.is_empty() {
+                                    println!("{}", "No wallets found!".red());
+                                    return None;
+                                }
+                                
+                                println!("\nAvailable wallets:");
+                                for (i, (wallet, _)) in wallets.iter().enumerate() {
+                                    let wallet_name = wallet.trim_end_matches(".enc");
+                                    println!("{}. {}", i + 1, wallet_name);
+                                }
+                                
+                                println!("\nEnter wallet number to use (or press Enter to cancel):");
+                                let mut input = String::new();
+                                match io::stdin().read_line(&mut input) {
+                                    Ok(_) => {
+                                        if input.trim().is_empty() {
+                                            println!("Transfer cancelled.");
+                                            return None;
+                                        }
+                                        
+                                        match input.trim().parse::<usize>() {
+                                            Ok(index) if index > 0 && index <= wallets.len() => {
+                                                let selected = wallets[index - 1].0.trim_end_matches(".enc");
+                                                match set_selected_wallet(selected) {
+                                                    Ok(_) => {
+                                                        println!("Using wallet: {}", selected.green());
+                                                        selected.to_string()
+                                                    }
+                                                    Err(e) => {
+                                                        println!("{}", format!("Error setting wallet: {}", e).red());
+                                                        return None;
+                                                    }
+                                                }
+                                            }
+                                            _ => {
+                                                println!("{}", format!("Invalid selection. Please enter a number between 1 and {}", wallets.len()).red());
+                                                return None;
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        println!("{}", format!("Error reading input: {}", e).red());
+                                        return None;
+                                    }
+                                }
+                            }
+                        };
+                        
+                        // Check sender balance
+                        let balance = match get_balance(&sender_address) {
+                            Ok(b) => b,
+                            Err(e) => {
+                                println!("{}", format!("Error checking balance: {}", e).red());
+                                return None;
+                            }
+                        };
+                        
+                        let formatted_balance = format_balance(balance);
+                        println!("Your balance: {} KARI", formatted_balance.green());
+                        
+                        // Get recipient address
+                        println!("Enter recipient address:");
+                        let mut recipient = String::new();
+                        match io::stdin().read_line(&mut recipient) {
+                            Ok(_) => {},
+                            Err(e) => {
+                                println!("{}", format!("Error reading input: {}", e).red());
+                                return None;
+                            }
+                        };
+                        let recipient = recipient.trim();
+                        
+                        // Get amount to send
+                        println!("Enter amount to send (in KARI):");
+                        let mut amount_str = String::new();
+                        match io::stdin().read_line(&mut amount_str) {
+                            Ok(_) => {},
+                            Err(e) => {
+                                println!("{}", format!("Error reading input: {}", e).red());
+                                return None;
+                            }
+                        };
+                        
+                        // Parse amount and convert from KARI to KA units
+                        let amount_kari = match amount_str.trim().parse::<f64>() {
+                            Ok(a) => a,
+                            Err(e) => {
+                                println!("{}", format!("Invalid amount: {}", e).red());
+                                return None;
+                            }
+                        };
+                        
+                        const KA_PER_KARI: u64 = 1_000_000_000;
+                        let amount_ka = (amount_kari * KA_PER_KARI as f64) as u64;
+                        
+                        // Confirm the transfer
+                        println!("\nTransaction details:");
+                        println!("  From: {}", sender_address.green());
+                        println!("  To:   {}", recipient.green());
+                        println!("  Amount: {} KARI ({} KA)", amount_str.trim(), amount_ka);
+                        
+                        println!("\nConfirm transfer? (y/n)");
+                        let mut confirm = String::new();
+                        match io::stdin().read_line(&mut confirm) {
+                            Ok(_) => {},
+                            Err(e) => {
+                                println!("{}", format!("Error reading input: {}", e).red());
+                                return None;
+                            }
+                        };
+                        
+                        if !confirm.trim().eq_ignore_ascii_case("y") {
+                            println!("Transfer cancelled.");
+                            return None;
+                        }
+                        
+                        // Unlock wallet to verify ownership
+                        println!("Enter wallet password:");
+                        let password = prompt_password(false);
+                        match load_wallet(&sender_address, &password) {
+                            Ok(_wallet) => {
+                                // Create a channel for transaction processing
+                                let (tx, _rx) = tokio::sync::mpsc::channel::<String>(100);
+                                
+                                // Process the transfer
+                                match process_transfer(&sender_address, recipient, amount_ka, &tx) {
+                                    Ok(_) => {
+                                        println!("{}", "Transfer initiated successfully!".green());
+                                        println!("Transaction will be included in the next block.");
+                                        return Some(sender_address);
+                                    },
+                                    Err(e) => {
+                                        println!("{}", format!("Transfer failed: {}", e).red());
+                                        return None;
+                                    }
+                                }
+                            },
+                            Err(e) => {
+                                println!("{}", format!("Failed to unlock wallet: {}", e).red());
+                                return None;
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        println!("{}", format!("Failed to load blockchain: {}", e).red());
+                        return None;
+                    }
+                }
             },
 
             "select" => match list_wallet_files() {

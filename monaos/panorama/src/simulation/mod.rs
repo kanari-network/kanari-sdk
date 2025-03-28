@@ -4,6 +4,8 @@ use tokio::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use serde_json::{json, Value};
+use std::collections::VecDeque;
 
 use crate::block::{Block, Transaction};
 use crate::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN_DATA};
@@ -19,22 +21,134 @@ const TOTAL_SUPPLY_KARI: u64 = 100_000_000;
 /// The total supply of Kari denominated in KA (100 Million * 10^9)
 const TOTAL_SUPPLY_KA: u64 = 100_000_000_000_000_000;
 
-// Add coin structure
+// Enhanced Coin structure with additional properties
 #[derive(Clone, Debug)]
 pub struct Coin {
     pub name: String,
     pub symbol: String,
     pub decimals: u8,
     pub total_supply: u64,
+    pub max_supply: u64,      // Maximum supply that will ever exist
+    pub block_reward: u64,    // Reward per block if applicable
+    pub created_at: u64,      // Timestamp when coin was created
 }
 
 impl Default for Coin {
     fn default() -> Self {
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+            
         Coin {
             name: "Kanari".to_string(),
             symbol: "KARI".to_string(),
             decimals: 9, // 9 decimals for KA units
             total_supply: TOTAL_SUPPLY_KA,
+            max_supply: TOTAL_SUPPLY_KA, // Same as total supply for fixed supply
+            block_reward: 0,             // No mining rewards in this implementation
+            created_at: current_time,    // Current timestamp
+        }
+    }
+}
+
+// Helper function to validate and normalize addresses
+fn normalize_address(address: &str) -> String {
+    // Ensure address starts with 0x prefix
+    let address = if !address.starts_with("0x") {
+        format!("0x{}", address)
+    } else {
+        address.to_string()
+    };
+    
+    // Check address length and format (basic validation)
+    if address.len() < 4 { // Minimum length check (0x + at least 2 chars)
+        warn!("Address too short: {}", address);
+    } else if address.len() > 66 { // Max length for 0x + 64 hex chars
+        warn!("Address too long: {}", address);
+    }
+    
+    // Return normalized address
+    address
+}
+
+// Add pending transactions queue
+lazy_static::lazy_static! {
+    static ref PENDING_TRANSACTIONS: Mutex<VecDeque<Transaction>> = Mutex::new(VecDeque::new());
+}
+
+// Add transaction to the pending pool
+pub fn add_pending_transaction(transaction: Transaction) -> bool {
+    match PENDING_TRANSACTIONS.lock() {
+        Ok(mut queue) => {
+            queue.push_back(transaction);
+            true
+        },
+        Err(_) => false
+    }
+}
+
+// Helper function to process a transfer and return transaction result
+pub fn process_transfer(
+    from_address: &str,
+    to_address: &str,
+    amount: u64,
+    tx: &mpsc::Sender<String>
+) -> Result<Transaction, String> {
+    // Normalize addresses
+    let from = if !from_address.starts_with("0x") {
+        format!("0x{}", from_address)
+    } else {
+        from_address.to_string()
+    };
+    
+    let to = if !to_address.starts_with("0x") {
+        format!("0x{}", to_address)
+    } else {
+        to_address.to_string()
+    };
+    
+    // Execute transfer
+    match crate::blockchain::transfer_tokens(&from, &to, amount) {
+        Ok(transaction) => {
+            // Add to pending transactions
+            if add_pending_transaction(transaction.clone()) {
+                // Notify about successful transaction submission
+                let tx_json = json!({
+                    "event": "transaction_created",
+                    "transaction": {
+                        "sender": from,
+                        "receiver": to,
+                        "amount": amount,
+                        "timestamp": transaction.timestamp
+                    },
+                    "status": "pending"
+                }).to_string();
+                
+                let _ = tx.try_send(tx_json);
+                
+                // Return transaction
+                Ok(transaction)
+            } else {
+                Err("Failed to add transaction to pending queue".to_string())
+            }
+        },
+        Err(e) => {
+            // Notify about transaction failure
+            let error_json = json!({
+                "event": "transaction_error",
+                "error": format!("{}", e),
+                "details": {
+                    "sender": from,
+                    "receiver": to,
+                    "amount": amount
+                }
+            }).to_string();
+            
+            let _ = tx.try_send(error_json);
+            
+            // Return error
+            Err(format!("{}", e))
         }
     }
 }
@@ -55,14 +169,24 @@ pub fn run_blockchain(
         format!("{}A", coin.symbol)
     );
 
-    // Ensure address is normalized for consistent storage
-    let normalized_address = if !address.starts_with("0x") {
-        format!("0x{}", address)
-    } else {
-        address.clone()
-    };
-
+    // Enhanced address normalization
+    let normalized_address = normalize_address(&address);
     debug!("Using normalized address: {}", normalized_address);
+
+    // Send initial status regardless of initialization state
+    let init_status = json!({
+        "event": "blockchain_initializing",
+        "coin": {
+            "name": coin.name,
+            "symbol": coin.symbol,
+            "decimals": coin.decimals,
+            "total_supply": coin.total_supply,
+            "display_supply": TOTAL_SUPPLY_KARI
+        },
+        "node_address": normalized_address,
+        "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+    }).to_string();
+    let _ = tx.try_send(init_status);
 
     // Check if blockchain is already initialized
     if !BLOCKCHAIN_DATA.is_empty() {
@@ -71,11 +195,23 @@ pub fn run_blockchain(
             BLOCKCHAIN_DATA.len()
         );
 
-        // Send initial blockchain status
-        let _ = tx.try_send(format!(
-            "Blockchain loaded with {} blocks",
-            BLOCKCHAIN_DATA.len()
-        ));
+        // Enhanced blockchain status
+        // Fix: Store the iterator result in a variable first
+        let blocks = BLOCKCHAIN_DATA.iter();
+        let last_block = blocks.last().unwrap();
+        
+        let status_json = json!({
+            "event": "blockchain_loaded",
+            "blocks": BLOCKCHAIN_DATA.len(),
+            "last_block": {
+                "index": last_block.index,
+                "hash": last_block.hash,
+                "timestamp": last_block.timestamp
+            },
+            "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+        }).to_string();
+        
+        let _ = tx.try_send(status_json);
 
         // Check balance using both original and normalized address for troubleshooting
         match crate::blockchain::get_balance(&normalized_address) {
@@ -102,15 +238,35 @@ pub fn run_blockchain(
             }
         }
     } else {
-        // Create genesis block with coin info
+        // Create genesis block with enhanced coin info as JSON
         let genesis_block = create_genesis_block(&normalized_address, &coin);
         BLOCKCHAIN_DATA.add_block(genesis_block.clone());
 
-        // Send genesis block info
-        let _ = tx.try_send(format!(
-            "Genesis Block Created\nHash: {}\nMinter: {}\nTotal Supply: {} {}",
-            &genesis_block.hash, normalized_address, TOTAL_SUPPLY_KARI, coin.symbol
-        ));
+        // Enhanced genesis block info
+        let genesis_json = json!({
+            "event": "genesis_created",
+            "block": {
+                "index": genesis_block.index,
+                "hash": genesis_block.hash,
+                "timestamp": genesis_block.timestamp,
+                "datetime": chrono::DateTime::<chrono::Utc>::from_timestamp(genesis_block.timestamp as i64, 0)
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                    .unwrap_or_else(|| "Unknown time".to_string())
+            },
+            "coin": {
+                "name": coin.name,
+                "symbol": coin.symbol,
+                "decimals": coin.decimals
+            },
+            "minter": normalized_address,
+            "total_supply": {
+                "amount": TOTAL_SUPPLY_KA,
+                "display": TOTAL_SUPPLY_KARI,
+                "symbol": coin.symbol
+            }
+        }).to_string();
+        
+        let _ = tx.try_send(genesis_json);
 
         // Update balances with normalized address
         {
@@ -135,15 +291,25 @@ pub fn run_blockchain(
         );
     }
 
-    // Start mining blocks after genesis
+    // Start block production loop
+    info!("Starting block production with node address: {}", normalized_address);
+    
+    // Block production loop
     loop {
         if !*running.lock().unwrap() {
+            info!("Blockchain simulation stopped");
+            // Send shutdown notification
+            let shutdown_json = json!({
+                "event": "blockchain_stopped",
+                "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+            }).to_string();
+            let _ = tx.try_send(shutdown_json);
             break;
         }
 
-        // Get the previous block - store the iterator result in a variable first
-        let blockchain_data = BLOCKCHAIN_DATA.iter();
-        let prev_block = match blockchain_data.last() {
+        // Get the previous block - fix to properly store the blocks first
+        let blocks = BLOCKCHAIN_DATA.iter();
+        let prev_block = match blocks.last() {
             Some(block) => block,
             None => {
                 error!("Cannot find previous block");
@@ -151,22 +317,65 @@ pub fn run_blockchain(
             }
         };
 
-        // Create new block data
-        let data = format!(
-            "Block {} - {} Coin Transaction Block",
-            prev_block.index + 1,
-            coin.symbol
-        )
-        .into_bytes();
+        // Get pending transactions for this block
+        let transactions = {
+            match PENDING_TRANSACTIONS.lock() {
+                Ok(mut queue) => {
+                    // Take up to 10 transactions for this block
+                    let mut block_txs = Vec::new();
+                    while let Some(tx) = queue.pop_front() {
+                        block_txs.push(tx);
+                        if block_txs.len() >= 10 {
+                            break;
+                        }
+                    }
+                    block_txs
+                },
+                Err(_) => {
+                    error!("Failed to lock pending transactions queue");
+                    Vec::new() // Empty vector on error
+                }
+            }
+        };
 
-        // Create new block
+        // Create JSON representation of transactions for the block data
+        let tx_json: Vec<Value> = transactions.iter().map(|tx| {
+            json!({
+                "sender": tx.sender,
+                "receiver": tx.receiver,
+                "amount": tx.amount,
+                "timestamp": tx.timestamp
+            })
+        }).collect();
+        
+        // Create new block data with transactions included
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+            
+        let block_data = json!({
+            "block_type": "transaction",
+            "index": prev_block.index + 1,
+            "coin": coin.symbol,
+            "timestamp": current_time,
+            "miner": normalized_address,
+            "transactions": tx_json,
+            "metadata": {
+                "network": "testnet",
+                "client_version": env!("CARGO_PKG_VERSION"),
+                "previous_block_hash": prev_block.hash
+            }
+        }).to_string().into_bytes();
+
+        // Create new block with transactions
         let new_block = Block::new(
             prev_block.index + 1,
-            data,
+            block_data,
             prev_block.hash.clone(),
             0,          // No new tokens in regular blocks
-            Vec::new(), // Empty transactions for now
-            normalized_address.clone(), // Use normalized address consistently
+            transactions, // Include transactions in the block
+            normalized_address.clone(),
             Blake3Algorithm::new(),
         );
 
@@ -178,16 +387,25 @@ pub fn run_blockchain(
             .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
             .unwrap_or_else(|| "Unknown time".to_string());
 
-        // Send block status update
-        let _ = tx.try_send(format!(
-            "Block #{} mined at {}\nHash: {}\nPrev Hash: {}\nNode Address: {}\nTransactions: {}",
-            new_block.index,
-            datetime,
-            &new_block.hash,
-            &new_block.prev_hash,
-            normalized_address,
-            new_block.transactions.len()
-        ));
+        // Enhanced block status update as JSON
+        let status_json = json!({
+            "event": "block_mined",
+            "block": {
+                "index": new_block.index,
+                "hash": new_block.hash,
+                "prev_hash": new_block.prev_hash,
+                "timestamp": new_block.timestamp,
+                "datetime": datetime,
+                "minter": normalized_address,
+                "transactions": new_block.transactions.len()
+            },
+            "blockchain": {
+                "height": BLOCKCHAIN_DATA.len(),
+                "last_update": current_time
+            }
+        }).to_string();
+        
+        let _ = tx.try_send(status_json);
 
         // Save blockchain state
         match save_blockchain() {
@@ -196,27 +414,72 @@ pub fn run_blockchain(
                 new_block.index,
                 &new_block.hash[..16]
             ),
-            Err(e) => error!("Failed to save blockchain: {}", e),
+            Err(e) => {
+                error!("Failed to save blockchain: {}", e);
+                // Notify clients of save error
+                let error_json = json!({
+                    "event": "blockchain_error",
+                    "error": format!("Failed to save blockchain: {}", e),
+                    "block_index": new_block.index,
+                    "timestamp": current_time
+                }).to_string();
+                let _ = tx.try_send(error_json);
+            },
         }
 
-        // Check balances periodically to ensure they're consistent
+        // Enhanced balance checking
         if new_block.index % 5 == 0 {
             match crate::blockchain::get_balance(&normalized_address) {
                 Ok(balance) => {
+                    // Enhanced balance update with more details
+                    let balance_json = json!({
+                        "event": "balance_update",
+                        "address": normalized_address,
+                        "balance": {
+                            "amount": balance,
+                            "display": balance as f64 / KA_PER_KARI as f64,
+                            "symbol": coin.symbol,
+                            "formatted": format!("{:.9} {}", balance as f64 / KA_PER_KARI as f64, coin.symbol)
+                        },
+                        "block_height": new_block.index,
+                        "timestamp": current_time
+                    }).to_string();
+                    
+                    let _ = tx.try_send(balance_json);
+                    
+                    // Log balance info
                     debug!(
                         "Current balance for {} is {} {}A",
                         normalized_address, balance, coin.symbol
                     );
                 },
-                Err(e) => warn!("Failed to get balance: {}", e),
+                Err(e) => {
+                    warn!("Failed to get balance: {}", e);
+                    // Notify of balance error
+                    let error_json = json!({
+                        "event": "balance_error",
+                        "error": format!("Failed to get balance: {}", e),
+                        "address": normalized_address,
+                        "timestamp": current_time
+                    }).to_string();
+                    let _ = tx.try_send(error_json);
+                },
             }
             
-            // Debug: Log all balances for troubleshooting
+            // Debug: Enhanced log of all balances
             if let Ok(balances) = BALANCES.lock() {
-                debug!("Current balances in system:");
+                debug!("Current balances in system ({} accounts):", balances.len());
                 for (addr, bal) in balances.iter() {
                     debug!("  {} => {}", addr, bal);
                 }
+                
+                // Send system-wide balance report
+                let balance_report = json!({
+                    "event": "system_balances",
+                    "account_count": balances.len(),
+                    "timestamp": current_time
+                }).to_string();
+                let _ = tx.try_send(balance_report);
             }
         }
 
@@ -227,24 +490,46 @@ pub fn run_blockchain(
 
 /// Create a genesis block containing the total supply of Kari tokens
 fn create_genesis_block(address: &str, coin: &Coin) -> Block<Blake3Algorithm> {
-    let _timestamp = SystemTime::now()
+    let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_else(|_| Duration::from_secs(0))
         .as_secs();
 
-    let data = format!(
-        "Genesis Block - {} Coin\nName: {}\nSymbol: {}\nTotal Supply: {} {}",
-        coin.name, coin.name, coin.symbol, TOTAL_SUPPLY_KARI, coin.symbol
-    )
-    .into_bytes();
+    // Enhanced genesis data with more comprehensive information
+    let genesis_data = json!({
+        "block_type": "genesis",
+        "coin": {
+            "name": coin.name,
+            "symbol": coin.symbol,
+            "decimals": coin.decimals,
+            "total_supply": {
+                "amount": coin.total_supply,
+                "display": TOTAL_SUPPLY_KARI,
+                "symbol": coin.symbol
+            },
+            "block_reward": coin.block_reward,
+            "max_supply": coin.max_supply
+        },
+        "network": {
+            "name": "Kanari Testnet",
+            "version": env!("CARGO_PKG_VERSION"),
+            "timestamp": timestamp,
+            "datetime": chrono::DateTime::<chrono::Utc>::from_timestamp(timestamp as i64, 0)
+                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                .unwrap_or_else(|| "Unknown time".to_string())
+        },
+        "genesis_address": address
+    }).to_string().into_bytes();
 
+    info!("Creating genesis block for {} with {} total supply", coin.name, coin.total_supply);
+    
     Block::new(
         0,
-        data,
+        genesis_data,
         "0".repeat(64),
         coin.total_supply,
         Vec::new(),
-        address.to_string(), // Address should already be normalized by caller
+        address.to_string(),
         Blake3Algorithm::new(),
     )
 }

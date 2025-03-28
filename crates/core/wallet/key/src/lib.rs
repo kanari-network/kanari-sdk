@@ -68,18 +68,31 @@ pub fn set_selected_wallet(wallet_address: &str) -> io::Result<()> {
     // Load existing config
     let mut config = load_config()?;
 
-    // Update address in config
+    // Format the address (remove .enc if present)
+    let formatted_address = wallet_address.trim_end_matches(".enc").to_string();
+    
+    // Update address in config using the keys expected by the system
     if let Some(mapping) = config.as_mapping_mut() {
+        // Set both keys for maximum compatibility
         mapping.insert(
             Value::String("address".to_string()),
-            Value::String(wallet_address.to_string()),
+            Value::String(formatted_address.clone()),
+        );
+        
+        mapping.insert(
+            Value::String("selected_wallet".to_string()),
+            Value::String(formatted_address),
         );
     } else {
         // Create new mapping if none exists
         let mut mapping = Mapping::new();
         mapping.insert(
             Value::String("address".to_string()),
-            Value::String(wallet_address.to_string()),
+            Value::String(formatted_address.clone()),
+        );
+        mapping.insert(
+            Value::String("selected_wallet".to_string()),
+            Value::String(formatted_address),
         );
         config = Value::Mapping(mapping);
     }
@@ -274,11 +287,22 @@ pub fn import_from_private_key(
 
 /// Read currently selected wallet from config
 fn get_selected_wallet() -> Option<String> {
-    let config_path = get_kari_dir().join("config.toml");
-    fs::read_to_string(config_path)
-        .ok()
-        .and_then(|data| toml::from_str::<toml::Value>(&data).ok())
-        .and_then(|toml| toml.get("selected_wallet")?.as_str().map(String::from))
+    match load_config() {
+        Ok(config) => {
+            if let Some(mapping) = config.as_mapping() {
+                // Try each possible key for wallet selection
+                if let Some(wallet) = mapping.get("selected_wallet").and_then(|v| v.as_str()) {
+                    return Some(wallet.trim_end_matches(".enc").to_string());
+                }
+                
+                if let Some(wallet) = mapping.get("address").and_then(|v| v.as_str()) {
+                    return Some(wallet.trim_end_matches(".enc").to_string());
+                }
+            }
+            None
+        },
+        Err(_) => None
+    }
 }
 
 
