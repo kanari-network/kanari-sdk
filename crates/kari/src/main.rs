@@ -1,7 +1,6 @@
 use colored::Colorize;
 use command::keytool_cli::handle_keytool_command;
 use command::move_cli::handle_move_command;
-use std::f64::consts::E;
 use std::io::{self, Write};
 use std::process::exit;
 use std::sync::{Arc, Mutex};
@@ -317,55 +316,100 @@ async fn start_node() {
 
     // Create a channel for block status updates
     let (tx, mut rx) = mpsc::channel::<String>(100);
+    
+    // Create a oneshot channel for shutdown signaling
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
 
     let running_clone = Arc::clone(&running);
     let address_clone = address.clone();
 
     // Spawn blockchain simulation task
-    tokio::spawn(async move {
+    let blockchain_handle = tokio::spawn(async move {
         println!("Running blockchain simulation...");
         run_blockchain(running_clone, address_clone, tx);
     });
 
-    // Start RPC server 
-    let rpc_handle = tokio::spawn(async move {
-        println!("Starting RPC server...");
-        start_rpc_server(network_config).await;
+    // Start RPC server in a way that it can be shut down
+    let rpc_config = NetworkConfig {
+        node_address: "127.0.0.1".to_string(),
+        domain: network_config.domain.clone(),
+        port: network_config.port,
+        peers: vec![],
+        chain_id: network_config.chain_id.clone(),
+        max_connections: 100,
+        api_enabled: true,
+        network_type: network_config.network_type,
+    };
+    
+    let _rpc_handle = tokio::spawn(async move {
+        println!("Starting RPC server on port {}...", rpc_config.port);
+        
+        // Create a shutdown signal for RPC server - fix the type annotation
+        let (_rpc_shutdown_tx, rpc_shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        
+        // Pass shutdown channel to RPC server
+        tokio::select! {
+            _ = start_rpc_server(rpc_config) => {
+                println!("RPC server stopped.");
+            }
+            _ = rpc_shutdown_rx => {
+                println!("RPC server received shutdown signal.");
+            }
+        }
     });
 
-    // Wait for shutdown signal while showing block status
-    println!(
-        "{}",
-        "Block status will be shown below. Press Enter to stop the node.".yellow()
-    );
+    // This task will handle the Enter keypress
+    println!("{}", "Block status will be shown below. Press Enter to stop the node.".yellow());
     io::stdout().flush().unwrap();
 
     // Spawn a task to listen for Enter key
-    let running_input = Arc::clone(&running);
-    let input_handle = tokio::spawn(async move {
+    tokio::spawn(async move {
         let mut input = String::new();
-        io::stdin().read_line(&mut input).unwrap();
-        *running_input.lock().unwrap() = false;
+        match io::stdin().read_line(&mut input) {
+            Ok(_) => {
+                println!("Received shutdown request...");
+                // Signal shutdown
+                let _ = shutdown_tx.send(());
+            }
+            Err(e) => {
+                println!("Error reading input: {}", e);
+                let _ = shutdown_tx.send(());
+            }
+        }
     });
 
-    // Display block status updates while waiting for Enter
-    while *running.lock().unwrap() {
+    // Use a separate boolean for tracking shutdown status
+    let mut shutdown_requested = false;
+
+    // Display block status updates while waiting for shutdown signal
+    while !shutdown_requested {
         tokio::select! {
             Some(status) = rx.recv() => {
                 println!("{}", status.bright_cyan());
             }
-            _ = sleep(Duration::from_millis(100)) => {
-                // Just a short sleep to prevent busy waiting
+            _ = &mut shutdown_rx => {
+                println!("Shutdown signal received. Stopping node...");
+                // Set running to false to stop blockchain
+                *running.lock().unwrap() = false;
+                shutdown_requested = true;
             }
         }
     }
 
-    // Wait for both blockchain and RPC server to shutdown
-    let _ = input_handle.await;
-    let _ = rpc_handle.await;
-
-    // Graceful shutdown
+    // Give some time for the blockchain to shutdown gracefully
     println!("{}", "Stopping blockchain...".red());
-    *running.lock().unwrap() = false;
+    sleep(Duration::from_secs(1)).await;
+
+    // Ensure blockchain state is saved
     let _ = save_blockchain();
+    
+    // Wait for blockchain task to complete (with timeout)
+    match tokio::time::timeout(Duration::from_secs(5), blockchain_handle).await {
+        Ok(_) => println!("Blockchain stopped gracefully"),
+        Err(_) => println!("Blockchain shutdown timed out, forcing exit"),
+    }
+
+    // Force exit (needed because RPC server might be hanging)
+    println!("Node stopped. Exiting...");
+    std::process::exit(0);
 }

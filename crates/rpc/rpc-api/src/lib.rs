@@ -1,4 +1,4 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, time::Duration};
 use futures::FutureExt;
 use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult, Error as RpcError, ErrorCode};
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
@@ -9,7 +9,7 @@ use network::NetworkConfig;
 use serde_json::{json, Value as JsonValue};
 use mona_storage::file_storage::{FileStorage, StorageError2};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tokio::sync::mpsc;
 use key::{load_wallet, list_wallet_files};
 
@@ -344,6 +344,84 @@ fn get_wallets(_params: Params) -> JsonRpcResult<JsonValue> {
     }
 }
 
+// New API method to show information about all blocks
+fn get_all_blocks(params: Params) -> JsonRpcResult<JsonValue> {
+    // Parse optional limit parameter
+    let limit: Option<usize> = match params.parse() {
+        Ok(limit) => Some(limit),
+        Err(_) => None, // If parsing fails, no limit will be applied
+    };
+    
+    // Load blockchain data if needed
+    if let Err(e) = load_blockchain_with_retry() {
+        return Err(RpcError {
+            code: ErrorCode::InternalError,
+            message: format!("Failed to load blockchain: {}", e),
+            data: None,
+        });
+    }
+    
+    let blocks = BLOCKCHAIN_DATA.iter();
+    let block_count = blocks.len();
+    
+    // Apply the limit if provided
+    let blocks_to_show = if let Some(limit) = limit {
+        if limit < block_count {
+            // Take the most recent blocks if a limit is specified
+            blocks.into_iter().skip(block_count - limit).collect::<Vec<_>>()
+        } else {
+            blocks
+        }
+    } else {
+        blocks
+    };
+    
+    // Convert blocks to JSON format
+    let blocks_json: Vec<JsonValue> = blocks_to_show
+        .into_iter()
+        .map(|block| {
+            // Format transactions
+            let transactions_json: Vec<JsonValue> = block.transactions
+                .iter()
+                .map(|tx| {
+                    json!({
+                        "sender": tx.sender,
+                        "receiver": tx.receiver,
+                        "amount": tx.amount,
+                        "amount_formatted": format_kari_amount(tx.amount),
+                        "timestamp": tx.timestamp
+                    })
+                })
+                .collect();
+                
+            // Format the block
+            json!({
+                "index": block.index,
+                "hash": block.hash,
+                "prev_hash": block.prev_hash,
+                "timestamp": block.timestamp,
+                "datetime": chrono::DateTime::<chrono::Utc>::from_timestamp(block.timestamp as i64, 0)
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                    .unwrap_or_else(|| "Unknown time".to_string()),
+                "miner": block.address,
+                "transactions": transactions_json,
+                "transaction_count": block.transactions.len(),
+                "tokens_minted": block.tokens
+            })
+        })
+        .collect();
+    
+    // Create the response JSON
+    let response = json!({
+        "chain_id": CHAIN_ID.to_string(),
+        "block_count": block_count,
+        "blocks_returned": blocks_json.len(),
+        "blocks": blocks_json
+    });
+    
+    Ok(response)
+}
+
 /// Starts the RPC server for file operations
 pub async fn start_rpc_server(network_config: NetworkConfig) {
     let mut io = IoHandler::new();
@@ -378,6 +456,10 @@ pub async fn start_rpc_server(network_config: NetworkConfig) {
         futures::future::ready(get_wallets(params)).boxed()
     });
 
+    io.add_method("get_all_blocks", |params| {
+        futures::future::ready(get_all_blocks(params)).boxed()
+    });
+
     // Configure socket address
     let local_addr = SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
@@ -396,7 +478,19 @@ pub async fn start_rpc_server(network_config: NetworkConfig) {
         Ok(server) => {
             println!("RPC server running on http://127.0.0.1:{}", network_config.port);
             println!("Blockchain API is now available");
-            server.wait();
+            
+            // Create a non-blocking task to monitor for shutdown
+            tokio::spawn(async move {
+                // This will run in a separate task, allowing the server to be shut down properly
+                server.wait();
+            });
+            
+            // Sleep to keep the function running without blocking
+            loop {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                // This allows the function to be cancelled when its task is cancelled
+                tokio::task::yield_now().await;
+            }
         }
         Err(e) => {
             eprintln!("Failed to start RPC server: {}", e);

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::{fs, io};
 
 use hex;
-use secp256k1::{Secp256k1, SecretKey, Message};
+use secp256k1::{Secp256k1, SecretKey};
 use thiserror::Error;
 
 // Replace panorama imports with common

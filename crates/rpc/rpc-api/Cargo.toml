@@ -29,3 +29,4 @@ panorama.workspace = true
 key.workspace = true
 mona-storage = { path = "../../../monaos/mona-storage" }
 base64 = "0.22.1"
+chrono.workspace = true
