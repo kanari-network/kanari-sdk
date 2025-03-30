@@ -1,8 +1,7 @@
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use log::{info, error};
 
-use crate::blockchain::{get_balance, transfer_tokens};
+use crate::blockchain::transfer_tokens;
 use crate::block::Transaction;
 use crate::simulation::add_pending_transaction;
 
@@ -19,15 +18,15 @@ pub fn process_blockchain_transfer(
             // Add to pending transactions queue
             if add_pending_transaction(transaction.clone()) {
                 info!("Transaction added to pending queue: {} -> {}, amount: {}", 
-                      from_address, to_address, amount);
+                      transaction.sender, transaction.receiver, amount);
                 
                 // Send notification if channel provided
                 if let Some(tx) = notification_channel {
                     let tx_json = serde_json::json!({
                         "event": "transaction_created",
                         "transaction": {
-                            "sender": from_address,
-                            "receiver": to_address,
+                            "sender": transaction.sender.to_hex_literal(),
+                            "receiver": transaction.receiver.to_hex_literal(),
                             "amount": amount,
                             "timestamp": transaction.timestamp
                         },

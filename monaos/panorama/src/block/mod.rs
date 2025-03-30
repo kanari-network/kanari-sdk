@@ -1,12 +1,13 @@
 use crate::chain_id::CHAIN_ID;
 use consensus_pos::HashAlgorithm;
 use serde::{Deserialize, Serialize};
+use mona_types::address::Address;
 
 // Define the Transaction struct
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Transaction {
-    pub sender: String,
-    pub receiver: String,
+    pub sender: Address,
+    pub receiver: Address,
     pub amount: u64,
     pub timestamp: u64,
     pub signature: Option<String>,

@@ -6,70 +6,18 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
+use std::str::FromStr;
 
 use crate::block::{Block, Transaction};
-use crate::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN_DATA};
+use crate::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN_DATA, normalize_address};
+use mona_types::address::Address;
+// Import the constants and Coin struct from mona-types
+use mona_types::kari::{KA_PER_KARI, TOTAL_SUPPLY_KARI, TOTAL_SUPPLY_KA, KARI};
 
-// Constants for Kari token
-/// The amount of KA per Kari token based on the the fact that KA is
-/// 10^-9 of a Kari token
-const KA_PER_KARI: u64 = 1_000_000_000;
-
-/// The total supply of Kari denominated in whole Kari tokens (100 Million)
-const TOTAL_SUPPLY_KARI: u64 = 100_000_000;
-
-/// The total supply of Kari denominated in KA (100 Million * 10^9)
-const TOTAL_SUPPLY_KA: u64 = 100_000_000_000_000_000;
-
-// Enhanced Coin structure with additional properties
-#[derive(Clone, Debug)]
-pub struct Coin {
-    pub name: String,
-    pub symbol: String,
-    pub decimals: u8,
-    pub total_supply: u64,
-    pub max_supply: u64,      // Maximum supply that will ever exist
-    pub block_reward: u64,    // Reward per block if applicable
-    pub created_at: u64,      // Timestamp when coin was created
-}
-
-impl Default for Coin {
-    fn default() -> Self {
-        let current_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-            
-        Coin {
-            name: "Kanari".to_string(),
-            symbol: "KARI".to_string(),
-            decimals: 9, // 9 decimals for KA units
-            total_supply: TOTAL_SUPPLY_KA,
-            max_supply: TOTAL_SUPPLY_KA, // Same as total supply for fixed supply
-            block_reward: 0,             // No mining rewards in this implementation
-            created_at: current_time,    // Current timestamp
-        }
-    }
-}
-
-// Helper function to validate and normalize addresses
-fn normalize_address(address: &str) -> String {
-    // Ensure address starts with 0x prefix
-    let address = if !address.starts_with("0x") {
-        format!("0x{}", address)
-    } else {
-        address.to_string()
-    };
-    
-    // Check address length and format (basic validation)
-    if address.len() < 4 { // Minimum length check (0x + at least 2 chars)
-        warn!("Address too short: {}", address);
-    } else if address.len() > 66 { // Max length for 0x + 64 hex chars
-        warn!("Address too long: {}", address);
-    }
-    
-    // Return normalized address
-    address
+// Function to parse and normalize address
+fn parse_address(address: &str) -> Result<Address, String> {
+    Address::from_str(address)
+        .map_err(|_| format!("Invalid address format: {}", address))
 }
 
 // Add pending transactions queue
@@ -95,21 +43,19 @@ pub fn process_transfer(
     amount: u64,
     tx: &mpsc::Sender<String>
 ) -> Result<Transaction, String> {
-    // Normalize addresses
-    let from = if !from_address.starts_with("0x") {
-        format!("0x{}", from_address)
-    } else {
-        from_address.to_string()
+    // Parse addresses
+    let from = match normalize_address(from_address) {
+        Ok(addr) => addr,
+        Err(e) => return Err(format!("Invalid sender address: {}", e)),
     };
     
-    let to = if !to_address.starts_with("0x") {
-        format!("0x{}", to_address)
-    } else {
-        to_address.to_string()
+    let to = match normalize_address(to_address) {
+        Ok(addr) => addr, 
+        Err(e) => return Err(format!("Invalid receiver address: {}", e)),
     };
     
-    // Execute transfer
-    match crate::blockchain::transfer_tokens(&from, &to, amount) {
+    // Execute transfer using string representation
+    match crate::blockchain::transfer_tokens(&from.to_hex_literal(), &to.to_hex_literal(), amount) {
         Ok(transaction) => {
             // Add to pending transactions
             if add_pending_transaction(transaction.clone()) {
@@ -117,8 +63,8 @@ pub fn process_transfer(
                 let tx_json = json!({
                     "event": "transaction_created",
                     "transaction": {
-                        "sender": from,
-                        "receiver": to,
+                        "sender": transaction.sender.to_hex_literal(),
+                        "receiver": transaction.receiver.to_hex_literal(),
                         "amount": amount,
                         "timestamp": transaction.timestamp
                     },
@@ -152,8 +98,8 @@ pub fn process_transfer(
                 "event": "transaction_error",
                 "error": format!("{}", e),
                 "details": {
-                    "sender": from,
-                    "receiver": to,
+                    "sender": from_address,
+                    "receiver": to_address,
                     "amount": amount
                 }
             }).to_string();
@@ -188,13 +134,13 @@ fn force_transaction_inclusion(transaction: &Transaction) -> bool {
         .unwrap_or_default()
         .as_secs();
         
-    // Create block data
+    // Create block data - properly serialize Address types via serde JSON
     let block_data = json!({
         "block_type": "forced_transaction",
         "timestamp": timestamp,
         "transactions": [{
-            "sender": transaction.sender,
-            "receiver": transaction.receiver,
+            "sender": transaction.sender.to_hex_literal(),
+            "receiver": transaction.receiver.to_hex_literal(),
             "amount": transaction.amount,
             "timestamp": transaction.timestamp
         }]
@@ -232,7 +178,7 @@ pub fn run_blockchain(
     address: String,
     tx: mpsc::Sender<String>
 ) {
-    let coin = Coin::default();
+    let coin = KARI::default();
 
     info!("Initializing blockchain with {} coin", coin.name);
     info!(
@@ -243,8 +189,24 @@ pub fn run_blockchain(
         format!("{}A", coin.symbol)
     );
 
-    // Enhanced address normalization
-    let normalized_address = normalize_address(&address);
+    // Parse address
+    let node_address = match parse_address(&address) {
+        Ok(addr) => addr,
+        Err(e) => {
+            error!("Invalid node address: {}", e);
+            // Send error notification
+            let error_json = json!({
+                "event": "blockchain_error",
+                "error": format!("Invalid node address: {}", e),
+                "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+            }).to_string();
+            let _ = tx.try_send(error_json);
+            return;
+        }
+    };
+
+    // Get string representation of address for display
+    let normalized_address = node_address.to_hex_literal();
     debug!("Using normalized address: {}", normalized_address);
 
     // Send initial status regardless of initialization state
@@ -313,7 +275,7 @@ pub fn run_blockchain(
         }
     } else {
         // Create genesis block with enhanced coin info as JSON
-        let genesis_block = create_genesis_block(&normalized_address, &coin);
+        let genesis_block = create_genesis_block(&node_address, &coin);
         BLOCKCHAIN_DATA.add_block(genesis_block.clone());
 
         // Enhanced genesis block info
@@ -591,8 +553,8 @@ pub fn run_blockchain(
 // New function to verify transactions were properly processed
 fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sender<String>) {
     for transaction in transactions {
-        // Verify sender and receiver balances
-        match crate::blockchain::get_balance(&transaction.sender) {
+        // Verify sender and receiver balances using Address directly
+        match crate::blockchain::get_address_balance(&transaction.sender) {
             Ok(balance) => {
                 debug!("Verified sender {} balance: {}", transaction.sender, balance);
             },
@@ -601,7 +563,7 @@ fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sen
             }
         }
         
-        match crate::blockchain::get_balance(&transaction.receiver) {
+        match crate::blockchain::get_address_balance(&transaction.receiver) {
             Ok(balance) => {
                 debug!("Verified receiver {} balance: {}", transaction.receiver, balance);
                 
@@ -609,8 +571,8 @@ fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sen
                 let tx_json = json!({
                     "event": "transaction_confirmed",
                     "transaction": {
-                        "sender": transaction.sender,
-                        "receiver": transaction.receiver,
+                        "sender": transaction.sender.to_hex_literal(),
+                        "receiver": transaction.receiver.to_hex_literal(),
                         "amount": transaction.amount,
                         "receiver_balance": balance
                     }
@@ -626,7 +588,7 @@ fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sen
 }
 
 /// Create a genesis block containing the total supply of Kari tokens
-fn create_genesis_block(address: &str, coin: &Coin) -> Block<Blake3Algorithm> {
+fn create_genesis_block(address: &Address, coin: &KARI) -> Block<Blake3Algorithm> {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_else(|_| Duration::from_secs(0))
@@ -655,7 +617,7 @@ fn create_genesis_block(address: &str, coin: &Coin) -> Block<Blake3Algorithm> {
                 .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
                 .unwrap_or_else(|| "Unknown time".to_string())
         },
-        "genesis_address": address
+        "genesis_address": address.to_hex_literal()
     }).to_string().into_bytes();
 
     info!("Creating genesis block for {} with {} total supply", coin.name, coin.total_supply);
@@ -666,8 +628,7 @@ fn create_genesis_block(address: &str, coin: &Coin) -> Block<Blake3Algorithm> {
         "0".repeat(64),
         coin.total_supply,
         Vec::new(),
-        address.to_string(),
+        address.to_hex_literal(),
         Blake3Algorithm::new(),
     )
 }
-

@@ -4,6 +4,9 @@ use consensus_pos::Blake3Algorithm;
 // Replace with common import
 use common::get_kari_dir;
 use mona_storage::{BlockchainStorage, RocksDBStorage, StorageError};
+use mona_types::address::Address;
+use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 // use crate::block::Transaction;
 // use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -127,9 +130,10 @@ pub fn init_blockchain_state() {
     // No need to initialize BLOCKCHAIN_DATA as it's created by lazy_static
 }
 
-#[derive(Debug)]
+// Modified BlockchainError to store StorageError as a string
+#[derive(Debug, Serialize, Deserialize)]
 pub enum BlockchainError {
-    Storage(StorageError),
+    Storage(String), // Changed from StorageError to String to support serialization
     Balance(String),
     Initialization(String),
     Transaction(String),
@@ -139,7 +143,7 @@ pub enum BlockchainError {
 
 impl From<StorageError> for BlockchainError {
     fn from(error: StorageError) -> Self {
-        BlockchainError::Storage(error)
+        BlockchainError::Storage(format!("{}", error))
     }
 }
 
@@ -157,12 +161,14 @@ impl std::fmt::Display for BlockchainError {
 }
 
 // Helper function to normalize addresses
-pub fn normalize_address(address: &str) -> String {
-    if !address.starts_with("0x") {
-        format!("0x{}", address)
-    } else {
-        address.to_string()
-    }
+pub fn normalize_address(address: &str) -> Result<Address, BlockchainError> {
+    Address::from_str(address)
+        .map_err(|_| BlockchainError::InvalidAddress(format!("Invalid address format: {}", address)))
+}
+
+// Add a function to handle Address directly
+pub fn get_hex_from_address(address: &Address) -> String {
+    address.to_hex_literal()
 }
 
 /// Transfer tokens from one address to another
@@ -180,9 +186,9 @@ pub fn transfer_tokens(
         return Err(BlockchainError::Transaction("Cannot transfer zero tokens".to_string()));
     }
     
-    // Normalize addresses for consistent handling
-    let from = normalize_address(from_address);
-    let to = normalize_address(to_address);
+    // Parse and normalize addresses
+    let from = normalize_address(from_address)?;
+    let to = normalize_address(to_address)?;
     
     // Validate addresses are different
     if from == to {
@@ -190,7 +196,7 @@ pub fn transfer_tokens(
     }
     
     // Check sender's balance
-    let balance = get_balance(&from)?;
+    let balance = get_balance(&from.to_hex_literal())?;
     if balance < amount {
         return Err(BlockchainError::InsufficientFunds(
             format!("Address {} has {} tokens, tried to send {}", from, balance, amount)
@@ -204,15 +210,15 @@ pub fn transfer_tokens(
     };
     
     // Deduct from sender
-    *balances.entry(from.clone()).or_insert(0) -= amount;
+    *balances.entry(from.to_hex_literal()).or_insert(0) -= amount;
     
     // Add to receiver
-    *balances.entry(to.clone()).or_insert(0) += amount;
+    *balances.entry(to.to_hex_literal()).or_insert(0) += amount;
     
     // Create transaction
     let transaction = Transaction {
-        sender: from.clone(),
-        receiver: to.clone(),
+        sender: from,
+        receiver: to,
         amount,
         timestamp: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -221,8 +227,8 @@ pub fn transfer_tokens(
         signature: None, // In a real implementation we would sign the transaction
     };
     
-    // Save balances immediately to persist changes
-    drop(balances); // Release lock before saving
+    // Release lock before saving
+    drop(balances);
     
     // Save blockchain state to persist the balance changes
     if let Err(e) = save_blockchain() {
@@ -278,6 +284,11 @@ pub fn get_balance(address: &str) -> Result<u64, BlockchainError> {
      ))
 }
 
+// Add a new function that accepts Address directly
+pub fn get_address_balance(address: &Address) -> Result<u64, BlockchainError> {
+    get_balance(&address.to_hex_literal())
+}
+
 // Modified load method to ensure balances are properly loaded
 pub fn load_blockchain() -> Result<(), StorageError> {
     let kari_dir = get_kari_dir();
@@ -319,15 +330,15 @@ pub fn load_blockchain() -> Result<(), StorageError> {
                     total_tokens += block.tokens;
                     
                     // Ensure addresses are always stored with 0x prefix
-                    let miner_address = normalize_address(&block.address);
+                    let miner_address = normalize_address(&block.address).unwrap().to_hex_literal();
                     
                     *balances.entry(miner_address).or_insert(0) += block.tokens;
                     block_height_cache.insert(block.hash.clone(), height);
 
                     for tx in &block.transactions {
-                        // Normalize addresses for transactions too
-                        let tx_sender = normalize_address(&tx.sender);
-                        let tx_receiver = normalize_address(&tx.receiver);
+                        // Get hex string directly from Address
+                        let tx_sender = tx.sender.to_hex_literal();
+                        let tx_receiver = tx.receiver.to_hex_literal();
                         
                         *balances.entry(tx_sender).or_insert(0) -= tx.amount;
                         *balances.entry(tx_receiver).or_insert(0) += tx.amount;

@@ -28,5 +28,6 @@ consensus-pos.workspace = true
 panorama.workspace = true
 key.workspace = true
 mona-storage = { path = "../../../monaos/mona-storage" }
+mona-types = { path = "../../../monaos/mona-types" }
 base64 = "0.22.1"
 chrono.workspace = true

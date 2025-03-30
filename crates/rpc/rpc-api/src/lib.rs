@@ -1,7 +1,8 @@
-use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, time::Duration};
+use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, str::FromStr, time::Duration};
 use futures::FutureExt;
 use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult, Error as RpcError, ErrorCode};
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
+use mona_types::address::Address;
 use panorama::{blockchain::{BLOCKCHAIN_DATA, get_balance, load_blockchain_with_retry}, chain_id::CHAIN_ID, blockchain::BALANCES};
 use panorama::simulation::process_transfer;
 // Remove the missing utils import
@@ -228,19 +229,25 @@ fn list_accounts(_params: Params) -> JsonRpcResult<JsonValue> {
     };
     
     let mut accounts = Vec::new();
-    for (address, balance) in balances.iter() {
-        // Count transactions for this account using fold instead of flat_map to avoid lifetime issues
+    for (address_str, balance) in balances.iter() {
+        // Parse the address string into Address type
+        let address = match Address::from_str(address_str) {
+            Ok(addr) => addr,
+            Err(_) => continue, // Skip invalid addresses
+        };
+
+        // Count transactions for this account
         let tx_count = BLOCKCHAIN_DATA.iter()
             .into_iter()
             .fold(0, |acc, block| {
                 // Count matching transactions in each block and accumulate
                 acc + block.transactions.iter()
-                    .filter(|tx| tx.sender == *address || tx.receiver == *address)
+                    .filter(|tx| tx.sender == address || tx.receiver == address)
                     .count()
             });
             
         accounts.push(json!({
-            "address": address,
+            "address": address_str,
             "balance": balance,
             "balance_formatted": format_kari_amount(*balance),
             "transaction_count": tx_count,

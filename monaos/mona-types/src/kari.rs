@@ -1,76 +1,44 @@
-use crate::{
-    balance::{Balance, Supply},
-    coin::{self, Coin, TreasuryCap},
-    transfer,
-    tx_context::TxContext,
-};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Error codes
-#[derive(Debug, thiserror::Error)]
-pub enum KariError {
-    #[error("Already minted")]
-    AlreadyMinted,
-    #[error("Not system address")]
-    NotSystemAddress,
-}
 
-/// The amount of Mist per Kari token (10^-9)
-pub const MIST_PER_KARI: u64 = 1_000_000_000;
+// Constants for Kari token
+/// The amount of KA per Kari token based on the the fact that KA is
+/// 10^-9 of a Kari token
+pub const KA_PER_KARI: u64 = 1_000_000_000;
 
-/// The total supply of Kari in whole tokens (100 Million)
+/// The total supply of Kari denominated in whole Kari tokens (100 Million)
 pub const TOTAL_SUPPLY_KARI: u64 = 100_000_000;
 
-/// The total supply of Kari in Mist (100 Million * 10^9)
-pub const TOTAL_SUPPLY_MIST: u64 = 100_000_000_000_000_000;
+/// The total supply of Kari denominated in KA (100 Million * 10^9)
+pub const TOTAL_SUPPLY_KA: u64 = 100_000_000_000_000_000;
 
-/// KARI token marker
-#[derive(Debug, Clone)]
-pub struct KARI;
-
-impl KARI {
-    /// Register the KARI Coin to acquire its Supply.
-    /// This should be called only once during genesis creation.
-    pub fn new(ctx: &mut TxContext) -> Result<Balance<KARI>, KariError> {
-        // Check system address
-        if ctx.sender() != &[0u8; 32] {
-            return Err(KariError::NotSystemAddress);
-        }
-
-        // Check epoch
-        if ctx.epoch() != 0 {
-            return Err(KariError::AlreadyMinted);
-        }
-
-        // Create currency
-        let (treasury, metadata) = coin::create_currency(
-            KARI,
-            9,                          // decimals
-            "KARI",                     // symbol
-            "Karura Network Coin",      // name
-            "",                         // description
-            None,                       // logo url
-            ctx,
-        );
-
-        // Freeze metadata
-        transfer::Transfer::public_freeze_object(metadata)?;
-
-        // Create initial supply
-        let mut supply = coin::treasury_into_supply(treasury);
-        let total_kari = supply.increase_supply(TOTAL_SUPPLY_MIST)?;
-        supply.destroy();
-
-        Ok(total_kari)
-    }
-
-    /// Transfer KARI tokens to recipient
-    pub fn transfer(coin: Coin<KARI>, recipient: [u8; 32]) -> Result<(), transfer::TransferError> {
-        transfer::Transfer::public_transfer(coin, recipient)
-    }
-
-    /// Burns KARI tokens, decreasing total supply
-    pub fn burn(treasury_cap: &mut TreasuryCap<KARI>, coin: Coin<KARI>) -> Result<(), coin::CoinError> {
-        coin::burn(treasury_cap, coin)
-    }
+// Enhanced KARI structure with additional properties
+#[derive(Clone, Debug)]
+pub struct KARI {
+    pub name: String,
+    pub symbol: String,
+    pub decimals: u8,
+    pub total_supply: u64,
+    pub max_supply: u64,      // Maximum supply that will ever exist
+    pub block_reward: u64,    // Reward per block if applicable
+    pub created_at: u64,      // Timestamp when KARI was created
 }
 
+impl Default for KARI {
+    fn default() -> Self {
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+            
+        KARI {
+            name: "Kanari".to_string(),
+            symbol: "KARI".to_string(),
+            decimals: 9, // 9 decimals for KA units
+            total_supply: TOTAL_SUPPLY_KA,
+            max_supply: TOTAL_SUPPLY_KA, // Same as total supply for fixed supply
+            block_reward: 0,             // No mining rewards in this implementation
+            created_at: current_time,    // Current timestamp
+        }
+    }
+}
