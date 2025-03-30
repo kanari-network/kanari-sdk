@@ -24,15 +24,10 @@ curl -X POST -H "Content-Type: application/json" -d '{
 }' http://127.0.0.1:30031
 ```
 
-## 2. Get Balance
-Check account balance:
+## 2. Get ฤccount
+Check account :
 ```bash
-curl -X POST -H "Content-Type: application/json" -d '{
-  "jsonrpc": "2.0",
-  "method": "get_balance",
-  "params": ["YOUR_ADDRESS"],
-  "id": 1
-}' http://127.0.0.1:30031
+
 ```
 
 ## 3. List Accounts

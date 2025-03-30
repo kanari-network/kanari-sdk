@@ -3,6 +3,23 @@
 import axios from 'axios';
 import React, { useState, useEffect } from 'react';
 
+// Add utility function to format Kanari amounts
+const formatKariAmount = (kaAmount: number, showDecimals: boolean = true): string => {
+  const KA_PER_KARI: number = 1_000_000_000;
+  
+  // Calculate whole and fractional parts
+  const wholeKari = Math.floor(kaAmount / KA_PER_KARI);
+  const fractionalKa = kaAmount % KA_PER_KARI;
+  
+  // Format whole part with thousands separators
+  const wholeFormatted = wholeKari.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  
+  // Format with or without decimal places based on showDecimals parameter
+  return showDecimals ? 
+    `${wholeFormatted}.${fractionalKa.toString().padStart(9, '0')}` : 
+    wholeFormatted;
+};
+
 interface Transaction {
   sender: string;
   receiver: string;
@@ -132,40 +149,6 @@ const KanariBlockchainExplorer = () => {
       }
     } catch (error) {
       console.error('Error fetching blockchain status:', error);
-    }
-  };
-
-  const fetchAccountBalance = async () => {
-    // Keep this function for possible future use
-    if (!searchAccount.trim()) {
-      setError('Please enter an account address');
-      setAccountBalance(null);
-      return;
-    }
-
-    try {
-      const response = await axios.post(API_URL, {
-        jsonrpc: "2.0",
-        method: "get_balance",
-        params: [searchAccount],
-        id: 1
-      }, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (response.data.result !== undefined) {
-        setAccountBalance(response.data.result);
-        setError('');
-      } else if (response.data.error) {
-        setError(response.data.error.message || 'Error fetching balance');
-        setAccountBalance(null);
-      }
-    } catch (error) {
-      console.error('Error fetching account balance:', error);
-      setError('Failed to fetch account balance. Please try again.');
-      setAccountBalance(null);
     }
   };
 
@@ -340,7 +323,9 @@ const KanariBlockchainExplorer = () => {
           </div>
           <div className={`p-6 rounded-xl shadow-sm ${isDarkMode ? 'bg-gray-800' : 'bg-white border border-orange-100'}`}>
             <p className="text-orange-700 text-lg mb-1">Total Tokens</p>
-            <p className={`text-3xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>{mintedTokens || totalTokens}</p>
+            <p className={`text-3xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
+              {mintedTokens || totalTokens ? formatKariAmount(mintedTokens || totalTokens, false) : '0'} KARI
+            </p>
           </div>
           <div className={`p-6 rounded-xl shadow-sm ${isDarkMode ? 'bg-gray-800' : 'bg-white border border-orange-100'}`}>
             <p className="text-orange-700 text-lg mb-1">Genesis Date</p>
@@ -380,7 +365,7 @@ const KanariBlockchainExplorer = () => {
                     </p>
                     <div className="flex flex-wrap gap-x-4">
                       <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-700'}`}>
-                        <span className="font-medium">Balance:</span> {account.balance_formatted}
+                        <span className="font-medium">Balance:</span> {account.balance ? formatKariAmount(account.balance) : account.balance_formatted} KARI
                       </p>
                       <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-700'}`}>
                         <span className="font-medium">Transactions:</span> {account.transaction_count}
@@ -493,7 +478,7 @@ const KanariBlockchainExplorer = () => {
                     
                     <div>
                       <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Tokens Minted:</p>
-                      <p className="text-sm">{block.tokens_minted}</p>
+                      <p className="text-sm">{block.tokens_minted ? formatKariAmount(block.tokens_minted) : '0'} KARI</p>
                     </div>
                   </div>
                   
@@ -510,7 +495,7 @@ const KanariBlockchainExplorer = () => {
                               <span className="mx-2">→</span>
                               <span className="font-medium text-orange-500">{tx.receiver}</span>
                               <span className={`ml-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-600'}`}>
-                                ({tx.amount} tokens)
+                                ({formatKariAmount(tx.amount)} KARI)
                               </span>
                             </p>
                           </div>

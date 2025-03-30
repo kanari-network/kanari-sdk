@@ -175,40 +175,6 @@ fn get_blockchain_status(_params: Params) -> JsonRpcResult<JsonValue> {
     Ok(response)
 }
 
-fn get_balance_by_address(params: Params) -> JsonRpcResult<JsonValue> {
-    // Parse address from params
-    let address: String = params.parse()
-        .map_err(|e| RpcError::invalid_params(format!("Invalid address: {}", e)))?;
-    
-    // Load blockchain data if needed
-    if let Err(e) = load_blockchain_with_retry() {
-        return Err(RpcError {
-            code: ErrorCode::InternalError,
-            message: format!("Failed to load blockchain: {}", e),
-            data: None,
-        });
-    }
-    
-    // Get balance
-    match get_balance(&address) {
-        Ok(balance) => {
-            Ok(json!({
-                "address": address,
-                "balance_raw": balance,
-                "balance_formatted": format_kari_amount(balance),
-                "symbol": "KARI",
-            }))
-        },
-        Err(e) => {
-            Err(RpcError {
-                code: ErrorCode::InternalError,
-                message: format!("Failed to get balance: {}", e),
-                data: None,
-            })
-        }
-    }
-}
-
 fn list_accounts(_params: Params) -> JsonRpcResult<JsonValue> {
     // Load blockchain data if needed
     if let Err(e) = load_blockchain_with_retry() {
@@ -447,9 +413,6 @@ pub async fn start_rpc_server(network_config: NetworkConfig) {
         futures::future::ready(get_blockchain_status(params)).boxed()
     });
     
-    io.add_method("get_balance", |params| {
-        futures::future::ready(get_balance_by_address(params)).boxed()
-    });
     
     io.add_method("list_accounts", |params| {
         futures::future::ready(list_accounts(params)).boxed()
