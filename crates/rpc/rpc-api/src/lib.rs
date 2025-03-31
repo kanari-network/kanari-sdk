@@ -30,6 +30,11 @@ struct TransferParams {
     password: String,
 }
 
+// Account API structures
+#[derive(Deserialize)]
+struct AccountParams {
+    address: String,
+}
 
 // Format function locally since panorama::utils is not available
 fn format_kari_amount(ka_amount: u64) -> String {
@@ -395,6 +400,75 @@ fn get_all_blocks(params: Params) -> JsonRpcResult<JsonValue> {
     Ok(response)
 }
 
+fn get_account_details(params: Params) -> JsonRpcResult<JsonValue> {
+    // Parse account address
+    let account_params: AccountParams = params.parse()
+        .map_err(|e| RpcError::invalid_params(format!("Invalid parameters: {}", e)))?;
+    
+    // Load blockchain data if needed
+    if let Err(e) = load_blockchain_with_retry() {
+        return Err(RpcError {
+            code: ErrorCode::InternalError,
+            message: format!("Failed to load blockchain: {}", e),
+            data: None,
+        });
+    }
+    
+    // Parse the address string into Address type
+    let address = match Address::from_str(&account_params.address) {
+        Ok(addr) => addr,
+        Err(_) => return Err(RpcError::invalid_params("Invalid address format")),
+    };
+
+    // Get account balance
+    let balance = match get_balance(&account_params.address) {
+        Ok(balance) => balance,
+        Err(_) => return Err(RpcError::invalid_params("Account not found")),
+    };
+    
+    // Find all transactions involving this account
+    let transactions = BLOCKCHAIN_DATA.iter()
+        .into_iter()
+        .flat_map(|block| {
+            block.transactions.iter()
+                .filter(|tx| tx.sender == address || tx.receiver == address)
+                .map(|tx| {
+                    // Determine if this is incoming or outgoing for this address
+                    let tx_type = if tx.receiver == address { "incoming" } else { "outgoing" };
+                    
+                    json!({
+                        "type": tx_type,
+                        "sender": tx.sender.to_string(),
+                        "receiver": tx.receiver.to_string(),
+                        "amount": tx.amount,
+                        "amount_formatted": format_kari_amount(tx.amount),
+                        "timestamp": tx.timestamp,
+                        "datetime": chrono::DateTime::<chrono::Utc>::from_timestamp(tx.timestamp as i64, 0)
+                            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                            .unwrap_or_else(|| "Unknown time".to_string()),
+                        "block_index": block.index,
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    
+    // Determine if this is a contract address (simplified check, can be expanded)
+    let is_contract = false; // Add contract detection logic if available
+    let account_type = if is_contract { "contract" } else { "wallet" };
+    
+    // Create response
+    Ok(json!({
+        "address": account_params.address,
+        "balance": balance,
+        "balance_formatted": format_kari_amount(balance),
+        "account_type": account_type,
+        "is_contract": is_contract,
+        "transaction_count": transactions.len(),
+        "transactions": transactions
+    }))
+}
+
 /// Starts the RPC server for file operations
 pub async fn start_rpc_server(network_config: NetworkConfig) {
     let mut io = IoHandler::new();
@@ -428,6 +502,11 @@ pub async fn start_rpc_server(network_config: NetworkConfig) {
 
     io.add_method("get_all_blocks", |params| {
         futures::future::ready(get_all_blocks(params)).boxed()
+    });
+    
+    // Add the new account details method
+    io.add_method("get_account_details", |params| {
+        futures::future::ready(get_account_details(params)).boxed()
     });
 
     // Configure socket address

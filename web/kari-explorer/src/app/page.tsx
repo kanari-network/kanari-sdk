@@ -2,6 +2,8 @@
 
 import axios from 'axios';
 import React, { useState, useEffect } from 'react';
+import Navbar from '../components/Navbar';
+import { useTheme } from '../contexts/ThemeContext';
 
 // Add utility function to format Kanari amounts
 const formatKariAmount = (kaAmount: number, showDecimals: boolean = true): string => {
@@ -62,16 +64,12 @@ interface BlockchainStatus {
 }
 
 const KanariBlockchainExplorer = () => {
+  const { isDarkMode } = useTheme();
   const [error, setError] = useState('');
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [totalBlocks, setTotalBlocks] = useState(0);
   const [totalTokens, setTotalTokens] = useState(0);
   const [searchTx, setSearchTx] = useState('');
-  const [isDarkMode, setIsDarkMode] = useState(false);
-  const [searchAccount, setSearchAccount] = useState('');
-  const [accountBalance, setAccountBalance] = useState<number | null>(null);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [showAllAccounts, setShowAllAccounts] = useState(false);
   const [blockchainStatus, setBlockchainStatus] = useState<BlockchainStatus | null>(null);
   const [chainId, setChainId] = useState<string>('');
   const [genesisDate, setGenesisDate] = useState<number>(0);
@@ -152,32 +150,6 @@ const KanariBlockchainExplorer = () => {
     }
   };
 
-  const fetchAllAccounts = async () => {
-    try {
-      const response = await axios.post(API_URL, {
-        jsonrpc: "2.0",
-        method: "list_accounts",
-        params: [],
-        id: 1
-      }, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (response.data.result && response.data.result.accounts) {
-        setAccounts(response.data.result.accounts);
-        setError('');
-      } else {
-        setAccounts([]);
-        setError('No accounts data available');
-      }
-    } catch (error) {
-      console.error('Error fetching accounts:', error);
-      setError('Failed to fetch accounts. Please try again.');
-    }
-  };
-
   useEffect(() => {
     fetchBlocks();
     fetchBlockchainStatus();
@@ -187,26 +159,6 @@ const KanariBlockchainExplorer = () => {
     }, 5000);
     return () => clearInterval(intervalId);
   }, []);
-
-  const handleSearchTxChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchTx(event.target.value);
-  };
-
-  const handleSearchAccountChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchAccount(event.target.value);
-    setAccountBalance(null);
-  };
-
-  const toggleAccounts = () => {
-    if (!showAllAccounts) {
-      fetchAllAccounts();
-    }
-    setShowAllAccounts(!showAllAccounts);
-  };
-
-  const toggleTheme = () => {
-    setIsDarkMode(!isDarkMode);
-  };
 
   // Add pagination handler
   const handlePageChange = (pageNumber: number) => {
@@ -237,31 +189,28 @@ const KanariBlockchainExplorer = () => {
 
   return (
     <main className={`min-h-screen ${isDarkMode ? 'bg-gray-900 text-white' : 'bg-gradient-to-r from-orange-50 to-yellow-50 text-gray-800'}`}>
+      {/* Add Navbar component */}
+      <Navbar 
+        searchTx={searchTx}
+        setSearchTx={setSearchTx}
+        API_URL={API_URL}
+        formatKariAmount={formatKariAmount}
+      />
+      
       <div className="container mx-auto max-w-7xl px-4 py-6">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h1 className={`text-4xl md:text-5xl font-bold ${isDarkMode ? 'text-white' : 'text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-yellow-600'}`}>
-              Kanari Blockchain Explorer
-            </h1>
-            {chainId && (
-              <p className={`mt-2 ${isDarkMode ? 'text-gray-400' : 'text-orange-700'}`}>
-                Network: <span className="font-medium">{chainId}</span>
-              </p>
-            )}
-          </div>
-          <button
-            onClick={toggleTheme}
-            className={`px-4 py-2 rounded-lg transition-colors ${isDarkMode
-                ? 'bg-gray-800 hover:bg-gray-700 border-gray-700'
-                : 'bg-white hover:bg-orange-50 border-orange-200'
-              } border shadow-sm`}
-          >
-            {isDarkMode ? '🌞' : '🌙'}
-          </button>
+        {/* Header - simplified since we have a navbar now */}
+        <div className="mb-6">
+          <h1 className={`text-4xl md:text-5xl font-bold ${isDarkMode ? 'text-white' : 'text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-yellow-600'}`}>
+            Kanari Blockchain Explorer
+          </h1>
+          {chainId && (
+            <p className={`mt-2 ${isDarkMode ? 'text-gray-400' : 'text-orange-700'}`}>
+              Network: <span className="font-medium">{chainId}</span>
+            </p>
+          )}
         </div>
 
-        {/* Latest Block Card - Moved to the top and made more prominent */}
+        {/* Latest Block Card */}
         {latestBlock && (
           <div className={`mb-12 p-6 rounded-xl shadow-lg ${isDarkMode 
             ? 'bg-gradient-to-r from-orange-900/30 to-amber-900/30 border border-orange-800/50' 
@@ -335,79 +284,6 @@ const KanariBlockchainExplorer = () => {
           </div>
         </div>
 
-        {/* Account Balance section removed */}
-
-        {/* Show All Accounts Toggle */}
-        <div className="max-w-3xl mx-auto mb-8">
-          <button
-            onClick={toggleAccounts}
-            className={`w-full px-6 py-4 rounded-xl text-lg font-medium ${isDarkMode
-              ? 'bg-gray-800 hover:bg-gray-700 text-white'
-              : 'bg-white hover:bg-orange-50 text-orange-600 border border-orange-200'
-            }`}
-          >
-            {showAllAccounts ? 'Hide All Accounts' : 'Show All Accounts'}
-          </button>
-        </div>
-
-        {/* All Accounts List */}
-        {showAllAccounts && (
-          <div className={`max-w-3xl mx-auto mb-12 rounded-xl shadow-sm ${isDarkMode ? 'bg-gray-800' : 'bg-white border border-orange-100'}`}>
-            <h2 className={`text-2xl font-bold p-6 border-b ${isDarkMode ? 'border-gray-700 text-white' : 'border-orange-100 text-orange-700'}`}>
-              All Accounts
-            </h2>
-            <div className="max-h-96 overflow-y-auto">
-              {accounts.map((account, index) => (
-                <div key={index} className={`p-4 border-b ${isDarkMode ? 'border-gray-700' : 'border-orange-100'} last:border-b-0`}>
-                  <div className="flex flex-col space-y-1">
-                    <p className="text-sm break-all">
-                      <span className="font-medium text-orange-500">{account.address}</span>
-                    </p>
-                    <div className="flex flex-wrap gap-x-4">
-                      <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-700'}`}>
-                        <span className="font-medium">Balance:</span> {account.balance ? formatKariAmount(account.balance) : account.balance_formatted} KARI
-                      </p>
-                      <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-700'}`}>
-                        <span className="font-medium">Transactions:</span> {account.transaction_count}
-                      </p>
-                      {account.is_contract && (
-                        <p className={`text-sm ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
-                          Contract Account
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {accounts.length === 0 && (
-                <div className="p-6 text-center text-gray-500">
-                  No accounts found.
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Transaction Search */}
-        <div className="max-w-3xl mx-auto mb-12">
-          <h2 className={`text-2xl font-bold mb-4 ${isDarkMode ? 'text-white' : 'text-orange-700'}`}>
-            Search Transactions
-          </h2>
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Search transactions by sender or receiver address..."
-              value={searchTx}
-              onChange={handleSearchTxChange}
-              className={`w-full px-6 py-4 rounded-xl text-lg shadow-sm border ${isDarkMode
-                ? 'bg-gray-800 border-gray-700 focus:border-orange-500 text-white'
-                : 'bg-white border-orange-200 focus:border-orange-500 text-gray-900'
-              } focus:outline-none focus:ring-2 focus:ring-orange-300`}
-            />
-            <span className="absolute right-6 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
-          </div>
-        </div>
-
         {/* Error Message */}
         {error && (
           <div className="max-w-3xl mx-auto mb-8">
@@ -418,6 +294,11 @@ const KanariBlockchainExplorer = () => {
             </p>
           </div>
         )}
+
+        {/* Blocks List - Now shows latest blocks first */}
+        <div className="mb-6">
+          </div>
+        
 
         {/* Blocks List - Now shows latest blocks first */}
         <div className="mb-6">

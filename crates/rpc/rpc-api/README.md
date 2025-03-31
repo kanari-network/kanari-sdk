@@ -41,6 +41,19 @@ curl -X POST -H "Content-Type: application/json" -d '{
 }' http://127.0.0.1:30031
 ```
 
+### 3.1 
+gksg
+```bash
+curl -X POST -H "Content-Type: application/json" -d '{
+  "jsonrpc": "2.0", 
+  "method": "get_account_details",
+  "params": {
+    "address": "YOUR_ACCOUNT_ADDRESS"
+  },
+  "id": 1
+}' http://127.0.0.1:30031
+```
+
 ## 4. Transfer Tokens
 Send KARI tokens:
 ```bash
