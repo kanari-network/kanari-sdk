@@ -31,6 +31,7 @@ sha3.workspace = true
 dirs.workspace = true
 
 mona-types.workspace = true
+mona-vm.workspace = true
 
 move-bytecode-verifier.workspace = true
 move-disassembler.workspace = true

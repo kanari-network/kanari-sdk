@@ -35,6 +35,10 @@ pub struct Publish {
     /// Skip verification
     #[clap(long)]
     pub skip_verify: bool,
+    
+    /// Use Mona VM deployment
+    #[clap(long)]
+    pub use_mona_vm: bool,
 }
 
 impl Publish {
@@ -58,6 +62,19 @@ impl Publish {
             address
         );
 
+        if self.use_mona_vm {
+            // Use the Mona VM for publishing
+            let mona_vm_publish = mona_vm::Publish;
+            return mona_vm_publish.execute(
+                Some(package_path),
+                Some(address),
+                build_config,
+                Some(self.gas_budget),
+                self.skip_verify
+            ).map_err(|e| anyhow::anyhow!("Mona VM publish failed: {}", e));
+        }
+        
+        // Otherwise use the regular publish flow
         let storage_path = package_path.join(DEFAULT_STORAGE_DIR);
         let state = OnDiskStateView::create(&package_path, &storage_path)?;
         
@@ -67,7 +84,6 @@ impl Publish {
         // Optionally save JSON state
         let json_path = storage_path.join("state.json");
         fs::write(&json_path, serde_json::to_string_pretty(&json_state)?)?;
-
 
         let package = compile_package(&package_path, build_config)?;
 

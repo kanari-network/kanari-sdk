@@ -1,397 +1,286 @@
-use mona_types::address::Address;
-use mona_types::gas::{GasError, GasMeter, GasSchedule};
-use std::collections::BTreeMap;
+use move_package::{source_package::layout::SourcePackageLayout, BuildConfig};
+use serde_json::{json, Value as JsonValue};
+use std::path::PathBuf;
+use sha3::{Digest, Sha3_256};
+use std::time::{SystemTime, UNIX_EPOCH};
+use move_core_types::account_address::AccountAddress;
+use move_core_types::language_storage::ModuleId;
 
-/// VM execution errors with improved error handling
-#[derive(Debug)]
-pub enum VMError {
-    InsufficientGas { required: u64, available: u64 },
-    InvalidSignature,
-    InvalidTransaction(String),
-    ExecutionError(String),
-    StateError(String),
-    GasError(GasError),
+use move_core_types::identifier::Identifier;
+
+
+pub fn reroot_path(path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
+    let path = path.unwrap_or_else(|| PathBuf::from("."));
+    // Always root ourselves to the package root, and then compile relative to that.
+    let rooted_path = SourcePackageLayout::try_find_root(&path.canonicalize()?)?;
+    std::env::set_current_dir(rooted_path).unwrap();
+
+    Ok(PathBuf::from("."))
 }
 
-/// Result of transaction execution with detailed status
-#[derive(Debug)]
-pub enum TransactionStatus {
-    Success { gas_used: u64, changes: ChangeSet },
-    Failed { error: VMError, gas_used: u64 },
-}
+pub struct Build;
 
-/// State changes with improved storage operations
-#[derive(Debug, Default)]
-pub struct ChangeSet {
-    writes: BTreeMap<Vec<u8>, Vec<u8>>,
-    deletes: Vec<Vec<u8>>,
-    gas_used: u64,
-}
+pub struct Publish;
 
-impl ChangeSet {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn write(&mut self, key: Vec<u8>, value: Vec<u8>) -> &mut Self {
-        self.writes.insert(key, value);
-        self
-    }
-
-    pub fn delete(&mut self, key: Vec<u8>) -> &mut Self {
-        self.deletes.push(key);
-        self
-    }
-
-    pub fn record_gas(&mut self, amount: u64) -> &mut Self {
-        self.gas_used += amount;
-        self
-    }
-
-    // Add these accessor methods
-    pub fn get_writes(&self) -> &BTreeMap<Vec<u8>, Vec<u8>> {
-        &self.writes
-    }
-
-    pub fn get_deletes(&self) -> &Vec<Vec<u8>> {
-        &self.deletes
-    }
-
-}
-
-/// Enhanced transaction context
-#[derive(Debug)]
-pub struct TransactionContext {
-    pub max_gas_units: u64,
-    pub gas_unit_price: u64,
-    pub sender: Address,
-    pub sequence_number: u64,
-    pub expiration_timestamp_secs: u64,
-}
-
-/// Main VM implementation
-pub struct MonaVM {
-    state: BTreeMap<Vec<u8>, Vec<u8>>,
-    gas_schedule: GasSchedule,
-}
-
-impl MonaVM {
-    pub fn new() -> Self {
-        Self {
-            state: BTreeMap::new(),
-            gas_schedule: GasSchedule::default(),
-        }
-    }
-
-    pub fn with_gas_schedule(gas_schedule: GasSchedule) -> Self {
-        Self {
-            state: BTreeMap::new(),
-            gas_schedule,
-        }
-    }
-
-    /// Execute a transaction with improved error handling and gas tracking
-    pub fn execute_transaction(
-        &mut self,
-        transaction: Vec<u8>,
-        context: TransactionContext,
-    ) -> TransactionStatus {
-        let mut gas_meter = GasMeter::new(context.max_gas_units, self.gas_schedule.clone());
-        let mut changes = ChangeSet::new();
-
-        match self.execute_inner(&transaction, &context, &mut gas_meter, &mut changes) {
-            Ok(()) => TransactionStatus::Success {
-                gas_used: context.max_gas_units - gas_meter.gas_left(),
-                changes,
-            },
-            Err(error) => TransactionStatus::Failed {
-                error,
-                gas_used: context.max_gas_units - gas_meter.gas_left(),
-            },
-        }
-    }
-
-    fn execute_inner(
-        &self,
-        transaction: &[u8],
-        context: &TransactionContext,
-        gas_meter: &mut GasMeter,
-        changes: &mut ChangeSet,
-    ) -> Result<(), VMError> {
-        // 1. Prologue checks
-        self.run_prologue(transaction, context, gas_meter)?;
-
-        // 2. Execute main transaction logic
-        self.execute_payload(transaction, context, gas_meter, changes)?;
-
-        // 3. Run epilogue
-        self.run_epilogue(context, changes, gas_meter)?;
-
-        Ok(())
-    }
-
-    fn run_prologue(
-        &self,
-        transaction: &[u8],
-        context: &TransactionContext,
-        gas_meter: &mut GasMeter,
-    ) -> Result<(), VMError> {
-        // Verify transaction
-        self.verify_signature(transaction)?;
-        self.verify_transaction(context)?;
-
-        // Charge initial gas cost
-        gas_meter
-            .charge_storage_op(transaction.len(), false)
-            .map_err(|e| VMError::GasError(e))?;
-
-        Ok(())
-    }
-
-    fn execute_payload(
-        &self,
-        transaction: &[u8],
-        context: &TransactionContext,
-        gas_meter: &mut GasMeter,
-        changes: &mut ChangeSet,
-    ) -> Result<(), VMError> {
-        if transaction.is_empty() {
-            return Err(VMError::ExecutionError("Empty transaction payload".to_string()));
-        }
+fn generate_object_id() -> String {
+    let mut hasher = Sha3_256::new();
     
-        let action_code = transaction[0];
+    // Get timestamp and counter
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
     
-        match action_code {
-            1 => { // Coin Transfer Action
-                if transaction.len() < 1 + 32 + 8 {
-                    return Err(VMError::InvalidTransaction("Transfer transaction payload too short".to_string()));
-                }
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let counter = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     
-                let recipient_address_bytes = &transaction[1..33];
-                let amount_bytes = &transaction[33..41];
+    // Combine data and hash
+    hasher.update(timestamp.to_le_bytes());
+    hasher.update(counter.to_le_bytes());
     
-                // Create recipient address from bytes
-                let mut address_bytes = [0u8; Address::LENGTH];
-                address_bytes.copy_from_slice(recipient_address_bytes);
-                let recipient = Address::new(address_bytes);
-                
-                // Parse amount as u64 from bytes
-                let amount = u64::from_le_bytes(amount_bytes.try_into().unwrap());
-                
-                // Execute the transfer with proper context
-                self.execute_transfer(&recipient, amount, context, changes, gas_meter)?;
-            },
-            2 => { // Multi-coin Transfer (supports different coin types)
-                if transaction.len() < 1 + 32 + 8 + 4 {
-                    return Err(VMError::InvalidTransaction("Multi-coin transfer payload too short".to_string()));
-                }
-                
-                let recipient_address_bytes = &transaction[1..33];
-                let amount_bytes = &transaction[33..41];
-                let coin_type_len_bytes = &transaction[41..45];
-                
-                // Parse coin type length
-                let coin_type_len = u32::from_le_bytes(coin_type_len_bytes.try_into().unwrap()) as usize;
-                
-                if transaction.len() < 1 + 32 + 8 + 4 + coin_type_len {
-                    return Err(VMError::InvalidTransaction("Coin type data incomplete".to_string()));
-                }
-                
-                // Extract coin type string
-                let coin_type_bytes = &transaction[45..(45 + coin_type_len)];
-                let coin_type = match std::str::from_utf8(coin_type_bytes) {
-                    Ok(s) => s.to_string(),
-                    Err(_) => return Err(VMError::InvalidTransaction("Invalid coin type encoding".to_string()))
-                };
-                
-                // Create recipient address
-                let mut address_bytes = [0u8; Address::LENGTH];
-                address_bytes.copy_from_slice(recipient_address_bytes);
-                let recipient = Address::new(address_bytes);
-                
-                // Parse amount
-                let amount = u64::from_le_bytes(amount_bytes.try_into().unwrap());
-                
-                // Execute multi-coin transfer
-                self.execute_multi_coin_transfer(&recipient, amount, &coin_type, context, changes, gas_meter)?;
-            },
-            _ => {
-                // Execute other transaction instructions
-                let instruction_gas = self.calculate_instruction_gas(transaction);
-                gas_meter
-                    .deduct_gas(instruction_gas)
-                    .map_err(|e| VMError::GasError(e))?;
-                changes.record_gas(instruction_gas);
+    // Get 32-byte (256-bit) hash result
+    let hash = hasher.finalize();
+    
+    // Convert to 64-character hex string with "0x" prefix
+    format!("0x{:0>64}", hex::encode(hash))
+}
+
+impl Build {
+    pub fn execute(self, path: Option<PathBuf>, config: BuildConfig) -> anyhow::Result<()> {
+        let rerooted_path = reroot_path(path)?;
+        if config.fetch_deps_only {
+            let mut config = config;
+            if config.test_mode {
+                config.dev_mode = true;
             }
+            config.download_deps_for_package(&rerooted_path, &mut std::io::stdout())?;
+            println!(
+                "{}",
+                json!({
+                    "status": "success",
+                    "type": "deps_only",
+                    "path": rerooted_path.to_string_lossy()
+                })
+            );
+            return Ok(());
         }
-    
+
+        let compiled_package = config
+            .clone()
+            .compile_package(&rerooted_path, &mut Vec::new())?;
+
+        // Enhanced metadata JSON output with detailed function info
+        let result = json!({
+            "status": "success",
+            "type": "full_build",
+            "metadata": {
+                "package": {
+                    "name": compiled_package.compiled_package_info.package_name.to_string(),
+                    "id": generate_object_id(),  // Add unique package ID
+                    "path": rerooted_path.to_string_lossy(),
+                    "info": {
+                        "source_digest": compiled_package.compiled_package_info.source_digest,
+                        "addresses": compiled_package.compiled_package_info.address_alias_instantiation
+                            .iter()
+                            .map(|(name, addr)| (name.to_string(), json!(format!("0x{}", addr.to_hex()))))
+                            .collect::<serde_json::Map<String, JsonValue>>(),
+                    }
+                },
+                "modules": compiled_package.root_compiled_units
+                    .iter()
+                    .map(|unit| {
+                        let module = &unit.unit;
+                        json!({
+                            "id": generate_object_id(),
+                            "name": module.name().to_string(),
+                            "source_path": unit.source_path.to_string_lossy(),
+                            "content": {
+                                "functions": module.module.function_defs()
+                                    .iter()
+                                    .map(|fdef| {
+                                        let handle = module.module.function_handle_at(fdef.function);
+                                        let name = module.module.identifier_at(handle.name);
+                                        json!({
+                                            "id": generate_object_id(),
+                                            "name": name.to_string(),
+                                            "metadata": {
+                                                "visibility": format!("{:?}", fdef.visibility),
+                                                "is_entry": fdef.is_entry,
+                                                "handle_id": format!("0x{}", fdef.function.0),
+                                                "acquires_global_resources": fdef.acquires_global_resources
+                                                    .iter()
+                                                    .map(|s| format!("0x{}", s.0))
+                                                    .collect::<Vec<_>>()
+                                            },
+                                            "signature": {
+                                                "parameters": module.module.signature_at(handle.parameters)
+                                                    .0
+                                                    .iter()
+                                                    .map(|ty| format!("{:?}", ty))
+                                                    .collect::<Vec<_>>(),
+                                                "return_types": module.module.signature_at(handle.return_)
+                                                    .0
+                                                    .iter()
+                                                    .map(|ty| format!("{:?}", ty))
+                                                    .collect::<Vec<_>>()
+                                            }
+                                        })
+                                    })
+                                    .collect::<Vec<_>>(),
+                                "structs": module.module.struct_defs()
+                                    .iter()
+                                    .map(|sdef| {
+                                        let handle = module.module.struct_handle_at(sdef.struct_handle);
+                                        let name = module.module.identifier_at(handle.name);
+                                        json!({
+                                            "id": generate_object_id(),
+                                            "name": name.to_string(),
+                                            "metadata": {
+                                                "handle_id": format!("0x{}", sdef.struct_handle.0),
+                                                "abilities": format!("{:?}", handle.abilities),
+                                                "type_parameters": handle.type_parameters
+                                                    .iter()
+                                                    .map(|tp| json!({
+                                                        "constraints": format!("{:?}", tp.constraints),
+                                                        "is_phantom": tp.is_phantom
+                                                    }))
+                                                    .collect::<Vec<_>>()
+                                            },
+                                            "fields": match &sdef.field_information {
+                                                move_binary_format::file_format::StructFieldInformation::Native => Vec::new(),
+                                                move_binary_format::file_format::StructFieldInformation::Declared(fields) => {
+                                                    fields.iter()
+                                                        .map(|field| json!({
+                                                            "id": generate_object_id(),
+                                                            "name": module.module.identifier_at(field.name).to_string(),
+                                                            "type": format!("{:?}", field.signature.0)
+                                                        }))
+                                                        .collect::<Vec<_>>()
+                                                }
+                                            }
+                                        })
+                                    })
+                                    .collect::<Vec<_>>()
+                            }
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            }
+        });
+
+        println!("{}", serde_json::to_string_pretty(&result)?);
         Ok(())
     }
+}
 
-    fn execute_transfer(
-        &self,
-        recipient: &Address,
-        amount: u64,
-        context: &TransactionContext,
-        changes: &mut ChangeSet,
-        gas_meter: &mut GasMeter,
-    ) -> Result<(), VMError> {
-        // Use write_cost as the gas fee for transfer operations
-        let transfer_gas = self.gas_schedule.write_cost;
+impl Publish {
+    pub fn execute(
+        self, 
+        path: Option<PathBuf>, 
+        address: Option<AccountAddress>,
+        config: BuildConfig,
+        gas_budget: Option<u64>,
+        skip_verify: bool
+    ) -> anyhow::Result<()> {
+        let rerooted_path = reroot_path(path)?;
         
-        // Charge gas for the transfer operation
-        gas_meter
-            .charge_storage_op(transfer_gas as usize, false)
-            .map_err(|e| VMError::GasError(e))?;
-        changes.record_gas(transfer_gas);
+        // Set default address if none provided
+        let address = address.unwrap_or_else(|| 
+            AccountAddress::from_hex_literal("0x1").unwrap()
+        );
+
+        // Update build config with address
+        let mut build_config = config.clone();
+        build_config.additional_named_addresses.insert(
+            "module_addr".to_string(),
+            address
+        );
+        
+        let compiled_package = build_config
+            .compile_package(&rerooted_path, &mut Vec::new())?;
+        
+        // Create deployment metadata
+        let deployment_info = self.prepare_deployment(
+            &compiled_package, 
+            address,
+            gas_budget.unwrap_or(10000000), 
+            skip_verify
+        )?;
+        
+        // Output deployment JSON
+        let result = json!({
+            "status": "success",
+            "type": "deployment",
+            "metadata": {
+                "package": {
+                    "name": compiled_package.compiled_package_info.package_name.to_string(),
+                    "id": generate_object_id(),
+                    "path": rerooted_path.to_string_lossy(),
+                    "address": format!("0x{}", address.to_hex()),
+                    "gas_budget": gas_budget.unwrap_or(10000000)
+                },
+                "deployment": deployment_info
+            }
+        });
+        
+        println!("{}", serde_json::to_string_pretty(&result)?);
+        Ok(())
+    }
     
-        // Check if sender has sufficient balance
-        let sender_balance = self.get_balance(&context.sender);
-        if sender_balance < amount {
-            return Err(VMError::InsufficientGas {
-                required: amount,
-                available: sender_balance,
+    fn prepare_deployment(
+        &self,
+        package: &move_package::compilation::compiled_package::CompiledPackage,
+        address: AccountAddress,
+        gas_budget: u64,
+        skip_verify: bool
+    ) -> anyhow::Result<JsonValue> {
+        let mut modules_json = Vec::new();
+        
+        for unit in &package.root_compiled_units {
+            let module = &unit.unit;
+            let module_name = module.name().to_string();
+            let module_id = ModuleId::new(address, Identifier::new(module_name.clone())?);
+            
+            // Get compiled bytecode - Fix: provide None as argument and remove ? operator
+            let bytecode = module.serialize(None);
+            
+            // Create module metadata
+            let module_meta = json!({
+                "id": generate_object_id(),
+                "name": module_name,
+                "module_id": module_id.to_string(),
+                "bytecode": hex::encode(&bytecode),
+                "source_path": unit.source_path.to_string_lossy(),
+                "size_bytes": bytecode.len(),
+                "verification": {
+                    "skip": skip_verify,
+                    "gas_estimate": estimate_gas_for_module(&bytecode, gas_budget)
+                }
             });
-        }
-    
-        // Debit the sender's account
-        let new_sender_balance = sender_balance - amount;
-        changes.write(context.sender.to_bytes().to_vec(), new_sender_balance.to_le_bytes().to_vec());
-    
-        // Credit the recipient's account
-        let recipient_balance = self.get_balance(recipient);
-        let new_recipient_balance = recipient_balance + amount;
-        changes.write(recipient.to_bytes().to_vec(), new_recipient_balance.to_le_bytes().to_vec());
-    
-        Ok(())
-    }
-
-    // New function to handle multi-coin transfers
-    fn execute_multi_coin_transfer(
-        &self,
-        recipient: &Address,
-        amount: u64,
-        coin_type: &str,
-        context: &TransactionContext,
-        changes: &mut ChangeSet,
-        gas_meter: &mut GasMeter,
-    ) -> Result<(), VMError> {
-        // Higher gas cost for multi-coin transfers
-        let transfer_gas = self.gas_schedule.write_cost * 2;
-        
-        // Charge gas for the transfer operation
-        gas_meter
-            .charge_storage_op(transfer_gas as usize, false)
-            .map_err(|e| VMError::GasError(e))?;
-        changes.record_gas(transfer_gas);
-        
-        // Generate keys with coin type suffix
-        let sender_key = self.get_coin_balance_key(&context.sender, coin_type);
-        let recipient_key = self.get_coin_balance_key(recipient, coin_type);
-        
-        // Check if sender has sufficient balance for this coin type
-        let sender_balance = self.get_coin_balance(&context.sender, coin_type);
-        if sender_balance < amount {
-            return Err(VMError::InsufficientGas {
-                required: amount,
-                available: sender_balance,
-            });
+            
+            modules_json.push(module_meta);
         }
         
-        // Debit the sender
-        let new_sender_balance = sender_balance - amount;
-        changes.write(sender_key, new_sender_balance.to_le_bytes().to_vec());
+        // Generate deployment JSON
+        let deployment_json = json!({
+            "modules": modules_json,
+            "timestamp": SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            "id": generate_object_id(),
+        });
         
-        // Credit the recipient
-        let recipient_balance = self.get_coin_balance(recipient, coin_type);
-        let new_recipient_balance = recipient_balance + amount;
-        changes.write(recipient_key, new_recipient_balance.to_le_bytes().to_vec());
-        
-        Ok(())
+        Ok(deployment_json)
     }
+}
+
+fn estimate_gas_for_module(bytecode: &[u8], max_gas: u64) -> u64 {
+    // Simple estimation heuristic - adjust as needed
+    // This is a placeholder. Real gas estimation would be more complex
+    let base_cost = 1000;
+    let size_multiplier = 10;
+    let estimated = base_cost + (bytecode.len() as u64 * size_multiplier);
     
-    // Helper method to get balance for a specific coin type
-    fn get_coin_balance(&self, account: &Address, coin_type: &str) -> u64 {
-        let key = self.get_coin_balance_key(account, coin_type);
-        
-        self.state
-            .get(&key)
-            .and_then(|bytes| bytes.get(..8))
-            .and_then(|slice| slice.try_into().ok())
-            .map(u64::from_le_bytes)
-            .unwrap_or(0)
-    }
-    
-    // Helper method to generate a key for coin-specific balances
-    fn get_coin_balance_key(&self, account: &Address, coin_type: &str) -> Vec<u8> {
-        let mut key = account.to_bytes().to_vec();
-        key.extend_from_slice(b":");
-        key.extend_from_slice(coin_type.as_bytes());
-        key
-    }
-
-    fn run_epilogue(
-        &self,
-        context: &TransactionContext,
-        changes: &mut ChangeSet,
-        gas_meter: &mut GasMeter,
-    ) -> Result<(), VMError> {
-        let gas_used = context.max_gas_units - gas_meter.gas_left();
-        let gas_charge = gas_used * context.gas_unit_price;
-
-        let new_balance = self.calculate_new_balance(&context.sender, gas_charge)?;
-        changes.write(context.sender.to_bytes().to_vec(), new_balance);
-
-        Ok(())
-    }
-
-    fn verify_signature(&self, transaction: &[u8]) -> Result<(), VMError> {
-        // Implement proper signature verification
-        // This is a simple example - you should use proper signature verification
-        if transaction.is_empty() {
-            return Err(VMError::InvalidSignature);
-        }
-        Ok(())
-    }
-
-    fn verify_transaction(&self, context: &TransactionContext) -> Result<(), VMError> {
-        // Use the correct field from GasSchedule
-        if context.max_gas_units
-            > self
-                .gas_schedule
-                .custom_costs
-                .get("max_gas_per_tx")
-                .copied()
-                .unwrap_or(1_000_000)
-        {
-            return Err(VMError::InvalidTransaction(
-                "Gas limit too high".to_string(),
-            ));
-        }
-        Ok(())
-    }
-
-    fn calculate_instruction_gas(&self, transaction: &[u8]) -> u64 {
-        self.gas_schedule.instruction_cost * transaction.len() as u64
-    }
-
-    fn calculate_new_balance(&self, account: &Address, charge: u64) -> Result<Vec<u8>, VMError> {
-        let current = self.get_balance(account);
-        current
-            .checked_sub(charge)
-            .ok_or_else(|| VMError::InsufficientGas {
-                required: charge,
-                available: current,
-            })
-            .map(|balance| balance.to_le_bytes().to_vec())
-    }
-
-    fn get_balance(&self, account: &Address) -> u64 {
-        self.state
-            .get(&account.to_bytes().to_vec()) // Convert address bytes to Vec<u8> for BTreeMap key
-            .and_then(|bytes| bytes.get(..8))
-            .and_then(|slice| slice.try_into().ok())
-            .map(u64::from_le_bytes)
-            .unwrap_or(0)
-    }
+    std::cmp::min(estimated, max_gas)
 }

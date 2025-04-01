@@ -6,9 +6,10 @@ use key::{
 use std::io::{self, Write};
 
 use panorama::blockchain::{get_balance, load_blockchain_with_retry};
-use panorama::simulation::process_transfer;
 use rpassword::read_password;
 use std::process::exit;
+use serde_json::json;
+use std::process::Command;
 
 struct CommandInfo {
     name: &'static str,
@@ -296,23 +297,24 @@ pub fn handle_keytool_command() -> Option<String> {
                             }
                         };
                         
-                        // Parse amount and convert from KARI to KA units
+                        // Parse amount with validation
                         let amount_kari = match amount_str.trim().parse::<f64>() {
-                            Ok(a) => a,
+                            Ok(a) if a > 0.0 => a,
+                            Ok(_) => {
+                                println!("{}", "Amount must be greater than 0".red());
+                                return None;
+                            }
                             Err(e) => {
                                 println!("{}", format!("Invalid amount: {}", e).red());
                                 return None;
                             }
                         };
                         
-                        const KA_PER_KARI: u64 = 1_000_000_000;
-                        let amount_ka = (amount_kari * KA_PER_KARI as f64) as u64;
-                        
                         // Confirm the transfer
                         println!("\nTransaction details:");
                         println!("  From: {}", sender_address.green());
                         println!("  To:   {}", recipient.green());
-                        println!("  Amount: {} KARI ({} KA)", amount_str.trim(), amount_ka);
+                        println!("  Amount: {} KARI", amount_str.trim());
                         
                         println!("\nConfirm transfer? (y/n)");
                         let mut confirm = String::new();
@@ -329,31 +331,99 @@ pub fn handle_keytool_command() -> Option<String> {
                             return None;
                         }
                         
-                        // Unlock wallet to verify ownership
+                        // Get password
                         println!("Enter wallet password:");
                         let password = prompt_password(false);
-                        match load_wallet(&sender_address, &password) {
-                            Ok(_wallet) => {
-                                // Create a channel for transaction processing
-                                let (tx, _rx) = tokio::sync::mpsc::channel::<String>(100);
+                        
+                        println!("Sending transaction...");
+                        
+                        // Use a simple command-line tool for making HTTP requests
+                        // Instead of using reqwest blocking client
+                        
+                        // Create the JSON payload
+                        let json_payload = json!({
+                            "jsonrpc": "2.0",
+                            "method": "transfer",
+                            "params": {
+                                "from": sender_address,
+                                "to": recipient,
+                                "amount": amount_kari,
+                                "password": password
+                            },
+                            "id": 1
+                        }).to_string();
+                        
+                        // Use curl if available, otherwise try to implement a simple TCP client
+                        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+                        {
+                            // Determine the curl command based on the platform
+                            let curl_cmd = if cfg!(target_os = "windows") {
+                                "curl.exe"
+                            } else {
+                                "curl"
+                            };
+                            
+                            // Execute curl command to send the request
+                            let output = Command::new(curl_cmd)
+                                .arg("-s")
+                                .arg("-X")
+                                .arg("POST")
+                                .arg("http://127.0.0.1:30031")
+                                .arg("-H")
+                                .arg("Content-Type: application/json")
+                                .arg("-d")
+                                .arg(&json_payload)
+                                .output();
                                 
-                                // Process the transfer
-                                match process_transfer(&sender_address, recipient, amount_ka, &tx) {
-                                    Ok(_) => {
-                                        println!("{}", "Transfer initiated successfully!".green());
-                                        println!("Transaction will be included in the next block.");
-                                        return Some(sender_address);
-                                    },
-                                    Err(e) => {
-                                        println!("{}", format!("Transfer failed: {}", e).red());
+                            match output {
+                                Ok(output) => {
+                                    if output.status.success() {
+                                        // Parse the response JSON
+                                        match serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                                            Ok(json_response) => {
+                                                // Check for errors in the response
+                                                if let Some(error) = json_response.get("error") {
+                                                    println!("{}", format!("Transfer failed: {}", error).red());
+                                                    return None;
+                                                }
+                                                
+                                                // Success!
+                                                println!("{}", "Transfer initiated successfully!".green());
+                                                println!("Transaction will be included in the next block.");
+                                                
+                                                // Show transaction ID if available
+                                                if let Some(result) = json_response.get("result") {
+                                                    if let Some(tx_id) = result.get("transaction_id") {
+                                                        println!("Transaction ID: {}", tx_id.as_str().unwrap_or("unknown").green());
+                                                    }
+                                                }
+                                                
+                                                return Some(sender_address);
+                                            },
+                                            Err(e) => {
+                                                println!("{}", format!("Failed to parse API response: {}", e).red());
+                                                println!("Raw response: {}", String::from_utf8_lossy(&output.stdout));
+                                                return None;
+                                            }
+                                        }
+                                    } else {
+                                        println!("{}", "HTTP request failed".red());
+                                        println!("Error: {}", String::from_utf8_lossy(&output.stderr));
                                         return None;
                                     }
+                                },
+                                Err(e) => {
+                                    println!("{}", format!("Failed to execute HTTP request: {}", e).red());
+                                    println!("Make sure curl is installed on your system");
+                                    return None;
                                 }
-                            },
-                            Err(e) => {
-                                println!("{}", format!("Failed to unlock wallet: {}", e).red());
-                                return None;
                             }
+                        }
+                        
+                        #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+                        {
+                            println!("{}", "Transfer not supported on this platform".red());
+                            return None;
                         }
                     },
                     Err(e) => {
