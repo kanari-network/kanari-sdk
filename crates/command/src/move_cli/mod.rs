@@ -133,7 +133,8 @@ pub fn handle_move_command() {
             module_path: PathBuf::new(),
             gas_budget: 1000000,
             address: None,
-            skip_verify: false
+            skip_verify: false,
+            use_mona_vm: false,
         }),
         Some("call") => Command::Call(Call {
             package: String::new(),

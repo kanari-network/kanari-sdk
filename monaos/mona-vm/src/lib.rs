@@ -275,6 +275,8 @@ impl Publish {
     }
 }
 
+/// Estimate gas for module deployment
+/// This is a placeholder function. In a real implementation, you would
 fn estimate_gas_for_module(bytecode: &[u8], max_gas: u64) -> u64 {
     // Simple estimation heuristic - adjust as needed
     // This is a placeholder. Real gas estimation would be more complex
