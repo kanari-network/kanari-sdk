@@ -1,5 +1,4 @@
 //! Kanari Framework
-//! Kanari Framework
 //! Core framework implementation for the Kanari blockchain
 //!
 //! This framework provides the core functionality for building and
@@ -11,7 +10,12 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 
-/// Framework error types
+use move_core_types::language_storage::ModuleId;
+use move_core_types::move_resource::MoveResource;
+use move_binary_format::CompiledModule;
+use move_binary_format::errors::VMError;
+use move_bytecode_verifier::verifier::verify_module_unmetered;
+
 #[derive(Debug)]
 pub enum FrameworkError {
     IoError(io::Error),
@@ -19,11 +23,19 @@ pub enum FrameworkError {
     PackageNotFound(String),
     InvalidPackage(String),
     DependencyError(String),
+    ModuleError(VMError),
+    InvalidModule(String),
 }
 
 impl From<io::Error> for FrameworkError {
     fn from(err: io::Error) -> Self {
         FrameworkError::IoError(err)
+    }
+}
+
+impl From<VMError> for FrameworkError {
+    fn from(err: VMError) -> Self {
+        FrameworkError::ModuleError(err)
     }
 }
 
@@ -61,16 +73,16 @@ pub fn get_framework_path() -> PathBuf {
 /// Package dependency information
 #[derive(Debug, Clone)]
 pub struct PackageDependency {
-    name: String,
-    version: String,
-    path: Option<PathBuf>,
+    pub name: String,
+    pub version: String,
+    pub path: Option<PathBuf>,
 }
 
 /// Framework package management
 pub struct Package {
-    package_type: PackageType,
+    pub package_type: PackageType,
     path: PathBuf,
-    dependencies: HashMap<String, PackageDependency>,
+    pub dependencies: HashMap<String, PackageDependency>,
 }
 
 impl Package {
@@ -98,7 +110,7 @@ impl Package {
     /// Load package dependencies from Move.toml
     pub fn load_dependencies(&mut self) -> Result<(), FrameworkError> {
         let toml_path = self.path.join("Move.toml");
-        let content = fs::read_to_string(&toml_path)
+        let _content = fs::read_to_string(&toml_path)
             .map_err(|_| FrameworkError::PackageNotFound("Move.toml not found".into()))?;
 
         // TODO: Parse TOML and populate dependencies
@@ -141,15 +153,62 @@ impl Package {
         }
         Ok(true)
     }
+
+    /// Parse and verify a compiled Move module
+    pub fn parse_module(&self, bytes: &[u8]) -> Result<CompiledModule, FrameworkError> {
+        match CompiledModule::deserialize_with_defaults(bytes) {
+            Ok(module) => {
+                // Verify the module is valid
+                verify_module_unmetered(&module).map_err(|e| FrameworkError::ModuleError(e))?;
+                Ok(module)
+            }
+            Err(e) => Err(FrameworkError::InvalidModule(format!("Failed to deserialize module: {}", e))),
+        }
+    }
+
+    /// Compile Move sources and return compiled modules
+    pub fn compile(&self) -> Result<ModuleStore, FrameworkError> {
+        let store = ModuleStore::new();
+        
+        // TODO: Implement actual compilation logic
+        // For now, we're just setting up the structure
+        
+        Ok(store)
+    }
 }
 
+/// Module storage for compiled Move modules
+pub struct ModuleStore {
+    modules: HashMap<ModuleId, CompiledModule>,
+}
+
+impl ModuleStore {
+    /// Create a new empty module store
+    pub fn new() -> Self {
+        Self {
+            modules: HashMap::new(),
+        }
+    }
+
+    /// Add a compiled module to the store
+    pub fn add_module(&mut self, module: CompiledModule) -> Result<(), FrameworkError> {
+        let module_id = module.self_id();
+        self.modules.insert(module_id, module);
+        Ok(())
+    }
+
+    /// Get a module by its ID
+    pub fn get_module(&self, id: &ModuleId) -> Option<&CompiledModule> {
+        self.modules.get(id)
+    }
+}
 
 /// Package source file information
 #[derive(Debug)]
 pub struct PackageSourceInfo {
-    module_name: String,
-    dependencies: Vec<String>,
-    has_tests: bool,
+    pub module_name: String,
+    pub dependencies: Vec<String>,
+    pub has_tests: bool,
 }
 
 impl PackageSourceInfo {
@@ -169,20 +228,33 @@ impl PackageSourceInfo {
     }
 }
 
+/// Extensions for working with Move resources
+pub trait MoveResourceExt: MoveResource {
+    /// Convert the resource to bytes
+    fn to_bytes(&self) -> Vec<u8>;
+    
+    /// Create resource from bytes
+    fn from_bytes(bytes: &[u8]) -> Result<Self, FrameworkError> where Self: Sized;
+}
+
 #[cfg(test)]
 mod tests {
+   
+
     use super::*;
 
     #[test]
     fn test_package_loading() {
-        let mut pkg = Package::new(PackageType::Stdlib).unwrap();
+        let mut pkg = Package::new(PackageType::Framework).unwrap();
+        assert_eq!(pkg.package_type, PackageType::Framework);
+        assert!(pkg.path.exists(), "Package path does not exist: {:?}", pkg.path);
         pkg.load_dependencies().unwrap();
         
         let sources = pkg.get_sources().unwrap();
         assert!(!sources.is_empty(), "No Move source files found");
         
         // Check source metadata
-        for (path, info) in sources {
+        for (_path, info) in sources {
             assert!(!info.module_name.is_empty());
             println!("Module: {}, Has tests: {}", info.module_name, info.has_tests);
         }

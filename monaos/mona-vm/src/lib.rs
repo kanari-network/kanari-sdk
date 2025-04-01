@@ -7,6 +7,9 @@ use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::ModuleId;
 
 use move_core_types::identifier::Identifier;
+use framework::get_stdlib_path;
+use framework::get_kanari_system_path;
+use framework::get_framework_path;
 
 
 pub fn reroot_path(path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
@@ -48,8 +51,25 @@ fn generate_object_id() -> String {
 impl Build {
     pub fn execute(self, path: Option<PathBuf>, config: BuildConfig) -> anyhow::Result<()> {
         let rerooted_path = reroot_path(path)?;
+        
+        // Enhance config with framework paths
+        let mut enhanced_config = config.clone();
+        enhanced_config.additional_named_addresses.insert(
+            "std".to_string(),
+            AccountAddress::from_hex_literal("0x1").unwrap()
+        );
+        
+        // Get framework paths for reference in build metadata
+        let stdlib_path = get_stdlib_path();
+        let kanari_system_path = get_kanari_system_path();
+        let framework_path = get_framework_path();
+        
+        // Note: BuildConfig doesn't have a 'deps' field
+        // We'll add dependencies to the package search path through other methods if needed
+        // For now, we'll just use the paths in the metadata output
+        
         if config.fetch_deps_only {
-            let mut config = config;
+            let mut config = enhanced_config.clone();
             if config.test_mode {
                 config.dev_mode = true;
             }
@@ -65,11 +85,10 @@ impl Build {
             return Ok(());
         }
 
-        let compiled_package = config
-            .clone()
+        let compiled_package = enhanced_config
             .compile_package(&rerooted_path, &mut Vec::new())?;
 
-        // Enhanced metadata JSON output with detailed function info
+        // Enhanced metadata JSON output with detailed function info and framework info
         let result = json!({
             "status": "success",
             "type": "full_build",
@@ -85,6 +104,11 @@ impl Build {
                             .map(|(name, addr)| (name.to_string(), json!(format!("0x{}", addr.to_hex()))))
                             .collect::<serde_json::Map<String, JsonValue>>(),
                     }
+                },
+                "framework": {
+                    "stdlib_path": stdlib_path.to_string_lossy().to_string(),
+                    "system_path": kanari_system_path.to_string_lossy().to_string(),
+                    "framework_path": framework_path.to_string_lossy().to_string(),
                 },
                 "modules": compiled_package.root_compiled_units
                     .iter()
