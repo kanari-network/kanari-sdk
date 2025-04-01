@@ -1,9 +1,25 @@
 use tokio::sync::mpsc;
 use log::{info, error};
+use rand::{Rng, thread_rng};
 
 use crate::blockchain::transfer_tokens;
 use crate::block::Transaction;
 use crate::simulation::add_pending_transaction;
+
+/// Generate a random transaction ID (0x followed by 64 random hex characters)
+pub fn generate_transaction_id() -> String {
+    let mut rng = thread_rng();
+    let mut id = String::with_capacity(66); // 0x + 64 chars
+    id.push_str("0x");
+    
+    const HEX_CHARS: &[u8] = b"0123456789abcdef";
+    for _ in 0..64 {
+        let idx = rng.gen_range(0..HEX_CHARS.len());
+        id.push(HEX_CHARS[idx] as char);
+    }
+    
+    id
+}
 
 /// Process a blockchain transfer with improved reliability
 pub fn process_blockchain_transfer(

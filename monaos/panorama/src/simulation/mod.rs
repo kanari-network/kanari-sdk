@@ -63,6 +63,7 @@ pub fn process_transfer(
                 let tx_json = json!({
                     "event": "transaction_created",
                     "transaction": {
+                        "id": transaction.transaction_id, // Include the transaction ID
                         "sender": transaction.sender.to_hex_literal(),
                         "receiver": transaction.receiver.to_hex_literal(),
                         "amount": amount,
@@ -139,6 +140,7 @@ fn force_transaction_inclusion(transaction: &Transaction) -> bool {
         "block_type": "forced_transaction",
         "timestamp": timestamp,
         "transactions": [{
+            "id": transaction.transaction_id, // Include transaction ID
             "sender": transaction.sender.to_hex_literal(),
             "receiver": transaction.receiver.to_hex_literal(),
             "amount": transaction.amount,
@@ -388,6 +390,7 @@ pub fn run_blockchain(
         // Create JSON representation of transactions for the block data
         let tx_json: Vec<Value> = transactions.iter().map(|tx| {
             json!({
+                "id": tx.transaction_id, // Include transaction ID
                 "sender": tx.sender,
                 "receiver": tx.receiver,
                 "amount": tx.amount,
@@ -571,6 +574,7 @@ fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sen
                 let tx_json = json!({
                     "event": "transaction_confirmed",
                     "transaction": {
+                        "id": transaction.transaction_id, // Include transaction ID
                         "sender": transaction.sender.to_hex_literal(),
                         "receiver": transaction.receiver.to_hex_literal(),
                         "amount": transaction.amount,

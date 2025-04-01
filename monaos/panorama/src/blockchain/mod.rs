@@ -215,8 +215,9 @@ pub fn transfer_tokens(
     // Add to receiver
     *balances.entry(to.to_hex_literal()).or_insert(0) += amount;
     
-    // Create transaction
+    // Create transaction with a unique ID
     let transaction = Transaction {
+        transaction_id: crate::utils::generate_transaction_id(), // Add unique transaction ID
         sender: from,
         receiver: to,
         amount,

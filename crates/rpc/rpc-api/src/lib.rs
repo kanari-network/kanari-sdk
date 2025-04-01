@@ -36,6 +36,14 @@ struct AccountParams {
     address: String,
 }
 
+// Search transaction parameters
+#[derive(Deserialize)]
+struct SearchTransactionsParams {
+    address: String,
+    limit: Option<usize>,
+    offset: Option<usize>,
+}
+
 // Format function locally since panorama::utils is not available
 fn format_kari_amount(ka_amount: u64) -> String {
     const KA_PER_KARI: u64 = 1_000_000_000;
@@ -259,14 +267,9 @@ fn transfer_tokens(params: Params) -> JsonRpcResult<JsonValue> {
             // Process transfer
             match process_transfer(&transfer_params.from, &transfer_params.to, amount_ka, &tx) {
                 Ok(transaction) => {
-                    // Generate a transaction ID
-                    let tx_id = format!("tx_{}_{}_{}", 
-                        transaction.sender, 
-                        transaction.receiver,
-                        transaction.timestamp);
-                    
+                    // Use the transaction ID from the transaction object
                     Ok(json!({
-                        "transaction_id": tx_id,
+                        "transaction_id": transaction.transaction_id,
                         "sender": transaction.sender,
                         "receiver": transaction.receiver,
                         "amount": transaction.amount,
@@ -363,6 +366,7 @@ fn get_all_blocks(params: Params) -> JsonRpcResult<JsonValue> {
                 .iter()
                 .map(|tx| {
                     json!({
+                        "id": tx.transaction_id,
                         "sender": tx.sender,
                         "receiver": tx.receiver,
                         "amount": tx.amount,
@@ -437,6 +441,7 @@ fn get_account_details(params: Params) -> JsonRpcResult<JsonValue> {
                     let tx_type = if tx.receiver == address { "incoming" } else { "outgoing" };
                     
                     json!({
+                        "id": tx.transaction_id,
                         "type": tx_type,
                         "sender": tx.sender.to_string(),
                         "receiver": tx.receiver.to_string(),
@@ -467,6 +472,167 @@ fn get_account_details(params: Params) -> JsonRpcResult<JsonValue> {
         "transaction_count": transactions.len(),
         "transactions": transactions
     }))
+}
+
+fn search_transactions(params: Params) -> JsonRpcResult<JsonValue> {
+    // Parse search parameters
+    let search_params: SearchTransactionsParams = params.parse()
+        .map_err(|e| RpcError::invalid_params(format!("Invalid parameters: {}", e)))?;
+    
+    // Load blockchain data if needed
+    if let Err(e) = load_blockchain_with_retry() {
+        return Err(RpcError {
+            code: ErrorCode::InternalError,
+            message: format!("Failed to load blockchain: {}", e),
+            data: None,
+        });
+    }
+    
+    // Parse the address string into Address type
+    let search_address = match Address::from_str(&search_params.address) {
+        Ok(addr) => addr,
+        Err(_) => return Err(RpcError::invalid_params("Invalid address format")),
+    };
+
+    // Find all transactions involving this address (either as sender or receiver)
+    let mut transactions = BLOCKCHAIN_DATA.iter()
+        .into_iter()
+        .flat_map(|block| {
+            block.transactions.iter()
+                .filter(|tx| tx.sender == search_address || tx.receiver == search_address)
+                .map(|tx| {
+                    // Determine if this is incoming or outgoing for the search address
+                    let tx_type = if tx.receiver == search_address { "incoming" } else { "outgoing" };
+                    
+                    json!({
+                        "id": tx.transaction_id,
+                        "type": tx_type,
+                        "sender": tx.sender.to_string(),
+                        "receiver": tx.receiver.to_string(),
+                        "amount": tx.amount,
+                        "amount_formatted": format_kari_amount(tx.amount),
+                        "timestamp": tx.timestamp,
+                        "datetime": chrono::DateTime::<chrono::Utc>::from_timestamp(tx.timestamp as i64, 0)
+                            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                            .unwrap_or_else(|| "Unknown time".to_string()),
+                        "block_index": block.index,
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    
+    // Sort transactions by timestamp, most recent first
+    transactions.sort_by(|a, b| {
+        let a_time = a["timestamp"].as_u64().unwrap_or(0);
+        let b_time = b["timestamp"].as_u64().unwrap_or(0);
+        b_time.cmp(&a_time)
+    });
+    
+    // Apply pagination if provided
+    let total_count = transactions.len();
+    let offset = search_params.offset.unwrap_or(0);
+    
+    // Apply offset and limit
+    let transactions = if offset < transactions.len() {
+        let paginated = &transactions[offset..];
+        if let Some(limit) = search_params.limit {
+            if limit < paginated.len() {
+                paginated[..limit].to_vec()
+            } else {
+                paginated.to_vec()
+            }
+        } else {
+            paginated.to_vec()
+        }
+    } else {
+        vec![]
+    };
+    
+    // Create response
+    Ok(json!({
+        "address": search_params.address,
+        "total_transactions": total_count,
+        "returned_transactions": transactions.len(),
+        "offset": offset,
+        "transactions": transactions
+    }))
+}
+
+// New API method to search for a transaction by its ID
+fn get_transaction_by_id(params: Params) -> JsonRpcResult<JsonValue> {
+    // Parse transaction ID parameter
+    let tx_id: String = params.parse()
+        .map_err(|e| RpcError::invalid_params(format!("Invalid transaction ID: {}", e)))?;
+    
+    // Load blockchain data if needed
+    if let Err(e) = load_blockchain_with_retry() {
+        return Err(RpcError {
+            code: ErrorCode::InternalError,
+            message: format!("Failed to load blockchain: {}", e),
+            data: None,
+        });
+    }
+    
+    // Search for the transaction in all blocks
+    for block in BLOCKCHAIN_DATA.iter() {
+        for tx in &block.transactions {
+            if tx.transaction_id == tx_id {
+                // Found the transaction
+                let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(tx.timestamp as i64, 0)
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                    .unwrap_or_else(|| "Unknown time".to_string());
+                
+                // Get sender and receiver balances
+                let sender_balance = match get_balance(&tx.sender.to_hex_literal()) {
+                    Ok(balance) => balance,
+                    Err(_) => 0,
+                };
+                
+                let receiver_balance = match get_balance(&tx.receiver.to_hex_literal()) {
+                    Ok(balance) => balance,
+                    Err(_) => 0,
+                };
+                
+                return Ok(json!({
+                    "transaction": {
+                        "id": tx.transaction_id,
+                        "sender": tx.sender.to_hex_literal(),
+                        "receiver": tx.receiver.to_hex_literal(),
+                        "amount": tx.amount,
+                        "amount_formatted": format_kari_amount(tx.amount),
+                        "timestamp": tx.timestamp,
+                        "datetime": datetime,
+                        "signature": tx.signature
+                    },
+                    "block": {
+                        "index": block.index,
+                        "hash": block.hash,
+                        "timestamp": block.timestamp
+                    },
+                    "balances": {
+                        "sender": {
+                            "address": tx.sender.to_hex_literal(),
+                            "balance": sender_balance,
+                            "formatted": format_kari_amount(sender_balance)
+                        },
+                        "receiver": {
+                            "address": tx.receiver.to_hex_literal(),
+                            "balance": receiver_balance,
+                            "formatted": format_kari_amount(receiver_balance)
+                        }
+                    }
+                }));
+            }
+        }
+    }
+    
+    // Transaction not found
+    Err(RpcError {
+        code: ErrorCode::InvalidParams,
+        message: format!("Transaction with ID {} not found", tx_id),
+        data: None,
+    })
 }
 
 /// Starts the RPC server for file operations
@@ -504,9 +670,18 @@ pub async fn start_rpc_server(network_config: NetworkConfig) {
         futures::future::ready(get_all_blocks(params)).boxed()
     });
     
-    // Add the new account details method
     io.add_method("get_account_details", |params| {
         futures::future::ready(get_account_details(params)).boxed()
+    });
+    
+    // Add the new search transactions method
+    io.add_method("search_transactions", |params| {
+        futures::future::ready(search_transactions(params)).boxed()
+    });
+
+    // Add the new get transaction by ID method
+    io.add_method("get_transaction_by_id", |params| {
+        futures::future::ready(get_transaction_by_id(params)).boxed()
     });
 
     // Configure socket address

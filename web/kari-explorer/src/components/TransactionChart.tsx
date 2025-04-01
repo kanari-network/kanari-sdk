@@ -53,24 +53,38 @@ const TransactionChart: React.FC<TransactionChartProps> = ({
     );
   }
 
-  // Get the latest transaction (we'll use this for the single transaction view)
-  const latestTransaction = transactions[0]; // Assuming transactions are sorted with newest first
-
-  // Determine if the transaction is received by the account
-  const isReceived = latestTransaction.receiver === accountAddress;
+  // Format amount to show in KARI units
+  const KA_PER_KARI: number = 1_000_000_000;
   
-  // Set up colors based on transaction type and theme
-  const backgroundColor = isReceived 
-    ? isDarkMode ? 'rgba(52, 211, 153, 0.7)' : 'rgba(16, 185, 129, 0.7)' // Green for received
-    : isDarkMode ? 'rgba(248, 113, 113, 0.7)' : 'rgba(239, 68, 68, 0.7);'; // Red for sent
+  // Process all transactions
+  const receivedTransactions = transactions.filter(tx => tx.receiver === accountAddress);
+  const sentTransactions = transactions.filter(tx => tx.sender === accountAddress);
   
-  const borderColor = isReceived 
-    ? isDarkMode ? 'rgb(52, 211, 153)' : 'rgb(16, 185, 129)' 
-    : isDarkMode ? 'rgb(248, 113, 113)' : 'rgb(239, 68, 68)';
-    
-  const textColor = isDarkMode ? 'white' : 'black';
+  // Calculate total amount received and sent
+  const totalReceived = receivedTransactions.reduce((sum, tx) => sum + tx.amount / KA_PER_KARI, 0);
+  const totalSent = sentTransactions.reduce((sum, tx) => sum + tx.amount / KA_PER_KARI, 0);
+  
+  // Chart data for all transactions
+  const data = {
+    labels: ['Received', 'Sent'],
+    datasets: [
+      {
+        label: `Transaction Amount (KARI)`,
+        data: [totalReceived, totalSent],
+        backgroundColor: [
+          isDarkMode ? 'rgba(52, 211, 153, 0.7)' : 'rgba(16, 185, 129, 0.7)', // Green for received
+          isDarkMode ? 'rgba(248, 113, 113, 0.7)' : 'rgba(239, 68, 68, 0.7)', // Red for sent
+        ],
+        borderColor: [
+          isDarkMode ? 'rgb(52, 211, 153)' : 'rgb(16, 185, 129)',
+          isDarkMode ? 'rgb(248, 113, 113)' : 'rgb(239, 68, 68)',
+        ],
+        borderWidth: 1,
+      }
+    ],
+  };
 
-  // Chart configuration
+  // Update chart options for all transactions
   const options = {
     responsive: true,
     maintainAspectRatio: false,
@@ -78,13 +92,13 @@ const TransactionChart: React.FC<TransactionChartProps> = ({
       legend: {
         position: 'top' as const,
         labels: {
-          color: textColor
+          color: isDarkMode ? 'white' : 'black'
         }
       },
       title: {
         display: true,
-        text: 'Latest Transaction',
-        color: textColor,
+        text: 'All Transactions Summary',
+        color: isDarkMode ? 'white' : 'black',
         font: {
           size: 16,
           weight: 'bold' as const
@@ -93,7 +107,7 @@ const TransactionChart: React.FC<TransactionChartProps> = ({
       tooltip: {
         callbacks: {
           label: function(context: any) {
-            return `${context.parsed.y} KARI`;
+            return `${context.parsed.y.toFixed(2)} KARI`;
           }
         }
       }
@@ -101,7 +115,7 @@ const TransactionChart: React.FC<TransactionChartProps> = ({
     scales: {
       x: {
         ticks: {
-          color: textColor
+          color: isDarkMode ? 'white' : 'black'
         },
         grid: {
           color: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
@@ -109,31 +123,13 @@ const TransactionChart: React.FC<TransactionChartProps> = ({
       },
       y: {
         ticks: {
-          color: textColor
+          color: isDarkMode ? 'white' : 'black'
         },
         grid: {
           color: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
         }
       }
     }
-  };
-
-  // Format amount to show in KARI units
-  const KA_PER_KARI: number = 1_000_000_000;
-  const amountInKari = latestTransaction.amount / KA_PER_KARI;
-
-  // Chart data
-  const data = {
-    labels: [isReceived ? 'Received' : 'Sent'],
-    datasets: [
-      {
-        label: `Transaction Amount (KARI)`,
-        data: [amountInKari],
-        backgroundColor: backgroundColor,
-        borderColor: borderColor,
-        borderWidth: 1,
-      }
-    ],
   };
 
   return (
@@ -146,17 +142,17 @@ const TransactionChart: React.FC<TransactionChartProps> = ({
       </div>
       <div className="mt-4">
         <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-          <span className="font-medium">Type:</span> {isReceived ? 'Received from' : 'Sent to'} 
-          <span className="font-mono mx-1">{isReceived ? latestTransaction.sender.substring(0, 12) : latestTransaction.receiver.substring(0, 12)}...</span>
+          <span className="font-medium">Total Transactions:</span> {transactions.length}
         </p>
-        {latestTransaction.block_index && (
+        <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+          <span className="font-medium">Received:</span> {receivedTransactions.length} transactions ({totalReceived.toFixed(2)} KARI)
+        </p>
+        <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+          <span className="font-medium">Sent:</span> {sentTransactions.length} transactions ({totalSent.toFixed(2)} KARI)
+        </p>
+        {transactions.length > 0 && (
           <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-            <span className="font-medium">Block:</span> {latestTransaction.block_index}
-          </p>
-        )}
-        {latestTransaction.timestamp && (
-          <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-            <span className="font-medium">Time:</span> {new Date(latestTransaction.timestamp * 1000).toLocaleString()}
+            <span className="font-medium">Latest Transaction:</span> {new Date(transactions[0].timestamp! * 1000).toLocaleString()}
           </p>
         )}
       </div>

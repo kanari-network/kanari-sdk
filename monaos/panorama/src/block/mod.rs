@@ -6,6 +6,7 @@ use mona_types::address::Address;
 // Define the Transaction struct
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Transaction {
+    pub transaction_id: String, // New field for transaction ID
     pub sender: Address,
     pub receiver: Address,
     pub amount: u64,

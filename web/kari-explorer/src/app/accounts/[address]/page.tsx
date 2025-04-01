@@ -205,7 +205,15 @@ export default function AccountDetailsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {accountDetails.transactions.map((tx, idx) => {
+                      {/* Sort transactions by block_index in descending order */}
+                      {[...accountDetails.transactions]
+                        .sort((a, b) => {
+                          // Sort by block_index in descending order (latest first)
+                          const blockA = a.block_index !== undefined ? a.block_index : 0;
+                          const blockB = b.block_index !== undefined ? b.block_index : 0;
+                          return blockB - blockA;
+                        })
+                        .map((tx, idx) => {
                         const isReceived = tx.receiver === address;
                         const counterparty = isReceived ? tx.sender : tx.receiver;
                         
