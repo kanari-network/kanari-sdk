@@ -6,7 +6,17 @@ use serde::{Deserialize, Serialize};
 use std::{fs, io};
 
 use hex;
-use secp256k1::{Secp256k1, SecretKey};
+// Update k256 imports to include ecdsa types
+use k256::{
+    SecretKey as K256SecretKey,
+    PublicKey as K256PublicKey,
+    ecdsa::{SigningKey as K256SigningKey, VerifyingKey as K256VerifyingKey},
+    elliptic_curve::sec1::ToEncodedPoint,
+};
+use p256::{
+    ecdsa::{SigningKey, VerifyingKey},
+    SecretKey as P256SecretKey,
+};
 use thiserror::Error;
 
 // Replace panorama imports with common
@@ -56,11 +66,25 @@ pub fn check_wallet_exists() -> bool {
     }
 }
 
+/// Supported elliptic curve types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CurveType {
+    K256,
+    P256,
+}
+
+impl Default for CurveType {
+    fn default() -> Self {
+        CurveType::K256
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Wallet {
     pub address: Address,
     pub private_key: String,
     pub seed_phrase: String,
+    pub curve_type: CurveType,
 }
 
 /// Set the selected wallet address in the configuration
@@ -106,11 +130,13 @@ pub fn save_wallet(
     private_key: &str,
     seed_phrase: &str,
     password: &str,
+    curve_type: CurveType,
 ) -> Result<(), WalletError> {
     let wallet_data = Wallet {
         address: *address,
         private_key: private_key.to_string(),
         seed_phrase: seed_phrase.to_string(),
+        curve_type,
     };
 
     let salt = SaltString::generate(&mut OsRng);
@@ -172,13 +198,27 @@ pub fn load_wallet(address: &str, password: &str) -> Result<Wallet, WalletError>
     Ok(wallet_data)
 }
 
-pub fn generate_karix_address(word_count: usize) -> (String, String, String) {
-    let secp = Secp256k1::new();
-    let (secret_key, public_key) = secp.generate_keypair(&mut OsRng);
+pub fn generate_karix_address(word_count: usize, curve_type: CurveType) -> (String, String, String) {
+    match curve_type {
+        CurveType::K256 => generate_k256_address(word_count),
+        CurveType::P256 => generate_p256_address(word_count),
+    }
+}
 
-    // Serialize and encode the public key
-    let mut hex_encoded = hex::encode(&public_key.serialize_uncompressed()[1..]);
-    hex_encoded.truncate(64); // Adjust as needed
+fn generate_k256_address(word_count: usize) -> (String, String, String) {
+    // Generate secret key using k256
+    let secret_key = K256SecretKey::random(&mut OsRng);
+    // Convert to signing key first
+    let signing_key = K256SigningKey::from(secret_key);
+    // Then get verifying key
+    let verifying_key = K256VerifyingKey::from(&signing_key);
+    // Finally get public key
+    let public_key = K256PublicKey::from(verifying_key);
+    
+    // Get encoded public key and format similarly to the previous implementation
+    let encoded_point = public_key.to_encoded_point(false);
+    let mut hex_encoded = hex::encode(&encoded_point.as_bytes()[1..]);
+    hex_encoded.truncate(64); // Keep consistent with the existing approach
 
     let karix_public_address = format!("0x{}", hex_encoded);
 
@@ -193,10 +233,49 @@ pub fn generate_karix_address(word_count: usize) -> (String, String, String) {
         Ok(m) => m,
         Err(e) => panic!("Failed to generate mnemonic: {:?}", e),
     };
-    let seed_phrase = mnemonic.to_string(); // Directly convert Mnemonic to String
+    let seed_phrase = mnemonic.to_string();
 
+    // Return private key as hex string
+    let private_key_bytes = signing_key.to_bytes();
+    let private_key = hex::encode(private_key_bytes);
+    
     (
-        secret_key.display_secret().to_string(),
+        private_key,
+        karix_public_address,
+        seed_phrase,
+    )
+}
+
+fn generate_p256_address(word_count: usize) -> (String, String, String) {
+    // Generate a random P-256 private key
+    let signing_key = SigningKey::random(&mut OsRng);
+    let secret_key = signing_key.to_bytes();
+    
+    // Get the corresponding public key
+    let verifying_key = VerifyingKey::from(&signing_key);
+    let public_key = verifying_key.to_encoded_point(false);
+    
+    // Format the public key, skipping the 0x04 prefix byte
+    let mut hex_encoded = hex::encode(&public_key.as_bytes()[1..]);
+    hex_encoded.truncate(64); // Keep consistent with secp256k1 method
+    
+    let karix_public_address = format!("0x{}", hex_encoded);
+    
+    // Generate mnemonic with specified word count
+    let mnemonic_result = match word_count {
+        12 => Mnemonic::generate(12),
+        24 => Mnemonic::generate(24),
+        _ => panic!("Unsupported word count: {}", word_count),
+    };
+    
+    let mnemonic = match mnemonic_result {
+        Ok(m) => m,
+        Err(e) => panic!("Failed to generate mnemonic: {:?}", e),
+    };
+    let seed_phrase = mnemonic.to_string();
+    
+    (
+        hex::encode(secret_key),
         karix_public_address,
         seed_phrase,
     )
@@ -244,6 +323,47 @@ pub fn list_wallet_files() -> Result<Vec<(String, bool)>, std::io::Error> {
 // import_from_seed_phrase
 pub fn import_from_seed_phrase(
     phrase: &str,
+    curve_type: CurveType,
+) -> Result<(String, String, String), Box<dyn std::error::Error>> {
+    match curve_type {
+        CurveType::K256 => import_from_seed_phrase_k256(phrase),
+        CurveType::P256 => import_from_seed_phrase_p256(phrase),
+    }
+}
+
+fn import_from_seed_phrase_k256 (
+    phrase: &str,
+) -> Result<(String, String, String), Box<dyn std::error::Error>> {
+    // Validate and create mnemonic
+    let mnemonic = Mnemonic::parse_in(Language::English, phrase)?;
+
+    // Generate seed from mnemonic
+    let seed = mnemonic.to_seed("");
+
+    // Create private key from seed using k256
+    let bytes = &seed[0..32];
+    let secret_key = K256SecretKey::from_slice(bytes)?;
+    // Convert to signing key first
+    let signing_key = K256SigningKey::from(secret_key);
+    // Then get verifying key
+    let verifying_key = K256VerifyingKey::from(&signing_key);
+    // Finally get public key
+    let public_key = K256PublicKey::from(verifying_key);
+    
+    // Get encoded public key
+    let encoded_point = public_key.to_encoded_point(false);
+
+    // Generate addresses
+    let private_key = hex::encode(signing_key.to_bytes());
+    let mut hex_encoded = hex::encode(&encoded_point.as_bytes()[1..]);
+    hex_encoded.truncate(64);
+    let public_address = format!("0x{}", hex_encoded);
+
+    Ok((private_key, hex_encoded, public_address))
+}
+
+fn import_from_seed_phrase_p256(
+    phrase: &str,
 ) -> Result<(String, String, String), Box<dyn std::error::Error>> {
     // Validate and create mnemonic
     let mnemonic = Mnemonic::parse_in(Language::English, phrase)?;
@@ -252,13 +372,18 @@ pub fn import_from_seed_phrase(
     let seed = mnemonic.to_seed("");
 
     // Create private key from seed
-    let secp = Secp256k1::new();
-    let secret_key = SecretKey::from_slice(&seed[0..32])?;
-    let public_key = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
-
-    // Generate addresses
-    let private_key = hex::encode(secret_key.as_ref());
-    let mut hex_encoded = hex::encode(&public_key.serialize_uncompressed()[1..]);
+    let bytes = &seed[0..32];
+    // Replace from_be_bytes with from_bytes
+    let secret_key = P256SecretKey::from_bytes(bytes.into())?;
+    let signing_key = SigningKey::from(secret_key);
+    let verifying_key = VerifyingKey::from(&signing_key);
+    
+    // Generate public key and address
+    let public_key = verifying_key.to_encoded_point(false);
+    let private_key = hex::encode(&signing_key.to_bytes());
+    
+    // Format the public address
+    let mut hex_encoded = hex::encode(&public_key.as_bytes()[1..]);
     hex_encoded.truncate(64);
     let public_address = format!("0x{}", hex_encoded);
 
@@ -268,17 +393,54 @@ pub fn import_from_seed_phrase(
 // import_from_private_key
 pub fn import_from_private_key(
     private_key: &str,
+    curve_type: CurveType,
+) -> Result<(String, String, String), Box<dyn std::error::Error>> {
+    match curve_type {
+        CurveType::K256 => import_from_private_key_k256(private_key),
+        CurveType::P256 => import_from_private_key_p256(private_key),
+    }
+}
+
+fn import_from_private_key_k256(
+    private_key: &str,
 ) -> Result<(String, String, String), Box<dyn std::error::Error>> {
     // Convert hex private key to bytes
     let private_key_bytes = hex::decode(private_key)?;
 
-    // Create secret key and generate public key
-    let secp = Secp256k1::new();
-    let secret_key = SecretKey::from_slice(&private_key_bytes)?;
-    let public_key = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
+    // Create k256 private key and get public key
+    let secret_key = K256SecretKey::from_slice(&private_key_bytes)?;
+    // Convert to signing key first
+    let signing_key = K256SigningKey::from(secret_key);
+    // Then get verifying key
+    let verifying_key = K256VerifyingKey::from(&signing_key);
+    // Finally get public key
+    let public_key = K256PublicKey::from(verifying_key);
+    
+    // Get encoded public key
+    let encoded_point = public_key.to_encoded_point(false);
 
     // Generate addresses
-    let mut hex_encoded = hex::encode(&public_key.serialize_uncompressed()[1..]);
+    let mut hex_encoded = hex::encode(&encoded_point.as_bytes()[1..]);
+    hex_encoded.truncate(64);
+    let public_address = format!("0x{}", hex_encoded);
+
+    Ok((private_key.to_string(), hex_encoded, public_address))
+}
+
+fn import_from_private_key_p256(
+    private_key: &str,
+) -> Result<(String, String, String), Box<dyn std::error::Error>> {
+    // Convert hex private key to bytes
+    let private_key_bytes = hex::decode(private_key)?;
+    
+    // Use from_slice instead of from_bytes
+    let secret_key = P256SecretKey::from_slice(&private_key_bytes)?;
+    let signing_key = SigningKey::from(secret_key);
+    let verifying_key = VerifyingKey::from(&signing_key);
+    
+    // Generate public key and format address
+    let public_key = verifying_key.to_encoded_point(false);
+    let mut hex_encoded = hex::encode(&public_key.as_bytes()[1..]);
     hex_encoded.truncate(64);
     let public_address = format!("0x{}", hex_encoded);
 

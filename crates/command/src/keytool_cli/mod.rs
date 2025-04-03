@@ -1,7 +1,7 @@
 use colored::Colorize;
 use key::{
     generate_karix_address, import_from_private_key, import_from_seed_phrase, list_wallet_files,
-    load_wallet, save_wallet, set_selected_wallet,
+    load_wallet, save_wallet, set_selected_wallet, CurveType,
 };
 use std::io::{self, Write};
 
@@ -25,10 +25,10 @@ const COMMANDS: &[CommandInfo] = &[
         name: "balance",
         description: "Check balance",
     },
-    // CommandInfo {
-    //     name: "transfer",
-    //     description: "Transfer coins to another address",
-    // },
+    CommandInfo {
+        name: "transfer",
+        description: "Transfer coins to another address",
+    },
     CommandInfo {
         name: "select",
         description: "Select wallet",
@@ -102,42 +102,68 @@ pub fn handle_keytool_command() -> Option<String> {
                                     );
                                     return None;
                                 }
-
-                                let (private_key, public_address, seed_phrase) =
-                                    generate_karix_address(mnemonic_length);
-                                println!("New address generated:");
-                                println!("Private Key: {}", private_key.green());
-                                println!("Public Address: {}", public_address.green());
-                                println!("Seed Phrase: {}", seed_phrase.green());
-
-                                let password = prompt_password(true);
-                                // Convert public_address to Address type
-                                match public_address.parse() {
-                                    Ok(address) => {
-                                        match save_wallet(
-                                            &address,
-                                            &private_key,
-                                            &seed_phrase,
-                                            &password,
-                                        ) {
-                                            Ok(_) => {
-                                                println!("Wallet saved successfully!");
-                                                return Some(public_address);
+                                
+                                // Add curve type selection
+                                println!("Select curve type:");
+                                println!("1. K-256 (secp256k1)");
+                                println!("2. P-256 (secp256r1)");
+                                
+                                let mut curve_choice = String::new();
+                                match io::stdin().read_line(&mut curve_choice) {
+                                    Ok(_) => {
+                                        let curve_type = match curve_choice.trim() {
+                                            "1" => CurveType::K256,
+                                            "2" => CurveType::P256,
+                                            _ => {
+                                                println!("{}", "Invalid choice, using secp256k1 as default.".yellow());
+                                                CurveType::K256
+                                            }
+                                        };
+                                        
+                                        let (private_key, public_address, seed_phrase) =
+                                            generate_karix_address(mnemonic_length, curve_type);
+                                            
+                                        println!("New address generated:");
+                                        println!("Private Key: {}", private_key.green());
+                                        println!("Public Address: {}", public_address.green());
+                                        println!("Seed Phrase: {}", seed_phrase.green());
+                                        println!("Curve Type: {}", format!("{:?}", curve_type).green());
+            
+                                        let password = prompt_password(true);
+                                        // Convert public_address to Address type
+                                        match public_address.parse() {
+                                            Ok(address) => {
+                                                match save_wallet(
+                                                    &address,
+                                                    &private_key,
+                                                    &seed_phrase,
+                                                    &password,
+                                                    curve_type,
+                                                ) {
+                                                    Ok(_) => {
+                                                        println!("Wallet saved successfully!");
+                                                        return Some(public_address);
+                                                    }
+                                                    Err(e) => {
+                                                        println!(
+                                                            "{}",
+                                                            format!("Failed to save wallet: {}", e).red()
+                                                        );
+                                                        return None;
+                                                    }
+                                                }
                                             }
                                             Err(e) => {
                                                 println!(
                                                     "{}",
-                                                    format!("Failed to save wallet: {}", e).red()
+                                                    format!("Failed to parse public address: {}", e).red()
                                                 );
                                                 return None;
                                             }
                                         }
-                                    }
+                                    },
                                     Err(e) => {
-                                        println!(
-                                            "{}",
-                                            format!("Failed to parse public address: {}", e).red()
-                                        );
+                                        println!("{}", format!("Failed to read input: {}", e).red());
                                         return None;
                                     }
                                 }
@@ -558,52 +584,74 @@ pub fn handle_keytool_command() -> Option<String> {
                 io::stdin()
                     .read_line(&mut phrase)
                     .expect("Failed to read line");
-
-                match import_from_seed_phrase(phrase.trim()) {
-                    Ok((private_key, _, public_address)) => {
-                        let password = prompt_password(true);
-
-                        match public_address.parse() {
-                            Ok(address) => {
-                                match save_wallet(&address, &private_key, phrase.trim(), &password)
-                                {
-                                    Ok(_) => match set_selected_wallet(&public_address) {
-                                        Ok(_) => {
-                                            println!(
-                                                "Imported wallet with address: {}",
-                                                public_address
-                                            );
-                                            return Some(public_address);
+            
+                // Add curve type selection
+                println!("Select curve type:");
+                println!("1. K-256 (secp256k1)");
+                println!("2. P-256 (secp256r1)");
+                
+                let mut curve_choice = String::new();
+                match io::stdin().read_line(&mut curve_choice) {
+                    Ok(_) => {
+                        let curve_type = match curve_choice.trim() {
+                            "1" => CurveType::K256,
+                            "2" => CurveType::P256,
+                            _ => {
+                                println!("{}", "Invalid choice, using Secp256k1 as default.".yellow());
+                                CurveType::K256
+                            }
+                        };
+                                
+                        match import_from_seed_phrase(phrase.trim(), curve_type) {
+                            Ok((private_key, _, public_address)) => {
+                                let password = prompt_password(true);
+            
+                                match public_address.parse() {
+                                    Ok(address) => {
+                                        match save_wallet(&address, &private_key, phrase.trim(), &password, curve_type) {
+                                            Ok(_) => match set_selected_wallet(&public_address) {
+                                                Ok(_) => {
+                                                    println!(
+                                                        "Imported wallet with address: {}",
+                                                        public_address
+                                                    );
+                                                    return Some(public_address);
+                                                }
+                                                Err(e) => {
+                                                    println!(
+                                                        "{}",
+                                                        format!("Failed to set selected wallet: {}", e)
+                                                            .red()
+                                                    );
+                                                    return None;
+                                                }
+                                            },
+                                            Err(e) => {
+                                                println!(
+                                                    "{}",
+                                                    format!("Failed to save wallet: {}", e).red()
+                                                );
+                                                return None;
+                                            }
                                         }
-                                        Err(e) => {
-                                            println!(
-                                                "{}",
-                                                format!("Failed to set selected wallet: {}", e)
-                                                    .red()
-                                            );
-                                            return None;
-                                        }
-                                    },
+                                    }
                                     Err(e) => {
                                         println!(
                                             "{}",
-                                            format!("Failed to save wallet: {}", e).red()
+                                            format!("Failed to parse public address: {}", e).red()
                                         );
                                         return None;
                                     }
                                 }
                             }
                             Err(e) => {
-                                println!(
-                                    "{}",
-                                    format!("Failed to parse public address: {}", e).red()
-                                );
+                                println!("{}", format!("Failed to import seed phrase: {}", e).red());
                                 return None;
                             }
                         }
-                    }
+                    },
                     Err(e) => {
-                        println!("{}", format!("Failed to import seed phrase: {}", e).red());
+                        println!("{}", format!("Failed to read curve choice: {}", e).red());
                         return None;
                     }
                 }
@@ -615,51 +663,74 @@ pub fn handle_keytool_command() -> Option<String> {
                 io::stdin()
                     .read_line(&mut private_key)
                     .expect("Failed to read line");
-
-                match import_from_private_key(private_key.trim()) {
-                    Ok((private_key, _, public_address)) => {
-                        let password = prompt_password(true);
-                        // Convert public_address to Address type
-                        match public_address.parse() {
-                            Ok(address) => {
-                                match save_wallet(&address, &private_key, "", &password) {
-                                    Ok(_) => match set_selected_wallet(&public_address) {
-                                        Ok(_) => {
-                                            println!(
-                                                "Imported wallet with address: {}",
-                                                public_address
-                                            );
-                                            return Some(public_address);
+            
+                // Add curve type selection
+                println!("Select curve type:");
+                println!("1. K-256 (secp256k1)");
+                println!("2. P-256 (secp256r1)");
+                
+                let mut curve_choice = String::new();
+                match io::stdin().read_line(&mut curve_choice) {
+                    Ok(_) => {
+                        let curve_type = match curve_choice.trim() {
+                            "1" => CurveType::K256,
+                            "2" => CurveType::P256,
+                            _ => {
+                                println!("{}", "Invalid choice, using Secp256k1 as default.".yellow());
+                                CurveType::K256
+                            }
+                        };
+            
+                        match import_from_private_key(private_key.trim(), curve_type) {
+                            Ok((private_key, _, public_address)) => {
+                                let password = prompt_password(true);
+                                // Convert public_address to Address type
+                                match public_address.parse() {
+                                    Ok(address) => {
+                                        match save_wallet(&address, &private_key, "", &password, curve_type) {
+                                            Ok(_) => match set_selected_wallet(&public_address) {
+                                                Ok(_) => {
+                                                    println!(
+                                                        "Imported wallet with address: {}",
+                                                        public_address
+                                                    );
+                                                    return Some(public_address);
+                                                }
+                                                Err(e) => {
+                                                    println!(
+                                                        "{}",
+                                                        format!("Failed to set selected wallet: {}", e)
+                                                            .red()
+                                                    );
+                                                    return None;
+                                                }
+                                            },
+                                            Err(e) => {
+                                                println!(
+                                                    "{}",
+                                                    format!("Failed to save wallet: {}", e).red()
+                                                );
+                                                return None;
+                                            }
                                         }
-                                        Err(e) => {
-                                            println!(
-                                                "{}",
-                                                format!("Failed to set selected wallet: {}", e)
-                                                    .red()
-                                            );
-                                            return None;
-                                        }
-                                    },
+                                    }
                                     Err(e) => {
                                         println!(
                                             "{}",
-                                            format!("Failed to save wallet: {}", e).red()
+                                            format!("Failed to parse public address: {}", e).red()
                                         );
                                         return None;
                                     }
                                 }
                             }
                             Err(e) => {
-                                println!(
-                                    "{}",
-                                    format!("Failed to parse public address: {}", e).red()
-                                );
+                                println!("{}", format!("Failed to import private key: {}", e).red());
                                 return None;
                             }
                         }
-                    }
+                    },
                     Err(e) => {
-                        println!("{}", format!("Failed to import private key: {}", e).red());
+                        println!("{}", format!("Failed to read curve choice: {}", e).red());
                         return None;
                     }
                 }

@@ -15,7 +15,6 @@ description.workspace = true
 lazy_static.workspace = true
 
 # Cryptography
-secp256k1.workspace = true
 sha2.workspace = true
 rand.workspace = true
 bip39.workspace = true

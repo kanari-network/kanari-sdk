@@ -13,7 +13,9 @@ description.workspace = true
 
 [dependencies]
 bip39.workspace = true
-secp256k1 = { version = "0.27.0", features = ["recovery", "rand-std"] }
+k256 = "0.13.4"
+p256 = "0.13.2"
+rand.workspace = true
 hex.workspace = true
 serde_json = { workspace = true , default-features = true }
 lazy_static.workspace = true

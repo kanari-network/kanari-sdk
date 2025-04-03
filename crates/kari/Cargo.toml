@@ -21,7 +21,6 @@ bincode.workspace = true
 jsonrpc-core.workspace = true
 jsonrpc-http-server.workspace = true
 futures.workspace = true
-secp256k1.workspace = true
 rand.workspace = true
 bip39.workspace = true
 colored.workspace = true
