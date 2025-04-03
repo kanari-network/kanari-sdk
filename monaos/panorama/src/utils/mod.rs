@@ -2,7 +2,6 @@ use tokio::sync::mpsc;
 use log::{info, error};
 use rand::{Rng, thread_rng};
 
-use crate::blockchain::transfer_tokens;
 use crate::block::Transaction;
 use crate::simulation::add_pending_transaction;
 
@@ -26,10 +25,11 @@ pub fn process_blockchain_transfer(
     from_address: &str,
     to_address: &str,
     amount: u64,
+    password: &str, // Add password parameter for transaction signing
     notification_channel: Option<&mpsc::Sender<String>>
 ) -> Result<Transaction, String> {
     // Perform the transfer
-    match transfer_tokens(from_address, to_address, amount) {
+    match crate::transfer_tokens::transfer_tokens(from_address, to_address, amount, password) {
         Ok(transaction) => {
             // Add to pending transactions queue
             if add_pending_transaction(transaction.clone()) {
@@ -41,10 +41,12 @@ pub fn process_blockchain_transfer(
                     let tx_json = serde_json::json!({
                         "event": "transaction_created",
                         "transaction": {
+                            "id": transaction.transaction_id,
                             "sender": transaction.sender.to_hex_literal(),
                             "receiver": transaction.receiver.to_hex_literal(),
                             "amount": amount,
-                            "timestamp": transaction.timestamp
+                            "timestamp": transaction.timestamp,
+                            "signed": !transaction.signature.is_empty()
                         },
                         "status": "pending"
                     }).to_string();

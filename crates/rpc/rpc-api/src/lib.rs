@@ -264,10 +264,21 @@ fn transfer_tokens(params: Params) -> JsonRpcResult<JsonValue> {
             // Create a channel for transaction notifications
             let (tx, _rx) = mpsc::channel::<String>(10);
             
-            // Process transfer
-            match process_transfer(&transfer_params.from, &transfer_params.to, amount_ka, &tx) {
+            // Process transfer with password for signing
+            match process_transfer(&transfer_params.from, &transfer_params.to, amount_ka, &transfer_params.password, &tx) {
                 Ok(transaction) => {
-                    // Use the transaction ID from the transaction object
+                    // Check if the transaction was signed correctly
+                    let signature_status = if transaction.signature.is_empty() {
+                        "unsigned"
+                    } else {
+                        match panorama::transfer_tokens::verify_transaction::verify_transaction(&transaction) {
+                            Ok(true) => "valid",
+                            Ok(false) => "invalid",
+                            Err(_) => "unknown"
+                        }
+                    };
+                    
+                    // Include more detailed transaction information in response
                     Ok(json!({
                         "transaction_id": transaction.transaction_id,
                         "sender": transaction.sender,
@@ -275,7 +286,9 @@ fn transfer_tokens(params: Params) -> JsonRpcResult<JsonValue> {
                         "amount": transaction.amount,
                         "amount_formatted": format_kari_amount(transaction.amount),
                         "timestamp": transaction.timestamp,
-                        "status": "pending",
+                        "status": "pending", // Status is pending until included in a block
+                        "signed": !transaction.signature.is_empty(),
+                        "signature_status": signature_status  // Add signature verification status
                     }))
                 },
                 Err(e) => {
@@ -635,6 +648,48 @@ fn get_transaction_by_id(params: Params) -> JsonRpcResult<JsonValue> {
     })
 }
 
+// New API method to get transaction status
+fn get_transaction_status(params: Params) -> JsonRpcResult<JsonValue> {
+    // Parse transaction ID parameter
+    let tx_id: String = params.parse()
+        .map_err(|e| RpcError::invalid_params(format!("Invalid transaction ID: {}", e)))?;
+    
+    // Load blockchain data if needed
+    if let Err(e) = load_blockchain_with_retry() {
+        return Err(RpcError {
+            code: ErrorCode::InternalError,
+            message: format!("Failed to load blockchain: {}", e),
+            data: None,
+        });
+    }
+    
+    // First check if the transaction is in a block (confirmed)
+    for block in BLOCKCHAIN_DATA.iter() {
+        for tx in &block.transactions {
+            if tx.transaction_id == tx_id {
+                return Ok(json!({
+                    "transaction_id": tx_id,
+                    "status": "confirmed",
+                    "block_index": block.index,
+                    "block_hash": block.hash,
+                    "timestamp": tx.timestamp,
+                    "confirmation_time": block.timestamp
+                }));
+            }
+        }
+    }
+    
+    // If not found in blocks, it might be pending
+    // In a more advanced implementation, we would check the pending transaction queue
+    
+    // Not found at all
+    Ok(json!({
+        "transaction_id": tx_id,
+        "status": "unknown",
+        "message": "Transaction not found in blockchain"
+    }))
+}
+
 /// Starts the RPC server for file operations
 pub async fn start_rpc_server(network_config: NetworkConfig) {
     let mut io = IoHandler::new();
@@ -682,6 +737,11 @@ pub async fn start_rpc_server(network_config: NetworkConfig) {
     // Add the new get transaction by ID method
     io.add_method("get_transaction_by_id", |params| {
         futures::future::ready(get_transaction_by_id(params)).boxed()
+    });
+
+    // Add the new transaction status method
+    io.add_method("get_transaction_status", |params| {
+        futures::future::ready(get_transaction_status(params)).boxed()
     });
 
     // Configure socket address

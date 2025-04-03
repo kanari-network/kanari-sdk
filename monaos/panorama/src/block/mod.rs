@@ -11,7 +11,82 @@ pub struct Transaction {
     pub receiver: Address,
     pub amount: u64,
     pub timestamp: u64,
-    pub signature: Option<String>,
+    pub signature: Vec<u8>, // Changed from Option<String> to Vec<u8>
+}
+
+// Add a new method to verify transaction signatures
+impl Transaction {
+    // Create a message representation of the transaction for signing/verification
+    pub fn to_signable_message(&self) -> Vec<u8> {
+        let mut message = Vec::new();
+        message.extend_from_slice(self.transaction_id.as_bytes());
+        message.extend_from_slice(self.sender.to_string().as_bytes());
+        message.extend_from_slice(self.receiver.to_string().as_bytes());
+        message.extend_from_slice(&self.amount.to_le_bytes());
+        message.extend_from_slice(&self.timestamp.to_le_bytes());
+        
+        // For debugging
+        log::debug!("Generated message for signing/verification: tx_id={}, len={}", 
+                   self.transaction_id, message.len());
+        
+        message
+    }
+
+    // Verify the transaction signature
+    pub fn verify_signature(&self) -> Result<bool, Box<dyn std::error::Error>> {
+        if self.signature.is_empty() {
+            log::debug!("Transaction has empty signature, cannot verify");
+            return Ok(false); // Can't verify an empty signature
+        }
+        
+        let message = self.to_signable_message();
+        let address = self.sender.to_hex_literal();
+        
+        log::debug!("Verifying signature for: address={}, message_len={}, sig_len={}", 
+                   address, message.len(), self.signature.len());
+        
+        // Try general verification first
+        match key::verify_signature(&address, &message, &self.signature) {
+            Ok(true) => {
+                log::debug!("Signature verification succeeded with general method");
+                return Ok(true);
+            },
+            _ => {
+                log::debug!("General verification failed, trying specific curve types");
+            }
+        }
+        
+        // Try verification with K256 first
+        match key::verify_signature_k256(address.trim_start_matches("0x"), &message, &self.signature) {
+            Ok(true) => {
+                log::debug!("K256 signature verification succeeded");
+                return Ok(true);
+            },
+            Err(e) => {
+                log::debug!("K256 verification error: {}", e);
+            },
+            _ => {
+                log::debug!("K256 verification returned false");
+            }
+        }
+        
+        // If K256 verification fails, try P256
+        match key::verify_signature_p256(address.trim_start_matches("0x"), &message, &self.signature) {
+            Ok(true) => {
+                log::debug!("P256 signature verification succeeded");
+                Ok(true)
+            },
+            Ok(false) => {
+                log::debug!("P256 verification returned false");
+                Ok(false)
+            },
+            Err(e) => {
+                log::warn!("P256 verification failed: {}", e);
+                // We'll return false rather than an error to keep processing flowing
+                Ok(false)
+            }
+        }
+    }
 }
 
 // Define the Block struct
