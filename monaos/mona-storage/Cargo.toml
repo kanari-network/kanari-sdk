@@ -14,6 +14,7 @@ description.workspace = true
 [dependencies]
 move-core-types.workspace =true 
 async-trait.workspace = true
+log.workspace = true
 dirs.workspace = true
 mime_guess.workspace = true
 serde.workspace = true
@@ -25,3 +26,4 @@ bincode.workspace = true
 thiserror.workspace = true
 chrono.workspace = true
 tempfile.workspace = true
+lazy_static.workspace = true

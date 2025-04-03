@@ -1,7 +1,7 @@
 use consensus_pos::Blake3Algorithm;
 use log::{error, info, warn, debug};
 use tokio::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock}; // Add RwLock from std::sync
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
@@ -23,12 +23,12 @@ fn parse_address(address: &str) -> Result<Address, String> {
 
 // Add pending transactions queue
 lazy_static::lazy_static! {
-    static ref PENDING_TRANSACTIONS: Mutex<VecDeque<Transaction>> = Mutex::new(VecDeque::new());
+    static ref PENDING_TRANSACTIONS: RwLock<VecDeque<Transaction>> = RwLock::new(VecDeque::new());
 }
 
-// Add transaction to the pending pool
+// Now use .write() or .read() instead of .lock()
 pub fn add_pending_transaction(transaction: Transaction) -> bool {
-    match PENDING_TRANSACTIONS.lock() {
+    match PENDING_TRANSACTIONS.write() {
         Ok(mut queue) => {
             queue.push_back(transaction);
             true
@@ -378,9 +378,9 @@ pub fn run_blockchain(
 
         // Get pending transactions for this block - improve transaction handling
         let transactions = {
-            match PENDING_TRANSACTIONS.lock() {
+            match PENDING_TRANSACTIONS.write() { // Changed from lock() to write()
                 Ok(mut queue) => {
-                    // Take up to 10 transactions for this block
+                    // Take up to 100000 transactions for this block
                     let mut block_txs = Vec::new();
                     
                     // Log transaction queue status
@@ -390,7 +390,7 @@ pub fn run_blockchain(
                         info!("Including transaction: {} -> {}, amount: {}", 
                             tx.sender, tx.receiver, tx.amount);
                         block_txs.push(tx);
-                        if block_txs.len() >= 10 {
+                        if block_txs.len() >= 100000 {
                             break;
                         }
                     }
@@ -570,7 +570,8 @@ pub fn run_blockchain(
         }
 
         // Sleep to control block creation rate
-        thread::sleep(Duration::from_secs(10));
+        // thread::sleep(Duration::from_nanos(500)); // 500 nanoseconds = 0.5 milliseconds
+        thread::sleep(Duration::from_millis(420)); // 420 milliseconds for better performance
     }
 }
 

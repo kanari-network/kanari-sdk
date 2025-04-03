@@ -78,7 +78,7 @@ description = "Kanari Network SDK" # Short description of the SDK.
 # Cryptography & Security
 argon2 = "0.5.3"
 bip39 = { version = "2.0.0", features = ["rand"] }
-blake3 = "1.8.0"
+blake3 = "1.8.1"
 crypto = "0.5.1"
 digest = "0.10.7"
 hex = "0.4.3"
