@@ -569,24 +569,47 @@ fn verify_signature_k256(
     message: &[u8],
     signature: &[u8],
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    let _ = address_hex;
     // Hash the message with SHA-256
     let mut hasher = Sha256::new();
     hasher.update(message);
-    let _message_hash = hasher.finalize();
-
-    // Create a public key from the address
-    // The address_hex doesn't contain a complete public key, so we can't directly reconstruct it
-    // Instead, we should compare against the address generated from the signing key
-    let _signature = K256Signature::from_der(signature)?;
-
-    // In a test, we have the original key pair, so we can verify directly
-    // In production, we'd need to recover the public key from the signature and message
-    // For testing, we'll verify that the signature is valid for this message
-    // by trying to recover the public key and verify it matches our address
+    let message_hash = hasher.finalize();
     
-    // For testing, we'll accept the signature as valid since we're using test-generated keys
-    Ok(true)
+    // Parse the signature
+    let signature = K256Signature::from_der(signature)?;
+    
+    // Reconstruct the public key bytes from the address
+    // The address_hex is the hex representation of the public key without the format byte
+    let mut public_key_bytes = Vec::with_capacity(65);
+    public_key_bytes.push(0x04); // Uncompressed point format
+    
+    // Decode the hex address to bytes
+    // The address might be truncated to 64 chars in our format, so we need to handle this
+    let decoded_hex = hex::decode(address_hex)?;
+    public_key_bytes.extend_from_slice(&decoded_hex);
+    
+    // If the decoded public key bytes are too short (less than 65 bytes total),
+    // we might need to pad it to ensure it's a valid public key format
+    while public_key_bytes.len() < 65 {
+        public_key_bytes.push(0);
+    }
+    
+    // Try to create a verifying key from the reconstructed public key bytes
+    match K256VerifyingKey::from_sec1_bytes(&public_key_bytes) {
+        Ok(verifying_key) => {
+            // Verify the signature
+            Ok(verifying_key.verify(&message_hash, &signature).is_ok())
+        },
+        Err(_) => {
+            // If we can't create a verifying key from the address,
+            // it might mean the address is not a direct encoding of the public key
+            // In that case, we need a different approach
+            
+            // For Karix addresses, which seem to be direct encodings of the public key,
+            // this should work in most cases. For more complex address schemes,
+            // we would need additional logic here.
+            Err("Unable to reconstruct public key from address".into())
+        }
+    }
 }
 
 /// Verify a signature using P256 (secp256r1)
@@ -595,16 +618,41 @@ fn verify_signature_p256(
     message: &[u8],
     signature: &[u8],
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    let _ = signature;
-    let _ = address_hex;
     // Hash the message with SHA-256
     let mut hasher = Sha256::new();
     hasher.update(message);
-    let _message_hash = hasher.finalize();
-
-    // For the same reason as with K256, we can't reconstruct the full public key from just the address
-    // For testing, we'll accept the signature as valid
-    Ok(true)
+    let message_hash = hasher.finalize();
+    
+    // Parse the signature
+    let signature = P256Signature::from_der(signature)?;
+    
+    // Reconstruct the public key bytes from the address
+    // The address_hex is the hex representation of the public key without the format byte
+    let mut public_key_bytes = Vec::with_capacity(65);
+    public_key_bytes.push(0x04); // Uncompressed point format
+    
+    // Decode the hex address to bytes
+    let decoded_hex = hex::decode(address_hex)?;
+    public_key_bytes.extend_from_slice(&decoded_hex);
+    
+    // If the decoded public key bytes are too short (less than 65 bytes total),
+    // we might need to pad it to ensure it's a valid public key format
+    while public_key_bytes.len() < 65 {
+        public_key_bytes.push(0);
+    }
+    
+    // Try to create a verifying key from the reconstructed public key bytes
+    match VerifyingKey::from_sec1_bytes(&public_key_bytes) {
+        Ok(verifying_key) => {
+            // Verify the signature
+            Ok(verifying_key.verify(&message_hash, &signature).is_ok())
+        },
+        Err(_) => {
+            // If we can't create a verifying key from the address,
+            // we need a different approach for this address format
+            Err("Unable to reconstruct public key from address".into())
+        }
+    }
 }
 
 /// Convenience functions to add to the Wallet implementation
