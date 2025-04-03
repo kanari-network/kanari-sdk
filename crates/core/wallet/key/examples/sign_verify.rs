@@ -2,8 +2,6 @@ use key::{
     generate_karix_address, sign_message_k256, sign_message_p256, verify_signature,
     CurveType, import_from_private_key,
 };
-use mona_types::address::Address;
-use std::str::FromStr;
 
 fn main() {
     println!("Kanari Wallet - Signing and Verification Example");
