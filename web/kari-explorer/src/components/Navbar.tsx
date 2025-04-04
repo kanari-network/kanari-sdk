@@ -44,7 +44,7 @@ const Navbar: React.FC<NavbarProps> = ({
             <div className="relative flex-grow max-w-3xl">
               <input
                 type="text"
-                placeholder="Search transactions by sender or receiver..."
+                placeholder="Search by transaction ID, sender or receiver..."
                 value={searchTx}
                 onChange={handleSearchTxChange}
                 className={`w-full px-4 py-2 rounded-lg shadow-sm border ${isDarkMode
@@ -67,6 +67,27 @@ const Navbar: React.FC<NavbarProps> = ({
                 Accounts
               </span>
             </Link>
+            
+            <Link href="/transactions">
+              <span className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                currentPage === 'transactions' 
+                  ? (isDarkMode ? 'bg-orange-600 text-white' : 'bg-orange-500 text-white') 
+                  : (isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-orange-50 hover:bg-orange-100 text-orange-600 border border-orange-200')
+              }`}>
+                Transactions
+              </span>
+            </Link>
+            
+            <Link href="/staking">
+              <span className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                currentPage === 'staking' 
+                  ? (isDarkMode ? 'bg-orange-600 text-white' : 'bg-orange-500 text-white') 
+                  : (isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-orange-50 hover:bg-orange-100 text-orange-600 border border-orange-200')
+              }`}>
+                Staking
+              </span>
+            </Link>
+            
             <button
               onClick={toggleTheme}
               className={`p-2 rounded-lg ${isDarkMode
@@ -112,7 +133,7 @@ const Navbar: React.FC<NavbarProps> = ({
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
             </div>
-            <div className="flex space-x-3">
+            <div className="flex flex-wrap gap-2">
               <Link href="/accounts" className="flex-1">
                 <span className={`block text-center px-4 py-2 rounded-lg text-sm font-medium ${
                   currentPage === 'accounts' 
@@ -122,6 +143,27 @@ const Navbar: React.FC<NavbarProps> = ({
                   Accounts
                 </span>
               </Link>
+              
+              <Link href="/transactions" className="flex-1">
+                <span className={`block text-center px-4 py-2 rounded-lg text-sm font-medium ${
+                  currentPage === 'transactions' 
+                    ? (isDarkMode ? 'bg-orange-600 text-white' : 'bg-orange-500 text-white') 
+                    : (isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-orange-50 hover:bg-orange-100 text-orange-600 border border-orange-200')
+                }`}>
+                  Transactions
+                </span>
+              </Link>
+              
+              <Link href="/staking" className="flex-1">
+                <span className={`block text-center px-4 py-2 rounded-lg text-sm font-medium ${
+                  currentPage === 'staking' 
+                    ? (isDarkMode ? 'bg-orange-600 text-white' : 'bg-orange-500 text-white') 
+                    : (isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-orange-50 hover:bg-orange-100 text-orange-600 border border-orange-200')
+                }`}>
+                  Staking
+                </span>
+              </Link>
+              
               <button
                 onClick={toggleTheme}
                 className={`px-4 py-2 rounded-lg ${isDarkMode

@@ -21,6 +21,19 @@ pub const POOL_RESERVED_KA: u64 = POOL_RESERVED_KARI * KA_PER_KARI;
 /// The pool address where reserved KARI is stored
 pub const POOL_ADDRESS: &str = "0x47621776628ba3a5b9baaab38e61f4c98e893e124204bc4dad52e702e2b24ea1";
 
+/// Minimum KARI required to run a node (200 KARI)
+pub const NODE_STAKING_MINIMUM_KARI: u64 = 200;
+/// Minimum KARI required to run a node in KA (200 * 10^9)
+pub const NODE_STAKING_MINIMUM_KA: u64 = NODE_STAKING_MINIMUM_KARI * KA_PER_KARI;
+
+/// Minimum KARI for validator staking (32 KARI)
+pub const VALIDATOR_STAKING_MINIMUM_KARI: u64 = 32;
+/// Minimum KARI for validator staking in KA (32 * 10^9)
+pub const VALIDATOR_STAKING_MINIMUM_KA: u64 = VALIDATOR_STAKING_MINIMUM_KARI * KA_PER_KARI;
+
+/// Annual staking reward percentage (0.01%)
+pub const STAKING_REWARD_PERCENTAGE: f64 = 0.0001; // 0.01%
+
 // Enhanced KARI structure with additional properties
 #[derive(Clone, Debug)]
 pub struct KARI {
@@ -33,6 +46,9 @@ pub struct KARI {
     pub created_at: u64,      // Timestamp when KARI was created
     pub pool_address: String, // Address where reserved tokens are stored
     pub pool_reserved: u64,   // Amount of tokens reserved in the pool
+    pub staking_reward: f64,  // Staking reward percentage
+    pub node_minimum: u64,    // Minimum amount to run a node
+    pub validator_minimum: u64, // Minimum amount to be a validator
 }
 
 impl Default for KARI {
@@ -52,6 +68,9 @@ impl Default for KARI {
             created_at: current_time,    // Current timestamp
             pool_address: POOL_ADDRESS.to_string(),
             pool_reserved: POOL_RESERVED_KA,
+            staking_reward: STAKING_REWARD_PERCENTAGE,
+            node_minimum: NODE_STAKING_MINIMUM_KA,
+            validator_minimum: VALIDATOR_STAKING_MINIMUM_KA,
         }
     }
 }

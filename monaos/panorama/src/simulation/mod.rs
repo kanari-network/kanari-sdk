@@ -12,8 +12,10 @@ use crate::block::{Block, Transaction};
 use crate::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN_DATA, normalize_address};
 use crate::transfer_tokens::transfer_tokens;
 use mona_types::address::Address;
-use mona_types::kari::{KARI, KA_PER_KARI, POOL_ADDRESS, POOL_RESERVED_KA, POOL_RESERVED_KARI, TOTAL_SUPPLY_KA, TOTAL_SUPPLY_KARI};
+use mona_types::kari::{KARI, KA_PER_KARI, POOL_ADDRESS, POOL_RESERVED_KA, POOL_RESERVED_KARI, TOTAL_SUPPLY_KA, TOTAL_SUPPLY_KARI, VALIDATOR_STAKING_MINIMUM_KARI, NODE_STAKING_MINIMUM_KARI};
 use crate::utils::{update_pending_transaction_count, update_last_block_time, calculate_gas_fee};
+use crate::staking::{load_staking_state, process_rewards, is_validator};
+use crate::node::{NodeConfig, start_node, stop_node, propagate_block, get_peer_count};
 
 pub mod create_genesis_block;
 use create_genesis_block::create_genesis_block;
@@ -247,7 +249,33 @@ pub fn run_blockchain(
     let normalized_address = node_address.to_hex_literal();
     debug!("Using normalized address: {}", normalized_address);
 
-    // Send initial status regardless of initialization state
+    // Initialize staking system
+    if let Err(e) = load_staking_state() {
+        warn!("Failed to load staking state: {}", e);
+    } else {
+        info!("Staking system initialized");
+    }
+    
+    // Initialize node networking if multiple nodes are supported
+    let node_config = NodeConfig {
+        node_id: format!("node-{}", normalized_address[..8].to_string()),
+        blockchain_address: normalized_address.clone(),
+        listen_ip: "127.0.0.1".to_string(),
+        // Use dynamically assigned port based on address to avoid conflicts
+        listen_port: 30303 + (u16::from_str_radix(&normalized_address[2..6], 16).unwrap_or(0) % 1000),
+        discovery_nodes: vec!["127.0.0.1:30303".to_string()],
+        max_peers: 25,
+        is_validator: false, // Will be updated based on staking status
+    };
+    
+    // Start node networking
+    if let Err(e) = start_node(node_config, tx.clone()) {
+        warn!("Failed to start node networking: {}", e);
+    } else {
+        info!("Node networking started");
+    }
+
+    // Send initial status including staking information
     let init_status = json!({
         "event": "blockchain_initializing",
         "coin": {
@@ -258,6 +286,10 @@ pub fn run_blockchain(
             "display_supply": TOTAL_SUPPLY_KARI
         },
         "node_address": normalized_address,
+        "staking": {
+            "validator_minimum": VALIDATOR_STAKING_MINIMUM_KARI,
+            "node_minimum": NODE_STAKING_MINIMUM_KARI,
+        },
         "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
     }).to_string();
     let _ = tx.try_send(init_status);
@@ -382,6 +414,12 @@ pub fn run_blockchain(
     loop {
         if !*running.lock().unwrap() {
             info!("Blockchain simulation stopped");
+            
+            // Stop node networking
+            if let Err(e) = stop_node() {
+                warn!("Error stopping node: {}", e);
+            }
+            
             // Send shutdown notification
             let shutdown_json = json!({
                 "event": "blockchain_stopped",
@@ -481,6 +519,27 @@ pub fn run_blockchain(
         // Add block to chain and ensure we save the state
         BLOCKCHAIN_DATA.add_block(new_block.clone());
         
+        // Propagate block to connected peers
+        if get_peer_count() > 0 {
+            if let Err(e) = propagate_block(&new_block) {
+                warn!("Failed to propagate block to peers: {}", e);
+            } else {
+                info!("Block {} propagated to {} peers", new_block.index, get_peer_count());
+            }
+        }
+        
+        // Process staking rewards
+        let staking_rewards = match process_rewards(new_block.index) {
+            Ok(rewards) => rewards,
+            Err(e) => {
+                warn!("Failed to process staking rewards: {}", e);
+                0
+            }
+        };
+        
+        // Check if the node operator is staking as validator
+        let validator_status = is_validator(&node_address);
+
         // If we included transactions, provide detailed logs
         if !transactions.is_empty() {
             info!("Block {} includes {} transactions:", new_block.index, transactions.len());
@@ -494,7 +553,7 @@ pub fn run_blockchain(
             .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
             .unwrap_or_else(|| "Unknown time".to_string());
 
-        // Enhanced block status update as JSON
+        // Enhanced block status update as JSON with staking info and peer info
         let status_json = json!({
             "event": "block_mined",
             "block": {
@@ -504,11 +563,29 @@ pub fn run_blockchain(
                 "timestamp": new_block.timestamp,
                 "datetime": datetime,
                 "minter": normalized_address,
-                "transactions": new_block.transactions.len()
+                "transactions": new_block.transactions.len(),
             },
             "blockchain": {
                 "height": BLOCKCHAIN_DATA.len(),
                 "last_update": current_time
+            },
+            "staking": {
+                "rewards_distributed": staking_rewards,
+                "is_validator": validator_status,
+                "display_rewards": staking_rewards as f64 / KA_PER_KARI as f64,
+                "pool_balance": match crate::staking::get_pool_remaining_balance() {
+                    Ok(balance) => balance,
+                    Err(_) => 0
+                },
+                "pool_balance_display": match crate::staking::get_pool_remaining_balance() {
+                    Ok(balance) => balance as f64 / KA_PER_KARI as f64,
+                    Err(_) => 0.0
+                },
+                "pool_address": POOL_ADDRESS
+            },
+            "networking": {
+                "peer_count": get_peer_count(),
+                "node_id": format!("node-{}", normalized_address[..8].to_string()),
             }
         }).to_string();
         
