@@ -1,7 +1,7 @@
 use consensus_pos::Blake3Algorithm;
 use log::{error, info, warn, debug};
 use tokio::sync::mpsc;
-use std::sync::{Arc, Mutex, RwLock}; // Add RwLock from std::sync
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
@@ -12,8 +12,8 @@ use crate::block::{Block, Transaction};
 use crate::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN_DATA, normalize_address};
 use crate::transfer_tokens::transfer_tokens;
 use mona_types::address::Address;
-// Import the constants and Coin struct from mona-types
 use mona_types::kari::{KA_PER_KARI, TOTAL_SUPPLY_KARI, TOTAL_SUPPLY_KA, KARI};
+use crate::utils::{update_pending_transaction_count, update_last_block_time, calculate_gas_fee};
 
 // Function to parse and normalize address
 fn parse_address(address: &str) -> Result<Address, String> {
@@ -31,6 +31,8 @@ pub fn add_pending_transaction(transaction: Transaction) -> bool {
     match PENDING_TRANSACTIONS.write() {
         Ok(mut queue) => {
             queue.push_back(transaction);
+            // Update pending transaction count for gas calculation
+            update_pending_transaction_count(queue.len());
             true
         },
         Err(_) => false
@@ -42,7 +44,8 @@ pub fn process_transfer(
     from_address: &str,
     to_address: &str,
     amount: u64,
-    password: &str, // Add password parameter for transaction signing
+    password: &str,
+    priority_boost: Option<u64>,  // Add optional priority boost
     tx: &mpsc::Sender<String>
 ) -> Result<Transaction, String> {
     // Parse addresses
@@ -56,8 +59,11 @@ pub fn process_transfer(
         Err(e) => return Err(format!("Invalid receiver address: {}", e)),
     };
     
+    // Calculate gas fee dynamically
+    let gas_fee = calculate_gas_fee(priority_boost);
+    
     // Execute transfer using string representation and password for signing
-    match transfer_tokens(&from.to_hex_literal(), &to.to_hex_literal(), amount, password) {
+    match transfer_tokens(&from.to_hex_literal(), &to.to_hex_literal(), amount, password, gas_fee) {
         Ok(transaction) => {
             // Verify signature right after creation for better debugging
             let signature_status = if transaction.signature.is_empty() {
@@ -83,6 +89,9 @@ pub fn process_transfer(
                         "sender": transaction.sender.to_hex_literal(),
                         "receiver": transaction.receiver.to_hex_literal(),
                         "amount": amount,
+                        "gas_fee": transaction.gas_fee,
+                        "gas_collector": crate::utils::GAS_FEE_COLLECTOR,
+                        "total_cost": crate::utils::calculate_total_transaction_cost(amount, transaction.gas_fee),
                         "timestamp": transaction.timestamp,
                         "signed": !transaction.signature.is_empty(),
                         "signature_status": signature_status
@@ -112,14 +121,16 @@ pub fn process_transfer(
             }
         },
         Err(e) => {
-            // Notify about transaction failure
+            // Update error JSON to use calculated gas fee
             let error_json = json!({
                 "event": "transaction_error",
                 "error": format!("{}", e),
                 "details": {
                     "sender": from_address,
                     "receiver": to_address,
-                    "amount": amount
+                    "amount": amount,
+                    "gas_fee": gas_fee,
+                    "total_cost": crate::utils::calculate_total_transaction_cost(amount, gas_fee)
                 }
             }).to_string();
             
@@ -162,6 +173,7 @@ fn force_transaction_inclusion(transaction: &Transaction) -> bool {
             "sender": transaction.sender.to_hex_literal(),
             "receiver": transaction.receiver.to_hex_literal(),
             "amount": transaction.amount,
+            "gas_fee": transaction.gas_fee, // Fix: Use transaction.gas_fee instead of crate::utils::GAS_FEE_AMOUNT
             "timestamp": transaction.timestamp
         }]
     }).to_string().into_bytes();
@@ -255,7 +267,6 @@ pub fn run_blockchain(
         );
 
         // Enhanced blockchain status
-        // Fix: Store the iterator result in a variable first
         let blocks = BLOCKCHAIN_DATA.iter();
         let last_block = blocks.last().unwrap();
         
@@ -366,7 +377,7 @@ pub fn run_blockchain(
             break;
         }
 
-        // Get the previous block - fix to properly store the blocks first
+        // Get the previous block
         let blocks = BLOCKCHAIN_DATA.iter();
         let prev_block = match blocks.last() {
             Some(block) => block,
@@ -376,9 +387,9 @@ pub fn run_blockchain(
             }
         };
 
-        // Get pending transactions for this block - improve transaction handling
+        // Get pending transactions for this block
         let transactions = {
-            match PENDING_TRANSACTIONS.write() { // Changed from lock() to write()
+            match PENDING_TRANSACTIONS.write() {
                 Ok(mut queue) => {
                     // Take up to 100000 transactions for this block
                     let mut block_txs = Vec::new();
@@ -398,6 +409,9 @@ pub fn run_blockchain(
                     if !block_txs.is_empty() {
                         info!("Added {} transactions to current block", block_txs.len());
                     }
+                    
+                    // Update the pending transaction count for gas fee calculation
+                    update_pending_transaction_count(queue.len());
                     
                     block_txs
                 },
@@ -569,8 +583,10 @@ pub fn run_blockchain(
             }
         }
 
+        // Update last block time for gas fee calculation
+        update_last_block_time(new_block.timestamp);
+
         // Sleep to control block creation rate
-        // thread::sleep(Duration::from_nanos(500)); // 500 nanoseconds = 0.5 milliseconds
         thread::sleep(Duration::from_millis(420)); // 420 milliseconds for better performance
     }
 }
@@ -605,6 +621,8 @@ fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sen
                         "sender": transaction.sender.to_hex_literal(),
                         "receiver": transaction.receiver.to_hex_literal(),
                         "amount": transaction.amount,
+                        "gas_fee": transaction.gas_fee, // Fix: Use transaction.gas_fee instead of crate::utils::GAS_FEE_AMOUNT
+                        "gas_collector": crate::utils::GAS_FEE_COLLECTOR,
                         "receiver_balance": balance,
                         "signature_status": signature_status,
                         "has_signature": !transaction.signature.is_empty()

@@ -10,6 +10,7 @@ pub struct Transaction {
     pub sender: Address,
     pub receiver: Address,
     pub amount: u64,
+    pub gas_fee: u64, // Add gas fee field
     pub timestamp: u64,
     pub signature: Vec<u8>, // Changed from Option<String> to Vec<u8>
 }
@@ -23,6 +24,7 @@ impl Transaction {
         message.extend_from_slice(self.sender.to_string().as_bytes());
         message.extend_from_slice(self.receiver.to_string().as_bytes());
         message.extend_from_slice(&self.amount.to_le_bytes());
+        message.extend_from_slice(&self.gas_fee.to_le_bytes()); // Include gas fee in the signed message
         message.extend_from_slice(&self.timestamp.to_le_bytes());
         
         // For debugging

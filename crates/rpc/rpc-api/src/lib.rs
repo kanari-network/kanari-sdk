@@ -5,7 +5,6 @@ use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValida
 use mona_types::address::Address;
 use panorama::{blockchain::{BLOCKCHAIN_DATA, get_balance, load_blockchain_with_retry}, chain_id::CHAIN_ID, blockchain::BALANCES};
 use panorama::simulation::process_transfer;
-// Remove the missing utils import
 use network::NetworkConfig;
 use serde_json::{json, Value as JsonValue};
 use mona_storage::file_storage::{FileStorage, StorageError2};
@@ -28,6 +27,7 @@ struct TransferParams {
     to: String,
     amount: f64,
     password: String,
+    priority_boost: Option<u64>, // Optional priority boost for gas fee
 }
 
 // Account API structures
@@ -173,7 +173,7 @@ fn get_blockchain_status(_params: Params) -> JsonRpcResult<JsonValue> {
     
     // Count transactions across all blocks
     let total_transactions = BLOCKCHAIN_DATA.iter()
-        .into_iter() // Add into_iter to fix error
+        .into_iter()
         .fold(0, |acc, block| acc + block.transactions.len());
     
     let response = json!({
@@ -264,8 +264,15 @@ fn transfer_tokens(params: Params) -> JsonRpcResult<JsonValue> {
             // Create a channel for transaction notifications
             let (tx, _rx) = mpsc::channel::<String>(10);
             
-            // Process transfer with password for signing
-            match process_transfer(&transfer_params.from, &transfer_params.to, amount_ka, &transfer_params.password, &tx) {
+            // Process transfer with password for signing and priority boost
+            match process_transfer(
+                &transfer_params.from, 
+                &transfer_params.to, 
+                amount_ka, 
+                &transfer_params.password,
+                transfer_params.priority_boost,
+                &tx
+            ) {
                 Ok(transaction) => {
                     // Check if the transaction was signed correctly
                     let signature_status = if transaction.signature.is_empty() {
@@ -278,13 +285,18 @@ fn transfer_tokens(params: Params) -> JsonRpcResult<JsonValue> {
                         }
                     };
                     
-                    // Include more detailed transaction information in response
+                    // Include gas fee information in the response
                     Ok(json!({
                         "transaction_id": transaction.transaction_id,
                         "sender": transaction.sender,
                         "receiver": transaction.receiver,
                         "amount": transaction.amount,
                         "amount_formatted": format_kari_amount(transaction.amount),
+                        "gas_fee": transaction.gas_fee,
+                        "gas_fee_formatted": format_kari_amount(transaction.gas_fee),
+                        "gas_collector": panorama::utils::GAS_FEE_COLLECTOR,
+                        "total_cost": panorama::utils::calculate_total_transaction_cost(transaction.amount, transaction.gas_fee),
+                        "total_cost_formatted": format_kari_amount(panorama::utils::calculate_total_transaction_cost(transaction.amount, transaction.gas_fee)),
                         "timestamp": transaction.timestamp,
                         "status": "pending", // Status is pending until included in a block
                         "signed": !transaction.signature.is_empty(),
@@ -607,6 +619,7 @@ fn get_transaction_by_id(params: Params) -> JsonRpcResult<JsonValue> {
                     Err(_) => 0,
                 };
                 
+                // Add gas fee information
                 return Ok(json!({
                     "transaction": {
                         "id": tx.transaction_id,
@@ -614,6 +627,11 @@ fn get_transaction_by_id(params: Params) -> JsonRpcResult<JsonValue> {
                         "receiver": tx.receiver.to_hex_literal(),
                         "amount": tx.amount,
                         "amount_formatted": format_kari_amount(tx.amount),
+                        "gas_fee": tx.gas_fee,
+                        "gas_fee_formatted": format_kari_amount(tx.gas_fee),
+                        "gas_collector": panorama::utils::GAS_FEE_COLLECTOR,
+                        "total_cost": panorama::utils::calculate_total_transaction_cost(tx.amount, tx.gas_fee),
+                        "total_cost_formatted": format_kari_amount(panorama::utils::calculate_total_transaction_cost(tx.amount, tx.gas_fee)),
                         "timestamp": tx.timestamp,
                         "datetime": datetime,
                         "signature": tx.signature
@@ -690,6 +708,52 @@ fn get_transaction_status(params: Params) -> JsonRpcResult<JsonValue> {
     }))
 }
 
+// Update get_gas_fee_info to provide dynamic gas fee information
+fn get_gas_fee_info(_params: Params) -> JsonRpcResult<JsonValue> {
+    const KA_PER_KARI: u64 = 1_000_000_000;
+    
+    // Get current network stats
+    let network_stats = panorama::utils::get_network_stats();
+    
+    // Calculate sample gas fees for different priority levels
+    let base_fee = panorama::utils::calculate_gas_fee(None);
+    let medium_fee = panorama::utils::calculate_gas_fee(Some(5));
+    let high_fee = panorama::utils::calculate_gas_fee(Some(10));
+    
+    Ok(json!({
+        "gas_fee": {
+            "current": base_fee,
+            "current_formatted": format_kari_amount(base_fee),
+            "medium_priority": medium_fee,
+            "medium_priority_formatted": format_kari_amount(medium_fee),
+            "high_priority": high_fee,
+            "high_priority_formatted": format_kari_amount(high_fee),
+            "min_fee": panorama::utils::MIN_GAS_FEE,
+            "max_fee": panorama::utils::MAX_GAS_FEE
+        },
+        "gas_collector": {
+            "address": panorama::utils::GAS_FEE_COLLECTOR,
+            "balance": get_balance(panorama::utils::GAS_FEE_COLLECTOR).unwrap_or(0)
+        },
+        "network_stats": {
+            "pending_transactions": network_stats.pending_transactions,
+            "last_block_time": network_stats.last_block_time,
+            "congestion_level": if network_stats.pending_transactions < 10 {
+                "low"
+            } else if network_stats.pending_transactions < 50 {
+                "medium"
+            } else {
+                "high"
+            },
+        },
+        "gas_enabled": true,
+        "system_info": {
+            "description": "Dynamic gas fee system",
+            "unit": "KA"
+        }
+    }))
+}
+
 /// Starts the RPC server for file operations
 pub async fn start_rpc_server(network_config: NetworkConfig) {
     let mut io = IoHandler::new();
@@ -742,6 +806,11 @@ pub async fn start_rpc_server(network_config: NetworkConfig) {
     // Add the new transaction status method
     io.add_method("get_transaction_status", |params| {
         futures::future::ready(get_transaction_status(params)).boxed()
+    });
+
+    // Add the gas fee info endpoint
+    io.add_method("get_gas_fee_info", |params| {
+        futures::future::ready(get_gas_fee_info(params)).boxed()
     });
 
     // Configure socket address

@@ -1,4 +1,5 @@
 use crate::{block::Transaction, blockchain::{get_balance, normalize_address, save_blockchain, BlockchainError, BALANCES}};
+use crate::utils::{GAS_FEE_COLLECTOR, calculate_total_transaction_cost};
 pub mod verify_transaction;
 use verify_transaction::verify_transaction;
 
@@ -7,7 +8,8 @@ pub fn transfer_tokens(
     from_address: &str,
     to_address: &str,
     amount: u64,
-    password: &str,  // Add password parameter for signing
+    password: &str,
+    gas_fee: u64,  // Add gas_fee parameter instead of using constant
 ) -> Result<Transaction, BlockchainError> {
     // Validate addresses
     if from_address.trim().is_empty() || to_address.trim().is_empty() {
@@ -27,20 +29,32 @@ pub fn transfer_tokens(
         return Err(BlockchainError::Transaction("Cannot transfer to same address".to_string()));
     }
     
-    // Check sender's balance
+    // Check sender's balance - need to include gas fee
     let balance = get_balance(&from.to_hex_literal())?;
-    if balance < amount {
+    let total_cost = calculate_total_transaction_cost(amount, gas_fee);
+    
+    if balance < total_cost {
         return Err(BlockchainError::InsufficientFunds(
-            format!("Address {} has {} tokens, tried to send {}", from, balance, amount)
+            format!("Address {} has {} tokens, tried to send {} + {} gas fee", 
+                    from, balance, amount, gas_fee)
         ));
     }
     
+    // Parse gas collector address
+    let gas_collector = match normalize_address(GAS_FEE_COLLECTOR) {
+        Ok(addr) => addr,
+        Err(e) => return Err(BlockchainError::Transaction(
+            format!("Invalid gas collector address: {}", e)
+        )),
+    };
+
     // Create transaction with a unique ID
     let mut transaction = Transaction {
         transaction_id: crate::utils::generate_transaction_id(),
         sender: from,
         receiver: to,
         amount,
+        gas_fee, // Store the gas fee in the transaction
         timestamp: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -99,23 +113,19 @@ pub fn transfer_tokens(
             // Fall back to wallet-less signing (this is less reliable)
             log::warn!("Failed to load wallet: {}, trying without private key", e);
             
-            // ...existing fallback code...
             match key::sign_message(&key::Wallet { 
                 address: from, 
                 private_key: String::new(), // Temporary, will be loaded from wallet
                 seed_phrase: String::new(), 
                 curve_type: key::CurveType::K256, // Default, will be determined by wallet
             }, &message, password) {
-                // ...existing error handling...
                 Ok(signature) => {
                     transaction.signature = signature;
                 },
                 Err(_e) => {
-                    // Try both curve types
                     let mut tried_p256 = false;
                     let mut tried_k256 = false;
                     
-                    // Try K256
                     if !tried_k256 {
                         tried_k256 = true;
                         log::debug!("Trying K256 signing");
@@ -131,7 +141,6 @@ pub fn transfer_tokens(
                             },
                             Err(k256_err) => {
                                 log::debug!("K256 signing failed: {}", k256_err);
-                                // Try P256
                                 if !tried_p256 {
                                     tried_p256 = true;
                                     log::debug!("Trying P256 signing");
@@ -158,7 +167,6 @@ pub fn transfer_tokens(
                         }
                     }
                     
-                    // If we haven't tried P256 yet and no signature was generated
                     if !tried_p256 && transaction.signature.is_empty() {
                         tried_p256 = true;
                         log::debug!("Trying P256 signing");
@@ -175,7 +183,6 @@ pub fn transfer_tokens(
                             Err(p256_err) => {
                                 log::error!("P256 signing failed: {}", p256_err);
                                 if !tried_k256 {
-                                    // We should have tried K256 first, but just in case
                                     log::debug!("Trying K256 as last resort");
                                     match key::sign_message(&key::Wallet { 
                                         address: from, 
@@ -208,7 +215,6 @@ pub fn transfer_tokens(
         }
     }
     
-    // After successfully signing, verify the signature for debugging
     if !transaction.signature.is_empty() {
         match verify_transaction(&transaction) {
             Ok(true) => log::debug!("Transaction signature verified successfully"),
@@ -219,28 +225,23 @@ pub fn transfer_tokens(
         log::warn!("Transaction was not signed - signature is empty");
     }
     
-    // Update balances
     let mut balances = match BALANCES.lock() {
         Ok(guard) => guard,
         Err(_) => return Err(BlockchainError::Transaction("Failed to lock balances".to_string())),
     };
     
-    // Deduct from sender
-    *balances.entry(from.to_hex_literal()).or_insert(0) -= amount;
-    
-    // Add to receiver
+    *balances.entry(from.to_hex_literal()).or_insert(0) -= total_cost;
     *balances.entry(to.to_hex_literal()).or_insert(0) += amount;
+    *balances.entry(gas_collector.to_hex_literal()).or_insert(0) += gas_fee;
     
-    // Release lock before saving
     drop(balances);
     
-    // Save blockchain state to persist the balance changes
     if let Err(e) = save_blockchain() {
         log::error!("Failed to save blockchain after transfer: {}", e);
     }
     
-    // Log the transfer
-    log::info!("Transferred {} tokens from {} to {}", amount, from, to);
+    log::info!("Transferred {} tokens from {} to {} with {} gas fee to {}",
+              amount, from, to, gas_fee, GAS_FEE_COLLECTOR);
     
     Ok(transaction)
 }
