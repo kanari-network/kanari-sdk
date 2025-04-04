@@ -411,9 +411,18 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
         run_blockchain(running_clone, address_clone, tx);
     });
 
+    // Get local IP address for the node
+    let local_ip = match get_local_ip() {
+        Some(ip) => ip,
+        None => {
+            eprintln!("Could not determine local IP address");
+            exit(1);
+        }
+    };
+
     // Update RPC configuration
     let rpc_config = NetworkConfig {
-        node_address: "127.0.0.1".to_string(),
+        node_address: local_ip.to_string(), // Use actual network IP
         domain: network_config.domain.clone(),
         port: network_config.port,
         peers: network_config.peers.clone(),
@@ -422,6 +431,23 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
         api_enabled: true,
         network_type: network_config.network_type,
     };
+
+    // Add function to get local IP address
+    fn get_local_ip() -> Option<String> {
+        use std::net::UdpSocket;
+        
+        match UdpSocket::bind("0.0.0.0:0") {
+            Ok(socket) => {
+                if let Ok(_) = socket.connect("8.8.8.8:80") {
+                    if let Ok(addr) = socket.local_addr() {
+                        return Some(addr.ip().to_string());
+                    }
+                }
+            }
+            Err(_) => {}
+        }
+        None
+    }
 
     // Display peer connection information if applicable
     if !network_config.peers.is_empty() {

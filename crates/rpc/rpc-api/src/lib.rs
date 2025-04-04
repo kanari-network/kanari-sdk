@@ -1102,25 +1102,34 @@ pub async fn start_rpc_server(network_config: NetworkConfig) {
         futures::future::ready(get_staking_stats(params)).boxed()
     });
 
-    // Configure socket address
-    let local_addr = SocketAddr::new(
-        IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+    // Configure socket address to bind to all interfaces
+    let bind_addr = SocketAddr::new(
+        IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), // Bind to all interfaces
         network_config.port
     );
 
-    // Create CORS settings that allow all origins during development
+    // Create more secure CORS settings for production
     let allowed_origins = vec![
-        AccessControlAllowOrigin::Any, // Allow all during development
+        AccessControlAllowOrigin::Value(network_config.domain.clone()), // Allow configured domain
+        AccessControlAllowOrigin::Value(format!("https://{}", network_config.domain)), // HTTPS
+        AccessControlAllowOrigin::Value(format!("http://{}", network_config.domain)),  // HTTP
     ];
 
     match ServerBuilder::new(io)
         .cors(DomainsValidation::AllowOnly(allowed_origins))
-        .start_http(&local_addr)
+        .threads(4) // Increase thread count for better performance
+        .max_request_body_size(10 * 1024 * 1024) // 10MB max request size
+        .health_api(("health", "ready")) // Add health check endpoints
+        .start_http(&bind_addr)
     {
         Ok(server) => {
-            println!("RPC server running on http://127.0.0.1:{}", network_config.port);
-            println!("Blockchain API is now available");
-            
+            println!("RPC server running on http://{}:{}", network_config.node_address, network_config.port);
+            if !network_config.peers.is_empty() {
+                println!("Connected to peers:");
+                for peer in &network_config.peers {
+                    println!("  - {}", peer);
+                }
+            }
             // Create a non-blocking task to monitor for shutdown
             tokio::spawn(async move {
                 // This will run in a separate task, allowing the server to be shut down properly

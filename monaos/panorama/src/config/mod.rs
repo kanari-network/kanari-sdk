@@ -35,7 +35,6 @@ pub fn prompt_for_value(prompt: &str, default: &str) -> String {
     }
 }
 
-
 // Function to configure the network settings
 pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
     let mut config = load_config()?;
@@ -56,7 +55,7 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
         };
 
         return Ok(NetworkConfig {
-            node_address: "127.0.0.1".to_string(),
+            node_address: get_local_ip().unwrap_or_else(|| "0.0.0.0".to_string()),
             domain: mapping.get("domain").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
             port: mapping.get("rpc_port").and_then(|v| v.as_u64()).unwrap_or(30030) as u16,
             peers: vec![],
@@ -136,7 +135,7 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
 
     // Save the configuration to file
     let network_config = NetworkConfig {
-        node_address: "127.0.0.1".to_string(),
+        node_address: get_local_ip().unwrap_or_else(|| "0.0.0.0".to_string()),
         domain: domain,         // Add configured domain
         port: rpc_port, // Use the parsed rpc_port
         peers: vec![],
@@ -154,4 +153,21 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
 
     println!("Network configuration saved successfully.");
     Ok(network_config) // Return the NetworkConfig
+}
+
+// Function to get the local IP address
+fn get_local_ip() -> Option<String> {
+    use std::net::UdpSocket;
+    
+    match UdpSocket::bind("0.0.0.0:0") {
+        Ok(socket) => {
+            if let Ok(_) = socket.connect("8.8.8.8:80") {
+                if let Ok(addr) = socket.local_addr() {
+                    return Some(addr.ip().to_string());
+                }
+            }
+        }
+        Err(_) => {}
+    }
+    None
 }
