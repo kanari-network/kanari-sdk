@@ -17,17 +17,20 @@ This guide explains how to set up and run Kanari blockchain nodes in a real netw
    - RPC Port (default: 30031)
    - P2P Port (default: 30303)
 
-2. Get your public IP address or domain name
+2. Get your public IP address:
+   - Visit https://whatismyip.com or
+   - Run `curl ifconfig.me` in terminal
+   - Example: 203.0.113.42
 
 ### Step 2: Start a Bootstrap Node
 
 Start your first node which will act as a bootstrap node:
 
 ```bash
-kari start --port 30031 --public-ip YOUR.PUBLIC.IP.ADDRESS
+kari start --port 30031 --public-ip 203.0.113.42
 ```
 
-This node will be accessible to other nodes on the network.
+Note: Replace 203.0.113.42 with your actual public IP address. Do not use placeholders or private IP addresses (like 192.168.x.x or 10.x.x.x).
 
 ### Step 3: Connect Additional Nodes
 
