@@ -12,8 +12,11 @@ use crate::block::{Block, Transaction};
 use crate::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN_DATA, normalize_address};
 use crate::transfer_tokens::transfer_tokens;
 use mona_types::address::Address;
-use mona_types::kari::{KA_PER_KARI, TOTAL_SUPPLY_KARI, TOTAL_SUPPLY_KA, KARI};
+use mona_types::kari::{KARI, KA_PER_KARI, POOL_ADDRESS, POOL_RESERVED_KA, POOL_RESERVED_KARI, TOTAL_SUPPLY_KA, TOTAL_SUPPLY_KARI};
 use crate::utils::{update_pending_transaction_count, update_last_block_time, calculate_gas_fee};
+
+pub mod create_genesis_block;
+use create_genesis_block::create_genesis_block;
 
 // Function to parse and normalize address
 fn parse_address(address: &str) -> Result<Address, String> {
@@ -343,6 +346,17 @@ pub fn run_blockchain(
             let mut balances = BALANCES.lock().unwrap();
             balances.insert(normalized_address.clone(), coin.total_supply);
             
+            // Update pool balance if exists
+            if let Ok(pool_addr) = normalize_address(POOL_ADDRESS) {
+                let pool_addr_str = pool_addr.to_hex_literal();
+                balances.insert(pool_addr_str.clone(), POOL_RESERVED_KA);
+                // Decrease genesis address balance by the pool amount
+                if let Some(balance) = balances.get_mut(&normalized_address) {
+                    *balance -= POOL_RESERVED_KA;
+                }
+                info!("Reserved {} KARI for pool address: {}", POOL_RESERVED_KARI, pool_addr_str);
+            }
+            
             // Debug: Output all balances
             debug!("Initial balances after genesis:");
             for (addr, bal) in balances.iter() {
@@ -637,50 +651,4 @@ fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sen
             }
         }
     }
-}
-
-/// Create a genesis block containing the total supply of Kari tokens
-fn create_genesis_block(address: &Address, coin: &KARI) -> Block<Blake3Algorithm> {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_secs(0))
-        .as_secs();
-
-    // Enhanced genesis data with more comprehensive information
-    let genesis_data = json!({
-        "block_type": "genesis",
-        "coin": {
-            "name": coin.name,
-            "symbol": coin.symbol,
-            "decimals": coin.decimals,
-            "total_supply": {
-                "amount": coin.total_supply,
-                "display": TOTAL_SUPPLY_KARI,
-                "symbol": coin.symbol
-            },
-            "block_reward": coin.block_reward,
-            "max_supply": coin.max_supply
-        },
-        "network": {
-            "name": "Kanari Testnet",
-            "version": env!("CARGO_PKG_VERSION"),
-            "timestamp": timestamp,
-            "datetime": chrono::DateTime::<chrono::Utc>::from_timestamp(timestamp as i64, 0)
-                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-                .unwrap_or_else(|| "Unknown time".to_string())
-        },
-        "genesis_address": address.to_hex_literal()
-    }).to_string().into_bytes();
-
-    info!("Creating genesis block for {} with {} total supply", coin.name, coin.total_supply);
-    
-    Block::new(
-        0,
-        genesis_data,
-        "0".repeat(64),
-        coin.total_supply,
-        Vec::new(),
-        address.to_hex_literal(),
-        Blake3Algorithm::new(),
-    )
 }

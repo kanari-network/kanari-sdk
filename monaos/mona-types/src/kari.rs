@@ -12,6 +12,15 @@ pub const TOTAL_SUPPLY_KARI: u64 = 100_000_000;
 /// The total supply of Kari denominated in KA (100 Million * 10^9)
 pub const TOTAL_SUPPLY_KA: u64 = 100_000_000_000_000_000;
 
+/// The amount of Kari reserved in the pool (40 Million)
+pub const POOL_RESERVED_KARI: u64 = 40_000_000;
+
+/// The amount of KA reserved in the pool (40 Million * 10^9)
+pub const POOL_RESERVED_KA: u64 = POOL_RESERVED_KARI * KA_PER_KARI;
+
+/// The pool address where reserved KARI is stored
+pub const POOL_ADDRESS: &str = "0x47621776628ba3a5b9baaab38e61f4c98e893e124204bc4dad52e702e2b24ea1";
+
 // Enhanced KARI structure with additional properties
 #[derive(Clone, Debug)]
 pub struct KARI {
@@ -22,6 +31,8 @@ pub struct KARI {
     pub max_supply: u64,      // Maximum supply that will ever exist
     pub block_reward: u64,    // Reward per block if applicable
     pub created_at: u64,      // Timestamp when KARI was created
+    pub pool_address: String, // Address where reserved tokens are stored
+    pub pool_reserved: u64,   // Amount of tokens reserved in the pool
 }
 
 impl Default for KARI {
@@ -39,6 +50,8 @@ impl Default for KARI {
             max_supply: TOTAL_SUPPLY_KA, // Same as total supply for fixed supply
             block_reward: 0,             // No mining rewards in this implementation
             created_at: current_time,    // Current timestamp
+            pool_address: POOL_ADDRESS.to_string(),
+            pool_reserved: POOL_RESERVED_KA,
         }
     }
 }

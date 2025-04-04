@@ -710,7 +710,6 @@ fn get_transaction_status(params: Params) -> JsonRpcResult<JsonValue> {
 
 // Update get_gas_fee_info to provide dynamic gas fee information
 fn get_gas_fee_info(_params: Params) -> JsonRpcResult<JsonValue> {
-    const KA_PER_KARI: u64 = 1_000_000_000;
     
     // Get current network stats
     let network_stats = panorama::utils::get_network_stats();
