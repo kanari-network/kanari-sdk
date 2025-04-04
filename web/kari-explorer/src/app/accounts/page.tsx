@@ -40,7 +40,7 @@ export default function AccountsPage() {
   const [searchAccount, setSearchAccount] = useState('');
   const [filteredAccounts, setFilteredAccounts] = useState<Account[]>([]);
 
-  const API_URL = 'http://127.0.0.1:30031';
+  const API_URL = 'http://192.168.1.103:30031';
 
   const fetchAllAccounts = async () => {
     try {

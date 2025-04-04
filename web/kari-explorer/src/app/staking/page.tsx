@@ -56,7 +56,7 @@ export default function StakingPage() {
   const [statsLoading, setStatsLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const API_URL = 'http://127.0.0.1:30031';
+  const API_URL = 'http://192.168.1.103:30031';
 
   const fetchStakingStats = async () => {
     try {

@@ -1108,11 +1108,11 @@ pub async fn start_rpc_server(network_config: NetworkConfig) {
         network_config.port
     );
 
-    // Create more secure CORS settings for production
+    // Create CORS settings for production
     let allowed_origins = vec![
-        AccessControlAllowOrigin::Value(network_config.domain.clone()), // Allow configured domain
-        AccessControlAllowOrigin::Value(format!("https://{}", network_config.domain)), // HTTPS
-        AccessControlAllowOrigin::Value(format!("http://{}", network_config.domain)),  // HTTP
+        AccessControlAllowOrigin::Value(network_config.domain.clone().into()),
+        AccessControlAllowOrigin::Value(format!("https://{}", network_config.domain).into()),
+        AccessControlAllowOrigin::Value(format!("http://{}", network_config.domain).into()),
     ];
 
     match ServerBuilder::new(io)
