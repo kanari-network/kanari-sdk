@@ -13,7 +13,6 @@ use consensus_pos::Blake3Algorithm;
 use mona_types::address::Address;
 
 
-
 // Peer data structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Peer {
