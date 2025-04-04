@@ -129,17 +129,25 @@ pub fn init_blockchain_state() {
 // Modified BlockchainError to store StorageError as a string
 #[derive(Debug, Serialize, Deserialize)]
 pub enum BlockchainError {
-    Storage(String), // Changed from StorageError to String to support serialization
+    Storage(String), 
     Balance(String),
     Initialization(String),
     Transaction(String),
     InsufficientFunds(String),
-    InvalidAddress(String)
+    InvalidAddress(String),
+    IO(String), // Changed from std::io::Error to String to support serialization
+    NotFound(String),
 }
 
 impl From<StorageError> for BlockchainError {
     fn from(error: StorageError) -> Self {
         BlockchainError::Storage(format!("{}", error))
+    }
+}
+
+impl From<std::io::Error> for BlockchainError {
+    fn from(error: std::io::Error) -> Self {
+        BlockchainError::IO(format!("{}", error)) // Convert io::Error to String
     }
 }
 
@@ -152,6 +160,8 @@ impl std::fmt::Display for BlockchainError {
             BlockchainError::Transaction(e) => write!(f, "Transaction error: {}", e),
             BlockchainError::InsufficientFunds(e) => write!(f, "Insufficient funds: {}", e),
             BlockchainError::InvalidAddress(e) => write!(f, "Invalid address: {}", e),
+            BlockchainError::IO(e) => write!(f, "IO error: {}", e),
+            BlockchainError::NotFound(e) => write!(f, "Not found error: {}", e),
         }
     }
 }

@@ -1,4 +1,4 @@
-use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, str::FromStr, time::Duration};
+use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, str::FromStr, time::{Duration, SystemTime, UNIX_EPOCH}};
 use futures::FutureExt;
 use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult, Error as RpcError, ErrorCode};
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
@@ -42,6 +42,21 @@ struct SearchTransactionsParams {
     address: String,
     limit: Option<usize>,
     offset: Option<usize>,
+}
+
+// Staking API structures
+#[derive(Deserialize)]
+struct StakeParams {
+    address: String,
+    amount: f64,
+    password: String,
+    validator: bool,
+}
+
+#[derive(Deserialize)]
+struct UnstakeParams {
+    address: String,
+    password: String,
 }
 
 // Format function locally since panorama::utils is not available
@@ -753,6 +768,264 @@ fn get_gas_fee_info(_params: Params) -> JsonRpcResult<JsonValue> {
     }))
 }
 
+// Staking API methods
+fn stake_tokens(params: Params) -> JsonRpcResult<JsonValue> {
+    // Parse stake params
+    let stake_params: StakeParams = params.parse()
+        .map_err(|e| RpcError::invalid_params(format!("Invalid parameters: {}", e)))?;
+    
+    // Load blockchain data if needed
+    if let Err(e) = load_blockchain_with_retry() {
+        return Err(RpcError {
+            code: ErrorCode::InternalError,
+            message: format!("Failed to load blockchain: {}", e),
+            data: None,
+        });
+    }
+    
+    // Validate address and password by loading the wallet
+    match load_wallet(&stake_params.address, &stake_params.password) {
+        Ok(_) => {
+            // Calculate amount in KA units (1 KARI = 10^9 KA)
+            const KA_PER_KARI: u64 = 1_000_000_000;
+            let amount_ka = (stake_params.amount * KA_PER_KARI as f64) as u64;
+            
+            // Parse the address
+            let address = match mona_types::address::Address::from_str(&stake_params.address) {
+                Ok(addr) => addr,
+                Err(_) => return Err(RpcError::invalid_params("Invalid address format")),
+            };
+            
+            // Stake tokens
+            match panorama::staking::stake_tokens(&address, amount_ka, stake_params.validator) {
+                Ok(staked_node) => {
+                    // Format the response
+                    Ok(json!({
+                        "address": stake_params.address,
+                        "staked_amount": staked_node.staked_amount,
+                        "staked_amount_formatted": format_kari_amount(staked_node.staked_amount),
+                        "is_validator": staked_node.is_validator,
+                        "staked_at": staked_node.staked_at,
+                        "unlock_time": staked_node.unlock_time,
+                        "unlock_date": chrono::DateTime::<chrono::Utc>::from_timestamp(staked_node.unlock_time as i64, 0)
+                            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                            .unwrap_or_else(|| "Unknown time".to_string()),
+                        "status": "staked",
+                        "validator_rewards_rate": mona_types::kari::STAKING_REWARD_PERCENTAGE * 100.0
+                    }))
+                },
+                Err(e) => {
+                    Err(RpcError {
+                        code: ErrorCode::InternalError,
+                        message: format!("Failed to stake tokens: {}", e),
+                        data: None,
+                    })
+                }
+            }
+        },
+        Err(_) => {
+            Err(RpcError {
+                code: ErrorCode::InvalidParams,
+                message: "Invalid wallet password".to_string(),
+                data: None,
+            })
+        }
+    }
+}
+
+fn unstake_tokens(params: Params) -> JsonRpcResult<JsonValue> {
+    // Parse unstake params
+    let unstake_params: UnstakeParams = params.parse()
+        .map_err(|e| RpcError::invalid_params(format!("Invalid parameters: {}", e)))?;
+    
+    // Load blockchain data if needed
+    if let Err(e) = load_blockchain_with_retry() {
+        return Err(RpcError {
+            code: ErrorCode::InternalError,
+            message: format!("Failed to load blockchain: {}", e),
+            data: None,
+        });
+    }
+    
+    // Validate address and password by loading the wallet
+    match load_wallet(&unstake_params.address, &unstake_params.password) {
+        Ok(_) => {
+            // Parse the address
+            let address = match mona_types::address::Address::from_str(&unstake_params.address) {
+                Ok(addr) => addr,
+                Err(_) => return Err(RpcError::invalid_params("Invalid address format")),
+            };
+            
+            // Unstake tokens
+            match panorama::staking::unstake_tokens(&address) {
+                Ok((withdrawn_amount, rewards)) => {
+                    // Format the response
+                    Ok(json!({
+                        "address": unstake_params.address,
+                        "withdrawn_amount": withdrawn_amount,
+                        "withdrawn_amount_formatted": format_kari_amount(withdrawn_amount),
+                        "rewards": rewards,
+                        "rewards_formatted": format_kari_amount(rewards),
+                        "total_returned": withdrawn_amount + rewards,
+                        "total_returned_formatted": format_kari_amount(withdrawn_amount + rewards),
+                        "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
+                        "status": "unstaked"
+                    }))
+                },
+                Err(e) => {
+                    Err(RpcError {
+                        code: ErrorCode::InternalError,
+                        message: format!("Failed to unstake tokens: {}", e),
+                        data: None,
+                    })
+                }
+            }
+        },
+        Err(_) => {
+            Err(RpcError {
+                code: ErrorCode::InvalidParams,
+                message: "Invalid wallet password".to_string(),
+                data: None,
+            })
+        }
+    }
+}
+
+fn get_staking_info(params: Params) -> JsonRpcResult<JsonValue> {
+    // Parse address - modify to handle array format properly
+    let address_str: String = match params {
+        Params::Array(arr) => {
+            if arr.is_empty() {
+                return Err(RpcError::invalid_params("Address parameter missing"));
+            }
+            match arr[0].as_str() {
+                Some(addr) => addr.to_string(),
+                None => return Err(RpcError::invalid_params("Invalid address format")),
+            }
+        },
+        Params::Map(map) => {
+            match map.get("address").and_then(|v| v.as_str()) {
+                Some(addr) => addr.to_string(),
+                None => return Err(RpcError::invalid_params("Address parameter missing or invalid")),
+            }
+        },
+        _ => return Err(RpcError::invalid_params("Expected array or object parameters")),
+    };
+    
+    // Load blockchain data if needed
+    if let Err(e) = load_blockchain_with_retry() {
+        return Err(RpcError {
+            code: ErrorCode::InternalError,
+            message: format!("Failed to load blockchain: {}", e),
+            data: None,
+        });
+    }
+    
+    // Parse the address
+    let address = match mona_types::address::Address::from_str(&address_str) {
+        Ok(addr) => addr,
+        Err(_) => return Err(RpcError::invalid_params("Invalid address format")),
+    };
+    
+    // Get staking info
+    match panorama::staking::get_staking_info(&address) {
+        Some(node) => {
+            // Check if the lock period has passed
+            let current_time = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            
+            let can_unstake = current_time >= node.unlock_time;
+            let early_unstake_penalty = if can_unstake { 0 } else { node.staked_amount / 10 };
+            
+            // Format the response
+            Ok(json!({
+                "address": address_str,
+                "is_staking": true,
+                "staked_amount": node.staked_amount,
+                "staked_amount_formatted": format_kari_amount(node.staked_amount),
+                "is_validator": node.is_validator,
+                "staked_at": node.staked_at,
+                "unlock_time": node.unlock_time,
+                "unlock_date": chrono::DateTime::<chrono::Utc>::from_timestamp(node.unlock_time as i64, 0)
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                    .unwrap_or_else(|| "Unknown time".to_string()),
+                "lock_status": if can_unstake { "unlocked" } else { "locked" },
+                "time_remaining": if can_unstake { 
+                    0 
+                } else { 
+                    node.unlock_time - current_time
+                },
+                "accumulated_rewards": node.accumulated_rewards,
+                "accumulated_rewards_formatted": format_kari_amount(node.accumulated_rewards),
+                "early_unstake_penalty": early_unstake_penalty,
+                "early_unstake_penalty_formatted": format_kari_amount(early_unstake_penalty),
+                "estimated_return": if node.is_validator {
+                    let daily_reward_rate = mona_types::kari::STAKING_REWARD_PERCENTAGE / 365.0;
+                    (node.staked_amount as f64 * daily_reward_rate).round() as u64
+                } else {
+                    0
+                },
+                "estimated_return_period": "daily"
+            }))
+        },
+        None => {
+            // Not staking
+            Ok(json!({
+                "address": address_str,
+                "is_staking": false,
+                "minimum_staking_amount": mona_types::kari::NODE_STAKING_MINIMUM_KA,
+                "minimum_staking_formatted": format_kari_amount(mona_types::kari::NODE_STAKING_MINIMUM_KA),
+                "minimum_validator_amount": mona_types::kari::VALIDATOR_STAKING_MINIMUM_KA,
+                "minimum_validator_formatted": format_kari_amount(mona_types::kari::VALIDATOR_STAKING_MINIMUM_KA)
+            }))
+        }
+    }
+}
+
+fn get_staking_stats(_params: Params) -> JsonRpcResult<JsonValue> {
+    // Load blockchain data if needed
+    if let Err(e) = load_blockchain_with_retry() {
+        return Err(RpcError {
+            code: ErrorCode::InternalError,
+            message: format!("Failed to load blockchain: {}", e),
+            data: None,
+        });
+    }
+    
+    // Get staking pool stats
+    let pool = panorama::staking::get_staking_stats();
+    
+    // Get pool balance
+    let pool_balance = match panorama::staking::get_pool_remaining_balance() {
+        Ok(balance) => balance,
+        Err(_) => 0,
+    };
+    
+    // Format the response
+    Ok(json!({
+        "total_staked": pool.total_staked,
+        "total_staked_formatted": format_kari_amount(pool.total_staked),
+        "nodes_count": pool.nodes_count,
+        "validators_count": pool.validators_count,
+        "rewards_distributed": pool.total_rewards_distributed,
+        "rewards_distributed_formatted": format_kari_amount(pool.total_rewards_distributed),
+        "pool_address": mona_types::kari::POOL_ADDRESS,
+        "pool_balance": pool_balance,
+        "pool_balance_formatted": format_kari_amount(pool_balance),
+        "annual_reward_rate": mona_types::kari::STAKING_REWARD_PERCENTAGE * 100.0,
+        "minimum_node_requirement": {
+            "amount": mona_types::kari::NODE_STAKING_MINIMUM_KA,
+            "formatted": format_kari_amount(mona_types::kari::NODE_STAKING_MINIMUM_KA)
+        },
+        "minimum_validator_requirement": {
+            "amount": mona_types::kari::VALIDATOR_STAKING_MINIMUM_KA,
+            "formatted": format_kari_amount(mona_types::kari::VALIDATOR_STAKING_MINIMUM_KA)
+        }
+    }))
+}
+
 /// Starts the RPC server for file operations
 pub async fn start_rpc_server(network_config: NetworkConfig) {
     let mut io = IoHandler::new();
@@ -812,25 +1085,51 @@ pub async fn start_rpc_server(network_config: NetworkConfig) {
         futures::future::ready(get_gas_fee_info(params)).boxed()
     });
 
-    // Configure socket address
-    let local_addr = SocketAddr::new(
-        IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+    // Add staking operations
+    io.add_method("stake_tokens", |params| {
+        futures::future::ready(stake_tokens(params)).boxed()
+    });
+
+    io.add_method("unstake_tokens", |params| {
+        futures::future::ready(unstake_tokens(params)).boxed()
+    });
+
+    io.add_method("get_staking_info", |params| {
+        futures::future::ready(get_staking_info(params)).boxed()
+    });
+
+    io.add_method("get_staking_stats", |params| {
+        futures::future::ready(get_staking_stats(params)).boxed()
+    });
+
+    // Configure socket address to bind to all interfaces
+    let bind_addr = SocketAddr::new(
+        IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), // Bind to all interfaces
         network_config.port
     );
 
-    // Create CORS settings that allow all origins during development
+    // Create more secure CORS settings for production
     let allowed_origins = vec![
-        AccessControlAllowOrigin::Any, // Allow all during development
+        AccessControlAllowOrigin::Value(network_config.domain.clone()), // Allow configured domain
+        AccessControlAllowOrigin::Value(format!("https://{}", network_config.domain)), // HTTPS
+        AccessControlAllowOrigin::Value(format!("http://{}", network_config.domain)),  // HTTP
     ];
 
     match ServerBuilder::new(io)
         .cors(DomainsValidation::AllowOnly(allowed_origins))
-        .start_http(&local_addr)
+        .threads(4) // Increase thread count for better performance
+        .max_request_body_size(10 * 1024 * 1024) // 10MB max request size
+        .health_api(("health", "ready")) // Add health check endpoints
+        .start_http(&bind_addr)
     {
         Ok(server) => {
-            println!("RPC server running on http://127.0.0.1:{}", network_config.port);
-            println!("Blockchain API is now available");
-            
+            println!("RPC server running on http://{}:{}", network_config.node_address, network_config.port);
+            if !network_config.peers.is_empty() {
+                println!("Connected to peers:");
+                for peer in &network_config.peers {
+                    println!("  - {}", peer);
+                }
+            }
             // Create a non-blocking task to monitor for shutdown
             tokio::spawn(async move {
                 // This will run in a separate task, allowing the server to be shut down properly

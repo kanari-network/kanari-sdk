@@ -34,6 +34,16 @@ const COMMANDS: &[CommandInfo] = &[
         description: "Start a local Kari blockchain node",
     },
     CommandInfo {
+        name: "start --peer <IP:PORT>",
+        alias: None,
+        description: "Start a node and connect to specified peer",
+    },
+    CommandInfo {
+        name: "start --port <PORT>",
+        alias: None,
+        description: "Start a node on specific port (default: 30031)",
+    },
+    CommandInfo {
         name: "public",
         alias: None,
         description: "Manage Web3 public files and IPFS storage",
@@ -110,7 +120,50 @@ async fn main() {
     }
 
     match args.get(1).map(|s| s.as_str()) {
-        Some("start") => start_node().await,
+        Some("start") => {
+            // Extract peer and port arguments
+            let mut peers = Vec::new();
+            let mut port = None;
+            
+            let mut i = 2;
+            while i < args.len() {
+                match args.get(i).map(|s| s.as_str()) {
+                    Some("--peer") => {
+                        if let Some(peer_addr) = args.get(i + 1) {
+                            peers.push(peer_addr.to_string());
+                            i += 2;
+                        } else {
+                            eprintln!("Error: --peer requires an address argument");
+                            exit(1);
+                        }
+                    },
+                    Some("--port") => {
+                        if let Some(port_str) = args.get(i + 1) {
+                            match port_str.parse::<u16>() {
+                                Ok(p) => {
+                                    port = Some(p);
+                                    i += 2;
+                                },
+                                Err(_) => {
+                                    eprintln!("Error: Invalid port number");
+                                    exit(1);
+                                }
+                            }
+                        } else {
+                            eprintln!("Error: --port requires a number argument");
+                            exit(1);
+                        }
+                    },
+                    _ => {
+                        eprintln!("Unknown argument: {}", args[i]);
+                        display_help(true);
+                        i += 1;
+                    }
+                }
+            }
+            
+            start_node_with_peers(peers, port).await;
+        },
         Some("public") => {
             let _ = handle_public_command();
         }
@@ -144,8 +197,8 @@ async fn main() {
     }
 }
 
-// Start the Kari node
-async fn start_node() {
+// Add a new function to start node with peer information
+async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
     // Check if any wallet exists first
     if !check_wallet_exists() {
         println!("{}", "No wallet found!".red());
@@ -174,7 +227,13 @@ async fn start_node() {
             "mainnet" => NetworkType::Mainnet,
             _ => unreachable!(),
         };
-        let rpc_port = config.get("rpc_port").unwrap().as_u64().unwrap() as u16;
+        
+        // Use provided port if given, otherwise use configured port
+        let rpc_port = match port {
+            Some(p) => p,
+            None => config.get("rpc_port").unwrap().as_u64().unwrap() as u16,
+        };
+        
         let domain = config.get("domain").unwrap().as_str().unwrap().to_string();
         let chain_id = config
             .get("chain_id")
@@ -187,7 +246,7 @@ async fn start_node() {
             node_address: "127.0.0.1".to_string(),
             domain: domain,
             port: rpc_port,
-            peers: vec![],
+            peers: peers,  // Use provided peers
             chain_id,
             max_connections: 100,
             api_enabled: true,
@@ -196,7 +255,18 @@ async fn start_node() {
     } else {
         // Call configure_network and get the NetworkConfig
         match configure_network(CHAIN_ID) {
-            Ok(config) => config,
+            Ok(mut config) => {
+                // Update with any provided port or peers
+                if let Some(p) = port {
+                    config.port = p;
+                }
+                
+                if !peers.is_empty() {
+                    config.peers = peers;
+                }
+                
+                config
+            },
             Err(err) => {
                 eprintln!("Error configuring network: {}", err);
                 exit(1);
@@ -278,12 +348,11 @@ async fn start_node() {
         }
     };
 
-    // ...existing code...
     let final_config = serde_yaml::Value::Mapping({
         let mut map = serde_yaml::Mapping::new();
         map.insert(
             serde_yaml::Value::String("chain_id".to_string()),
-            serde_yaml::Value::String(network_config.chain_id.clone()),  // Clone here
+            serde_yaml::Value::String(network_config.chain_id.clone()),
         );
         map.insert(
             serde_yaml::Value::String("network_type".to_string()),
@@ -295,12 +364,25 @@ async fn start_node() {
         );
         map.insert(
             serde_yaml::Value::String("domain".to_string()),
-            serde_yaml::Value::String(network_config.domain.clone()),  // Clone here
+            serde_yaml::Value::String(network_config.domain.clone()),
         );
         map.insert(
             serde_yaml::Value::String("address".to_string()),
             serde_yaml::Value::String(address.clone()),
         );
+        
+        // Add peers to configuration if specified
+        if !network_config.peers.is_empty() {
+            let peers_array = network_config.peers.iter()
+                .map(|peer| serde_yaml::Value::String(peer.clone()))
+                .collect::<Vec<_>>();
+            
+            map.insert(
+                serde_yaml::Value::String("peers".to_string()),
+                serde_yaml::Value::Sequence(peers_array),
+            );
+        }
+        
         map
     });
     save_config(&final_config).expect("Failed to save configuration");
@@ -329,18 +411,52 @@ async fn start_node() {
         run_blockchain(running_clone, address_clone, tx);
     });
 
-    // Start RPC server in a way that it can be shut down
+    // Get local IP address for the node
+    let local_ip = match get_local_ip() {
+        Some(ip) => ip,
+        None => {
+            eprintln!("Could not determine local IP address");
+            exit(1);
+        }
+    };
+
+    // Update RPC configuration
     let rpc_config = NetworkConfig {
-        node_address: "127.0.0.1".to_string(),
+        node_address: local_ip.to_string(), // Use actual network IP
         domain: network_config.domain.clone(),
         port: network_config.port,
-        peers: vec![],
+        peers: network_config.peers.clone(),
         chain_id: network_config.chain_id.clone(),
         max_connections: 100,
         api_enabled: true,
         network_type: network_config.network_type,
     };
-    
+
+    // Add function to get local IP address
+    fn get_local_ip() -> Option<String> {
+        use std::net::UdpSocket;
+        
+        match UdpSocket::bind("0.0.0.0:0") {
+            Ok(socket) => {
+                if let Ok(_) = socket.connect("8.8.8.8:80") {
+                    if let Ok(addr) = socket.local_addr() {
+                        return Some(addr.ip().to_string());
+                    }
+                }
+            }
+            Err(_) => {}
+        }
+        None
+    }
+
+    // Display peer connection information if applicable
+    if !network_config.peers.is_empty() {
+        println!("{}", "Node will connect to the following peers:".bright_yellow());
+        for peer in &network_config.peers {
+            println!("  - {}", peer.green());
+        }
+    }
+
     let _rpc_handle = tokio::spawn(async move {
         println!("Starting RPC server on port {}...", rpc_config.port);
         
@@ -412,4 +528,9 @@ async fn start_node() {
     // Force exit (needed because RPC server might be hanging)
     println!("Node stopped. Exiting...");
     std::process::exit(0);
+}
+
+// Replace the original start_node function with a call to start_node_with_peers
+async fn start_node() {
+    start_node_with_peers(Vec::new(), None).await
 }
