@@ -1,1 +1,1 @@
-pub static CHAIN_ID: &str = "kari-k2";
+pub static CHAIN_ID: &str = "panorama-network"; // Default chain ID
