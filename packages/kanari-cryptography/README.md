@@ -13,7 +13,7 @@ A TypeScript library for performing cryptographic operations for Kanari wallets 
 ## Installation
 
 ```bash
-npm install kanari-cryptography
+npm install kanari-cryptography-library
 ```
 
 ## Usage
@@ -21,7 +21,7 @@ npm install kanari-cryptography
 ### Wallet Generation
 
 ```typescript
-import { generateKanariAddress, CurveType } from 'kanari-cryptography';
+import { generateKanariAddress, CurveType } from 'kanari-cryptography-library';
 
 // Generate a K256 (secp256k1) wallet with 12-word mnemonic
 const k256Wallet = generateKanariAddress(12, CurveType.K256);
@@ -43,7 +43,7 @@ console.log(k256Wallet);
 ### Message Signing
 
 ```typescript
-import { signMessage, CurveType } from 'kanari-cryptography';
+import { signMessage, CurveType } from 'kanari-cryptography-library';
 
 // Sign a message with a K256 private key
 const privateKey = 'c8df9f0e1c038e0ef5e6eb94a8e261872ed10ce58a9a9f37ffd9f858348c0e8e';
@@ -57,7 +57,7 @@ console.log(signature);
 ### Signature Verification
 
 ```typescript
-import { verifySignature } from 'kanari-cryptography';
+import { verifySignature } from 'kanari-cryptography-library';
 
 // Verify a signature
 const address = '0x79f35a8c75a3f6c4779f9715a333476b3df1a56ffd6cc4f20f12c4b47e37e0c5';
@@ -71,7 +71,7 @@ console.log(isValid); // true or false
 ### Importing Wallets
 
 ```typescript
-import { importFromPrivateKey, importFromSeedPhrase, CurveType } from 'kanari-cryptography';
+import { importFromPrivateKey, importFromSeedPhrase, CurveType } from 'kanari-cryptography-library';
 
 // Import from private key
 const privateKey = 'c8df9f0e1c038e0ef5e6eb94a8e261872ed10ce58a9a9f37ffd9f858348c0e8e';
@@ -87,3 +87,19 @@ const walletFromSeed = importFromSeedPhrase(seedPhrase, CurveType.K256);
 - Never expose private keys or seed phrases in client-side code
 - Consider using a secure storage solution for sensitive data
 - Always validate inputs before processing
+
+## License
+
+Copyright 2024 Kanari Network™. Community.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.

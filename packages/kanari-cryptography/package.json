@@ -1,13 +1,17 @@
 {
-  "name": "kanari-cryptography",
+  "name": "kanari-cryptography-library",
   "version": "0.1.0",
+  "license": "Apache-2.0",
+  "author": "Kanari Team",
   "description": "Cryptographic operations for Kanari wallets in web environments",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
     "test": "jest",
-    "lint": "eslint src/**/*.ts"
+    "lint": "eslint src/**/*.ts",
+    "prepublishOnly": "npm run build",
+    "start": "node dist/index.js"
   },
   "files": [
     "dist",
