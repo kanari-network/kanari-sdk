@@ -546,17 +546,51 @@ pub fn verify_signature(
     let k256_result = verify_signature_k256(address_hex, message, signature);
     let p256_result = verify_signature_p256(address_hex, message, signature);
     
+    // Log detailed info about verification attempts when in debug mode
+    if cfg!(debug_assertions) {
+        match &k256_result {
+            Ok(true) => log::debug!("K256 verification succeeded"),
+            Ok(false) => log::debug!("K256 verification failed: signature invalid"),
+            Err(e) => log::debug!("K256 verification error: {}", e),
+        }
+        
+        match &p256_result {
+            Ok(true) => log::debug!("P256 verification succeeded"),
+            Ok(false) => log::debug!("P256 verification failed: signature invalid"),
+            Err(e) => log::debug!("P256 verification error: {}", e),
+        }
+    }
+    
     // If either verification succeeds, return true
     match (k256_result, p256_result) {
         (Ok(true), _) | (_, Ok(true)) => Ok(true),
+        
         // If both could construct a key but verification failed, the signature is invalid
         (Ok(false), Ok(false)) => Ok(false),
-        // If K256 succeeded in making a key but verification failed, and P256 errored
-        (Ok(false), Err(_)) => Ok(false),
-        // If P256 succeeded in making a key but verification failed, and K256 errored
-        (Err(_), Ok(false)) => Ok(false),
-        // If both errored, return the K256 error for consistency
-        (Err(e), Err(_)) => Err(e),
+        
+        // If one curve succeeded in making a key but verification failed
+        (Ok(false), Err(e_p256)) => {
+            // In this case, we were able to construct a K256 key, which suggests
+            // the address is likely K256, so return false for invalid signature
+            if cfg!(debug_assertions) {
+                log::debug!("Assuming K256 address based on key reconstruction success. P256 error: {}", e_p256);
+            }
+            Ok(false)
+        }
+        
+        (Err(e_k256), Ok(false)) => {
+            // In this case, we were able to construct a P256 key, which suggests
+            // the address is likely P256, so return false for invalid signature
+            if cfg!(debug_assertions) {
+                log::debug!("Assuming P256 address based on key reconstruction success. K256 error: {}", e_k256);
+            }
+            Ok(false)
+        }
+        
+        // If both errored, combine the errors for better diagnostics
+        (Err(e_k256), Err(e_p256)) => {
+            Err(format!("Verification failed for both curves. K256: {}. P256: {}", e_k256, e_p256).into())
+        }
     }
 }
 
@@ -566,52 +600,51 @@ pub fn verify_signature_k256(
     message: &[u8],
     signature: &[u8],
 ) -> Result<bool, Box<dyn std::error::Error>> {
+    // Parse the signature first to fail fast if the signature format is invalid
+    let signature = match K256Signature::from_der(signature) {
+        Ok(sig) => sig,
+        Err(e) => return Err(format!("Invalid K256 signature format: {}", e).into())
+    };
+    
     // Hash the message with SHA3
     let mut hasher = Sha3_256::default();
     hasher.update(message);
     let message_hash = hasher.finalize();
     
-    // Parse the signature
-    let signature = K256Signature::from_der(signature)?;
-    
-    // For our address format, we know this is a 64-character hex encoding of
-    // the X and Y coordinates (combined) of the public key point,
-    // with 32 bytes for each coordinate
-    let decoded_hex = hex::decode(address_hex)?;
+    // Decode the address hex
+    let decoded_hex = match hex::decode(address_hex) {
+        Ok(hex) => hex,
+        Err(e) => return Err(format!("Invalid hex in address: {}", e).into())
+    };
     
     if decoded_hex.len() != 64 && decoded_hex.len() != 32 {
-        return Err(format!("Invalid address length: {}", decoded_hex.len()).into());
+        return Err(format!("Invalid address length for K256: {}", decoded_hex.len()).into());
     }
     
     // Track if we were able to construct any valid key
     let mut had_valid_key = false;
     
-    // If we have the complete public key (both X and Y coordinates)
+    // Try with uncompressed format if we have full coordinates
     if decoded_hex.len() == 64 {
-        // Reconstruct the SEC1 encoded public key (uncompressed format)
         let mut public_key_bytes = Vec::with_capacity(65);
         public_key_bytes.push(0x04); // Uncompressed point format prefix
         public_key_bytes.extend_from_slice(&decoded_hex);
         
-        // Try to create a verifying key
         match K256VerifyingKey::from_sec1_bytes(&public_key_bytes) {
             Ok(verifying_key) => {
                 had_valid_key = true;
-                // If verification succeeds, return immediately
                 if verifying_key.verify(&message_hash, &signature).is_ok() {
                     return Ok(true);
                 }
-                // Otherwise continue trying other formats
             },
-            Err(_) => { /* Continue with alternative approaches */ }
+            Err(_) => {}
         }
     }
     
-    // If direct public key reconstruction fails, try compressed formats
+    // If direct public key reconstruction fails or we only have X coordinate, try compressed formats
     let mut public_key_bytes = vec![0x02]; // Try 'even' Y coordinate
-    public_key_bytes.extend_from_slice(&decoded_hex[0..32]); // Just use X coordinate
+    public_key_bytes.extend_from_slice(&decoded_hex[0..32]);
     
-    // Try with compression prefix 0x02 (even Y)
     match K256VerifyingKey::from_sec1_bytes(&public_key_bytes) {
         Ok(verifying_key) => {
             had_valid_key = true;
@@ -619,11 +652,10 @@ pub fn verify_signature_k256(
                 return Ok(true);
             }
         },
-        Err(_) => { /* Try the other prefix */ }
+        Err(_) => {}
     }
     
-    // Try with compression prefix 0x03 (odd Y)
-    public_key_bytes[0] = 0x03;
+    public_key_bytes[0] = 0x03; // Try 'odd' Y coordinate
     match K256VerifyingKey::from_sec1_bytes(&public_key_bytes) {
         Ok(verifying_key) => {
             had_valid_key = true;
@@ -631,7 +663,7 @@ pub fn verify_signature_k256(
                 return Ok(true);
             }
         },
-        Err(_) => { /* Both approaches failed */ }
+        Err(_) => {}
     }
     
     // If we were able to create at least one valid key but verification failed,
@@ -641,7 +673,7 @@ pub fn verify_signature_k256(
     }
     
     // If we couldn't create any valid keys, return an error
-    Err("Unable to reconstruct public key from address".into())
+    Err("Unable to reconstruct K256 public key from address".into())
 }
 
 /// Verify a signature using P256 (secp256r1)
@@ -650,28 +682,31 @@ pub fn verify_signature_p256(
     message: &[u8],
     signature: &[u8],
 ) -> Result<bool, Box<dyn std::error::Error>> {
+    // Parse the signature first to fail fast if the signature format is invalid
+    let signature = match P256Signature::from_der(signature) {
+        Ok(sig) => sig,
+        Err(e) => return Err(format!("Invalid P256 signature format: {}", e).into())
+    };
+    
     // Hash the message with SHA3
     let mut hasher = Sha3_256::default();
     hasher.update(message);
     let message_hash = hasher.finalize();
     
-    // Parse the signature
-    let signature = P256Signature::from_der(signature)?;
-    
     // Decode the address hex
-    let decoded_hex = hex::decode(address_hex)?;
+    let decoded_hex = match hex::decode(address_hex) {
+        Ok(hex) => hex,
+        Err(e) => return Err(format!("Invalid hex in address: {}", e).into())
+    };
     
     if decoded_hex.len() != 64 && decoded_hex.len() != 32 {
-        return Err(format!("Invalid address length: {}", decoded_hex.len()).into());
+        return Err(format!("Invalid address length for P256: {}", decoded_hex.len()).into());
     }
     
     // Track if we were able to construct any valid key
     let mut had_valid_key = false;
     
-    // P256 keys have more strict requirements for point validation than K256
-    // Try with both uncompressed and compressed formats
-    
-    // Try with uncompressed format (0x04 + X + Y)
+    // Try with uncompressed format if we have full coordinates
     if decoded_hex.len() == 64 {
         let mut public_key_bytes = Vec::with_capacity(65);
         public_key_bytes.push(0x04); // Uncompressed point format prefix
@@ -684,63 +719,33 @@ pub fn verify_signature_p256(
                     return Ok(true);
                 }
             },
-            Err(_) => {
-                // If it fails with full coordinates, try reconstructing just from X coordinate
-                if decoded_hex.len() >= 32 {
-                    // Use only X coordinate with both possible Y prefixes
-                    let mut compressed_bytes = vec![0x02]; // Even Y
-                    compressed_bytes.extend_from_slice(&decoded_hex[0..32]);
-                    
-                    match VerifyingKey::from_sec1_bytes(&compressed_bytes) {
-                        Ok(verifying_key) => {
-                            had_valid_key = true;
-                            if verifying_key.verify(&message_hash, &signature).is_ok() {
-                                return Ok(true);
-                            }
-                        },
-                        Err(_) => {}
-                    }
-                    
-                    // Try odd Y prefix
-                    compressed_bytes[0] = 0x03;
-                    match VerifyingKey::from_sec1_bytes(&compressed_bytes) {
-                        Ok(verifying_key) => {
-                            had_valid_key = true;
-                            if verifying_key.verify(&message_hash, &signature).is_ok() {
-                                return Ok(true);
-                            }
-                        },
-                        Err(_) => {}
-                    }
-                }
+            Err(_) => {}
+        }
+    }
+    
+    // If direct public key reconstruction fails or we only have X coordinate, try compressed formats
+    let mut public_key_bytes = vec![0x02]; // Try 'even' Y coordinate
+    public_key_bytes.extend_from_slice(&decoded_hex[0..32]);
+    
+    match VerifyingKey::from_sec1_bytes(&public_key_bytes) {
+        Ok(verifying_key) => {
+            had_valid_key = true;
+            if verifying_key.verify(&message_hash, &signature).is_ok() {
+                return Ok(true);
             }
-        }
-    } else if decoded_hex.len() >= 32 {
-        // We only have X coordinate, try both possible Y values
-        let mut compressed_bytes = vec![0x02]; // Even Y
-        compressed_bytes.extend_from_slice(&decoded_hex[0..32]);
-        
-        match VerifyingKey::from_sec1_bytes(&compressed_bytes) {
-            Ok(verifying_key) => {
-                had_valid_key = true;
-                if verifying_key.verify(&message_hash, &signature).is_ok() {
-                    return Ok(true);
-                }
-            },
-            Err(_) => {}
-        }
-        
-        // Try odd Y prefix
-        compressed_bytes[0] = 0x03;
-        match VerifyingKey::from_sec1_bytes(&compressed_bytes) {
-            Ok(verifying_key) => {
-                had_valid_key = true;
-                if verifying_key.verify(&message_hash, &signature).is_ok() {
-                    return Ok(true);
-                }
-            },
-            Err(_) => {}
-        }
+        },
+        Err(_) => {}
+    }
+    
+    public_key_bytes[0] = 0x03; // Try 'odd' Y coordinate
+    match VerifyingKey::from_sec1_bytes(&public_key_bytes) {
+        Ok(verifying_key) => {
+            had_valid_key = true;
+            if verifying_key.verify(&message_hash, &signature).is_ok() {
+                return Ok(true);
+            }
+        },
+        Err(_) => {}
     }
     
     // If we were able to create at least one valid key but verification failed,
@@ -750,7 +755,66 @@ pub fn verify_signature_p256(
     }
     
     // If we couldn't create any valid keys, return an error
-    Err("Unable to reconstruct public key from address".into())
+    Err("Unable to reconstruct P256 public key from address".into())
+}
+
+/// Returns the likely curve type for an address based on point validation
+/// This is a heuristic and may not always be accurate
+pub fn detect_curve_type(address: &str) -> Option<CurveType> {
+    let address_hex = address.trim_start_matches("0x");
+    let decoded_hex = match hex::decode(address_hex) {
+        Ok(hex) => hex,
+        Err(_) => return None,
+    };
+    
+    if decoded_hex.len() != 64 && decoded_hex.len() != 32 {
+        return None;
+    }
+    
+    // Try to construct a K256 key first
+    let k256_key_valid = if decoded_hex.len() == 64 {
+        let mut public_key_bytes = Vec::with_capacity(65);
+        public_key_bytes.push(0x04); // Uncompressed point format prefix
+        public_key_bytes.extend_from_slice(&decoded_hex);
+        K256VerifyingKey::from_sec1_bytes(&public_key_bytes).is_ok()
+    } else {
+        // Try compressed format with even Y
+        let mut compressed_bytes = vec![0x02];
+        compressed_bytes.extend_from_slice(&decoded_hex[0..32]);
+        K256VerifyingKey::from_sec1_bytes(&compressed_bytes).is_ok() || {
+            // Try with odd Y
+            compressed_bytes[0] = 0x03;
+            K256VerifyingKey::from_sec1_bytes(&compressed_bytes).is_ok()
+        }
+    };
+    
+    // Try to construct a P256 key
+    let p256_key_valid = if decoded_hex.len() == 64 {
+        let mut public_key_bytes = Vec::with_capacity(65);
+        public_key_bytes.push(0x04); // Uncompressed point format prefix
+        public_key_bytes.extend_from_slice(&decoded_hex);
+        VerifyingKey::from_sec1_bytes(&public_key_bytes).is_ok()
+    } else {
+        // Try compressed format with even Y
+        let mut compressed_bytes = vec![0x02];
+        compressed_bytes.extend_from_slice(&decoded_hex[0..32]);
+        VerifyingKey::from_sec1_bytes(&compressed_bytes).is_ok() || {
+            // Try with odd Y
+            compressed_bytes[0] = 0x03;
+            VerifyingKey::from_sec1_bytes(&compressed_bytes).is_ok()
+        }
+    };
+    
+    match (k256_key_valid, p256_key_valid) {
+        (true, false) => Some(CurveType::K256),
+        (false, true) => Some(CurveType::P256),
+        (true, true) => {
+            // Both curves work! This is rare but possible.
+            // Default to K256 as it's more common in blockchain contexts
+            Some(CurveType::K256)
+        },
+        (false, false) => None,
+    }
 }
 
 /// Convenience functions to add to the Wallet implementation
