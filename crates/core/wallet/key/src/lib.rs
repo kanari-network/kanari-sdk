@@ -542,15 +542,22 @@ pub fn verify_signature(
     // Since addresses are in format 0x{hex}, we remove the prefix
     let address_hex = address.trim_start_matches("0x");
 
-    // Try verification with K256 first
-    match verify_signature_k256(address_hex, message, signature) {
-        Ok(true) => return Ok(true),   // Successful verification with K256
-        Ok(false) => return Ok(false), // Valid key but verification failed with K256
-        Err(_) => {}                   // Could not reconstruct key with K256, try P256
+    // Try verification with both curves and return true if either succeeds
+    let k256_result = verify_signature_k256(address_hex, message, signature);
+    let p256_result = verify_signature_p256(address_hex, message, signature);
+    
+    // If either verification succeeds, return true
+    match (k256_result, p256_result) {
+        (Ok(true), _) | (_, Ok(true)) => Ok(true),
+        // If both could construct a key but verification failed, the signature is invalid
+        (Ok(false), Ok(false)) => Ok(false),
+        // If K256 succeeded in making a key but verification failed, and P256 errored
+        (Ok(false), Err(_)) => Ok(false),
+        // If P256 succeeded in making a key but verification failed, and K256 errored
+        (Err(_), Ok(false)) => Ok(false),
+        // If both errored, return the K256 error for consistency
+        (Err(e), Err(_)) => Err(e),
     }
-
-    // If K256 didn't work, try P256
-    verify_signature_p256(address_hex, message, signature)
 }
 
 /// Verify a signature using K256 (secp256k1)
