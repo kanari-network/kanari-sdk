@@ -57,9 +57,15 @@ export function generateK256Address(wordCount: 12 | 24 = 12): WalletResult {
   const strength = wordCount === 24 ? 256 : 128;
   const seedPhrase = bip39.generateMnemonic(strength);
   
-  // Generate random keypair
-  const keypair = secp256k1.genKeyPair();
-  const privateKey = keypair.getPrivate('hex');
+  // Generate seed from mnemonic
+  const seed = bip39.mnemonicToSeedSync(seedPhrase);
+  
+  // Use first 32 bytes of seed as private key material
+  const privateKeyBytes = seed.slice(0, 32);
+  const privateKey = bufferToHex(privateKeyBytes);
+  
+  // Create keypair from private key
+  const keypair = secp256k1.keyFromPrivate(privateKeyBytes);
   
   // Get public key without the 0x04 prefix (uncompressed format)
   const publicKeyBuffer = Buffer.from(keypair.getPublic('array'));
@@ -86,9 +92,15 @@ export function generateP256Address(wordCount: 12 | 24 = 12): WalletResult {
   const strength = wordCount === 24 ? 256 : 128;
   const seedPhrase = bip39.generateMnemonic(strength);
   
-  // Generate random keypair
-  const keypair = p256.genKeyPair();
-  const privateKey = keypair.getPrivate('hex');
+  // Generate seed from mnemonic
+  const seed = bip39.mnemonicToSeedSync(seedPhrase);
+  
+  // Use first 32 bytes of seed as private key material
+  const privateKeyBytes = seed.slice(0, 32);
+  const privateKey = bufferToHex(privateKeyBytes);
+  
+  // Create keypair from private key
+  const keypair = p256.keyFromPrivate(privateKeyBytes);
   
   // Get public key without the 0x04 prefix (uncompressed format)
   const publicKeyBuffer = Buffer.from(keypair.getPublic('array'));

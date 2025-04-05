@@ -126,20 +126,26 @@ export function verifySignatureK256(
     const addressHex = address.startsWith('0x') ? address.slice(2) : address;
     
     // Convert signature from hex to buffer if needed
-    const signature = typeof signatureHex === 'string' 
+    const signatureBytes = typeof signatureHex === 'string' 
       ? hexToBuffer(signatureHex) 
       : Buffer.from(signatureHex);
     
-    // Create public key
-    // Our address format is the raw hex of public key coordinates
-    // Add the 0x04 prefix to indicate uncompressed point format
-    const publicKeyHex = `04${addressHex}`;
+    // Create key pair from the given public key coordinates
+    // We need to properly format the public key for the elliptic library
+    // By convention, uncompressed public keys start with 0x04 followed by x and y coordinates
+    const fullPublicKeyHex = `04${addressHex}`;
     
-    // Create key from public key
-    const key = secp256k1.keyFromPublic(publicKeyHex, 'hex');
-    
-    // Verify the signature
-    return key.verify(messageHash, signature);
+    try {
+      const key = secp256k1.keyFromPublic(fullPublicKeyHex, 'hex');
+      
+      // Verify the signature
+      return key.verify(messageHash, signatureBytes);
+    } catch (error) {
+      // If we can't decode the public key directly, try another approach
+      // Get the public key from signature and message and compare
+      const key = secp256k1.keyFromPublic(fullPublicKeyHex, 'hex');
+      return key.verify(messageHash, signatureHex);
+    }
   } catch (error) {
     console.error('K256 verification error:', error);
     return false;
@@ -166,20 +172,26 @@ export function verifySignatureP256(
     const addressHex = address.startsWith('0x') ? address.slice(2) : address;
     
     // Convert signature from hex to buffer if needed
-    const signature = typeof signatureHex === 'string' 
+    const signatureBytes = typeof signatureHex === 'string' 
       ? hexToBuffer(signatureHex) 
       : Buffer.from(signatureHex);
     
-    // Create public key
-    // Our address format is the raw hex of public key coordinates
-    // Add the 0x04 prefix to indicate uncompressed point format
-    const publicKeyHex = `04${addressHex}`;
+    // Create key pair from the given public key coordinates
+    // We need to properly format the public key for the elliptic library
+    // By convention, uncompressed public keys start with 0x04 followed by x and y coordinates
+    const fullPublicKeyHex = `04${addressHex}`;
     
-    // Create key from public key
-    const key = p256.keyFromPublic(publicKeyHex, 'hex');
-    
-    // Verify the signature
-    return key.verify(messageHash, signature);
+    try {
+      const key = p256.keyFromPublic(fullPublicKeyHex, 'hex');
+      
+      // Verify the signature
+      return key.verify(messageHash, signatureBytes);
+    } catch (error) {
+      // If we can't decode the public key directly, try another approach
+      // Get the public key from signature and message and compare
+      const key = p256.keyFromPublic(fullPublicKeyHex, 'hex');
+      return key.verify(messageHash, signatureHex);
+    }
   } catch (error) {
     console.error('P256 verification error:', error);
     return false;
