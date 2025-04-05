@@ -1,6 +1,6 @@
 {
   "name": "kanari-cryptography-library",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "license": "Apache-2.0",
   "author": "Kanari Team",
   "description": "Cryptographic operations for Kanari wallets in web environments",

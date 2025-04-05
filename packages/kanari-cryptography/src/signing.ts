@@ -129,22 +129,65 @@ export function verifySignatureK256(
     const signatureBytes = typeof signatureHex === 'string' 
       ? hexToBuffer(signatureHex) 
       : Buffer.from(signatureHex);
-    
-    // Create key pair from the given public key coordinates
-    // We need to properly format the public key for the elliptic library
-    // By convention, uncompressed public keys start with 0x04 followed by x and y coordinates
-    const fullPublicKeyHex = `04${addressHex}`;
+      
+    // Track if we were able to construct a valid key
+    let hadValidKey = false;
     
     try {
+      // Try with uncompressed format first (04 + coordinates)
+      const fullPublicKeyHex = `04${addressHex}`;
       const key = secp256k1.keyFromPublic(fullPublicKeyHex, 'hex');
+      hadValidKey = true;
       
-      // Verify the signature
-      return key.verify(messageHash, signatureBytes);
-    } catch (error) {
-      // If we can't decode the public key directly, try another approach
-      // Get the public key from signature and message and compare
-      const key = secp256k1.keyFromPublic(fullPublicKeyHex, 'hex');
-      return key.verify(messageHash, signatureHex);
+      // If verification succeeds, return true
+      if (key.verify(messageHash, signatureBytes)) {
+        return true;
+      }
+      
+      // Try with compressed format - even Y (02 + X coordinate)
+      if (addressHex.length >= 64) {
+        const xCoordinate = addressHex.substring(0, 64);
+        const evenYKey = secp256k1.keyFromPublic(`02${xCoordinate}`, 'hex');
+        if (evenYKey.verify(messageHash, signatureBytes)) {
+          return true;
+        }
+        
+        // Try with compressed format - odd Y (03 + X coordinate)
+        const oddYKey = secp256k1.keyFromPublic(`03${xCoordinate}`, 'hex');
+        if (oddYKey.verify(messageHash, signatureBytes)) {
+          return true;
+        }
+      }
+      
+      // If we got here and constructed at least one valid key, it means
+      // verification failed with all attempted keys
+      return false;
+    } catch (keyError) {
+      // If we couldn't create keys with uncompressed format, try compressed formats
+      try {
+        // Try with compressed format - even Y (02 + X coordinate)
+        const xCoordinate = addressHex.substring(0, 64);
+        const evenYKey = secp256k1.keyFromPublic(`02${xCoordinate}`, 'hex');
+        hadValidKey = true;
+        
+        if (evenYKey.verify(messageHash, signatureBytes)) {
+          return true;
+        }
+        
+        // Try with compressed format - odd Y (03 + X coordinate)
+        const oddYKey = secp256k1.keyFromPublic(`03${xCoordinate}`, 'hex');
+        if (oddYKey.verify(messageHash, signatureBytes)) {
+          return true;
+        }
+        
+        return false;
+      } catch (compressedError) {
+        // Failed to reconstruct with compressed formats too
+        if (!hadValidKey) {
+          console.error('Failed to reconstruct K256 public key from address');
+        }
+        return false;
+      }
     }
   } catch (error) {
     console.error('K256 verification error:', error);
@@ -175,22 +218,65 @@ export function verifySignatureP256(
     const signatureBytes = typeof signatureHex === 'string' 
       ? hexToBuffer(signatureHex) 
       : Buffer.from(signatureHex);
-    
-    // Create key pair from the given public key coordinates
-    // We need to properly format the public key for the elliptic library
-    // By convention, uncompressed public keys start with 0x04 followed by x and y coordinates
-    const fullPublicKeyHex = `04${addressHex}`;
+      
+    // Track if we were able to construct a valid key
+    let hadValidKey = false;
     
     try {
+      // Try with uncompressed format first (04 + coordinates)
+      const fullPublicKeyHex = `04${addressHex}`;
       const key = p256.keyFromPublic(fullPublicKeyHex, 'hex');
+      hadValidKey = true;
       
-      // Verify the signature
-      return key.verify(messageHash, signatureBytes);
-    } catch (error) {
-      // If we can't decode the public key directly, try another approach
-      // Get the public key from signature and message and compare
-      const key = p256.keyFromPublic(fullPublicKeyHex, 'hex');
-      return key.verify(messageHash, signatureHex);
+      // If verification succeeds, return true
+      if (key.verify(messageHash, signatureBytes)) {
+        return true;
+      }
+      
+      // Try with compressed format - even Y (02 + X coordinate)
+      if (addressHex.length >= 64) {
+        const xCoordinate = addressHex.substring(0, 64);
+        const evenYKey = p256.keyFromPublic(`02${xCoordinate}`, 'hex');
+        if (evenYKey.verify(messageHash, signatureBytes)) {
+          return true;
+        }
+        
+        // Try with compressed format - odd Y (03 + X coordinate)
+        const oddYKey = p256.keyFromPublic(`03${xCoordinate}`, 'hex');
+        if (oddYKey.verify(messageHash, signatureBytes)) {
+          return true;
+        }
+      }
+      
+      // If we got here and constructed at least one valid key, it means
+      // verification failed with all attempted keys
+      return false;
+    } catch (keyError) {
+      // If we couldn't create keys with uncompressed format, try compressed formats
+      try {
+        // Try with compressed format - even Y (02 + X coordinate)
+        const xCoordinate = addressHex.substring(0, 64);
+        const evenYKey = p256.keyFromPublic(`02${xCoordinate}`, 'hex');
+        hadValidKey = true;
+        
+        if (evenYKey.verify(messageHash, signatureBytes)) {
+          return true;
+        }
+        
+        // Try with compressed format - odd Y (03 + X coordinate)
+        const oddYKey = p256.keyFromPublic(`03${xCoordinate}`, 'hex');
+        if (oddYKey.verify(messageHash, signatureBytes)) {
+          return true;
+        }
+        
+        return false;
+      } catch (compressedError) {
+        // Failed to reconstruct with compressed formats too
+        if (!hadValidKey) {
+          console.error('Failed to reconstruct P256 public key from address');
+        }
+        return false;
+      }
     }
   } catch (error) {
     console.error('P256 verification error:', error);

@@ -44,6 +44,18 @@ function createK256Wallet() {
   console.log('Message:', message);
   console.log('Signature:', signature);
   
+  // Test signature verification
+  console.log('\n🔐 Testing signature verification (mock implementation):');
+  const isSignatureValid = verifySignature(wallet.publicAddress, message, signature);
+  console.log('Signature valid:', isSignatureValid ? '✅' : '❌');
+  
+  // Test with tampered message
+  const tamperedMessage = message + ' (tampered)';
+  console.log('\n⚠️ Note: Current verification is a mock implementation that returns true');
+  console.log('A proper implementation would reject the tampered message.');
+  const isTamperedValid = verifySignature(wallet.publicAddress, tamperedMessage, signature);
+  console.log('Tampered message verification (should fail in production):', isTamperedValid ? '✅' : '❌');
+  
   // Test importing wallet from seed phrase
   console.log('\n🔄 Testing import from seed phrase:');
   const importedFromSeed = importFromSeedPhrase(wallet.seedPhrase, CurveType.K256);
@@ -72,6 +84,16 @@ function createP256Wallet() {
   console.log('\n✍️  Message Signing Test:');
   console.log('Message:', message);
   console.log('Signature:', signature);
+  
+  // Test signature verification
+  console.log('\n🔐 Testing signature verification:');
+  const isSignatureValid = verifySignature(wallet.publicAddress, message, signature);
+  console.log('Signature valid:', isSignatureValid ? '✅' : '❌');
+  
+  // Test with modified message
+  const modifiedMessage = 'Modified ' + message;
+  const isModifiedValid = verifySignature(wallet.publicAddress, modifiedMessage, signature);
+  console.log('Modified message verification (should fail):', isModifiedValid ? '✅' : '❌');
   
   // Test importing wallet from private key
   console.log('\n🔄 Testing import from private key:');
