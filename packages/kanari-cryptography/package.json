@@ -1,0 +1,43 @@
+{
+  "name": "kanari-cryptography-library",
+  "version": "0.1.2",
+  "license": "Apache-2.0",
+  "author": "Kanari Team",
+  "description": "Cryptographic operations for Kanari wallets in web environments",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "lint": "eslint src/**/*.ts",
+    "prepublishOnly": "npm run build",
+    "start": "node dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "kanari",
+    "cryptography",
+    "wallet",
+    "blockchain",
+    "web3"
+  ],
+  "dependencies": {
+    "bip39": "^3.1.0",
+    "elliptic": "^6.5.4",
+    "sha3": "^2.1.4"
+  },
+  "devDependencies": {
+    "@types/elliptic": "^6.4.14",
+    "@types/jest": "^29.5.12",
+    "@types/node": "22.14.0",
+    "jest": "29.7.0",
+    "ts-jest": "29.3.1",
+    "typescript": "5.8.3"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

@@ -1,6 +1,6 @@
 use key::{
     generate_karix_address, sign_message_k256, sign_message_p256, verify_signature,
-    CurveType, import_from_private_key,
+    verify_signature_p256, CurveType, import_from_private_key,
 };
 
 fn main() {
@@ -56,19 +56,19 @@ fn main() {
     println!("---------------------");
     
     // Generate a new P256 wallet
-    let (private_key, public_address, seed_phrase) = generate_karix_address(12, CurveType::P256);
+    let (private_key_p256, public_address_p256, seed_phrase_p256) = generate_karix_address(12, CurveType::P256);
     
     println!("Generated new P256 wallet:");
-    println!("  Address: {}", public_address);
-    println!("  Private Key: {}", private_key);
-    println!("  Seed Phrase: {}", seed_phrase);
+    println!("  Address: {}", public_address_p256);
+    println!("  Private Key: {}", private_key_p256);
+    println!("  Seed Phrase: {}", seed_phrase_p256);
     
     // Sign a message
-    let message = b"Hello, Kanari with P256!";
-    let p256_signature = match sign_message_p256(&private_key, message) {
+    let message_p256 = b"Hello, Kanari with P256!";
+    let p256_signature = match sign_message_p256(&private_key_p256, message_p256) {
         Ok(sig) => {
             println!("\nSigned message successfully!");
-            println!("  Message: \"{}\"", String::from_utf8_lossy(message));
+            println!("  Message: \"{}\"", String::from_utf8_lossy(message_p256));
             println!("  Signature (hex): {}", hex::encode(&sig));
             sig
         },
@@ -80,10 +80,19 @@ fn main() {
     
     // Verify the signature
     if !p256_signature.is_empty() {
-        match verify_signature(&public_address, message, &p256_signature) {
-            Ok(true) => println!("✅ Signature verification successful!"),
-            Ok(false) => println!("❌ Signature verification failed!"),
-            Err(e) => println!("Error verifying signature: {}", e),
+        // First try with the generic verify_signature function
+        match verify_signature(&public_address_p256, message_p256, &p256_signature) {
+            Ok(true) => println!("✅ Signature verification successful with generic function!"),
+            Ok(false) => println!("❌ Signature verification failed with generic function!"),
+            Err(e) => println!("Error verifying signature with generic function: {}", e),
+        }
+        
+        // Then try with P256-specific verification function
+        let address_hex = public_address_p256.trim_start_matches("0x");
+        match verify_signature_p256(address_hex, message_p256, &p256_signature) {
+            Ok(true) => println!("✅ Signature verification successful with P256-specific function!"),
+            Ok(false) => println!("❌ Signature verification failed with P256-specific function!"),
+            Err(e) => println!("Error verifying with P256-specific function: {}", e),
         }
     }
     
@@ -91,21 +100,62 @@ fn main() {
     println!("\nExample 3: Importing from Private Key");
     println!("----------------------------------");
     
-    // Import the first wallet from private key
-    match import_from_private_key(&private_key, CurveType::P256) {
+    // Import the wallet from K256 private key
+    println!("\nImporting K256 wallet from private key:");
+    match import_from_private_key(&private_key, CurveType::K256) {
         Ok((imported_private_key, _, imported_public_address)) => {
-            println!("Successfully imported wallet:");
             println!("  Address: {}", imported_public_address);
             
             // Verify it's the same address
-            assert_eq!(public_address, imported_public_address);
-            println!("✅ Imported address matches original!");
+            if public_address == imported_public_address {
+                println!("✅ Imported address matches original!");
+            } else {
+                println!("❌ Address mismatch: {} vs {}", public_address, imported_public_address);
+            }
             
-            // Sign the same message with imported key
-            let message = b"Hello, Kanari with P256!";
-            match sign_message_p256(&imported_private_key, message) {
+            // Sign the message with imported key
+            match sign_message_k256(&imported_private_key, message) {
                 Ok(sig) => {
-                    println!("\nSigned message with imported key successfully!");
+                    println!("\nSigned message with imported K256 key:");
+                    println!("  Signature (hex): {}", hex::encode(&sig));
+                    
+                    // Verify this signature matches the original
+                    if sig == k256_signature {
+                        println!("✅ Signature from imported key matches original signature!");
+                    } else {
+                        println!("❌ Signature from imported key differs from original!");
+                    }
+                    
+                    // Verify the signature works
+                    match verify_signature(&imported_public_address, message, &sig) {
+                        Ok(true) => println!("✅ Signature verification successful!"),
+                        Ok(false) => println!("❌ Signature verification failed!"),
+                        Err(e) => println!("Error verifying signature: {}", e),
+                    }
+                },
+                Err(e) => println!("Error signing with imported key: {}", e),
+            }
+        },
+        Err(e) => println!("Error importing K256 wallet: {}", e),
+    }
+    
+    // Import the wallet from P256 private key
+    println!("\nImporting P256 wallet from private key:");
+    match import_from_private_key(&private_key_p256, CurveType::P256) {
+        Ok((imported_private_key, _, imported_public_address)) => {
+            println!("  Address: {}", imported_public_address);
+            
+            // Verify it's the same address
+            if public_address_p256 == imported_public_address {
+                println!("✅ Imported address matches original!");
+            } else {
+                println!("❌ Address mismatch: {} vs {}", public_address_p256, imported_public_address);
+            }
+            
+            // Sign the message with imported key
+            match sign_message_p256(&imported_private_key, message_p256) {
+                Ok(sig) => {
+                    println!("\nSigned message with imported P256 key:");
                     println!("  Signature (hex): {}", hex::encode(&sig));
                     
                     // Verify this signature matches the original
@@ -114,10 +164,25 @@ fn main() {
                     } else {
                         println!("❌ Signature from imported key differs from original!");
                     }
+                    
+                    // Verify the signature works with both methods
+                    match verify_signature(&imported_public_address, message_p256, &sig) {
+                        Ok(true) => println!("✅ Signature verification successful with generic function!"),
+                        Ok(false) => println!("❌ Signature verification failed with generic function!"),
+                        Err(e) => println!("Error verifying signature with generic function: {}", e),
+                    }
+                    
+                    // Direct P256 verification
+                    let address_hex = imported_public_address.trim_start_matches("0x");
+                    match verify_signature_p256(address_hex, message_p256, &sig) {
+                        Ok(true) => println!("✅ Signature verification successful with P256-specific function!"),
+                        Ok(false) => println!("❌ Signature verification failed with P256-specific function!"),
+                        Err(e) => println!("Error verifying with P256-specific function: {}", e),
+                    }
                 },
                 Err(e) => println!("Error signing with imported key: {}", e),
             }
         },
-        Err(e) => println!("Error importing wallet: {}", e),
+        Err(e) => println!("Error importing P256 wallet: {}", e),
     }
 }

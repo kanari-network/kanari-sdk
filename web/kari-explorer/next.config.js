@@ -15,7 +15,13 @@ const nextConfig = {
     ]
   },
   images: {
-    domains: ['127.0.0.1'],
+    remotePatterns: [
+      {
+        protocol: 'http',
+        hostname: '192.168.1.103',
+        port: '30031',
+      },
+    ],
   }
 }
 
