@@ -123,9 +123,19 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
     
     // Prompt the user for the network domain
     let domain = prompt_for_value("Enter network domain", default_domain);
+    
+    // Check if domain is a valid format (either a full domain or *.kanari.network)
+    let validated_domain = if domain.contains('.') {
+        domain.clone()
+    } else {
+        // If just a subdomain prefix was entered, append .kanari.network
+        format!("{}.kanari.network", domain)
+    };
+    
+    println!("Using domain: {}", validated_domain);
     mapping.insert(
         Value::String("domain".to_string()),
-        Value::String(domain.clone())
+        Value::String(validated_domain.clone())
     );
 
     mapping.insert(
@@ -136,7 +146,7 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
     // Save the configuration to file
     let network_config = NetworkConfig {
         node_address: get_local_ip().unwrap_or_else(|| "0.0.0.0".to_string()),
-        domain: domain,         // Add configured domain
+        domain: validated_domain,         // Use validated domain name
         port: rpc_port, // Use the parsed rpc_port
         peers: vec![],
         chain_id: chain_id.to_string(),

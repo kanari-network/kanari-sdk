@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
-#[derive(Serialize, Deserialize, PartialEq)]  // Add PartialEq
+#[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]  // Add Clone and Debug traits
 pub enum NetworkType {
     Mainnet,
     Testnet,
@@ -13,7 +13,7 @@ pub enum NetworkType {
 }
 
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]  // Add Clone and Debug traits
 pub struct NetworkConfig {
     pub node_address: String,
     pub domain: String,

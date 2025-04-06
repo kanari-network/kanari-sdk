@@ -1109,13 +1109,19 @@ pub async fn start_rpc_server(network_config: NetworkConfig) -> Result<(), tokio
     );
 
     // Create CORS settings for production
-    let allowed_origins = vec![
+    let mut allowed_origins = vec![
         AccessControlAllowOrigin::Any, // Allow all origins for testing
         AccessControlAllowOrigin::Value(network_config.domain.clone().into()),
         AccessControlAllowOrigin::Value(format!("https://{}", network_config.domain).into()),
         AccessControlAllowOrigin::Value(format!("http://{}", network_config.domain).into()),
     ];
-
+    
+    // Add support for kanari.network subdomains
+    if network_config.domain.ends_with(".kanari.network") {
+        allowed_origins.push(AccessControlAllowOrigin::Value("https://*.kanari.network".into()));
+        allowed_origins.push(AccessControlAllowOrigin::Value("http://*.kanari.network".into()));
+    }
+    
     // Check if TLS certificates are available
     let cert_path = std::env::current_dir().unwrap().join("cert.pem");
     let key_path = std::env::current_dir().unwrap().join("key.pem");

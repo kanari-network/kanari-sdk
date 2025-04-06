@@ -207,7 +207,15 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
         exit(1);
     }
 
-    let mut config = load_config().expect("Failed to load configuration file");
+    // Load configuration with better error handling
+    let mut config = match load_config() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("Failed to load configuration: {}", e);
+            eprintln!("Creating a new configuration...");
+            serde_yaml::Value::Mapping(serde_yaml::Mapping::new())
+        }
+    };
 
     let _chain_id = config
         .get("chain_id")
@@ -225,28 +233,40 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
             "devnet" => NetworkType::Devnet,
             "testnet" => NetworkType::Testnet,
             "mainnet" => NetworkType::Mainnet,
-            _ => unreachable!(),
+            _ => {
+                eprintln!("Invalid network type in config, defaulting to devnet");
+                NetworkType::Devnet
+            },
         };
         
         // Use provided port if given, otherwise use configured port
         let rpc_port = match port {
-            Some(p) => p,
-            None => config.get("rpc_port").unwrap().as_u64().unwrap() as u16,
+            Some(p) => {
+                println!("Using specified port: {}", p);
+                p
+            },
+            None => match config.get("rpc_port").unwrap().as_u64() {
+                Some(p) => p as u16,
+                None => {
+                    eprintln!("Invalid port in config, using default 30031");
+                    30031
+                }
+            },
         };
         
-        let domain = config.get("domain").unwrap().as_str().unwrap().to_string();
+        let domain = config.get("domain").unwrap().as_str().unwrap_or("localhost").to_string();
         let chain_id = config
             .get("chain_id")
             .unwrap()
             .as_str()
-            .unwrap()
+            .unwrap_or(CHAIN_ID)
             .to_string();
 
         NetworkConfig {
             node_address: "127.0.0.1".to_string(),
-            domain: domain,
+            domain,
             port: rpc_port,
-            peers: peers,  // Use provided peers
+            peers,  // Use provided peers
             chain_id,
             max_connections: 100,
             api_enabled: true,
@@ -254,14 +274,17 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
         }
     } else {
         // Call configure_network and get the NetworkConfig
+        println!("No configuration found. Setting up new configuration...");
         match configure_network(CHAIN_ID) {
             Ok(mut config) => {
                 // Update with any provided port or peers
                 if let Some(p) = port {
+                    println!("Using specified port: {}", p);
                     config.port = p;
                 }
                 
                 if !peers.is_empty() {
+                    println!("Using specified peers: {:?}", peers);
                     config.peers = peers;
                 }
                 
@@ -274,7 +297,11 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
         }
     };
 
-    let _ = load_blockchain();
+    // Try to load blockchain with better error handling
+    if let Err(e) = load_blockchain() {
+        eprintln!("Warning: Failed to load blockchain: {}. A new blockchain will be created.", e);
+    }
+    
     let running = Arc::new(Mutex::new(true));
 
     // Load address with validation
@@ -366,6 +393,15 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
             serde_yaml::Value::String("domain".to_string()),
             serde_yaml::Value::String(network_config.domain.clone()),
         );
+        
+        // Add domain verification info
+        println!("Using domain: {}", network_config.domain);
+        if network_config.domain.ends_with(".kanari.network") {
+            println!("Standard Kanari Network domain detected.");
+        } else {
+            println!("Custom domain detected. Make sure DNS is properly configured.");
+        }
+        
         map.insert(
             serde_yaml::Value::String("address".to_string()),
             serde_yaml::Value::String(address.clone()),
@@ -461,12 +497,31 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
     let rpc_handle = tokio::spawn(async move {
         println!("Starting RPC server on port {}...", rpc_config.port);
         
-        match start_rpc_server(rpc_config).await {
-            Ok(_) => {
-                println!("RPC server started successfully.");
-            }
-            Err(e) => {
-                eprintln!("Failed to start RPC server: {}", e);
+        // Try multiple times to start the server in case of port issues
+        let mut attempts = 0;
+        const MAX_ATTEMPTS: usize = 3;
+        
+        while attempts < MAX_ATTEMPTS {
+            match start_rpc_server(rpc_config.clone()).await {
+                Ok(_) => {
+                    println!("RPC server started successfully on port {}.", rpc_config.port);
+                    break;
+                }
+                Err(e) => {
+                    attempts += 1;
+                    eprintln!("Failed to start RPC server (attempt {}/{}): {}", attempts, MAX_ATTEMPTS, e);
+                    
+                    if attempts >= MAX_ATTEMPTS {
+                        eprintln!("Failed to start RPC server after {} attempts. Exiting.", MAX_ATTEMPTS);
+                        std::process::exit(1);
+                    }
+                    
+                    // Try with a different port
+                    let mut new_config = rpc_config.clone();
+                    new_config.port += 1;
+                    eprintln!("Trying with port {} instead...", new_config.port);
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
             }
         }
         
