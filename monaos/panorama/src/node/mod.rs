@@ -1,17 +1,17 @@
 use std::collections::HashMap;
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::io::{Read, Write};
 use serde::{Serialize, Deserialize};
-use log::{debug, error, info, warn};
+use log::{error, info, warn, debug};
 use tokio::sync::mpsc;
 
 use crate::block::Block;
-use crate::blockchain::{BlockchainError, BLOCKCHAIN_DATA, normalize_address};
+use crate::blockchain::BlockchainError;
 use consensus_pos::Blake3Algorithm;
-use mona_types::address::Address;
-
+pub mod coordinator;
 
 // Peer data structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,6 +22,8 @@ pub struct Peer {
     pub port: u16,           // Port number
     pub last_seen: u64,      // Last time this node was seen
     pub is_validator: bool,  // Whether this node is a validator
+    pub protocol_version: String, // Protocol version for compatibility checking
+    pub secured: bool,       // Whether the connection is secured (TLS/SSL)
 }
 
 // Node configuration
@@ -34,6 +36,58 @@ pub struct NodeConfig {
     pub discovery_nodes: Vec<String>, // Known nodes to connect to on startup
     pub max_peers: usize,     // Maximum number of peer connections
     pub is_validator: bool,   // Whether this node is a validator
+    pub use_tls: bool,        // Whether to use TLS for connections
+    pub cert_path: Option<String>, // Path to TLS certificate
+    pub key_path: Option<String>,  // Path to TLS private key
+}
+
+// Protocol message for node communication
+#[derive(Clone, Serialize, Deserialize)]
+pub enum NodeMessage {
+    Handshake {
+        node_id: String,
+        blockchain_address: String,
+        protocol_version: String,
+        is_validator: bool,
+        chain_height: u64,
+    },
+    HandshakeResponse {
+        success: bool,
+        node_id: String,
+        peers: Vec<Peer>,
+        message: String,
+    },
+    BlockAnnounce {
+        block_index: u64,
+        block_hash: String,
+    },
+    BlockRequest {
+        block_hash: String,
+    },
+    BlockResponse {
+        block: Option<Block<Blake3Algorithm>>,
+        error: Option<String>,
+    },
+    TransactionAnnounce {
+        transaction_ids: Vec<String>,
+    },
+    TransactionRequest {
+        transaction_id: String,
+    },
+    PingRequest {
+        timestamp: u64,
+    },
+    PongResponse {
+        request_timestamp: u64,
+        response_timestamp: u64,
+    },
+    PeerListRequest {},
+    PeerListResponse {
+        peers: Vec<Peer>,
+    },
+    Disconnect {
+        reason: String,
+    },
 }
 
 // Default settings
@@ -43,10 +97,13 @@ impl Default for NodeConfig {
             node_id: generate_node_id(),
             blockchain_address: String::new(),
             listen_ip: "127.0.0.1".to_string(),
-            listen_port: 30303,
-            discovery_nodes: vec!["127.0.0.1:30304".to_string()],
+            listen_port: 51303,
+            discovery_nodes: vec!["127.0.0.1:30303".to_string()],
             max_peers: 25,
             is_validator: false,
+            use_tls: false,
+            cert_path: None,
+            key_path: None,
         }
     }
 }
@@ -60,11 +117,18 @@ pub enum NodeStatus {
     Stopped,
 }
 
+// Protocol version
+const PROTOCOL_VERSION: &str = "0.2.0";
+const HANDSHAKE_TIMEOUT_SECS: u64 = 10;
+const PING_INTERVAL_SECS: u64 = 30;
+const CONNECTION_TIMEOUT_SECS: u64 = 5;
+
 // Global node registry
 lazy_static::lazy_static! {
     pub static ref PEER_LIST: RwLock<HashMap<String, Peer>> = RwLock::new(HashMap::new());
     pub static ref NODE_STATUS: Arc<Mutex<NodeStatus>> = Arc::new(Mutex::new(NodeStatus::Stopped));
     pub static ref NODE_CONFIG: RwLock<NodeConfig> = RwLock::new(NodeConfig::default());
+    pub static ref ACTIVE_CONNECTIONS: RwLock<HashMap<String, Arc<Mutex<TcpStream>>>> = RwLock::new(HashMap::new());
 }
 
 // Generate a unique node ID
@@ -121,11 +185,55 @@ pub fn start_node(
         }
     });
     
+    // Start ping service to keep connections alive
+    let config_clone = config.clone();
+    thread::spawn(move || {
+        run_ping_service(config_clone);
+    });
+    
     // Update node status
     {
         let mut status = NODE_STATUS.lock().unwrap();
         *status = NodeStatus::Running;
     }
+    
+    Ok(())
+}
+
+// Run periodic ping to keep connections alive
+fn run_ping_service(_config: NodeConfig) {
+    loop {
+        thread::sleep(Duration::from_secs(PING_INTERVAL_SECS));
+        
+        // Check if node is still running
+        let node_status = NODE_STATUS.lock().unwrap().clone();
+        if matches!(node_status, NodeStatus::Stopped) {
+            break;
+        }
+        
+        // Get a list of current peers to ping
+        let peer_ids: Vec<String> = {
+            let connections = ACTIVE_CONNECTIONS.read().unwrap();
+            connections.keys().cloned().collect()
+        };
+        
+        for peer_id in peer_ids {
+            let _ = ping_peer(&peer_id);
+        }
+    }
+}
+
+// Send ping to a specific peer
+fn ping_peer(peer_id: &str) -> Result<(), BlockchainError> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    
+    let ping_message = NodeMessage::PingRequest { timestamp };
+    
+    send_message_to_peer(peer_id, &ping_message)?;
+    debug!("Sent ping to peer {}", peer_id);
     
     Ok(())
 }
@@ -137,45 +245,73 @@ fn run_network_listener(
 ) -> Result<(), BlockchainError> {
     // Bind to the configured address and port
     let addr = format!("{}:{}", config.listen_ip, config.listen_port);
+    
     let listener = match TcpListener::bind(&addr) {
         Ok(listener) => listener,
         Err(e) => return Err(BlockchainError::Initialization(
             format!("Failed to bind to {}: {}", addr, e)
         )),
     };
+
+    // Set non-blocking mode for listener
+    listener.set_nonblocking(true)
+        .map_err(|e| BlockchainError::Initialization(
+            format!("Failed to set non-blocking mode: {}", e)
+        ))?;
     
     info!("Node listening on {}", addr);
     
+    // Notify about node start via status channel
     let node_status_json = serde_json::json!({
         "event": "node_listening",
         "node_id": config.node_id,
         "address": addr,
         "blockchain_address": config.blockchain_address,
+        "tls": config.use_tls,
+        "protocol_version": PROTOCOL_VERSION,
     }).to_string();
     
     let _ = status_tx.blocking_send(node_status_json);
     
-    // Accept connections
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
+    // Accept connections in a loop
+    loop {
+        // Check if the node is still running
+        if matches!(*NODE_STATUS.lock().unwrap(), NodeStatus::Stopped) {
+            break;
+        }
+        
+        // Try to accept a connection
+        match listener.accept() {
+            Ok((stream, remote_addr)) => {
+                info!("New peer connection from {}", remote_addr);
+                
+                // Set a timeout for the connection
+                stream.set_read_timeout(Some(Duration::from_secs(CONNECTION_TIMEOUT_SECS)))
+                    .unwrap_or_else(|e| warn!("Failed to set read timeout: {}", e));
+                
+                stream.set_write_timeout(Some(Duration::from_secs(CONNECTION_TIMEOUT_SECS)))
+                    .unwrap_or_else(|e| warn!("Failed to set write timeout: {}", e));
+                
+                // Clone necessary data for the thread
+                let config_clone = config.clone();
+                let status_tx_clone = status_tx.clone();
+                
                 // Handle the connection in a new thread
-                let peer_addr = match stream.peer_addr() {
-                    Ok(addr) => addr.to_string(),
-                    Err(_) => "unknown".to_string(),
-                };
-                
-                info!("New peer connection from {}", peer_addr);
-                
-                // Process the peer connection
                 thread::spawn(move || {
-                    if let Err(e) = handle_peer_connection(stream) {
+                    if let Err(e) = handle_incoming_connection(stream, remote_addr, config_clone, status_tx_clone) {
                         error!("Error handling peer connection: {}", e);
                     }
                 });
             },
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                // No connections ready, sleep a bit to avoid high CPU
+                thread::sleep(Duration::from_millis(100));
+                continue;
+            },
             Err(e) => {
                 error!("Error accepting connection: {}", e);
+                // Sleep briefly to avoid error spam in case of persistent issues
+                thread::sleep(Duration::from_millis(1000));
             }
         }
     }
@@ -183,17 +319,528 @@ fn run_network_listener(
     Ok(())
 }
 
-// Handle peer connection
-fn handle_peer_connection(stream: TcpStream) -> Result<(), BlockchainError> {
-    // Set read/write timeouts
-    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
-    stream.set_write_timeout(Some(Duration::from_secs(10)))?;
+// Handle incoming peer connection with handshake protocol
+fn handle_incoming_connection(
+    mut stream: TcpStream,
+    remote_addr: std::net::SocketAddr,
+    config: NodeConfig,
+    status_tx: mpsc::Sender<String>
+) -> Result<(), BlockchainError> {
+    // Read the handshake message first
+    let mut buffer = [0u8; 4096];
+    let read_result = stream.read(&mut buffer);
     
-    // TODO: Implement peer handshake protocol
-    // This would include:
-    // 1. Exchange node information (version, blockchain height, etc.)
-    // 2. Verify compatibility
-    // 3. Add to peer list if valid
+    let bytes_read = match read_result {
+        Ok(n) => n,
+        Err(e) => {
+            return Err(BlockchainError::Network(
+                format!("Failed to read from connection: {}", e)
+            ));
+        }
+    };
+    
+    if bytes_read == 0 {
+        return Err(BlockchainError::Network("Peer disconnected immediately".to_string()));
+    }
+    
+    // Parse the handshake message
+    let message: NodeMessage = match bincode::deserialize(&buffer[0..bytes_read]) {
+        Ok(msg) => msg,
+        Err(e) => {
+            return Err(BlockchainError::Network(
+                format!("Failed to parse handshake message: {}", e)
+            ));
+        }
+    };
+    
+    // Process the handshake
+    match message {
+        NodeMessage::Handshake { 
+            node_id, 
+            blockchain_address, 
+            protocol_version,
+            is_validator,
+            chain_height 
+        } => {
+            info!("Received handshake from node {} ({}), protocol v{}, chain height: {}", 
+                node_id, blockchain_address, protocol_version, chain_height);
+            
+            // Check protocol version compatibility
+            if !is_protocol_compatible(&protocol_version) {
+                warn!("Incompatible protocol version: {} (ours is {})", 
+                    protocol_version, PROTOCOL_VERSION);
+                
+                // Send rejection response
+                let response = NodeMessage::HandshakeResponse {
+                    success: false,
+                    node_id: config.node_id.clone(),
+                    peers: vec![],
+                    message: format!("Incompatible protocol version. Expected {}, got {}", 
+                        PROTOCOL_VERSION, protocol_version),
+                };
+                
+                let response_data = bincode::serialize(&response)
+                    .map_err(|e| BlockchainError::Network(format!("Serialization error: {}", e)))?;
+                
+                stream.write_all(&response_data)
+                    .map_err(|e| BlockchainError::Network(format!("Failed to send response: {}", e)))?;
+                
+                return Err(BlockchainError::Network(
+                    format!("Incompatible protocol version from peer {}", node_id)
+                ));
+            }
+            
+            // Check if we have too many peers already
+            {
+                let peers = PEER_LIST.read().unwrap();
+                if peers.len() >= config.max_peers {
+                    // Send rejection response
+                    let response = NodeMessage::HandshakeResponse {
+                        success: false,
+                        node_id: config.node_id.clone(),
+                        peers: vec![],
+                        message: "Maximum number of peers reached".to_string(),
+                    };
+                    
+                    let response_data = bincode::serialize(&response)
+                        .map_err(|e| BlockchainError::Network(format!("Serialization error: {}", e)))?;
+                    
+                    stream.write_all(&response_data)
+                        .map_err(|e| BlockchainError::Network(format!("Failed to send response: {}", e)))?;
+                    
+                    return Err(BlockchainError::Network(
+                        format!("Maximum number of peers reached, rejected {}", node_id)
+                    ));
+                }
+            }
+            
+            // Create and register peer
+            let peer = Peer {
+                address: blockchain_address,
+                node_id: node_id.clone(),
+                ip_address: remote_addr.ip().to_string(),
+                port: remote_addr.port(),
+                last_seen: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+                is_validator,
+                protocol_version,
+                secured: config.use_tls,
+            };
+            
+            // Register the peer
+            if let Err(e) = register_peer(peer.clone()) {
+                warn!("Failed to register peer: {}", e);
+                
+                // Send rejection response
+                let response = NodeMessage::HandshakeResponse {
+                    success: false,
+                    node_id: config.node_id.clone(),
+                    peers: vec![],
+                    message: format!("Failed to register peer: {}", e),
+                };
+                
+                let response_data = bincode::serialize(&response)
+                    .map_err(|e| BlockchainError::Network(format!("Serialization error: {}", e)))?;
+                
+                stream.write_all(&response_data)
+                    .map_err(|e| BlockchainError::Network(format!("Failed to send response: {}", e)))?;
+                
+                return Err(e);
+            }
+            
+            // Add to active connections
+            {
+                let mut connections = ACTIVE_CONNECTIONS.write().unwrap();
+                connections.insert(node_id.clone(), Arc::new(Mutex::new(stream.try_clone().unwrap())));
+            }
+            
+            // Get current peers to share with the new peer
+            let our_peers = {
+                let peers = PEER_LIST.read().unwrap();
+                peers.values().cloned().collect::<Vec<_>>()
+            };
+            
+            // Send successful handshake response
+            let response = NodeMessage::HandshakeResponse {
+                success: true,
+                node_id: config.node_id.clone(),
+                peers: our_peers,
+                message: "Connection accepted".to_string(),
+            };
+            
+            let response_data = bincode::serialize(&response)
+                .map_err(|e| BlockchainError::Network(format!("Serialization error: {}", e)))?;
+            
+            stream.write_all(&response_data)
+                .map_err(|e| BlockchainError::Network(format!("Failed to send response: {}", e)))?;
+            
+            // Notify about new peer
+            let peer_status = serde_json::json!({
+                "event": "peer_connected",
+                "peer_id": peer.node_id,
+                "address": format!("{}:{}", peer.ip_address, peer.port),
+                "blockchain_address": peer.address,
+                "is_validator": peer.is_validator,
+                "secured": peer.secured,
+                "connected_peers": get_peer_count()
+            }).to_string();
+            
+            let _ = status_tx.blocking_send(peer_status);
+            
+            // Spawn a thread to handle incoming messages from this peer
+            let peer_id = node_id.clone();
+            let status_tx_clone = status_tx.clone();
+            thread::spawn(move || {
+                if let Err(e) = handle_peer_messages(peer_id.clone(), stream, status_tx_clone) {
+                    error!("Error handling messages from peer {}: {}", peer_id, e);
+                }
+            });
+            
+            Ok(())
+        },
+        _ => {
+            // Expected a handshake message
+            Err(BlockchainError::Network("Expected handshake message".to_string()))
+        }
+    }
+}
+
+// Check if the peer's protocol version is compatible with ours
+fn is_protocol_compatible(peer_version: &str) -> bool {
+    // Simple version check - major version must match
+    let our_parts: Vec<&str> = PROTOCOL_VERSION.split('.').collect();
+    let peer_parts: Vec<&str> = peer_version.split('.').collect();
+    
+    if our_parts.is_empty() || peer_parts.is_empty() {
+        return false;
+    }
+    
+    // Only check major version for now
+    our_parts[0] == peer_parts[0]
+}
+
+// Thread to handle incoming messages from a peer
+fn handle_peer_messages(
+    peer_id: String,
+    mut stream: TcpStream,
+    status_tx: mpsc::Sender<String>
+) -> Result<(), BlockchainError> {
+    // Set the stream to non-blocking mode for better performance
+    stream.set_nonblocking(true)
+        .map_err(|e| BlockchainError::Network(format!("Failed to set non-blocking mode: {}", e)))?;
+    
+    let mut buffer = [0u8; 8192]; // Larger buffer for messages
+    
+    loop {
+        // Check if the node is still running
+        if matches!(*NODE_STATUS.lock().unwrap(), NodeStatus::Stopped) {
+            // Send disconnect message before breaking
+            let disconnect_msg = NodeMessage::Disconnect {
+                reason: "Node shutting down".to_string(),
+            };
+            
+            let msg_data = match bincode::serialize(&disconnect_msg) {
+                Ok(data) => data,
+                Err(e) => {
+                    warn!("Failed to serialize disconnect message: {}", e);
+                    break;
+                }
+            };
+            
+            let _ = stream.write_all(&msg_data);
+            break;
+        }
+        
+        // Try to read a message from the peer
+        match stream.read(&mut buffer) {
+            Ok(0) => {
+                // Connection closed by peer
+                info!("Peer {} closed connection", peer_id);
+                break;
+            },
+            Ok(n) => {
+                // Process the message
+                match bincode::deserialize::<NodeMessage>(&buffer[0..n]) {
+                    Ok(message) => {
+                        if let Err(e) = process_peer_message(&peer_id, message, &status_tx) {
+                            warn!("Error processing message from peer {}: {}", peer_id, e);
+                        }
+                    },
+                    Err(e) => {
+                        warn!("Failed to deserialize message from peer {}: {}", peer_id, e);
+                    }
+                }
+            },
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                // No data available yet, sleep a bit
+                thread::sleep(Duration::from_millis(50));
+                continue;
+            },
+            Err(e) => {
+                // Some other error occurred
+                return Err(BlockchainError::Network(
+                    format!("Error reading from peer {}: {}", peer_id, e)
+                ));
+            }
+        }
+    }
+    
+    // Remove peer from active connections
+    {
+        let mut connections = ACTIVE_CONNECTIONS.write().unwrap();
+        connections.remove(&peer_id);
+    }
+    
+    // Update peer's last_seen time but leave in peer list
+    // This allows for reconnection attempts later
+    {
+        let mut peers = PEER_LIST.write().unwrap();
+        if let Some(peer) = peers.get_mut(&peer_id) {
+            peer.last_seen = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+        }
+    }
+    
+    // Notify about peer disconnect
+    let disconnect_status = serde_json::json!({
+        "event": "peer_disconnected",
+        "peer_id": peer_id,
+        "connected_peers": get_peer_count()
+    }).to_string();
+    
+    let _ = status_tx.blocking_send(disconnect_status);
+    
+    Ok(())
+}
+
+// Process a message received from a peer
+fn process_peer_message(
+    peer_id: &str,
+    message: NodeMessage,
+    status_tx: &mpsc::Sender<String>
+) -> Result<(), BlockchainError> {
+    match message {
+        NodeMessage::PingRequest { timestamp } => {
+            // Respond with a pong
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            
+            let pong = NodeMessage::PongResponse {
+                request_timestamp: timestamp,
+                response_timestamp: now,
+            };
+            
+            send_message_to_peer(peer_id, &pong)?;
+        },
+        NodeMessage::PongResponse { request_timestamp, response_timestamp } => {
+            // Calculate round-trip time
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            
+            let rtt = now - request_timestamp;
+            let remote_processing_time = response_timestamp - request_timestamp;
+            
+            debug!("Received pong from {}: RTT={} ms, remote processing time={} ms", 
+                peer_id, rtt * 1000, remote_processing_time * 1000);
+            
+            // Update peer's last_seen time
+            {
+                let mut peers = PEER_LIST.write().unwrap();
+                if let Some(peer) = peers.get_mut(peer_id) {
+                    peer.last_seen = now;
+                }
+            }
+        },
+        NodeMessage::BlockAnnounce { block_index, block_hash } => {
+            info!("Peer {} announced block #{} (hash: {})", peer_id, block_index, block_hash);
+            
+            // Check if we already have this block
+            let have_block = crate::blockchain::BLOCKCHAIN_DATA.has_block_with_hash(&block_hash);
+            
+            if !have_block {
+                info!("Requesting block {} from peer {}", block_hash, peer_id);
+                
+                // Request the block
+                let request = NodeMessage::BlockRequest {
+                    block_hash: block_hash.clone(),
+                };
+                
+                send_message_to_peer(peer_id, &request)?;
+            } else {
+                debug!("Already have block {}, ignoring announcement", block_hash);
+            }
+            
+            // Notify UI about the block announcement
+            let announcement = serde_json::json!({
+                "event": "block_announced",
+                "peer_id": peer_id,
+                "block_index": block_index,
+                "block_hash": block_hash,
+                "already_have": have_block
+            }).to_string();
+            
+            let _ = status_tx.blocking_send(announcement);
+        },
+        NodeMessage::BlockRequest { block_hash } => {
+            // Try to find the requested block
+            let block = crate::blockchain::BLOCKCHAIN_DATA.get_block_by_hash(&block_hash);
+            
+            let response = match block {
+                Some(b) => {
+                    info!("Sending block {} to peer {}", block_hash, peer_id);
+                    NodeMessage::BlockResponse {
+                        block: Some(b),
+                        error: None,
+                    }
+                },
+                None => {
+                    warn!("Peer {} requested unknown block {}", peer_id, block_hash);
+                    NodeMessage::BlockResponse {
+                        block: None,
+                        error: Some(format!("Block {} not found", block_hash)),
+                    }
+                }
+            };
+            
+            send_message_to_peer(peer_id, &response)?;
+        },
+        NodeMessage::BlockResponse { block, error } => {
+            match (block, error) {
+                (Some(b), _) => {
+                    info!("Received block #{} from peer {}", b.index, peer_id);
+                    
+                    // Verify and add the block to our chain
+                    // This could be expanded with more sophisticated validation
+                    if crate::blockchain::BLOCKCHAIN_DATA.add_block(b.clone()) {
+                        info!("Added block #{} from peer {}", b.index, peer_id);
+                        
+                        // Save blockchain state immediately
+                        match crate::blockchain::save_blockchain() {
+                            Ok(_) => (),
+                            Err(e) => warn!("Failed to save blockchain after adding block: {}", e),
+                        }
+                        
+                        // Notify about the new block
+                        let block_status = serde_json::json!({
+                            "event": "block_received",
+                            "block_index": b.index,
+                            "block_hash": b.hash,
+                            "source_peer": peer_id,
+                            "transaction_count": b.transactions.len()
+                        }).to_string();
+                        
+                        let _ = status_tx.blocking_send(block_status);
+                    } else {
+                        warn!("Failed to add block #{} from peer {}", b.index, peer_id);
+                    }
+                },
+                (None, Some(err)) => {
+                    warn!("Block request error from peer {}: {}", peer_id, err);
+                }
+                _ => {
+                    warn!("Invalid block response from peer {}", peer_id);
+                }
+            }
+        },
+        NodeMessage::PeerListRequest {} => {
+            // Send our peer list
+            let peers = {
+                let peers = PEER_LIST.read().unwrap();
+                peers.values().cloned().collect::<Vec<_>>()
+            };
+            
+            let response = NodeMessage::PeerListResponse { peers };
+            send_message_to_peer(peer_id, &response)?;
+        },
+        NodeMessage::PeerListResponse { peers } => {
+            info!("Received peer list from {} with {} peers", peer_id, peers.len());
+            
+            // Process each peer and try to connect to new ones
+            for peer in &peers {
+                if peer.node_id != NODE_CONFIG.read().unwrap().node_id && 
+                   !PEER_LIST.read().unwrap().contains_key(&peer.node_id) {
+                    // Try to connect to this new peer
+                    let peer_addr = format!("{}:{}", peer.ip_address, peer.port);
+                    debug!("Discovered new peer: {} at {}", peer.node_id, peer_addr);
+                    
+                    let config = NODE_CONFIG.read().unwrap().clone();
+                    let peer_clone = peer.clone();
+                    
+                    thread::spawn(move || {
+                        if let Err(e) = connect_to_peer(&peer_addr, &config) {
+                            debug!("Failed to connect to discovered peer {}: {}", peer_clone.node_id, e);
+                        }
+                    });
+                }
+            }
+            
+            // Notify about peer discovery
+            let discovery_status = serde_json::json!({
+                "event": "peers_discovered",
+                "source_peer": peer_id,
+                "discovered_count": peers.len(),
+                "connected_peers": get_peer_count()
+            }).to_string();
+            
+            let _ = status_tx.blocking_send(discovery_status);
+        },
+        NodeMessage::Disconnect { reason } => {
+            info!("Peer {} disconnected: {}", peer_id, reason);
+            
+            // No need to send a response, just clean up
+            {
+                let mut connections = ACTIVE_CONNECTIONS.write().unwrap();
+                connections.remove(peer_id);
+            }
+            
+            // Notify about peer disconnect
+            let disconnect_status = serde_json::json!({
+                "event": "peer_disconnected",
+                "peer_id": peer_id,
+                "reason": reason,
+                "connected_peers": get_peer_count()
+            }).to_string();
+            
+            let _ = status_tx.blocking_send(disconnect_status);
+        },
+        _ => {
+            // Handle other message types
+            warn!("Unhandled message type from peer {}", peer_id);
+        }
+    }
+    
+    Ok(())
+}
+
+// Helper function to send a message to a specific peer
+fn send_message_to_peer(peer_id: &str, message: &NodeMessage) -> Result<(), BlockchainError> {
+    let connections = ACTIVE_CONNECTIONS.read().unwrap();
+    
+    let stream = match connections.get(peer_id) {
+        Some(stream) => stream.clone(),
+        None => return Err(BlockchainError::Network(format!("Peer {} not connected", peer_id))),
+    };
+    
+    // Serialize the message
+    let message_data = bincode::serialize(message)
+        .map_err(|e| BlockchainError::Network(format!("Failed to serialize message: {}", e)))?;
+    
+    // Lock the stream and write the message
+    let mut stream = match stream.lock() {
+        Ok(stream) => stream,
+        Err(_) => return Err(BlockchainError::Network("Failed to lock stream".to_string())),
+    };
+    
+    stream.write_all(&message_data)
+        .map_err(|e| BlockchainError::Network(format!("Failed to send message: {}", e)))?;
     
     Ok(())
 }
@@ -205,30 +852,22 @@ fn discover_peers(
 ) -> Result<(), BlockchainError> {
     info!("Starting peer discovery with {} known nodes", config.discovery_nodes.len());
     
-    // Connect to known discovery nodes
+    // Try to connect to each discovery node
     for node_addr in &config.discovery_nodes {
-        match TcpStream::connect(node_addr) {
-            Ok(stream) => {
-                info!("Connected to discovery node: {}", node_addr);
-                
-                // Process the peer connection
-                thread::spawn(move || {
-                    if let Err(e) = handle_peer_connection(stream) {
-                        error!("Error handling peer connection: {}", e);
-                    }
-                });
-            },
-            Err(e) => {
-                warn!("Failed to connect to discovery node {}: {}", node_addr, e);
-            }
+        if let Err(e) = connect_to_peer(node_addr, &config) {
+            warn!("Failed to connect to discovery node {}: {}", node_addr, e);
         }
     }
     
     // Periodic peer discovery and maintenance
     thread::spawn(move || {
         loop {
-            // Sleep for a bit between peer maintenance cycles
             thread::sleep(Duration::from_secs(60));
+            
+            // Check if the node is still running
+            if matches!(*NODE_STATUS.lock().unwrap(), NodeStatus::Stopped) {
+                break;
+            }
             
             // Clean up stale peers
             let now = SystemTime::now()
@@ -237,14 +876,22 @@ fn discover_peers(
                 .as_secs();
                 
             let mut peers_to_remove = Vec::new();
+            let mut peers_to_reconnect = Vec::new();
             
             {
                 let peer_list = PEER_LIST.read().unwrap();
+                let connections = ACTIVE_CONNECTIONS.read().unwrap();
                 
-                // Find peers that haven't been seen in 5 minutes
+                // Check for peers that haven't been seen in 5 minutes
                 for (id, peer) in peer_list.iter() {
                     if now - peer.last_seen > 300 {
-                        peers_to_remove.push(id.clone());
+                        // If the peer hasn't been seen for 5 minutes and is not connected, remove it
+                        if !connections.contains_key(id) {
+                            peers_to_remove.push(id.clone());
+                        }
+                    } else if !connections.contains_key(id) {
+                        // If the peer is known but not connected, try to reconnect
+                        peers_to_reconnect.push((id.clone(), format!("{}:{}", peer.ip_address, peer.port)));
                     }
                 }
             }
@@ -255,16 +902,59 @@ fn discover_peers(
                 
                 for id in &peers_to_remove {
                     if let Some(peer) = peer_list.remove(id) {
-                        info!("Removed stale peer: {}", peer.ip_address);
+                        info!("Removed stale peer: {} at {}", id, peer.ip_address);
+                    }
+                }
+            }
+            
+            // Try to reconnect to disconnected peers
+            for (id, addr) in peers_to_reconnect {
+                debug!("Attempting to reconnect to peer {} at {}", id, addr);
+                let config = config.clone();
+                
+                thread::spawn(move || {
+                    if let Err(e) = connect_to_peer(&addr, &config) {
+                        debug!("Failed to reconnect to peer {}: {}", id, e);
+                    }
+                });
+            }
+            
+            // Request peer lists from connected peers occasionally
+            {
+                let connections = ACTIVE_CONNECTIONS.read().unwrap();
+                if !connections.is_empty() && connections.len() < config.max_peers {
+                    // Randomly select a peer to ask for more peers
+                    let peer_ids: Vec<String> = connections.keys().cloned().collect();
+                    if !peer_ids.is_empty() {
+                        use rand::{thread_rng, Rng};
+                        let random_index = thread_rng().gen_range(0..peer_ids.len());
+                        let random_peer = &peer_ids[random_index];
+                        
+                        // Send peer list request
+                        let request = NodeMessage::PeerListRequest {};
+                        if let Err(e) = send_message_to_peer(random_peer, &request) {
+                            debug!("Failed to request peer list: {}", e);
+                        }
                     }
                 }
             }
             
             // Send peer status update
-            let peers_count = PEER_LIST.read().unwrap().len();
+            let peers_count = {
+                let peers = PEER_LIST.read().unwrap();
+                peers.len()
+            };
+            
+            let connections_count = {
+                let connections = ACTIVE_CONNECTIONS.read().unwrap();
+                connections.len()
+            };
+            
             let peer_status = serde_json::json!({
                 "event": "peers_updated",
-                "active_peers": peers_count,
+                "known_peers": peers_count,
+                "active_connections": connections_count,
+                "stale_peers_removed": peers_to_remove.len(),
             }).to_string();
             
             let _ = status_tx.blocking_send(peer_status);
@@ -272,6 +962,129 @@ fn discover_peers(
     });
     
     Ok(())
+}
+
+// Connect to a peer with handshake
+fn connect_to_peer(peer_addr: &str, config: &NodeConfig) -> Result<(), BlockchainError> {
+    // Parse the address
+    let socket_addr = match peer_addr.to_socket_addrs() {
+        Ok(mut addrs) => {
+            match addrs.next() {
+                Some(addr) => addr,
+                None => return Err(BlockchainError::Network(format!("Invalid peer address: {}", peer_addr))),
+            }
+        },
+        Err(e) => return Err(BlockchainError::Network(format!("Invalid peer address {}: {}", peer_addr, e))),
+    };
+    
+    // Check if the peer is ourselves
+    let self_addr = format!("{}:{}", config.listen_ip, config.listen_port);
+    if peer_addr == self_addr {
+        debug!("Skipping connection to self at {}", peer_addr);
+        return Ok(()); // Not an error, just skip connecting to ourselves
+    }
+    
+    // Connect to the peer with timeout
+    let mut stream = match std::net::TcpStream::connect_timeout(&socket_addr, Duration::from_secs(CONNECTION_TIMEOUT_SECS)) {
+        Ok(stream) => stream,
+        Err(e) => return Err(BlockchainError::Network(format!("Failed to connect to peer {}: {}", peer_addr, e))),
+    };
+    
+    // Set timeouts
+    stream.set_read_timeout(Some(Duration::from_secs(HANDSHAKE_TIMEOUT_SECS)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(HANDSHAKE_TIMEOUT_SECS)))?;
+    
+    // Create handshake message
+    let handshake = NodeMessage::Handshake {
+        node_id: config.node_id.clone(),
+        blockchain_address: config.blockchain_address.clone(),
+        protocol_version: PROTOCOL_VERSION.to_string(),
+        is_validator: config.is_validator,
+        chain_height: crate::blockchain::BLOCKCHAIN_DATA.len() as u64,
+    };
+    
+    // Serialize and send handshake
+    let handshake_data = bincode::serialize(&handshake)
+        .map_err(|e| BlockchainError::Network(format!("Failed to serialize handshake: {}", e)))?;
+    
+    stream.write_all(&handshake_data)
+        .map_err(|e| BlockchainError::Network(format!("Failed to send handshake: {}", e)))?;
+    
+    // Read handshake response
+    let mut buffer = [0u8; 8192]; // Larger buffer for peer list
+    let bytes_read = stream.read(&mut buffer)
+        .map_err(|e| BlockchainError::Network(format!("Failed to read handshake response: {}", e)))?;
+    
+    if bytes_read == 0 {
+        return Err(BlockchainError::Network(format!("Peer {} closed connection during handshake", peer_addr)));
+    }
+    
+    // Parse the response
+    let response: NodeMessage = bincode::deserialize(&buffer[0..bytes_read])
+        .map_err(|e| BlockchainError::Network(format!("Failed to parse handshake response: {}", e)))?;
+    
+    match response {
+        NodeMessage::HandshakeResponse { success, node_id, peers, message } => {
+            if success {
+                info!("Connected to peer {} at {}: {}", node_id, peer_addr, message);
+                
+                // Create and register peer
+                let peer = Peer {
+                    address: "".to_string(), // We don't know their blockchain address yet
+                    node_id: node_id.clone(),
+                    ip_address: socket_addr.ip().to_string(),
+                    port: socket_addr.port(),
+                    last_seen: SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs(),
+                    is_validator: false, // Will be updated with more info
+                    protocol_version: PROTOCOL_VERSION.to_string(),
+                    secured: config.use_tls,
+                };
+                
+                if let Err(e) = register_peer(peer.clone()) {
+                    warn!("Failed to register peer {}: {}", node_id, e);
+                }
+                
+                // Add to active connections
+                {
+                    let mut connections = ACTIVE_CONNECTIONS.write().unwrap();
+                    connections.insert(node_id.clone(), Arc::new(Mutex::new(stream.try_clone().unwrap())));
+                }
+                
+                // Process received peer list
+                for peer in peers {
+                    if peer.node_id != config.node_id && 
+                       !PEER_LIST.read().unwrap().contains_key(&peer.node_id) {
+                        // Add to peer list but don't immediately connect
+                        if let Err(e) = register_peer(peer.clone()) {
+                            debug!("Failed to register discovered peer {}: {}", peer.node_id, e);
+                        } else {
+                            debug!("Added discovered peer {} at {}:{}", 
+                                peer.node_id, peer.ip_address, peer.port);
+                        }
+                    }
+                }
+                
+                // Start message handling thread for this peer
+                let node_id_clone = node_id.clone();
+                thread::spawn(move || {
+                    if let Err(e) = handle_peer_messages(node_id_clone, stream, mpsc::channel(100).0) {
+                        error!("Error handling messages from peer {}: {}", node_id, e);
+                    }
+                });
+                
+                Ok(())
+            } else {
+                // Connection rejected
+                Err(BlockchainError::Network(format!("Peer {} rejected connection: {}", peer_addr, message)))
+            }
+        },
+        _ => {
+            Err(BlockchainError::Network(format!("Unexpected response from peer {}", peer_addr)))
+        }
+    }
 }
 
 // Register a new peer
@@ -289,29 +1102,45 @@ pub fn register_peer(peer: Peer) -> Result<(), BlockchainError> {
     // Add or update the peer
     peers.insert(peer.node_id.clone(), peer.clone());
     
-    info!("Registered peer: {} at {}", peer.node_id, peer.ip_address);
+    info!("Registered peer: {} at {}:{}", peer.node_id, peer.ip_address, peer.port);
     Ok(())
 }
 
 // Propagate a new block to all peers
 pub fn propagate_block(block: &Block<Blake3Algorithm>) -> Result<(), BlockchainError> {
-    let peers = PEER_LIST.read().unwrap();
+    let peers = {
+        let connections = ACTIVE_CONNECTIONS.read().unwrap();
+        connections.keys().cloned().collect::<Vec<_>>()
+    };
+
     if peers.is_empty() {
-        // No peers to propagate to
+        debug!("No peers to propagate block to");
         return Ok(());
     }
     
     info!("Propagating block {} to {} peers", block.index, peers.len());
     
-    // TODO: Implement actual block propagation protocol
-    // This would serialize the block and send it to all connected peers
+    // Create block announcement
+    let announcement = NodeMessage::BlockAnnounce {
+        block_index: block.index as u64, // Convert u32 to u64
+        block_hash: block.hash.clone(),
+    };
+    
+    // Send to all connected peers
+    for peer_id in peers {
+        if let Err(e) = send_message_to_peer(&peer_id, &announcement) {
+            warn!("Failed to announce block to peer {}: {}", peer_id, e);
+        } else {
+            debug!("Block {} announced to peer {}", block.index, peer_id);
+        }
+    }
     
     Ok(())
 }
 
 // Get peer count
 pub fn get_peer_count() -> usize {
-    PEER_LIST.read().unwrap().len()
+    ACTIVE_CONNECTIONS.read().unwrap().len()
 }
 
 // Get list of peers
@@ -333,7 +1162,27 @@ pub fn stop_node() -> Result<(), BlockchainError> {
         *status = NodeStatus::Stopped;
     }
     
-    // TODO: Implement graceful peer disconnection
+    // Send disconnect messages to all peers
+    let peer_ids = {
+        let connections = ACTIVE_CONNECTIONS.read().unwrap();
+        connections.keys().cloned().collect::<Vec<_>>()
+    };
+    
+    for peer_id in peer_ids {
+        let disconnect = NodeMessage::Disconnect {
+            reason: "Node shutting down".to_string(),
+        };
+        
+        if let Err(e) = send_message_to_peer(&peer_id, &disconnect) {
+            warn!("Failed to send disconnect message to peer {}: {}", peer_id, e);
+        }
+    }
+    
+    // Clear connection list
+    {
+        let mut connections = ACTIVE_CONNECTIONS.write().unwrap();
+        connections.clear();
+    }
     
     Ok(())
 }

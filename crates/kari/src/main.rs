@@ -457,20 +457,23 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
         }
     }
 
-    let _rpc_handle = tokio::spawn(async move {
+    // Start RPC server with shutdown signal
+    let rpc_handle = tokio::spawn(async move {
         println!("Starting RPC server on port {}...", rpc_config.port);
         
-        // Create a shutdown signal for RPC server - fix the type annotation
-        let (_rpc_shutdown_tx, rpc_shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        match start_rpc_server(rpc_config).await {
+            Ok(_) => {
+                println!("RPC server started successfully.");
+            }
+            Err(e) => {
+                eprintln!("Failed to start RPC server: {}", e);
+            }
+        }
         
-        // Pass shutdown channel to RPC server
-        tokio::select! {
-            _ = start_rpc_server(rpc_config) => {
-                println!("RPC server stopped.");
-            }
-            _ = rpc_shutdown_rx => {
-                println!("RPC server received shutdown signal.");
-            }
+        // Keep this task alive until it's aborted
+        loop {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            tokio::task::yield_now().await;
         }
     });
 
@@ -527,10 +530,7 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
 
     // Force exit (needed because RPC server might be hanging)
     println!("Node stopped. Exiting...");
+    // Abort the RPC server task explicitly before exiting
+    rpc_handle.abort();
     std::process::exit(0);
-}
-
-// Replace the original start_node function with a call to start_node_with_peers
-async fn start_node() {
-    start_node_with_peers(Vec::new(), None).await
 }

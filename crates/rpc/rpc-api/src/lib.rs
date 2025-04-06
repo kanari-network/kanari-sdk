@@ -1,4 +1,4 @@
-use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, str::FromStr, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, str::FromStr, time::{SystemTime, UNIX_EPOCH}};
 use futures::FutureExt;
 use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult, Error as RpcError, ErrorCode};
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
@@ -1027,7 +1027,7 @@ fn get_staking_stats(_params: Params) -> JsonRpcResult<JsonValue> {
 }
 
 /// Starts the RPC server for file operations
-pub async fn start_rpc_server(network_config: NetworkConfig) {
+pub async fn start_rpc_server(network_config: NetworkConfig) -> Result<(), tokio::io::Error> {
     let mut io = IoHandler::new();
 
     // Add file operations
@@ -1110,11 +1110,24 @@ pub async fn start_rpc_server(network_config: NetworkConfig) {
 
     // Create CORS settings for production
     let allowed_origins = vec![
+        AccessControlAllowOrigin::Any, // Allow all origins for testing
         AccessControlAllowOrigin::Value(network_config.domain.clone().into()),
         AccessControlAllowOrigin::Value(format!("https://{}", network_config.domain).into()),
         AccessControlAllowOrigin::Value(format!("http://{}", network_config.domain).into()),
     ];
 
+    // Check if TLS certificates are available
+    let cert_path = std::env::current_dir().unwrap().join("cert.pem");
+    let key_path = std::env::current_dir().unwrap().join("key.pem");
+    
+    let use_tls = cert_path.exists() && key_path.exists();
+    
+    if use_tls {
+        println!("TLS certificates found, but HTTPS is not supported in this version of jsonrpc-http-server.");
+        println!("Starting HTTP server instead. For secure connections, consider using a reverse proxy like Nginx or Caddy.");
+    }
+    
+    // Start HTTP server
     match ServerBuilder::new(io)
         .cors(DomainsValidation::AllowOnly(allowed_origins))
         .threads(4) // Increase thread count for better performance
@@ -1123,29 +1136,33 @@ pub async fn start_rpc_server(network_config: NetworkConfig) {
         .start_http(&bind_addr)
     {
         Ok(server) => {
-            println!("RPC server running on http://{}:{}", network_config.node_address, network_config.port);
+            println!("HTTP server running on http://{}:{}", network_config.node_address, network_config.port);
             if !network_config.peers.is_empty() {
                 println!("Connected to peers:");
                 for peer in &network_config.peers {
                     println!("  - {}", peer);
                 }
             }
-            // Create a non-blocking task to monitor for shutdown
+            
+            // Create a channel for shutdown coordination
+            let (shutdown_complete_tx, _shutdown_complete_rx) = tokio::sync::oneshot::channel();
+            
+            // Spawn a task to wait for the server in the background
+            // We don't need to clone the server, just move it into the task
             tokio::spawn(async move {
-                // This will run in a separate task, allowing the server to be shut down properly
+                // This will block until the server is shut down
                 server.wait();
+                
+                // Once server.wait() returns, signal completion
+                let _ = shutdown_complete_tx.send(());
             });
             
-            // Sleep to keep the function running without blocking
-            loop {
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                // This allows the function to be cancelled when its task is cancelled
-                tokio::task::yield_now().await;
-            }
+            // Return immediately, allowing the server to run in the background
+            Ok(())
         }
         Err(e) => {
-            eprintln!("Failed to start RPC server: {}", e);
-            std::process::exit(1);
+            eprintln!("Failed to start HTTP server: {}", e);
+            Err(e.into())
         }
     }
 }

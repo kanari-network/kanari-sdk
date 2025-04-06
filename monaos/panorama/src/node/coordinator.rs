@@ -1,0 +1,191 @@
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+use log::{info, warn, debug};
+use tokio::sync::mpsc;
+use serde::{Serialize, Deserialize};
+use crate::block::{Block, Transaction};
+use consensus_pos::Blake3Algorithm;
+use crate::blockchain::BlockchainError;
+
+use super::{send_message_to_peer, get_peers, ACTIVE_CONNECTIONS, NodeMessage};
+
+/// Network statistics tracker
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkStats {
+    pub blocks_received: u64,
+    pub blocks_sent: u64,
+    pub transactions_received: u64,
+    pub transactions_sent: u64,
+    pub peers_connected: usize,
+    pub bytes_received: u64,
+    pub bytes_sent: u64,
+    pub last_update: u64,
+}
+
+impl Default for NetworkStats {
+    fn default() -> Self {
+        Self {
+            blocks_received: 0,
+            blocks_sent: 0,
+            transactions_received: 0,
+            transactions_sent: 0,
+            peers_connected: 0,
+            bytes_received: 0,
+            bytes_sent: 0,
+            last_update: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        }
+    }
+}
+
+// Global statistics
+lazy_static::lazy_static! {
+    pub static ref NETWORK_STATS: Arc<Mutex<NetworkStats>> = Arc::new(Mutex::new(NetworkStats::default()));
+}
+
+// Broadcast a transaction to all peers
+pub fn broadcast_transaction(transaction: &Transaction) -> Result<(), BlockchainError> {
+    let transaction_id = transaction.transaction_id.clone();
+    
+    // Create transaction announcement with just the ID
+    // Peers will request the full transaction if needed
+    let announcement = NodeMessage::TransactionAnnounce {
+        transaction_ids: vec![transaction_id.clone()],
+    };
+    
+    // Get list of connected peers
+    let peer_ids = {
+        let connections = ACTIVE_CONNECTIONS.read().unwrap();
+        connections.keys().cloned().collect::<Vec<_>>()
+    };
+    
+    // Exit early if no peers
+    if peer_ids.is_empty() {
+        debug!("No peers to broadcast transaction {}", transaction_id);
+        return Ok(());
+    }
+    
+    info!("Broadcasting transaction {} to {} peers", transaction_id, peer_ids.len());
+    
+    // Broadcast to all peers
+    let mut success_count = 0;
+    // Fix: Iterate over a reference to peer_ids instead of consuming it
+    for peer_id in &peer_ids {
+        if let Err(e) = send_message_to_peer(peer_id, &announcement) {
+            warn!("Failed to announce transaction to peer {}: {}", peer_id, e);
+        } else {
+            success_count += 1;
+            debug!("Transaction {} announced to peer {}", transaction_id, peer_id);
+        }
+    }
+    
+    // Update statistics
+    if success_count > 0 {
+        let mut stats = NETWORK_STATS.lock().unwrap();
+        stats.transactions_sent += 1;
+        stats.last_update = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+    }
+    
+    Ok(())
+}
+
+// Broadcast a block to all peers
+pub fn broadcast_block(block: &Block<Blake3Algorithm>, status_tx: &mpsc::Sender<String>) -> Result<(), BlockchainError> {
+    // Create block announcement
+    let announcement = NodeMessage::BlockAnnounce {
+        block_index: block.index as u64, // Convert u32 to u64
+        block_hash: block.hash.clone(),
+    };
+    
+    // Get list of connected peers
+    let peer_ids = {
+        let connections = ACTIVE_CONNECTIONS.read().unwrap();
+        connections.keys().cloned().collect::<Vec<_>>()
+    };
+    
+    // Exit early if no peers
+    if peer_ids.is_empty() {
+        debug!("No peers to broadcast block {}", block.index);
+        return Ok(());
+    }
+    
+    info!("Broadcasting block {} to {} peers", block.index, peer_ids.len());
+    
+    // Broadcast to all peers
+    let mut success_count = 0;
+    // Fix: Iterate over a reference to peer_ids instead of consuming it
+    for peer_id in &peer_ids {
+        if let Err(e) = send_message_to_peer(peer_id, &announcement) {
+            warn!("Failed to announce block to peer {}: {}", peer_id, e);
+        } else {
+            success_count += 1;
+            debug!("Block {} announced to peer {}", block.index, peer_id);
+        }
+    }
+    
+    // Update statistics
+    if success_count > 0 {
+        let mut stats = NETWORK_STATS.lock().unwrap();
+        stats.blocks_sent += 1;
+        stats.last_update = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+    }
+    
+    // Notify UI about the block broadcast
+    let broadcast_status = serde_json::json!({
+        "event": "block_broadcast",
+        "block_index": block.index,
+        "block_hash": block.hash,
+        "peer_count": peer_ids.len(),
+        "success_count": success_count
+    }).to_string();
+    
+    let _ = status_tx.blocking_send(broadcast_status);
+    
+    Ok(())
+}
+
+// Get the latest network statistics
+pub fn get_network_statistics() -> NetworkStats {
+    let mut stats = NETWORK_STATS.lock().unwrap();
+    
+    // Update peer count
+    stats.peers_connected = super::get_peer_count();
+    
+    // Update timestamp
+    stats.last_update = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    
+    stats.clone()
+}
+
+// Check if we're connected to a specific peer
+pub fn is_connected_to_peer(peer_id: &str) -> bool {
+    let connections = ACTIVE_CONNECTIONS.read().unwrap();
+    connections.contains_key(peer_id)
+}
+
+// Get a list of node IDs we're connected to
+pub fn get_connected_peers() -> Vec<String> {
+    let connections = ACTIVE_CONNECTIONS.read().unwrap();
+    connections.keys().cloned().collect()
+}
+
+// Sync blockchain with a specific peer
+pub fn request_sync_from_peer(peer_id: &str) -> Result<(), BlockchainError> {
+    info!("Requesting blockchain sync from peer {}", peer_id);
+    
+    // Send a custom sync request message
+    // (This could be expanded in the protocol)
+    
+    Ok(())
+}

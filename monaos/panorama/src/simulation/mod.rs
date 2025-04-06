@@ -548,6 +548,9 @@ pub fn run_blockchain(
         discovery_nodes: vec!["127.0.0.1:30303".to_string()],
         max_peers: 25,
         is_validator: false, // Will be updated based on staking status
+        use_tls: false,      // Add missing fields for TLS support
+        cert_path: None,
+        key_path: None,
     };
     
     // Start node networking
