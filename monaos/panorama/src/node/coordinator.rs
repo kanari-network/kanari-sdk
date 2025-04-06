@@ -7,7 +7,7 @@ use crate::block::{Block, Transaction};
 use consensus_pos::Blake3Algorithm;
 use crate::blockchain::BlockchainError;
 
-use super::{send_message_to_peer, get_peers, ACTIVE_CONNECTIONS, NodeMessage};
+use super::{send_message_to_peer, ACTIVE_CONNECTIONS, NodeMessage};
 
 /// Network statistics tracker
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,7 +71,6 @@ pub fn broadcast_transaction(transaction: &Transaction) -> Result<(), Blockchain
     
     // Broadcast to all peers
     let mut success_count = 0;
-    // Fix: Iterate over a reference to peer_ids instead of consuming it
     for peer_id in &peer_ids {
         if let Err(e) = send_message_to_peer(peer_id, &announcement) {
             warn!("Failed to announce transaction to peer {}: {}", peer_id, e);
@@ -118,7 +117,6 @@ pub fn broadcast_block(block: &Block<Blake3Algorithm>, status_tx: &mpsc::Sender<
     
     // Broadcast to all peers
     let mut success_count = 0;
-    // Fix: Iterate over a reference to peer_ids instead of consuming it
     for peer_id in &peer_ids {
         if let Err(e) = send_message_to_peer(peer_id, &announcement) {
             warn!("Failed to announce block to peer {}: {}", peer_id, e);

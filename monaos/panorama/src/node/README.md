@@ -1,6 +1,6 @@
-# KARI Blockchain Node Module
+# Kanari Network Blockchain Node Module
 
-This module implements peer-to-peer networking for KARI blockchain nodes.
+This module implements peer-to-peer networking for Kanari Network blockchain nodes.
 
 ## Architecture
 

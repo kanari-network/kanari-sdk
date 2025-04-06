@@ -1,6 +1,6 @@
 # Blockchain Network Coordinator
 
-The `coordinator.rs` module is a key component of the KARI blockchain's peer-to-peer networking system. It handles high-level orchestration of node communication across the network.
+The `coordinator.rs` module is a key component of the Kanari Network blockchain's peer-to-peer networking system. It handles high-level orchestration of node communication across the network.
 
 ## Core Responsibilities
 
