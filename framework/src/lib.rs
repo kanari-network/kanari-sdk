@@ -285,10 +285,6 @@ impl Package {
             Symbol::from("std"), 
             NumericalAddress::parse_str("0x1").unwrap()
         );
-        addresses.insert(
-            Symbol::from("kanari"), 
-            NumericalAddress::parse_str("0x2").unwrap()
-        );
         // Add kanari_framework address to fix the "address with no value" errors
         addresses.insert(
             Symbol::from("kanari_framework"), 
