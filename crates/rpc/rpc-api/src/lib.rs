@@ -1,10 +1,10 @@
-use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, str::FromStr, time::{SystemTime, UNIX_EPOCH}};
+use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, str::FromStr};
 use futures::FutureExt;
 use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult, Error as RpcError, ErrorCode};
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
 use metadata::{get_file, upload_file};
 use mona_types::address::Address;
-use panorama::{blockchain::{BLOCKCHAIN_DATA, get_balance, load_blockchain_with_retry}, chain_id::CHAIN_ID, blockchain::BALANCES};
+use panorama::{blockchain::{BLOCKCHAIN_DATA, load_blockchain_with_retry}, chain_id::CHAIN_ID, blockchain::BALANCES};
 use panorama::simulation::process_transfer;
 use network::NetworkConfig;
 use serde_json::{json, Value as JsonValue};
