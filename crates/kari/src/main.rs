@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use command::public_cli::handle_public_command;
 use key::{check_wallet_exists, list_wallet_files};
-use network::{NetworkConfig, NetworkType};
+use network::NetworkConfig;
 use panorama::simulation::run_blockchain;
 
 use common::get_kari_dir;
@@ -41,7 +41,7 @@ const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         name: "start --port <PORT>",
         alias: None,
-        description: "Start a node on specific port (default: 30031)",
+        description: "Start a node on specific port (default: 30030)",
     },
     CommandInfo {
         name: "public",
@@ -65,7 +65,7 @@ const COMMANDS: &[CommandInfo] = &[
     },
     CommandInfo {
         name: "help",
-        alias: Some("-h"),
+        alias: Some("--h"),
         description: "Display this help message",
     },
     CommandInfo {
@@ -177,19 +177,19 @@ async fn main() {
             println!("{}", "Opening Kari documentation...".bright_yellow());
             #[cfg(target_os = "windows")]
             Command::new("cmd")
-                .args(["/C", "start", "https://docs.kanari.network"])
+                .args(["/C", "start", "https://docs.kanari.site"])
                 .spawn()
                 .expect("Failed to open documentation");
 
             #[cfg(target_os = "linux")]
             Command::new("xdg-open")
-                .arg("https://docs.kanari.network")
+                .arg("https://docs.kanari.site")
                 .spawn()
                 .expect("Failed to open documentation");
 
             #[cfg(target_os = "macos")]
             Command::new("open")
-                .arg("https://docs.kanari.network")
+                .arg("https://docs.kanari.site")
                 .spawn()
                 .expect("Failed to open documentation");
         }
@@ -225,19 +225,9 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
     // Check if the configuration already exists
     let network_config = if config.get("network_type").is_some()
         && config.get("rpc_port").is_some()
-        && config.get("domain").is_some()
         && config.get("chain_id").is_some()
     {
         println!("Configuration already exists. Skipping configuration process.");
-        let network_type = match config.get("network_type").unwrap().as_str().unwrap() {
-            "devnet" => NetworkType::Devnet,
-            "testnet" => NetworkType::Testnet,
-            "mainnet" => NetworkType::Mainnet,
-            _ => {
-                eprintln!("Invalid network type in config, defaulting to devnet");
-                NetworkType::Devnet
-            },
-        };
         
         // Use provided port if given, otherwise use configured port
         let rpc_port = match port {
@@ -248,13 +238,12 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
             None => match config.get("rpc_port").unwrap().as_u64() {
                 Some(p) => p as u16,
                 None => {
-                    eprintln!("Invalid port in config, using default 30031");
-                    30031
+                    eprintln!("Invalid port in config, using default 30030");
+                    30030
                 }
             },
         };
         
-        let domain = config.get("domain").unwrap().as_str().unwrap_or("localhost").to_string();
         let chain_id = config
             .get("chain_id")
             .unwrap()
@@ -264,13 +253,11 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
 
         NetworkConfig {
             node_address: "127.0.0.1".to_string(),
-            domain,
             port: rpc_port,
             peers,  // Use provided peers
             chain_id,
             max_connections: 100,
             api_enabled: true,
-            network_type,
         }
     } else {
         // Call configure_network and get the NetworkConfig
@@ -382,25 +369,11 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
             serde_yaml::Value::String(network_config.chain_id.clone()),
         );
         map.insert(
-            serde_yaml::Value::String("network_type".to_string()),
-            serde_yaml::Value::String(network_config.network_type.to_string()),
-        );
-        map.insert(
             serde_yaml::Value::String("rpc_port".to_string()),
             serde_yaml::Value::Number(serde_yaml::Number::from(network_config.port)),
         );
-        map.insert(
-            serde_yaml::Value::String("domain".to_string()),
-            serde_yaml::Value::String(network_config.domain.clone()),
-        );
-        
-        // Add domain verification info
-        println!("Using domain: {}", network_config.domain);
-        if network_config.domain.ends_with(".kanari.network") {
-            println!("Standard Kanari Network domain detected.");
-        } else {
-            println!("Custom domain detected. Make sure DNS is properly configured.");
-        }
+
+    
         
         map.insert(
             serde_yaml::Value::String("address".to_string()),
@@ -459,13 +432,11 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
     // Update RPC configuration
     let rpc_config = NetworkConfig {
         node_address: local_ip.to_string(), // Use actual network IP
-        domain: network_config.domain.clone(),
         port: network_config.port,
         peers: network_config.peers.clone(),
         chain_id: network_config.chain_id.clone(),
         max_connections: 100,
-        api_enabled: true,
-        network_type: network_config.network_type,
+        api_enabled: true    
     };
 
     // Add function to get local IP address
@@ -552,20 +523,16 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
         }
     });
 
-    // Use a separate boolean for tracking shutdown status
-    let mut shutdown_requested = false;
-
-    // Display block status updates while waiting for shutdown signal
-    while !shutdown_requested {
+    // Display block status updates; break loop once shutdown is signaled
+    loop {
         tokio::select! {
             Some(status) = rx.recv() => {
                 println!("{}", status.bright_cyan());
             }
             _ = &mut shutdown_rx => {
                 println!("Shutdown signal received. Stopping node...");
-                // Set running to false to stop blockchain
                 *running.lock().unwrap() = false;
-                shutdown_requested = true;
+                break;
             }
         }
     }

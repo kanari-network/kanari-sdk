@@ -1,39 +1,17 @@
 use serde::{Deserialize, Serialize};
 use serde_json;
-use std::fmt;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
-#[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]  // Add Clone and Debug traits
-pub enum NetworkType {
-    Mainnet,
-    Testnet,
-    Devnet,
-}
-
-
-#[derive(Serialize, Deserialize, Clone, Debug)]  // Add Clone and Debug traits
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NetworkConfig {
     pub node_address: String,
-    pub domain: String,
     pub port: u16,
     pub peers: Vec<String>,
     pub chain_id: String,
     pub max_connections: u32,
     pub api_enabled: bool,
-    pub network_type: NetworkType,
-}
-
-
-impl fmt::Display for NetworkType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            NetworkType::Mainnet => write!(f, "mainnet"),
-            NetworkType::Testnet => write!(f, "testnet"),
-            NetworkType::Devnet => write!(f, "devnet"),
-        }
-    }
 }
 
 impl NetworkConfig {
@@ -62,6 +40,5 @@ impl NetworkConfig {
         self.chain_id = new_config.chain_id;
         self.max_connections = new_config.max_connections;
         self.api_enabled = new_config.api_enabled;
-        self.network_type = new_config.network_type;
     }
 }

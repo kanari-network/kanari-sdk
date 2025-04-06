@@ -74,7 +74,7 @@ stop_node()?;
 
 ## Port Configuration
 
-- **RPC Port**: 30031 (default, configurable) - Used for API access
+- **RPC Port**: 30030 (default, configurable) - Used for API access
 - **P2P Port**: 51303 (default) - Used for node-to-node communication
 
 When running multiple nodes on one machine, each node must use different ports.

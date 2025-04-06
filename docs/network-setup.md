@@ -14,7 +14,7 @@ This guide explains how to set up and run Kanari blockchain nodes in a real netw
 ### Step 1: Configure Your Network
 
 1. Open the following ports in your firewall:
-   - RPC Port (default: 30031)
+   - RPC Port (default: 30030)
    - P2P Port (default: 51303)
 
 2. Get your public IP address:
@@ -27,7 +27,7 @@ This guide explains how to set up and run Kanari blockchain nodes in a real netw
 Start your first node which will act as a bootstrap node:
 
 ```bash
-kari start --port 30031
+kari start --port 30030
 ```
 
 The node will automatically detect your network interface and bind to the appropriate IP address.
@@ -39,8 +39,8 @@ Using existing wallet as address: 0x28e442c54d872cea9415382e61559dde126da6d6aee8
 Starting blockchain...
 Running blockchain simulation...
 Block status will be shown below. Press Enter to stop the node.
-Starting RPC server on port 30031...
-HTTP server running on http://192.168.1.103:30031
+Starting RPC server on port 30030...
+HTTP server running on http://192.168.1.103:30030
 ```
 
 Note the IP address from the output (in this example, 192.168.1.103) - you'll need this to connect other nodes.
@@ -96,7 +96,7 @@ To check if nodes are properly connected:
      "method": "blockchain_status",
      "params": [],
      "id": 1
-   }' http://localhost:30031
+   }' http://localhost:30030
    ```
 
 ### Port Configuration
@@ -116,7 +116,7 @@ If you have a domain name pointing to your server:
 
 ```bash
 # The domain will be used in configuration automatically
-kari start --port 30031
+kari start --port 30030
 ```
 
 ### Network Security
@@ -135,7 +135,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
 
     location / {
-        proxy_pass http://localhost:30031;
+        proxy_pass http://localhost:30030;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -165,7 +165,7 @@ To run a validator node:
        "validator": true
      },
      "id": 1
-   }' http://your.node.address:30031
+   }' http://your.node.address:30030
    ```
 
 3. The node will automatically run in validator mode once staking is confirmed.
@@ -216,7 +216,7 @@ curl -X POST -H "Content-Type: application/json" -d '{
   "method": "blockchain_status",
   "params": [],
   "id": 1
-}' http://localhost:30031
+}' http://localhost:30030
 ```
 
 ### Viewing Connected Peers
@@ -227,7 +227,7 @@ curl -X POST -H "Content-Type: application/json" -d '{
   "method": "get_peers",
   "params": [],
   "id": 1
-}' http://localhost:30031
+}' http://localhost:30030
 ```
 
 ## System Requirements
@@ -237,4 +237,4 @@ curl -X POST -H "Content-Type: application/json" -d '{
 - Storage: 100GB SSD
 - Network: 100Mbps+ stable connection
 - Public IP or domain name
-- Open ports: 30031 (RPC), 51303 (P2P)
+- Open ports: 30030 (RPC), 51303 (P2P)
