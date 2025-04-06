@@ -129,13 +129,48 @@ pub fn handle_move_command() {
             compute_coverage: false,
             gas_limit: None
         }),
-        Some("publish") => Command::Publish(Publish {
-            module_path: PathBuf::new(),
-            gas_budget: 1000000,
-            address: None,
-            skip_verify: false,
-            use_mona_vm: false,
-        }),
+        Some("publish") => {
+            // Default to current directory if not specified
+            let module_path = if args.len() > 3 {
+                PathBuf::from(args[3].clone())
+            } else {
+                std::env::current_dir().unwrap_or_else(|_| PathBuf::new())
+            };
+            
+            // Check for address parameter (--address=0x...)
+            let address = args.iter().find(|arg| arg.starts_with("--address="))
+                .and_then(|arg| {
+                    let addr_str = arg.trim_start_matches("--address=");
+                    match move_core_types::account_address::AccountAddress::from_hex_literal(addr_str) {
+                        Ok(addr) => Some(addr),
+                        Err(_) => None,
+                    }
+                });
+            
+            // Check for gas_budget parameter (--gas-budget=N)
+            let gas_budget = args.iter().find(|arg| arg.starts_with("--gas-budget="))
+                .and_then(|arg| {
+                    let budget_str = arg.trim_start_matches("--gas-budget=");
+                    budget_str.parse::<u64>().ok()
+                }).unwrap_or(3_000_000); // Default to 3M gas units (0.003 KARI)
+            
+            // Check for --skip-verify flag
+            let skip_verify = args.iter().any(|arg| arg == "--skip-verify");
+            
+            // Default to using Mona VM for blockchain deployment (use --no-mona-vm to disable)
+            let use_mona_vm = !args.iter().any(|arg| arg == "--no-mona-vm");
+            
+            println!("Publishing Move module to {}blockchain...", 
+                     if use_mona_vm { "" } else { "local sandbox (not " });
+            
+            Command::Publish(Publish {
+                module_path,
+                gas_budget,
+                address,
+                skip_verify,
+                use_mona_vm,
+            })
+        },
         Some("call") => Command::Call(Call {
             package: String::new(),
             module: String::new(),

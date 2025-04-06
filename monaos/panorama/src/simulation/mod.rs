@@ -1,3 +1,4 @@
+use byte_slice_cast::AsByteSlice;
 use consensus_pos::Blake3Algorithm;
 use log::{error, info, warn, debug};
 use tokio::sync::mpsc;
@@ -13,7 +14,7 @@ use crate::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN_DATA, normalize_ad
 use crate::transfer_tokens::transfer_tokens;
 use mona_types::address::Address;
 use mona_types::kari::{KARI, KA_PER_KARI, POOL_ADDRESS, POOL_RESERVED_KA, POOL_RESERVED_KARI, TOTAL_SUPPLY_KA, TOTAL_SUPPLY_KARI, VALIDATOR_STAKING_MINIMUM_KARI, NODE_STAKING_MINIMUM_KARI};
-use crate::utils::{update_pending_transaction_count, update_last_block_time, calculate_gas_fee};
+use crate::utils::{update_pending_transaction_count, update_last_block_time, calculate_gas_fee, format_gas_fee_display};
 use crate::staking::{load_staking_state, process_rewards, is_validator};
 use crate::node::{NodeConfig, start_node, stop_node, propagate_block, get_peer_count};
 
@@ -66,6 +67,7 @@ pub fn process_transfer(
     
     // Calculate gas fee dynamically
     let gas_fee = calculate_gas_fee(priority_boost);
+    let gas_fee_display = format_gas_fee_display(gas_fee);
     
     // Execute transfer using string representation and password for signing
     match transfer_tokens(&from.to_hex_literal(), &to.to_hex_literal(), amount, password, gas_fee) {
@@ -95,6 +97,7 @@ pub fn process_transfer(
                         "receiver": transaction.receiver.to_hex_literal(),
                         "amount": amount,
                         "gas_fee": transaction.gas_fee,
+                        "gas_fee_display": format_gas_fee_display(transaction.gas_fee),
                         "gas_collector": crate::utils::GAS_FEE_COLLECTOR,
                         "total_cost": crate::utils::calculate_total_transaction_cost(amount, transaction.gas_fee),
                         "timestamp": transaction.timestamp,
@@ -135,6 +138,7 @@ pub fn process_transfer(
                     "receiver": to_address,
                     "amount": amount,
                     "gas_fee": gas_fee,
+                    "gas_fee_display": gas_fee_display,
                     "total_cost": crate::utils::calculate_total_transaction_cost(amount, gas_fee)
                 }
             }).to_string();
@@ -207,6 +211,284 @@ fn force_transaction_inclusion(transaction: &Transaction) -> bool {
             error!("Failed to save emergency transaction block: {}", e);
             false
         }
+    }
+}
+
+/// Process a smart contract deployment transaction
+pub fn process_contract_deployment(
+    from_address: &str,
+    contract_bytecode: &[u8],
+    password: &str,
+    priority_boost: Option<u64>,
+    tx: &mpsc::Sender<String>
+) -> Result<Transaction, String> {
+    // Parse addresses
+    let from = match normalize_address(from_address) {
+        Ok(addr) => addr,
+        Err(e) => return Err(format!("Invalid sender address: {}", e)),
+    };
+    
+    // Calculate gas fee based on bytecode size and complexity
+    let base_fee = calculate_gas_fee(priority_boost);
+    let bytecode_size_fee = (contract_bytecode.len() as u64) * 10; // 10 gas units per byte
+    let gas_fee = std::cmp::min(
+        base_fee + bytecode_size_fee, 
+        crate::utils::MAX_GAS_FEE
+    );
+    
+    // Check if user has enough balance
+    let balance = match crate::blockchain::get_balance(&from.to_hex_literal()) {
+        Ok(bal) => bal,
+        Err(e) => return Err(format!("Failed to get balance: {}", e)),
+    };
+    
+    if balance < gas_fee {
+        let error = format!(
+            "Insufficient balance for contract deployment: {} < {} gas fee", 
+            balance, gas_fee
+        );
+        
+        // Notify about the error
+        let error_json = json!({
+            "event": "contract_deployment_error",
+            "error": error,
+            "details": {
+                "sender": from_address,
+                "bytecode_size": contract_bytecode.len(),
+                "gas_fee": gas_fee,
+                "gas_fee_display": format_gas_fee_display(gas_fee),
+                "balance": balance,
+                "balance_display": format_gas_fee_display(balance)
+            }
+        }).to_string();
+        
+        let _ = tx.try_send(error_json);
+        return Err(error);
+    }
+    
+    // Generate contract address - derived from sender and nonce
+    let contract_address = generate_contract_address(&from, contract_bytecode);
+    
+    // Create deployment transaction
+    let transaction = Transaction {
+        transaction_id: crate::utils::generate_transaction_id(),
+        sender: from,
+        receiver: contract_address.clone(), // Contract address as receiver
+        amount: 0, // No tokens transferred in deployment
+        gas_fee,
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+        signature: Vec::new(), // Will be added by signing process
+    };
+    
+    // Sign the transaction
+    let signed_tx = match sign_transaction(transaction.clone(), password) {
+        Ok(tx) => tx,
+        Err(e) => {
+            let error = format!("Failed to sign deployment transaction: {}", e);
+            let error_json = json!({
+                "event": "contract_deployment_error",
+                "error": error,
+                "details": {
+                    "sender": from_address,
+                }
+            }).to_string();
+            
+            let _ = tx.try_send(error_json);
+            return Err(error);
+        }
+    };
+    
+    // Add to pending transactions
+    if add_pending_transaction(signed_tx.clone()) {
+        // Create contract deployment notification
+        let deploy_json = json!({
+            "event": "contract_deployment_pending",
+            "contract": {
+                "address": contract_address.to_hex_literal(),
+                "deployer": from.to_hex_literal(),
+                "transaction_id": signed_tx.transaction_id,
+                "bytecode_size": contract_bytecode.len(),
+                "gas_fee": gas_fee,
+                "gas_fee_display": format_gas_fee_display(gas_fee),
+                "timestamp": signed_tx.timestamp
+            },
+            "status": "pending"
+        }).to_string();
+        
+        let _ = tx.try_send(deploy_json);
+        
+        // Deduct fee from balance
+        if let Ok(mut balances) = BALANCES.lock() {
+            *balances.entry(from.to_hex_literal()).or_insert(0) -= gas_fee;
+            *balances.entry(crate::utils::GAS_FEE_COLLECTOR.to_string()).or_insert(0) += gas_fee;
+        }
+        
+        // Return the transaction
+        Ok(signed_tx)
+    } else {
+        Err("Failed to add contract deployment to pending queue".to_string())
+    }
+}
+
+/// Generate a deterministic contract address based on sender and bytecode
+fn generate_contract_address(sender: &Address, bytecode: &[u8]) -> Address {
+    use sha3::{Digest, Keccak256};
+    
+    // Create a hasher
+    let mut hasher = Keccak256::new();
+    
+    // Add sender address - fix: use as_byte_slice() instead of as_bytes()
+    hasher.update(sender.as_byte_slice());
+    
+    // Add bytecode hash (not the full bytecode to avoid excessive hashing)
+    let mut bytecode_hasher = Keccak256::new();
+    bytecode_hasher.update(bytecode);
+    let bytecode_hash = bytecode_hasher.finalize();
+    hasher.update(bytecode_hash);
+    
+    // Add timestamp for uniqueness
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+        .to_le_bytes();
+    hasher.update(&timestamp);
+    
+    // Finalize the hash and convert to Address
+    let hash = hasher.finalize();
+    let hash_str = format!("0x{}", hex::encode(hash));
+    
+    match Address::from_str(&hash_str) {
+        Ok(addr) => addr,
+        Err(_) => {
+            // Fallback in case of parsing error (should not happen)
+            Address::from_str("0x0000000000000000000000000000000000000000000000000000000000000000").unwrap()
+        }
+    }
+}
+
+/// Sign a transaction with the user's private key
+fn sign_transaction(transaction: Transaction, password: &str) -> Result<Transaction, String> {
+    let mut signed_tx = transaction.clone(); // Fix: clone transaction to avoid move
+    
+    // Get the signable message
+    let message = transaction.to_signable_message();
+    
+    // Try to load the wallet to determine the curve type
+    let address_str = transaction.sender.to_hex_literal();
+    
+    // Try to load the wallet directly (this way we can get the private key)
+    match key::load_wallet(&address_str, password) {
+        Ok(wallet) => {
+            // Directly sign with the correct private key and curve type
+            let signature_result = match wallet.curve_type {
+                key::CurveType::K256 => key::sign_message_k256(&wallet.private_key, &message),
+                key::CurveType::P256 => key::sign_message_p256(&wallet.private_key, &message),
+            };
+            
+            match signature_result {
+                Ok(signature) => {
+                    signed_tx.signature = signature;
+                    Ok(signed_tx)
+                },
+                Err(e) => Err(format!("Failed to sign: {}", e)),
+            }
+        },
+        Err(e) => Err(format!("Failed to load wallet: {}", e)),
+    }
+}
+
+/// Execute a deployed smart contract method
+pub fn execute_contract_method(
+    caller_address: &str,
+    contract_address: &str,
+    method_name: &str,
+    args: Vec<String>,
+    password: &str,
+    priority_boost: Option<u64>,
+    tx: &mpsc::Sender<String>
+) -> Result<Transaction, String> {
+    // Parse addresses
+    let caller = match normalize_address(caller_address) {
+        Ok(addr) => addr,
+        Err(e) => return Err(format!("Invalid caller address: {}", e)),
+    };
+    
+    let contract = match normalize_address(contract_address) {
+        Ok(addr) => addr,
+        Err(e) => return Err(format!("Invalid contract address: {}", e)),
+    };
+    
+    // Calculate gas fee
+    let gas_fee = calculate_gas_fee(priority_boost);
+    
+    // Create execution transaction
+    let transaction = Transaction {
+        transaction_id: crate::utils::generate_transaction_id(),
+        sender: caller,
+        receiver: contract,
+        amount: 0, // Usually 0 for contract calls unless sending funds
+        gas_fee,
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+        signature: Vec::new(),
+    };
+    
+    // Sign transaction
+    let signed_tx = match sign_transaction(transaction.clone(), password) {
+        Ok(tx) => tx,
+        Err(e) => {
+            let error = format!("Failed to sign contract execution transaction: {}", e);
+            let error_json = json!({
+                "event": "contract_execution_error",
+                "error": error,
+                "details": {
+                    "caller": caller_address,
+                    "contract": contract_address,
+                    "method": method_name
+                }
+            }).to_string();
+            
+            let _ = tx.try_send(error_json);
+            return Err(error);
+        }
+    };
+    
+    // Add to pending transactions
+    if add_pending_transaction(signed_tx.clone()) {
+        // Create contract execution notification
+        let execution_json = json!({
+            "event": "contract_execution_pending",
+            "execution": {
+                "transaction_id": signed_tx.transaction_id,
+                "caller": caller.to_hex_literal(),
+                "contract": contract.to_hex_literal(),
+                "method": method_name,
+                "args": args,
+                "gas_fee": gas_fee,
+                "gas_fee_display": format_gas_fee_display(gas_fee),
+                "timestamp": signed_tx.timestamp
+            },
+            "status": "pending"
+        }).to_string();
+        
+        let _ = tx.try_send(execution_json);
+        
+        // Deduct fee from balance
+        if let Ok(mut balances) = BALANCES.lock() {
+            *balances.entry(caller.to_hex_literal()).or_insert(0) -= gas_fee;
+            *balances.entry(crate::utils::GAS_FEE_COLLECTOR.to_string()).or_insert(0) += gas_fee;
+        }
+        
+        // Return the transaction
+        Ok(signed_tx)
+    } else {
+        Err("Failed to add contract execution to pending queue".to_string())
     }
 }
 
@@ -682,7 +964,7 @@ pub fn run_blockchain(
     }
 }
 
-// Modify verify_transaction_processing to be more informative
+// Modify verify_transaction_processing to include formatted gas fee
 fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sender<String>) {
     for transaction in transactions {
         log::info!("Verifying transaction: {}", transaction.transaction_id);
@@ -704,7 +986,7 @@ fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sen
             Ok(balance) => {
                 debug!("Verified receiver {} balance: {}", transaction.receiver, balance);
                 
-                // Notify about completed transaction - use "confirmed" instead of "pending"
+                // Notify about completed transaction with formatted gas fee display
                 let tx_json = json!({
                     "event": "transaction_confirmed",
                     "transaction": {
@@ -712,13 +994,14 @@ fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sen
                         "sender": transaction.sender.to_hex_literal(),
                         "receiver": transaction.receiver.to_hex_literal(),
                         "amount": transaction.amount,
-                        "gas_fee": transaction.gas_fee, // Fix: Use transaction.gas_fee instead of crate::utils::GAS_FEE_AMOUNT
+                        "gas_fee": transaction.gas_fee,
+                        "gas_fee_display": format_gas_fee_display(transaction.gas_fee),
                         "gas_collector": crate::utils::GAS_FEE_COLLECTOR,
                         "receiver_balance": balance,
                         "signature_status": signature_status,
                         "has_signature": !transaction.signature.is_empty()
                     },
-                    "status": "confirmed"  // Add status field showing it's confirmed
+                    "status": "confirmed"
                 }).to_string();
                 
                 let _ = tx.try_send(tx_json);

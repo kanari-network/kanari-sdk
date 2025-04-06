@@ -22,6 +22,9 @@ serde_json.workspace = true
 clap.workspace = true
 hex.workspace = true
 bcs.workspace = true
+log.workspace = true
+rand.workspace = true
+tokio = { workspace = true, features = ["full"] }
 
 # MoveVM
 move-bytecode-verifier.workspace = true
