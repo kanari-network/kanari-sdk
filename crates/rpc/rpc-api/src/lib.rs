@@ -1,22 +1,16 @@
-use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, str::FromStr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs}; // Add ToSocketAddrs trait
 use futures::FutureExt;
-use jsonrpc_core::{IoHandler, Params, Result as JsonRpcResult, Error as RpcError, ErrorCode};
+use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
 use metadata::{get_file, upload_file};
-use mona_types::address::Address;
-use panorama::{blockchain::{BLOCKCHAIN_DATA, load_blockchain_with_retry}, chain_id::CHAIN_ID, blockchain::BALANCES};
-use panorama::simulation::process_transfer;
 use network::NetworkConfig;
-use serde_json::{json, Value as JsonValue};
-
-mod metadata;// Add this at the top with the other modules
+use colored::Colorize; // Add Colorize trait for color methods
+mod metadata; // Add this at the top with the other modules
 mod stake;
 mod get_block; // Add the new module
+mod accounts;
 
-use serde::Deserialize;
 use stake::{get_staking_info, get_staking_stats, stake_tokens, unstake_tokens};
-use tokio::sync::mpsc;
-use key::{load_wallet, list_wallet_files};
 
 // Use functions from the get_block module
 use get_block::{
@@ -28,15 +22,7 @@ use get_block::{
     get_gas_fee_info
 };
 
-// Blockchain API structures
-#[derive(Deserialize)]
-struct TransferParams {
-    from: String,
-    to: String,
-    amount: f64,
-    password: String,
-    priority_boost: Option<u64>, // Optional priority boost for gas fee
-}
+use accounts::{get_blockchain_status, get_wallets, list_accounts, transfer_tokens};
 
 // Format function locally since panorama::utils is not available
 fn format_kari_amount(ka_amount: u64) -> String {
@@ -61,221 +47,6 @@ fn format_kari_amount(ka_amount: u64) -> String {
     
     format!("{}.{:09}", whole_formatted, fractional_ka)
 }
-
-// Blockchain API methods
-fn get_blockchain_status(_params: Params) -> JsonRpcResult<JsonValue> {
-    // Load blockchain data if needed
-    if let Err(e) = load_blockchain_with_retry() {
-        return Err(RpcError {
-            code: ErrorCode::InternalError,
-            message: format!("Failed to load blockchain: {}", e),
-            data: None,
-        });
-    }
-    
-    let block_count = BLOCKCHAIN_DATA.len();
-    
-    // Get the latest block info
-    let latest_block = if block_count > 0 {
-        let block = BLOCKCHAIN_DATA.get_block(block_count - 1);
-        block.map(|b| json!({
-            "index": b.index,
-            "hash": b.hash,
-            "timestamp": b.timestamp,
-            "transactions": b.transactions.len(),
-            "miner": b.address,
-        }))
-    } else {
-        None
-    };
-    
-    // Get genesis timestamp if available
-    let genesis_timestamp = if block_count > 0 {
-        BLOCKCHAIN_DATA.get_block(0).map(|b| b.timestamp)
-    } else {
-        None
-    };
-    
-    // Count transactions across all blocks
-    let total_transactions = BLOCKCHAIN_DATA.iter()
-        .into_iter()
-        .fold(0, |acc, block| acc + block.transactions.len());
-    
-    let response = json!({
-        "chain_id": CHAIN_ID.to_string(),
-        "block_height": block_count,
-        "block_count": block_count,
-        "latest_block": latest_block,
-        "total_transactions": total_transactions,
-        "genesis_timestamp": genesis_timestamp,
-    });
-    
-    Ok(response)
-}
-
-fn list_accounts(_params: Params) -> JsonRpcResult<JsonValue> {
-    // Load blockchain data if needed
-    if let Err(e) = load_blockchain_with_retry() {
-        return Err(RpcError {
-            code: ErrorCode::InternalError,
-            message: format!("Failed to load blockchain: {}", e),
-            data: None,
-        });
-    }
-    
-    let balances = match BALANCES.lock() {
-        Ok(balances) => balances,
-        Err(_) => return Err(RpcError {
-            code: ErrorCode::InternalError,
-            message: "Failed to access balances".to_string(),
-            data: None,
-        }),
-    };
-    
-    let mut accounts = Vec::new();
-    for (address_str, balance) in balances.iter() {
-        // Parse the address string into Address type
-        let address = match Address::from_str(address_str) {
-            Ok(addr) => addr,
-            Err(_) => continue, // Skip invalid addresses
-        };
-
-        // Count transactions for this account
-        let tx_count = BLOCKCHAIN_DATA.iter()
-            .into_iter()
-            .fold(0, |acc, block| {
-                // Count matching transactions in each block and accumulate
-                acc + block.transactions.iter()
-                    .filter(|tx| tx.sender == address || tx.receiver == address)
-                    .count()
-            });
-            
-        accounts.push(json!({
-            "address": address_str,
-            "balance": balance,
-            "balance_formatted": format_kari_amount(*balance),
-            "transaction_count": tx_count,
-            "is_contract": false,
-        }));
-    }
-    
-    Ok(json!({
-        "accounts": accounts,
-        "total": accounts.len(),
-    }))
-}
-
-fn transfer_tokens(params: Params) -> JsonRpcResult<JsonValue> {
-    // Parse transfer params
-    let transfer_params: TransferParams = params.parse()
-        .map_err(|e| RpcError::invalid_params(format!("Invalid parameters: {}", e)))?;
-    
-    // Load blockchain data if needed
-    if let Err(e) = load_blockchain_with_retry() {
-        return Err(RpcError {
-            code: ErrorCode::InternalError,
-            message: format!("Failed to load blockchain: {}", e),
-            data: None,
-        });
-    }
-    
-    // Validate sender's address and password by loading the wallet
-    match load_wallet(&transfer_params.from, &transfer_params.password) {
-        Ok(_) => {
-            // Calculate amount in KA units (1 KARI = 10^9 KA)
-            const KA_PER_KARI: u64 = 1_000_000_000;
-            let amount_ka = (transfer_params.amount * KA_PER_KARI as f64) as u64;
-            
-            // Create a channel for transaction notifications
-            let (tx, _rx) = mpsc::channel::<String>(10);
-            
-            // Process transfer with password for signing and priority boost
-            match process_transfer(
-                &transfer_params.from, 
-                &transfer_params.to, 
-                amount_ka, 
-                &transfer_params.password,
-                transfer_params.priority_boost,
-                &tx
-            ) {
-                Ok(transaction) => {
-                    // Check if the transaction was signed correctly
-                    let signature_status = if transaction.signature.is_empty() {
-                        "unsigned"
-                    } else {
-                        match panorama::transfer_tokens::verify_transaction::verify_transaction(&transaction) {
-                            Ok(true) => "valid",
-                            Ok(false) => "invalid",
-                            Err(_) => "unknown"
-                        }
-                    };
-                    
-                    // Include gas fee information in the response
-                    Ok(json!({
-                        "transaction_id": transaction.transaction_id,
-                        "sender": transaction.sender,
-                        "receiver": transaction.receiver,
-                        "amount": transaction.amount,
-                        "amount_formatted": format_kari_amount(transaction.amount),
-                        "gas_fee": transaction.gas_fee,
-                        "gas_fee_formatted": format_kari_amount(transaction.gas_fee),
-                        "gas_collector": panorama::utils::GAS_FEE_COLLECTOR,
-                        "total_cost": panorama::utils::calculate_total_transaction_cost(transaction.amount, transaction.gas_fee),
-                        "total_cost_formatted": format_kari_amount(panorama::utils::calculate_total_transaction_cost(transaction.amount, transaction.gas_fee)),
-                        "timestamp": transaction.timestamp,
-                        "status": "pending", // Status is pending until included in a block
-                        "signed": !transaction.signature.is_empty(),
-                        "signature_status": signature_status  // Add signature verification status
-                    }))
-                },
-                Err(e) => {
-                    Err(RpcError {
-                        code: ErrorCode::InternalError,
-                        message: format!("Transfer failed: {}", e),
-                        data: None,
-                    })
-                }
-            }
-        },
-        Err(_) => {
-            Err(RpcError {
-                code: ErrorCode::InvalidParams,
-                message: "Invalid wallet password".to_string(),
-                data: None,
-            })
-        }
-    }
-}
-
-fn get_wallets(_params: Params) -> JsonRpcResult<JsonValue> {
-    match list_wallet_files() {
-        Ok(wallets) => {
-            let wallet_list = wallets.into_iter()
-                .map(|(name, is_selected)| {
-                    let address = name.trim_end_matches(".enc");
-                    json!({
-                        "address": address,
-                        "selected": is_selected
-                    })
-                })
-                .collect::<Vec<_>>();
-                
-            Ok(json!({
-                "wallets": wallet_list,
-                "count": wallet_list.len()
-            }))
-        },
-        Err(e) => {
-            Err(RpcError {
-                code: ErrorCode::InternalError,
-                message: format!("Failed to list wallets: {}", e),
-                data: None,
-            })
-        }
-    }
-}
-
-// The functions moved to get_block.rs have been removed from here
 
 /// Starts the RPC server for file operations
 pub async fn start_rpc_server(network_config: NetworkConfig) -> Result<(), tokio::io::Error> {
@@ -361,7 +132,6 @@ pub async fn start_rpc_server(network_config: NetworkConfig) -> Result<(), tokio
         AccessControlAllowOrigin::Any, // Allow all origins for testing
     ];
 
-    
     // Check if TLS certificates are available - FIXED: Clearer messaging about TLS
     let kari_dir = common::get_kari_dir();
     let cert_path = kari_dir.join("certs").join("node.crt");
@@ -389,7 +159,65 @@ pub async fn start_rpc_server(network_config: NetworkConfig) -> Result<(), tokio
         .start_http(&bind_addr)
     {
         Ok(server) => {
-            println!("HTTP server running on http://{}:{}", network_config.node_address, network_config.port);
+            // Check for domain configuration and load it from config
+            let domain = common::get_node_domain();
+            
+            // Display server connection information with domain if available
+            if let Some(domain_name) = domain {
+                println!("HTTP server running on http://{}:{}", network_config.node_address, network_config.port);
+                
+                // If domain includes port, extract just the hostname
+                let domain_parts: Vec<&str> = domain_name.split(':').collect();
+                let hostname = domain_parts[0];
+                let domain_port = if domain_parts.len() > 1 {
+                    domain_parts[1]
+                } else {
+                    "80"
+                };
+                
+                println!("Domain configured: {}", domain_name.bright_green());
+                println!("You can access the RPC API at:");
+                println!("  - http://{}:{} (direct IP)", network_config.node_address, network_config.port);
+                
+                // Fix: Use conditional printing to avoid temporary value issue
+                if domain_port == "80" {
+                    println!("  - http://{} (domain)", hostname);
+                } else {
+                    println!("  - http://{}:{} (domain)", hostname, domain_port);
+                }
+                
+                // For kanari.site domains, suggest how other nodes can connect
+                if hostname.contains("kanari.site") {
+                    println!("\nTo connect other nodes to this node:");
+                    println!("  kari start --peer {}:51303", hostname);
+                }
+                
+                // Try to resolve the domain name to verify it's pointed to this server
+                if let Ok(addrs) = format!("{}:80", hostname).to_socket_addrs() {
+                    let resolved_ips: Vec<String> = addrs.map(|a| a.ip().to_string()).collect();
+                    if !resolved_ips.is_empty() {
+                        println!("Domain resolves to: {}", resolved_ips.join(", "));
+                        
+                        // Get the local IP to compare
+                        if let Some(local_ip) = panorama::node::get_local_ip() {
+                            if resolved_ips.contains(&local_ip) {
+                                println!("✓ Domain correctly resolves to this server's IP ({})", local_ip);
+                            } else {
+                                println!("⚠ Domain doesn't resolve to this server's IP ({})", local_ip);
+                                println!("  To fix: Update DNS A record to point to your server's IP address");
+                            }
+                        }
+                    } else {
+                        println!("⚠ Could not resolve domain. DNS might not be properly configured.");
+                    }
+                }
+            } else {
+                println!("HTTP server running on http://{}:{}", network_config.node_address, network_config.port);
+                println!("No domain configured. To set up a domain:");
+                println!("  1. Register a domain and set up DNS to point to your server's IP");
+                println!("  2. Add 'domain: \"your-domain.com\"' to your ~/.kari/config.yaml file");
+            }
+            
             if !network_config.peers.is_empty() {
                 println!("Connected to peers:");
                 for peer in &network_config.peers {
@@ -401,12 +229,8 @@ pub async fn start_rpc_server(network_config: NetworkConfig) -> Result<(), tokio
             let (shutdown_complete_tx, _shutdown_complete_rx) = tokio::sync::oneshot::channel();
             
             // Spawn a task to wait for the server in the background
-            // We don't need to clone the server, just move it into the task
             tokio::spawn(async move {
-                // This will block until the server is shut down
                 server.wait();
-                
-                // Once server.wait() returns, signal completion
                 let _ = shutdown_complete_tx.send(());
             });
             

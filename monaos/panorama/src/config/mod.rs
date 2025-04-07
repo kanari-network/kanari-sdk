@@ -52,6 +52,7 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
             chain_id: mapping.get("chain_id").and_then(|v| v.as_str()).unwrap_or(chain_id).to_string(),
             max_connections: 100,
             api_enabled: true,
+            domain: mapping.get("domain").and_then(|v| v.as_str()).map(String::from), // Get domain from config if it exists
         });
     }
 
@@ -76,6 +77,7 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
         chain_id: chain_id.to_string(),
         max_connections: 100,
         api_enabled: true,
+        domain: None, // Default to None for new configurations
     };
 
     let owned_mapping = mapping.clone();    
@@ -87,17 +89,7 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
 
 // Function to get the local IP address
 fn get_local_ip() -> Option<String> {
-    use std::net::UdpSocket;
-    
-    match UdpSocket::bind("0.0.0.0:0") {
-        Ok(socket) => {
-            if let Ok(_) = socket.connect("8.8.8.8:80") {
-                if let Ok(addr) = socket.local_addr() {
-                    return Some(addr.ip().to_string());
-                }
-            }
-        }
-        Err(_) => {}
-    }
-    None
+    // Use the improved implementation from node module
+    // to avoid code duplication and maintain consistency
+    crate::node::get_local_ip()
 }

@@ -132,24 +132,86 @@ If running multiple nodes on one machine, each node must use:
 
 ### Using Domain Names
 
-If you have a domain name pointing to your server:
+For production nodes, using a domain name is recommended over IP addresses:
 
 ```bash
-# The domain will be used in configuration automatically
-kari start --port 30030
+# Configure your domain in config.yaml
+domain: "devnet.kanari.site"
+
+# Start the node with normal command
+kari start
 ```
 
-For detailed instructions on setting up a domain name for your node:
+#### Setting Up devnet.kanari.site
 
-1. See our [Domain Configuration Guide](domain_setup_guide.md) for complete instructions
-2. Follow the specific examples for setting up "devnet.kanari.site"
-3. Configure DNS records to point to your node's IP address
-4. Set up HTTPS using the certificate management features:
+To set up the "devnet.kanari.site" domain (or your own domain):
+
+1. **Register your domain** with a registrar like Namecheap, GoDaddy, or Cloudflare
+2. **Create DNS A record**:
+   - Type: A
+   - Host: devnet (or your subdomain)
+   - Value: Your server's public IP address
+   - TTL: 3600 (1 hour)
+
+3. **Check DNS propagation**:
    ```bash
-   kari certificate generate
+   dig devnet.kanari.site A
+   # OR
+   nslookup devnet.kanari.site
    ```
 
+4. **Update your node configuration**:
+   ```yaml
+   # In ~/.kari/config.yaml
+   domain: "devnet.kanari.site"
+   ```
+
+5. **Configure port forwarding** on your router/firewall:
+   - Forward port 30030 (RPC) to your server
+   - Forward port 51303 (P2P) to your server
+
+For complete domain setup instructions, see the [Domain Configuration Guide](domain_setup_guide.md).
+
 ### Network Security
+
+#### Using Certificates with Your Domain
+
+Generate certificates that match your domain name:
+
+```bash
+# Generate self-signed certificates
+kari certificate generate
+
+# Check certificate status
+kari certificate status
+```
+
+For production environments, obtain trusted certificates:
+
+```bash
+# Using Let's Encrypt with Certbot
+sudo certbot certonly --standalone -d devnet.kanari.site
+```
+
+Then update your reverse proxy configuration to use these certificates:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name devnet.kanari.site;
+
+    ssl_certificate /etc/letsencrypt/live/devnet.kanari.site/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/devnet.kanari.site/privkey.pem;
+
+    location / {
+        proxy_pass http://localhost:30030;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
 
 #### Certificate Management
 

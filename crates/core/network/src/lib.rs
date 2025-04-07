@@ -4,15 +4,16 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct NetworkConfig {
+#[derive(Serialize, Deserialize, Clone, Debug)]pub struct NetworkConfig {
     pub node_address: String,
     pub port: u16,
     pub peers: Vec<String>,
     pub chain_id: String,
     pub max_connections: u32,
     pub api_enabled: bool,
+    pub domain: Option<String>, // Add domain field
 }
+
 
 impl NetworkConfig {
     // Loads configuration from a specified file

@@ -1084,13 +1084,23 @@ fn discover_peers(
 
     // Try to connect to each discovery node
     for node_addr in &config.discovery_nodes {
-        match connect_to_peer(node_addr, &config) {
-            Ok(_) => {
-                any_connected = true;
-                info!("Successfully connected to discovery node: {}", node_addr);
+        // Try resolving domain names if needed
+        match coordinator::resolve_domain(node_addr) {
+            Ok(resolved_addr) => {
+                info!("Resolved discovery node {} to {}", node_addr, resolved_addr);
+                match connect_to_peer(&resolved_addr, &config) {
+                    Ok(_) => {
+                        any_connected = true;
+                        info!("Successfully connected to discovery node: {}", node_addr);
+                    },
+                    Err(e) => {
+                        warn!("Failed to connect to discovery node {} (resolved to {}): {}", 
+                              node_addr, resolved_addr, e);
+                    }
+                }
             },
             Err(e) => {
-                warn!("Failed to connect to discovery node {}: {}", node_addr, e);
+                warn!("Failed to resolve discovery node {}: {}", node_addr, e);
             }
         }
     }
@@ -1126,9 +1136,6 @@ fn discover_peers(
         // The actual implementation would scan the local subnet
     }
 
-    // Rest of the original function stays the same
-    // ...existing code...
-    
     Ok(())
 }
 

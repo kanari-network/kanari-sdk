@@ -82,47 +82,112 @@ This allows `api.kanari.site` to point to the same server as `devnet.kanari.site
 
 ## Setting up devnet.kanari.site
 
-This section provides a specific example for setting up "devnet.kanari.site".
+This section provides a specific example for setting up "devnet.kanari.site" for a Kari blockchain network.
 
-### Step 1: Register kanari.site
+### Step 1: Register or Use kanari.site Domain
 
-1. Go to your chosen domain registrar
-2. Register "kanari.site" (or your preferred domain)
-3. Access the domain control panel
+To use "devnet.kanari.site":
 
-### Step 2: DNS Configuration for devnet Subdomain
+1. If you're part of the official Kanari team:
+   - Request access to the domain from the DevOps team
+   - Provide your server's IP address for DNS configuration
+   
+2. If you're setting up your own domain:
+   - Register your domain (e.g., "yourname.site") with any registrar
+   - Create a "devnet" subdomain for development purposes
 
-1. Go to DNS management section
-2. Create a new A record:
+### Step 2: DNS Configuration for devnet.kanari.site
+
+To configure DNS records for "devnet.kanari.site" (or your equivalent):
+
+1. Access the DNS management through your registrar or DNS provider:
+   - For Cloudflare: Go to DNS → Records
+   - For AWS Route 53: Go to Hosted Zones → [your domain] → Create Record
+   - For GoDaddy: Domain Details → DNS Management
+
+2. Create an A record:
    - **Type**: A
-   - **Host/Name**: devnet
+   - **Name/Host**: devnet
    - **Value/Points to**: Your server's public IP address (e.g., 203.0.113.42)
-   - **TTL**: 3600
+   - **TTL**: 3600 (1 hour) or as recommended
 
-### Step 3: Setting up DNS Provider
+3. If needed, also create these additional records:
+   - An A record for "api.devnet.kanari.site" pointing to the same IP (or use a CNAME)
+   - A TXT record for verification (if using Let's Encrypt for SSL)
 
-For enhanced features (like DDoS protection), consider using a dedicated DNS provider:
+### Step 3: Nameserver Configuration (For DNS Provider)
 
-#### Cloudflare Configuration:
+If using an external DNS provider like Cloudflare:
 
-1. Create a Cloudflare account
-2. Add your domain to Cloudflare
-3. Update your domain's nameservers to Cloudflare's nameservers
-4. In Cloudflare's DNS settings, add:
-   - A record for "devnet" pointing to your server IP
-   - Enable Cloudflare proxy (orange cloud) for protection
+1. In your domain registrar account:
+   - Find nameserver settings
+   - Replace default nameservers with your DNS provider's nameservers
+   
+   For Cloudflare, typically:
+   - ns1.cloudflare.com
+   - ns2.cloudflare.com
 
-#### Amazon Route 53 Configuration:
+2. Wait 24-48 hours for nameserver propagation
 
-1. Create a Route 53 hosted zone for your domain
-2. Update your domain's nameservers to Route 53's nameservers
-3. Create an A record for "devnet" subdomain pointing to your server IP
+3. In Cloudflare:
+   - Add the A record for "devnet" pointing to your server IP
+   - Enable proxy protection (orange cloud) for DDoS protection
+   - Consider enabling "Always Use HTTPS" to redirect HTTP to HTTPS
 
-### Step 4: DNS Propagation
+### Step 4: Testing DNS Configuration
 
-After setting up your DNS records, changes may take 24-48 hours to propagate globally. You can check propagation using tools like:
-- [DNSChecker](https://dnschecker.org/)
-- [WhatsMyDNS](https://www.whatsmydns.net/)
+After setting up DNS records:
+
+1. Check DNS propagation:
+   ```bash
+   # Using dig tool
+   dig devnet.kanari.site A
+   
+   # Using nslookup
+   nslookup devnet.kanari.site
+   ```
+
+2. The response should show your server's IP address
+
+3. Check from multiple locations using online tools:
+   - https://www.whatsmydns.net/#A/devnet.kanari.site
+   - https://dnschecker.org/#A/devnet.kanari.site
+
+### Step 5: Configuring Your Node
+
+Update your node's configuration with the domain name:
+
+```yaml
+# In ~/.kari/config.yaml
+chain_id: "kari-testnet-001"
+rpc_port: 30030
+address: "0x7a1c8f19cAE0A90d4A4E445793eB0BED2FaA9ecF"
+domain: "devnet.kanari.site"
+use_tls: true
+```
+
+When other nodes connect to yours, they can use:
+```bash
+kari start --peer devnet.kanari.site:51303
+```
+
+### Step 6: Operating Multiple Environment Subdomains
+
+For different network environments, consider standardizing on these subdomains:
+
+1. **devnet.kanari.site** - Development testing network
+   - For testing new features
+   - Reset frequently
+   
+2. **testnet.kanari.site** - Stable test network
+   - More stable than devnet
+   - Less frequent resets
+   
+3. **mainnet.kanari.site** - Production network
+   - Stable production environment
+   - Never reset
+
+Each subdomain should have its own server with appropriate scaling for its purpose.
 
 ## Node Configuration
 
