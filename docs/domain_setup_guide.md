@@ -229,30 +229,39 @@ Add your domain name to the node configuration:
 
 ### Step 1: Generate TLS Certificate
 
-Generate a certificate for your domain:
+For HTTPS to work properly with your domain (e.g., devnet.kanari.site), you need a valid certificate:
 
 ```bash
-kari certificate generate
-```
-
-Or use Let's Encrypt to get a free, trusted certificate:
-
-```bash
+# Option 1: Using Let's Encrypt (recommended for production)
 sudo apt-get install certbot
 sudo certbot certonly --standalone -d devnet.kanari.site
+
+# Option 2: Using Kari's built-in certificate generator (for testing only)
+kari certificate generate
 ```
 
 ### Step 2: Set Up a Reverse Proxy
 
-For HTTPS support, set up Nginx as a reverse proxy:
+The Kari node runs on HTTP only (typically port 30030), so you need a reverse proxy for HTTPS:
 
 ```nginx
+# /etc/nginx/sites-available/devnet.kanari.site.conf
 server {
     listen 443 ssl;
     server_name devnet.kanari.site;
 
+    # For Let's Encrypt certificates
     ssl_certificate /etc/letsencrypt/live/devnet.kanari.site/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/devnet.kanari.site/privkey.pem;
+    
+    # Or for self-generated certificates
+    # ssl_certificate /home/user/.kari/certs/node.crt;
+    # ssl_certificate_key /home/user/.kari/certs/node.key;
+
+    # Important security settings
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256;
 
     location / {
         proxy_pass http://localhost:30030;
@@ -264,15 +273,73 @@ server {
 }
 
 server {
+    # Redirect HTTP to HTTPS
     listen 80;
     server_name devnet.kanari.site;
     return 301 https://$host$request_uri;
 }
 ```
 
-### Step 3: HTTP to HTTPS Redirection
+### Step 3: Activate and Test the Proxy
 
-The Nginx configuration above includes automatic HTTP to HTTPS redirection, ensuring all traffic uses secure connections.
+```bash
+# For Nginx
+sudo ln -s /etc/nginx/sites-available/devnet.kanari.site.conf /etc/nginx/sites-enabled/
+sudo nginx -t  # Test configuration
+sudo systemctl restart nginx
+
+# For Windows IIS or other servers, follow their specific activation steps
+```
+
+### Step 4: Firewall Configuration
+
+Ensure your firewall allows the following ports:
+
+```bash
+# For Ubuntu/Debian
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw allow 30030/tcp  # Only needed if accessing RPC directly
+sudo ufw allow 51303/tcp  # For P2P node connections
+
+# For Windows
+netsh advfirewall firewall add rule name="HTTPS" dir=in action=allow protocol=TCP localport=443
+netsh advfirewall firewall add rule name="HTTP" dir=in action=allow protocol=TCP localport=80
+netsh advfirewall firewall add rule name="Kari P2P" dir=in action=allow protocol=TCP localport=51303
+```
+
+### Step 5: Testing Your HTTPS Connection
+
+To test if your HTTPS setup is working properly:
+
+```bash
+# Test domain DNS resolution
+nslookup devnet.kanari.site
+
+# Test HTTPS connection
+curl -v https://devnet.kanari.site/health
+
+# Test RPC API over HTTPS
+curl -X POST -H "Content-Type: application/json" -d '{
+  "jsonrpc": "2.0",
+  "method": "blockchain_status",
+  "params": [],
+  "id": 1
+}' https://devnet.kanari.site
+```
+
+### Troubleshooting HTTPS Issues
+
+If you're seeing errors like:
+- Certificate mismatch
+- Connection refused
+- Invalid SSL certificate
+
+Check the following:
+1. Verify your DNS records point to the correct IP address.
+2. Ensure your certificates are valid and match your domain name.
+3. Confirm your reverse proxy is running and properly configured.
+4. Test your server's ports using online tools or `netstat`.
 
 ## Testing Your Domain
 

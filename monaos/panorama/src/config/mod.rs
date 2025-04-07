@@ -52,7 +52,9 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
             chain_id: mapping.get("chain_id").and_then(|v| v.as_str()).unwrap_or(chain_id).to_string(),
             max_connections: 100,
             api_enabled: true,
+            domain_peer: mapping.get("domain").and_then(|v| v.as_str()).map(String::from), // Get domain from config if it exists
             domain: mapping.get("domain").and_then(|v| v.as_str()).map(String::from), // Get domain from config if it exists
+            use_tls: mapping.get("use_tls").and_then(|v| v.as_bool()).unwrap_or(false),
         });
     }
 
@@ -77,7 +79,9 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
         chain_id: chain_id.to_string(),
         max_connections: 100,
         api_enabled: true,
+        domain_peer: None, // Default to None for new configurations
         domain: None, // Default to None for new configurations
+        use_tls: false, // Default to false for new configurations
     };
 
     let owned_mapping = mapping.clone();    
