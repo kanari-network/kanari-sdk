@@ -357,28 +357,27 @@ pub async fn start_rpc_server(network_config: NetworkConfig) -> Result<(), tokio
     );
 
     // Create CORS settings for production
-    let mut allowed_origins = vec![
+    let allowed_origins = vec![
         AccessControlAllowOrigin::Any, // Allow all origins for testing
-        AccessControlAllowOrigin::Value(network_config.domain.clone().into()),
-        AccessControlAllowOrigin::Value(format!("https://{}", network_config.domain).into()),
-        AccessControlAllowOrigin::Value(format!("http://{}", network_config.domain).into()),
     ];
+
     
-    // Add support for kanari.network subdomains
-    if network_config.domain.ends_with(".kanari.network") {
-        allowed_origins.push(AccessControlAllowOrigin::Value("https://*.kanari.network".into()));
-        allowed_origins.push(AccessControlAllowOrigin::Value("http://*.kanari.network".into()));
-    }
-    
-    // Check if TLS certificates are available
-    let cert_path = std::env::current_dir().unwrap().join("cert.pem");
-    let key_path = std::env::current_dir().unwrap().join("key.pem");
+    // Check if TLS certificates are available - FIXED: Clearer messaging about TLS
+    let kari_dir = common::get_kari_dir();
+    let cert_path = kari_dir.join("certs").join("node.crt");
+    let key_path = kari_dir.join("certs").join("node.key");
     
     let use_tls = cert_path.exists() && key_path.exists();
     
     if use_tls {
-        println!("TLS certificates found, but HTTPS is not supported in this version of jsonrpc-http-server.");
-        println!("Starting HTTP server instead. For secure connections, consider using a reverse proxy like Nginx or Caddy.");
+        println!("TLS certificates found at:");
+        println!("  - Certificate: {}", cert_path.display());
+        println!("  - Key: {}", key_path.display());
+        println!("Note: For TLS support, please use a reverse proxy like Nginx or Caddy.");
+        println!("      The built-in server only supports HTTP.");
+    } else {
+        println!("TLS certificates not found. Running in HTTP mode.");
+        println!("To set up TLS, run 'kari certificate generate' and configure a reverse proxy.");
     }
     
     // Start HTTP server

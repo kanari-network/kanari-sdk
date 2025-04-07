@@ -78,3 +78,19 @@ stop_node()?;
 - **P2P Port**: 51303 (default) - Used for node-to-node communication
 
 When running multiple nodes on one machine, each node must use different ports.
+
+## Multi-Node Setup
+
+To run multiple nodes that can communicate with each other:
+
+1. Start the first node with the default configuration:
+   ```
+   kari start
+   ```
+
+2. Start additional nodes specifying the first node as a peer and a different RPC port:
+   ```
+   kari start --peer 192.168.1.100:51303 --port 30031
+   ```
+
+3. For nodes on different machines, ensure the P2P port (51303) is open in your firewall.

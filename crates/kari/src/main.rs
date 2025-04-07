@@ -59,6 +59,11 @@ const COMMANDS: &[CommandInfo] = &[
         description: "Manage Kari accounts and cryptographic keys",
     },
     CommandInfo {
+        name: "certificate",
+        alias: None,
+        description: "Manage TLS certificates for secure node connections",
+    },
+    CommandInfo {
         name: "version",
         alias: Some("--V"),
         description: "Display CLI version information",
@@ -170,6 +175,9 @@ async fn main() {
         Some("move") => handle_move_command(),
         Some("keytool") => {
             let _ = handle_keytool_command();
+        }
+        Some("certificate") => {
+            let _ = command::certificate_cli::handle_certificate_command();
         }
         Some("version") | Some("--V") => println!("CLI Version: {}", VERSION),
         Some("help") | Some("--h") => display_help(false),
@@ -420,18 +428,18 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
         run_blockchain(running_clone, address_clone, tx);
     });
 
-    // Get local IP address for the node
-    let local_ip = match get_local_ip() {
+    // Remove duplicate get_local_ip function and use the one from the node module
+    let local_ip = match panorama::node::get_local_ip() {
         Some(ip) => ip,
         None => {
-            eprintln!("Could not determine local IP address");
-            exit(1);
+            eprintln!("Could not determine local IP address, using 127.0.0.1");
+            "127.0.0.1".to_string()
         }
     };
 
     // Update RPC configuration
     let rpc_config = NetworkConfig {
-        node_address: local_ip.to_string(), // Use actual network IP
+        node_address: local_ip.clone(), // FIXED: Use actual network IP consistently
         port: network_config.port,
         peers: network_config.peers.clone(),
         chain_id: network_config.chain_id.clone(),
@@ -439,22 +447,10 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
         api_enabled: true    
     };
 
-    // Add function to get local IP address
-    fn get_local_ip() -> Option<String> {
-        use std::net::UdpSocket;
-        
-        match UdpSocket::bind("0.0.0.0:0") {
-            Ok(socket) => {
-                if let Ok(_) = socket.connect("8.8.8.8:80") {
-                    if let Ok(addr) = socket.local_addr() {
-                        return Some(addr.ip().to_string());
-                    }
-                }
-            }
-            Err(_) => {}
-        }
-        None
-    }
+    // Display IP address and port information for connecting nodes
+    println!("{}", "Node network information:".bright_yellow());
+    println!("  RPC API:   {}:{} (HTTP)", local_ip, rpc_config.port);
+    println!("  P2P:       {}:51303", local_ip); // FIXED: Show the P2P port explicitly
 
     // Display peer connection information if applicable
     if !network_config.peers.is_empty() {
@@ -462,6 +458,9 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
         for peer in &network_config.peers {
             println!("  - {}", peer.green());
         }
+    } else {
+        println!("{}", "Warning: No peers configured. Running in standalone mode.".yellow());
+        println!("  To connect peers, use: kari start --peer <IP:PORT>");
     }
 
     // Start RPC server with shutdown signal

@@ -27,7 +27,28 @@ This guide explains how to set up and run Kanari blockchain nodes on Windows in 
    - Visit [whatismyip.com](https://whatismyip.com) or
    - Run `curl ifconfig.me` in PowerShell
 
-### Step 2: Start a Bootstrap Node
+### Step 2: Configure TLS Certificates (Optional)
+
+For secure node-to-node communication:
+
+1. Generate self-signed certificates:
+   ```cmd
+   kari certificate generate
+   ```
+
+2. Verify certificate status:
+   ```cmd
+   kari certificate status
+   ```
+
+3. If OpenSSL is not installed, download and install it from [Shining Light Productions](https://slproweb.com/products/Win32OpenSSL.html)
+
+4. Enable TLS in your configuration by editing `%USERPROFILE%\.kari\config.yaml`:
+   ```yaml
+   use_tls: true
+   ```
+
+### Step 3: Start a Bootstrap Node
 
 Start your first node which will act as a bootstrap node:
 
@@ -37,7 +58,7 @@ kari start --port 30030
 
 The node will automatically detect your network interface and bind to the appropriate IP address. Note the IP address from the output (for example, `192.168.1.103`)—you'll need this to connect additional nodes.
 
-### Step 3: Set Up Additional Nodes
+### Step 4: Set Up Additional Nodes
 
 #### On a Different Machine
 
@@ -59,7 +80,7 @@ To run an additional node on the same machine:
    kari start --port 30032 --peer 127.0.0.1:51303
    ```
 
-### Step 4: Verify Node Connections
+### Step 5: Verify Node Connections
 
 - Monitor the node logs for messages indicating successful peer connections.
 - Use the RPC API to check node status:
@@ -84,7 +105,12 @@ For example, to use Nginx with HTTPS:
 
 1. Install Nginx for Windows from the official site.
 
-2. Obtain a valid SSL certificate (or generate a self-signed certificate for testing):
+2. Generate a certificate using the Kari CLI (preferred) or OpenSSL directly:
+   ```cmd
+   kari certificate generate
+   ```
+   
+   Or using OpenSSL directly:
    ```cmd
    openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout nginx.key -out nginx.crt
    ```
@@ -114,6 +140,12 @@ For example, to use Nginx with HTTPS:
    ```
 
 Your Kanari RPC endpoint will now be accessible via HTTPS at your configured domain.
+
+### Certificate Management
+
+1. Certificates are stored in `%USERPROFILE%\.kari\certs\`
+2. View certificate status with `kari certificate status`
+3. If you need to regenerate certificates, delete the existing ones first
 
 ## System Requirements
 

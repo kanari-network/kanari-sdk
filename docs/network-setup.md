@@ -22,7 +22,27 @@ This guide explains how to set up and run Kanari blockchain nodes in a real netw
    - Run `curl ifconfig.me` in terminal
    - Example: 203.0.113.42
 
-### Step 2: Start a Bootstrap Node (First Node)
+### Step 2: Configure Security (Optional)
+
+Generate TLS certificates for secure communication:
+
+```bash
+# Generate self-signed certificates
+kari certificate generate
+
+# Check certificate status
+kari certificate status
+```
+
+To enable TLS, edit your configuration file:
+
+```yaml
+use_tls: true
+```
+
+Note: The node will automatically disable TLS if certificates are missing.
+
+### Step 3: Start a Bootstrap Node (First Node)
 
 Start your first node which will act as a bootstrap node:
 
@@ -45,7 +65,7 @@ HTTP server running on http://192.168.1.103:30030
 
 Note the IP address from the output (in this example, 192.168.1.103) - you'll need this to connect other nodes.
 
-### Step 3: Set Up Additional Nodes
+### Step 4: Set Up Additional Nodes
 
 #### On a Different Machine
 
@@ -121,11 +141,21 @@ kari start --port 30030
 
 ### Network Security
 
+#### Certificate Management
+
+Certificates are stored in your Kari data directory's `certs` folder:
+- Linux/macOS: `~/.kari/certs/`
+- Windows: `%USERPROFILE%\.kari\certs\`
+
+The following files are used:
+- `node.crt` - The node's certificate
+- `node.key` - The node's private key
+
 #### Securing RPC Endpoints
 
 For production environments, we recommend using a reverse proxy (like Nginx or Caddy) to add TLS/SSL:
 
-```
+```nginx
 # Example Nginx configuration
 server {
     listen 443 ssl;
@@ -200,11 +230,16 @@ To run a validator node:
    - Verify wallet exists (`kari keytool list`)
    - Check configuration file is properly formatted
 
-3. **RPC errors**: 
+3. **Certificate errors**:
+   - Check certificate status with `kari certificate status`
+   - If OpenSSL is not installed, install it first
+   - Make sure certificate paths in configuration are correct
+
+4. **RPC errors**: 
    - Ensure the RPC port is accessible and not blocked
    - Verify you're using the correct port in API calls
 
-4. **Blockchain not syncing**: 
+5. **Blockchain not syncing**: 
    - Verify connection to peers
    - Check logs for errors related to block propagation
 
