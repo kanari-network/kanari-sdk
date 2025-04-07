@@ -53,6 +53,21 @@ The following network settings can be configured:
 | `peers` | List of peer nodes to connect with | `[]` |
 | `chain_id` | Blockchain network identifier | `"kari-testnet-001"` |
 | `use_tls` | Whether to use TLS for secure connections | `false` |
+| `domain` | Domain name for the node (optional) | `null` |
+
+### Domain Configuration
+
+To use a domain name for your node:
+
+1. Register a domain (like "kanari.site")  
+2. Configure DNS to point to your server's IP address
+3. Add the domain to your configuration:
+
+```yaml
+domain: "devnet.kanari.site"
+```
+
+For detailed domain setup instructions, see [Domain Configuration Guide](domain_setup_guide.md).
 
 ### Running With Custom Port
 

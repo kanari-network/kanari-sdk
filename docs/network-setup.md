@@ -139,6 +139,16 @@ If you have a domain name pointing to your server:
 kari start --port 30030
 ```
 
+For detailed instructions on setting up a domain name for your node:
+
+1. See our [Domain Configuration Guide](domain_setup_guide.md) for complete instructions
+2. Follow the specific examples for setting up "devnet.kanari.site"
+3. Configure DNS records to point to your node's IP address
+4. Set up HTTPS using the certificate management features:
+   ```bash
+   kari certificate generate
+   ```
+
 ### Network Security
 
 #### Certificate Management
