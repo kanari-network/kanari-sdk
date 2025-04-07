@@ -123,7 +123,7 @@ pub fn transfer_tokens(
                     transaction.signature = signature;
                 },
                 Err(_e) => {
-                    let mut tried_p256 = false;
+                    let tried_p256 = false;
                     let mut tried_k256 = false;
                     
                     if !tried_k256 {
@@ -141,26 +141,23 @@ pub fn transfer_tokens(
                             },
                             Err(k256_err) => {
                                 log::debug!("K256 signing failed: {}", k256_err);
-                                if !tried_p256 {
-                                    tried_p256 = true;
-                                    log::debug!("Trying P256 signing");
-                                    match key::sign_message(&key::Wallet { 
-                                        address: from, 
-                                        private_key: String::new(),
-                                        seed_phrase: String::new(), 
-                                        curve_type: key::CurveType::P256,
-                                    }, &message, password) {
-                                        Ok(signature) => {
-                                            transaction.signature = signature;
-                                            log::debug!("P256 signing succeeded");
-                                        },
-                                        Err(p256_err) => {
-                                            log::error!("Both K256 and P256 signing failed: K256 error: {}, P256 error: {}", 
-                                                      k256_err, p256_err);
-                                            return Err(BlockchainError::Transaction(
-                                                format!("Failed to sign transaction with both curve types.")
-                                            ));
-                                        }
+                                log::debug!("Trying P256 signing");
+                                match key::sign_message(&key::Wallet { 
+                                    address: from, 
+                                    private_key: String::new(),
+                                    seed_phrase: String::new(), 
+                                    curve_type: key::CurveType::P256,
+                                }, &message, password) {
+                                    Ok(signature) => {
+                                        transaction.signature = signature;
+                                        log::debug!("P256 signing succeeded");
+                                    },
+                                    Err(p256_err) => {
+                                        log::error!("Both K256 and P256 signing failed: K256 error: {}, P256 error: {}", 
+                                                  k256_err, p256_err);
+                                        return Err(BlockchainError::Transaction(
+                                            format!("Failed to sign transaction with both curve types.")
+                                        ));
                                     }
                                 }
                             }
@@ -168,7 +165,6 @@ pub fn transfer_tokens(
                     }
                     
                     if !tried_p256 && transaction.signature.is_empty() {
-                        tried_p256 = true;
                         log::debug!("Trying P256 signing");
                         match key::sign_message(&key::Wallet { 
                             address: from, 

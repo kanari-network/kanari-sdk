@@ -58,7 +58,7 @@ pub fn verify_transaction(transaction: &Transaction) -> Result<bool, BlockchainE
             log::debug!("  From: {}", transaction.sender);
             log::debug!("  To: {}", transaction.receiver);
             log::debug!("  Amount: {}", transaction.amount);
-            log::debug!("  Gas fee: {}", transaction.gas_fee); // Fix: Use transaction.gas_fee instead of crate::utils::GAS_FEE_AMOUNT
+            log::debug!("  Gas fee: {}", transaction.gas_fee);
             log::debug!("  Message length: {}", message.len());
             log::debug!("  Signature length: {}", transaction.signature.len());
             

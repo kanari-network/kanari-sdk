@@ -63,7 +63,8 @@ impl Publish {
         );
 
         if self.use_mona_vm {
-            // Use the Mona VM for publishing
+            // Use the Mona VM for publishing to blockchain
+            println!("Publishing with Mona VM to blockchain network...");
             let mona_vm_publish = mona_vm::Publish;
             return mona_vm_publish.execute(
                 Some(package_path),
@@ -71,10 +72,11 @@ impl Publish {
                 build_config,
                 Some(self.gas_budget),
                 self.skip_verify
-            ).map_err(|e| anyhow::anyhow!("Mona VM publish failed: {}", e));
+            ).map_err(|e| anyhow::anyhow!("Mona VM blockchain deployment failed: {}", e));
         }
         
-        // Otherwise use the regular publish flow
+        // Otherwise use the regular publish flow for local testing
+        println!("Publishing with local sandbox (not deploying to blockchain)...");
         let storage_path = package_path.join(DEFAULT_STORAGE_DIR);
         let state = OnDiskStateView::create(&package_path, &storage_path)?;
         
@@ -138,7 +140,6 @@ impl Publish {
     }
 
 }
-
 
 fn compile_package(
     path: &PathBuf,

@@ -11,10 +11,10 @@ use crate::simulation::add_pending_transaction;
 pub const GAS_FEE_COLLECTOR: &str = "0x47621776628ba3a5b9baaab38e61f4c98e893e124204bc4dad52e702e2b24ea1";
 
 // Gas fee configuration
-pub const MIN_GAS_FEE: u64 = 2;      // Minimum gas fee (0.000000002 KA)
-pub const BASE_GAS_FEE: u64 = 3;     // Base gas fee (0.000000003 KA)
-pub const MAX_GAS_FEE: u64 = 50;     // Maximum gas fee (0.000000050 KA)
-pub const CONGESTION_MULTIPLIER: f64 = 0.001; // How much each pending tx affects fee
+pub const MIN_GAS_FEE: u64 = 20_000;     // Minimum gas fee (0.00002 KA)
+pub const BASE_GAS_FEE: u64 = 50_000;    // Base gas fee (0.00005 KA)
+pub const MAX_GAS_FEE: u64 = 3_000_000;  // Maximum gas fee (0.003 KA)
+pub const CONGESTION_MULTIPLIER: f64 = 1.5; // How much each pending tx affects fee
 
 // Store network statistics for gas calculation
 lazy_static! {
@@ -65,20 +65,35 @@ pub fn calculate_gas_fee(priority_boost: Option<u64>) -> u64 {
         Err(_) => return BASE_GAS_FEE, // Default to base fee if can't read stats
     };
     
-    // Calculate congestion component based on pending transactions
-    let congestion_fee = ((network_stats.pending_transactions as f64) * CONGESTION_MULTIPLIER) as u64;
+    // Calculate congestion component based on pending transactions with exponential scaling
+    // This creates a more responsive fee market that scales with network demand
+    let pending_tx_count = network_stats.pending_transactions as f64;
+    let tx_multiplier = if pending_tx_count > 0.0 {
+        // Log-based scaling to handle both small and large transaction volumes
+        (1.0 + (pending_tx_count / 10.0).ln_1p()) * CONGESTION_MULTIPLIER
+    } else {
+        1.0
+    };
+    
+    // Factor in 24h transaction volume for longer-term fee adjustment
+    let volume_factor = if network_stats.transaction_count_24h > 1000 {
+        // Slight increase based on 24h volume
+        1.0 + (network_stats.transaction_count_24h as f64 / 10000.0).min(0.5)
+    } else {
+        1.0
+    };
     
     // Apply user's priority boost if provided
     let priority = priority_boost.unwrap_or(0);
     
-    // Calculate total gas fee
-    let gas_fee = BASE_GAS_FEE + congestion_fee + priority;
+    // Calculate total gas fee: start with BASE_FEE and apply multipliers
+    let gas_fee = ((BASE_GAS_FEE as f64) * tx_multiplier * volume_factor) as u64 + priority;
     
     // Ensure gas fee is within allowed range
     let gas_fee = gas_fee.clamp(MIN_GAS_FEE, MAX_GAS_FEE);
     
-    debug!("Calculated gas fee: {} (base: {}, congestion: {}, priority: {}, pending txs: {})",
-           gas_fee, BASE_GAS_FEE, congestion_fee, priority, network_stats.pending_transactions);
+    debug!("Calculated gas fee: {} (base: {}, tx_multiplier: {:.2}, volume_factor: {:.2}, priority: {}, pending txs: {})",
+           gas_fee, BASE_GAS_FEE, tx_multiplier, volume_factor, priority, network_stats.pending_transactions);
     
     gas_fee
 }
@@ -189,6 +204,13 @@ pub fn format_kari_amount(ka_amount: u64) -> String {
         .collect::<String>();
     
     format!("{}.{:09}", whole_formatted, fractional_ka)
+}
+
+/// Format gas fee for display with appropriate precision
+pub fn format_gas_fee_display(fee: u64) -> String {
+    const KA_PER_KARI: f64 = 1_000_000_000.0;
+    let fee_in_kari = fee as f64 / KA_PER_KARI;
+    format!("{:.9} KARI", fee_in_kari)
 }
 
 /// Calculate total amount needed for a transaction including gas

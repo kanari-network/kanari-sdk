@@ -25,7 +25,7 @@ tokio.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 reqwest = { workspace = true , features = ["json", "blocking"] }
-
+common.workspace = true
 move-vm-test-utils = { workspace = true }
 move-core-types = { workspace = true }
 move-package = { workspace = true }

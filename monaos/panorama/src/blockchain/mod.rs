@@ -48,9 +48,29 @@ impl BlockchainData {
         self.chain.read().unwrap().get(index).cloned()
     }
     
-    pub fn add_block(&self, block: Block<Blake3Algorithm>) {
+    // Add method to check if a block with given hash exists
+    pub fn has_block_with_hash(&self, hash: &str) -> bool {
+        self.block_height_cache.read().unwrap().contains_key(hash)
+    }
+    
+    // Add method to get a block by its hash
+    pub fn get_block_by_hash(&self, hash: &str) -> Option<Block<Blake3Algorithm>> {
+        let cache = self.block_height_cache.read().unwrap();
+        if let Some(&height) = cache.get(hash) {
+            return self.get_block(height);
+        }
+        None
+    }
+    
+    // Modified to return bool indicating success
+    pub fn add_block(&self, block: Block<Blake3Algorithm>) -> bool {
         let mut chain = self.chain.write().unwrap();
         let height = chain.len();
+        
+        // Check if block already exists
+        if self.has_block_with_hash(&block.hash) {
+            return false;
+        }
         
         // Update token count
         self.total_tokens.fetch_add(block.tokens, Ordering::Relaxed);
@@ -60,6 +80,8 @@ impl BlockchainData {
         
         // Add block to chain
         chain.push_back(block);
+        
+        true
     }
     
     pub fn len(&self) -> usize {
@@ -137,6 +159,8 @@ pub enum BlockchainError {
     InvalidAddress(String),
     IO(String), // Changed from std::io::Error to String to support serialization
     NotFound(String),
+    Network(String),
+    
 }
 
 impl From<StorageError> for BlockchainError {
@@ -162,6 +186,7 @@ impl std::fmt::Display for BlockchainError {
             BlockchainError::InvalidAddress(e) => write!(f, "Invalid address: {}", e),
             BlockchainError::IO(e) => write!(f, "IO error: {}", e),
             BlockchainError::NotFound(e) => write!(f, "Not found error: {}", e),
+            BlockchainError::Network(e) => write!(f, "Network error: {}", e),
         }
     }
 }
