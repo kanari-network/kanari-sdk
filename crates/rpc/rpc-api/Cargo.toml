@@ -27,9 +27,6 @@ colored.workspace = true
 
 # Dependencies for HTTPS support
 jsonrpsee = { version = "0.24.9", features = ["server", "macros", "http-client"] }
-rustls = "0.23.25"
-rustls-pemfile = "2.2.0"
-tokio-rustls = "0.26.2"
 
 # Project dependencies
 network = { workspace = true }

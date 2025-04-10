@@ -399,5 +399,5 @@ Log files are stored in:
 
 For additional support:
 - Visit the documentation site: `kari info`
-- Join the community Discord: `https://discord.gg/kanari`
-- Submit issues on GitHub: `https://github.com/kanari/kari`
+- Join the community Discord: `https://discord.gg/XyxZQNWhbF`
+- Submit issues on GitHub: `https://github.com/kanari-network`
