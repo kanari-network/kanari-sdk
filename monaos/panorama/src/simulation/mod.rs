@@ -542,16 +542,23 @@ pub fn run_blockchain(
     let node_config = NodeConfig {
         node_id: format!("node-{}", normalized_address[..8].to_string()),
         blockchain_address: normalized_address.clone(),
-        listen_ip: "127.0.0.1".to_string(),
-        // Use dynamically assigned port based on address to avoid conflicts
-        listen_port: 30303 + (u16::from_str_radix(&normalized_address[2..6], 16).unwrap_or(0) % 1000),
-        discovery_nodes: vec!["127.0.0.1:30303".to_string()],
-        max_peers: 25,
-        is_validator: false, // Will be updated based on staking status
-        use_tls: false,      // Add missing fields for TLS support
-        cert_path: None,
-        key_path: None,
+        listen_ip: "0.0.0.0".to_string(), // Listen on all interfaces, not just localhost
+        listen_port: 51303, // Use fixed default port instead of dynamic calculation
+        discovery_nodes: vec![
+            "devnet.kanari.site:51303".to_string(),
+            "testnet1.kanari.site:51303".to_string(),
+            "seednode.kanari.network:51303".to_string(),
+        ],
+        max_peers: 50, // Increased max peers for better network connectivity
+        is_validator: is_validator(&node_address), // Dynamically check if this node is a validator
+        use_tls: false, // TLS disabled by default
+        cert_path: Some(format!("{}/certs/node.crt", common::get_kari_dir().display())),
+        key_path: Some(format!("{}/certs/node.key", common::get_kari_dir().display())),
     };
+    
+    // Log node network configuration
+    info!("Node network configuration: {}:{} (validator: {})", 
+          node_config.listen_ip, node_config.listen_port, node_config.is_validator);
     
     // Start node networking
     if let Err(e) = start_node(node_config, tx.clone()) {

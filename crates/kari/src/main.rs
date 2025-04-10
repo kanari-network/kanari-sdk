@@ -266,6 +266,9 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
             chain_id,
             max_connections: 100,
             api_enabled: true,
+            domain_peer: config.get("domain").and_then(|v| v.as_str()).map(String::from), // Add domain field
+            domain: config.get("domain").and_then(|v| v.as_str()).map(String::from), // Add domain field
+            use_tls: config.get("use_tls").and_then(|v| v.as_bool()).unwrap_or(false),
         }
     } else {
         // Call configure_network and get the NetworkConfig
@@ -400,6 +403,14 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
             );
         }
         
+        // Add domain name to configuration if provided
+        if let Some(domain) = config.get("domain").and_then(|v| v.as_str()) {
+            map.insert(
+                serde_yaml::Value::String("domain".to_string()),
+                serde_yaml::Value::String(domain.to_string()),
+            );
+        }
+        
         map
     });
     save_config(&final_config).expect("Failed to save configuration");
@@ -444,7 +455,10 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
         peers: network_config.peers.clone(),
         chain_id: network_config.chain_id.clone(),
         max_connections: 100,
-        api_enabled: true    
+        api_enabled: true,
+        domain_peer: config.get("domain").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        domain: config.get("domain").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        use_tls: config.get("use_tls").and_then(|v| v.as_bool()).unwrap_or(false),
     };
 
     // Display IP address and port information for connecting nodes

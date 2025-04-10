@@ -141,6 +141,74 @@ For example, to use Nginx with HTTPS:
 
 Your Kanari RPC endpoint will now be accessible via HTTPS at your configured domain.
 
+### Configuring Domain Names on Windows
+
+If you're setting up a domain name (like "devnet.kanari.site") on Windows:
+
+1. First, check if your domain resolves correctly:
+   ```cmd
+   nslookup devnet.kanari.site
+   ```
+   
+   The response should show your server's IP address.
+
+2. Edit the configuration file:
+   ```cmd
+   notepad %USERPROFILE%\.kari\config.yaml
+   ```
+   
+   Add your domain to the configuration:
+   ```yaml
+   domain: "devnet.kanari.site"
+   ```
+
+3. To set up HTTPS with your domain on Windows:
+   
+   a) Using Let's Encrypt with Windows:
+      - Install [Certify The Web](https://certifytheweb.com/) (GUI tool)
+      - Create a new certificate for your domain
+      - Select "Save to file" with private key
+      - Save to your Kari certs directory
+
+   b) Using self-signed certificates:
+      ```cmd
+      kari certificate generate
+      ```
+
+4. Configure IIS or Nginx for Windows as a reverse proxy:
+
+   ```cmd
+   REM Install Nginx for Windows if not already installed
+   choco install nginx
+
+   REM Edit nginx.conf
+   notepad "C:\Program Files\nginx\conf\nginx.conf"
+   ```
+
+   Add this server block to the nginx.conf file:
+   ```
+   server {
+       listen 443 ssl;
+       server_name devnet.kanari.site;
+
+       ssl_certificate "C:/Users/YourUser/.kari/certs/node.crt";
+       ssl_certificate_key "C:/Users/YourUser/.kari/certs/node.key";
+
+       location / {
+           proxy_pass http://localhost:30030;
+           proxy_set_header Host $host;
+           proxy_set_header X-Real-IP $remote_addr;
+       }
+   }
+   ```
+
+5. Open Windows Firewall for HTTP(S) and P2P ports:
+   ```cmd
+   netsh advfirewall firewall add rule name="HTTPS for Kari" dir=in action=allow protocol=TCP localport=443
+   ```
+
+For detailed instructions, see the [Domain Configuration Guide](domain_setup_guide.md).
+
 ### Certificate Management
 
 1. Certificates are stored in `%USERPROFILE%\.kari\certs\`

@@ -97,6 +97,70 @@ peers:
 use_tls: true  # Enable TLS if certificates are available
 ```
 
+### Domain Name Configuration
+
+In multi-node setups, using domain names instead of IP addresses provides stability and flexibility:
+
+#### Benefits of Using Domains for Nodes
+- Easier maintenance (IP changes don't require reconfiguring peers)
+- More professional and memorable addresses
+- Better security when combined with proper TLS certificates
+
+#### Configuring Domain Names for Multiple Nodes
+
+1. Follow a consistent naming scheme for your nodes:
+   ```
+   node1.your-domain.com
+   node2.your-domain.com
+   validator1.your-domain.com
+   ```
+   
+   Or for Kanari's domains:
+   ```
+   devnet.kanari.site (development network)
+   testnet.kanari.site (testing network)
+   mainnet.kanari.site (production network)
+   ```
+
+2. Create A records for each node in your DNS configuration
+3. Configure each node with its domain name:
+   ```yaml
+   # In ~/.kari/config.yaml for each node
+   domain: "node1.your-domain.com"
+   ```
+
+4. Reference other nodes by domain name:
+   ```bash
+   kari start --peer node1.your-domain.com:51303 --peer node2.your-domain.com:51303
+   ```
+
+For detailed domain and DNS setup instructions, see the [Domain Configuration Guide](domain_setup_guide.md).
+
+### Load Balancing Multiple Nodes
+
+For high availability in a production environment, consider:
+
+1. Running multiple nodes behind a load balancer:
+   ```
+   api.kanari.site → Load Balancer → Multiple Kari Nodes
+   ```
+
+2. Configure your DNS with multiple A records for automatic round-robin:
+   ```
+   api.kanari.site. IN A 203.0.113.1
+   api.kanari.site. IN A 203.0.113.2
+   api.kanari.site. IN A 203.0.113.3
+   ```
+
+3. For advanced setups, use georouting to direct users to the closest node:
+   ```
+   api-us.kanari.site → US-based nodes
+   api-eu.kanari.site → Europe-based nodes
+   api-asia.kanari.site → Asia-based nodes
+   ```
+
+This configuration provides redundancy and improved response times.
+
 ## Security Configuration
 
 ### TLS Certificate Setup

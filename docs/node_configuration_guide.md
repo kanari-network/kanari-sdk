@@ -57,17 +57,48 @@ The following network settings can be configured:
 
 ### Domain Configuration
 
-To use a domain name for your node:
-
-1. Register a domain (like "kanari.site")  
-2. Configure DNS to point to your server's IP address
-3. Add the domain to your configuration:
+Using a domain name for your node is recommended for production environments:
 
 ```yaml
+# In ~/.kari/config.yaml
 domain: "devnet.kanari.site"
 ```
 
-For detailed domain setup instructions, see [Domain Configuration Guide](domain_setup_guide.md).
+#### Setting Up Official Kanari Domains
+
+If you're setting up an official Kanari network domain like "devnet.kanari.site":
+
+1. Request access from the Kanari DevOps team
+2. Provide your node's public IP address
+3. The DevOps team will configure the DNS A record to point to your node
+4. Update your node configuration to use the domain
+
+#### Setting Up Your Own Domain
+
+If you're setting up your own domain:
+
+1. Register a domain with any registrar (Namecheap, GoDaddy, etc.)
+2. Create an A record for your subdomain pointing to your server's IP address
+3. Configure your node with the domain name
+4. Set up proper TLS certificates for the domain using `kari certificate generate`
+
+#### Official Kanari Network Domains
+
+The Kanari Network uses these standard domain names:
+
+| Domain | Purpose | Environment |
+|--------|---------|-------------|
+| `devnet.kanari.site` | Development network | Unstable, frequent resets |
+| `testnet.kanari.site` | Testing network | More stable, occasional resets |
+| `mainnet.kanari.site` | Production network | Stable, no resets |
+
+When connecting to these networks, you can use the domain name directly:
+
+```bash
+kari start --peer devnet.kanari.site:51303
+```
+
+For complete domain setup instructions, see the [Domain Configuration Guide](domain_setup_guide.md).
 
 ### Running With Custom Port
 
@@ -368,5 +399,5 @@ Log files are stored in:
 
 For additional support:
 - Visit the documentation site: `kari info`
-- Join the community Discord: `https://discord.gg/kanari`
-- Submit issues on GitHub: `https://github.com/kanari/kari`
+- Join the community Discord: `https://discord.gg/XyxZQNWhbF`
+- Submit issues on GitHub: `https://github.com/kanari-network`

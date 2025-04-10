@@ -66,10 +66,27 @@ pub fn save_config(config: &Value) -> io::Result<()> {
     
     // Clean up address format before saving
     if let Some(mapping) = config.as_mapping_mut() {
+        // Format wallet address
         if let Some(addr) = mapping.get("address").and_then(|v| v.as_str()) {
             mapping.insert(
                 Value::String("address".to_string()),
                 Value::String(format_address(addr))
+            );
+        }
+        
+        // Ensure domain name is properly formatted
+        if let Some(domain) = mapping.get("domain").and_then(|v| v.as_str()) {
+            // Clean domain name (remove protocols, trailing slashes, etc.)
+            let clean_domain = domain
+                .trim()
+                .strip_prefix("http://").unwrap_or(domain)
+                .strip_prefix("https://").unwrap_or(domain)
+                .trim_end_matches('/')
+                .to_string();
+                
+            mapping.insert(
+                Value::String("domain".to_string()),
+                Value::String(clean_domain),
             );
         }
     }
@@ -84,4 +101,14 @@ pub fn save_config(config: &Value) -> io::Result<()> {
     
     file.write_all(yaml_str.as_bytes())?;
     Ok(())
+}
+
+/// Get current domain configuration
+pub fn get_node_domain() -> Option<String> {
+    match load_config() {
+        Ok(config) => {
+            config.get("domain").and_then(|v| v.as_str()).map(|s| s.to_string())
+        },
+        Err(_) => None
+    }
 }

@@ -82,47 +82,112 @@ This allows `api.kanari.site` to point to the same server as `devnet.kanari.site
 
 ## Setting up devnet.kanari.site
 
-This section provides a specific example for setting up "devnet.kanari.site".
+This section provides a specific example for setting up "devnet.kanari.site" for a Kari blockchain network.
 
-### Step 1: Register kanari.site
+### Step 1: Register or Use kanari.site Domain
 
-1. Go to your chosen domain registrar
-2. Register "kanari.site" (or your preferred domain)
-3. Access the domain control panel
+To use "devnet.kanari.site":
 
-### Step 2: DNS Configuration for devnet Subdomain
+1. If you're part of the official Kanari team:
+   - Request access to the domain from the DevOps team
+   - Provide your server's IP address for DNS configuration
+   
+2. If you're setting up your own domain:
+   - Register your domain (e.g., "yourname.site") with any registrar
+   - Create a "devnet" subdomain for development purposes
 
-1. Go to DNS management section
-2. Create a new A record:
+### Step 2: DNS Configuration for devnet.kanari.site
+
+To configure DNS records for "devnet.kanari.site" (or your equivalent):
+
+1. Access the DNS management through your registrar or DNS provider:
+   - For Cloudflare: Go to DNS → Records
+   - For AWS Route 53: Go to Hosted Zones → [your domain] → Create Record
+   - For GoDaddy: Domain Details → DNS Management
+
+2. Create an A record:
    - **Type**: A
-   - **Host/Name**: devnet
+   - **Name/Host**: devnet
    - **Value/Points to**: Your server's public IP address (e.g., 203.0.113.42)
-   - **TTL**: 3600
+   - **TTL**: 3600 (1 hour) or as recommended
 
-### Step 3: Setting up DNS Provider
+3. If needed, also create these additional records:
+   - An A record for "api.devnet.kanari.site" pointing to the same IP (or use a CNAME)
+   - A TXT record for verification (if using Let's Encrypt for SSL)
 
-For enhanced features (like DDoS protection), consider using a dedicated DNS provider:
+### Step 3: Nameserver Configuration (For DNS Provider)
 
-#### Cloudflare Configuration:
+If using an external DNS provider like Cloudflare:
 
-1. Create a Cloudflare account
-2. Add your domain to Cloudflare
-3. Update your domain's nameservers to Cloudflare's nameservers
-4. In Cloudflare's DNS settings, add:
-   - A record for "devnet" pointing to your server IP
-   - Enable Cloudflare proxy (orange cloud) for protection
+1. In your domain registrar account:
+   - Find nameserver settings
+   - Replace default nameservers with your DNS provider's nameservers
+   
+   For Cloudflare, typically:
+   - ns1.cloudflare.com
+   - ns2.cloudflare.com
 
-#### Amazon Route 53 Configuration:
+2. Wait 24-48 hours for nameserver propagation
 
-1. Create a Route 53 hosted zone for your domain
-2. Update your domain's nameservers to Route 53's nameservers
-3. Create an A record for "devnet" subdomain pointing to your server IP
+3. In Cloudflare:
+   - Add the A record for "devnet" pointing to your server IP
+   - Enable proxy protection (orange cloud) for DDoS protection
+   - Consider enabling "Always Use HTTPS" to redirect HTTP to HTTPS
 
-### Step 4: DNS Propagation
+### Step 4: Testing DNS Configuration
 
-After setting up your DNS records, changes may take 24-48 hours to propagate globally. You can check propagation using tools like:
-- [DNSChecker](https://dnschecker.org/)
-- [WhatsMyDNS](https://www.whatsmydns.net/)
+After setting up DNS records:
+
+1. Check DNS propagation:
+   ```bash
+   # Using dig tool
+   dig devnet.kanari.site A
+   
+   # Using nslookup
+   nslookup devnet.kanari.site
+   ```
+
+2. The response should show your server's IP address
+
+3. Check from multiple locations using online tools:
+   - https://www.whatsmydns.net/#A/devnet.kanari.site
+   - https://dnschecker.org/#A/devnet.kanari.site
+
+### Step 5: Configuring Your Node
+
+Update your node's configuration with the domain name:
+
+```yaml
+# In ~/.kari/config.yaml
+chain_id: "kari-testnet-001"
+rpc_port: 30030
+address: "0x7a1c8f19cAE0A90d4A4E445793eB0BED2FaA9ecF"
+domain: "devnet.kanari.site"
+use_tls: true
+```
+
+When other nodes connect to yours, they can use:
+```bash
+kari start --peer devnet.kanari.site:51303
+```
+
+### Step 6: Operating Multiple Environment Subdomains
+
+For different network environments, consider standardizing on these subdomains:
+
+1. **devnet.kanari.site** - Development testing network
+   - For testing new features
+   - Reset frequently
+   
+2. **testnet.kanari.site** - Stable test network
+   - More stable than devnet
+   - Less frequent resets
+   
+3. **mainnet.kanari.site** - Production network
+   - Stable production environment
+   - Never reset
+
+Each subdomain should have its own server with appropriate scaling for its purpose.
 
 ## Node Configuration
 
@@ -164,30 +229,39 @@ Add your domain name to the node configuration:
 
 ### Step 1: Generate TLS Certificate
 
-Generate a certificate for your domain:
+For HTTPS to work properly with your domain (e.g., devnet.kanari.site), you need a valid certificate:
 
 ```bash
-kari certificate generate
-```
-
-Or use Let's Encrypt to get a free, trusted certificate:
-
-```bash
+# Option 1: Using Let's Encrypt (recommended for production)
 sudo apt-get install certbot
 sudo certbot certonly --standalone -d devnet.kanari.site
+
+# Option 2: Using Kari's built-in certificate generator (for testing only)
+kari certificate generate
 ```
 
 ### Step 2: Set Up a Reverse Proxy
 
-For HTTPS support, set up Nginx as a reverse proxy:
+The Kari node runs on HTTP only (typically port 30030), so you need a reverse proxy for HTTPS:
 
 ```nginx
+# /etc/nginx/sites-available/devnet.kanari.site.conf
 server {
     listen 443 ssl;
     server_name devnet.kanari.site;
 
+    # For Let's Encrypt certificates
     ssl_certificate /etc/letsencrypt/live/devnet.kanari.site/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/devnet.kanari.site/privkey.pem;
+    
+    # Or for self-generated certificates
+    # ssl_certificate /home/user/.kari/certs/node.crt;
+    # ssl_certificate_key /home/user/.kari/certs/node.key;
+
+    # Important security settings
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256;
 
     location / {
         proxy_pass http://localhost:30030;
@@ -199,15 +273,73 @@ server {
 }
 
 server {
+    # Redirect HTTP to HTTPS
     listen 80;
     server_name devnet.kanari.site;
     return 301 https://$host$request_uri;
 }
 ```
 
-### Step 3: HTTP to HTTPS Redirection
+### Step 3: Activate and Test the Proxy
 
-The Nginx configuration above includes automatic HTTP to HTTPS redirection, ensuring all traffic uses secure connections.
+```bash
+# For Nginx
+sudo ln -s /etc/nginx/sites-available/devnet.kanari.site.conf /etc/nginx/sites-enabled/
+sudo nginx -t  # Test configuration
+sudo systemctl restart nginx
+
+# For Windows IIS or other servers, follow their specific activation steps
+```
+
+### Step 4: Firewall Configuration
+
+Ensure your firewall allows the following ports:
+
+```bash
+# For Ubuntu/Debian
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw allow 30030/tcp  # Only needed if accessing RPC directly
+sudo ufw allow 51303/tcp  # For P2P node connections
+
+# For Windows
+netsh advfirewall firewall add rule name="HTTPS" dir=in action=allow protocol=TCP localport=443
+netsh advfirewall firewall add rule name="HTTP" dir=in action=allow protocol=TCP localport=80
+netsh advfirewall firewall add rule name="Kari P2P" dir=in action=allow protocol=TCP localport=51303
+```
+
+### Step 5: Testing Your HTTPS Connection
+
+To test if your HTTPS setup is working properly:
+
+```bash
+# Test domain DNS resolution
+nslookup devnet.kanari.site
+
+# Test HTTPS connection
+curl -v https://devnet.kanari.site/health
+
+# Test RPC API over HTTPS
+curl -X POST -H "Content-Type: application/json" -d '{
+  "jsonrpc": "2.0",
+  "method": "blockchain_status",
+  "params": [],
+  "id": 1
+}' https://devnet.kanari.site
+```
+
+### Troubleshooting HTTPS Issues
+
+If you're seeing errors like:
+- Certificate mismatch
+- Connection refused
+- Invalid SSL certificate
+
+Check the following:
+1. Verify your DNS records point to the correct IP address.
+2. Ensure your certificates are valid and match your domain name.
+3. Confirm your reverse proxy is running and properly configured.
+4. Test your server's ports using online tools or `netstat`.
 
 ## Testing Your Domain
 
