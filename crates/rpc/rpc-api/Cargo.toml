@@ -25,9 +25,6 @@ hex.workspace = true
 common.workspace = true
 colored.workspace = true
 
-# Dependencies for HTTPS support
-jsonrpsee = { version = "0.24.9", features = ["server", "macros", "http-client"] }
-
 # Project dependencies
 network = { workspace = true }
 panorama = { workspace = true }
