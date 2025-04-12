@@ -171,13 +171,102 @@ pub fn handle_move_command() {
                 use_mona_vm,
             })
         },
-        Some("call") => Command::Call(Call {
-            package: String::new(),
-            module: String::new(),
-            function: String::new(),
-            args: Vec::new(),
-            gas_budget: 1000000
-        }),
+        Some("call") => {
+            // Parse both formats: --function-id=VALUE and --function-id VALUE
+            let function_id = args.iter()
+                .position(|arg| arg == "--function-id" || arg.starts_with("--function-id="))
+                .and_then(|pos| {
+                    if args[pos] == "--function-id" && args.len() > pos + 1 {
+                        // Handle --function-id VALUE format
+                        Some(args[pos + 1].clone())
+                    } else if args[pos].starts_with("--function-id=") {
+                        // Handle --function-id=VALUE format
+                        Some(args[pos].trim_start_matches("--function-id=").to_string())
+                    } else {
+                        None
+                    }
+                });
+                
+            // Do the same for module and function if needed
+            let module = args.iter()
+                .position(|arg| arg == "--module" || arg.starts_with("--module="))
+                .and_then(|pos| {
+                    if args[pos] == "--module" && args.len() > pos + 1 {
+                        Some(args[pos + 1].clone())
+                    } else if args[pos].starts_with("--module=") {
+                        Some(args[pos].trim_start_matches("--module=").to_string())
+                    } else {
+                        None
+                    }
+                });
+
+            let function = args.iter()
+                .position(|arg| arg == "--function" || arg.starts_with("--function="))
+                .and_then(|pos| {
+                    if args[pos] == "--function" && args.len() > pos + 1 {
+                        Some(args[pos + 1].clone())
+                    } else if args[pos].starts_with("--function=") {
+                        Some(args[pos].trim_start_matches("--function=").to_string())
+                    } else {
+                        None
+                    }
+                });
+
+            // Package is less commonly used so keep it simple
+            let package = args.iter().find(|arg| arg.starts_with("--package="))
+                .map(|arg| arg.trim_start_matches("--package=").to_string());
+            
+            // Extract function arguments - support both formats
+            let mut args_values = Vec::new();
+            let mut i = 0;
+            while i < args.len() {
+                if args[i] == "--args" && args.len() > i + 1 {
+                    args_values.push(args[i + 1].clone());
+                    i += 2; // Skip the value we just processed
+                } else if args[i].starts_with("--args=") {
+                    args_values.push(args[i].trim_start_matches("--args=").to_string());
+                    i += 1;
+                } else {
+                    i += 1;
+                }
+            }
+
+            // Extract gas budget with default of 1000
+            let gas_budget = args.iter()
+                .position(|arg| arg == "--gas-budget" || arg.starts_with("--gas-budget="))
+                .and_then(|pos| {
+                    if args[pos] == "--gas-budget" && args.len() > pos + 1 {
+                        args[pos + 1].parse::<u64>().ok()
+                    } else if args[pos].starts_with("--gas-budget=") {
+                        args[pos].trim_start_matches("--gas-budget=").parse::<u64>().ok()
+                    } else {
+                        None
+                    }
+                }).unwrap_or(1000);
+
+            // Optional sender address
+            let sender = args.iter()
+                .position(|arg| arg == "--sender" || arg.starts_with("--sender="))
+                .and_then(|pos| {
+                    if args[pos] == "--sender" && args.len() > pos + 1 {
+                        Some(args[pos + 1].clone())
+                    } else if args[pos].starts_with("--sender=") {
+                        Some(args[pos].trim_start_matches("--sender=").to_string())
+                    } else {
+                        None
+                    }
+                });
+
+            Command::Call(Call {
+                function_id,
+                package,
+                module,
+                function,
+                args: args_values,
+                gas_budget,
+                sender,
+            })
+        },
         Some("sandbox") => Command::Sandbox {
             storage_dir: PathBuf::from(kari_move::DEFAULT_STORAGE_DIR),
             cmd: sandbox::cli::SandboxCommand::Clean {}

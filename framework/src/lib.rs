@@ -71,7 +71,7 @@ impl From<VMError> for FrameworkError {
 }
 
 /// Framework package types
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PackageType {
     Stdlib,
     System,
@@ -194,7 +194,7 @@ impl Package {
             let entry = entry?;
             let path = entry.path();
             if path.extension().map_or(false, |ext| ext == "move") {
-                let info = PackageSourceInfo::new(&path)?;
+                let info = PackageSourceInfo::create(&path)?;
                 sources.push((path, info));
             }
         }
@@ -387,6 +387,7 @@ pub struct PackageSourceInfo {
 }
 
 impl PackageSourceInfo {
+    // Keep the original implementation private
     fn new(path: &PathBuf) -> Result<Self, FrameworkError> {
         let content = fs::read_to_string(path)
             .map_err(|e| FrameworkError::IoError(e))?;
@@ -497,6 +498,11 @@ impl PackageSourceInfo {
             dependencies,
             has_tests,
         })
+    }
+    
+    // Add a public wrapper for creating a PackageSourceInfo
+    pub fn create(path: &PathBuf) -> Result<Self, FrameworkError> {
+        Self::new(path)
     }
 }
 

@@ -116,6 +116,8 @@ impl Default for NodeConfig {
             discovery_nodes: vec![
                 // Default bootstrap nodes
                 "devnet.kanari.site:51303".to_string(),
+                "testnet.kanari.site:51303".to_string(),
+                "mainnet.kanari.site:51303".to_string(),
             ],
             max_peers: 50,
             is_validator: false,
