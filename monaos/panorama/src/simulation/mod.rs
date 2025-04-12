@@ -267,9 +267,10 @@ pub fn run_blockchain(
         listen_ip: "0.0.0.0".to_string(), // Listen on all interfaces, not just localhost
         listen_port: 51303, // Use fixed default port instead of dynamic calculation
         discovery_nodes: vec![
+            // List of discovery nodes for peer discovery
             "devnet.kanari.site:51303".to_string(),
-            "testnet1.kanari.site:51303".to_string(),
-            "seednode.kanari.network:51303".to_string(),
+            "testnet.kanari.site:51303".to_string(),
+            "mainnet.kanari.site:51303".to_string(),
         ],
         max_peers: 50, // Increased max peers for better network connectivity
         is_validator: is_validator(&node_address), // Dynamically check if this node is a validator
