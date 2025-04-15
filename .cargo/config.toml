@@ -1,5 +1,5 @@
 [build]
-jobs = 4
+jobs = 8  # Adjust to match your CPU core count
 incremental = true
 
 rustflags = [
@@ -14,6 +14,11 @@ rustflags = [
     "-W", "clippy::print_stdout",
 ]
 
+[target.x86_64-unknown-linux-gnu]  # Adjust target as needed
+rustflags = ["-C", "target-cpu=native"]
+
+[net]
+git-fetch-with-cli = true  # Can be faster for git dependencies
 
 [alias]
 a = "add"

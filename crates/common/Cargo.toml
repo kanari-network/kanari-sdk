@@ -13,5 +13,5 @@ description.workspace = true
 
 
 [dependencies]
-dirs = "6.0.0"
-serde_yaml = "0.9.25"
+dirs.workspace = true
+serde_yaml.workspace = true

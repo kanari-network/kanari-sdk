@@ -22,7 +22,6 @@ members = [
     "crates/rpc/rpc-api",     # Crate defining the RPC API for Kanari.
     "crates/command",         # Crate for command-line interface utilities.
     "crates/common",          # Common utilities and types used across the workspace.
-    "consensus/pow",          # Crate implementing Proof-of-Work consensus.
     "framework",              # High-level framework crate for the SDK.
 
     # Move Crates: Crates specifically related to MoveVM integration.
@@ -38,9 +37,15 @@ lto = "thin"          # Enable Link-Time Optimization (thin LTO for faster linki
 codegen-units = 1     # Reduce codegen units to improve LTO effectiveness (may increase compile time).
 
 [profile.dev]                 # Profile for development builds.
-debug = true                  # Enable debug information for easier debugging.
+debug = false                 # Disable debug information for easier debugging.
 opt-level = 0                 # No optimization for faster compile times.
 split-debuginfo = "unpacked"  # Configure debug info splitting for better debugger experience.
+debug-assertions = true       # Enable debug assertions for development builds.
+overflow-checks = true        # Enable overflow checks for development builds.
+lto = false                   # Disable Link-Time Optimization for faster builds.
+panic = 'unwind'              # Enable unwinding for panic handling.
+incremental = true            # Enable incremental compilation for faster builds.
+codegen-units = 256           # Increase codegen units for faster parallel compilation.
 
 [profile.ci]                  # Profile for Continuous Integration builds.
 inherits = "test"       # Inherit settings from the 'test' profile (if defined, otherwise defaults).
@@ -50,11 +55,14 @@ codegen-units = 16      # Increase codegen units for potentially faster parallel
 opt-level = 1           # Moderate optimization level for a balance of speed and performance.
 
 [profile.release]       # Profile for release builds.
-opt-level = 3           # Maximum optimization level for performance.
+opt-level = 'z'         # Optimize for size.
+debug = false           # Disable debug information for release binaries.
+debug-assertions = false # Disable debug assertions for release builds.
+overflow-checks = false # Disable overflow checks for release builds.
 lto = true              # Enable full Link-Time Optimization for maximum performance and smaller binaries.
+panic = 'abort'         # Remove unwinding code for panic handling.
 codegen-units = 1       # Reduce codegen units to improve LTO effectiveness.
 strip = true            # Strip debug symbols from the final binary to reduce size.
-debug = false           # Disable debug information for release binaries.
 
 
 # Workspace Package Configuration: Metadata for the entire workspace as a package.
@@ -93,7 +101,8 @@ bincode = "1.3"
 mime_guess = "2.0.5"
 serde = { version = "1.0.217", features = ["derive", "rc"] }
 serde_json = { version = "1.0.134", features = ["preserve_order", "arbitrary_precision"] }
-serde_yaml = "0.9.33"
+serde_yaml = "0.9.34-deprecated"
+semver = { version = "1.0.26" }
 toml = "0.8.20"
 toml_edit = "0.22.24"
 
@@ -107,16 +116,17 @@ url = "2.5.4"
 reqwest = { version = "0.12.15"}
 base64 = "0.22.1"
 # Error Handling & Diagnostics
-anyhow = "1.0.95"
-codespan-reporting = "0.11.0"
+anyhow = "1.0.98"
+codespan-reporting = "0.11.1"
 env_logger = "0.11.6"
 lazy_static = "1.5.0"
 log = "0.4.26"
 thiserror = "2.0.12"
 tracing = "0.1.41"
+primitive-types = "0.13.1" # For u256 and u512 types
 
 # CLI & User Interface
-clap = "4.5.34"
+clap = "4.5.36"
 colored = "3.0.0"
 lsp-server = "0.7.8"
 lsp-types = "0.97.0"
@@ -154,8 +164,8 @@ kari-move-analyzer        = { path = "crates/kari-move-analyzer" }
 
 
 # Consensus Path List
+panorama                  = { path = "monaos/panorama" }
 consensus-pos             = { path = "consensus/pos" }
-consensus-pow             = { path = "consensus/pow" }
 
 
 # Core Path List
@@ -171,7 +181,6 @@ rpc-api                   = { path = "crates/rpc/rpc-api" }
 
 
 # MonaOS Path List
-panorama                  = { path = "monaos/panorama" }
 mona-vm                   = { path = "monaos/mona-vm" }
 mona-storage              = { path = "monaos/mona-storage" } 
 mona-enum-compat-util     = { path = "monaos/mona-enum-compat-util" }
