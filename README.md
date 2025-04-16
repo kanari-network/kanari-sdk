@@ -34,7 +34,6 @@ flowchart TB
     end
     %% Consensus Sub-layer
     subgraph "Consensus"
-      CS1["PoW Engine"]
       CS2["PoS Engine"]
     end
   end
