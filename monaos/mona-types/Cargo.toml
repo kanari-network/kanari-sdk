@@ -31,8 +31,8 @@ serde.workspace = true
 sha2.workspace = true
 sha3.workspace = true
 hex.workspace = true
-primitive-types = "0.13.1"
-thiserror = "2.0.11"
+primitive-types.workspace = true
+thiserror.workspace = true
 
 [features]
 # This feature is used to include the gas profiler in the mona-types crate.
