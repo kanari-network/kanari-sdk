@@ -1,15 +1,15 @@
 # Kari Node Domain Configuration Guide
 
-This guide explains how to configure a domain name (such as devnet.kanari.site) for your Kari blockchain node, allowing users to connect to your node using a memorable domain instead of an IP address.
+This guide explains how to configure domain names for your Kari blockchain node, allowing users to connect to your node using memorable domains instead of an IP address.
 
 ## Table of Contents
 
 1. [Domain Registration](#domain-registration)
 2. [DNS Configuration](#dns-configuration)
-3. [Setting up devnet.kanari.site](#setting-up-devnetkanarisite)
+3. [Setting up Kanari Network Domains](#setting-up-kanari-network-domains)
 4. [Node Configuration](#node-configuration)
 5. [HTTPS Configuration](#https-configuration)
-6. [Testing Your Domain](#testing-your-domain)
+6. [Testing Your Domains](#testing-your-domains)
 7. [Troubleshooting](#troubleshooting)
 
 ## Domain Registration
@@ -30,10 +30,17 @@ Select a domain registrar service to purchase your domain. Popular options inclu
 
 ### Step 3: Plan Your Subdomains
 
-For a Kari network, you might want to create different subdomains:
+For a Kari network, you need two types of subdomains for each environment:
+
+**P2P Network Domains** (for node-to-node communication):
 - `devnet.kanari.site` - Development network
 - `testnet.kanari.site` - Test network
 - `mainnet.kanari.site` - Main production network
+
+**RPC API Domains** (for client-to-node API access):
+- `api.devnet.kanari.site` - Development network API
+- `api.testnet.kanari.site` - Test network API
+- `api.mainnet.kanari.site` - Main production network API
 
 ## DNS Configuration
 
@@ -46,16 +53,24 @@ DNS (Domain Name System) records map your domain name to your server's IP addres
 - **AAAA Record**: Maps a domain to an IPv6 address
 - **TXT Record**: Stores text information (often used for verification)
 
-### Setting Up A Records
+### Setting Up A Records for Both Domain Types
 
-To point your domain to your Kari node server:
+To point your domains to your Kari node server:
 
 1. Log into your domain registrar's dashboard
 2. Navigate to the DNS management section
-3. Add an A record:
+3. Add A records for both P2P and API domains:
+   
+   **For P2P Domain:**
    - **Type**: A
-   - **Host/Name**: Use @ for the root domain, or a subdomain name like "devnet"
+   - **Host/Name**: Use a subdomain name like "devnet"
    - **Value/Points to**: Your server's public IP address
+   - **TTL**: 3600 (or as recommended by your provider)
+   
+   **For RPC API Domain:**
+   - **Type**: A
+   - **Host/Name**: Use a subdomain like "api.devnet"
+   - **Value/Points to**: Your server's public IP address (same as P2P)
    - **TTL**: 3600 (or as recommended by your provider)
 
 Example A record configuration:
@@ -63,30 +78,26 @@ Example A record configuration:
 | Type | Host/Name | Value/Points to | TTL |
 |------|-----------|----------------|-----|
 | A    | devnet    | 203.0.113.42   | 3600|
+| A    | api.devnet| 203.0.113.42   | 3600|
 
-### Setting Up CNAME Records
+### Alternative: Using CNAME Records
 
-If you want to create multiple subdomains pointing to the same server:
-
-1. Set up one A record for your main subdomain
-2. Create CNAME records for additional subdomains pointing to your main subdomain
-
-Example CNAME configuration:
+If you prefer, you can create the P2P domain as an A record, then use a CNAME for the API domain:
 
 | Type  | Host/Name | Value/Points to        | TTL |
 |-------|-----------|------------------------|-----|
 | A     | devnet    | 203.0.113.42          | 3600|
-| CNAME | api       | devnet.kanari.site    | 3600|
+| CNAME | api.devnet| devnet.kanari.site    | 3600|
 
-This allows `api.kanari.site` to point to the same server as `devnet.kanari.site`.
+This allows `api.devnet.kanari.site` to point to the same server as `devnet.kanari.site`.
 
-## Setting up devnet.kanari.site
+## Setting up Kanari Network Domains
 
-This section provides a specific example for setting up "devnet.kanari.site" for a Kari blockchain network.
+This section provides specific examples for setting up the official Kanari network domains.
 
 ### Step 1: Register or Use kanari.site Domain
 
-To use "devnet.kanari.site":
+To use the official Kanari domains:
 
 1. If you're part of the official Kanari team:
    - Request access to the domain from the DevOps team
@@ -94,106 +105,94 @@ To use "devnet.kanari.site":
    
 2. If you're setting up your own domain:
    - Register your domain (e.g., "yourname.site") with any registrar
-   - Create a "devnet" subdomain for development purposes
+   - Create similar subdomains for development purposes
 
-### Step 2: DNS Configuration for devnet.kanari.site
+### Step 2: DNS Configuration for Kanari Domains
 
-To configure DNS records for "devnet.kanari.site" (or your equivalent):
+To configure DNS records for the official domains (or your equivalents):
 
-1. Access the DNS management through your registrar or DNS provider:
-   - For Cloudflare: Go to DNS → Records
-   - For AWS Route 53: Go to Hosted Zones → [your domain] → Create Record
-   - For GoDaddy: Domain Details → DNS Management
+1. Access the DNS management through your registrar or DNS provider
+2. Create A records for both P2P and API domains:
 
-2. Create an A record:
-   - **Type**: A
-   - **Name/Host**: devnet
-   - **Value/Points to**: Your server's public IP address (e.g., 203.0.113.42)
-   - **TTL**: 3600 (1 hour) or as recommended
-
-3. If needed, also create these additional records:
-   - An A record for "api.devnet.kanari.site" pointing to the same IP (or use a CNAME)
-   - A TXT record for verification (if using Let's Encrypt for SSL)
-
-### Step 3: Nameserver Configuration (For DNS Provider)
-
-If using an external DNS provider like Cloudflare:
-
-1. In your domain registrar account:
-   - Find nameserver settings
-   - Replace default nameservers with your DNS provider's nameservers
+   **For P2P domains:**
+   - Create A record for "devnet.kanari.site" pointing to your server IP
+   - Create A record for "testnet.kanari.site" pointing to your server IP
+   - Create A record for "mainnet.kanari.site" pointing to your server IP
    
-   For Cloudflare, typically:
-   - ns1.cloudflare.com
-   - ns2.cloudflare.com
+   **For API domains:**
+   - Create A record for "api.devnet.kanari.site" pointing to your server IP
+   - Create A record for "api.testnet.kanari.site" pointing to your server IP
+   - Create A record for "api.mainnet.kanari.site" pointing to your server IP
 
-2. Wait 24-48 hours for nameserver propagation
+3. If needed, also create TXT records for verification (if using Let's Encrypt for SSL)
 
-3. In Cloudflare:
-   - Add the A record for "devnet" pointing to your server IP
-   - Enable proxy protection (orange cloud) for DDoS protection
-   - Consider enabling "Always Use HTTPS" to redirect HTTP to HTTPS
-
-### Step 4: Testing DNS Configuration
+### Step 3: Testing DNS Configuration
 
 After setting up DNS records:
 
-1. Check DNS propagation:
+1. Check DNS propagation for both P2P and API domains:
    ```bash
    # Using dig tool
    dig devnet.kanari.site A
+   dig api.devnet.kanari.site A
    
    # Using nslookup
    nslookup devnet.kanari.site
+   nslookup api.devnet.kanari.site
    ```
 
-2. The response should show your server's IP address
+2. The responses should show your server's IP address
 
-3. Check from multiple locations using online tools:
-   - https://www.whatsmydns.net/#A/devnet.kanari.site
-   - https://dnschecker.org/#A/devnet.kanari.site
+### Step 4: Configuring Your Node
 
-### Step 5: Configuring Your Node
-
-Update your node's configuration with the domain name:
+Update your node's configuration with both domain types:
 
 ```yaml
 # In ~/.kari/config.yaml
 chain_id: "kari-testnet-001"
 rpc_port: 30030
 address: "0x7a1c8f19cAE0A90d4A4E445793eB0BED2FaA9ecF"
-domain: "devnet.kanari.site"
+domain_peer: "devnet.kanari.site"      # For P2P node connections
+domain: "api.devnet.kanari.site"       # For RPC API access
 use_tls: true
 ```
 
-When other nodes connect to yours, they can use:
+When other nodes connect to yours via P2P, they will use:
 ```bash
 kari start --peer devnet.kanari.site:51303
 ```
 
-### Step 6: Operating Multiple Environment Subdomains
+For RPC API access, clients will use:
+```bash
+curl -X POST -H "Content-Type: application/json" -d '{
+  "jsonrpc": "2.0",
+  "method": "blockchain_status",
+  "params": [],
+  "id": 1
+}' https://api.devnet.kanari.site
+```
 
-For different network environments, consider standardizing on these subdomains:
+### Step 5: Operating Multiple Environment Domains
 
-1. **devnet.kanari.site** - Development testing network
-   - For testing new features
-   - Reset frequently
+For different network environments, standardize on these domain patterns:
+
+1. **Development Network**
+   - P2P: `devnet.kanari.site` - For node-to-node communication
+   - API: `api.devnet.kanari.site` - For RPC API access
    
-2. **testnet.kanari.site** - Stable test network
-   - More stable than devnet
-   - Less frequent resets
+2. **Test Network**
+   - P2P: `testnet.kanari.site` - For node-to-node communication
+   - API: `api.testnet.kanari.site` - For RPC API access
    
-3. **mainnet.kanari.site** - Production network
-   - Stable production environment
-   - Never reset
-
-Each subdomain should have its own server with appropriate scaling for its purpose.
+3. **Production Network**
+   - P2P: `mainnet.kanari.site` - For node-to-node communication
+   - API: `api.mainnet.kanari.site` - For RPC API access
 
 ## Node Configuration
 
-### Configuring Your Kari Node to Use Your Domain
+### Configuring Your Kari Node to Use Your Domains
 
-Add your domain name to the node configuration:
+Add both domain types to the node configuration:
 
 1. Edit your node configuration file:
    ```yaml
@@ -201,23 +200,26 @@ Add your domain name to the node configuration:
    chain_id: "kari-testnet-001"
    rpc_port: 30030
    address: "0x7a1c8f19cAE0A90d4A4E445793eB0BED2FaA9ecF"
-   domain: "devnet.kanari.site"
+   domain_peer: "devnet.kanari.site"      # For P2P connections
+   domain: "api.devnet.kanari.site"       # For RPC API access
    use_tls: true
    ```
 
-2. Update the discovery nodes in your code:
+2. Update the discovery nodes in your code to use P2P domains:
    ```rust
    // In node configuration
    discovery_nodes: vec![
        "devnet.kanari.site:51303".to_string(),
+       "testnet.kanari.site:51303".to_string(),
+       "mainnet.kanari.site:51303".to_string(),
        // Add other nodes as needed
    ],
    ```
 
-### Port Forwarding for Your Domain
+### Port Forwarding for Your Domains
 
 1. Configure your router/firewall to forward ports to your node server:
-   - Forward port 30030 for RPC
+   - Forward port 30030 for RPC API access
    - Forward port 51303 for P2P communication
 
 2. For cloud servers (like AWS EC2, Digital Ocean, etc.):
@@ -227,14 +229,15 @@ Add your domain name to the node configuration:
 
 ## HTTPS Configuration
 
-### Step 1: Generate TLS Certificate
+### Step 1: Generate TLS Certificates
 
-For HTTPS to work properly with your domain (e.g., devnet.kanari.site), you need a valid certificate:
+For HTTPS to work properly with your domains, you need valid certificates for each domain:
 
 ```bash
 # Option 1: Using Let's Encrypt (recommended for production)
 sudo apt-get install certbot
 sudo certbot certonly --standalone -d devnet.kanari.site
+sudo certbot certonly --standalone -d api.devnet.kanari.site
 
 # Option 2: Using Kari's built-in certificate generator (for testing only)
 kari certificate generate
@@ -242,22 +245,18 @@ kari certificate generate
 
 ### Step 2: Set Up a Reverse Proxy
 
-The Kari node runs on HTTP only (typically port 30030), so you need a reverse proxy for HTTPS:
+Set up a reverse proxy for each domain (the P2P domain typically doesn't need HTTPS, but the API domain does):
 
 ```nginx
-# /etc/nginx/sites-available/devnet.kanari.site.conf
+# /etc/nginx/sites-available/api.devnet.kanari.site.conf
 server {
     listen 443 ssl;
-    server_name devnet.kanari.site;
+    server_name api.devnet.kanari.site;
 
     # For Let's Encrypt certificates
-    ssl_certificate /etc/letsencrypt/live/devnet.kanari.site/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/devnet.kanari.site/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/api.devnet.kanari.site/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/api.devnet.kanari.site/privkey.pem;
     
-    # Or for self-generated certificates
-    # ssl_certificate /home/user/.kari/certs/node.crt;
-    # ssl_certificate_key /home/user/.kari/certs/node.key;
-
     # Important security settings
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers on;
@@ -275,7 +274,7 @@ server {
 server {
     # Redirect HTTP to HTTPS
     listen 80;
-    server_name devnet.kanari.site;
+    server_name api.devnet.kanari.site;
     return 301 https://$host$request_uri;
 }
 ```
@@ -284,11 +283,9 @@ server {
 
 ```bash
 # For Nginx
-sudo ln -s /etc/nginx/sites-available/devnet.kanari.site.conf /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/api.devnet.kanari.site.conf /etc/nginx/sites-enabled/
 sudo nginx -t  # Test configuration
 sudo systemctl restart nginx
-
-# For Windows IIS or other servers, follow their specific activation steps
 ```
 
 ### Step 4: Firewall Configuration
@@ -315,9 +312,10 @@ To test if your HTTPS setup is working properly:
 ```bash
 # Test domain DNS resolution
 nslookup devnet.kanari.site
+nslookup api.devnet.kanari.site
 
 # Test HTTPS connection
-curl -v https://devnet.kanari.site/health
+curl -v https://api.devnet.kanari.site/health
 
 # Test RPC API over HTTPS
 curl -X POST -H "Content-Type: application/json" -d '{
@@ -325,7 +323,7 @@ curl -X POST -H "Content-Type: application/json" -d '{
   "method": "blockchain_status",
   "params": [],
   "id": 1
-}' https://devnet.kanari.site
+}' https://api.devnet.kanari.site
 ```
 
 ### Troubleshooting HTTPS Issues
@@ -341,11 +339,11 @@ Check the following:
 3. Confirm your reverse proxy is running and properly configured.
 4. Test your server's ports using online tools or `netstat`.
 
-## Testing Your Domain
+## Testing Your Domains
 
-### Testing RPC Endpoint
+### Testing RPC API Endpoint
 
-Use curl to test your RPC endpoint:
+Use curl to test your RPC API endpoint:
 
 ```bash
 curl -X POST -H "Content-Type: application/json" -d '{
@@ -353,12 +351,12 @@ curl -X POST -H "Content-Type: application/json" -d '{
   "method": "blockchain_status",
   "params": [],
   "id": 1
-}' https://devnet.kanari.site
+}' https://api.devnet.kanari.site
 ```
 
 ### Testing P2P Connection
 
-From another node, connect as a peer:
+From another node, connect as a peer using the P2P domain:
 
 ```bash
 kari start --peer devnet.kanari.site:51303

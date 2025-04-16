@@ -52,8 +52,11 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
             chain_id: mapping.get("chain_id").and_then(|v| v.as_str()).unwrap_or(chain_id).to_string(),
             max_connections: 100,
             api_enabled: true,
-            domain_peer: mapping.get("domain").and_then(|v| v.as_str()).map(String::from), // Get domain from config if it exists
-            domain: mapping.get("domain").and_then(|v| v.as_str()).map(String::from), // Get domain from config if it exists
+            // Use domain_peer for P2P connections (bootstrap nodes)
+            domain_peer: mapping.get("domain_peer").and_then(|v| v.as_str()).map(String::from)
+                .or_else(|| mapping.get("domain").and_then(|v| v.as_str()).map(String::from)), 
+            // Use domain for RPC API connections
+            domain: mapping.get("domain").and_then(|v| v.as_str()).map(String::from), 
             use_tls: mapping.get("use_tls").and_then(|v| v.as_bool()).unwrap_or(false),
         });
     }
@@ -79,9 +82,10 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
         chain_id: chain_id.to_string(),
         max_connections: 100,
         api_enabled: true,
-        domain_peer: None, // Default to None for new configurations
-        domain: None, // Default to None for new configurations
-        use_tls: false, // Default to false for new configurations
+        // Initialize domain_peer and domain differently for new configurations
+        domain_peer: None, 
+        domain: None,
+        use_tls: false,
     };
 
     let owned_mapping = mapping.clone();    

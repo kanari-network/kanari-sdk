@@ -132,38 +132,48 @@ If running multiple nodes on one machine, each node must use:
 
 ### Using Domain Names
 
-For production nodes, using a domain name is recommended over IP addresses:
+For production nodes, using domain names is recommended over IP addresses. Kanari Network uses separate domains for P2P connections and RPC API access:
 
-```bash
-# Configure your domain in config.yaml
-domain: "devnet.kanari.site"
+```yaml
+# Configure domains in config.yaml
+domain: "api.devnet.kanari.site"   # For RPC API access
+domain_peer: "devnet.kanari.site"  # For P2P node connections
 
 # Start the node with normal command
 kari start
 ```
 
-#### Setting Up devnet.kanari.site
+#### Setting Up devnet.kanari.site and api.devnet.kanari.site
 
-To set up the "devnet.kanari.site" domain (or your own domain):
+To set up the Kanari domains (or your own domains):
 
 1. **Register your domain** with a registrar like Namecheap, GoDaddy, or Cloudflare
-2. **Create DNS A record**:
-   - Type: A
-   - Host: devnet (or your subdomain)
-   - Value: Your server's public IP address
-   - TTL: 3600 (1 hour)
+2. **Create DNS A records**:
+   - P2P Domain:
+     - Type: A
+     - Host: devnet (or your subdomain)
+     - Value: Your server's public IP address
+     - TTL: 3600 (1 hour)
+   - API Domain:
+     - Type: A
+     - Host: api.devnet (or your subdomain)
+     - Value: Your server's public IP address
+     - TTL: 3600 (1 hour)
 
 3. **Check DNS propagation**:
    ```bash
    dig devnet.kanari.site A
+   dig api.devnet.kanari.site A
    # OR
    nslookup devnet.kanari.site
+   nslookup api.devnet.kanari.site
    ```
 
 4. **Update your node configuration**:
    ```yaml
    # In ~/.kari/config.yaml
-   domain: "devnet.kanari.site"
+   domain_peer: "devnet.kanari.site"       # For P2P node connections
+   domain: "api.devnet.kanari.site"        # For RPC API access
    ```
 
 5. **Configure port forwarding** on your router/firewall:
