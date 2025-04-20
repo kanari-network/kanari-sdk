@@ -25,7 +25,8 @@ move-vm-profiler = { workspace = true, optional = true }
 
 
 mona-enum-compat-util.workspace = true
-
+log.workspace = true
+lazy_static.workspace = true
 bcs.workspace = true
 serde.workspace = true
 sha2.workspace = true

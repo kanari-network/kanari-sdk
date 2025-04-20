@@ -5,11 +5,11 @@ use clap::*;
 use move_package::source_package::layout::SourcePackageLayout;
 use std::{
     fmt::Display,
-    fs::{self, create_dir_all, File},
+    fs::{create_dir_all, File},
     io::Write,
     path::{Path, PathBuf},
 };
-use serde_yaml::Value;
+use common::load_config;
 // TODO get a stable path to this stdlib
 // pub const MOVE_STDLIB_PACKAGE_NAME: &str = "MoveStdlib";
 // pub const MOVE_STDLIB_PACKAGE_PATH: &str = "{ \
@@ -33,21 +33,15 @@ pub struct New {
 impl New {
 
     fn get_address_from_config() -> Option<String> {
-        let home_dir = dirs::home_dir()?;
-        let config_path = home_dir.join(".kari").join("network").join("config.yaml");
-        
-        if !config_path.exists() {
-            return None;
+        match load_config() {
+            Ok(config) => {
+                config.get("address")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.trim_end_matches(".enc").to_string())
+            },
+            Err(_) => None
         }
-    
-        let config_str = fs::read_to_string(config_path).ok()?;
-        let config: Value = serde_yaml::from_str(&config_str).ok()?;
-        
-        config.get("address")
-            .and_then(|v| v.as_str())
-            .map(|s| s.trim_end_matches(".enc").to_string())
     }
-
 
     pub fn execute_with_defaults(self, path: Option<PathBuf>) -> anyhow::Result<()> {
         self.execute(

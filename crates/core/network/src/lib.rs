@@ -12,7 +12,7 @@ use std::path::Path;
     pub max_connections: u32,
     pub api_enabled: bool,
     pub domain_peer: Option<String>, // Add domain_peer field
-    pub domain: Option<String>, // Add domain field
+    pub domain_api: Option<String>, // Add domain field
     pub use_tls : bool, // Add use_tls field
 }
 
@@ -44,7 +44,7 @@ impl NetworkConfig {
         self.max_connections = new_config.max_connections;
         self.api_enabled = new_config.api_enabled;
         self.domain_peer = new_config.domain_peer; // Update domain_peer
-        self.domain = new_config.domain;
+        self.domain_api = new_config.domain_api;
         self.use_tls = new_config.use_tls;
     }
 }

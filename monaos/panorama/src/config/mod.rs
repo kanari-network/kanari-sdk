@@ -56,7 +56,7 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
             domain_peer: mapping.get("domain_peer").and_then(|v| v.as_str()).map(String::from)
                 .or_else(|| mapping.get("domain").and_then(|v| v.as_str()).map(String::from)), 
             // Use domain for RPC API connections
-            domain: mapping.get("domain").and_then(|v| v.as_str()).map(String::from), 
+            domain_api: mapping.get("domain").and_then(|v| v.as_str()).map(String::from), 
             use_tls: mapping.get("use_tls").and_then(|v| v.as_bool()).unwrap_or(false),
         });
     }
@@ -84,7 +84,7 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
         api_enabled: true,
         // Initialize domain_peer and domain differently for new configurations
         domain_peer: None, 
-        domain: None,
+        domain_api: None,
         use_tls: false,
     };
 

@@ -270,7 +270,7 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
             domain_peer: config.get("domain_peer").and_then(|v| v.as_str()).map(String::from)
                 .or_else(|| config.get("domain").and_then(|v| v.as_str()).map(String::from)),
             // Use domain for RPC API endpoints
-            domain: config.get("domain").and_then(|v| v.as_str()).map(String::from)
+            domain_api: config.get("domain").and_then(|v| v.as_str()).map(String::from)
                 .map(|d| {
                     if d.starts_with("api.") {
                         d
@@ -470,7 +470,7 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
         domain_peer: config.get("domain_peer").and_then(|v| v.as_str()).map(|s| s.to_string())
             .or_else(|| config.get("domain").and_then(|v| v.as_str()).map(|s| s.to_string())),
         // Use domain for RPC API endpoints, adding api. prefix if needed
-        domain: config.get("domain").and_then(|v| v.as_str()).map(|s| {
+        domain_api: config.get("domain").and_then(|v| v.as_str()).map(|s| {
             if s.starts_with("api.") {
                 s.to_string()
             } else {
