@@ -258,3 +258,15 @@ pub fn connect_to_peer_by_name(address: &str) -> Result<String, BlockchainError>
         }
     }
 }
+
+// Choose appropriate domain for network type
+pub fn get_domain_for_network(network_type: &str, is_api: bool) -> Option<String> {
+    let domain = match network_type.to_lowercase().as_str() {
+        "devnet" => if is_api { "api.devnet.kanari.site" } else { "devnet.kanari.site" },
+        "testnet" => if is_api { "api.testnet.kanari.site" } else { "testnet.kanari.site" },
+        "mainnet" => if is_api { "api.mainnet.kanari.site" } else { "mainnet.kanari.site" },
+        _ => return None,
+    };
+    
+    Some(domain.to_string())
+}

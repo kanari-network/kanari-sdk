@@ -61,7 +61,8 @@ Using a domain name for your node is recommended for production environments:
 
 ```yaml
 # In ~/.kari/config.yaml
-domain: "devnet.kanari.site"
+domain: "api.devnet.kanari.site"        # Domain for RPC API access
+domain_peer: "devnet.kanari.site"       # Domain for P2P node connections
 ```
 
 #### Setting Up Official Kanari Domains
@@ -70,32 +71,48 @@ If you're setting up an official Kanari network domain like "devnet.kanari.site"
 
 1. Request access from the Kanari DevOps team
 2. Provide your node's public IP address
-3. The DevOps team will configure the DNS A record to point to your node
-4. Update your node configuration to use the domain
+3. The DevOps team will configure the DNS A records to point to your node
+4. Update your node configuration to use the domains
 
 #### Setting Up Your Own Domain
 
 If you're setting up your own domain:
 
 1. Register a domain with any registrar (Namecheap, GoDaddy, etc.)
-2. Create an A record for your subdomain pointing to your server's IP address
-3. Configure your node with the domain name
-4. Set up proper TLS certificates for the domain using `kari certificate generate`
+2. Create A records for both P2P and API subdomains pointing to your server's IP address
+3. Configure your node with the domain names
+4. Set up proper TLS certificates for the domains using `kari certificate generate`
 
 #### Official Kanari Network Domains
 
-The Kanari Network uses these standard domain names:
+The Kanari Network uses these standard domain naming conventions:
 
-| Domain | Purpose | Environment |
-|--------|---------|-------------|
-| `devnet.kanari.site` | Development network | Unstable, frequent resets |
-| `testnet.kanari.site` | Testing network | More stable, occasional resets |
-| `mainnet.kanari.site` | Production network | Stable, no resets |
+| Domain Type | Domain Name | Purpose | Environment |
+|-------------|-------------|---------|-------------|
+| **P2P Domains** ||||
+| | `devnet.kanari.site` | P2P node communication | Development network - unstable, frequent resets |
+| | `testnet.kanari.site` | P2P node communication | Testing network - more stable, occasional resets |
+| | `mainnet.kanari.site` | P2P node communication | Production network - stable, no resets |
+| **API Domains** ||||
+| | `api.devnet.kanari.site` | RPC API services | Development network API access |
+| | `api.testnet.kanari.site` | RPC API services | Testing network API access |
+| | `api.mainnet.kanari.site` | RPC API services | Production network API access |
 
-When connecting to these networks, you can use the domain name directly:
+When connecting to these networks for P2P communications, use the P2P domains:
 
 ```bash
 kari start --peer devnet.kanari.site:51303
+```
+
+For RPC API access, use the API domains:
+
+```bash
+curl -X POST -H "Content-Type: application/json" -d '{
+  "jsonrpc": "2.0", 
+  "method": "blockchain_status",
+  "params": [],
+  "id": 1
+}' https://api.devnet.kanari.site
 ```
 
 For complete domain setup instructions, see the [Domain Configuration Guide](domain_setup_guide.md).

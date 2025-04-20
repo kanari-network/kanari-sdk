@@ -109,29 +109,46 @@ In multi-node setups, using domain names instead of IP addresses provides stabil
 #### Configuring Domain Names for Multiple Nodes
 
 1. Follow a consistent naming scheme for your nodes:
-   ```
-   node1.your-domain.com
-   node2.your-domain.com
-   validator1.your-domain.com
-   ```
+   - For P2P connections:
+     ```
+     node1p2p.your-domain.com
+     node2p2p.your-domain.com
+     validator1p2p.your-domain.com
+     ```
    
-   Or for Kanari's domains:
-   ```
-   devnet.kanari.site (development network)
-   testnet.kanari.site (testing network)
-   mainnet.kanari.site (production network)
-   ```
+   - For RPC API access:
+     ```
+     api.node1.your-domain.com
+     api.node2.your-domain.com
+     api.validator1.your-domain.com
+     ```
+   
+   - Or for Kanari's official domains:
+     - P2P domains:
+       ```
+       devnet.kanari.site (development network)
+       testnet.kanari.site (testing network)
+       mainnet.kanari.site (production network)
+       ```
+     
+     - RPC API domains:
+       ```
+       api.devnet.kanari.site (development network API)
+       api.testnet.kanari.site (testing network API)
+       api.mainnet.kanari.site (production network API)
+       ```
 
-2. Create A records for each node in your DNS configuration
-3. Configure each node with its domain name:
+2. Create A records for each subdomain in your DNS configuration
+3. Configure each node with both domain types:
    ```yaml
    # In ~/.kari/config.yaml for each node
-   domain: "node1.your-domain.com"
+   domain_peer: "devnet.kanari.site"       # For P2P connections
+   domain: "api.devnet.kanari.site"        # For RPC API access
    ```
 
-4. Reference other nodes by domain name:
+4. Reference other nodes by their P2P domain name when connecting:
    ```bash
-   kari start --peer node1.your-domain.com:51303 --peer node2.your-domain.com:51303
+   kari start --peer devnet.kanari.site:51303 --peer testnet.kanari.site:51303
    ```
 
 For detailed domain and DNS setup instructions, see the [Domain Configuration Guide](domain_setup_guide.md).
@@ -224,7 +241,7 @@ To configure a node as a validator:
 
 1. Start the node and ensure it's connected to the network
 2. Stake the required minimum tokens (32-200 KARI):
-   ```
+   ```bash
    curl -X POST http://localhost:30030 -H "Content-Type: application/json" \
      -d '{"jsonrpc":"2.0","method":"stake_tokens","params":{"address":"YOUR_ADDRESS","amount":1000,"password":"YOUR_PASSWORD"},"id":1}'
    ```

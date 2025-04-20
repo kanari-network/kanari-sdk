@@ -114,9 +114,9 @@ impl Default for NodeConfig {
             listen_ip: "0.0.0.0".to_string(),  // Listen on all interfaces
             listen_port: 51303,                // Default P2P port
             discovery_nodes: vec![
-                // Default bootstrap nodes
+                // Default P2P bootstrap nodes
                 "devnet.kanari.site:51303".to_string(),
-                "testnet.kanari.site:51303".to_string(),
+                "testnet.kanari.site:51303".to_string(), 
                 "mainnet.kanari.site:51303".to_string(),
             ],
             max_peers: 50,

@@ -266,8 +266,18 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
             chain_id,
             max_connections: 100,
             api_enabled: true,
-            domain_peer: config.get("domain").and_then(|v| v.as_str()).map(String::from), // Add domain field
-            domain: config.get("domain").and_then(|v| v.as_str()).map(String::from), // Add domain field
+            // Use domain_peer specifically for P2P connections
+            domain_peer: config.get("domain_peer").and_then(|v| v.as_str()).map(String::from)
+                .or_else(|| config.get("domain").and_then(|v| v.as_str()).map(String::from)),
+            // Use domain for RPC API endpoints
+            domain_api: config.get("domain").and_then(|v| v.as_str()).map(String::from)
+                .map(|d| {
+                    if d.starts_with("api.") {
+                        d
+                    } else {
+                        format!("api.{}", d)
+                    }
+                }),
             use_tls: config.get("use_tls").and_then(|v| v.as_bool()).unwrap_or(false),
         }
     } else {
@@ -450,14 +460,23 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
 
     // Update RPC configuration
     let rpc_config = NetworkConfig {
-        node_address: local_ip.clone(), // FIXED: Use actual network IP consistently
+        node_address: local_ip.clone(),
         port: network_config.port,
         peers: network_config.peers.clone(),
         chain_id: network_config.chain_id.clone(),
         max_connections: 100,
         api_enabled: true,
-        domain_peer: config.get("domain").and_then(|v| v.as_str()).map(|s| s.to_string()),
-        domain: config.get("domain").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        // Use domain_peer specifically for P2P connections
+        domain_peer: config.get("domain_peer").and_then(|v| v.as_str()).map(|s| s.to_string())
+            .or_else(|| config.get("domain").and_then(|v| v.as_str()).map(|s| s.to_string())),
+        // Use domain for RPC API endpoints, adding api. prefix if needed
+        domain_api: config.get("domain").and_then(|v| v.as_str()).map(|s| {
+            if s.starts_with("api.") {
+                s.to_string()
+            } else {
+                format!("api.{}", s)
+            }
+        }),
         use_tls: config.get("use_tls").and_then(|v| v.as_bool()).unwrap_or(false),
     };
 
