@@ -13,6 +13,7 @@ pub struct Transaction {
     pub gas_fee: u64, // Add gas fee field
     pub timestamp: u64,
     pub signature: Vec<u8>, // Changed from Option<String> to Vec<u8>
+    pub data: Option<Vec<u8>>, // Re-add data field as Option<Vec<u8>>
 }
 
 // Add a new method to verify transaction signatures

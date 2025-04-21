@@ -80,6 +80,7 @@ fn create_mock_transaction(
         timestamp: now,
         gas_fee: 10 + (complexity_factor as u64 / 10), // Gas fee scales with complexity
         signature: dummy_signature,
+        data: None, // No real data payload
     }
 }
 

@@ -21,6 +21,7 @@ once_cell.workspace = true
 tracing.workspace = true
 toml.workspace = true
 mona-types.workspace = true
+mona-enum-compat-util.workspace = true
 
 move-bytecode-verifier.workspace = true
 move-disassembler.workspace = true

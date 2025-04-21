@@ -64,3 +64,4 @@ crossbeam.workspace = true
 
 kari-move.workspace = true
 
+move-core-types.workspace = true

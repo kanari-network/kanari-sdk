@@ -36,6 +36,7 @@ pub(crate) fn create_genesis_block(address: &Address, coin: &KARI) -> Block<Blak
         timestamp,
         gas_fee: 0, // No gas fee for genesis transaction
         signature: Vec::new(), // No signature needed for genesis transaction
+        data: None, // Add missing data field
     };
     
     // Create transactions list with pool transaction
