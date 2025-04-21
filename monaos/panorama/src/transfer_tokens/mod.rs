@@ -59,7 +59,8 @@ pub fn transfer_tokens(
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs(),
-        signature: Vec::new(), // Initialize with empty signature
+        signature: Vec::new(),
+        data: None, // Optional data field for future use
     };
     
     // Sign the transaction with better debugging

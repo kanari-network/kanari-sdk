@@ -17,6 +17,10 @@ use framework::{Package, PackageType, PackageSourceInfo};
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 
+// Add import for Panorama integration (conditional compilation)
+#[cfg(feature = "panorama")]
+use panorama::simulation::move_vm_integration as move_vm;
+
 pub fn reroot_path(path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     let path = path.unwrap_or_else(|| PathBuf::from("."));
     let rooted_path = SourcePackageLayout::try_find_root(&path.canonicalize()?)?;
@@ -30,6 +34,9 @@ pub struct Build {
 }
 
 pub struct Publish;
+
+// Add a new struct for function call
+pub struct Call;
 
 fn generate_object_id() -> String {
     let mut hasher = Sha3_256::new();
@@ -259,25 +266,127 @@ impl Publish {
             skip_verify,
         )?;
 
-        let deployment_result = self.submit_to_blockchain(&compiled_package, &address, &deployment_info)?;
+        // Try to use Panorama integration if available
+        #[cfg(feature = "panorama")]
+        {
+            return self.submit_to_panorama(&compiled_package, &address, &deployment_info);
+        }
 
+        // Fall back to simulated deployment
+        #[cfg(not(feature = "panorama"))]
+        {
+            let deployment_result = self.submit_to_blockchain(&compiled_package, &address, &deployment_info)?;
+
+            let result = json!({
+                "status": "success",
+                "type": "blockchain_deployment",
+                "metadata": {
+                    "package": {
+                        "name": compiled_package.compiled_package_info.package_name.to_string(),
+                        "id": generate_object_id(),
+                        "path": rerooted_path.to_string_lossy(),
+                        "address": format!("0x{}", address.to_hex()),
+                        "gas_budget": gas_budget.unwrap_or(3_000_000),
+                        "gas_used": deployment_result.gas_used,
+                        "deploy_time": deployment_result.execution_time_ms,
+                    },
+                    "blockchain": {
+                        "transaction_id": deployment_result.transaction_id,
+                        "status": deployment_result.status,
+                        "block_height": deployment_result.block_height,
+                        "timestamp": SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs(),
+                    },
+                    "deployment": deployment_info
+                }
+            });
+
+            println!("{}", serde_json::to_string_pretty(&result)?);
+            Ok(())
+        }
+    }
+
+    // New method for Panorama integration
+    #[cfg(feature = "panorama")]
+    fn submit_to_panorama(
+        &self,
+        package: &move_package::compilation::compiled_package::CompiledPackage,
+        address: &AccountAddress,
+        deployment_info: &JsonValue,
+    ) -> anyhow::Result<()> {
+        info!(
+            "Submitting {} modules to Panorama blockchain at address: 0x{}",
+            package.root_compiled_units.len(),
+            address.to_hex()
+        );
+
+        let modules = deployment_info["modules"].as_array().unwrap();
+        let mut total_gas_used = 0;
+        let mut transaction_ids = Vec::new();
+        let mut block_heights = Vec::new();
+
+        // Create a dummy transaction channel that will be ignored
+        let (tx, _rx) = tokio::sync::mpsc::channel(100);
+
+        for module_json in modules {
+            let module_name = module_json["name"].as_str().unwrap();
+            let bytecode_size = module_json["size_bytes"].as_u64().unwrap_or(0);
+            let gas_estimate = module_json["verification"]["gas_estimate"].as_u64().unwrap();
+
+            // Convert AccountAddress to panorama Address
+            let panorama_address = match move_vm::convert_address(address) {
+                Ok(addr) => addr,
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Address conversion error: {}", e));
+                }
+            };
+
+            // Create Move module for deployment
+            let move_module = move_vm::MoveModule {
+                id: module_json["id"].as_str().unwrap_or("unknown").to_string(),
+                name: module_name.to_string(),
+                bytecode: vec![0; bytecode_size as usize], // Mock bytecode
+                address: panorama_address,
+                gas_budget: gas_estimate,
+            };
+
+            // Deploy the module
+            match move_vm::deploy_move_module(move_module, &tx) {
+                Ok(result) => {
+                    info!(
+                        "Module '{}' deployed to Panorama - gas used: {} ({})",
+                        module_name,
+                        result.gas_used,
+                        format_gas_amount(result.gas_used)
+                    );
+                    
+                    total_gas_used += result.gas_used;
+                    transaction_ids.push(result.transaction_id);
+                    block_heights.push(result.block_height);
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Module deployment error: {}", e));
+                }
+            }
+        }
+
+        // Create result JSON
         let result = json!({
             "status": "success",
-            "type": "blockchain_deployment",
+            "type": "panorama_blockchain_deployment",
             "metadata": {
                 "package": {
-                    "name": compiled_package.compiled_package_info.package_name.to_string(),
+                    "name": package.compiled_package_info.package_name.to_string(),
                     "id": generate_object_id(),
-                    "path": rerooted_path.to_string_lossy(),
                     "address": format!("0x{}", address.to_hex()),
-                    "gas_budget": gas_budget.unwrap_or(3_000_000),
-                    "gas_used": deployment_result.gas_used,
-                    "deploy_time": deployment_result.execution_time_ms,
+                    "gas_used": total_gas_used,
                 },
                 "blockchain": {
-                    "transaction_id": deployment_result.transaction_id,
-                    "status": deployment_result.status,
-                    "block_height": deployment_result.block_height,
+                    "transaction_ids": transaction_ids,
+                    "status": "COMMITTED",
+                    "block_heights": block_heights,
                     "timestamp": SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .unwrap_or_default()
@@ -350,6 +459,7 @@ impl Publish {
         Ok(deployment_json)
     }
 
+    #[cfg(not(feature = "panorama"))]
     fn submit_to_blockchain(
         &self,
         package: &move_package::compilation::compiled_package::CompiledPackage,
@@ -404,6 +514,158 @@ impl Publish {
         );
 
         Ok(result)
+    }
+}
+
+impl Call {
+    pub fn execute(
+        self,
+        function_id: String,
+        args: Vec<String>,
+        sender: Option<AccountAddress>,
+        gas_budget: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let parts: Vec<&str> = function_id.split("::").collect();
+        if parts.len() != 3 {
+            return Err(anyhow::anyhow!("Function ID must be in format 0x{{address}}::{{module}}::{{function}}"));
+        }
+
+        let address_str = parts[0];
+        let module_name = parts[1];
+        let function_name = parts[2];
+
+        // Parse address
+        let address_str = address_str.trim_start_matches("0x");
+        let address = AccountAddress::from_hex(address_str)?;
+        
+        // Parse arguments
+        let parsed_args: Vec<JsonValue> = args.iter()
+            .map(|arg| serde_json::from_str(arg).unwrap_or(JsonValue::String(arg.clone())))
+            .collect();
+
+        // Use sender address or default to function address
+        let sender_address = sender.unwrap_or(address);
+        
+        // Try to use Panorama integration if available
+        #[cfg(feature = "panorama")]
+        {
+            return self.execute_in_panorama(
+                address,
+                module_name.to_string(),
+                function_name.to_string(),
+                parsed_args,
+                sender_address,
+                gas_budget.unwrap_or(1_000_000),
+            );
+        }
+
+        // Fall back to simulated function call
+        #[cfg(not(feature = "panorama"))]
+        {
+            // Simulate function execution
+            let start = std::time::Instant::now();
+            std::thread::sleep(Duration::from_millis(100));
+            
+            let result = json!({
+                "status": "success",
+                "type": "function_call",
+                "metadata": {
+                    "call": {
+                        "id": generate_object_id(),
+                        "function": {
+                            "module": format!("0x{}::{}", address.to_hex(), module_name),
+                            "name": function_name,
+                            "full_id": function_id
+                        },
+                        "args": parsed_args,
+                        "gas_budget": gas_budget.unwrap_or(1_000_000),
+                        "gas_used": gas_budget.unwrap_or(1_000_000) / 2,
+                        "sender": format!("0x{}", sender_address.to_hex())
+                    },
+                    "result": {
+                        "success": true,
+                        "returned_values": ["simulated result"]
+                    },
+                    "timestamp": SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs()
+                }
+            });
+            
+            println!("{}", serde_json::to_string_pretty(&result)?);
+            Ok(())
+        }
+    }
+    
+    // New method for Panorama integration
+    #[cfg(feature = "panorama")]
+    fn execute_in_panorama(
+        &self,
+        address: AccountAddress,
+        module_name: String,
+        function_name: String,
+        args: Vec<JsonValue>,
+        sender: AccountAddress,
+        gas_budget: u64,
+    ) -> anyhow::Result<()> {
+        // Convert addresses to panorama Address
+        let panorama_sender = match move_vm::convert_address(&sender) {
+            Ok(addr) => addr,
+            Err(e) => {
+                return Err(anyhow::anyhow!("Sender address conversion error: {}", e));
+            }
+        };
+
+        // Create module ID for the function call
+        let module_id = format!("0x{}::{}", address.to_hex(), module_name);
+        
+        // Create a dummy transaction channel that will be ignored
+        let (tx, _rx) = tokio::sync::mpsc::channel(100);
+        
+        // Create function call
+        let function_call = move_vm::MoveFunctionCall {
+            module_id,
+            function_name,
+            args,
+            sender: panorama_sender,
+            gas_budget,
+        };
+        
+        // Execute the function
+        match move_vm::execute_move_function(function_call, &tx) {
+            Ok(result) => {
+                // Create result JSON
+                let output = json!({
+                    "status": "success",
+                    "type": "panorama_function_call",
+                    "metadata": {
+                        "call": {
+                            "id": result.transaction_id,
+                            "function": {
+                                "module": function_call.module_id,
+                                "name": function_call.function_name,
+                            },
+                            "gas_budget": gas_budget,
+                            "gas_used": result.gas_used,
+                            "sender": panorama_sender.to_hex_literal()
+                        },
+                        "result": result.result,
+                        "block_height": result.block_height,
+                        "timestamp": SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs()
+                    }
+                });
+                
+                println!("{}", serde_json::to_string_pretty(&output)?);
+                Ok(())
+            },
+            Err(e) => {
+                Err(anyhow::anyhow!("Function execution error: {}", e))
+            }
+        }
     }
 }
 

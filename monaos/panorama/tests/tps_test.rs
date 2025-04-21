@@ -89,6 +89,7 @@ fn create_mock_transaction(
         timestamp: now,
         gas_fee: 10, // Fixed gas fee for testing
         signature: dummy_signature,
+        data: None, // No additional data for mock transactions
     }
 }
 
