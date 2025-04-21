@@ -37,10 +37,6 @@ pub struct Call {
     /// Sender address (if different from module address)
     #[clap(long = "sender")]
     pub sender: Option<String>,
-    
-    /// Use Mona VM for blockchain execution
-    #[clap(long)]
-    pub use_mona_vm: bool,
 }
 
 impl Call {
@@ -66,33 +62,6 @@ impl Call {
         } else {
             bail!("Either function-id or module and function must be provided")
         };
-        
-        // If using Mona VM, delegate to it
-        if self.use_mona_vm {
-            println!("Executing function call with Mona VM (blockchain execution)...");
-            
-            // Parse sender address if provided
-            let sender = if let Some(sender_str) = &self.sender {
-                Some(AccountAddress::from_hex(sender_str.trim_start_matches("0x"))?)
-            } else {
-                None
-            };
-            
-            // Create full function ID
-            let full_function_id = format!("0x{}::{}::{}", 
-                address.to_hex(), module_name, function_name);
-            
-            // Call Mona VM
-            let mona_vm_call = mona_vm::Call;
-            return mona_vm_call.execute(
-                full_function_id,
-                self.args,
-                sender,
-                Some(self.gas_budget)
-            ).map_err(|e| anyhow::anyhow!("Mona VM function call failed: {}", e));
-        }
-        
-        // Otherwise continue with the regular local execution
         
         // Generate a unique transaction ID
         let transaction_id = generate_object_id();
@@ -185,17 +154,48 @@ impl Call {
     
     fn simulate_function_call(
         &self,
-        package_path: &Option<PathBuf>,
-        build_config: &BuildConfig,
-        address: &AccountAddress,
+        _package_path: &Option<PathBuf>,
+        _build_config: &BuildConfig,
+        _address: &AccountAddress,
         module_name: &str,
         function_name: &str,
         args: &[JsonValue],
     ) -> anyhow::Result<(JsonValue, u64)> {
-        // Placeholder for actual function call simulation
-        // In a real implementation, this would interact with the Move VM or a testnet
-        let result = json!({"result": "success"});
-        let gas_used = self.gas_budget / 2; // Simulate gas usage
+        // This is a placeholder for the actual function call implementation
+        // In a real implementation, you would:
+        // 1. Compile the package if needed
+        // 2. Verify the function exists in the module
+        // 3. Verify the arguments match the function's parameter types
+        // 4. Execute the function in the VM
+        // 5. Return the result and gas used
+        
+        // For now, we'll just simulate a result
+        let mut rng = thread_rng();
+        let gas_used = rng.gen_range(100..self.gas_budget);
+        
+        // Simulate a realistic result based on the function name
+        let result = match function_name {
+            "mint" => json!({
+                "object_id": generate_object_id(),
+                "owner": format!("0x{}", generate_random_hex(64)),
+            }),
+            "transfer" => json!({
+                "success": true,
+                "new_owner": format!("0x{}", generate_random_hex(64)),
+            }),
+            "burn" => json!({
+                "success": true,
+                "burned_id": generate_object_id(),
+            }),
+            _ => json!({
+                "success": true,
+                "return_values": [generate_object_id()]
+            }),
+        };
+        
+        // Log the simulated call
+        println!("Called function '{}::{}' with {} arguments, gas used: {}", 
+            module_name, function_name, args.len(), gas_used);
         
         Ok((result, gas_used))
     }

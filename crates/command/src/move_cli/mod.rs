@@ -257,9 +257,6 @@ pub fn handle_move_command() {
                     }
                 });
 
-            // Check for --use-mona-vm flag (default to false)
-            let use_mona_vm = args.iter().any(|arg| arg == "--use-mona-vm");
-
             Command::Call(Call {
                 function_id,
                 package,
@@ -268,7 +265,6 @@ pub fn handle_move_command() {
                 args: args_values,
                 gas_budget,
                 sender,
-                use_mona_vm, // Add the missing field
             })
         },
         Some("sandbox") => Command::Sandbox {

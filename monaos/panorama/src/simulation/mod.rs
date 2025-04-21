@@ -19,7 +19,7 @@ use crate::node::{NodeConfig, start_node, stop_node, propagate_block, get_peer_c
 
 pub mod create_genesis_block;
 use create_genesis_block::create_genesis_block;
-pub mod move_vm_integration;
+
 
 // Function to parse and normalize address
 fn parse_address(address: &str) -> Result<Address, String> {
