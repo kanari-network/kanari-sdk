@@ -16,6 +16,8 @@ use framework::get_framework_path;
 use framework::{Package, PackageType, PackageSourceInfo};
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
+use mona_types::gas::format_gas_fee_display;
+
 
 pub fn reroot_path(path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     let path = path.unwrap_or_else(|| PathBuf::from("."));
@@ -328,7 +330,7 @@ impl Publish {
                 "verification": {
                     "skip": skip_verify,
                     "gas_estimate": gas_estimate,
-                    "gas_display": format_gas_amount(gas_estimate)
+                    "gas_display": format_gas_fee_display(gas_estimate)
                 },
                 "constructor_args": [],
                 "dependencies": get_module_dependencies(&unit.unit),
@@ -361,32 +363,38 @@ impl Publish {
             package.root_compiled_units.len(),
             address.to_hex()
         );
-
+    
         let start = std::time::Instant::now();
         std::thread::sleep(Duration::from_millis(500));
-
+    
         let modules = deployment_info["modules"].as_array().unwrap();
         let mut total_gas_used = 0;
-
+    
+        // Get current network stats for gas calculations
+        let _network_stats = mona_types::gas::get_network_stats();
+        
         for module_json in modules {
             let module_name = module_json["name"].as_str().unwrap();
             let size_bytes = module_json["size_bytes"].as_u64().unwrap_or(0);
-            let gas_estimate = module_json["verification"]["gas_estimate"].as_u64().unwrap();
-
-            let gas_used = simulate_gas_usage(gas_estimate);
+            let _gas_estimate = module_json["verification"]["gas_estimate"].as_u64().unwrap();
+    
+            // Calculate gas based on network conditions and module size
+            // Use size as a "priority boost" for larger modules
+            let priority_boost = size_bytes / 100;
+            let gas_used = mona_types::gas::calculate_gas_fee(Some(priority_boost));
             total_gas_used += gas_used;
-
+    
             info!(
                 "Module '{}' deployed - size: {} bytes, gas used: {} ({})",
                 module_name,
                 size_bytes,
                 gas_used,
-                format_gas_amount(gas_used)
+                mona_types::gas::format_gas_fee_display(gas_used)
             );
         }
-
+    
         let execution_time = start.elapsed().as_millis();
-
+    
         let result = DeploymentResult {
             transaction_id: format!("0x{}", generate_random_hex(64)),
             status: "COMMITTED".to_string(),
@@ -394,15 +402,15 @@ impl Publish {
             execution_time_ms: execution_time as u64,
             block_height: 12345,
         };
-
+    
         info!(
             "Blockchain deployment completed in {}ms. Transaction ID: {}, gas used: {} ({})",
             execution_time,
             result.transaction_id,
             result.gas_used,
-            format_gas_amount(result.gas_used)
+            mona_types::gas::format_gas_fee_display(result.gas_used)
         );
-
+    
         Ok(result)
     }
 }
@@ -415,30 +423,40 @@ struct DeploymentResult {
     block_height: u64,
 }
 
-fn estimate_gas_for_module(bytecode: &[u8], max_gas: u64) -> u64 {
-    let base_cost = 50_000;
-    let size_multiplier = 50;
-    let size_cost = bytecode.len() as u64 * size_multiplier;
-    let complexity_factor = (bytecode.len() as f64).sqrt() as u64 * 100;
 
-    let estimated = base_cost + size_cost + complexity_factor;
-
-    let min_gas = 20_000;
-    let max_gas_limit = std::cmp::min(max_gas, 3_000_000);
-
-    std::cmp::min(std::cmp::max(estimated, min_gas), max_gas_limit)
-}
-
-fn format_gas_amount(gas: u64) -> String {
-    const KA_PER_KARI: f64 = 1_000_000_000.0;
-    let kari_amount = gas as f64 / KA_PER_KARI;
-    format!("{:.9} KARI", kari_amount)
-}
-
-fn simulate_gas_usage(estimated_gas: u64) -> u64 {
-    let mut rng = thread_rng();
-    let variation = rng.gen_range(0.9..1.1);
-    (estimated_gas as f64 * variation) as u64
+fn estimate_gas_for_module(bytecode: &[u8], gas_budget: u64) -> u64 {
+    // Base gas cost for any module
+    let base_cost = mona_types::gas::BASE_GAS_FEE;
+    
+    // Additional cost based on bytecode size
+    // The larger the bytecode, the more gas it will consume
+    let size_cost = bytecode.len() as u64 * 10;
+    
+    // Priority boost based on module size
+    let priority_boost = bytecode.len() as u64 / 100;
+    
+    // Get network stats to factor in current conditions
+    let network_stats = mona_types::gas::get_network_stats();
+    
+    // Calculate congestion component based on network stats
+    let congestion_factor = if network_stats.pending_transactions > 0 {
+        (1.0 + (network_stats.pending_transactions as f64 / 10.0).ln_1p()) 
+            * mona_types::gas::CONGESTION_MULTIPLIER
+    } else {
+        1.0
+    };
+    
+    // Calculate total estimated gas
+    let estimate = base_cost + (size_cost as f64 * congestion_factor) as u64;
+    
+    // Apply priority boost
+    let estimate = estimate + priority_boost;
+    
+    // Ensure estimate is within allowed range and doesn't exceed budget
+    let min_gas = mona_types::gas::MIN_GAS_FEE;
+    let max_gas = std::cmp::min(mona_types::gas::MAX_GAS_FEE, gas_budget);
+    
+    estimate.clamp(min_gas, max_gas)
 }
 
 fn get_module_dependencies(module: &CompiledUnit) -> Vec<String> {
