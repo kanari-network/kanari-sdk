@@ -31,5 +31,7 @@ panorama = { workspace = true }
 mona-types = { workspace = true }
 mona-storage = { workspace = true }
 mona-blockchain = { workspace = true }
+move-core-types = { workspace = true }
+mona-vm = { workspace = true }
 key = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

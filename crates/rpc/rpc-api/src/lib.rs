@@ -1,18 +1,17 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs}; // Add ToSocketAddrs trait
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
 use futures::FutureExt;
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
 use metadata::{get_file, upload_file};
 use network::NetworkConfig;
-use colored::Colorize; // Add Colorize trait for color methods
-mod metadata; // Add this at the top with the other modules
+use colored::Colorize;
+mod metadata;
 mod stake;
-mod get_block; // Add the new module
+mod get_block;
 mod accounts;
+mod move_api; // Add the new module
 
 use stake::{get_staking_info, get_staking_stats, stake_tokens, unstake_tokens};
-
-// Use functions from the get_block module
 use get_block::{
     get_all_blocks, 
     get_account_details, 
@@ -21,8 +20,9 @@ use get_block::{
     get_transaction_status, 
     get_gas_fee_info
 };
-
 use accounts::{get_blockchain_status, get_wallets, list_accounts, transfer_tokens};
+// Import move_api functions
+use move_api::{vm_execute, vm_get_module, vm_list_modules};
 
 // Format function locally since panorama::utils is not available
 fn format_kari_amount(ka_amount: u64) -> String {
@@ -119,6 +119,19 @@ pub async fn start_rpc_server(network_config: NetworkConfig) -> Result<(), tokio
 
     io.add_method("get_staking_stats", |params| {
         futures::future::ready(get_staking_stats(params)).boxed()
+    });
+
+    // Add Move VM operations
+    io.add_method("vm_execute", |params| {
+        futures::future::ready(vm_execute(params)).boxed()
+    });
+    
+    io.add_method("vm_get_module", |params| {
+        futures::future::ready(vm_get_module(params)).boxed()
+    });
+    
+    io.add_method("vm_list_modules", |params| {
+        futures::future::ready(vm_list_modules(params)).boxed()
     });
 
     // Configure socket address to bind to all interfaces

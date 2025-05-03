@@ -22,6 +22,8 @@ use mona_types::gas::format_gas_fee_display;
 use std::sync::{Arc, RwLock};
 use mona_blockchain::block::Transaction;
 use mona_blockchain::blockchain::BLOCKCHAIN_DATA;
+use lazy_static::lazy_static;
+
 
 pub fn reroot_path(path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     let path = path.unwrap_or_else(|| PathBuf::from("."));
@@ -31,9 +33,9 @@ pub fn reroot_path(path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from("."))
 }
 
-// VM Transaction State Manager
-lazy_static::lazy_static! {
-    static ref VM_STATE: Arc<RwLock<VMState>> = Arc::new(RwLock::new(VMState::new()));
+// VM Transaction State Manager - Make it public so it can be accessed by the RPC API
+lazy_static! {
+    pub static ref VM_STATE: Arc<RwLock<VMState>> = Arc::new(RwLock::new(VMState::new()));
 }
 
 // Structure to track VM State
