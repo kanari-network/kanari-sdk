@@ -3,9 +3,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use log::{info, warn, debug};
 use tokio::sync::mpsc;
 use serde::{Serialize, Deserialize};
-use crate::block::{Block, Transaction};
+use mona_blockchain::block::{Block, Transaction};
 use consensus_pos::Blake3Algorithm;
-use crate::blockchain::BlockchainError;
+use mona_blockchain::blockchain::BlockchainError;
 use std::net::ToSocketAddrs;
 
 use super::{send_message_to_peer, ACTIVE_CONNECTIONS, NodeMessage};

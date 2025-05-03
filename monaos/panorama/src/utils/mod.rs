@@ -2,10 +2,23 @@ use tokio::sync::mpsc;
 use log::{info, error};
 use rand::{Rng, thread_rng};
 
-use crate::block::Transaction;
+use mona_blockchain::block::Transaction;
 use crate::simulation::add_pending_transaction;
 
 // Make the gas module public
+pub mod gas {
+    pub fn calculate_gas_fee(priority_boost: Option<u64>) -> u64 {
+        mona_types::gas::calculate_gas_fee(priority_boost)
+    }
+
+    pub fn format_gas_fee_display(fee: u64) -> String {
+        mona_types::gas::format_gas_fee_display(fee)
+    }
+
+    pub fn calculate_total_transaction_cost(amount: u64, gas_fee: u64) -> u64 {
+        mona_types::gas::calculate_total_transaction_cost(amount, gas_fee)
+    }
+}
 
 // Re-export gas items for backward compatibility
 pub use mona_types::gas::*;

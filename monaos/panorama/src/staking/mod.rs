@@ -11,7 +11,7 @@ use log::{debug, info, warn};
 use serde::{Serialize, Deserialize};
 use bincode;
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::blockchain::{BlockchainError, BALANCES, normalize_address};
+use mona_blockchain::blockchain::{BlockchainError, BALANCES, normalize_address};
 
 // Constants for staking
 pub const STAKING_LOCK_PERIOD_SECONDS: u64 = 86400; // 24 hours lock period
@@ -67,7 +67,7 @@ pub fn stake_tokens(
     let address_str = address.to_hex_literal();
     
     // Verify user has enough balance
-    let balance = crate::blockchain::get_balance(&address_str)?;
+    let balance = mona_blockchain::blockchain::get_balance(&address_str)?;
     if balance < amount {
         return Err(BlockchainError::InsufficientFunds(
             format!("Address {} has insufficient balance for staking", address_str)
@@ -251,7 +251,7 @@ pub fn process_rewards(block_height: u32) -> Result<u64, BlockchainError> {
         Err(_) => return Err(BlockchainError::Transaction("Invalid pool address".to_string())),
     };
     
-    let pool_balance = match crate::blockchain::get_balance(&pool_addr_str) {
+    let pool_balance = match mona_blockchain::blockchain::get_balance(&pool_addr_str) {
         Ok(balance) => balance,
         Err(_) => return Err(BlockchainError::Transaction("Failed to get pool balance".to_string())),
     };
@@ -429,7 +429,7 @@ pub fn get_pool_remaining_balance() -> Result<u64, BlockchainError> {
         Err(_) => return Err(BlockchainError::Transaction("Invalid pool address".to_string())),
     };
     
-    match crate::blockchain::get_balance(&pool_addr_str) {
+    match mona_blockchain::blockchain::get_balance(&pool_addr_str) {
         Ok(balance) => Ok(balance),
         Err(e) => Err(e),
     }

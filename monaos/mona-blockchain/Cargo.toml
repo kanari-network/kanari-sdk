@@ -1,11 +1,11 @@
 [package]
-name = "panorama"
+name = "mona-blockchain"
 edition.workspace = true
-version.workspace = true
 categories.workspace = true
 keywords.workspace = true
 homepage.workspace = true
 documentation.workspace = true
+version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -47,23 +47,8 @@ env_logger.workspace = true
 colored.workspace = true
 thiserror.workspace = true
 
-mona-vm.workspace = true
+key.workspace = true
 mona-types.workspace = true
-mona-blockchain.workspace = true
-
-# Add common dependency
-common = { workspace = true }
-# Keep key dependency but only for signing functions, not circular features
-key = { path = "../../crates/core/wallet/key", default-features = false }
-
-
-mona-storage.workspace = true
-# Unit k2
+common.workspace = true
 consensus-pos.workspace = true
-network.workspace = true
-
-crossbeam.workspace = true
-
-kari-move.workspace = true
-
-move-core-types.workspace = true
+mona-storage.workspace = true

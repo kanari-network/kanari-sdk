@@ -7,9 +7,9 @@ use clap::{Parser, ValueEnum};
 use rand::Rng;
 
 // Import panorama components
-use panorama::block::Transaction;
+use mona_blockchain::block::Transaction;
 use panorama::simulation::add_pending_transaction;
-use panorama::blockchain::{save_blockchain, BALANCES};
+use mona_blockchain::blockchain::{save_blockchain, BALANCES};
 use mona_types::address::Address;
 
 // Global logger initialization

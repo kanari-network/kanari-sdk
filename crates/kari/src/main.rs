@@ -11,8 +11,8 @@ use network::NetworkConfig;
 use panorama::simulation::run_blockchain;
 
 use common::get_kari_dir;
-use panorama::blockchain::{load_blockchain, save_blockchain};
-use panorama::chain_id::CHAIN_ID;
+use mona_blockchain::blockchain::{load_blockchain, save_blockchain};
+use mona_blockchain::chain_id::CHAIN_ID;
 use panorama::config::{configure_network, load_config, save_config};
 use rpc_api::start_rpc_server;
 use std::process::Command;

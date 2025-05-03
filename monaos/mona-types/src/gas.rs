@@ -65,6 +65,19 @@ pub fn update_transaction_count_24h(count: usize) {
 }
 
 /// Calculate gas fee dynamically based on network conditions
+/// 
+/// # Parameters
+/// * `priority_boost`: Optional priority boost in gas units. Higher values will result in faster processing.
+///
+/// # Returns
+/// The calculated gas fee in KA units, bounded between MIN_GAS_FEE and MAX_GAS_FEE.
+/// 
+/// # Algorithm
+/// The gas calculation uses several factors:
+/// 1. Base gas fee (constant)
+/// 2. Network congestion multiplier based on pending transactions
+/// 3. Transaction volume adjustment for network sustainability
+/// 4. User-provided priority boost for urgent transactions
 pub fn calculate_gas_fee(priority_boost: Option<u64>) -> u64 {
     let network_stats = match NETWORK_STATS.read() {
         Ok(stats) => stats,

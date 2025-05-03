@@ -7,10 +7,10 @@ use once_cell::sync::OnceCell;
 use std::fs;
 use std::path::Path;
 
-// Fixed imports to use panorama:: instead of crate::
-use panorama::block::Transaction;
+
+use mona_blockchain::block::Transaction;
 use panorama::simulation::add_pending_transaction;
-use panorama::blockchain::{save_blockchain, BALANCES};
+use mona_blockchain::blockchain::{save_blockchain, BALANCES};
 use mona_types::address::Address;
 
 // Global logger initialization

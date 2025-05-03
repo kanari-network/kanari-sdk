@@ -7,8 +7,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::json;
 
 
-use crate::block::{Block, Transaction};
-use crate::blockchain::normalize_address;
+use mona_blockchain::block::{Block, Transaction};
+use mona_blockchain::blockchain::normalize_address;
+
 use mona_types::kari::{KARI, POOL_ADDRESS, POOL_RESERVED_KA, POOL_RESERVED_KARI, TOTAL_SUPPLY_KARI};
 
 

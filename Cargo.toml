@@ -187,7 +187,7 @@ mona-vm                             = { path = "monaos/mona-vm" }
 mona-storage                        = { path = "monaos/mona-storage" } 
 mona-enum-compat-util               = { path = "monaos/mona-enum-compat-util" }
 mona-types                          = { path = "monaos/mona-types" }
-
+mona-blockchain                     = { path = "monaos/mona-blockchain" }
 
 # Framework Move Path List
 framework                           = { path = "framework" }

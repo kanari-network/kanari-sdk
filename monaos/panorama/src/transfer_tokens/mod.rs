@@ -1,4 +1,4 @@
-use crate::{block::Transaction, blockchain::{get_balance, normalize_address, save_blockchain, BlockchainError, BALANCES}};
+use mona_blockchain::{block::Transaction, blockchain::{get_balance, normalize_address, save_blockchain, BlockchainError, BALANCES}};
 use crate::utils::{GAS_FEE_COLLECTOR, calculate_total_transaction_cost};
 pub mod verify_transaction;
 use verify_transaction::verify_transaction;

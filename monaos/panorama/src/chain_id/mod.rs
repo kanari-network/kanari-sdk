@@ -1,1 +1,0 @@
-pub static CHAIN_ID: &str = "panorama-network"; // Default chain ID

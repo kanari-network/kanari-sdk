@@ -62,12 +62,19 @@ monaos/
 
 ## Gas System
 
-MonaOS uses a detailed gas metering system:
+MonaOS uses a detailed gas metering system with dynamic pricing:
 
 - Base operation costs
 - Move execution costs
 - Storage operation costs
 - Transaction costs
+- **Dynamic fee calculation** based on network congestion
+- **Priority boosting** for urgent transactions
+
+The gas system automatically adjusts fees based on:
+- Current pending transaction count
+- 24-hour transaction volume
+- User-defined priority boost
 
 Example gas configuration:
 ```rust
@@ -80,6 +87,23 @@ let gas_params = GasParameters {
     // ...
 };
 ```
+
+Example dynamic gas fee calculation:
+```rust
+// Standard gas calculation
+let gas_fee = calculate_gas_fee(None);
+
+// With priority boost for faster processing
+let priority_boost = 100_000;
+let priority_gas_fee = calculate_gas_fee(Some(priority_boost));
+```
+
+### Advanced Gas Features
+
+- Transaction prioritization
+- Fee market for congestion control
+- Gas rebates for validator rewards
+- Configurable gas parameters for protocol upgrades
 
 ## Contributing
 

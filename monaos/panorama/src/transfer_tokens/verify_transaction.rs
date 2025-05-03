@@ -1,4 +1,4 @@
-use crate::{block::Transaction, blockchain::BlockchainError};
+use mona_blockchain::{block::Transaction, blockchain::BlockchainError};
 
 // Add function to verify a transaction
 pub fn verify_transaction(transaction: &Transaction) -> Result<bool, BlockchainError> {
