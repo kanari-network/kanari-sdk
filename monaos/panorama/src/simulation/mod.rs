@@ -8,8 +8,8 @@ use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::str::FromStr;
 
-use crate::block::{Block, Transaction};
-use crate::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN_DATA, normalize_address};
+use mona_blockchain::block::{Block, Transaction};
+use mona_blockchain::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN_DATA, normalize_address};
 use crate::transfer_tokens::transfer_tokens;
 use mona_types::address::Address;
 use mona_types::kari::{KARI, KA_PER_KARI, POOL_ADDRESS, POOL_RESERVED_KA, POOL_RESERVED_KARI, TOTAL_SUPPLY_KA, TOTAL_SUPPLY_KARI, VALIDATOR_STAKING_MINIMUM_KARI, NODE_STAKING_MINIMUM_KARI};
@@ -20,6 +20,8 @@ use crate::node::{NodeConfig, start_node, stop_node, propagate_block, get_peer_c
 pub mod create_genesis_block;
 use create_genesis_block::create_genesis_block;
 
+// Add monaVM dependency
+use mona_vm::{execute_vm_transaction, convert_to_vm_transaction, VMTransaction};
 
 // Function to parse and normalize address
 fn parse_address(address: &str) -> Result<Address, String> {
@@ -110,7 +112,7 @@ pub fn process_transfer(
                 let _ = tx.try_send(tx_json);
                 
                 // Force save blockchain state to ensure transaction persistence
-                match crate::blockchain::save_blockchain() {
+                match mona_blockchain::blockchain::save_blockchain() {
                     Ok(_) => info!("Transaction recorded and blockchain state saved"),
                     Err(e) => warn!("Transaction recorded but failed to save state: {}", e),
                 }
@@ -214,6 +216,114 @@ fn force_transaction_inclusion(transaction: &Transaction) -> bool {
     }
 }
 
+// Process VM transaction if the transaction contains smart contract execution data
+fn process_vm_transaction(transaction: &Transaction, tx: &mpsc::Sender<String>) -> bool {
+    // Try to convert to VM transaction
+    if let Some(vm_tx) = convert_to_vm_transaction(transaction) {
+        info!("Processing VM transaction: {} -> {}.{}", 
+              transaction.transaction_id, vm_tx.module_id, vm_tx.function);
+        
+        // Execute VM transaction
+        match execute_vm_transaction(&vm_tx) {
+            Ok(result) => {
+                // Notify about VM transaction execution
+                let result_json = json!({
+                    "event": "vm_transaction_executed",
+                    "transaction_id": transaction.transaction_id,
+                    "vm_transaction": {
+                        "module": vm_tx.module_id,
+                        "function": vm_tx.function,
+                        "gas_used": result["gas_used"],
+                        "gas_display": result["gas_display"],
+                        "execution_time_ms": result["execution_time_ms"]
+                    },
+                    "status": "success",
+                    "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+                }).to_string();
+                
+                let _ = tx.try_send(result_json);
+                true
+            },
+            Err(e) => {
+                // Notify about VM transaction failure
+                let error_json = json!({
+                    "event": "vm_transaction_error",
+                    "transaction_id": transaction.transaction_id,
+                    "vm_transaction": {
+                        "module": vm_tx.module_id,
+                        "function": vm_tx.function
+                    },
+                    "error": e,
+                    "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+                }).to_string();
+                
+                let _ = tx.try_send(error_json);
+                warn!("VM transaction execution failed: {}", e);
+                false
+            }
+        }
+    } else {
+        // Not a VM transaction
+        false
+    }
+}
+
+// Modified verify_transaction_processing to handle VM transactions
+fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sender<String>) {
+    for transaction in transactions {
+        log::info!("Verifying transaction: {}", transaction.transaction_id);
+        
+        // Check if it's a VM transaction
+        if transaction.data.is_some() && !transaction.data.as_ref().unwrap().is_empty() {
+            if process_vm_transaction(transaction, tx) {
+                // VM transaction was processed, continue to next transaction
+                continue;
+            }
+        }
+        
+        // Always mark transactions as valid in UI for better user experience
+        let signature_status = "valid";
+        
+        // Verify sender and receiver balances using Address directly
+        match mona_blockchain::blockchain::get_address_balance(&transaction.sender) {
+            Ok(balance) => {
+                debug!("Verified sender {} balance: {}", transaction.sender, balance);
+            },
+            Err(e) => {
+                warn!("Failed to verify sender balance: {}", e);
+            }
+        }
+        
+        match mona_blockchain::blockchain::get_address_balance(&transaction.receiver) {
+            Ok(balance) => {
+                debug!("Verified receiver {} balance: {}", transaction.receiver, balance);
+                
+                // Notify about completed transaction with formatted gas fee display
+                let tx_json = json!({
+                    "event": "transaction_confirmed",
+                    "transaction": {
+                        "id": transaction.transaction_id, // Include transaction ID
+                        "sender": transaction.sender.to_hex_literal(),
+                        "receiver": transaction.receiver.to_hex_literal(),
+                        "amount": transaction.amount,
+                        "gas_fee": transaction.gas_fee,
+                        "gas_fee_display": format_gas_fee_display(transaction.gas_fee),
+                        "gas_collector": crate::utils::GAS_FEE_COLLECTOR,
+                        "receiver_balance": balance,
+                        "signature_status": signature_status,
+                        "has_signature": !transaction.signature.is_empty()
+                    },
+                    "status": "confirmed"
+                }).to_string();
+                
+                let _ = tx.try_send(tx_json);
+            },
+            Err(e) => {
+                warn!("Failed to verify receiver balance: {}", e);
+            }
+        }
+    }
+}
 
 pub fn run_blockchain(
     running: Arc<Mutex<bool>>, 
@@ -335,7 +445,7 @@ pub fn run_blockchain(
         let _ = tx.try_send(status_json);
 
         // Check balance using both original and normalized address for troubleshooting
-        match crate::blockchain::get_balance(&normalized_address) {
+        match mona_blockchain::blockchain::get_balance(&normalized_address) {
             Ok(balance) => {
                 let balance_in_kari = balance as f64 / KA_PER_KARI as f64;
                 info!(
@@ -348,7 +458,7 @@ pub fn run_blockchain(
 
         // Debug: Also check with original address if they're different
         if normalized_address != address {
-            match crate::blockchain::get_balance(&address) {
+            match mona_blockchain::blockchain::get_balance(&address) {
                 Ok(balance) => {
                     debug!(
                         "Original address {} has {} {}A",
@@ -636,7 +746,7 @@ pub fn run_blockchain(
 
         // Enhanced balance checking
         if new_block.index % 5 == 0 {
-            match crate::blockchain::get_balance(&normalized_address) {
+            match mona_blockchain::blockchain::get_balance(&normalized_address) {
                 Ok(balance) => {
                     // Enhanced balance update with more details
                     let balance_json = json!({
@@ -695,54 +805,5 @@ pub fn run_blockchain(
 
         // Sleep to control block creation rate
         thread::sleep(Duration::from_millis(420)); // 420 milliseconds for better performance
-    }
-}
-
-// Modify verify_transaction_processing to include formatted gas fee
-fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sender<String>) {
-    for transaction in transactions {
-        log::info!("Verifying transaction: {}", transaction.transaction_id);
-        
-        // Always mark transactions as valid in UI for better user experience
-        let signature_status = "valid";
-        
-        // Verify sender and receiver balances using Address directly
-        match crate::blockchain::get_address_balance(&transaction.sender) {
-            Ok(balance) => {
-                debug!("Verified sender {} balance: {}", transaction.sender, balance);
-            },
-            Err(e) => {
-                warn!("Failed to verify sender balance: {}", e);
-            }
-        }
-        
-        match crate::blockchain::get_address_balance(&transaction.receiver) {
-            Ok(balance) => {
-                debug!("Verified receiver {} balance: {}", transaction.receiver, balance);
-                
-                // Notify about completed transaction with formatted gas fee display
-                let tx_json = json!({
-                    "event": "transaction_confirmed",
-                    "transaction": {
-                        "id": transaction.transaction_id, // Include transaction ID
-                        "sender": transaction.sender.to_hex_literal(),
-                        "receiver": transaction.receiver.to_hex_literal(),
-                        "amount": transaction.amount,
-                        "gas_fee": transaction.gas_fee,
-                        "gas_fee_display": format_gas_fee_display(transaction.gas_fee),
-                        "gas_collector": crate::utils::GAS_FEE_COLLECTOR,
-                        "receiver_balance": balance,
-                        "signature_status": signature_status,
-                        "has_signature": !transaction.signature.is_empty()
-                    },
-                    "status": "confirmed"
-                }).to_string();
-                
-                let _ = tx.try_send(tx_json);
-            },
-            Err(e) => {
-                warn!("Failed to verify receiver balance: {}", e);
-            }
-        }
     }
 }

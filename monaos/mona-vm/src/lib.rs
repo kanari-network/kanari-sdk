@@ -18,6 +18,10 @@ use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 use mona_types::gas::format_gas_fee_display;
 
+// New imports for blockchain integration
+use std::sync::{Arc, RwLock};
+use mona_blockchain::block::Transaction;
+use mona_blockchain::blockchain::BLOCKCHAIN_DATA;
 
 pub fn reroot_path(path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     let path = path.unwrap_or_else(|| PathBuf::from("."));
@@ -25,6 +29,215 @@ pub fn reroot_path(path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     std::env::set_current_dir(rooted_path).unwrap();
 
     Ok(PathBuf::from("."))
+}
+
+// VM Transaction State Manager
+lazy_static::lazy_static! {
+    static ref VM_STATE: Arc<RwLock<VMState>> = Arc::new(RwLock::new(VMState::new()));
+}
+
+// Structure to track VM State
+pub struct VMState {
+    pub modules: HashMap<String, VMModule>,
+    pub last_execution: u64,
+    pub execution_count: u64,
+}
+
+// Structure to represent a Move VM Module
+pub struct VMModule {
+    pub module_id: String,
+    pub address: AccountAddress,
+    pub name: String,
+    pub bytecode: Vec<u8>,
+    pub public_functions: Vec<String>,
+    pub deploy_block_height: u32,
+}
+
+impl VMState {
+    pub fn new() -> Self {
+        Self {
+            modules: HashMap::new(),
+            last_execution: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            execution_count: 0,
+        }
+    }
+
+    pub fn register_module(&mut self, module: VMModule) {
+        info!("Registering VM module: {}", module.module_id);
+        self.modules.insert(module.module_id.clone(), module);
+    }
+}
+
+impl VMModule {
+    pub fn new(
+        address: AccountAddress, 
+        name: String, 
+        bytecode: Vec<u8>,
+        public_functions: Vec<String>, 
+        deploy_block_height: u32
+    ) -> Self {
+        let module_id = format!("0x{}::{}", address.to_hex(), name);
+        
+        Self {
+            module_id,
+            address,
+            name,
+            bytecode,
+            public_functions,
+            deploy_block_height,
+        }
+    }
+}
+
+// VM Transaction Structure
+pub struct VMTransaction {
+    pub tx_id: String,
+    pub sender: String,
+    pub module_id: String,
+    pub function: String,
+    pub args: Vec<Vec<u8>>,
+    pub gas_budget: u64,
+    pub timestamp: u64,
+}
+
+impl VMTransaction {
+    pub fn new(
+        sender: String,
+        module_id: String,
+        function: String,
+        args: Vec<Vec<u8>>,
+        gas_budget: u64
+    ) -> Self {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+            
+        let mut hasher = Sha3_256::new();
+        hasher.update(sender.as_bytes());
+        hasher.update(module_id.as_bytes());
+        hasher.update(function.as_bytes());
+        hasher.update(timestamp.to_le_bytes());
+        hasher.update(gas_budget.to_le_bytes());
+        
+        // Use the first 16 bytes of hash as transaction ID
+        let hash = hasher.finalize();
+        let tx_id = format!("vm_tx_{}", hex::encode(&hash[..16]));
+        
+        Self {
+            tx_id,
+            sender,
+            module_id,
+            function,
+            args,
+            gas_budget,
+            timestamp,
+        }
+    }
+}
+
+// Execute a VM transaction (integration with blockchain)
+pub fn execute_vm_transaction(tx: &VMTransaction) -> Result<JsonValue, String> {
+    // Get VM state
+    let state = VM_STATE.read().map_err(|e| format!("Failed to access VM state: {}", e))?;
+    
+    // Find the module
+    let module = state.modules.get(&tx.module_id)
+        .ok_or_else(|| format!("Module not found: {}", tx.module_id))?;
+    
+    // Validate if function exists
+    if !module.public_functions.contains(&tx.function) {
+        return Err(format!("Function {} not found in module {}", tx.function, tx.module_id));
+    }
+    
+    // Fake execution
+    let gas_used = estimate_execution_gas(tx, module);
+    let start = std::time::Instant::now();
+    
+    // Simulate execution by sleeping
+    std::thread::sleep(Duration::from_millis(50));
+    
+    // Get current block height from blockchain
+    let blockchain = BLOCKCHAIN_DATA.iter();
+    let block_height = match blockchain.last() {
+        Some(block) => block.index,
+        None => 0,
+    };
+    
+    // Success result with fake execution details
+    Ok(json!({
+        "status": "success",
+        "tx_id": tx.tx_id,
+        "module": tx.module_id,
+        "function": tx.function,
+        "gas_used": gas_used,
+        "gas_display": format_gas_fee_display(gas_used),
+        "execution_time_ms": start.elapsed().as_millis(),
+        "block_height": block_height,
+        "timestamp": SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+    }))
+}
+
+// Convert blockchain transaction to VM transaction
+pub fn convert_to_vm_transaction(transaction: &Transaction) -> Option<VMTransaction> {
+    // Check if this is a VM transaction by examining the data field
+    let data = match &transaction.data {
+        Some(data) if !data.is_empty() => data,
+        _ => return None, // Not a VM transaction
+    };
+    
+    // Try to parse VM transaction data (simplified implementation)
+    // In a real system, this would deserialize proper VM call encoding
+    if let Ok(vm_data) = std::str::from_utf8(data) {
+        if vm_data.starts_with("VM:") {
+            let parts: Vec<&str> = vm_data.split(':').collect();
+            if parts.len() >= 4 {
+                // Extract module_id and function
+                let module_id = parts[1].to_string();
+                let function = parts[2].to_string();
+                let gas_budget = parts[3].parse::<u64>().unwrap_or(1000000);
+                
+                return Some(VMTransaction {
+                    tx_id: transaction.transaction_id.clone(),
+                    sender: transaction.sender.to_hex_literal(),
+                    module_id,
+                    function,
+                    args: Vec::new(), // Simplified implementation
+                    gas_budget,
+                    timestamp: transaction.timestamp,
+                });
+            }
+        }
+    }
+    
+    None // Not a VM transaction or failed to parse
+}
+
+// Estimate gas for executing a VM transaction
+fn estimate_execution_gas(tx: &VMTransaction, module: &VMModule) -> u64 {
+    // Base gas cost for execution
+    let base_cost = 1000;
+    
+    // Additional cost based on module bytecode size
+    let size_cost = module.bytecode.len() as u64 / 10;
+    
+    // Additional cost for args
+    let args_cost = tx.args.iter().map(|arg| arg.len() as u64).sum::<u64>() / 5;
+    
+    // Calculate total
+    let total_gas = base_cost + size_cost + args_cost;
+    
+    // Ensure it's within reasonable bounds
+    let min_gas = 100;
+    let max_gas = tx.gas_budget;
+    
+    total_gas.clamp(min_gas, max_gas)
 }
 
 pub struct Build {
@@ -369,23 +582,54 @@ impl Publish {
     
         let modules = deployment_info["modules"].as_array().unwrap();
         let mut total_gas_used = 0;
-    
-        // Get current network stats for gas calculations
-        let _network_stats = mona_types::gas::get_network_stats();
         
-        for module_json in modules {
+        // Get current block height
+        let blockchain = BLOCKCHAIN_DATA.iter();
+        let block_height = match blockchain.last() {
+            Some(block) => block.index,
+            None => 0,
+        };
+    
+        // Get mutable access to VM state
+        let mut vm_state = match VM_STATE.write() {
+            Ok(state) => state,
+            Err(e) => {
+                return Err(anyhow::anyhow!("Failed to lock VM state for writing: {}", e));
+            }
+        };
+    
+        // Register modules with VM
+        for (i, module_json) in modules.iter().enumerate() {
             let module_name = module_json["name"].as_str().unwrap();
             let size_bytes = module_json["size_bytes"].as_u64().unwrap_or(0);
-            let _gas_estimate = module_json["verification"]["gas_estimate"].as_u64().unwrap();
-    
-            // Calculate gas based on network conditions and module size
-            // Use size as a "priority boost" for larger modules
+            
+            // Get public functions
+            let public_funcs = module_json["public_functions"]
+                .as_array()
+                .unwrap_or(&Vec::new())
+                .iter()
+                .filter_map(|f| f["name"].as_str().map(|s| s.to_string()))
+                .collect::<Vec<String>>();
+            
+            // Calculate gas
             let priority_boost = size_bytes / 100;
             let gas_used = mona_types::gas::calculate_gas_fee(Some(priority_boost));
             total_gas_used += gas_used;
-    
+            
+            // Register with VM
+            let vm_module = VMModule::new(
+                *address,
+                module_name.to_string(),
+                // Use a fake bytecode for this example
+                vec![0u8; size_bytes as usize],
+                public_funcs,
+                block_height,
+            );
+            
+            vm_state.register_module(vm_module);
+            
             info!(
-                "Module '{}' deployed - size: {} bytes, gas used: {} ({})",
+                "Module '{}' deployed and registered with VM - size: {} bytes, gas used: {} ({})",
                 module_name,
                 size_bytes,
                 gas_used,
@@ -400,7 +644,7 @@ impl Publish {
             status: "COMMITTED".to_string(),
             gas_used: total_gas_used,
             execution_time_ms: execution_time as u64,
-            block_height: 12345,
+            block_height: block_height as u64,
         };
     
         info!(
