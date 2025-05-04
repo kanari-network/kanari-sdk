@@ -1,7 +1,7 @@
 use colored::Colorize;
-use key::{
-    generate_karix_address, import_from_private_key, import_from_seed_phrase, list_wallet_files,
-    load_wallet, save_wallet, set_selected_wallet, CurveType,
+use mona_crypto::{
+    list_wallet_files,
+    load_wallet, save_wallet, set_selected_wallet,
 };
 use std::io::{self, Write};
 
@@ -10,6 +10,8 @@ use rpassword::read_password;
 use std::process::exit;
 use serde_json::json;
 use std::process::Command;
+// Add the required import for CurveType and key-related functions
+use key::keys::{CurveType, generate_keypair, keypair_from_mnemonic, keypair_from_private_key, generate_mnemonic};
 
 struct CommandInfo {
     name: &'static str,
@@ -815,4 +817,30 @@ fn prompt_password(confirm: bool) -> String {
         }
     }
     password
+}
+
+/// Generate a new Kanari address with the specified mnemonic length and curve type
+fn generate_karix_address(mnemonic_length: usize, curve_type: CurveType) -> (String, String, String) {
+    // Generate mnemonic phrase
+    let seed_phrase = generate_mnemonic(mnemonic_length).expect("Failed to generate mnemonic");
+    
+    // Generate keypair from mnemonic
+    let keypair = keypair_from_mnemonic(&seed_phrase, curve_type, "")
+        .expect("Failed to generate keypair from mnemonic");
+    
+    (keypair.private_key, keypair.address, seed_phrase)
+}
+
+/// Import a wallet from a seed phrase
+fn import_from_seed_phrase(phrase: &str, curve_type: CurveType) -> Result<(String, String, String), String> {
+    keypair_from_mnemonic(phrase, curve_type, "")
+        .map(|keypair| (keypair.private_key, keypair.public_key, keypair.address))
+        .map_err(|e| e.to_string())
+}
+
+/// Import a wallet from a private key
+fn import_from_private_key(private_key: &str, curve_type: CurveType) -> Result<(String, String, String), String> {
+    keypair_from_private_key(private_key, curve_type)
+        .map(|keypair| (keypair.private_key, keypair.public_key, keypair.address))
+        .map_err(|e| e.to_string())
 }

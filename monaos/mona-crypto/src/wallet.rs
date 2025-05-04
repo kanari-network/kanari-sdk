@@ -6,6 +6,7 @@
 use std::fs;
 use std::io;
 use std::path::PathBuf;
+use key::keys::CurveType;
 use thiserror::Error;
 use serde::{Serialize, Deserialize};
 
@@ -13,9 +14,11 @@ use mona_types::address::Address;
 use common::{get_kari_dir, load_config, save_config};
 use serde_yaml::{Mapping, Value};
 
-use crate::keys::CurveType;
+use crate::encryption;
+use crate::encryption::EncryptedData;
 use crate::signatures;
-use crate::encryption::{self, EncryptedData};
+
+
 
 /// Errors that can occur during wallet operations
 #[derive(Error, Debug)]
@@ -73,9 +76,33 @@ impl Wallet {
         message: &[u8],
         _password: &str, // Added underscore to mark as intentionally unused
     ) -> Result<Vec<u8>, WalletError> {
+        // Validate message is not empty
+        if message.is_empty() {
+            return Err(WalletError::SigningError("Cannot sign empty message".to_string()));
+        }
+        
         signatures::sign_message(
             &self.private_key,
             message,
+            self.curve_type,
+        ).map_err(|e| WalletError::SigningError(e.to_string()))
+    }
+    
+    /// Verify a signature made with this wallet against a message
+    pub fn verify(&self, message: &[u8], signature: &[u8]) -> Result<bool, WalletError> {
+        // Validate inputs
+        if message.is_empty() {
+            return Err(WalletError::SigningError("Cannot verify empty message".to_string()));
+        }
+        
+        if signature.is_empty() {
+            return Err(WalletError::SigningError("Cannot verify empty signature".to_string()));
+        }
+        
+        signatures::verify_signature_with_curve(
+            &self.address.to_string(),
+            message,
+            signature,
             self.curve_type,
         ).map_err(|e| WalletError::SigningError(e.to_string()))
     }
@@ -89,6 +116,15 @@ pub fn save_wallet(
     password: &str,
     curve_type: CurveType,
 ) -> Result<(), WalletError> {
+    // Validate inputs
+    if password.is_empty() {
+        return Err(WalletError::EncryptionError("Empty password not allowed".to_string()));
+    }
+    
+    if private_key.is_empty() {
+        return Err(WalletError::EncryptionError("Empty private key not allowed".to_string()));
+    }
+    
     // Create wallet object
     let wallet_data = Wallet {
         address: *address,
@@ -125,6 +161,15 @@ pub fn save_wallet(
 
 /// Load a wallet from disk and decrypt it
 pub fn load_wallet(address: &str, password: &str) -> Result<Wallet, WalletError> {
+    // Validate inputs
+    if address.is_empty() {
+        return Err(WalletError::NotFound("Empty address".to_string()));
+    }
+    
+    if password.is_empty() {
+        return Err(WalletError::InvalidPassword);
+    }
+    
     // Get path to wallet file
     let kari_dir = get_kari_dir();
     let wallet_file = kari_dir.join("wallets").join(format!("{}.enc", address));
@@ -154,14 +199,14 @@ pub fn load_wallet(address: &str, password: &str) -> Result<Wallet, WalletError>
 
 /// Check if any wallets exist on the system
 pub fn check_wallet_exists() -> bool {
-    match list_wallets() {
+    match list_wallet_files() {
         Ok(wallets) => !wallets.is_empty(),
         Err(_) => false,
     }
 }
 
 /// List all available wallets with selection status
-pub fn list_wallets() -> Result<Vec<(String, bool)>, io::Error> {
+pub fn list_wallet_files() -> Result<Vec<(String, bool)>, io::Error> {
     // Get wallet directory
     let kari_dir = get_kari_dir();
     let wallet_dir = kari_dir.join("wallets");

@@ -2,6 +2,7 @@ use mona_blockchain::{block::Transaction, blockchain::{get_balance, normalize_ad
 use crate::utils::{GAS_FEE_COLLECTOR, calculate_total_transaction_cost};
 pub mod verify_transaction;
 use verify_transaction::verify_transaction;
+use mona_crypto::{load_wallet, sign_message, secure_clear}; // Add mona-crypto imports
 
 /// Transfer tokens from one address to another
 pub fn transfer_tokens(
@@ -63,242 +64,43 @@ pub fn transfer_tokens(
         data: None, // Optional data field for future use
     };
     
-    // Sign the transaction with better debugging
+    // Sign the transaction with mona-crypto
     let message = transaction.to_signable_message();
     log::debug!("Transaction message to sign (hex): {}", hex::encode(&message));
     
-    // Try to load the wallet to determine the curve type
+    // Try to load the wallet with mona-crypto
     let address_str = from.to_hex_literal();
     log::debug!("Trying to load wallet for address: {}", address_str);
     
-    // Try to load the wallet directly (this way we can get the private key)
-    match key::load_wallet(&address_str, password) {
+    // Try to sign with mona-crypto
+    match load_wallet(&address_str, password) {
         Ok(wallet) => {
             log::debug!("Successfully loaded wallet with curve type: {:?}", wallet.curve_type);
             
-            // We need to use strings without the 0x prefix for signing
-            let _clean_address = address_str.trim_start_matches("0x");
-            
-            // Directly sign with the correct private key and curve type
-            let signature_result = match wallet.curve_type {
-                key::CurveType::K256 => {
-                    log::debug!("Using K256 signing with private key");
-                    key::sign_message_k256(&wallet.private_key, &message)
-                },
-                key::CurveType::P256 => {
-                    log::debug!("Using P256 signing with private key");
-                    key::sign_message_p256(&wallet.private_key, &message)
-                },
-                key::CurveType::Ed25519 => {
-                    log::debug!("Using Ed25519 signing with private key");
-                    key::sign_message_ed25519(&wallet.private_key, &message)
-                },
-            };
-            
-            match signature_result {
+            // Sign the transaction with mona-crypto
+            match wallet.sign(&message, password) {
                 Ok(signature) => {
                     let sig_len = signature.len();
                     log::debug!("Successfully signed transaction: signature length = {}", sig_len);
                     transaction.signature = signature;
                     
                     // Try verification right away for debugging
-                    match transaction.verify_signature() {
+                    match verify_transaction(&transaction) {
                         Ok(true) => log::debug!("Signature verification successful immediately after signing"),
                         Ok(false) => log::warn!("Signature verification failed immediately after signing"),
                         Err(e) => log::warn!("Error verifying signature: {}", e),
                     }
                 },
                 Err(e) => {
-                    log::error!("Direct signing failed: {}", e);
+                    log::error!("Transaction signing failed: {}", e);
                     return Err(BlockchainError::Transaction(format!("Failed to sign: {}", e)));
                 }
             }
         },
         Err(e) => {
-            // Fall back to wallet-less signing (this is less reliable)
-            log::warn!("Failed to load wallet: {}, trying without private key", e);
-            
-            match key::sign_message(&key::Wallet { 
-                address: from, 
-                private_key: String::new(), // Temporary, will be loaded from wallet
-                seed_phrase: String::new(), 
-                curve_type: key::CurveType::K256, // Default, will be determined by wallet
-            }, &message, password) {
-                Ok(signature) => {
-                    transaction.signature = signature;
-                },
-                Err(_e) => {
-                    let tried_p256 = false;
-                    let tried_ed25519 = false;
-                    let mut tried_k256 = false;
-                    
-                    if !tried_k256 {
-                        tried_k256 = true;
-                        log::debug!("Trying K256 signing");
-                        match key::sign_message(&key::Wallet { 
-                            address: from, 
-                            private_key: String::new(),
-                            seed_phrase: String::new(), 
-                            curve_type: key::CurveType::K256,
-                        }, &message, password) {
-                            Ok(signature) => {
-                                transaction.signature = signature;
-                                log::debug!("K256 signing succeeded");
-                            },
-                            Err(k256_err) => {
-                                log::debug!("K256 signing failed: {}", k256_err);
-                                log::debug!("Trying P256 signing");
-                                match key::sign_message(&key::Wallet { 
-                                    address: from, 
-                                    private_key: String::new(),
-                                    seed_phrase: String::new(), 
-                                    curve_type: key::CurveType::P256,
-                                }, &message, password) {
-                                    Ok(signature) => {
-                                        transaction.signature = signature;
-                                        log::debug!("P256 signing succeeded");
-                                    },
-                                    Err(p256_err) => {
-                                        log::debug!("P256 signing failed: {}", p256_err);
-                                        log::debug!("Trying Ed25519 signing");
-                                        match key::sign_message(&key::Wallet { 
-                                            address: from, 
-                                            private_key: String::new(),
-                                            seed_phrase: String::new(), 
-                                            curve_type: key::CurveType::Ed25519,
-                                        }, &message, password) {
-                                            Ok(signature) => {
-                                                transaction.signature = signature;
-                                                log::debug!("Ed25519 signing succeeded");
-                                            },
-                                            Err(ed25519_err) => {
-                                                log::error!("All curve types failed: K256 error: {}, P256 error: {}, Ed25519 error: {}", 
-                                                          k256_err, p256_err, ed25519_err);
-                                                return Err(BlockchainError::Transaction(
-                                                    format!("Failed to sign transaction with all curve types.")
-                                                ));
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    if !tried_p256 && transaction.signature.is_empty() {
-                        log::debug!("Trying P256 signing");
-                        match key::sign_message(&key::Wallet { 
-                            address: from, 
-                            private_key: String::new(),
-                            seed_phrase: String::new(), 
-                            curve_type: key::CurveType::P256,
-                        }, &message, password) {
-                            Ok(signature) => {
-                                transaction.signature = signature;
-                                log::debug!("P256 signing succeeded");
-                            },
-                            Err(p256_err) => {
-                                log::debug!("P256 signing failed: {}", p256_err);
-                                log::debug!("Trying Ed25519 signing");
-                                match key::sign_message(&key::Wallet { 
-                                    address: from, 
-                                    private_key: String::new(),
-                                    seed_phrase: String::new(), 
-                                    curve_type: key::CurveType::Ed25519,
-                                }, &message, password) {
-                                    Ok(signature) => {
-                                        transaction.signature = signature;
-                                        log::debug!("Ed25519 signing succeeded");
-                                    },
-                                    Err(ed25519_err) => {
-                                        log::error!("Both P256 and Ed25519 signing failed: P256 error: {}, Ed25519 error: {}", 
-                                                  p256_err, ed25519_err);
-                                        if !tried_k256 {
-                                            log::debug!("Trying K256 as last resort");
-                                            match key::sign_message(&key::Wallet { 
-                                                address: from, 
-                                                private_key: String::new(),
-                                                seed_phrase: String::new(), 
-                                                curve_type: key::CurveType::K256,
-                                            }, &message, password) {
-                                                Ok(signature) => {
-                                                    transaction.signature = signature;
-                                                    log::debug!("K256 signing succeeded");
-                                                },
-                                                Err(k256_err) => {
-                                                    log::error!("All curve types failed: P256 error: {}, Ed25519 error: {}, K256 error: {}", 
-                                                              p256_err, ed25519_err, k256_err);
-                                                    return Err(BlockchainError::Transaction(
-                                                        format!("Failed to sign transaction with all curve types.")
-                                                    ));
-                                                }
-                                            }
-                                        } else {
-                                            return Err(BlockchainError::Transaction(
-                                                format!("Failed to sign transaction with all curve types.")
-                                            ));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    if !tried_ed25519 && transaction.signature.is_empty() {
-                        log::debug!("Trying Ed25519 signing");
-                        match key::sign_message(&key::Wallet { 
-                            address: from, 
-                            private_key: String::new(),
-                            seed_phrase: String::new(), 
-                            curve_type: key::CurveType::Ed25519,
-                        }, &message, password) {
-                            Ok(signature) => {
-                                transaction.signature = signature;
-                                log::debug!("Ed25519 signing succeeded");
-                            },
-                            Err(ed25519_err) => {
-                                log::error!("Ed25519 signing failed: {}", ed25519_err);
-                                if !tried_k256 {
-                                    log::debug!("Trying K256 as last resort");
-                                    match key::sign_message(&key::Wallet { 
-                                        address: from, 
-                                        private_key: String::new(),
-                                        seed_phrase: String::new(), 
-                                        curve_type: key::CurveType::K256,
-                                    }, &message, password) {
-                                        Ok(signature) => {
-                                            transaction.signature = signature;
-                                            log::debug!("K256 signing succeeded");
-                                        },
-                                        Err(k256_err) => {
-                                            log::error!("All curve types failed: Ed25519 error: {}, K256 error: {}", 
-                                                      ed25519_err, k256_err);
-                                            return Err(BlockchainError::Transaction(
-                                                format!("Failed to sign transaction with all curve types.")
-                                            ));
-                                        }
-                                    }
-                                } else {
-                                    return Err(BlockchainError::Transaction(
-                                        format!("Failed to sign transaction with all curve types.")
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            log::error!("Failed to load wallet: {}", e);
+            return Err(BlockchainError::Transaction(format!("Failed to load wallet: {}", e)));
         }
-    }
-    
-    if !transaction.signature.is_empty() {
-        match verify_transaction(&transaction) {
-            Ok(true) => log::debug!("Transaction signature verified successfully"),
-            Ok(false) => log::warn!("Transaction signature verification failed"),
-            Err(e) => log::warn!("Error verifying transaction signature: {}", e),
-        }
-    } else {
-        log::warn!("Transaction was not signed - signature is empty");
     }
     
     let mut balances = match BALANCES.lock() {

@@ -1,14 +1,10 @@
+use key::keys::{generate_keypair, generate_mnemonic, keypair_from_mnemonic, keypair_from_private_key, CurveType};
 use mona_crypto::{
-    generate_keypair,
     sign_message,
     verify_signature,
-    keys::{
-        keypair_from_private_key,
-        keypair_from_mnemonic,
-        generate_mnemonic,
-    },
-    CurveType,
 };
+
+
 
 fn main() {
     println!("Mona Crypto - Signing and Verification Example");

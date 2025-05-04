@@ -6,29 +6,27 @@
 //! - Encryption and decryption
 //! - Wallet operations
 
-pub mod keys;
+
 pub mod signatures;
 pub mod encryption;
 pub mod wallet;
-
-// Re-export key functionality
-pub use keys::{
-    CurveType, 
-    generate_keypair,
-    derive_address_from_pubkey,
-};
 
 // Re-export signature functionality
 pub use signatures::{
     sign_message,
     verify_signature,
+    verify_signature_with_curve,
     SignatureError,
+    secure_clear,
 };
 
 // Re-export encryption functionality
 pub use encryption::{
     encrypt_data,
     decrypt_data,
+    encrypt_string,
+    decrypt_string,
+    secure_erase,
     EncryptionError,
 };
 
@@ -38,7 +36,7 @@ pub use wallet::{
     WalletError,
     save_wallet,
     load_wallet,
-    list_wallets,
+    list_wallet_files,
     get_selected_wallet,
     set_selected_wallet,
     check_wallet_exists,
@@ -53,7 +51,17 @@ pub fn hash_data(data: &[u8]) -> Vec<u8> {
     hasher.finalize().to_vec()
 }
 
+/// Security level used by this library
+pub const SECURITY_LEVEL: &str = "High - AES-256-GCM with Argon2id key derivation";
+
 /// Version information for the crypto library
 pub fn version() -> &'static str {
     "1.0.0"
+}
+
+/// Returns security information about the library
+pub fn security_info() -> &'static str {
+    "This library uses Argon2id for password hashing, AES-256-GCM for encryption, 
+    and constant-time comparisons for secure signature verification.
+    Always keep your private keys secure and use strong, unique passwords."
 }

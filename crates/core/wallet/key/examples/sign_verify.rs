@@ -1,4 +1,5 @@
-use key::{
+use key::key_old;
+use key_old::{
     generate_karix_address, sign_message_k256, sign_message_p256, sign_message_ed25519,
     verify_signature, verify_signature_p256, verify_signature_ed25519,
     CurveType, import_from_private_key,

@@ -14,6 +14,8 @@ use argon2::{
 use bip39::rand::{rngs::OsRng, RngCore};
 use serde::{Serialize, Deserialize};
 use thiserror::Error;
+// Update the base64 import to use the new Engine types
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 
 /// Errors that can occur during encryption/decryption
 #[derive(Error, Debug)]
@@ -52,6 +54,15 @@ pub struct EncryptedData {
 
 /// Encrypt data using a password
 pub fn encrypt_data(data: &[u8], password: &str) -> Result<EncryptedData, EncryptionError> {
+    // Basic validation
+    if data.is_empty() {
+        return Err(EncryptionError::InvalidInput("Cannot encrypt empty data".to_string()));
+    }
+    
+    if password.is_empty() {
+        return Err(EncryptionError::InvalidInput("Empty password not allowed".to_string()));
+    }
+    
     // Generate a random salt
     let salt = SaltString::generate(&mut OsRng);
     
@@ -81,6 +92,19 @@ pub fn encrypt_data(data: &[u8], password: &str) -> Result<EncryptedData, Encryp
 
 /// Decrypt data using a password
 pub fn decrypt_data(encrypted_data: &EncryptedData, password: &str) -> Result<Vec<u8>, EncryptionError> {
+    // Basic validation
+    if password.is_empty() {
+        return Err(EncryptionError::InvalidInput("Empty password not allowed".to_string()));
+    }
+    
+    if encrypted_data.ciphertext.is_empty() {
+        return Err(EncryptionError::InvalidInput("Cannot decrypt empty ciphertext".to_string()));
+    }
+    
+    if encrypted_data.nonce.len() != 12 {
+        return Err(EncryptionError::InvalidInput("Invalid nonce length".to_string()));
+    }
+    
     // Parse the salt
     let salt = SaltString::from_b64(&encrypted_data.salt)
         .map_err(|e| EncryptionError::DecryptionFailed(format!("Invalid salt: {}", e)))?;
@@ -138,13 +162,14 @@ pub fn encrypt_string(text: &str, password: &str) -> Result<String, EncryptionEr
     let json = serde_json::to_string(&encrypted)
         .map_err(|e| EncryptionError::SerializationError(e.to_string()))?;
     
-    Ok(base64::encode(json))
+    // Use the new Engine-based API
+    Ok(STANDARD.encode(json))
 }
 
 /// Decrypt a base64-encoded encrypted string
 pub fn decrypt_string(encoded: &str, password: &str) -> Result<String, EncryptionError> {
-    // Decode from base64
-    let json_bytes = base64::decode(encoded)
+    // Decode from base64 using the new Engine-based API
+    let json_bytes = STANDARD.decode(encoded)
         .map_err(|e| EncryptionError::InvalidInput(format!("Invalid base64: {}", e)))?;
     
     // Parse JSON
@@ -157,4 +182,11 @@ pub fn decrypt_string(encoded: &str, password: &str) -> Result<String, Encryptio
     // Convert back to string
     String::from_utf8(plaintext)
         .map_err(|e| EncryptionError::InvalidInput(format!("Invalid UTF-8: {}", e)))
+}
+
+/// Securely erase sensitive data from memory
+pub fn secure_erase(data: &mut [u8]) {
+    for byte in data.iter_mut() {
+        *byte = 0;
+    }
 }

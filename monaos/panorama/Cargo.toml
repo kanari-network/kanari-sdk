@@ -57,7 +57,9 @@ common = { workspace = true }
 key = { path = "../../crates/core/wallet/key", default-features = false }
 
 
+
 mona-storage.workspace = true
+mona-crypto.workspace = true
 # Unit k2
 consensus-pos.workspace = true
 network.workspace = true

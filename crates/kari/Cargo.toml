@@ -34,7 +34,7 @@ semver.workspace = true
 reqwest.workspace = true
 
 # This is a workspace crate, so we need to include the following dependencies
-key.workspace = true
+mona-crypto.workspace = true
 mona-blockchain.workspace = true
 panorama.workspace = true 
 command.workspace = true

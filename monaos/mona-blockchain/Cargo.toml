@@ -48,6 +48,7 @@ colored.workspace = true
 thiserror.workspace = true
 
 key.workspace = true
+mona-crypto.workspace = true
 mona-types.workspace = true
 common.workspace = true
 consensus-pos.workspace = true
