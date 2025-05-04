@@ -3,6 +3,7 @@ mod tests {
     use argon2::Argon2;
     use bip39::rand::rngs::OsRng;
     use bip39::{Mnemonic, rand};
+    use key::key_old;
     use mona_types::address::Address;
     use argon2::PasswordHasher;
     use std::cell::RefCell;
@@ -36,7 +37,7 @@ mod tests {
     
     use argon2::password_hash::SaltString;
     use sha3::{Digest as Sha3Digest, Sha3_256}; // Add SHA3 imports
-    use key::{generate_k256_address, generate_p256_address, generate_ed25519_address, import_from_private_key, import_from_seed_phrase, sign_message_k256, sign_message_p256, sign_message_ed25519, CurveType, EncryptedData, Wallet};
+    use key_old::{generate_k256_address, generate_p256_address, generate_ed25519_address, import_from_private_key, import_from_seed_phrase, sign_message_k256, sign_message_p256, sign_message_ed25519, CurveType, EncryptedData, Wallet};
     use tempfile::tempdir;
     use k256::ecdsa::signature::Verifier;
 

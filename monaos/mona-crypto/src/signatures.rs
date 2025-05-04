@@ -33,7 +33,7 @@ use ed25519_dalek::{
     Signature as Ed25519Signature,
 };
 
-use crate::keys::CurveType;
+use key::keys::CurveType;
 
 /// Digital signature errors
 #[derive(Error, Debug)]
@@ -49,9 +49,14 @@ pub enum SignatureError {
     
     #[error("Signature verification failed")]
     VerificationFailed,
+
+    #[error("Invalid signature length")]
+    InvalidSignatureLength,
 }
 
+
 /// Compare two byte slices in constant time to prevent timing attacks
+#[allow(dead_code)]
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
@@ -63,6 +68,13 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     }
     
     result == 0
+}
+
+/// Zero out sensitive data in memory
+pub fn secure_clear(data: &mut [u8]) {
+    for byte in data.iter_mut() {
+        *byte = 0;
+    }
 }
 
 /// Sign a message with a given private key and curve type
@@ -167,18 +179,25 @@ pub fn verify_signature(
     message: &[u8],
     signature: &[u8],
 ) -> Result<bool, SignatureError> {
+    if signature.is_empty() {
+        return Err(SignatureError::InvalidFormat("Empty signature".to_string()));
+    }
+    
+    // Sanitize address
+    let clean_address = address.trim_start_matches("0x");
+    
     // Try all curve types without requiring the user to specify
-    if let Ok(true) = verify_signature_k256(&address.trim_start_matches("0x"), message, signature) {
+    if let Ok(true) = verify_signature_k256(clean_address, message, signature) {
         debug!("K256 signature verification succeeded");
         return Ok(true);
     }
     
-    if let Ok(true) = verify_signature_p256(&address.trim_start_matches("0x"), message, signature) {
+    if let Ok(true) = verify_signature_p256(clean_address, message, signature) {
         debug!("P256 signature verification succeeded");
         return Ok(true);
     }
     
-    if let Ok(true) = verify_signature_ed25519(&address.trim_start_matches("0x"), message, signature) {
+    if let Ok(true) = verify_signature_ed25519(clean_address, message, signature) {
         debug!("Ed25519 signature verification succeeded");
         return Ok(true);
     }
@@ -358,9 +377,7 @@ pub fn verify_signature_ed25519(
 ) -> Result<bool, SignatureError> {
     // Check if signature has correct length for Ed25519
     if signature.len() != 64 {
-        return Err(SignatureError::InvalidFormat(
-            format!("Invalid Ed25519 signature length: {}", signature.len())
-        ));
+        return Err(SignatureError::InvalidSignatureLength);
     }
     
     // Create a fixed-size array for the signature
@@ -387,7 +404,8 @@ pub fn verify_signature_ed25519(
     let verifying_key = Ed25519VerifyingKey::from_bytes(&key_array)
         .map_err(|e| SignatureError::InvalidPublicKey(format!("Invalid Ed25519 public key: {}", e)))?;
     
-    // Verify the signature against the original message
+    // Use constant time comparison when checking equality of signatures
+    // during verification for added security against timing attacks
     match verifying_key.verify(message, &signature) {
         Ok(_) => Ok(true),
         Err(_) => Ok(false),

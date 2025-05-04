@@ -1,12 +1,13 @@
 use colored::Colorize;
 use command::keytool_cli::handle_keytool_command;
 use command::move_cli::handle_move_command;
+use mona_crypto::{check_wallet_exists, list_wallet_files};
 use std::io::{self, Write};
 use std::process::exit;
 use std::sync::{Arc, Mutex};
 
 use command::public_cli::handle_public_command;
-use key::{check_wallet_exists, list_wallet_files};
+
 use network::NetworkConfig;
 use panorama::simulation::run_blockchain;
 
