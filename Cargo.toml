@@ -183,6 +183,7 @@ rpc-api                             = { path = "crates/rpc/rpc-api" }
 
 
 # MonaOS Path List
+mona-crypto                         = { path = "monaos/mona-crypto" }
 mona-vm                             = { path = "monaos/mona-vm" }
 mona-storage                        = { path = "monaos/mona-storage" } 
 mona-enum-compat-util               = { path = "monaos/mona-enum-compat-util" }

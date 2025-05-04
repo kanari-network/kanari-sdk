@@ -601,7 +601,7 @@ impl Publish {
         };
     
         // Register modules with VM
-        for (i, module_json) in modules.iter().enumerate() {
+        for (_i, module_json) in modules.iter().enumerate() {
             let module_name = module_json["name"].as_str().unwrap();
             let size_bytes = module_json["size_bytes"].as_u64().unwrap_or(0);
             

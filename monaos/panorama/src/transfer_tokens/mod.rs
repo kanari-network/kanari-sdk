@@ -89,6 +89,10 @@ pub fn transfer_tokens(
                     log::debug!("Using P256 signing with private key");
                     key::sign_message_p256(&wallet.private_key, &message)
                 },
+                key::CurveType::Ed25519 => {
+                    log::debug!("Using Ed25519 signing with private key");
+                    key::sign_message_ed25519(&wallet.private_key, &message)
+                },
             };
             
             match signature_result {
@@ -125,6 +129,7 @@ pub fn transfer_tokens(
                 },
                 Err(_e) => {
                     let tried_p256 = false;
+                    let tried_ed25519 = false;
                     let mut tried_k256 = false;
                     
                     if !tried_k256 {
@@ -154,11 +159,26 @@ pub fn transfer_tokens(
                                         log::debug!("P256 signing succeeded");
                                     },
                                     Err(p256_err) => {
-                                        log::error!("Both K256 and P256 signing failed: K256 error: {}, P256 error: {}", 
-                                                  k256_err, p256_err);
-                                        return Err(BlockchainError::Transaction(
-                                            format!("Failed to sign transaction with both curve types.")
-                                        ));
+                                        log::debug!("P256 signing failed: {}", p256_err);
+                                        log::debug!("Trying Ed25519 signing");
+                                        match key::sign_message(&key::Wallet { 
+                                            address: from, 
+                                            private_key: String::new(),
+                                            seed_phrase: String::new(), 
+                                            curve_type: key::CurveType::Ed25519,
+                                        }, &message, password) {
+                                            Ok(signature) => {
+                                                transaction.signature = signature;
+                                                log::debug!("Ed25519 signing succeeded");
+                                            },
+                                            Err(ed25519_err) => {
+                                                log::error!("All curve types failed: K256 error: {}, P256 error: {}, Ed25519 error: {}", 
+                                                          k256_err, p256_err, ed25519_err);
+                                                return Err(BlockchainError::Transaction(
+                                                    format!("Failed to sign transaction with all curve types.")
+                                                ));
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -178,7 +198,66 @@ pub fn transfer_tokens(
                                 log::debug!("P256 signing succeeded");
                             },
                             Err(p256_err) => {
-                                log::error!("P256 signing failed: {}", p256_err);
+                                log::debug!("P256 signing failed: {}", p256_err);
+                                log::debug!("Trying Ed25519 signing");
+                                match key::sign_message(&key::Wallet { 
+                                    address: from, 
+                                    private_key: String::new(),
+                                    seed_phrase: String::new(), 
+                                    curve_type: key::CurveType::Ed25519,
+                                }, &message, password) {
+                                    Ok(signature) => {
+                                        transaction.signature = signature;
+                                        log::debug!("Ed25519 signing succeeded");
+                                    },
+                                    Err(ed25519_err) => {
+                                        log::error!("Both P256 and Ed25519 signing failed: P256 error: {}, Ed25519 error: {}", 
+                                                  p256_err, ed25519_err);
+                                        if !tried_k256 {
+                                            log::debug!("Trying K256 as last resort");
+                                            match key::sign_message(&key::Wallet { 
+                                                address: from, 
+                                                private_key: String::new(),
+                                                seed_phrase: String::new(), 
+                                                curve_type: key::CurveType::K256,
+                                            }, &message, password) {
+                                                Ok(signature) => {
+                                                    transaction.signature = signature;
+                                                    log::debug!("K256 signing succeeded");
+                                                },
+                                                Err(k256_err) => {
+                                                    log::error!("All curve types failed: P256 error: {}, Ed25519 error: {}, K256 error: {}", 
+                                                              p256_err, ed25519_err, k256_err);
+                                                    return Err(BlockchainError::Transaction(
+                                                        format!("Failed to sign transaction with all curve types.")
+                                                    ));
+                                                }
+                                            }
+                                        } else {
+                                            return Err(BlockchainError::Transaction(
+                                                format!("Failed to sign transaction with all curve types.")
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    if !tried_ed25519 && transaction.signature.is_empty() {
+                        log::debug!("Trying Ed25519 signing");
+                        match key::sign_message(&key::Wallet { 
+                            address: from, 
+                            private_key: String::new(),
+                            seed_phrase: String::new(), 
+                            curve_type: key::CurveType::Ed25519,
+                        }, &message, password) {
+                            Ok(signature) => {
+                                transaction.signature = signature;
+                                log::debug!("Ed25519 signing succeeded");
+                            },
+                            Err(ed25519_err) => {
+                                log::error!("Ed25519 signing failed: {}", ed25519_err);
                                 if !tried_k256 {
                                     log::debug!("Trying K256 as last resort");
                                     match key::sign_message(&key::Wallet { 
@@ -192,16 +271,16 @@ pub fn transfer_tokens(
                                             log::debug!("K256 signing succeeded");
                                         },
                                         Err(k256_err) => {
-                                            log::error!("Both curve types failed: P256 error: {}, K256 error: {}", 
-                                                       p256_err, k256_err);
+                                            log::error!("All curve types failed: Ed25519 error: {}, K256 error: {}", 
+                                                      ed25519_err, k256_err);
                                             return Err(BlockchainError::Transaction(
-                                                format!("Failed to sign transaction with both curve types.")
+                                                format!("Failed to sign transaction with all curve types.")
                                             ));
                                         }
                                     }
                                 } else {
                                     return Err(BlockchainError::Transaction(
-                                        format!("Failed to sign transaction with both curve types.")
+                                        format!("Failed to sign transaction with all curve types.")
                                     ));
                                 }
                             }
