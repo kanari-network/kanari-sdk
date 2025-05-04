@@ -1,28 +1,34 @@
-use key::{
-    generate_karix_address, sign_message_k256, sign_message_p256, sign_message_ed25519,
-    verify_signature, verify_signature_p256, verify_signature_ed25519,
-    CurveType, import_from_private_key,
+use mona_crypto::{
+    generate_keypair,
+    sign_message,
+    verify_signature,
+    keys::{
+        keypair_from_private_key,
+        keypair_from_mnemonic,
+        generate_mnemonic,
+    },
+    CurveType,
 };
 
 fn main() {
-    println!("Kanari Wallet - Signing and Verification Example");
-    println!("================================================");
+    println!("Mona Crypto - Signing and Verification Example");
+    println!("==============================================");
     
     // Example 1: K256 (secp256k1) signing and verification
     println!("\nExample 1: K256 Curve");
     println!("---------------------");
     
     // Generate a new K256 wallet
-    let (private_key, public_address, seed_phrase) = generate_karix_address(12, CurveType::K256);
+    let keypair = generate_keypair(CurveType::K256).expect("Failed to generate K256 keypair");
     
     println!("Generated new K256 wallet:");
-    println!("  Address: {}", public_address);
-    println!("  Private Key: {}", private_key);
-    println!("  Seed Phrase: {}", seed_phrase);
+    println!("  Address: {}", keypair.address);
+    println!("  Private Key: {}", keypair.private_key);
+    println!("  Public Key: {}", keypair.public_key);
     
     // Sign a message
-    let message = b"Hello, Kanari!";
-    let k256_signature = match sign_message_k256(&private_key, message) {
+    let message = b"Hello, Mona!";
+    let k256_signature = match sign_message(&keypair.private_key, message, CurveType::K256) {
         Ok(sig) => {
             println!("\nSigned message successfully!");
             println!("  Message: \"{}\"", String::from_utf8_lossy(message));
@@ -37,7 +43,7 @@ fn main() {
     
     // Verify the signature
     if !k256_signature.is_empty() {
-        match verify_signature(&public_address, message, &k256_signature) {
+        match verify_signature(&keypair.address, message, &k256_signature) {
             Ok(true) => println!("✅ Signature verification successful!"),
             Ok(false) => println!("❌ Signature verification failed!"),
             Err(e) => println!("Error verifying signature: {}", e),
@@ -45,7 +51,7 @@ fn main() {
         
         // Try with wrong message
         let wrong_message = b"Wrong message!";
-        match verify_signature(&public_address, wrong_message, &k256_signature) {
+        match verify_signature(&keypair.address, wrong_message, &k256_signature) {
             Ok(true) => println!("❌ Signature incorrectly verified with wrong message!"),
             Ok(false) => println!("✅ Signature correctly rejected for wrong message!"),
             Err(e) => println!("Error verifying signature: {}", e),
@@ -57,16 +63,16 @@ fn main() {
     println!("---------------------");
     
     // Generate a new P256 wallet
-    let (private_key_p256, public_address_p256, seed_phrase_p256) = generate_karix_address(12, CurveType::P256);
+    let p256_keypair = generate_keypair(CurveType::P256).expect("Failed to generate P256 keypair");
     
     println!("Generated new P256 wallet:");
-    println!("  Address: {}", public_address_p256);
-    println!("  Private Key: {}", private_key_p256);
-    println!("  Seed Phrase: {}", seed_phrase_p256);
+    println!("  Address: {}", p256_keypair.address);
+    println!("  Private Key: {}", p256_keypair.private_key);
+    println!("  Public Key: {}", p256_keypair.public_key);
     
     // Sign a message
-    let message_p256 = b"Hello, Kanari with P256!";
-    let p256_signature = match sign_message_p256(&private_key_p256, message_p256) {
+    let message_p256 = b"Hello, Mona with P256!";
+    let p256_signature = match sign_message(&p256_keypair.private_key, message_p256, CurveType::P256) {
         Ok(sig) => {
             println!("\nSigned message successfully!");
             println!("  Message: \"{}\"", String::from_utf8_lossy(message_p256));
@@ -81,41 +87,40 @@ fn main() {
     
     // Verify the signature
     if !p256_signature.is_empty() {
-        // First try with the generic verify_signature function
-        match verify_signature(&public_address_p256, message_p256, &p256_signature) {
+        // Try with the generic verify_signature function
+        match verify_signature(&p256_keypair.address, message_p256, &p256_signature) {
             Ok(true) => println!("✅ Signature verification successful with generic function!"),
             Ok(false) => println!("❌ Signature verification failed with generic function!"),
             Err(e) => println!("Error verifying signature with generic function: {}", e),
         }
         
-        // Then try with P256-specific verification function
-        let address_hex = public_address_p256.trim_start_matches("0x");
-        match verify_signature_p256(address_hex, message_p256, &p256_signature) {
-            Ok(true) => println!("✅ Signature verification successful with P256-specific function!"),
-            Ok(false) => println!("❌ Signature verification failed with P256-specific function!"),
-            Err(e) => println!("Error verifying with P256-specific function: {}", e),
+        // Try with verification using curve type
+        match verify_signature(&p256_keypair.address, message_p256, &p256_signature) {
+            Ok(true) => println!("✅ Signature verification successful!"),
+            Ok(false) => println!("❌ Signature verification failed!"),
+            Err(e) => println!("Error verifying signature: {}", e),
         }
     }
     
-    // Example 3: Importing from private key and signing
+    // Example 3: Importing from private key
     println!("\nExample 3: Importing from Private Key");
     println!("----------------------------------");
     
     // Import the wallet from K256 private key
     println!("\nImporting K256 wallet from private key:");
-    match import_from_private_key(&private_key, CurveType::K256) {
-        Ok((imported_private_key, _, imported_public_address)) => {
-            println!("  Address: {}", imported_public_address);
+    match keypair_from_private_key(&keypair.private_key, CurveType::K256) {
+        Ok(imported_keypair) => {
+            println!("  Address: {}", imported_keypair.address);
             
             // Verify it's the same address
-            if public_address == imported_public_address {
+            if keypair.address == imported_keypair.address {
                 println!("✅ Imported address matches original!");
             } else {
-                println!("❌ Address mismatch: {} vs {}", public_address, imported_public_address);
+                println!("❌ Address mismatch: {} vs {}", keypair.address, imported_keypair.address);
             }
             
             // Sign the message with imported key
-            match sign_message_k256(&imported_private_key, message) {
+            match sign_message(&imported_keypair.private_key, message, CurveType::K256) {
                 Ok(sig) => {
                     println!("\nSigned message with imported K256 key:");
                     println!("  Signature (hex): {}", hex::encode(&sig));
@@ -128,7 +133,7 @@ fn main() {
                     }
                     
                     // Verify the signature works
-                    match verify_signature(&imported_public_address, message, &sig) {
+                    match verify_signature(&imported_keypair.address, message, &sig) {
                         Ok(true) => println!("✅ Signature verification successful!"),
                         Ok(false) => println!("❌ Signature verification failed!"),
                         Err(e) => println!("Error verifying signature: {}", e),
@@ -142,19 +147,19 @@ fn main() {
     
     // Import the wallet from P256 private key
     println!("\nImporting P256 wallet from private key:");
-    match import_from_private_key(&private_key_p256, CurveType::P256) {
-        Ok((imported_private_key, _, imported_public_address)) => {
-            println!("  Address: {}", imported_public_address);
+    match keypair_from_private_key(&p256_keypair.private_key, CurveType::P256) {
+        Ok(imported_keypair) => {
+            println!("  Address: {}", imported_keypair.address);
             
             // Verify it's the same address
-            if public_address_p256 == imported_public_address {
+            if p256_keypair.address == imported_keypair.address {
                 println!("✅ Imported address matches original!");
             } else {
-                println!("❌ Address mismatch: {} vs {}", public_address_p256, imported_public_address);
+                println!("❌ Address mismatch: {} vs {}", p256_keypair.address, imported_keypair.address);
             }
             
             // Sign the message with imported key
-            match sign_message_p256(&imported_private_key, message_p256) {
+            match sign_message(&imported_keypair.private_key, message_p256, CurveType::P256) {
                 Ok(sig) => {
                     println!("\nSigned message with imported P256 key:");
                     println!("  Signature (hex): {}", hex::encode(&sig));
@@ -166,19 +171,11 @@ fn main() {
                         println!("❌ Signature from imported key differs from original!");
                     }
                     
-                    // Verify the signature works with both methods
-                    match verify_signature(&imported_public_address, message_p256, &sig) {
-                        Ok(true) => println!("✅ Signature verification successful with generic function!"),
-                        Ok(false) => println!("❌ Signature verification failed with generic function!"),
-                        Err(e) => println!("Error verifying signature with generic function: {}", e),
-                    }
-                    
-                    // Direct P256 verification
-                    let address_hex = imported_public_address.trim_start_matches("0x");
-                    match verify_signature_p256(address_hex, message_p256, &sig) {
-                        Ok(true) => println!("✅ Signature verification successful with P256-specific function!"),
-                        Ok(false) => println!("❌ Signature verification failed with P256-specific function!"),
-                        Err(e) => println!("Error verifying with P256-specific function: {}", e),
+                    // Verify the signature works
+                    match verify_signature(&imported_keypair.address, message_p256, &sig) {
+                        Ok(true) => println!("✅ Signature verification successful!"),
+                        Ok(false) => println!("❌ Signature verification failed!"),
+                        Err(e) => println!("Error verifying signature: {}", e),
                     }
                 },
                 Err(e) => println!("Error signing with imported key: {}", e),
@@ -192,17 +189,16 @@ fn main() {
     println!("------------------------");
     
     // Generate a new Ed25519 wallet
-    let (private_key_ed25519, public_address_ed25519, seed_phrase_ed25519) = 
-        generate_karix_address(12, CurveType::Ed25519);
+    let ed25519_keypair = generate_keypair(CurveType::Ed25519).expect("Failed to generate Ed25519 keypair");
     
     println!("Generated new Ed25519 wallet:");
-    println!("  Address: {}", public_address_ed25519);
-    println!("  Private Key: {}", private_key_ed25519);
-    println!("  Seed Phrase: {}", seed_phrase_ed25519);
+    println!("  Address: {}", ed25519_keypair.address);
+    println!("  Private Key: {}", ed25519_keypair.private_key);
+    println!("  Public Key: {}", ed25519_keypair.public_key);
     
     // Sign a message
-    let message_ed25519 = b"Hello, Kanari with Ed25519!";
-    let ed25519_signature = match sign_message_ed25519(&private_key_ed25519, message_ed25519) {
+    let message_ed25519 = b"Hello, Mona with Ed25519!";
+    let ed25519_signature = match sign_message(&ed25519_keypair.private_key, message_ed25519, CurveType::Ed25519) {
         Ok(sig) => {
             println!("\nSigned message successfully!");
             println!("  Message: \"{}\"", String::from_utf8_lossy(message_ed25519));
@@ -218,36 +214,28 @@ fn main() {
     // Verify the signature
     if !ed25519_signature.is_empty() {
         // Try with the generic verify_signature function
-        match verify_signature(&public_address_ed25519, message_ed25519, &ed25519_signature) {
+        match verify_signature(&ed25519_keypair.address, message_ed25519, &ed25519_signature) {
             Ok(true) => println!("✅ Signature verification successful with generic function!"),
             Ok(false) => println!("❌ Signature verification failed with generic function!"),
             Err(e) => println!("Error verifying signature with generic function: {}", e),
-        }
-        
-        // Try with Ed25519-specific verification function
-        let address_hex = public_address_ed25519.trim_start_matches("0x");
-        match verify_signature_ed25519(address_hex, message_ed25519, &ed25519_signature) {
-            Ok(true) => println!("✅ Signature verification successful with Ed25519-specific function!"),
-            Ok(false) => println!("❌ Signature verification failed with Ed25519-specific function!"),
-            Err(e) => println!("Error verifying with Ed25519-specific function: {}", e),
         }
     }
     
     // Import the wallet from Ed25519 private key
     println!("\nImporting Ed25519 wallet from private key:");
-    match import_from_private_key(&private_key_ed25519, CurveType::Ed25519) {
-        Ok((imported_private_key, _, imported_public_address)) => {
-            println!("  Address: {}", imported_public_address);
+    match keypair_from_private_key(&ed25519_keypair.private_key, CurveType::Ed25519) {
+        Ok(imported_keypair) => {
+            println!("  Address: {}", imported_keypair.address);
             
             // Verify it's the same address
-            if public_address_ed25519 == imported_public_address {
+            if ed25519_keypair.address == imported_keypair.address {
                 println!("✅ Imported address matches original!");
             } else {
-                println!("❌ Address mismatch: {} vs {}", public_address_ed25519, imported_public_address);
+                println!("❌ Address mismatch: {} vs {}", ed25519_keypair.address, imported_keypair.address);
             }
             
             // Sign the message with imported key
-            match sign_message_ed25519(&imported_private_key, message_ed25519) {
+            match sign_message(&imported_keypair.private_key, message_ed25519, CurveType::Ed25519) {
                 Ok(sig) => {
                     println!("\nSigned message with imported Ed25519 key:");
                     println!("  Signature (hex): {}", hex::encode(&sig));
@@ -259,24 +247,60 @@ fn main() {
                         println!("❌ Signature from imported key differs from original!");
                     }
                     
-                    // Verify the signature works with both methods
-                    match verify_signature(&imported_public_address, message_ed25519, &sig) {
-                        Ok(true) => println!("✅ Signature verification successful with generic function!"),
-                        Ok(false) => println!("❌ Signature verification failed with generic function!"),
-                        Err(e) => println!("Error verifying signature with generic function: {}", e),
-                    }
-                    
-                    // Direct Ed25519 verification
-                    let address_hex = imported_public_address.trim_start_matches("0x");
-                    match verify_signature_ed25519(address_hex, message_ed25519, &sig) {
-                        Ok(true) => println!("✅ Signature verification successful with Ed25519-specific function!"),
-                        Ok(false) => println!("❌ Signature verification failed with Ed25519-specific function!"),
-                        Err(e) => println!("Error verifying with Ed25519-specific function: {}", e),
+                    // Verify the signature works
+                    match verify_signature(&imported_keypair.address, message_ed25519, &sig) {
+                        Ok(true) => println!("✅ Signature verification successful!"),
+                        Ok(false) => println!("❌ Signature verification failed!"),
+                        Err(e) => println!("Error verifying signature: {}", e),
                     }
                 },
                 Err(e) => println!("Error signing with imported key: {}", e),
             }
         },
         Err(e) => println!("Error importing Ed25519 wallet: {}", e),
+    }
+    
+    // Example 5: Generate and import from mnemonic
+    println!("\nExample 5: Mnemonic Phrase Generation and Import");
+    println!("----------------------------------------------");
+    
+    // Generate a mnemonic for K256
+    let mnemonic = match generate_mnemonic(12) {
+        Ok(phrase) => {
+            println!("Generated mnemonic: {}", phrase);
+            phrase
+        },
+        Err(e) => {
+            println!("Error generating mnemonic: {}", e);
+            return;
+        }
+    };
+    
+    // Import from mnemonic
+    println!("\nImporting wallet from mnemonic:");
+    match keypair_from_mnemonic(&mnemonic, CurveType::K256, "") {  // Added empty password as 3rd parameter
+        Ok(mnemonic_keypair) => {
+            println!("  Address: {}", mnemonic_keypair.address);
+            println!("  Private Key: {}", mnemonic_keypair.private_key);
+            
+            // Sign a message with the mnemonic-derived key
+            let message_mnemonic = b"Hello from mnemonic!";
+            match sign_message(&mnemonic_keypair.private_key, message_mnemonic, CurveType::K256) {
+                Ok(sig) => {
+                    println!("\nSigned message with mnemonic-derived key:");
+                    println!("  Message: \"{}\"", String::from_utf8_lossy(message_mnemonic));
+                    println!("  Signature (hex): {}", hex::encode(&sig));
+                    
+                    // Verify the signature
+                    match verify_signature(&mnemonic_keypair.address, message_mnemonic, &sig) {
+                        Ok(true) => println!("✅ Signature verification successful!"),
+                        Ok(false) => println!("❌ Signature verification failed!"),
+                        Err(e) => println!("Error verifying signature: {}", e),
+                    }
+                },
+                Err(e) => println!("Error signing with mnemonic-derived key: {}", e),
+            }
+        },
+        Err(e) => println!("Error importing from mnemonic: {}", e),
     }
 }

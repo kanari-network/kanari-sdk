@@ -103,10 +103,11 @@ pub fn handle_keytool_command() -> Option<String> {
                                     return None;
                                 }
                                 
-                                // Add curve type selection
+                                // Add curve type selection with Ed25519 option
                                 println!("Select curve type:");
                                 println!("1. K-256 (secp256k1)");
                                 println!("2. P-256 (secp256r1)");
+                                println!("3. Ed25519");
                                 
                                 let mut curve_choice = String::new();
                                 match io::stdin().read_line(&mut curve_choice) {
@@ -114,6 +115,7 @@ pub fn handle_keytool_command() -> Option<String> {
                                         let curve_type = match curve_choice.trim() {
                                             "1" => CurveType::K256,
                                             "2" => CurveType::P256,
+                                            "3" => CurveType::Ed25519,
                                             _ => {
                                                 println!("{}", "Invalid choice, using secp256k1 as default.".yellow());
                                                 CurveType::K256
@@ -585,10 +587,11 @@ pub fn handle_keytool_command() -> Option<String> {
                     .read_line(&mut phrase)
                     .expect("Failed to read line");
             
-                // Add curve type selection
+                // Add curve type selection with Ed25519 option
                 println!("Select curve type:");
                 println!("1. K-256 (secp256k1)");
                 println!("2. P-256 (secp256r1)");
+                println!("3. Ed25519");
                 
                 let mut curve_choice = String::new();
                 match io::stdin().read_line(&mut curve_choice) {
@@ -596,6 +599,7 @@ pub fn handle_keytool_command() -> Option<String> {
                         let curve_type = match curve_choice.trim() {
                             "1" => CurveType::K256,
                             "2" => CurveType::P256,
+                            "3" => CurveType::Ed25519,
                             _ => {
                                 println!("{}", "Invalid choice, using Secp256k1 as default.".yellow());
                                 CurveType::K256
@@ -664,10 +668,11 @@ pub fn handle_keytool_command() -> Option<String> {
                     .read_line(&mut private_key)
                     .expect("Failed to read line");
             
-                // Add curve type selection
+                // Add curve type selection with Ed25519 option
                 println!("Select curve type:");
                 println!("1. K-256 (secp256k1)");
                 println!("2. P-256 (secp256r1)");
+                println!("3. Ed25519");
                 
                 let mut curve_choice = String::new();
                 match io::stdin().read_line(&mut curve_choice) {
@@ -675,6 +680,7 @@ pub fn handle_keytool_command() -> Option<String> {
                         let curve_type = match curve_choice.trim() {
                             "1" => CurveType::K256,
                             "2" => CurveType::P256,
+                            "3" => CurveType::Ed25519,
                             _ => {
                                 println!("{}", "Invalid choice, using Secp256k1 as default.".yellow());
                                 CurveType::K256

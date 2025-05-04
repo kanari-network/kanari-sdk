@@ -22,15 +22,21 @@ mod tests {
         SecretKey as P256SecretKey,
         ecdsa::{Signature as P256Signature, SigningKey, VerifyingKey},
     };
-    
+    // Import ed25519_dalek types with aliases to avoid naming conflicts
+    use ed25519_dalek::{
+        SigningKey as Ed25519SigningKey, 
+        VerifyingKey as Ed25519VerifyingKey, 
+        Signature as Ed25519Signature
+    };
+
     use aes_gcm::{
         Aes256Gcm, Nonce,
         aead::{Aead, KeyInit},
     };
     
     use argon2::password_hash::SaltString;
-    use sha2::{Digest, Sha256};
-    use key::{generate_k256_address, generate_p256_address, import_from_private_key, import_from_seed_phrase, sign_message_k256, sign_message_p256, CurveType, EncryptedData, Wallet};
+    use sha3::{Digest as Sha3Digest, Sha3_256}; // Add SHA3 imports
+    use key::{generate_k256_address, generate_p256_address, generate_ed25519_address, import_from_private_key, import_from_seed_phrase, sign_message_k256, sign_message_p256, sign_message_ed25519, CurveType, EncryptedData, Wallet};
     use tempfile::tempdir;
     use k256::ecdsa::signature::Verifier;
 
@@ -117,6 +123,23 @@ mod tests {
     }
 
     #[test]
+    fn test_ed25519_key_generation() {
+        let (private_key, public_address, seed_phrase) = generate_ed25519_address(12);
+
+        // Check that all values are populated
+        assert!(!private_key.is_empty());
+        assert!(public_address.starts_with("0x"));
+        assert!(!seed_phrase.is_empty());
+
+        // Verify seed phrase has 12 words
+        assert_eq!(seed_phrase.split_whitespace().count(), 12);
+
+        // Verify we can re-derive the address from the private key
+        let result = import_from_private_key(&private_key, CurveType::Ed25519).unwrap();
+        assert_eq!(result.2, public_address);
+    }
+
+    #[test]
     fn test_k256_sign_verify() {
         let (private_key, _public_address, _) = generate_k256_address(12);
         let message = b"Test message to sign";
@@ -131,8 +154,8 @@ mod tests {
         let signing_key = K256SigningKey::from(secret_key);
         let verifying_key = K256VerifyingKey::from(&signing_key);
         
-        // Hash the message
-        let mut hasher = Sha256::new();
+        // Hash the message with SHA3 instead of SHA2
+        let mut hasher = Sha3_256::new();
         hasher.update(message);
         let message_hash = hasher.finalize();
         
@@ -144,7 +167,7 @@ mod tests {
 
         // Test with wrong message
         let wrong_message = b"Wrong message";
-        let mut wrong_hasher = Sha256::new();
+        let mut wrong_hasher = Sha3_256::new();
         wrong_hasher.update(wrong_message);
         let wrong_hash = wrong_hasher.finalize();
         
@@ -167,8 +190,8 @@ mod tests {
         let signing_key = SigningKey::from(secret_key);
         let verifying_key = VerifyingKey::from(&signing_key);
         
-        // Hash the message
-        let mut hasher = Sha256::new();
+        // Hash the message with SHA3 instead of SHA2
+        let mut hasher = Sha3_256::new();
         hasher.update(message);
         let message_hash = hasher.finalize();
         
@@ -180,12 +203,46 @@ mod tests {
 
         // Test with wrong message
         let wrong_message = b"Wrong message";
-        let mut wrong_hasher = Sha256::new();
+        let mut wrong_hasher = Sha3_256::new();
         wrong_hasher.update(wrong_message);
         let wrong_hash = wrong_hasher.finalize();
         
         // This should fail
         assert!(verifying_key.verify(&wrong_hash, &sig).is_err());
+    }
+
+    #[test]
+    fn test_ed25519_sign_verify() {
+        let (private_key, _public_address, _) = generate_ed25519_address(12);
+        let message = b"Test message to sign";
+
+        // Sign the message
+        let signature = sign_message_ed25519(&private_key, message).unwrap();
+
+        // Verify the signature
+        // For Ed25519 we need to use the ed25519_dalek crate directly
+        let private_key_bytes = hex::decode(&private_key).unwrap();
+        
+        // Create a fixed-size array for the private key
+        let mut key_array = [0u8; 32];
+        key_array.copy_from_slice(&private_key_bytes);
+        
+        let signing_key = Ed25519SigningKey::from_bytes(&key_array);
+        let verifying_key = Ed25519VerifyingKey::from(&signing_key);
+        
+        // Parse the signature - in Ed25519 this is just the 64 bytes
+        let mut sig_array = [0u8; 64];
+        sig_array.copy_from_slice(&signature);
+        let sig = Ed25519Signature::from_bytes(&sig_array);
+        
+        // Directly verify with the verifying key - Ed25519 verifies the message directly
+        assert!(verifying_key.verify(message, &sig).is_ok());
+
+        // Test with wrong message
+        let wrong_message = b"Wrong message!";
+        
+        // This should fail
+        assert!(verifying_key.verify(wrong_message, &sig).is_err());
     }
 
     #[test]
@@ -260,6 +317,28 @@ mod tests {
         // Additionally test that importing the same seed phrase twice gives the same result
         let (second_import_private_key, _, second_import_public_address) =
             import_from_seed_phrase(&seed_phrase, CurveType::K256).unwrap();
+        
+        assert_eq!(imported_private_key, second_import_private_key);
+        assert_eq!(imported_public_address, second_import_public_address);
+    }
+
+    #[test]
+    fn test_import_from_seed_phrase_ed25519() {
+        // Generate a seed phrase directly
+        let mnemonic = Mnemonic::generate(12).unwrap();
+        let seed_phrase = mnemonic.to_string();
+        
+        // Import from seed phrase
+        let (imported_private_key, _, imported_public_address) =
+            import_from_seed_phrase(&seed_phrase, CurveType::Ed25519).unwrap();
+        
+        // Verify that the imported key is valid by re-importing from its private key
+        let reimported = import_from_private_key(&imported_private_key, CurveType::Ed25519).unwrap();
+        assert_eq!(reimported.2, imported_public_address);
+        
+        // Additionally test that importing the same seed phrase twice gives the same result
+        let (second_import_private_key, _, second_import_public_address) =
+            import_from_seed_phrase(&seed_phrase, CurveType::Ed25519).unwrap();
         
         assert_eq!(imported_private_key, second_import_private_key);
         assert_eq!(imported_public_address, second_import_public_address);
