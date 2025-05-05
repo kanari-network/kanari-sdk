@@ -112,3 +112,13 @@ pub fn get_node_domain() -> Option<String> {
         Err(_) => None
     }
 }
+
+/// Get current main wallet address
+pub fn get_main_wallet() -> Option<String> {
+    match load_config() {
+        Ok(config) => {
+            config.get("address").and_then(|v| v.as_str()).map(|s| s.to_string())
+        },
+        Err(_) => None
+    }
+}

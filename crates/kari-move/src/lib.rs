@@ -2,9 +2,6 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use base::{
-    build::Build, call::Call, coverage::Coverage, disassemble::Disassemble, docgen::Docgen, errmap::Errmap, info::Info, migrate::Migrate, new::New, test::Test
-};
 use move_package::BuildConfig;
 
 pub mod base;
@@ -57,19 +54,17 @@ pub struct MoveCLI {
 
 #[derive(Parser)]
 pub enum Command {
-    Build(Build),
-    Coverage(Coverage),
-    Disassemble(Disassemble),
-    Docgen(Docgen),
-    Errmap(Errmap),
-    Info(Info),
-    Migrate(Migrate),
-    New(New),
-    Test(Test),
-    Call(Call),
-    Publish(base::publish::Publish),
-    /// Execute a sandbox command.
-    #[clap(name = "sandbox")]
+    Build(base::Build),
+    Coverage(base::Coverage),
+    Disassemble(base::Disassemble),
+    Docgen(base::Docgen),
+    Errmap(base::Errmap),
+    Info(base::Info),
+    Migrate(base::Migrate),
+    New(base::New),
+    Publish(base::Publish),
+    Test(base::Test),
+    Call(base::Call),
     Sandbox {
         /// Directory storing Move resources, events, and module bytecodes produced by module publishing
         /// and script execution.
@@ -81,39 +76,61 @@ pub enum Command {
 }
 
 pub fn run_cli(
-    natives: Vec<NativeFunctionRecord>,
+    files: Vec<PathBuf>,
     cost_table: &CostTable,
     error_descriptions: &ErrorMapping,
-    move_args: Move,
-    cmd: Command,
+    args: Move,
+    command: Command,
 ) -> Result<()> {
-    // TODO: right now, the gas metering story for move-cli (as a library) is a bit of a mess.
-    //         1. It's still using the old CostTable.
-    //         2. The CostTable only affects sandbox runs, but not unit tests, which use a unit cost table.
-    match cmd {
-        Command::Build(c) => c.execute(move_args.package_path, move_args.build_config),
-        Command::Coverage(c) => c.execute(move_args.package_path, move_args.build_config),
-        Command::Disassemble(c) => c.execute(move_args.package_path, move_args.build_config),
-        Command::Docgen(c) => c.execute(move_args.package_path, move_args.build_config),
-        Command::Errmap(c) => c.execute(move_args.package_path, move_args.build_config),
-        Command::Info(c) => c.execute(move_args.package_path, move_args.build_config),
-        Command::Migrate(c) => c.execute(move_args.package_path, move_args.build_config),
-        Command::New(c) => c.execute_with_defaults(move_args.package_path),
-        Command::Test(c) => c.execute(
-            move_args.package_path,
-            move_args.build_config,
-            natives,
-            Some(cost_table.clone()),
-        ),
-        Command::Call(c) => c.execute(move_args.package_path, move_args.build_config),
-        Command::Publish(c) => c.execute(move_args.package_path, move_args.build_config, cost_table),
-        Command::Sandbox { storage_dir, cmd } => cmd.handle_command(
-            natives,
-            cost_table,
-            error_descriptions,
-            &move_args,
-            &storage_dir,
-        ),
+    let _ = files;
+    match command {
+        Command::Build(cmd) => {
+            cmd.execute(args.package_path, args.build_config)
+        },
+        Command::Coverage(cmd) => {
+            cmd.execute(args.package_path, args.build_config)
+        },
+        Command::Disassemble(cmd) => {
+            cmd.execute(args.package_path, args.build_config)
+        },
+        Command::Docgen(cmd) => {
+            cmd.execute(args.package_path, args.build_config)
+        },
+        Command::Errmap(cmd) => {
+            cmd.execute(args.package_path, args.build_config)
+        },
+        Command::Info(cmd) => {
+            cmd.execute(args.package_path, args.build_config)
+        },
+        Command::Migrate(cmd) => {
+            cmd.execute(args.package_path, args.build_config)
+        },
+        Command::New(cmd) => {
+            cmd.execute_with_defaults(args.package_path)
+        },
+        Command::Test(cmd) => {
+            cmd.execute(
+                args.package_path,
+                args.build_config,
+                vec![],
+                Some(cost_table.clone()),
+            )
+        },
+        Command::Publish(cmd) => {
+            cmd.execute(args.package_path, args.build_config)
+        },
+        Command::Call(cmd) => {
+            cmd.execute()
+        },
+        Command::Sandbox { storage_dir, cmd } => {
+            cmd.handle_command(
+                vec![],
+                cost_table,
+                error_descriptions,
+                &args,
+                &storage_dir,
+            )
+        },
     }
 }
 
@@ -122,9 +139,10 @@ pub fn move_cli(
     cost_table: &CostTable,
     error_descriptions: &ErrorMapping,
 ) -> Result<()> {
+    let _ = natives;
     let args = MoveCLI::parse();
     run_cli(
-        natives,
+        vec![],
         cost_table,
         error_descriptions,
         args.move_args,

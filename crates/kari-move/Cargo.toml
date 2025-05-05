@@ -29,11 +29,18 @@ serde_json.workspace = true
 hex.workspace = true
 sha3.workspace = true
 dirs.workspace = true
-common.workspace = true
+rand.workspace = true
 
+
+# MonaOS dependencies
+common.workspace = true
+mona-crypto.workspace = true
+mona-blockchain.workspace = true
 mona-types.workspace = true
 mona-vm.workspace = true
 
+
+# Move dependencies
 move-bytecode-verifier.workspace = true
 move-disassembler.workspace = true
 move-docgen.workspace = true
@@ -56,7 +63,6 @@ move-prover.workspace = true
 move-unit-test.workspace = true
 move-errmapgen.workspace = true
 move-bytecode-viewer.workspace = true
-rand.workspace = true
 
 
 [dev-dependencies]

@@ -1,233 +1,217 @@
+use anyhow::Result;
 use clap::Parser;
-use std::path::PathBuf;
-use move_package::BuildConfig;
 use move_core_types::account_address::AccountAddress;
-use serde_json::{json, Value as JsonValue};
-use std::time::{SystemTime, UNIX_EPOCH};
-use sha3::{Digest, Sha3_256};
-use rand::{thread_rng, Rng};
-use anyhow::bail;
+use serde_json::json;
+use std::str::FromStr;
+use std::time::Instant;
 
-#[derive(Parser, Debug)]
+use mona_vm::*;
+use common::*;
+
+#[derive(Parser)]
+#[clap(
+    about = "Call functions in deployed Move modules on the blockchain",
+    after_help = "EXAMPLES:
+    # Call a function with no arguments
+    kari move call --module-id 0x123::coin --function transfer
+
+    # Call a function with typed arguments
+    kari move call --module-id 0x123::coin --function transfer --args address:0x456,u64:100
+
+    # Specify gas budget
+    kari move call --module-id 0x123::coin --function transfer --gas-budget=5000000
+
+    # Call from a specific address
+    kari move call --module-id 0x123::coin --function transfer --address=0x789"
+)]
 pub struct Call {
-    /// Full function identifier in format 0x{address}::{module}::{function}
-    #[clap(long = "function-id", value_parser)]
-    pub function_id: Option<String>,
-    
-    /// Alternative: Package path if not using function-id
-    #[clap(long = "package")]
-    pub package: Option<String>,
-    
-    /// Alternative: Module name if not using function-id
-    #[clap(long = "module")]
-    pub module: Option<String>,
-    
-    /// Alternative: Function name if not using function-id
-    #[clap(long = "function")]
-    pub function: Option<String>,
-    
-    /// Function arguments in JSON format
-    #[clap(long = "args")]
+    /// Module ID in format <address>::<module_name>
+    #[clap(long, help = "Module ID to call (format: <address>::<module_name>)")]
+    pub module_id: String,
+
+    /// Function name to call
+    #[clap(long, help = "Function name to call")]
+    pub function: String,
+
+    /// List of typed arguments in format <type>:<value>
+    /// Supported types: address, u8, u16, u32, u64, u128, u256, bool, string
+    #[clap(long, use_value_delimiter = true, value_delimiter = ',', help = "Comma-separated list of typed arguments (format: <type>:<value>)")]
     pub args: Vec<String>,
-    
-    /// Gas budget for the transaction
-    #[clap(long = "gas-budget", default_value = "1000")]
+
+    /// Gas budget for the call
+    /// Default is 1_000_000 - 10_000_000 for local testing
+    #[clap(long, default_value = "1_000_000", help = "Amount of gas units allocated for function call")]
     pub gas_budget: u64,
-    
-    /// Sender address (if different from module address)
-    #[clap(long = "sender")]
-    pub sender: Option<String>,
+
+    /// Address to call from (sender)
+    #[clap(long, help = "Blockchain address to call from (format: 0x...)")]
+    pub address: Option<AccountAddress>,
 }
 
 impl Call {
-    pub fn execute(self, package_path: Option<PathBuf>, build_config: BuildConfig) -> anyhow::Result<()> {
-        // Debug output to help troubleshoot
-        println!("Debug: Call parameters: {:?}", self);
+    pub fn execute(self) -> Result<()> {
+        // Parse module_id into address and module name
+        let parts: Vec<&str> = self.module_id.split("::").collect();
+        if parts.len() != 2 {
+            return Err(anyhow::anyhow!("Invalid module ID format. Expected <address>::<module_name>"));
+        }
 
-        // Parse function identifier or use individual components
-        let (address, module_name, function_name) = if let Some(func_id) = &self.function_id {
-            if !func_id.is_empty() {
-                self.parse_function_id(func_id)?
-            } else if let (Some(module), Some(function)) = (&self.module, &self.function) {
-                // Default address if not provided
-                let addr = AccountAddress::from_hex_literal("0x1")?;
-                (addr, module.clone(), function.clone())
-            } else {
-                bail!("Either function-id or module and function must be provided")
-            }
-        } else if let (Some(module), Some(function)) = (&self.module, &self.function) {
-            // Default address if not provided
-            let addr = AccountAddress::from_hex_literal("0x1")?;
-            (addr, module.clone(), function.clone())
+        // Parse address from the first part
+        let address_str = parts[0].trim();
+        let module_name = parts[1].trim();
+        
+        let address = if address_str.starts_with("0x") {
+            AccountAddress::from_hex_literal(address_str)
         } else {
-            bail!("Either function-id or module and function must be provided")
-        };
+            AccountAddress::from_hex(address_str)
+        }.map_err(|_| anyhow::anyhow!("Invalid address in module ID: {}", address_str))?;
         
-        // Generate a unique transaction ID
-        let transaction_id = generate_object_id();
-        
-        // Format address with 64 characters for consistency
-        let address_str = format!("0x{:0>64}", address.to_hex());
-        
-        // Format module ID consistently with how it appears in deployment
-        let module_id = format!("{}::{}", address_str, module_name);
-        
-        // Full function name with address and module
-        let full_function_id = format!("{}::{}", module_id, function_name);
-        
-        // Parse arguments - in a real implementation, you would validate these against
-        // the function's parameter types
-        let parsed_args: Vec<JsonValue> = self.parse_arguments()?;
-        
-        // Simulate the function call (placeholder)
-        let (result, gas_used) = self.simulate_function_call(
-            &package_path,
-            &build_config,
-            &address,
-            &module_name,
-            &function_name,
-            &parsed_args,
-        )?;
-        
-        // Prepare the result JSON
-        let output = json!({
-            "status": "success",
-            "type": "function_call",
-            "metadata": {
-                "call": {
-                    "id": transaction_id,
-                    "function": {
-                        "module_id": module_id,
-                        "name": function_name,
-                        "full_id": full_function_id
-                    },
-                    "args": parsed_args,
-                    "gas_budget": self.gas_budget,
-                    "gas_used": gas_used,
-                    "sender": self.sender.unwrap_or_else(|| address_str.clone())
-                },
-                "result": result,
-                "timestamp": SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs()
+        // Set sender address (from address)
+        let sender = self.address.unwrap_or_else(|| {
+            if let Some(wallet) = get_main_wallet() {
+                AccountAddress::from_hex_literal(&format!("0x{}", wallet))
+                    .or_else(|_| AccountAddress::from_hex(&wallet))
+                    .unwrap_or_else(|_| AccountAddress::from_hex_literal("0x1").unwrap())
+            } else {
+                AccountAddress::from_hex_literal("0x1").unwrap()
             }
         });
+
+        // Generate complete module ID
+        let full_module_id = format!("0x{}::{}", address.to_hex(), module_name);
         
-        println!("{}", serde_json::to_string_pretty(&output)?);
-        Ok(())
-    }
-    
-    fn parse_function_id(&self, function_id: &str) -> anyhow::Result<(AccountAddress, String, String)> {
-        let parts: Vec<&str> = function_id.split("::").collect();
+        // Parse arguments
+        let parsed_args = self.parse_arguments()?;
+
+        // Display call information
+        println!("Calling function on blockchain...");
+        println!("📦 Module ID: {}", full_module_id);
+        println!("🔧 Function: {}", self.function);
+        println!("👤 Sender: 0x{}", sender.to_hex());
+        println!("⛽ Gas budget: {}", self.gas_budget);
         
-        if parts.len() != 3 {
-            bail!("Function ID must be in format 0x{{address}}::{{module}}::{{function}}");
+        if !self.args.is_empty() {
+            println!("📝 Arguments:");
+            for (i, arg) in self.args.iter().enumerate() {
+                println!("  {}. {}", i+1, arg);
+            }
         }
         
-        let address_str = parts[0];
-        let module_name = parts[1].to_string();
-        let function_name = parts[2].to_string();
+        // Create timer to measure call duration
+        let start_time = Instant::now();
         
-        // Parse the address, removing the 0x prefix if present
-        let address_str = address_str.trim_start_matches("0x");
-        let address = AccountAddress::from_hex(address_str)?;
+        // Create VM transaction
+        let vm_tx = VMTransaction::new(
+            format!("0x{}", sender.to_hex()),
+            full_module_id.clone(),
+            self.function.clone(),
+            parsed_args,
+            self.gas_budget
+        );
         
-        Ok((address, module_name, function_name))
+        // Execute the transaction on the VM
+        match execute_vm_transaction(&vm_tx) {
+            Ok(result) => {
+                let duration = start_time.elapsed();
+                
+                // Print success result
+                println!("\n✅ Function call successful!");
+                println!("⏱️ Execution time: {:.2?}", duration);
+                println!("🧾 Transaction ID: {}", result["tx_id"].as_str().unwrap_or("unknown"));
+                println!("⛽ Gas used: {}", result["gas_display"].as_str().unwrap_or("unknown"));
+                
+                // If there's a return value, display it
+                if let Some(return_value) = result.get("return_value") {
+                    println!("\n📊 Return value: {}", serde_json::to_string_pretty(return_value)?);
+                }
+                
+                // Create a structured result
+                println!("\nExecution Result: {}", serde_json::to_string_pretty(&result)?);
+                Ok(())
+            },
+            Err(e) => {
+                let duration = start_time.elapsed();
+                
+                // Create a structured error result
+                let error_result = json!({
+                    "status": "error",
+                    "type": "function_call",
+                    "message": e,
+                    "details": {
+                        "module_id": full_module_id,
+                        "function": self.function,
+                        "sender": format!("0x{}", sender.to_hex()),
+                        "gas_budget": self.gas_budget,
+                        "elapsed_time_ms": duration.as_millis()
+                    }
+                });
+                
+                // Print the error
+                println!("\n❌ Function call failed after {:.2?}", duration);
+                println!("Error: {}\n", e);
+                println!("Error Details: {}", serde_json::to_string_pretty(&error_result)?);
+                
+                Err(anyhow::anyhow!("Function call failed: {}", e))
+            }
+        }
     }
     
-    fn parse_arguments(&self) -> anyhow::Result<Vec<JsonValue>> {
+    fn parse_arguments(&self) -> Result<Vec<Vec<u8>>> {
         let mut parsed_args = Vec::new();
         
         for arg in &self.args {
-            match serde_json::from_str(arg) {
-                Ok(value) => parsed_args.push(value),
-                Err(_) => {
-                    // If not valid JSON, treat as a string
-                    parsed_args.push(json!(arg));
+            let parts: Vec<&str> = arg.splitn(2, ':').collect();
+            if parts.len() != 2 {
+                return Err(anyhow::anyhow!(
+                    "Invalid argument format: '{}'. Expected '<type>:<value>'", arg
+                ));
+            }
+            
+            let arg_type = parts[0].trim();
+            let arg_value = parts[1].trim();
+            
+            match arg_type {
+                "address" => {
+                    let addr = if arg_value.starts_with("0x") {
+                        AccountAddress::from_hex_literal(arg_value)
+                    } else {
+                        AccountAddress::from_hex(arg_value)
+                    }.map_err(|_| anyhow::anyhow!("Invalid address: {}", arg_value))?;
+                    
+                    parsed_args.push(addr.to_vec());
+                },
+                "u8" => {
+                    let val = u8::from_str(arg_value)
+                        .map_err(|_| anyhow::anyhow!("Invalid u8: {}", arg_value))?;
+                    parsed_args.push(vec![val]);
+                },
+                "u64" => {
+                    let val = u64::from_str(arg_value)
+                        .map_err(|_| anyhow::anyhow!("Invalid u64: {}", arg_value))?;
+                    parsed_args.push(val.to_le_bytes().to_vec());
+                },
+                "u128" => {
+                    let val = u128::from_str(arg_value)
+                        .map_err(|_| anyhow::anyhow!("Invalid u128: {}", arg_value))?;
+                    parsed_args.push(val.to_le_bytes().to_vec());
+                },
+                "bool" => {
+                    let val = bool::from_str(arg_value)
+                        .map_err(|_| anyhow::anyhow!("Invalid bool: {}", arg_value))?;
+                    parsed_args.push(vec![if val { 1 } else { 0 }]);
+                },
+                "string" => {
+                    parsed_args.push(arg_value.as_bytes().to_vec());
+                },
+                _ => {
+                    return Err(anyhow::anyhow!(
+                        "Unsupported argument type: '{}'. Supported types: address, u8, u64, u128, bool, string", 
+                        arg_type
+                    ));
                 }
             }
         }
         
         Ok(parsed_args)
     }
-    
-    fn simulate_function_call(
-        &self,
-        _package_path: &Option<PathBuf>,
-        _build_config: &BuildConfig,
-        _address: &AccountAddress,
-        module_name: &str,
-        function_name: &str,
-        args: &[JsonValue],
-    ) -> anyhow::Result<(JsonValue, u64)> {
-        // This is a placeholder for the actual function call implementation
-        // In a real implementation, you would:
-        // 1. Compile the package if needed
-        // 2. Verify the function exists in the module
-        // 3. Verify the arguments match the function's parameter types
-        // 4. Execute the function in the VM
-        // 5. Return the result and gas used
-        
-        // For now, we'll just simulate a result
-        let mut rng = thread_rng();
-        let gas_used = rng.gen_range(100..self.gas_budget);
-        
-        // Simulate a realistic result based on the function name
-        let result = match function_name {
-            "mint" => json!({
-                "object_id": generate_object_id(),
-                "owner": format!("0x{}", generate_random_hex(64)),
-            }),
-            "transfer" => json!({
-                "success": true,
-                "new_owner": format!("0x{}", generate_random_hex(64)),
-            }),
-            "burn" => json!({
-                "success": true,
-                "burned_id": generate_object_id(),
-            }),
-            _ => json!({
-                "success": true,
-                "return_values": [generate_object_id()]
-            }),
-        };
-        
-        // Log the simulated call
-        println!("Called function '{}::{}' with {} arguments, gas used: {}", 
-            module_name, function_name, args.len(), gas_used);
-        
-        Ok((result, gas_used))
-    }
-}
-
-// Helper function to generate a unique object ID
-fn generate_object_id() -> String {
-    let mut hasher = Sha3_256::new();
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    
-    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let counter = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    
-    hasher.update(timestamp.to_le_bytes());
-    hasher.update(counter.to_le_bytes());
-    
-    let hash = hasher.finalize();
-    format!("0x{:0>64}", hex::encode(hash))
-}
-
-// Helper function to generate random hex string
-fn generate_random_hex(length: usize) -> String {
-    let mut rng = thread_rng();
-    const CHARSET: &[u8] = b"0123456789abcdef";
-    
-    (0..length)
-        .map(|_| {
-            let idx = rng.gen_range(0..CHARSET.len());
-            CHARSET[idx] as char
-        })
-        .collect()
 }
