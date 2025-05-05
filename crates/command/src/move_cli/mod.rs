@@ -5,7 +5,9 @@ use move_package::BuildConfig;
 use std::{path::PathBuf, process::exit};
 use kari_move::{
     base::{
-        build::Build, coverage::{Coverage, CoverageSummaryOptions}, disassemble::Disassemble, docgen::Docgen, errmap::Errmap, info::Info, migrate::Migrate, new::New, publish::Publish, call::Call, test::Test
+        build::Build, coverage::{Coverage, CoverageSummaryOptions}, disassemble::Disassemble, 
+        docgen::Docgen, errmap::Errmap, info::Info, migrate::Migrate, new::New, 
+        publish::Publish, call::Call, test::Test
     }, run_cli, sandbox, Command, Move
 };
 
@@ -26,17 +28,15 @@ const COMMANDS: &[CommandInfo] = &[
     CommandInfo { name: "new", description: "Create a new Move package with name `name` at `path`. If `path` is not provided the package will" },
     CommandInfo { name: "", description: "be created in the directory `name`" },
     CommandInfo { name: "test", description: "Run Move unit tests" },
-    CommandInfo { name: "publish", description: "Publish Move module" },
-    CommandInfo { name: "call", description: "Call a function in a Move module" },
+    CommandInfo { name: "publish", description: "Publish Move module to blockchain network" },
+    CommandInfo { name: "call", description: "Call a function in a Move module on the blockchain" },
     CommandInfo { name: "sandbox", description: "Execute sandbox commands" },
 ];
-
 
 fn display_help(show_error: bool) {
     if show_error {
         println!("\n{}", "ERROR: Invalid command".red().bold());
     }
-
 
     println!("{}", "USAGE:".bright_yellow().bold());
     println!("kari move <command> [options]\n");
@@ -63,11 +63,11 @@ pub fn handle_move_command() {
     let cost_table = zero_cost_schedule();
     let error_mapping = ErrorMapping::default();
 
-        // Check for minimum arguments
-        if args.len() <= 2 {
-            display_help(false);
-            return;
-        }
+    // Check for minimum arguments
+    if args.len() <= 2 {
+        display_help(false);
+        return;
+    }
 
     let move_args = Move {
         package_path: None,
@@ -137,134 +137,98 @@ pub fn handle_move_command() {
                 std::env::current_dir().unwrap_or_else(|_| PathBuf::new())
             };
             
-            // Check for address parameter (--address=0x...)
-            let address = args.iter().find(|arg| arg.starts_with("--address="))
-                .and_then(|arg| {
-                    let addr_str = arg.trim_start_matches("--address=");
-                    match move_core_types::account_address::AccountAddress::from_hex_literal(addr_str) {
-                        Ok(addr) => Some(addr),
-                        Err(_) => None,
-                    }
-                });
-            
             // Check for gas_budget parameter (--gas-budget=N)
-            let gas_budget = args.iter().find(|arg| arg.starts_with("--gas-budget="))
+            let gas_budget = args.iter().find(|arg| arg.starts_with("--gas-budget"))
                 .and_then(|arg| {
-                    let budget_str = arg.trim_start_matches("--gas-budget=");
+                    let budget_str = arg.trim_start_matches("--gas-budget");
                     budget_str.parse::<u64>().ok()
                 }).unwrap_or(3_000_000); // Default to 3M gas units (0.003 KARI)
             
             // Check for --skip-verify flag
             let skip_verify = args.iter().any(|arg| arg == "--skip-verify");
             
-            // Default to using Mona VM for blockchain deployment (use --no-mona-vm to disable)
-            let use_mona_vm = !args.iter().any(|arg| arg == "--no-mona-vm");
-            
-            println!("Publishing Move module to {}blockchain...", 
-                     if use_mona_vm { "" } else { "local sandbox (not " });
+            // Check for address parameter (--address 0x...)
+            // If not provided, use the first address from the config file or default to 0x1
+            let address = args.iter().find(|arg| arg.starts_with("--address="))
+                .and_then(|arg| {
+                    let addr_str = arg.trim_start_matches("--address");
+                    // Try parsing with 0x prefix if not present
+                    let addr_with_prefix = if !addr_str.starts_with("0x") {
+                        format!("0x{}", addr_str)
+                    } else {
+                        addr_str.to_string()
+                    };
+                    
+                    use move_core_types::account_address::AccountAddress;
+                    AccountAddress::from_hex_literal(&addr_with_prefix)
+                        .or_else(|_| AccountAddress::from_hex(addr_str))
+                        .ok()
+                });
             
             Command::Publish(Publish {
                 module_path,
                 gas_budget,
-                address,
                 skip_verify,
-                use_mona_vm,
+                address,
             })
         },
         Some("call") => {
-            // Parse both formats: --function-id=VALUE and --function-id VALUE
-            let function_id = args.iter()
-                .position(|arg| arg == "--function-id" || arg.starts_with("--function-id="))
-                .and_then(|pos| {
-                    if args[pos] == "--function-id" && args.len() > pos + 1 {
-                        // Handle --function-id VALUE format
-                        Some(args[pos + 1].clone())
-                    } else if args[pos].starts_with("--function-id=") {
-                        // Handle --function-id=VALUE format
-                        Some(args[pos].trim_start_matches("--function-id=").to_string())
-                    } else {
-                        None
-                    }
-                });
-                
-            // Do the same for module and function if needed
-            let module = args.iter()
-                .position(|arg| arg == "--module" || arg.starts_with("--module="))
-                .and_then(|pos| {
-                    if args[pos] == "--module" && args.len() > pos + 1 {
-                        Some(args[pos + 1].clone())
-                    } else if args[pos].starts_with("--module=") {
-                        Some(args[pos].trim_start_matches("--module=").to_string())
-                    } else {
-                        None
-                    }
-                });
-
-            let function = args.iter()
-                .position(|arg| arg == "--function" || arg.starts_with("--function="))
-                .and_then(|pos| {
-                    if args[pos] == "--function" && args.len() > pos + 1 {
-                        Some(args[pos + 1].clone())
-                    } else if args[pos].starts_with("--function=") {
-                        Some(args[pos].trim_start_matches("--function=").to_string())
-                    } else {
-                        None
-                    }
-                });
-
-            // Package is less commonly used so keep it simple
-            let package = args.iter().find(|arg| arg.starts_with("--package="))
-                .map(|arg| arg.trim_start_matches("--package=").to_string());
+            // Parse module_id parameter
+            let module_id = args.iter().find(|arg| arg.starts_with("--module-id="))
+                .map(|arg| arg.trim_start_matches("--module-id=").to_string())
+                .ok_or_else(|| {
+                    eprintln!("Error: --module-id parameter is required");
+                    std::process::exit(1)
+                }).unwrap();
             
-            // Extract function arguments - support both formats
-            let mut args_values = Vec::new();
-            let mut i = 0;
-            while i < args.len() {
-                if args[i] == "--args" && args.len() > i + 1 {
-                    args_values.push(args[i + 1].clone());
-                    i += 2; // Skip the value we just processed
-                } else if args[i].starts_with("--args=") {
-                    args_values.push(args[i].trim_start_matches("--args=").to_string());
-                    i += 1;
-                } else {
-                    i += 1;
-                }
-            }
-
-            // Extract gas budget with default of 1000
-            let gas_budget = args.iter()
-                .position(|arg| arg == "--gas-budget" || arg.starts_with("--gas-budget="))
-                .and_then(|pos| {
-                    if args[pos] == "--gas-budget" && args.len() > pos + 1 {
-                        args[pos + 1].parse::<u64>().ok()
-                    } else if args[pos].starts_with("--gas-budget=") {
-                        args[pos].trim_start_matches("--gas-budget=").parse::<u64>().ok()
+            // Parse function parameter
+            let function = args.iter().find(|arg| arg.starts_with("--function="))
+                .map(|arg| arg.trim_start_matches("--function=").to_string())
+                .ok_or_else(|| {
+                    eprintln!("Error: --function parameter is required");
+                    std::process::exit(1)
+                }).unwrap();
+            
+            // Parse arguments if provided
+            let args_list = args.iter()
+                .filter(|arg| arg.starts_with("--args="))
+                .flat_map(|arg| {
+                    arg.trim_start_matches("--args=")
+                        .split(',')
+                        .map(|s| s.to_string())
+                        .collect::<Vec<String>>()
+                })
+                .collect::<Vec<String>>();
+            
+            // Check for gas_budget parameter
+            let gas_budget = args.iter().find(|arg| arg.starts_with("--gas-budget="))
+                .and_then(|arg| {
+                    let budget_str = arg.trim_start_matches("--gas-budget=");
+                    budget_str.parse::<u64>().ok()
+                }).unwrap_or(1_000_000); // Default to 1M gas units
+            
+            // Check for address parameter
+            let address = args.iter().find(|arg| arg.starts_with("--address="))
+                .and_then(|arg| {
+                    let addr_str = arg.trim_start_matches("--address=");
+                    let addr_with_prefix = if !addr_str.starts_with("0x") {
+                        format!("0x{}", addr_str)
                     } else {
-                        None
-                    }
-                }).unwrap_or(1000);
-
-            // Optional sender address
-            let sender = args.iter()
-                .position(|arg| arg == "--sender" || arg.starts_with("--sender="))
-                .and_then(|pos| {
-                    if args[pos] == "--sender" && args.len() > pos + 1 {
-                        Some(args[pos + 1].clone())
-                    } else if args[pos].starts_with("--sender=") {
-                        Some(args[pos].trim_start_matches("--sender=").to_string())
-                    } else {
-                        None
-                    }
+                        addr_str.to_string()
+                    };
+                    
+                    use move_core_types::account_address::AccountAddress;
+                    AccountAddress::from_hex_literal(&addr_with_prefix)
+                        .or_else(|_| AccountAddress::from_hex(addr_str))
+                        .ok()
                 });
-
+            
             Command::Call(Call {
-                function_id,
-                package,
-                module,
+                module_id,
                 function,
-                args: args_values,
+                args: args_list,
                 gas_budget,
-                sender,
+                address,
             })
         },
         Some("sandbox") => Command::Sandbox {

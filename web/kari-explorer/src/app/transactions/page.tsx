@@ -46,7 +46,7 @@ export default function TransactionsPage() {
   const [totalTransactions, setTotalTransactions] = useState(0);
   const [gasInfo, setGasInfo] = useState<any>(null);
 
-  const API_URL = 'http://192.168.1.103:30031';
+  const API_URL = 'http://192.168.1.103:30030';
 
   const searchTransactions = async () => {
     // Reset single transaction view

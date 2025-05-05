@@ -4,6 +4,8 @@ use rand::{Rng, thread_rng};
 
 use mona_blockchain::block::Transaction;
 use crate::simulation::add_pending_transaction;
+// Add mona-crypto imports for enhanced security
+use mona_crypto::{hash_data_blake3, HashAlgorithm, hash_data_with_algorithm, secure_clear};
 
 // Make the gas module public
 pub mod gas {
@@ -23,22 +25,30 @@ pub mod gas {
 // Re-export gas items for backward compatibility
 pub use mona_types::gas::*;
 
-/// Generate a random transaction ID (0x followed by 64 random hex characters)
+/// Generate a cryptographically secure transaction ID using Blake3
 pub fn generate_transaction_id() -> String {
+    // Create unique content to hash (timestamp + random data)
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    
     let mut rng = thread_rng();
-    let mut id = String::with_capacity(66); // 0x + 64 chars
-    id.push_str("0x");
+    let random_value: u64 = rng.r#gen();
     
-    const HEX_CHARS: &[u8] = b"0123456789abcdef";
-    for _ in 0..64 {
-        let idx = rng.gen_range(0..HEX_CHARS.len());
-        id.push(HEX_CHARS[idx] as char);
-    }
+    // Combine timestamp and random value
+    let mut content = Vec::with_capacity(16);
+    content.extend_from_slice(&timestamp.to_le_bytes());
+    content.extend_from_slice(&random_value.to_le_bytes());
     
-    id
+    // Hash the content using Blake3 (faster and more secure)
+    let hash_result = hash_data_blake3(&content);
+    
+    // Format as hex string with 0x prefix
+    format!("0x{}", hex::encode(&hash_result[0..32]))
 }
 
-/// Process a blockchain transfer with improved reliability
+/// Process a blockchain transfer with improved security
 pub fn process_blockchain_transfer(
     from_address: &str,
     to_address: &str,
@@ -50,8 +60,11 @@ pub fn process_blockchain_transfer(
     // Calculate the gas fee dynamically
     let gas_fee = calculate_gas_fee(priority_boost);
     
+    // Create a copy of the password for secure handling
+    let password_copy = password.to_string();
+    
     // Perform the transfer
-    match crate::transfer_tokens::transfer_tokens(from_address, to_address, amount, password, gas_fee) {
+    let result = match crate::transfer_tokens::transfer_tokens(from_address, to_address, amount, &password_copy, gas_fee) {
         Ok(transaction) => {
             // Add to pending transactions queue
             if add_pending_transaction(transaction.clone()) {
@@ -104,7 +117,23 @@ pub fn process_blockchain_transfer(
             
             Err(format!("Transaction failed: {}", e))
         }
-    }
+    };
+    
+    // Securely clear the password copy
+    let mut password_bytes = password_copy.into_bytes();
+    secure_clear(&mut password_bytes);
+    
+    result
+}
+
+/// Generate a cryptographically secure hash for any data using Blake3
+pub fn secure_hash(data: &[u8]) -> Vec<u8> {
+    hash_data_blake3(data)
+}
+
+/// Generate a deterministic hash for data with algorithm selection
+pub fn hash_with_algorithm(data: &[u8], algorithm: HashAlgorithm) -> Vec<u8> {
+    hash_data_with_algorithm(data, algorithm)
 }
 
 /// Format KA amount to display as KARI with proper formatting

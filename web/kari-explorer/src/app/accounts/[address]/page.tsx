@@ -54,7 +54,7 @@ export default function AccountDetailsPage() {
   const [error, setError] = useState('');
   const [accountDetails, setAccountDetails] = useState<AccountDetails | null>(null);
 
-  const API_URL = 'http://192.168.1.103:30031';
+  const API_URL = 'http://192.168.1.103:30030';
 
   const fetchAccountDetails = async () => {
     try {

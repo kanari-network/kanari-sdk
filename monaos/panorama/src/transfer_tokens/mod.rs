@@ -2,7 +2,7 @@ use mona_blockchain::{block::Transaction, blockchain::{get_balance, normalize_ad
 use crate::utils::{GAS_FEE_COLLECTOR, calculate_total_transaction_cost};
 pub mod verify_transaction;
 use verify_transaction::verify_transaction;
-use mona_crypto::{load_wallet, sign_message, secure_clear}; // Add mona-crypto imports
+use mona_crypto::{load_wallet, secure_clear, is_password_strong}; // Add password strength check
 
 /// Transfer tokens from one address to another
 pub fn transfer_tokens(
@@ -10,7 +10,7 @@ pub fn transfer_tokens(
     to_address: &str,
     amount: u64,
     password: &str,
-    gas_fee: u64,  // Add gas_fee parameter instead of using constant
+    gas_fee: u64,
 ) -> Result<Transaction, BlockchainError> {
     // Validate addresses
     if from_address.trim().is_empty() || to_address.trim().is_empty() {
@@ -19,6 +19,11 @@ pub fn transfer_tokens(
     
     if amount == 0 {
         return Err(BlockchainError::Transaction("Cannot transfer zero tokens".to_string()));
+    }
+    
+    // Check password strength for better security (informational only)
+    if !is_password_strong(password) {
+        log::warn!("Weak password detected in transfer operation - consider using a stronger password");
     }
     
     // Parse and normalize addresses
@@ -49,19 +54,19 @@ pub fn transfer_tokens(
         )),
     };
 
-    // Create transaction with a unique ID
+    // Create transaction with a cryptographic ID
     let mut transaction = Transaction {
         transaction_id: crate::utils::generate_transaction_id(),
         sender: from,
         receiver: to,
         amount,
-        gas_fee, // Store the gas fee in the transaction
+        gas_fee, 
         timestamp: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs(),
         signature: Vec::new(),
-        data: None, // Optional data field for future use
+        data: None, 
     };
     
     // Sign the transaction with mona-crypto
@@ -72,13 +77,16 @@ pub fn transfer_tokens(
     let address_str = from.to_hex_literal();
     log::debug!("Trying to load wallet for address: {}", address_str);
     
+    // Create secure password copy
+    let password_copy = password.to_string();
+    
     // Try to sign with mona-crypto
-    match load_wallet(&address_str, password) {
+    let signing_result = match load_wallet(&address_str, &password_copy) {
         Ok(wallet) => {
             log::debug!("Successfully loaded wallet with curve type: {:?}", wallet.curve_type);
             
             // Sign the transaction with mona-crypto
-            match wallet.sign(&message, password) {
+            match wallet.sign(&message, &password_copy) {
                 Ok(signature) => {
                     let sig_len = signature.len();
                     log::debug!("Successfully signed transaction: signature length = {}", sig_len);
@@ -86,21 +94,39 @@ pub fn transfer_tokens(
                     
                     // Try verification right away for debugging
                     match verify_transaction(&transaction) {
-                        Ok(true) => log::debug!("Signature verification successful immediately after signing"),
-                        Ok(false) => log::warn!("Signature verification failed immediately after signing"),
-                        Err(e) => log::warn!("Error verifying signature: {}", e),
+                        Ok(true) => {
+                            log::debug!("Signature verification successful immediately after signing");
+                            Ok(())
+                        },
+                        Ok(false) => {
+                            log::warn!("Signature verification failed immediately after signing");
+                            Err(BlockchainError::Transaction("Signature verification failed immediately after signing".to_string()))
+                        },
+                        Err(e) => {
+                            log::warn!("Error verifying signature: {}", e);
+                            Err(BlockchainError::Transaction(format!("Error verifying signature: {}", e)))
+                        },
                     }
                 },
                 Err(e) => {
                     log::error!("Transaction signing failed: {}", e);
-                    return Err(BlockchainError::Transaction(format!("Failed to sign: {}", e)));
+                    Err(BlockchainError::Transaction(format!("Failed to sign: {}", e)))
                 }
             }
         },
         Err(e) => {
             log::error!("Failed to load wallet: {}", e);
-            return Err(BlockchainError::Transaction(format!("Failed to load wallet: {}", e)));
+            Err(BlockchainError::Transaction(format!("Failed to load wallet: {}", e)))
         }
+    };
+    
+    // Securely clear password copy from memory
+    let mut password_bytes = password_copy.into_bytes();
+    secure_clear(&mut password_bytes);
+    
+    // Handle signing result
+    if let Err(e) = signing_result {
+        return Err(e);
     }
     
     let mut balances = match BALANCES.lock() {

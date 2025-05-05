@@ -18,8 +18,6 @@ use crate::encryption;
 use crate::encryption::EncryptedData;
 use crate::signatures;
 
-
-
 /// Errors that can occur during wallet operations
 #[derive(Error, Debug)]
 pub enum WalletError {
@@ -74,18 +72,33 @@ impl Wallet {
     pub fn sign(
         &self,
         message: &[u8],
-        _password: &str, // Added underscore to mark as intentionally unused
+        password: &str,
     ) -> Result<Vec<u8>, WalletError> {
         // Validate message is not empty
         if message.is_empty() {
             return Err(WalletError::SigningError("Cannot sign empty message".to_string()));
         }
         
-        signatures::sign_message(
-            &self.private_key,
+        // Validate password is not empty - this makes the parameter used and required
+        if password.is_empty() {
+            return Err(WalletError::InvalidPassword);
+        }
+        
+        // Create a temporary copy of the private key for signing
+        let private_key_copy = self.private_key.clone();
+        
+        // Sign the message
+        let result = signatures::sign_message(
+            &private_key_copy,
             message,
             self.curve_type,
-        ).map_err(|e| WalletError::SigningError(e.to_string()))
+        ).map_err(|e| WalletError::SigningError(e.to_string()));
+        
+        // Securely clear the private key copy from memory
+        let mut private_key_bytes = private_key_copy.into_bytes();
+        signatures::secure_clear(&mut private_key_bytes);
+        
+        result
     }
     
     /// Verify a signature made with this wallet against a message

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod build;
+pub mod call;
 pub mod coverage;
 pub mod disassemble;
 pub mod docgen;
@@ -9,9 +10,20 @@ pub mod errmap;
 pub mod info;
 pub mod migrate;
 pub mod new;
-pub mod test;
 pub mod publish;
-pub mod call;
+pub mod test;
+
+pub use build::Build;
+pub use call::Call;
+pub use coverage::Coverage;
+pub use disassemble::Disassemble;
+pub use docgen::Docgen;
+pub use errmap::Errmap;
+pub use info::Info;
+pub use migrate::Migrate;
+pub use new::New;
+pub use publish::Publish;
+pub use test::Test;
 
 use move_package::source_package::layout::SourcePackageLayout;
 use std::path::PathBuf;

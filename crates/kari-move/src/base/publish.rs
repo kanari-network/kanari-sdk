@@ -1,44 +1,49 @@
 use anyhow::Result;
 use clap::Parser;
 use move_core_types::account_address::AccountAddress;
-use move_core_types::language_storage::ModuleId;
-use move_core_types::resolver::ModuleResolver;
-use move_package::{
-    compilation::compiled_package::CompiledPackage,
-    BuildConfig
-};
-use move_vm_test_utils::gas_schedule::CostTable;
-use serde_json::{Value as JsonValue, json};
-use std::collections::HashMap;
-use std::fs;
+use move_package::BuildConfig;
+use serde_json::json;
 use std::path::PathBuf;
-use crate::sandbox::{
-    utils::on_disk_state_view::OnDiskStateView,
-    commands::publish::publish,
-};
-use crate::DEFAULT_STORAGE_DIR;
+
+use mona_vm::*;
+use common::*;
 
 #[derive(Parser)]
+#[clap(
+    about = "Publish Move modules to blockchain network",
+    after_help = "EXAMPLES:
+    # Publish module from current directory
+    kari move publish
+
+    # Publish module with specific path
+    kari move publish path/to/module
+
+    # Specify gas budget
+    kari move publish --gas-budget=5000000
+
+    # Publish to specific address
+    kari move publish --address=0x123abc
+
+    # Skip verification
+    kari move publish --skip-verify"
+)]
 pub struct Publish {
-    /// Module path
-    #[clap(long)]
+    /// Path to module directory to be published
+    #[clap(long, help = "Directory path containing the Move package to publish")]
     pub module_path: PathBuf,
 
-    /// Publishing address 
-    #[clap(long)]
-    pub address: Option<AccountAddress>,
-
-    /// Gas budget
-    #[clap(long, default_value = "10000000")]
+    /// Gas budget for deployment (default: 3,000,000 units)
+    /// Default is 3_000_000 - 10_000_000 for local testing
+    #[clap(long, default_value = "3_000_000", help = "Amount of gas units allocated for deployment")]
     pub gas_budget: u64,
 
-    /// Skip verification
-    #[clap(long)]
+    /// Skip verification steps for faster deployment
+    #[clap(long, help = "Skip module verification (not recommended for production)")]
     pub skip_verify: bool,
     
-    /// Use Mona VM deployment
-    #[clap(long)]
-    pub use_mona_vm: bool,
+    /// Address to publish the module to (uses wallet address or defaults to 0x1 if not specified)
+    #[clap(long, help = "Blockchain address to deploy the module to (format: 0x...)")]
+    pub address: Option<AccountAddress>,
 }
 
 impl Publish {
@@ -46,14 +51,19 @@ impl Publish {
         self,
         path: Option<PathBuf>,
         config: BuildConfig,
-        cost_table: &CostTable,
     ) -> Result<()> {
         let package_path = path.unwrap_or_else(|| self.module_path.clone());
         
-        // Set default address if none provided
-        let address = self.address.unwrap_or_else(|| 
-            AccountAddress::from_hex_literal("0x1").unwrap()
-        );
+        // Set default address if none provided - first try from config, then fallback to 0x1
+        let address = self.address.unwrap_or_else(|| {
+            if let Some(wallet) = get_main_wallet() {
+                AccountAddress::from_hex_literal(&format!("0x{}", wallet))
+                    .or_else(|_| AccountAddress::from_hex(&wallet))
+                    .unwrap_or_else(|_| AccountAddress::from_hex_literal("0x1").unwrap())
+            } else {
+                AccountAddress::from_hex_literal("0x1").unwrap()
+            }
+        });
 
         // Update build config with address
         let mut build_config = config;
@@ -62,94 +72,86 @@ impl Publish {
             address
         );
 
-        if self.use_mona_vm {
-            // Use the Mona VM for publishing to blockchain
-            println!("Publishing with Mona VM to blockchain network...");
-            let mona_vm_publish = mona_vm::Publish;
-            return mona_vm_publish.execute(
-                Some(package_path),
-                Some(address),
-                build_config,
-                Some(self.gas_budget),
-                self.skip_verify
-            ).map_err(|e| anyhow::anyhow!("Mona VM blockchain deployment failed: {}", e));
-        }
+        // Always use the Mona VM for publishing to blockchain
+        println!("Publishing with Mona VM to blockchain network...");
+        println!("📦 Package path: {}", package_path.display());
+        println!("🔑 Target address: 0x{}", address.to_hex());
+        println!("⛽ Gas budget: {}", self.gas_budget);
         
-        // Otherwise use the regular publish flow for local testing
-        println!("Publishing with local sandbox (not deploying to blockchain)...");
-        let storage_path = package_path.join(DEFAULT_STORAGE_DIR);
-        let state = OnDiskStateView::create(&package_path, &storage_path)?;
+        // Create timer to measure deployment duration
+        let start_time = std::time::Instant::now();
         
-        // Convert state to JSON
-        let json_state = self.state_to_json(&state)?;
+        // Create Mona VM publish instance
+        let mona_vm_publish = mona_vm::Publish;
         
-        // Optionally save JSON state
-        let json_path = storage_path.join("state.json");
-        fs::write(&json_path, serde_json::to_string_pretty(&json_state)?)?;
-
-        let package = compile_package(&package_path, build_config)?;
-
-        publish(
-            vec![],
-            cost_table,
-            &state,
-            &package,
-            self.skip_verify,
-            true,
-            true,
-            None,
-            false,
-        )
-    }
-    
-    fn state_to_json(&self, state: &OnDiskStateView) -> Result<JsonValue> {
-        let mut state_json = json!({
-            "modules": {},
-            "resources": {},
-            "address": self.address.unwrap_or_else(|| 
-                AccountAddress::from_hex_literal("0x1").unwrap()
-            ).to_string()
-        });
-
-        // Get all module IDs and their bytecode
-        let mut modules = HashMap::new();
-        // Assuming we need to iterate through possible module IDs
-        // You'll need to implement logic to get the actual module IDs
-        if let Some(module_id) = self.get_module_id() {
-            if let Ok(Some(bytecode)) = state.get_module(&module_id) {
-                modules.insert(module_id.to_string(), bytecode);
+        // Execute the deployment
+        match mona_vm_publish.execute(
+            Some(package_path.clone()),
+            Some(address),
+            build_config,
+            Some(self.gas_budget),
+            self.skip_verify
+        ) {
+            Ok(()) => {
+                // Calculate elapsed time
+                let duration = start_time.elapsed();
+                
+                // Try to extract VM state information to display deployed modules
+                if let Ok(vm_state) = VM_STATE.read() {
+                    let modules = vm_state.modules.values()
+                        .filter(|m| m.address == address)
+                        .collect::<Vec<_>>();
+                    
+                    if !modules.is_empty() {
+                        println!("\n✅ Successfully deployed {} modules to blockchain:", modules.len());
+                        for module in modules {
+                            println!("  • Module: {}", module.name);
+                            println!("    Module ID: {}", module.module_id);
+                            println!("    Size: {} bytes", module.bytecode.len());
+                            println!("    Public functions: {}", module.public_functions.join(", "));
+                        }
+                    }
+                }
+                
+                println!("\n✅ Deployment completed in {:.2?}", duration);
+                
+                // Create a structured result
+                let result = json!({
+                    "status": "success",
+                    "address": format!("0x{}", address.to_hex()),
+                    "deployment_time_ms": duration.as_millis(),
+                    "gas_budget": self.gas_budget
+                });
+                
+                println!("\nDeployment Result: {}", serde_json::to_string_pretty(&result)?);
+                Ok(())
+            },
+            Err(e) => {
+                // Calculate elapsed time even for failed deployments
+                let duration = start_time.elapsed();
+                
+                // Create a structured error result
+                let error_result = json!({
+                    "status": "error",
+                    "type": "blockchain_deployment",
+                    "message": e.to_string(),
+                    "details": {
+                        "package_path": package_path.to_string_lossy(),
+                        "address": format!("0x{}", address.to_hex()),
+                        "gas_budget": self.gas_budget,
+                        "skip_verification": self.skip_verify,
+                        "elapsed_time_ms": duration.as_millis()
+                    }
+                });
+                
+                // Print the error in a structured way
+                println!("\n❌ Deployment failed after {:.2?}", duration);
+                println!("Error: {}\n", e);
+                println!("Error Details: {}", serde_json::to_string_pretty(&error_result)?);
+                
+                // Return the original error
+                Err(anyhow::anyhow!("Mona VM blockchain deployment failed: {}", e))
             }
         }
-
-        // Convert modules to JSON
-        let modules_json = modules.iter().map(|(k, v)| {
-            (k.to_string(), json!({
-                "bytecode": hex::encode(v),
-            }))
-        }).collect::<serde_json::Map<String, JsonValue>>();
-        
-        state_json["modules"] = JsonValue::Object(modules_json);
-
-        Ok(state_json)
     }
-
-    fn get_module_id(&self) -> Option<ModuleId> {
-        // Implement logic to get module ID based on your requirements
-        // This is a placeholder implementation
-        None
-    }
-
-}
-
-fn compile_package(
-    path: &PathBuf,
-    config: BuildConfig,
-) -> Result<CompiledPackage> {
-    let build_config = BuildConfig {
-        install_dir: Some(path.clone()),
-        additional_named_addresses: config.additional_named_addresses,
-        ..BuildConfig::default()
-    };
-
-    build_config.compile_package(path, &mut Vec::new())
 }
