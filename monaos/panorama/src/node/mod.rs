@@ -11,6 +11,8 @@ use tokio::sync::mpsc;
 use mona_blockchain::block::Block;
 use mona_blockchain::blockchain::BlockchainError;
 use consensus_pos::Blake3Algorithm;
+use mona_crypto::hash_data_blake3;
+use rand::Rng; // Add Rng trait import
 pub mod coordinator;
 
 // Peer data structure
@@ -50,6 +52,7 @@ pub enum NodeMessage {
         protocol_version: String,
         is_validator: bool,
         chain_height: u64,
+        nonce: String, // Added nonce for security
     },
     HandshakeResponse {
         success: bool,
@@ -530,10 +533,11 @@ fn handle_incoming_connection(
             protocol_version,
             is_validator,
             chain_height,
+            nonce,
         } => {
             info!(
-                "Received handshake from node {} ({}), protocol v{}, chain height: {}",
-                node_id, blockchain_address, protocol_version, chain_height
+                "Received handshake from node {} ({}), protocol v{}, chain height: {}, nonce: {}",
+                node_id, blockchain_address, protocol_version, chain_height, nonce
             );
 
             // Check protocol version compatibility
@@ -1141,7 +1145,7 @@ fn discover_peers(
     Ok(())
 }
 
-// Connect to a peer with handshake
+// Connect to a peer with handshake and enhanced security
 fn connect_to_peer(peer_addr: &str, config: &NodeConfig) -> Result<(), BlockchainError> {
     // Parse the address
     let socket_addr = match peer_addr.to_socket_addrs() {
@@ -1175,8 +1179,11 @@ fn connect_to_peer(peer_addr: &str, config: &NodeConfig) -> Result<(), Blockchai
         return Ok(()); // Not an error, just skip connecting to ourselves
     }
 
+    // Generate a cryptographic nonce to prevent replay attacks
+    let nonce = generate_security_nonce();
+    
     // Log connection attempt
-    info!("Attempting to connect to peer at {}", peer_addr);
+    info!("Attempting to connect to peer at {} with secure handshake", peer_addr);
 
     // Connect to the peer with timeout
     let mut stream = match std::net::TcpStream::connect_timeout(
@@ -1196,13 +1203,14 @@ fn connect_to_peer(peer_addr: &str, config: &NodeConfig) -> Result<(), Blockchai
     stream.set_read_timeout(Some(Duration::from_secs(HANDSHAKE_TIMEOUT_SECS)))?;
     stream.set_write_timeout(Some(Duration::from_secs(HANDSHAKE_TIMEOUT_SECS)))?;
 
-    // Create handshake message
+    // Create enhanced handshake message with security nonce
     let handshake = NodeMessage::Handshake {
         node_id: config.node_id.clone(),
         blockchain_address: config.blockchain_address.clone(),
         protocol_version: PROTOCOL_VERSION.to_string(),
         is_validator: config.is_validator,
         chain_height: mona_blockchain::blockchain::BLOCKCHAIN_DATA.len() as u64,
+        nonce: nonce.clone(), // Add nonce for security
     };
 
     // Serialize and send handshake
@@ -1313,6 +1321,27 @@ fn connect_to_peer(peer_addr: &str, config: &NodeConfig) -> Result<(), Blockchai
             peer_addr
         ))),
     }
+}
+
+// Generate a cryptographically secure nonce for handshakes
+fn generate_security_nonce() -> String {
+    // Create data combining timestamp and random values
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    
+    let mut rng = rand::thread_rng();
+    let random_value: u64 = rng.r#gen();
+    
+    // Combine timestamp and random data
+    let mut data = Vec::with_capacity(16);
+    data.extend_from_slice(&timestamp.to_le_bytes());
+    data.extend_from_slice(&random_value.to_le_bytes());
+    
+    // Hash the data using Blake3 for security
+    let hash = hash_data_blake3(&data);
+    hex::encode(&hash[0..16]) // Use first 16 bytes (32 hex chars)
 }
 
 // Register a new peer

@@ -12,6 +12,7 @@ use serde::{Serialize, Deserialize};
 use bincode;
 use std::time::{SystemTime, UNIX_EPOCH};
 use mona_blockchain::blockchain::{BlockchainError, BALANCES, normalize_address};
+use mona_crypto::hash_data_blake3;
 
 // Constants for staking
 pub const STAKING_LOCK_PERIOD_SECONDS: u64 = 86400; // 24 hours lock period
@@ -27,6 +28,7 @@ pub struct StakedNode {
     pub unlock_time: u64,
     pub last_reward_time: u64,
     pub accumulated_rewards: u64,
+    pub security_hash: String, // Add security hash
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -40,6 +42,7 @@ pub struct StakingPool {
 // Thread-safe staking globals
 lazy_static! {
     pub static ref STAKING_NODES: RwLock<HashMap<String, StakedNode>> = RwLock::new(HashMap::new());
+    pub static ref NODE_HASH_CACHE: RwLock<HashMap<String, String>> = RwLock::new(HashMap::new());
     pub static ref STAKING_POOL: Mutex<StakingPool> = Mutex::new(StakingPool {
         total_staked: 0,
         nodes_count: 0,
@@ -85,7 +88,11 @@ pub fn stake_tokens(
     // Determine if can be validator
     let is_validator = wants_to_validate && amount >= VALIDATOR_STAKING_MINIMUM_KA;
     
-    // Create staked node
+    // Calculate node identity hash for verification
+    let node_identity = format!("{}:{}:{}", address_str, amount, current_time);
+    let node_hash = hex::encode(hash_data_blake3(node_identity.as_bytes()));
+    
+    // Create staked node with security hash
     let staked_node = StakedNode {
         address: address.clone(),
         staked_amount: amount,
@@ -94,6 +101,7 @@ pub fn stake_tokens(
         unlock_time,
         last_reward_time: current_time,
         accumulated_rewards: 0,
+        security_hash: node_hash.clone(),
     };
     
     // Update staking pool
@@ -114,11 +122,12 @@ pub fn stake_tokens(
         }
     }
     
-    // Update staking data
+    // Update staking data with security hash
     {
         let mut staking_nodes = STAKING_NODES.write().unwrap();
         let mut staking_pool = STAKING_POOL.lock().unwrap();
         let mut active_validators = ACTIVE_VALIDATORS.write().unwrap();
+        let mut hash_cache = NODE_HASH_CACHE.write().unwrap();
         
         // Update staking stats
         staking_pool.total_staked += amount;
@@ -129,8 +138,9 @@ pub fn stake_tokens(
             active_validators.insert(address_str.clone());
         }
         
-        // Add the staked node
+        // Add the staked node and security hash
         staking_nodes.insert(address_str.clone(), staked_node.clone());
+        hash_cache.insert(address_str.clone(), node_hash);
     }
     
     info!(
@@ -230,6 +240,29 @@ pub fn unstake_tokens(
     save_staking_state()?;
     
     Ok((withdrawal_amount, accumulated_rewards))
+}
+
+// Verify a node's integrity using its security hash
+pub fn verify_node_integrity(address: &Address) -> bool {
+    let address_str = address.to_hex_literal();
+    
+    // Get the node and its security hash
+    let (node, hash) = {
+        let nodes = STAKING_NODES.read().unwrap();
+        let hashes = NODE_HASH_CACHE.read().unwrap();
+        
+        match (nodes.get(&address_str), hashes.get(&address_str)) {
+            (Some(node), Some(hash)) => (node.clone(), hash.clone()),
+            _ => return false,
+        }
+    };
+    
+    // Recalculate the security hash
+    let node_identity = format!("{}:{}:{}", address_str, node.staked_amount, node.staked_at);
+    let calculated_hash = hex::encode(hash_data_blake3(node_identity.as_bytes()));
+    
+    // Verify hash matches
+    calculated_hash == hash
 }
 
 // Calculate and distribute staking rewards
@@ -384,6 +417,7 @@ pub fn get_active_validators() -> Vec<Address> {
     
     validators.iter()
         .filter_map(|addr| {
+            // Use proper filter_map to only collect the Some values
             nodes.get(addr).map(|node| node.address.clone())
         })
         .collect()
@@ -459,6 +493,13 @@ fn save_staking_state() -> Result<(), BlockchainError> {
         }
     };
     
+    let hashes = match NODE_HASH_CACHE.read() {
+        Ok(hashes) => hashes.clone(),
+        Err(_) => {
+            return Err(BlockchainError::Storage("Failed to read node hash cache".to_string()));
+        }
+    };
+    
     // Serialize data
     let nodes_data = match bincode::serialize(&nodes) {
         Ok(data) => data,
@@ -483,6 +524,15 @@ fn save_staking_state() -> Result<(), BlockchainError> {
         Err(e) => {
             return Err(BlockchainError::Storage(
                 format!("Failed to serialize active validators: {}", e)
+            ));
+        }
+    };
+    
+    let hashes_data = match bincode::serialize(&hashes) {
+        Ok(data) => data,
+        Err(e) => {
+            return Err(BlockchainError::Storage(
+                format!("Failed to serialize node hash cache: {}", e)
             ));
         }
     };
@@ -514,6 +564,12 @@ fn save_staking_state() -> Result<(), BlockchainError> {
     if let Err(e) = storage.save_data(b"active_validators", &validators_data) {
         return Err(BlockchainError::Storage(
             format!("Failed to save active validators: {}", e)
+        ));
+    }
+    
+    if let Err(e) = storage.save_data(b"node_hash_cache", &hashes_data) {
+        return Err(BlockchainError::Storage(
+            format!("Failed to save node hash cache: {}", e)
         ));
     }
     
@@ -556,6 +612,14 @@ pub fn load_staking_state() -> Result<(), BlockchainError> {
         if let Ok(validators) = bincode::deserialize::<HashSet<String>>(&validators_data) {
             *ACTIVE_VALIDATORS.write().unwrap() = validators;
             debug!("Loaded {} active validators", ACTIVE_VALIDATORS.read().unwrap().len());
+        }
+    }
+    
+    // Load node hash cache
+    if let Ok(Some(hashes_data)) = storage.load_data(b"node_hash_cache") {
+        if let Ok(hashes) = bincode::deserialize::<HashMap<String, String>>(&hashes_data) {
+            *NODE_HASH_CACHE.write().unwrap() = hashes;
+            debug!("Loaded {} node hashes", NODE_HASH_CACHE.read().unwrap().len());
         }
     }
     

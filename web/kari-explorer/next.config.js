@@ -19,7 +19,7 @@ const nextConfig = {
       {
         protocol: 'http',
         hostname: '192.168.1.103',
-        port: '30031',
+        port: '30030',
       },
     ],
   }
