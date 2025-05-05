@@ -22,7 +22,9 @@ use get_block::{
 };
 use accounts::{get_blockchain_status, get_wallets, list_accounts, transfer_tokens};
 // Import move_api functions
-use move_api::{vm_execute, vm_get_module, vm_list_modules};
+use move_api::{vm_execute, vm_get_module, vm_list_modules, 
+               vm_get_module_history, vm_get_address_history, 
+               vm_get_transaction, vm_get_all_modules, vm_get_stats};
 
 // Format function locally since panorama::utils is not available
 fn format_kari_amount(ka_amount: u64) -> String {
@@ -125,13 +127,34 @@ pub async fn start_rpc_server(network_config: NetworkConfig) -> Result<(), tokio
     io.add_method("vm_execute", |params| {
         futures::future::ready(vm_execute(params)).boxed()
     });
-    
+
     io.add_method("vm_get_module", |params| {
         futures::future::ready(vm_get_module(params)).boxed()
     });
-    
+
     io.add_method("vm_list_modules", |params| {
         futures::future::ready(vm_list_modules(params)).boxed()
+    });
+    
+    // Add new database-powered endpoints
+    io.add_method("vm_get_module_history", |params| {
+        futures::future::ready(vm_get_module_history(params)).boxed()
+    });
+    
+    io.add_method("vm_get_address_history", |params| {
+        futures::future::ready(vm_get_address_history(params)).boxed()
+    });
+    
+    io.add_method("vm_get_transaction", |params| {
+        futures::future::ready(vm_get_transaction(params)).boxed()
+    });
+    
+    io.add_method("vm_get_all_modules", |params| {
+        futures::future::ready(vm_get_all_modules(params)).boxed()
+    });
+    
+    io.add_method("vm_get_stats", |params| {
+        futures::future::ready(vm_get_stats(params)).boxed()
     });
 
     // Configure socket address to bind to all interfaces

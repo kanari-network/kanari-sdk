@@ -30,7 +30,7 @@ hex.workspace = true
 sha3.workspace = true
 dirs.workspace = true
 rand.workspace = true
-
+rpassword = { version = "7.4.0" }
 
 # MonaOS dependencies
 common.workspace = true

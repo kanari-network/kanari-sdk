@@ -7,6 +7,9 @@ use std::path::PathBuf;
 
 use mona_vm::*;
 use common::*;
+// เพิ่ม import สำหรับการลงนามธุรกรรม
+use mona_crypto::{load_wallet, WalletError};
+use sha3::{Digest, Sha3_256};
 
 #[derive(Parser)]
 #[clap(
@@ -25,7 +28,10 @@ use common::*;
     kari move publish --address=0x123abc
 
     # Skip verification
-    kari move publish --skip-verify"
+    kari move publish --skip-verify
+
+    # Use wallet password
+    kari move publish --password=your_password"
 )]
 pub struct Publish {
     /// Path to module directory to be published
@@ -44,6 +50,10 @@ pub struct Publish {
     /// Address to publish the module to (uses wallet address or defaults to 0x1 if not specified)
     #[clap(long, help = "Blockchain address to deploy the module to (format: 0x...)")]
     pub address: Option<AccountAddress>,
+
+    /// Password for wallet to sign transaction
+    #[clap(long, help = "Password for wallet to sign deployment transaction")]
+    pub password: Option<String>,
 }
 
 impl Publish {
@@ -57,7 +67,14 @@ impl Publish {
         // Set default address if none provided - first try from config, then fallback to 0x1
         let address = self.address.unwrap_or_else(|| {
             if let Some(wallet) = get_main_wallet() {
-                AccountAddress::from_hex_literal(&format!("0x{}", wallet))
+                // Fix: Check if wallet already has 0x prefix before adding it
+                let wallet_with_prefix = if wallet.starts_with("0x") {
+                    wallet.clone()
+                } else {
+                    format!("0x{}", wallet)
+                };
+                
+                AccountAddress::from_hex_literal(&wallet_with_prefix)
                     .or_else(|_| AccountAddress::from_hex(&wallet))
                     .unwrap_or_else(|_| AccountAddress::from_hex_literal("0x1").unwrap())
             } else {
@@ -78,11 +95,89 @@ impl Publish {
         println!("🔑 Target address: 0x{}", address.to_hex());
         println!("⛽ Gas budget: {}", self.gas_budget);
         
+        // =========== เพิ่มส่วนการลงนามธุรกรรม ===========
+        // สร้าง transaction payload ที่จะถูกลงนาม
+        let mut hasher = Sha3_256::new();
+        hasher.update(address.to_hex().as_bytes());
+        hasher.update(package_path.to_str().unwrap_or("").as_bytes());
+        hasher.update(self.gas_budget.to_le_bytes());
+        
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        hasher.update(timestamp.to_le_bytes());
+        
+        let payload_hash = hasher.finalize();
+        let payload_to_sign = payload_hash.as_slice();
+        
+        // ถ้ามีการระบุ wallet และรหัสผ่าน ให้ลงนาม payload
+        let (signature, wallet_address) = match get_main_wallet() {
+            Some(wallet_addr) => {
+                // ขอรหัสผ่าน
+                let password = match &self.password {
+                    Some(pwd) => pwd.clone(),
+                    None => {
+                        // Fix: Check if wallet address already has 0x prefix
+                        let display_addr = if wallet_addr.starts_with("0x") {
+                            wallet_addr.clone()
+                        } else {
+                            format!("0x{}", wallet_addr)
+                        };
+                        
+                        // Display correct wallet address without duplicate prefix
+                        println!("Enter password for wallet {}: ", display_addr);
+                        rpassword::read_password().unwrap_or_default()
+                    }
+                };
+                
+                // โหลด wallet และลงนาม payload
+                match load_wallet(&wallet_addr, &password) {
+                    Ok(wallet) => {
+                        match wallet.sign(payload_to_sign, &password) {
+                            Ok(sig) => {
+                                // Fix: Use normalized wallet address format for display
+                                let display_addr = if wallet_addr.starts_with("0x") {
+                                    wallet_addr.clone()
+                                } else {
+                                    format!("0x{}", wallet_addr)
+                                };
+                                println!("✅ Transaction signed successfully with wallet {}", display_addr);
+                                (Some(sig), Some(wallet_addr.clone()))
+                            },
+                            Err(err) => {
+                                println!("⚠️ Warning: Failed to sign transaction: {}", err);
+                                println!("⚠️ Continuing without signature verification");
+                                (None, Some(wallet_addr.clone()))
+                            }
+                        }
+                    },
+                    Err(WalletError::InvalidPassword) => {
+                        println!("⚠️ Invalid password for wallet 0x{}", wallet_addr);
+                        println!("⚠️ Continuing without signature verification");
+                        (None, Some(wallet_addr.clone()))
+                    },
+                    Err(err) => {
+                        println!("⚠️ Warning: Failed to load wallet: {}", err);
+                        println!("⚠️ Continuing without signature verification");
+                        (None, Some(wallet_addr.clone()))
+                    }
+                }
+            },
+            None => {
+                println!("⚠️ No wallet configured. Continuing without signature verification.");
+                (None, None)
+            }
+        };
+        
         // Create timer to measure deployment duration
         let start_time = std::time::Instant::now();
         
-        // Create Mona VM publish instance
-        let mona_vm_publish = mona_vm::Publish;
+        // ส่งข้อมูลลงนามไปกับการ execute
+        let mona_vm_publish = mona_vm::Publish {
+            signature: signature,
+            signer_address: wallet_address,
+        };
         
         // Execute the deployment
         match mona_vm_publish.execute(
