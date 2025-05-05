@@ -69,7 +69,14 @@ impl Call {
         // Set sender address (from address)
         let sender = self.address.unwrap_or_else(|| {
             if let Some(wallet) = get_main_wallet() {
-                AccountAddress::from_hex_literal(&format!("0x{}", wallet))
+                // Fix: Check if wallet already has 0x prefix before adding it
+                let wallet_with_prefix = if wallet.starts_with("0x") {
+                    wallet.clone()
+                } else {
+                    format!("0x{}", wallet)
+                };
+                
+                AccountAddress::from_hex_literal(&wallet_with_prefix)
                     .or_else(|_| AccountAddress::from_hex(&wallet))
                     .unwrap_or_else(|_| AccountAddress::from_hex_literal("0x1").unwrap())
             } else {

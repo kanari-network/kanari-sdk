@@ -1,181 +1,517 @@
-use jsonrpc_core::{Error as RpcError, ErrorCode, Params, Result as JsonRpcResult};
-use mona_blockchain::blockchain::load_blockchain_with_retry;
-use serde::Deserialize;
+use jsonrpc_core::{Error, ErrorCode, Result as JsonRpcResult, Value};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
-use std::time::{SystemTime, UNIX_EPOCH};
-use mona_vm::{VMTransaction, execute_vm_transaction, VM_STATE};
-use move_core_types::account_address::AccountAddress;
-use mona_blockchain::blockchain::BLOCKCHAIN_DATA;
 
-// VM function execution parameters
-#[derive(Deserialize)]
-pub struct VmExecuteParams {
+use mona_vm::{
+    VM_STATE, VMTransaction, execute_vm_transaction,
+};
+use mona_vm::db::{get_module, get_transaction, get_module_transactions, 
+                  get_transactions_by_sender, list_modules, get_module_count, get_transaction_count};
+
+use move_core_types::account_address::AccountAddress;
+use log::{error, debug};
+
+// =====================================
+// Move API RPC Methods
+// =====================================
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExecuteParams {
     pub module_id: String,
     pub function: String,
+    #[serde(default)]
     pub args: Vec<JsonValue>,
+    #[serde(default = "default_gas_budget")]
+    pub gas_budget: u64,
+    #[serde(default)]
     pub sender: Option<String>,
-    pub gas_budget: Option<u64>,
+    #[serde(default)]
+    pub signature: Option<String>,
+    #[serde(default)]
+    pub signer_address: Option<String>,
 }
 
-// VM module info parameters
-#[derive(Deserialize)]
-pub struct VmModuleParams {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ModuleParams {
     pub module_id: String,
 }
 
-// Execute a Move VM function
-pub fn vm_execute(params: Params) -> JsonRpcResult<JsonValue> {
-    // Parse execute params
-    let execute_params: VmExecuteParams = params.parse()
-        .map_err(|e| RpcError::invalid_params(format!("Invalid parameters: {}", e)))?;
-    
-    // Load blockchain data
-    if let Err(e) = load_blockchain_with_retry() {
-        return Err(RpcError {
-            code: ErrorCode::InternalError,
-            message: format!("Failed to load blockchain: {}", e),
-            data: None,
-        });
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ListModulesParams {
+    #[serde(default)]
+    pub address: Option<String>,
+    #[serde(default = "default_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub offset: usize,
+}
+
+fn default_gas_budget() -> u64 {
+    1_000_000 // 1M gas units
+}
+
+fn default_limit() -> usize {
+    100
+}
+
+/// Execute a function in a Move module
+pub fn vm_execute(params: jsonrpc_core::Params) -> JsonRpcResult<Value> {
+    let params: ExecuteParams = params.parse()?;
+
+    // Parse arguments into correct format
+    let mut parsed_args = Vec::new();
+    for arg in params.args {
+        match arg {
+            JsonValue::String(s) => {
+                if s.starts_with("0x") {
+                    // Address argument
+                    match AccountAddress::from_hex_literal(&s) {
+                        Ok(addr) => parsed_args.push(addr.to_vec()),
+                        Err(_) => {
+                            match AccountAddress::from_hex(s.trim_start_matches("0x")) {
+                                Ok(addr) => parsed_args.push(addr.to_vec()),
+                                Err(_) => return Err(Error {
+                                    code: ErrorCode::InvalidParams,
+                                    message: "Invalid address argument".into(),
+                                    data: None,
+                                }),
+                            }
+                        }
+                    }
+                } else {
+                    // Regular string
+                    parsed_args.push(s.as_bytes().to_vec());
+                }
+            },
+            JsonValue::Number(n) => {
+                if let Some(n_u64) = n.as_u64() {
+                    parsed_args.push(n_u64.to_le_bytes().to_vec());
+                } else {
+                    return Err(Error {
+                        code: ErrorCode::InvalidParams,
+                        message: "Unsupported number type".into(),
+                        data: None,
+                    });
+                }
+            },
+            JsonValue::Bool(b) => {
+                parsed_args.push(vec![if b { 1 } else { 0 }]);
+            },
+            _ => return Err(Error {
+                code: ErrorCode::InvalidParams,
+                message: "Unsupported argument type".into(),
+                data: None,
+            }),
+        }
     }
+
+    // Set up sender address
+    let sender = params.sender.unwrap_or_else(|| "0x1".to_string());
     
     // Create VM transaction
-    let vm_tx = VMTransaction {
-        tx_id: format!("vm_tx_{}", generate_tx_id()),
-        sender: execute_params.sender.unwrap_or_else(|| "system".to_string()),
-        module_id: execute_params.module_id,
-        function: execute_params.function,
-        args: convert_args_to_bytes(&execute_params.args),
-        gas_budget: execute_params.gas_budget.unwrap_or(1000000),
-        timestamp: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs(),
-    };
+    let mut vm_tx = VMTransaction::new(
+        sender,
+        params.module_id,
+        params.function,
+        parsed_args,
+        params.gas_budget
+    );
     
-    // Execute VM transaction
-    match execute_vm_transaction(&vm_tx) {
-        Ok(result) => Ok(result),
-        Err(e) => Err(RpcError {
-            code: ErrorCode::InternalError,
-            message: format!("Failed to execute VM function: {}", e),
-            data: None,
-        })
-    }
-}
-
-// Get information about a deployed module
-pub fn vm_get_module(params: Params) -> JsonRpcResult<JsonValue> {
-    // Parse module params
-    let module_params: VmModuleParams = params.parse()
-        .map_err(|e| RpcError::invalid_params(format!("Invalid parameters: {}", e)))?;
-    
-    // Load blockchain data
-    if let Err(e) = load_blockchain_with_retry() {
-        return Err(RpcError {
-            code: ErrorCode::InternalError,
-            message: format!("Failed to load blockchain: {}", e),
-            data: None,
-        });
-    }
-    
-    // Get VM state
-    let vm_state = match VM_STATE.read() {
-        Ok(state) => state,
-        Err(_) => return Err(RpcError {
-            code: ErrorCode::InternalError,
-            message: "Failed to access VM state".to_string(),
-            data: None,
-        }),
-    };
-    
-    // Find module
-    let module = match vm_state.modules.get(&module_params.module_id) {
-        Some(module) => module,
-        None => return Err(RpcError {
-            code: ErrorCode::InvalidParams,
-            message: format!("Module not found: {}", module_params.module_id),
-            data: None,
-        }),
-    };
-    
-    // Get current block height
-    let blockchain = BLOCKCHAIN_DATA.iter();
-    let current_block_height = match blockchain.last() {
-        Some(block) => block.index,
-        None => 0,
-    };
-    
-    // Return module info
-    Ok(json!({
-        "module_id": module.module_id,
-        "name": module.name,
-        "address": format!("0x{}", module.address.to_hex()),
-        "public_functions": module.public_functions,
-        "size_bytes": module.bytecode.len(),
-        "deploy_block_height": module.deploy_block_height,
-        "current_block_height": current_block_height,
-        "blocks_since_deploy": current_block_height.saturating_sub(module.deploy_block_height)
-    }))
-}
-
-// List all deployed modules
-pub fn vm_list_modules(_params: Params) -> JsonRpcResult<JsonValue> {
-    // Load blockchain data
-    if let Err(e) = load_blockchain_with_retry() {
-        return Err(RpcError {
-            code: ErrorCode::InternalError,
-            message: format!("Failed to load blockchain: {}", e),
-            data: None,
-        });
-    }
-    
-    // Get VM state
-    let vm_state = match VM_STATE.read() {
-        Ok(state) => state,
-        Err(_) => return Err(RpcError {
-            code: ErrorCode::InternalError,
-            message: "Failed to access VM state".to_string(),
-            data: None,
-        }),
-    };
-    
-    // Convert modules to JSON
-    let modules: Vec<JsonValue> = vm_state.modules.values().map(|module| {
-        json!({
-            "module_id": module.module_id,
-            "name": module.name,
-            "address": format!("0x{}", module.address.to_hex()),
-            "public_functions": module.public_functions,
-            "size_bytes": module.bytecode.len(),
-            "deploy_block_height": module.deploy_block_height
-        })
-    }).collect();
-    
-    // Return modules list
-    Ok(json!({
-        "modules": modules,
-        "count": modules.len(),
-        "last_execution": vm_state.last_execution,
-        "execution_count": vm_state.execution_count,
-    }))
-}
-
-// Generate a unique transaction ID
-fn generate_tx_id() -> String {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    
-    format!("{:x}", timestamp)
-}
-
-// Convert JSON arguments to byte arrays
-fn convert_args_to_bytes(args: &[JsonValue]) -> Vec<Vec<u8>> {
-    args.iter().map(|arg| {
-        match arg {
-            JsonValue::String(s) => s.as_bytes().to_vec(),
-            _ => serde_json::to_string(arg).unwrap_or_default().into_bytes(),
+    // Add signature if provided
+    if let (Some(sig_hex), Some(signer)) = (params.signature, params.signer_address) {
+        match hex::decode(sig_hex) {
+            Ok(signature) => {
+                vm_tx = vm_tx.with_signature(signature, signer);
+            },
+            Err(_) => return Err(Error {
+                code: ErrorCode::InvalidParams,
+                message: "Invalid signature format".into(),
+                data: None,
+            }),
         }
-    }).collect()
+    }
+
+    debug!("Executing VM transaction: [module_id={}, function={}]", vm_tx.module_id, vm_tx.function);
+    
+    // Execute the transaction
+    match execute_vm_transaction(&vm_tx) {
+        Ok(result) => Ok(result.into()),
+        Err(e) => {
+            error!("VM execution error: {}", e);
+            Err(Error {
+                code: ErrorCode::InternalError,
+                message: format!("VM execution failed: {}", e),
+                data: None,
+            })
+        }
+    }
+}
+
+/// Get information about a specific module
+pub fn vm_get_module(params: jsonrpc_core::Params) -> JsonRpcResult<Value> {
+    let params: ModuleParams = params.parse()?;
+    
+    // Get VM state
+    let vm_state = match VM_STATE.read() {
+        Ok(state) => state,
+        Err(e) => {
+            error!("Failed to read VM state: {}", e);
+            return Err(Error {
+                code: ErrorCode::InternalError,
+                message: "Failed to access VM state".into(),
+                data: None,
+            });
+        }
+    };
+    
+    // Find the module
+    let module = match vm_state.modules.get(&params.module_id) {
+        Some(module) => module,
+        None => {
+            return Err(Error {
+                code: ErrorCode::InvalidParams,
+                message: format!("Module {} not found", params.module_id),
+                data: None,
+            });
+        }
+    };
+    
+    // Convert module to JSON response
+    let response = json!({
+        "status": "success",
+        "module": {
+            "module_id": module.module_id,
+            "address": format!("0x{}", module.address.to_hex()),
+            "name": module.name,
+            "deploy_block_height": module.deploy_block_height,
+            "bytecode_size": module.bytecode.len(),
+            "public_functions": module.public_functions,
+        }
+    });
+    
+    Ok(response.into())
+}
+
+/// List all modules, optionally filtered by address
+pub fn vm_list_modules(params: jsonrpc_core::Params) -> JsonRpcResult<Value> {
+    let params: ListModulesParams = params.parse().unwrap_or_else(|_| ListModulesParams {
+        address: None,
+        limit: default_limit(),
+        offset: 0,
+    });
+    
+    // Get VM state
+    let vm_state = match VM_STATE.read() {
+        Ok(state) => state,
+        Err(e) => {
+            error!("Failed to read VM state: {}", e);
+            return Err(Error {
+                code: ErrorCode::InternalError,
+                message: "Failed to access VM state".into(),
+                data: None,
+            });
+        }
+    };
+    
+    // Filter modules by address if provided
+    let mut modules = Vec::new();
+    let address_filter = params.address.as_deref();
+    
+    for module in vm_state.modules.values() {
+        if let Some(addr) = address_filter {
+            let module_addr = format!("0x{}", module.address.to_hex());
+            if !module_addr.eq_ignore_ascii_case(addr) {
+                continue;
+            }
+        }
+        
+        modules.push(json!({
+            "module_id": module.module_id,
+            "address": format!("0x{}", module.address.to_hex()),
+            "name": module.name,
+            "deploy_block_height": module.deploy_block_height,
+            "public_functions": module.public_functions,
+        }));
+    }
+    
+    // Apply pagination
+    let total = modules.len();
+    let modules = modules
+        .into_iter()
+        .skip(params.offset)
+        .take(params.limit)
+        .collect::<Vec<_>>();
+    
+    // Build response
+    let response = json!({
+        "status": "success",
+        "modules": modules,
+        "total": total,
+        "limit": params.limit,
+        "offset": params.offset
+    });
+    
+    Ok(response.into())
+}
+
+// Add new methods for database interaction
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetModuleHistoryParams {
+    pub module_id: String,
+    #[serde(default = "default_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub offset: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetAddressHistoryParams {
+    pub address: String,
+    #[serde(default = "default_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub offset: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetTransactionParams {
+    pub tx_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetModulesParams {
+    #[serde(default = "default_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub offset: usize,
+}
+
+// Get transaction history for a specific module
+pub fn vm_get_module_history(params: jsonrpc_core::Params) -> JsonRpcResult<Value> {
+    let params: GetModuleHistoryParams = params.parse()?;
+    
+    // Get transaction history from database
+    match get_module_transactions(&params.module_id, params.limit, params.offset) {
+        Ok(txs) => {
+            // Transform database transactions to JSON response
+            let tx_json: Vec<JsonValue> = txs.into_iter().map(|tx| {
+                json!({
+                    "tx_id": tx.tx_id,
+                    "module_id": tx.module_id,
+                    "function": tx.function,
+                    "sender": tx.sender,
+                    "timestamp": tx.timestamp,
+                    "gas_used": tx.gas_used,
+                    "success": tx.success,
+                    "block_height": tx.block_height,
+                    "result_data": serde_json::from_str::<JsonValue>(&tx.result_data)
+                        .unwrap_or(json!({"error": "Invalid JSON data"}))
+                })
+            }).collect();
+            
+            let response = json!({
+                "status": "success",
+                "module_id": params.module_id,
+                "transactions": tx_json,
+                "limit": params.limit,
+                "offset": params.offset
+            });
+            
+            Ok(response.into())
+        },
+        Err(e) => {
+            error!("Failed to get module history: {:?}", e);
+            Err(Error {
+                code: ErrorCode::InternalError,
+                message: format!("Failed to get module history: {:?}", e),
+                data: None,
+            })
+        }
+    }
+}
+
+// Get transaction history for a specific address
+pub fn vm_get_address_history(params: jsonrpc_core::Params) -> JsonRpcResult<Value> {
+    let params: GetAddressHistoryParams = params.parse()?;
+    
+    // Ensure address starts with 0x
+    let address = if params.address.starts_with("0x") {
+        params.address.clone()
+    } else {
+        format!("0x{}", params.address)
+    };
+    
+    // Get transaction history from database
+    match get_transactions_by_sender(&address, params.limit, params.offset) {
+        Ok(txs) => {
+            // Transform database transactions to JSON response
+            let tx_json: Vec<JsonValue> = txs.into_iter().map(|tx| {
+                json!({
+                    "tx_id": tx.tx_id,
+                    "module_id": tx.module_id,
+                    "function": tx.function,
+                    "sender": tx.sender,
+                    "timestamp": tx.timestamp,
+                    "gas_used": tx.gas_used,
+                    "success": tx.success,
+                    "block_height": tx.block_height,
+                    "result_data": serde_json::from_str::<JsonValue>(&tx.result_data)
+                        .unwrap_or(json!({"error": "Invalid JSON data"}))
+                })
+            }).collect();
+            
+            let response = json!({
+                "status": "success",
+                "address": address,
+                "transactions": tx_json,
+                "limit": params.limit,
+                "offset": params.offset
+            });
+            
+            Ok(response.into())
+        },
+        Err(e) => {
+            error!("Failed to get address history: {:?}", e);
+            Err(Error {
+                code: ErrorCode::InternalError,
+                message: format!("Failed to get address history: {:?}", e),
+                data: None,
+            })
+        }
+    }
+}
+
+// Get specific transaction details
+pub fn vm_get_transaction(params: jsonrpc_core::Params) -> JsonRpcResult<Value> {
+    let params: GetTransactionParams = params.parse()?;
+    
+    // Get transaction from database
+    match get_transaction(&params.tx_id) {
+        Ok(Some(tx)) => {
+            let result_data = serde_json::from_str::<JsonValue>(&tx.result_data)
+                .unwrap_or(json!({"error": "Invalid JSON data"}));
+            
+            let response = json!({
+                "status": "success",
+                "transaction": {
+                    "tx_id": tx.tx_id,
+                    "module_id": tx.module_id,
+                    "function": tx.function,
+                    "sender": tx.sender,
+                    "timestamp": tx.timestamp,
+                    "gas_used": tx.gas_used,
+                    "success": tx.success,
+                    "block_height": tx.block_height,
+                    "result": result_data
+                }
+            });
+            
+            Ok(response.into())
+        },
+        Ok(None) => {
+            Err(Error {
+                code: ErrorCode::InvalidParams,
+                message: format!("Transaction {} not found", params.tx_id),
+                data: None,
+            })
+        },
+        Err(e) => {
+            error!("Failed to get transaction: {:?}", e);
+            Err(Error {
+                code: ErrorCode::InternalError,
+                message: format!("Failed to get transaction: {:?}", e),
+                data: None,
+            })
+        }
+    }
+}
+
+// Get all deployed modules
+pub fn vm_get_all_modules(params: jsonrpc_core::Params) -> JsonRpcResult<Value> {
+    let params: GetModulesParams = params.parse().unwrap_or_else(|_| GetModulesParams {
+        limit: default_limit(),
+        offset: 0,
+    });
+    
+    // Get modules from database
+    match list_modules(params.limit, params.offset) {
+        Ok(modules) => {
+            // Transform database modules to JSON response
+            let modules_json: Vec<JsonValue> = modules.into_iter().map(|m| {
+                let abi = serde_json::from_str::<JsonValue>(&m.abi)
+                    .unwrap_or(json!({"error": "Invalid ABI JSON"}));
+                
+                json!({
+                    "module_id": m.module_id,
+                    "address": m.address,
+                    "name": m.name,
+                    "bytecode_size": m.bytecode.len(),
+                    "deploy_time": m.deploy_time,
+                    "deploy_tx_id": m.deploy_tx_id,
+                    "deploy_block_height": m.deploy_block_height,
+                    "abi": abi
+                })
+            }).collect();
+            
+            // Get total count
+            let total = match get_module_count() {
+                Ok(count) => count,
+                Err(_) => modules_json.len(),
+            };
+            
+            let response = json!({
+                "status": "success",
+                "modules": modules_json,
+                "total": total,
+                "limit": params.limit,
+                "offset": params.offset
+            });
+            
+            Ok(response.into())
+        },
+        Err(e) => {
+            error!("Failed to get modules: {:?}", e);
+            Err(Error {
+                code: ErrorCode::InternalError,
+                message: format!("Failed to get modules: {:?}", e),
+                data: None,
+            })
+        }
+    }
+}
+
+// Get stats about VM usage
+pub fn vm_get_stats(_params: jsonrpc_core::Params) -> JsonRpcResult<Value> {
+    let module_count = get_module_count().unwrap_or(0);
+    let transaction_count = get_transaction_count().unwrap_or(0);
+    
+    // Get VM state information
+    let vm_state = match VM_STATE.read() {
+        Ok(state) => state,
+        Err(e) => {
+            error!("Failed to read VM state: {}", e);
+            return Err(Error {
+                code: ErrorCode::InternalError,
+                message: "Failed to access VM state".into(),
+                data: None,
+            });
+        }
+    };
+    
+    let memory_module_count = vm_state.modules.len();
+    
+    let response = json!({
+        "status": "success",
+        "stats": {
+            "module_count": module_count,
+            "transaction_count": transaction_count,
+            "memory_module_count": memory_module_count,
+            "vm_state": {
+                "execution_count": vm_state.execution_count,
+                "last_execution": vm_state.last_execution
+            }
+        }
+    });
+    
+    Ok(response.into())
 }

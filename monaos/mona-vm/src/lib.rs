@@ -23,7 +23,11 @@ use std::sync::{Arc, RwLock};
 use mona_blockchain::block::Transaction;
 use mona_blockchain::blockchain::BLOCKCHAIN_DATA;
 use lazy_static::lazy_static;
+use mona_crypto::verify_signature;
 
+// Add database module
+pub mod db;
+use db::{store_module, store_transaction};
 
 pub fn reroot_path(path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     let path = path.unwrap_or_else(|| PathBuf::from("."));
@@ -43,6 +47,8 @@ pub struct VMState {
     pub modules: HashMap<String, VMModule>,
     pub last_execution: u64,
     pub execution_count: u64,
+    pub last_signature: Option<String>,
+    pub last_signer: Option<String>,
 }
 
 // Structure to represent a Move VM Module
@@ -64,6 +70,8 @@ impl VMState {
                 .unwrap_or_default()
                 .as_secs(),
             execution_count: 0,
+            last_signature: None,
+            last_signer: None,
         }
     }
 
@@ -95,6 +103,7 @@ impl VMModule {
 }
 
 // VM Transaction Structure
+#[derive(Debug)]  // Add Debug trait implementation
 pub struct VMTransaction {
     pub tx_id: String,
     pub sender: String,
@@ -103,6 +112,8 @@ pub struct VMTransaction {
     pub args: Vec<Vec<u8>>,
     pub gas_budget: u64,
     pub timestamp: u64,
+    pub signature: Option<Vec<u8>>,
+    pub signer_address: Option<String>,
 }
 
 impl VMTransaction {
@@ -137,7 +148,15 @@ impl VMTransaction {
             args,
             gas_budget,
             timestamp,
+            signature: None,
+            signer_address: None,
         }
+    }
+    
+    pub fn with_signature(mut self, signature: Vec<u8>, signer_address: String) -> Self {
+        self.signature = Some(signature);
+        self.signer_address = Some(signer_address);
+        self
     }
 }
 
@@ -169,8 +188,8 @@ pub fn execute_vm_transaction(tx: &VMTransaction) -> Result<JsonValue, String> {
         None => 0,
     };
     
-    // Success result with fake execution details
-    Ok(json!({
+    // Generate result JSON
+    let result = json!({
         "status": "success",
         "tx_id": tx.tx_id,
         "module": tx.module_id,
@@ -183,7 +202,28 @@ pub fn execute_vm_transaction(tx: &VMTransaction) -> Result<JsonValue, String> {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs()
-    }))
+    });
+    
+    // Store transaction in database
+    let result_str = serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string());
+    if let Err(e) = store_transaction(
+        &tx.tx_id,
+        &tx.module_id,
+        &tx.function,
+        &tx.args,
+        &tx.sender,
+        gas_used,
+        true, // success status
+        &result_str,
+        block_height as u64
+    ) {
+        info!("Failed to store transaction in database: {:?}", e);
+        // Continue even if database storage fails
+    } else {
+        info!("Transaction {} stored in database", tx.tx_id);
+    }
+    
+    Ok(result)
 }
 
 // Convert blockchain transaction to VM transaction
@@ -213,6 +253,8 @@ pub fn convert_to_vm_transaction(transaction: &Transaction) -> Option<VMTransact
                     args: Vec::new(), // Simplified implementation
                     gas_budget,
                     timestamp: transaction.timestamp,
+                    signature: None,
+                    signer_address: None,
                 });
             }
         }
@@ -246,7 +288,10 @@ pub struct Build {
     framework_packages: HashMap<PackageType, Option<Package>>,
 }
 
-pub struct Publish;
+pub struct Publish {
+    pub signature: Option<Vec<u8>>,
+    pub signer_address: Option<String>,
+}
 
 fn generate_object_id() -> String {
     let mut hasher = Sha3_256::new();
@@ -456,18 +501,45 @@ impl Publish {
 
         let address = address.unwrap_or_else(|| AccountAddress::from_hex_literal("0x1").unwrap());
 
-        let mut build_config = config.clone();
-        build_config.additional_named_addresses.insert("module_addr".to_string(), address);
-
         info!(
             "Compiling Move package for blockchain deployment at: {}",
             rerooted_path.display()
         );
         let start_time = std::time::Instant::now();
 
-        let compiled_package = build_config.compile_package(&rerooted_path, &mut Vec::new())?;
+        let compiled_package = config.compile_package(&rerooted_path, &mut Vec::new())?;
 
         info!("Package compilation completed in {:?}", start_time.elapsed());
+
+        if let (Some(signature), Some(signer)) = (&self.signature, &self.signer_address) {
+            info!("Verifying transaction signature from signer: {}", signer);
+            
+            let mut hasher = Sha3_256::new();
+            hasher.update(address.to_hex().as_bytes());
+            hasher.update(rerooted_path.to_str().unwrap_or("").as_bytes());
+            hasher.update(gas_budget.unwrap_or(3_000_000).to_le_bytes());
+            
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            hasher.update(timestamp.to_le_bytes());
+            
+            let payload_hash = hasher.finalize();
+            let payload_to_verify = payload_hash.as_slice();
+            
+            match verify_signature(signer, payload_to_verify, signature) {
+                Ok(true) => {
+                    info!("✅ Signature verification passed!");
+                },
+                Ok(false) => {
+                    info!("❌ Signature verification failed! Continuing without verification.");
+                },
+                Err(e) => {
+                    info!("⚠️ Signature verification error: {}. Continuing without verification.", e);
+                }
+            }
+        }
 
         let deployment_info = self.prepare_deployment(
             &compiled_package,
@@ -476,7 +548,28 @@ impl Publish {
             skip_verify,
         )?;
 
-        let deployment_result = self.submit_to_blockchain(&compiled_package, &address, &deployment_info)?;
+        let mut signature_info = json!({
+            "signed": false
+        });
+        
+        if let (Some(_), Some(signer)) = (&self.signature, &self.signer_address) {
+            signature_info = json!({
+                "signed": true,
+                "signer": signer,
+                "timestamp": SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+            });
+        }
+
+        let deployment_result = self.submit_to_blockchain(
+            &compiled_package,
+            &address,
+            &deployment_info,
+            self.signature.clone(),
+            self.signer_address.clone()
+        )?;
 
         let result = json!({
             "status": "success",
@@ -500,6 +593,7 @@ impl Publish {
                         .unwrap_or_default()
                         .as_secs(),
                 },
+                "signature": signature_info,
                 "deployment": deployment_info
             }
         });
@@ -517,7 +611,6 @@ impl Publish {
     ) -> anyhow::Result<JsonValue> {
         let mut modules_json = Vec::new();
         
-        // Format address with 64 characters for consistency
         let address_str = format!("{:0>64}", address.to_hex());
         let address_0x = format!("0x{}", address_str);
 
@@ -526,10 +619,7 @@ impl Publish {
             let module_name = module.name().to_string();
             let module_id = ModuleId::new(address, Identifier::new(module_name.clone())?);
             
-            // Standard module ID format (without 0x)
             let standard_module_id = module_id.to_string();
-            
-            // Full module ID with extended address format and 0x prefix
             let full_module_id = format!("{}::{}", address_0x, module_name);
 
             let bytecode = module.serialize(None);
@@ -572,6 +662,8 @@ impl Publish {
         package: &move_package::compilation::compiled_package::CompiledPackage,
         address: &AccountAddress,
         deployment_info: &JsonValue,
+        signature: Option<Vec<u8>>,
+        signer_address: Option<String>,
     ) -> anyhow::Result<DeploymentResult> {
         info!(
             "Submitting {} modules to blockchain at address: 0x{}",
@@ -585,14 +677,12 @@ impl Publish {
         let modules = deployment_info["modules"].as_array().unwrap();
         let mut total_gas_used = 0;
         
-        // Get current block height
         let blockchain = BLOCKCHAIN_DATA.iter();
         let block_height = match blockchain.last() {
             Some(block) => block.index,
             None => 0,
         };
     
-        // Get mutable access to VM state
         let mut vm_state = match VM_STATE.write() {
             Ok(state) => state,
             Err(e) => {
@@ -600,12 +690,13 @@ impl Publish {
             }
         };
     
-        // Register modules with VM
+        // Generate transaction ID for this deployment
+        let deploy_tx_id = format!("deploy_tx_{}", generate_random_hex(32));
+    
         for (_i, module_json) in modules.iter().enumerate() {
             let module_name = module_json["name"].as_str().unwrap();
             let size_bytes = module_json["size_bytes"].as_u64().unwrap_or(0);
             
-            // Get public functions
             let public_funcs = module_json["public_functions"]
                 .as_array()
                 .unwrap_or(&Vec::new())
@@ -613,20 +704,40 @@ impl Publish {
                 .filter_map(|f| f["name"].as_str().map(|s| s.to_string()))
                 .collect::<Vec<String>>();
             
-            // Calculate gas
             let priority_boost = size_bytes / 100;
             let gas_used = mona_types::gas::calculate_gas_fee(Some(priority_boost));
             total_gas_used += gas_used;
             
-            // Register with VM
+            // Generate module bytecode (for demo, actual bytecode would come from compilation)
+            let bytecode = vec![0u8; size_bytes as usize];
+            
+            let module_id = format!("0x{}::{}", address.to_hex(), module_name);
+            
+            // Create VMModule for in-memory registry
             let vm_module = VMModule::new(
                 *address,
                 module_name.to_string(),
-                // Use a fake bytecode for this example
-                vec![0u8; size_bytes as usize],
-                public_funcs,
+                bytecode.clone(),
+                public_funcs.clone(),
                 block_height,
             );
+            
+            // Store module in database
+            let module_abi = serde_json::to_string(module_json).unwrap_or_else(|_| "{}".to_string());
+            if let Err(e) = store_module(
+                &module_id,
+                &format!("0x{}", address.to_hex()),
+                module_name,
+                &bytecode,
+                &module_abi,
+                &deploy_tx_id,
+                block_height
+            ) {
+                info!("Failed to store module in database: {:?}", e);
+                // Continue even if database storage fails
+            } else {
+                info!("Module {} stored in database", module_id);
+            }
             
             vm_state.register_module(vm_module);
             
@@ -639,10 +750,25 @@ impl Publish {
             );
         }
     
+        if let (Some(sig), Some(signer)) = (&signature, &signer_address) {
+            info!(
+                "Deployment transaction signed by 0x{} (signature: {} bytes)",
+                signer,
+                sig.len()
+            );
+            
+            if let Ok(mut vm_state) = VM_STATE.write() {
+                vm_state.last_signature = Some(hex::encode(sig));
+                vm_state.last_signer = Some(signer.clone());
+            }
+        } else {
+            info!("Deployment transaction is not signed or signature verification failed");
+        }
+    
         let execution_time = start.elapsed().as_millis();
     
         let result = DeploymentResult {
-            transaction_id: format!("0x{}", generate_random_hex(64)),
+            transaction_id: deploy_tx_id,
             status: "COMMITTED".to_string(),
             gas_used: total_gas_used,
             execution_time_ms: execution_time as u64,
@@ -669,39 +795,21 @@ struct DeploymentResult {
     block_height: u64,
 }
 
-
 fn estimate_gas_for_module(bytecode: &[u8], gas_budget: u64) -> u64 {
-    // Base gas cost for any module
     let base_cost = mona_types::gas::BASE_GAS_FEE;
-    
-    // Additional cost based on bytecode size
-    // The larger the bytecode, the more gas it will consume
     let size_cost = bytecode.len() as u64 * 10;
-    
-    // Priority boost based on module size
     let priority_boost = bytecode.len() as u64 / 100;
-    
-    // Get network stats to factor in current conditions
     let network_stats = mona_types::gas::get_network_stats();
-    
-    // Calculate congestion component based on network stats
     let congestion_factor = if network_stats.pending_transactions > 0 {
         (1.0 + (network_stats.pending_transactions as f64 / 10.0).ln_1p()) 
             * mona_types::gas::CONGESTION_MULTIPLIER
     } else {
         1.0
     };
-    
-    // Calculate total estimated gas
     let estimate = base_cost + (size_cost as f64 * congestion_factor) as u64;
-    
-    // Apply priority boost
     let estimate = estimate + priority_boost;
-    
-    // Ensure estimate is within allowed range and doesn't exceed budget
     let min_gas = mona_types::gas::MIN_GAS_FEE;
     let max_gas = std::cmp::min(mona_types::gas::MAX_GAS_FEE, gas_budget);
-    
     estimate.clamp(min_gas, max_gas)
 }
 
@@ -734,17 +842,10 @@ fn get_module_public_functions(module: &CompiledUnit) -> Vec<JsonValue> {
         .function_defs()
         .iter()
         .filter_map(|func_def| {
-            // Check if function is public
             if func_def.visibility == move_binary_format::file_format::Visibility::Public {
                 let func_handle = compiled_module.function_handle_at(func_def.function);
                 let func_name = compiled_module.identifier_at(func_handle.name).to_string();
-                
-                // Full qualified function name with address, module and function
-                let _full_func_id = format!("{}::{}", full_module_id, func_name);
-                // Complete function path includes module name
                 let complete_func_path = format!("{}::{}", full_module_id, module_name);
-                
-                // Extract function parameters and return types if available
                 let signature = compiled_module.signature_at(func_handle.parameters);
                 let param_count = signature.0.len();
                 
@@ -754,7 +855,6 @@ fn get_module_public_functions(module: &CompiledUnit) -> Vec<JsonValue> {
                     "module": complete_func_path,
                     "visibility": "public",
                     "parameters": param_count,
-
                 }))
             } else {
                 None

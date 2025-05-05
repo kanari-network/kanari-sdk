@@ -131,7 +131,7 @@ pub fn handle_move_command() {
         }),
         Some("publish") => {
             // Default to current directory if not specified
-            let module_path = if args.len() > 3 {
+            let module_path = if args.len() > 3 && !args[3].starts_with("--") {
                 PathBuf::from(args[3].clone())
             } else {
                 std::env::current_dir().unwrap_or_else(|_| PathBuf::new())
@@ -140,7 +140,7 @@ pub fn handle_move_command() {
             // Check for gas_budget parameter (--gas-budget=N)
             let gas_budget = args.iter().find(|arg| arg.starts_with("--gas-budget"))
                 .and_then(|arg| {
-                    let budget_str = arg.trim_start_matches("--gas-budget");
+                    let budget_str = arg.trim_start_matches("--gas-budget=");
                     budget_str.parse::<u64>().ok()
                 }).unwrap_or(3_000_000); // Default to 3M gas units (0.003 KARI)
             
@@ -151,7 +151,7 @@ pub fn handle_move_command() {
             // If not provided, use the first address from the config file or default to 0x1
             let address = args.iter().find(|arg| arg.starts_with("--address="))
                 .and_then(|arg| {
-                    let addr_str = arg.trim_start_matches("--address");
+                    let addr_str = arg.trim_start_matches("--address=");
                     // Try parsing with 0x prefix if not present
                     let addr_with_prefix = if !addr_str.starts_with("0x") {
                         format!("0x{}", addr_str)
@@ -165,11 +165,16 @@ pub fn handle_move_command() {
                         .ok()
                 });
             
+            // Check for password parameter
+            let password = args.iter().find(|arg| arg.starts_with("--password="))
+                .map(|arg| arg.trim_start_matches("--password=").to_string());
+            
             Command::Publish(Publish {
                 module_path,
                 gas_budget,
                 skip_verify,
                 address,
+                password,
             })
         },
         Some("call") => {
