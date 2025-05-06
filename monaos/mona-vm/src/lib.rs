@@ -497,19 +497,67 @@ impl Publish {
         gas_budget: Option<u64>,
         skip_verify: bool,
     ) -> anyhow::Result<()> {
-        let rerooted_path = reroot_path(path)?;
+        let rerooted_path = match reroot_path(path) {
+            Ok(p) => {
+                info!("Package path reroot successful: {}", p.display());
+                p
+            },
+            Err(e) => return Err(anyhow::anyhow!("Failed to reroot path: {}", e)),
+        };
+
+        // ตรวจสอบว่า sources directory มีอยู่จริง
+        let sources_dir = rerooted_path.join("sources");
+        if !sources_dir.exists() {
+            return Err(anyhow::anyhow!(
+                "Sources directory not found at {}. Make sure you're in the correct package directory.", 
+                sources_dir.display()
+            ));
+        }
+        info!("Found sources directory at: {}", sources_dir.display());
+        
+        // ตรวจสอบว่ามีไฟล์ .move ใน sources directory
+        let has_move_files = std::fs::read_dir(&sources_dir)
+            .map_err(|e| anyhow::anyhow!("Failed to read sources directory: {}", e))?
+            .filter_map(Result::ok)
+            .any(|entry| {
+                entry.path().extension().map_or(false, |ext| ext == "move")
+            });
+        
+        if !has_move_files {
+            return Err(anyhow::anyhow!(
+                "No .move files found in sources directory: {}", 
+                sources_dir.display()
+            ));
+        }
+        info!("Found .move source files");
 
         let address = address.unwrap_or_else(|| AccountAddress::from_hex_literal("0x1").unwrap());
+        info!("Using address: 0x{}", address.to_hex());
 
-        info!(
-            "Compiling Move package for blockchain deployment at: {}",
-            rerooted_path.display()
-        );
+        info!("Compiling Move package for blockchain deployment...");
         let start_time = std::time::Instant::now();
 
-        let compiled_package = config.compile_package(&rerooted_path, &mut Vec::new())?;
-
-        info!("Package compilation completed in {:?}", start_time.elapsed());
+        // Compile package with timeout and panic handling
+        let compile_result = std::panic::catch_unwind(|| {
+            config.compile_package(&rerooted_path, &mut Vec::new())
+        });
+        
+        let compiled_package = match compile_result {
+            Ok(Ok(package)) => {
+                info!("Package compilation successful in {:?}", start_time.elapsed());
+                if package.root_compiled_units.is_empty() {
+                    return Err(anyhow::anyhow!("No modules compiled. Check your Move code."));
+                }
+                info!("Successfully compiled {} modules", package.root_compiled_units.len());
+                package
+            },
+            Ok(Err(e)) => {
+                return Err(anyhow::anyhow!("Failed to compile package: {}", e));
+            },
+            Err(_) => {
+                return Err(anyhow::anyhow!("Compiler panicked during compilation"));
+            }
+        };
 
         if let (Some(signature), Some(signer)) = (&self.signature, &self.signer_address) {
             info!("Verifying transaction signature from signer: {}", signer);
@@ -541,13 +589,25 @@ impl Publish {
             }
         }
 
+        info!("Preparing deployment information...");
         let deployment_info = self.prepare_deployment(
             &compiled_package,
             address,
             gas_budget.unwrap_or(3_000_000),
             skip_verify,
         )?;
-
+        
+        info!("Submitting to blockchain...");
+        let deployment_result = self.submit_to_blockchain(
+            &compiled_package,
+            &address,
+            &deployment_info,
+            self.signature.clone(),
+            self.signer_address.clone()
+        )?;
+        
+        info!("Deployment completed with transaction ID: {}", deployment_result.transaction_id);
+        
         let mut signature_info = json!({
             "signed": false
         });
@@ -562,14 +622,6 @@ impl Publish {
                     .as_secs(),
             });
         }
-
-        let deployment_result = self.submit_to_blockchain(
-            &compiled_package,
-            &address,
-            &deployment_info,
-            self.signature.clone(),
-            self.signer_address.clone()
-        )?;
 
         let result = json!({
             "status": "success",
@@ -672,10 +724,10 @@ impl Publish {
         );
     
         let start = std::time::Instant::now();
-        std::thread::sleep(Duration::from_millis(500));
     
         let modules = deployment_info["modules"].as_array().unwrap();
         let mut total_gas_used = 0;
+        let mut modules_deployed = 0;
         
         let blockchain = BLOCKCHAIN_DATA.iter();
         let block_height = match blockchain.last() {
@@ -683,8 +735,12 @@ impl Publish {
             None => 0,
         };
     
-        let mut vm_state = match VM_STATE.write() {
-            Ok(state) => state,
+        info!("Acquiring VM_STATE lock for writing...");
+        let mut vm_state = match VM_STATE.try_write() {
+            Ok(state) => {
+                info!("Successfully acquired VM_STATE lock");
+                state
+            },
             Err(e) => {
                 return Err(anyhow::anyhow!("Failed to lock VM state for writing: {}", e));
             }
@@ -692,10 +748,34 @@ impl Publish {
     
         // Generate transaction ID for this deployment
         let deploy_tx_id = format!("deploy_tx_{}", generate_random_hex(32));
+        info!("Generated deployment transaction ID: {}", deploy_tx_id);
     
-        for (_i, module_json) in modules.iter().enumerate() {
-            let module_name = module_json["name"].as_str().unwrap();
-            let size_bytes = module_json["size_bytes"].as_u64().unwrap_or(0);
+        // ตรวจสอบจำนวนโมดูลที่จะ deploy
+        info!("Found {} modules to deploy", modules.len());
+        if modules.is_empty() {
+            return Err(anyhow::anyhow!("No modules to deploy"));
+        }
+    
+        for (idx, module_json) in modules.iter().enumerate() {
+            let module_name = module_json["name"].as_str().unwrap_or("unknown");
+            info!("Processing module {}/{}: {}", idx + 1, modules.len(), module_name);
+            
+            // ค้นหา compiled unit ที่ตรงกับโมดูลนี้
+            let bytecode = match package.root_compiled_units.iter().find(|unit| unit.unit.name().to_string() == module_name) {
+                Some(unit) => {
+                    info!("Found compiled unit for module '{}', serializing bytecode", module_name);
+                    let bytecode = unit.unit.serialize(None);
+                    info!("Bytecode size: {} bytes", bytecode.len());
+                    bytecode
+                },
+                None => {
+                    info!("Warning: Could not find compiled unit for module '{}', using placeholder", module_name);
+                    let size_bytes = module_json["size_bytes"].as_u64().unwrap_or(1024) as usize;
+                    vec![0u8; size_bytes]
+                }
+            };
+            
+            let size_bytes = bytecode.len() as u64;
             
             let public_funcs = module_json["public_functions"]
                 .as_array()
@@ -704,12 +784,7 @@ impl Publish {
                 .filter_map(|f| f["name"].as_str().map(|s| s.to_string()))
                 .collect::<Vec<String>>();
             
-            let priority_boost = size_bytes / 100;
-            let gas_used = mona_types::gas::calculate_gas_fee(Some(priority_boost));
-            total_gas_used += gas_used;
-            
-            // Generate module bytecode (for demo, actual bytecode would come from compilation)
-            let bytecode = vec![0u8; size_bytes as usize];
+            info!("Module {} has {} public functions", module_name, public_funcs.len());
             
             let module_id = format!("0x{}::{}", address.to_hex(), module_name);
             
@@ -722,9 +797,14 @@ impl Publish {
                 block_height,
             );
             
-            // Store module in database
+            let priority_boost = size_bytes / 100;
+            let gas_used = mona_types::gas::calculate_gas_fee(Some(priority_boost));
+            total_gas_used += gas_used;
+            
+            // บันทึกโมดูลลงฐานข้อมูล
             let module_abi = serde_json::to_string(module_json).unwrap_or_else(|_| "{}".to_string());
-            if let Err(e) = store_module(
+            info!("Storing module {} in database", module_id);
+            match store_module(
                 &module_id,
                 &format!("0x{}", address.to_hex()),
                 module_name,
@@ -733,16 +813,20 @@ impl Publish {
                 &deploy_tx_id,
                 block_height
             ) {
-                info!("Failed to store module in database: {:?}", e);
-                // Continue even if database storage fails
-            } else {
-                info!("Module {} stored in database", module_id);
+                Ok(_) => {
+                    info!("Module {} successfully stored in database", module_id);
+                },
+                Err(e) => {
+                    info!("Failed to store module {} in database: {:?}", module_id, e);
+                }
             }
             
+            info!("Registering module {} in VM_STATE", module_id);
             vm_state.register_module(vm_module);
+            modules_deployed += 1;
             
             info!(
-                "Module '{}' deployed and registered with VM - size: {} bytes, gas used: {} ({})",
+                "Module '{}' deployed and registered - size: {} bytes, gas used: {} ({})",
                 module_name,
                 size_bytes,
                 gas_used,
@@ -750,22 +834,32 @@ impl Publish {
             );
         }
     
+        // บันทึกข้อมูลลายเซ็น
         if let (Some(sig), Some(signer)) = (&signature, &signer_address) {
             info!(
-                "Deployment transaction signed by 0x{} (signature: {} bytes)",
+                "Deployment transaction signed by {} (signature: {} bytes)",
                 signer,
                 sig.len()
             );
             
-            if let Ok(mut vm_state) = VM_STATE.write() {
-                vm_state.last_signature = Some(hex::encode(sig));
-                vm_state.last_signer = Some(signer.clone());
-            }
+            vm_state.last_signature = Some(hex::encode(sig));
+            vm_state.last_signer = Some(signer.clone());
         } else {
             info!("Deployment transaction is not signed or signature verification failed");
         }
     
         let execution_time = start.elapsed().as_millis();
+        
+        // อัพเดตสถิติใน VM_STATE
+        vm_state.execution_count += 1;
+        vm_state.last_execution = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        
+        // Drop VM_STATE lock
+        drop(vm_state);
+        info!("Released VM_STATE lock");
     
         let result = DeploymentResult {
             transaction_id: deploy_tx_id,
@@ -773,14 +867,15 @@ impl Publish {
             gas_used: total_gas_used,
             execution_time_ms: execution_time as u64,
             block_height: block_height as u64,
+            modules_deployed,
         };
     
         info!(
-            "Blockchain deployment completed in {}ms. Transaction ID: {}, gas used: {} ({})",
+            "Blockchain deployment completed in {}ms. Transaction ID: {}, gas used: {}, modules deployed: {}",
             execution_time,
             result.transaction_id,
             result.gas_used,
-            mona_types::gas::format_gas_fee_display(result.gas_used)
+            modules_deployed
         );
     
         Ok(result)
@@ -793,6 +888,7 @@ struct DeploymentResult {
     gas_used: u64,
     execution_time_ms: u64,
     block_height: u64,
+    modules_deployed: usize,  // Track how many modules were deployed
 }
 
 fn estimate_gas_for_module(bytecode: &[u8], gas_budget: u64) -> u64 {

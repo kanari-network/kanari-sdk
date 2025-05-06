@@ -178,56 +178,71 @@ pub fn handle_move_command() {
             })
         },
         Some("call") => {
-            // Parse module_id parameter
-            let module_id = args.iter().find(|arg| arg.starts_with("--module-id="))
-                .map(|arg| arg.trim_start_matches("--module-id=").to_string())
-                .ok_or_else(|| {
+            // สร้างฟังก์ชันช่วยในการดึงค่าพารามิเตอร์ทั้งสองรูปแบบ
+            fn get_param_value(args: &[String], name: &str) -> Option<String> {
+                // รูปแบบ --name=value
+                if let Some(arg) = args.iter().find(|arg| arg.starts_with(&format!("{}=", name))) {
+                    return Some(arg.trim_start_matches(&format!("{}=", name)).to_string());
+                }
+
+                // รูปแบบ --name value
+                for i in 0..args.len().saturating_sub(1) {
+                    if args[i] == name {
+                        return Some(args[i + 1].clone());
+                    }
+                }
+
+                None
+            }
+
+            // ดึงค่า module_id
+            let module_id = match get_param_value(&args, "--module-id") {
+                Some(value) => value,
+                None => {
                     eprintln!("Error: --module-id parameter is required");
-                    std::process::exit(1)
-                }).unwrap();
-            
-            // Parse function parameter
-            let function = args.iter().find(|arg| arg.starts_with("--function="))
-                .map(|arg| arg.trim_start_matches("--function=").to_string())
-                .ok_or_else(|| {
+                    std::process::exit(1);
+                }
+            };
+
+            // ดึงค่า function
+            let function = match get_param_value(&args, "--function") {
+                Some(value) => value,
+                None => {
                     eprintln!("Error: --function parameter is required");
-                    std::process::exit(1)
-                }).unwrap();
+                    std::process::exit(1);
+                }
+            };
+
+            // ดึงค่า args (อาร์กิวเมนต์)
+            let mut args_list = Vec::new();
             
-            // Parse arguments if provided
-            let args_list = args.iter()
-                .filter(|arg| arg.starts_with("--args="))
-                .flat_map(|arg| {
-                    arg.trim_start_matches("--args=")
-                        .split(',')
-                        .map(|s| s.to_string())
-                        .collect::<Vec<String>>()
-                })
-                .collect::<Vec<String>>();
-            
-            // Check for gas_budget parameter
-            let gas_budget = args.iter().find(|arg| arg.starts_with("--gas-budget="))
-                .and_then(|arg| {
-                    let budget_str = arg.trim_start_matches("--gas-budget=");
-                    budget_str.parse::<u64>().ok()
-                }).unwrap_or(1_000_000); // Default to 1M gas units
-            
-            // Check for address parameter
-            let address = args.iter().find(|arg| arg.starts_with("--address="))
-                .and_then(|arg| {
-                    let addr_str = arg.trim_start_matches("--address=");
+            // ตรวจสอบ args ในรูปแบบ --args=val1,val2
+            if let Some(args_str) = get_param_value(&args, "--args") {
+                args_list = args_str.split(',')
+                    .map(|s| s.to_string())
+                    .collect();
+            }
+
+            // ดึงค่า gas_budget
+            let gas_budget = get_param_value(&args, "--gas-budget")
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(1_000_000);
+
+            // ดึงค่า address
+            let address = get_param_value(&args, "--address")
+                .and_then(|addr_str| {
                     let addr_with_prefix = if !addr_str.starts_with("0x") {
                         format!("0x{}", addr_str)
                     } else {
-                        addr_str.to_string()
+                        addr_str
                     };
                     
                     use move_core_types::account_address::AccountAddress;
                     AccountAddress::from_hex_literal(&addr_with_prefix)
-                        .or_else(|_| AccountAddress::from_hex(addr_str))
+                        .or_else(|_| AccountAddress::from_hex(&addr_with_prefix.trim_start_matches("0x")))
                         .ok()
                 });
-            
+
             Command::Call(Call {
                 module_id,
                 function,

@@ -19,7 +19,7 @@ MoveStdlib = { git = "https://github.com/kanari-network/kanari-sdk.git", subdir 
 # Override = { local = "../conflicting/version", override = true }
 
 [addresses]
-img = "0xf9e9e19dd6d548aeecd89f9dc25de17e9b4bf8c70d059d3956f633e86398287c"
+img = "0x28e442c54d872cea9415382e61559dde126da6d6aee8c70855bd6c8cbdeb40d8"
 std = "0x1"
 kanari_framework = "0x2"
 # Named addresses will be accessible in Move as `@name`. They're also exported:
