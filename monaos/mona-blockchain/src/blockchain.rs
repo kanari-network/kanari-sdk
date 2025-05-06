@@ -1,4 +1,4 @@
-use crate::block::Block;
+use crate::block::{self, Block};
 use bincode;
 use consensus_pos::Blake3Algorithm;
 // Replace with common import
@@ -8,7 +8,6 @@ use mona_types::address::Address;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
-
 use lazy_static::lazy_static;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Mutex, RwLock, atomic::{AtomicU64, Ordering}};
@@ -17,6 +16,7 @@ use std::sync::{Mutex, RwLock, atomic::{AtomicU64, Ordering}};
 lazy_static! {
     pub static ref BLOCKCHAIN_DATA: BlockchainData = BlockchainData::new();
     pub static ref BALANCES: Mutex<HashMap<String, u64>> = Mutex::new(HashMap::new());
+    pub static ref PENDING_TRANSACTIONS: Mutex<VecDeque<block::Transaction>> = Mutex::new(VecDeque::new());
 }
 
 /// Improved blockchain data container with thread-safety and performance features
@@ -63,10 +63,22 @@ impl BlockchainData {
     }
     
     // Modified to return bool indicating success
-    pub fn add_block(&self, block: Block<Blake3Algorithm>) -> bool {
+    pub fn add_block(&self, mut block: Block<Blake3Algorithm>) -> bool {
         let mut chain = self.chain.write().unwrap();
         let height = chain.len();
         
+        // If block has no transactions, check if there are any pending
+        if block.transactions.is_empty() {
+            let pending_txs = get_next_block_transactions(100);
+            if !pending_txs.is_empty() {
+                log::info!("Adding {} pending transactions to block {}", pending_txs.len(), block.index);
+                block.transactions = pending_txs;
+                
+                // Recalculate block hash since we modified it
+                block.hash = block.calculate_hash();
+            }
+        }
+
         // Check if block already exists
         if self.has_block_with_hash(&block.hash) {
             return false;
@@ -202,8 +214,6 @@ pub fn get_hex_from_address(address: &Address) -> String {
     address.to_hex_literal()
 }
 
-
-
 pub fn get_balance(address: &str) -> Result<u64, BlockchainError> {
     let max_retries = 3;
     let mut attempts = 0;
@@ -248,6 +258,118 @@ pub fn get_balance(address: &str) -> Result<u64, BlockchainError> {
 // Add a new function that accepts Address directly
 pub fn get_address_balance(address: &Address) -> Result<u64, BlockchainError> {
     get_balance(&address.to_hex_literal())
+}
+
+// Improved submit_transaction function with better logging
+pub fn submit_transaction(transaction: block::Transaction) -> Result<(), BlockchainError> {
+    // Log transaction details
+    let tx_type = if let Some(data) = &transaction.data {
+        if let Ok(data_str) = std::str::from_utf8(data) {
+            if data_str.starts_with("VM_MODULE:") {
+                "VM Module Deployment"
+            } else if data_str.starts_with("VM:") {
+                "VM Function Call"
+            } else {
+                "Data Transaction"
+            }
+        } else {
+            "Binary Data Transaction"
+        }
+    } else {
+        "Token Transfer"
+    };
+    
+    log::info!(
+        "Submitting transaction: {} (type: {}, id: {})",
+        tx_type,
+        transaction.transaction_id,
+        hex::encode(&transaction.transaction_id.as_bytes()[..8])
+    );
+    
+    // Add to pending transaction queue
+    let mut transactions = match PENDING_TRANSACTIONS.lock() {
+        Ok(t) => t,
+        Err(_) => return Err(BlockchainError::Transaction("Failed to lock pending transactions".to_string()))
+    };
+    
+    transactions.push_back(transaction);
+    log::info!("Transaction added to pending queue. Queue size: {}", transactions.len());
+    
+    Ok(())
+}
+
+// Enhanced function to prioritize module deployment transactions
+pub fn get_next_block_transactions(max_count: usize) -> Vec<block::Transaction> {
+    let mut result = Vec::new();
+    
+    // Try to get pending transactions
+    if let Ok(mut queue) = PENDING_TRANSACTIONS.lock() {
+        // First pass: prioritize VM module deployments
+        let mut regular_txs = VecDeque::new();
+        
+        while let Some(tx) = queue.pop_front() {
+            // Check if it's a module deployment transaction
+            let is_module_deployment = if let Some(data) = &tx.data {
+                if let Ok(data_str) = std::str::from_utf8(data) {
+                    data_str.starts_with("VM_MODULE:")
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            
+            if is_module_deployment {
+                // Prioritize module deployments
+                log::info!("Prioritizing module deployment transaction: {}", tx.transaction_id);
+                result.push(tx);
+            } else {
+                // Save regular transactions for second pass
+                regular_txs.push_back(tx);
+            }
+            
+            if result.len() >= max_count {
+                break;
+            }
+        }
+        
+        // Second pass: add regular transactions until we reach max_count
+        while result.len() < max_count && !regular_txs.is_empty() {
+            if let Some(tx) = regular_txs.pop_front() {
+                result.push(tx);
+            }
+        }
+        
+        // Return any unused transactions back to the queue
+        while let Some(tx) = regular_txs.pop_front() {
+            queue.push_back(tx);
+        }
+        
+        log::debug!("Got {} transactions for next block ({} module deployments), {} remain in queue", 
+                   result.len(), 
+                   result.iter().filter(|tx| tx.data.as_ref().map_or(false, |d| String::from_utf8_lossy(d).starts_with("VM_MODULE:"))).count(),
+                   queue.len());
+    } else {
+        log::warn!("Failed to lock transaction queue, creating empty block");
+    }
+    
+    result
+}
+
+// Make sure PENDING_TRANSACTIONS is properly exposed to be processed
+pub fn get_pending_transactions(max_count: usize) -> Vec<block::Transaction> {
+    let mut result = Vec::new();
+    
+    if let Ok(mut queue) = PENDING_TRANSACTIONS.lock() {
+        while let Some(tx) = queue.pop_front() {
+            result.push(tx);
+            if result.len() >= max_count {
+                break;
+            }
+        }
+    }
+    
+    result
 }
 
 // Modified load method to ensure balances are properly loaded

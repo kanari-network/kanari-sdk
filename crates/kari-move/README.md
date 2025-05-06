@@ -1,49 +1,75 @@
-# Using kari move publish
+# Kanari Move Blockchain Commands
 
-The `kari move publish` command is used to upload Move modules to the Mona VM blockchain.
+## Using kari move publish
 
-## Command Format
+The `kari move publish` command deploys Move modules to the blockchain network. It handles compilation, transaction signing, and deployment of your Move code.
+
+### Command Format
+
+```bash
+kari move publish [MODULE_PATH] [OPTIONS]
+```
 
 ### Parameters
 
-- `MODULE_PATH`: Path to the Move module to be uploaded (default is the current directory).
-- `--gas-budget=N`: Number of gas units to use (default is 3,000,000).
-- `--skip-verify`: Skip the module verification step.
-- `--address=ADDRESS`: Address to use for uploading the module (if not specified, the address from the wallet or the default 0x1 will be used).
+- `MODULE_PATH`: Path to the Move module directory to publish (defaults to current directory)
+- `--gas-budget=N`: Gas units allocated for deployment (default: 3,000,000)
+- `--skip-verify`: Skip module verification checks (not recommended for production)
+- `--address=ADDRESS`: Blockchain address to deploy the module to (format: 0x...)
+- `--password=PASSWORD`: Password for wallet to sign the deployment transaction
 
 ### Examples
 
 ```bash
-# Upload the module from the current directory
+# Deploy module from current directory
 kari move publish
 
-# Upload the module from a specified path
-kari move publish /path/to/module
+# Deploy module from specific path
+kari move publish path/to/module
 
-# Specify the number of gas units
+# Specify gas budget
 kari move publish --gas-budget=5000000
 
-# Upload to a specific address
+# Deploy to specific address
 kari move publish --address=0x123abc
 
-# Skip module verification
-kari move publish --skip-verify
+# Skip verification and provide password
+kari move publish --skip-verify --password=your_password
 ```
 
-# Using kari move call
+### Output
 
-The `kari move call` command is used to invoke functions in Move modules that have been uploaded to the blockchain.
+The command provides detailed progress information:
+- Package and sources verification
+- Transaction signing status
+- Compilation and deployment progress with timeout monitoring
+- Detailed deployment results including:
+  - Module names and IDs
+  - Public functions available
+  - Transaction details and gas usage
 
-## Command Format
+If deployment takes longer than 30 seconds, the command times out but the deployment may still complete in the background.
 
+## Using kari move call
 
-### Parameters
+The `kari move call` command invokes functions in deployed Move modules. It formats arguments properly and displays execution results.
 
-- `--module-id`: Specifies the module identifier in the format `<ADDRESS>::<MODULE_NAME>` (required)
-- `--function`: Name of the function to call within the module (required)
-- `--args`: Arguments for the function in the format `<TYPE>:<VALUE>` separated by commas
-- `--gas-budget`: Number of gas units to use for the function call (default is 1,000,000)
-- `--address`: The sender address for the function call (if not specified, uses the wallet address or defaults to 0x1)
+### Command Format
+
+```bash
+kari move call --module-id=<MODULE_ID> --function=<FUNCTION> [OPTIONS]
+```
+
+### Required Parameters
+
+- `--module-id`: Module identifier in format `<address>::<module_name>` (e.g., `0x1234::counter`)
+- `--function`: Function name to call within the module
+
+### Optional Parameters
+
+- `--args`: Comma-separated list of typed arguments in format `<type>:<value>`
+- `--gas-budget`: Gas units allocated for function call (default: 1,000,000)
+- `--address`: Blockchain address to call from (if not specified, uses wallet address or defaults to 0x1)
 
 ### Supported Argument Types
 
@@ -51,23 +77,33 @@ The `kari move call` command is used to invoke functions in Move modules that ha
 - `u8:123` - 8-bit unsigned integer
 - `u64:1000` - 64-bit unsigned integer
 - `u128:1000000` - 128-bit unsigned integer
-- `bool:true` - Boolean value
+- `bool:true` - Boolean value (true/false)
 - `string:hello` - String value
 
 ### Examples
 
 ```bash
-# Call a function without arguments
-kari move call --module-id=0x123::coin --function=initialize
+# Call a function with no arguments
+kari move call --module-id=0x123::counter --function=initialize
 
-# Call a function with arguments
-kari move call --module-id=0x123::coin --function=transfer --args=address:0x456,u64:100
+# Call a function with typed arguments
+kari move call --module-id=0x123::counter --function=increment --args=u64:1
 
-# Specify gas budget
-kari move call --module-id=0x123::coin --function=mint --gas-budget=5000000
+# Call a function with multiple arguments
+kari move call --module-id=0x123::token --function=transfer --args=address:0x456,u64:100
 
-# Call from a specific sender address
-kari move call --module-id=0x123::coin --function=burn --address=0x789 --args=u64:50
+# Specify custom gas budget
+kari move call --module-id=0x123::marketplace --function=list_item --gas-budget=2000000 --args=string:item_name,u64:1000,bool:true
 
-# Call with multiple arguments of different types
-kari move call --module-id=0x123::marketplace --function=list_item --args=string:item_name,u64:1000,bool:true
+# Call from a specific address
+kari move call --module-id=0x123::token --function=mint --address=0x789 --args=u64:1000
+```
+
+### Output
+
+The command provides detailed execution information:
+- Function call details and arguments
+- Gas usage and transaction ID
+- Execution time and status
+- Formatted result with any return values
+- Detailed error information if the call fails

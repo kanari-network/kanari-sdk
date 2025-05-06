@@ -116,50 +116,74 @@ impl Call {
             self.gas_budget
         );
         
-        // Execute the transaction on the VM
-        match execute_vm_transaction(&vm_tx) {
-            Ok(result) => {
-                let duration = start_time.elapsed();
-                
-                // Print success result
-                println!("\n✅ Function call successful!");
-                println!("⏱️ Execution time: {:.2?}", duration);
-                println!("🧾 Transaction ID: {}", result["tx_id"].as_str().unwrap_or("unknown"));
-                println!("⛽ Gas used: {}", result["gas_display"].as_str().unwrap_or("unknown"));
-                
-                // If there's a return value, display it
-                if let Some(return_value) = result.get("return_value") {
-                    println!("\n📊 Return value: {}", serde_json::to_string_pretty(return_value)?);
-                }
-                
-                // Create a structured result
-                println!("\nExecution Result: {}", serde_json::to_string_pretty(&result)?);
-                Ok(())
-            },
-            Err(e) => {
-                let duration = start_time.elapsed();
-                
-                // Create a structured error result
-                let error_result = json!({
-                    "status": "error",
-                    "type": "function_call",
-                    "message": e,
-                    "details": {
-                        "module_id": full_module_id,
-                        "function": self.function,
-                        "sender": format!("0x{}", sender.to_hex()),
-                        "gas_budget": self.gas_budget,
-                        "elapsed_time_ms": duration.as_millis()
+        // Execute the transaction on the VM with retry logic
+        let mut attempts = 0;
+        let max_attempts = 3;
+        let mut last_error = None;
+        
+        while attempts < max_attempts {
+            match execute_vm_transaction(&vm_tx) {
+                Ok(result) => {
+                    let duration = start_time.elapsed();
+                    
+                    // Print success result
+                    println!("\n✅ Function call successful!");
+                    println!("⏱️ Execution time: {:.2?}", duration);
+                    println!("🧾 Transaction ID: {}", result["tx_id"].as_str().unwrap_or("unknown"));
+                    println!("⛽ Gas used: {}", result["gas_display"].as_str().unwrap_or("unknown"));
+                    
+                    // If there's a return value, display it
+                    if let Some(return_value) = result.get("return_value") {
+                        println!("\n📊 Return value: {}", serde_json::to_string_pretty(return_value)?);
                     }
-                });
-                
-                // Print the error
-                println!("\n❌ Function call failed after {:.2?}", duration);
-                println!("Error: {}\n", e);
-                println!("Error Details: {}", serde_json::to_string_pretty(&error_result)?);
-                
-                Err(anyhow::anyhow!("Function call failed: {}", e))
+                    
+                    // Create a structured result
+                    println!("\nExecution Result: {}", serde_json::to_string_pretty(&result)?);
+                    return Ok(());
+                },
+                Err(e) => {
+                    attempts += 1;
+                    last_error = Some(e.clone());
+                    
+                    if e.contains("Module not found") && attempts < max_attempts {
+                        println!("⚠️ Module not found, retrying ({}/{})", attempts, max_attempts);
+                        // Wait briefly before retrying
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        continue;
+                    }
+                    
+                    let duration = start_time.elapsed();
+                    
+                    // Create a structured error result
+                    let error_result = json!({
+                        "status": "error",
+                        "type": "function_call",
+                        "message": e,
+                        "details": {
+                            "module_id": full_module_id,
+                            "function": self.function,
+                            "sender": format!("0x{}", sender.to_hex()),
+                            "gas_budget": self.gas_budget,
+                            "elapsed_time_ms": duration.as_millis(),
+                            "attempts": attempts
+                        }
+                    });
+                    
+                    // Print the error
+                    println!("\n❌ Function call failed after {:.2?} ({} attempts)", duration, attempts);
+                    println!("Error: {}\n", e);
+                    println!("Error Details: {}", serde_json::to_string_pretty(&error_result)?);
+                    
+                    break;
+                }
             }
+        }
+        
+        // Return the last error if we had one
+        if let Some(e) = last_error {
+            Err(anyhow::anyhow!("Function call failed after {} attempts: {}", attempts, e))
+        } else {
+            Err(anyhow::anyhow!("Function call failed with no specific error"))
         }
     }
     

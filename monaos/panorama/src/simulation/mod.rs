@@ -268,16 +268,48 @@ fn process_vm_transaction(transaction: &Transaction, tx: &mpsc::Sender<String>) 
     }
 }
 
-// Modified verify_transaction_processing to handle VM transactions
+// Improved verify_transaction_processing to handle VM module deployments
 fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sender<String>) {
     for transaction in transactions {
         log::info!("Verifying transaction: {}", transaction.transaction_id);
         
         // Check if it's a VM transaction
-        if transaction.data.is_some() && !transaction.data.as_ref().unwrap().is_empty() {
-            if process_vm_transaction(transaction, tx) {
-                // VM transaction was processed, continue to next transaction
-                continue;
+        if let Some(data) = &transaction.data {
+            if !data.is_empty() {
+                // Check if it's a VM module deployment
+                if let Ok(data_str) = std::str::from_utf8(data) {
+                    if data_str.starts_with("VM_MODULE:") {
+                        let parts: Vec<&str> = data_str.split(':').collect();
+                        if parts.len() >= 3 {
+                            let module_name = parts[1];
+                            let module_size = parts[2];
+                            
+                            // Notify about module deployment transaction
+                            let module_tx_json = json!({
+                                "event": "module_deployed",
+                                "module": {
+                                    "name": module_name,
+                                    "size": module_size,
+                                    "address": transaction.sender.to_hex_literal(),
+                                    "transaction_id": transaction.transaction_id
+                                },
+                                "status": "committed",
+                                "gas_fee": transaction.gas_fee,
+                                "gas_fee_display": format_gas_fee_display(transaction.gas_fee)
+                            }).to_string();
+                            
+                            let _ = tx.try_send(module_tx_json);
+                            
+                            continue; // Skip standard transaction processing for module deployments
+                        }
+                    }
+                }
+                
+                // Try processing as VM function call transaction
+                if process_vm_transaction(transaction, tx) {
+                    // VM transaction was processed, continue to next transaction
+                    continue;
+                }
             }
         }
         
@@ -325,6 +357,68 @@ fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sen
     }
 }
 
+// Updated submit_transaction_to_blockchain helper function
+fn submit_transaction_to_blockchain(transaction: &Transaction) -> bool {
+    // Make sure the blockchain can access this transaction
+    let result = mona_blockchain::blockchain::submit_transaction(transaction.clone());
+    
+    match result {
+        Ok(_) => {
+            debug!(
+                "Transaction {} submitted to blockchain: {} -> {} ({} {}A)", 
+                transaction.transaction_id, 
+                transaction.sender,
+                transaction.receiver,
+                transaction.amount,
+                "KARI"
+            );
+            
+            // Also add to pending transaction queue for the next block
+            add_pending_transaction(transaction.clone());
+            true
+        },
+        Err(e) => {
+            error!("Failed to submit transaction to blockchain: {}", e);
+            false
+        }
+    }
+}
+
+// Add this function to process transactions more reliably for each block
+fn process_pending_transactions() -> Vec<Transaction> {
+    match mona_blockchain::blockchain::PENDING_TRANSACTIONS.lock() {
+        Ok(mut queue) => {
+            let mut block_txs = Vec::new();
+            let max_txs = 100; // Process up to 100 transactions per block
+            
+            log::info!("Processing transaction queue with {} pending transactions", queue.len());
+            
+            while let Some(tx) = queue.pop_front() {
+                log::info!("Including transaction: {} -> {}, amount: {}", 
+                    tx.sender, tx.receiver, tx.amount);
+                block_txs.push(tx);
+                if block_txs.len() >= max_txs {
+                    break;
+                }
+            }
+            
+            if !block_txs.is_empty() {
+                log::info!("Added {} transactions to current block", block_txs.len());
+            }
+            
+            // Update the pending transaction count for gas fee calculation
+            update_pending_transaction_count(queue.len());
+            
+            block_txs
+        },
+        Err(_) => {
+            log::error!("Failed to lock pending transactions queue");
+            Vec::new() // Empty vector on error
+        }
+    }
+}
+
+// Update run_blockchain's block creation to consistently include pending transactions
 pub fn run_blockchain(
     running: Arc<Mutex<bool>>, 
     address: String,
@@ -565,40 +659,8 @@ pub fn run_blockchain(
             }
         };
 
-        // Get pending transactions for this block
-        let transactions = {
-            match PENDING_TRANSACTIONS.write() {
-                Ok(mut queue) => {
-                    // Take up to 100000 transactions for this block
-                    let mut block_txs = Vec::new();
-                    
-                    // Log transaction queue status
-                    info!("Processing transaction queue with {} pending transactions", queue.len());
-                    
-                    while let Some(tx) = queue.pop_front() {
-                        info!("Including transaction: {} -> {}, amount: {}", 
-                            tx.sender, tx.receiver, tx.amount);
-                        block_txs.push(tx);
-                        if block_txs.len() >= 100000 {
-                            break;
-                        }
-                    }
-                    
-                    if !block_txs.is_empty() {
-                        info!("Added {} transactions to current block", block_txs.len());
-                    }
-                    
-                    // Update the pending transaction count for gas fee calculation
-                    update_pending_transaction_count(queue.len());
-                    
-                    block_txs
-                },
-                Err(_) => {
-                    error!("Failed to lock pending transactions queue");
-                    Vec::new() // Empty vector on error
-                }
-            }
-        };
+        // Get pending transactions for this block - use our new reliable function
+        let transactions = process_pending_transactions();
 
         // Create JSON representation of transactions for the block data
         let tx_json: Vec<Value> = transactions.iter().map(|tx| {
@@ -637,7 +699,7 @@ pub fn run_blockchain(
             block_data,
             prev_block.hash.clone(),
             0,          // No new tokens in regular blocks
-            transactions.clone(), // Include transactions in the block - explicitly clone
+            transactions.clone(), // Include transactions in the block
             normalized_address.clone(),
             Blake3Algorithm::new(),
         );
@@ -666,10 +728,25 @@ pub fn run_blockchain(
         // Check if the node operator is staking as validator
         let validator_status = is_validator(&node_address);
 
-        // If we included transactions, provide detailed logs
+        // Check if any transactions were included and log them
         if !transactions.is_empty() {
             info!("Block {} includes {} transactions:", new_block.index, transactions.len());
             for (i, tx) in transactions.iter().enumerate() {
+                // Check if it's a Move module deployment transaction
+                if let Some(data) = &tx.data {
+                    if let Ok(data_str) = std::str::from_utf8(data) {
+                        if data_str.starts_with("VM_MODULE:") {
+                            let parts: Vec<&str> = data_str.split(':').collect();
+                            if parts.len() >= 3 {
+                                info!("  {}: Move Module Deployment - {} ({} bytes)", 
+                                      i+1, parts[1], parts[2]);
+                                continue;
+                            }
+                        }
+                    }
+                }
+                
+                // Regular transaction
                 info!("  {}: {} -> {} ({})", i+1, tx.sender, tx.receiver, tx.amount);
             }
         }

@@ -129,14 +129,12 @@ impl Publish {
                 let password = match &self.password {
                     Some(pwd) => pwd.clone(),
                     None => {
-                        // Fix: Check if wallet address already has 0x prefix
                         let display_addr = if wallet_addr.starts_with("0x") {
                             wallet_addr.clone()
                         } else {
                             format!("0x{}", wallet_addr)
                         };
                         
-                        // Display correct wallet address without duplicate prefix
                         println!("Enter password for wallet {}: ", display_addr);
                         rpassword::read_password().unwrap_or_default()
                     }
@@ -147,7 +145,6 @@ impl Publish {
                     Ok(wallet) => {
                         match wallet.sign(payload_to_sign, &password) {
                             Ok(sig) => {
-                                // Fix: Use normalized wallet address format for display
                                 let display_addr = if wallet_addr.starts_with("0x") {
                                     wallet_addr.clone()
                                 } else {
@@ -157,27 +154,39 @@ impl Publish {
                                 (Some(sig), Some(wallet_addr.clone()))
                             },
                             Err(err) => {
-                                println!("⚠️ Warning: Failed to sign transaction: {}", err);
-                                println!("⚠️ Continuing without signature verification");
-                                (None, Some(wallet_addr.clone()))
+                                println!("❌ ERROR: Failed to sign transaction: {}", err);
+                                println!("Deployment cannot continue without a valid signature.");
+                                return Err(anyhow::anyhow!("Transaction signing failed: {}", err));
                             }
                         }
                     },
                     Err(WalletError::InvalidPassword) => {
-                        println!("⚠️ Invalid password for wallet 0x{}", wallet_addr);
-                        println!("⚠️ Continuing without signature verification");
-                        (None, Some(wallet_addr.clone()))
+                        let display_addr = if wallet_addr.starts_with("0x") {
+                            wallet_addr.clone()
+                        } else {
+                            format!("0x{}", wallet_addr)
+                        };
+                        println!("❌ ERROR: Invalid password for wallet {}", display_addr);
+                        return Err(anyhow::anyhow!("Invalid wallet password"));
                     },
                     Err(err) => {
-                        println!("⚠️ Warning: Failed to load wallet: {}", err);
-                        println!("⚠️ Continuing without signature verification");
-                        (None, Some(wallet_addr.clone()))
+                        println!("❌ ERROR: Failed to load wallet: {}", err);
+                        return Err(anyhow::anyhow!("Wallet loading failed: {}", err));
                     }
                 }
             },
             None => {
-                println!("⚠️ No wallet configured. Continuing without signature verification.");
-                (None, None)
+                // Check if an address was explicitly specified
+                if self.address.is_some() {
+                    // Only continue if no wallet is needed (address specified directly)
+                    println!("ℹ️ No wallet configured. Publishing with specified address without signature.");
+                    (None, None)
+                } else {
+                    println!("❌ ERROR: No wallet configured and no address specified.");
+                    println!("Please specify an address with --address or configure a wallet.");
+                    println!("To create a wallet, run: kari wallet create");
+                    return Err(anyhow::anyhow!("No wallet configured and no address specified"));
+                }
             }
         };
         

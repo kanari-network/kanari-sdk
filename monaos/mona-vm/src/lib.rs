@@ -1,4 +1,4 @@
-use log::info;
+use log::{info, warn};
 use move_package::compilation::compiled_package::CompiledUnitWithSource;
 use move_package::{source_package::layout::SourcePackageLayout, BuildConfig};
 use move_compiler::compiled_unit::CompiledUnit;
@@ -21,7 +21,7 @@ use mona_types::gas::format_gas_fee_display;
 // New imports for blockchain integration
 use std::sync::{Arc, RwLock};
 use mona_blockchain::block::Transaction;
-use mona_blockchain::blockchain::BLOCKCHAIN_DATA;
+use mona_blockchain::blockchain::{BLOCKCHAIN_DATA, submit_transaction};
 use lazy_static::lazy_static;
 use mona_crypto::verify_signature;
 
@@ -39,7 +39,93 @@ pub fn reroot_path(path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
 
 // VM Transaction State Manager - Make it public so it can be accessed by the RPC API
 lazy_static! {
-    pub static ref VM_STATE: Arc<RwLock<VMState>> = Arc::new(RwLock::new(VMState::new()));
+    pub static ref VM_STATE: Arc<RwLock<VMState>> = {
+        // Initialize VM_STATE with modules from database
+        let state = VMState::new();
+        
+        // Create and return the Arc<RwLock<VMState>>
+        let state_arc = Arc::new(RwLock::new(state));
+        
+        // Load modules from database in a background thread to avoid blocking init
+        std::thread::spawn({
+            let state_arc = state_arc.clone();
+            move || if let Err(e) = load_modules_from_db(&state_arc) {
+                log::error!("Failed to load modules from database: {}", e);
+            }
+        });
+        
+        state_arc
+    };
+}
+
+// New function to load modules from database
+fn load_modules_from_db(state_arc: &Arc<RwLock<VMState>>) -> Result<(), String> {
+    log::info!("Loading Move modules from database...");
+    
+    match db::list_modules(1000, 0) {
+        Ok(modules) => {
+            log::info!("Found {} modules in database", modules.len());
+            
+            if let Ok(mut state) = state_arc.write() {
+                for stored_module in modules {
+                    // Parse address from stored module
+                    let address_str = if stored_module.address.starts_with("0x") {
+                        &stored_module.address[2..]
+                    } else {
+                        &stored_module.address
+                    };
+                    
+                    match AccountAddress::from_hex(address_str) {
+                        Ok(address) => {
+                            log::info!(
+                                "Registering module {}::{} ({})",
+                                address_str,
+                                stored_module.name,
+                                stored_module.module_id
+                            );
+                            
+                            // Extract public functions from ABI
+                            let public_functions = match serde_json::from_str::<serde_json::Value>(&stored_module.abi) {
+                                Ok(abi) => {
+                                    if let Some(funcs) = abi["public_functions"].as_array() {
+                                        funcs
+                                            .iter()
+                                            .filter_map(|f| f["name"].as_str().map(|s| s.to_string()))
+                                            .collect()
+                                    } else {
+                                        Vec::new()
+                                    }
+                                },
+                                Err(_) => Vec::new()
+                            };
+                            
+                            // Create and register module
+                            let vm_module = VMModule::new(
+                                address,
+                                stored_module.name,
+                                stored_module.bytecode,
+                                public_functions,
+                                stored_module.deploy_block_height,
+                            );
+                            
+                            state.register_module(vm_module);
+                        },
+                        Err(e) => {
+                            log::warn!("Failed to parse address for module {}: {}", stored_module.module_id, e);
+                        }
+                    }
+                }
+                
+                log::info!("Successfully loaded {} modules into VM state", state.modules.len());
+                Ok(())
+            } else {
+                Err("Failed to acquire write lock on VM_STATE".into())
+            }
+        },
+        Err(e) => {
+            Err(format!("Failed to list modules from database: {:?}", e))
+        }
+    }
 }
 
 // Structure to track VM State
@@ -90,6 +176,8 @@ impl VMModule {
         deploy_block_height: u32
     ) -> Self {
         let module_id = format!("0x{}::{}", address.to_hex(), name);
+        
+        log::debug!("Creating VM module with ID: {}", module_id);
         
         Self {
             module_id,
@@ -160,22 +248,58 @@ impl VMTransaction {
     }
 }
 
-// Execute a VM transaction (integration with blockchain)
+// Enhanced execute_vm_transaction function with detailed logging
 pub fn execute_vm_transaction(tx: &VMTransaction) -> Result<JsonValue, String> {
-    // Get VM state
+    log::info!("Executing VM transaction: {} -> {}.{}", tx.tx_id, tx.module_id, tx.function);
+    
+    // Dump all registered modules for debugging
     let state = VM_STATE.read().map_err(|e| format!("Failed to access VM state: {}", e))?;
     
-    // Find the module
-    let module = state.modules.get(&tx.module_id)
-        .ok_or_else(|| format!("Module not found: {}", tx.module_id))?;
+    log::info!("Available modules in VM state ({} total):", state.modules.len());
+    for (id, module) in state.modules.iter() {
+        log::info!("  - {} (address: 0x{}, functions: {})", 
+                  id, module.address.to_hex(), 
+                  module.public_functions.join(", "));
+    }
     
-    // Validate if function exists
+    // Try direct dynamic loading from database first
+    let db_module = match direct_db_module_lookup(&tx.module_id) {
+        Ok(Some(module)) => {
+            log::info!("Found module directly from database: {}", module.module_id);
+            
+            // Register the module in VM state
+            if let Ok(mut vm_state) = VM_STATE.write() {
+                vm_state.register_module(module.clone());
+                log::info!("Dynamically registered module from database");
+                Some(module)
+            } else {
+                None
+            }
+        },
+        Ok(None) => None,
+        Err(e) => {
+            log::warn!("Error looking up module in database: {}", e);
+            None
+        }
+    };
+    
+    // Try to find module using variations
+    let module = match db_module {
+        Some(m) => Ok(m),
+        None => find_module_with_variations(&state, &tx.module_id)
+    }?;
+    
+    // Check if function exists in the module
     if !module.public_functions.contains(&tx.function) {
+        log::error!("Function '{}' not found in module {}. Available functions: {}", 
+                  tx.function, tx.module_id, module.public_functions.join(", "));
         return Err(format!("Function {} not found in module {}", tx.function, tx.module_id));
     }
     
-    // Fake execution
-    let gas_used = estimate_execution_gas(tx, module);
+    log::info!("Found module and function, executing transaction");
+    
+    // Rest of the existing execution logic...
+    let gas_used = estimate_execution_gas(tx, &module);
     let start = std::time::Instant::now();
     
     // Simulate execution by sleeping
@@ -224,6 +348,217 @@ pub fn execute_vm_transaction(tx: &VMTransaction) -> Result<JsonValue, String> {
     }
     
     Ok(result)
+}
+
+// New function for direct database lookup bypassing VM state
+fn direct_db_module_lookup(module_id: &str) -> Result<Option<VMModule>, String> {
+    // Try different variations of module ID
+    let variations = generate_module_id_variations(module_id);
+    
+    // Check database for each variation
+    for id in std::iter::once(module_id.to_string()).chain(variations) {
+        match db::get_module(&id) {
+            Ok(Some(stored_module)) => {
+                log::info!("Found module '{}' in database", stored_module.module_id);
+                
+                // Parse address from stored module
+                let address_str = if stored_module.address.starts_with("0x") {
+                    &stored_module.address[2..]
+                } else {
+                    &stored_module.address
+                };
+                
+                // Create module from database record
+                match AccountAddress::from_hex(address_str) {
+                    Ok(address) => {
+                        // Extract public functions from ABI
+                        let public_functions = match serde_json::from_str::<serde_json::Value>(&stored_module.abi) {
+                            Ok(abi) => {
+                                if let Some(funcs) = abi["public_functions"].as_array() {
+                                    funcs.iter()
+                                        .filter_map(|f| f["name"].as_str().map(|s| s.to_string()))
+                                        .collect()
+                                } else {
+                                    Vec::new()
+                                }
+                            },
+                            Err(_) => Vec::new()
+                        };
+                        
+                        // Create VM module
+                        return Ok(Some(VMModule::new(
+                            address,
+                            stored_module.name,
+                            stored_module.bytecode,
+                            public_functions,
+                            stored_module.deploy_block_height,
+                        )));
+                    },
+                    Err(e) => {
+                        log::warn!("Failed to parse address for module {}: {}", stored_module.module_id, e);
+                    }
+                }
+            },
+            Ok(None) => continue,
+            Err(e) => {
+                log::warn!("Error querying database for module {}: {:?}", id, e);
+            }
+        }
+    }
+    
+    Ok(None)
+}
+
+// Helper function to find a module with different address formats
+fn find_module_with_variations(state: &VMState, module_id: &str) -> Result<VMModule, String> {
+    // First try exact match
+    if let Some(module) = state.modules.get(module_id) {
+        return Ok(module.clone());
+    }
+    
+    // Log available modules for debugging
+    log::info!("Module '{}' not found in exact match. Available modules:", module_id);
+    for (id, module) in state.modules.iter() {
+        log::info!("  - {} (address: 0x{})", id, module.address.to_hex());
+    }
+    
+    // Try with different address formats
+    let variations = generate_module_id_variations(module_id);
+    log::info!("Trying {} variations of module ID", variations.len());
+    
+    for variant in &variations {
+        log::info!("Trying variation: {}", variant);
+        if let Some(module) = state.modules.get(variant) {
+            log::info!("Found module using alternate format: {} → {}", module_id, variant);
+            return Ok(module.clone());
+        }
+    }
+    
+    // Try case-insensitive partial matching (more flexible)
+    let module_id_lower = module_id.to_lowercase();
+    for (id, module) in state.modules.iter() {
+        if id.to_lowercase().contains(&module_id_lower) || 
+           module_id_lower.contains(&id.to_lowercase()) {
+            log::info!("Found module using partial match: {} → {}", module_id, id);
+            return Ok(module.clone());
+        }
+    }
+    
+    // Try direct match with the database
+    log::info!("Trying to load module '{}' from database", module_id);
+    let results = match db::list_modules(100, 0) {
+        Ok(modules) => modules,
+        Err(e) => {
+            log::error!("Error loading modules from database: {:?}", e);
+            return Err(format!("Module not found: {} (database error)", module_id));
+        }
+    };
+    
+    // Check if any module in database matches
+    for stored_module in results {
+        if stored_module.module_id.to_lowercase() == module_id.to_lowercase() || 
+           variations.iter().any(|v| v.to_lowercase() == stored_module.module_id.to_lowercase()) {
+            
+            log::info!("Found module '{}' in database, loading into VM state", stored_module.module_id);
+            
+            // Parse address from stored module
+            let address_str = if stored_module.address.starts_with("0x") {
+                &stored_module.address[2..]
+            } else {
+                &stored_module.address
+            };
+            
+            // Create and register the module in VM state
+            match AccountAddress::from_hex(address_str) {
+                Ok(address) => {
+                    // Extract public functions from ABI
+                    let public_functions = match serde_json::from_str::<serde_json::Value>(&stored_module.abi) {
+                        Ok(abi) => {
+                            if let Some(funcs) = abi["public_functions"].as_array() {
+                                funcs.iter()
+                                    .filter_map(|f| f["name"].as_str().map(|s| s.to_string()))
+                                    .collect()
+                            } else {
+                                Vec::new()
+                            }
+                        },
+                        Err(_) => Vec::new()
+                    };
+                    
+                    // Create VM module from database record
+                    let vm_module = VMModule::new(
+                        address,
+                        stored_module.name,
+                        stored_module.bytecode,
+                        public_functions,
+                        stored_module.deploy_block_height,
+                    );
+                    
+                    // Register module dynamically
+                    let mut vm_state = VM_STATE.write().map_err(|e| {
+                        format!("Failed to acquire write lock on VM_STATE: {}", e)
+                    })?;
+                    
+                    vm_state.register_module(vm_module.clone());
+                    log::info!("Successfully registered module {} from database", stored_module.module_id);
+                    
+                    // Find the module in state again (now that it's registered)
+                    if let Some(module) = vm_state.modules.get(&vm_module.module_id) {
+                        return Ok(module.clone());
+                    }
+                    
+                    if let Some(module) = vm_state.modules.get(module_id) {
+                        return Ok(module.clone());
+                    }
+                    
+                    // If still not found, return the error with more context
+                    return Err(format!("Module registered but not found in VM state: {}", module_id));
+                },
+                Err(e) => {
+                    log::warn!("Failed to parse address for module {}: {}", stored_module.module_id, e);
+                }
+            }
+        }
+    }
+    
+    // If we still haven't found the module, log detailed diagnostics and return error
+    Err(format!("Module not found after all attempts: {}", module_id))
+}
+
+// Enhanced generate_module_id_variations function
+fn generate_module_id_variations(module_id: &str) -> Vec<String> {
+    let mut variations = Vec::new();
+    
+    // Split module ID into address and name parts
+    if let Some((addr_part, name_part)) = module_id.split_once("::") {
+        // Try with and without 0x prefix
+        if addr_part.starts_with("0x") {
+            variations.push(format!("{}::{}", &addr_part[2..], name_part));
+        } else {
+            variations.push(format!("0x{}::{}", addr_part, name_part));
+        }
+        
+        // Try lowercase and uppercase variants
+        variations.push(format!("{}::{}", addr_part.to_lowercase(), name_part));
+        variations.push(format!("{}::{}", addr_part.to_uppercase(), name_part));
+        
+        // Try with various length paddings (common issue with leading zeros)
+        if let Some(addr_without_prefix) = addr_part.strip_prefix("0x") {
+            // Try without leading zeros
+            if let Some(non_zero_pos) = addr_without_prefix.find(|c| c != '0') {
+                if non_zero_pos > 0 {
+                    let trimmed = &addr_without_prefix[non_zero_pos..];
+                    variations.push(format!("0x{}::{}", trimmed, name_part));
+                }
+            }
+            
+            // Try with full padding to 64 chars
+            let padded = format!("{:0>64}", addr_without_prefix);
+            variations.push(format!("0x{}::{}", padded, name_part));
+        }
+    }
+    
+    variations
 }
 
 // Convert blockchain transaction to VM transaction
@@ -755,6 +1090,16 @@ impl Publish {
         if modules.is_empty() {
             return Err(anyhow::anyhow!("No modules to deploy"));
         }
+        
+        // List of blockchain transactions to submit
+        let mut blockchain_transactions = Vec::new();
+        
+        // Gas fee collector address (for blockchain transaction)
+        let _gas_collector = match AccountAddress::from_hex_literal(
+            "0x47621776628ba3a5b9baaab38e61f4c98e893e124204bc4dad52e702e2b24ea1") {
+            Ok(addr) => addr,
+            Err(_) => *address // Fallback to module address if gas collector is invalid
+        };
     
         for (idx, module_json) in modules.iter().enumerate() {
             let module_name = module_json["name"].as_str().unwrap_or("unknown");
@@ -801,6 +1146,37 @@ impl Publish {
             let gas_used = mona_types::gas::calculate_gas_fee(Some(priority_boost));
             total_gas_used += gas_used;
             
+            // Create actual blockchain transaction for this module deployment
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+                
+            // Prepare transaction data - VM module deployment format
+            let mut tx_data = Vec::new();
+            // Format: "VM_MODULE:<module_name>:<size>:<hash>"
+            let module_hash = {
+                let mut hasher = Sha3_256::new();
+                hasher.update(&bytecode);
+                hex::encode(hasher.finalize())
+            };
+            let data_str = format!("VM_MODULE:{}:{}:{}", module_name, bytecode.len(), module_hash);
+            tx_data.extend_from_slice(data_str.as_bytes());
+            
+            // Create blockchain transaction for this module
+            let blockchain_tx = mona_blockchain::block::Transaction {
+                transaction_id: format!("{}_{}", deploy_tx_id, module_name),
+                sender: (*address).into(),
+                receiver: (*address).into(), // Send to self for module deployment
+                amount: 0, // No tokens transferred for module deployment
+                timestamp,
+                gas_fee: gas_used,
+                signature: signature.clone().unwrap_or_default(),
+                data: Some(tx_data), // Include module data
+            };
+            
+            blockchain_transactions.push(blockchain_tx);
+            
             // บันทึกโมดูลลงฐานข้อมูล
             let module_abi = serde_json::to_string(module_json).unwrap_or_else(|_| "{}".to_string());
             info!("Storing module {} in database", module_id);
@@ -822,7 +1198,27 @@ impl Publish {
             }
             
             info!("Registering module {} in VM_STATE", module_id);
-            vm_state.register_module(vm_module);
+            
+            // Make absolutely sure module is registered in a way that can be found later
+            // Make sure to register with both formats (with and without 0x prefix)
+            let _alt_module_id = if module_id.starts_with("0x") {
+                module_id[2..].to_string()
+            } else {
+                format!("0x{}", module_id)
+            };
+            
+            // Register with original module ID
+            vm_state.register_module(vm_module.clone());
+            
+            // Also register under full address with padding for maximum compatibility
+            let padded_addr = format!("{:0>64}", address.to_hex());
+            let full_module_id = format!("0x{}::{}", padded_addr, module_name);
+            
+            log::info!("Also registering module under ID: {}", full_module_id);
+            let mut vm_module_copy = vm_module.clone();
+            vm_module_copy.module_id = full_module_id;
+            vm_state.register_module(vm_module_copy);
+            
             modules_deployed += 1;
             
             info!(
@@ -860,6 +1256,17 @@ impl Publish {
         // Drop VM_STATE lock
         drop(vm_state);
         info!("Released VM_STATE lock");
+
+        // Submit transactions to blockchain queue
+        info!("Submitting {} module deployment transactions to blockchain", blockchain_transactions.len());
+        for tx in blockchain_transactions {
+            let tx_id = tx.transaction_id.clone(); // Clone the ID before tx is moved
+            if let Err(e) = submit_transaction(tx) {
+                warn!("Failed to submit module transaction to blockchain: {}", e);
+            } else {
+                info!("Module transaction submitted to blockchain queue: {}", tx_id);
+            }
+        }
     
         let result = DeploymentResult {
             transaction_id: deploy_tx_id,
@@ -969,4 +1376,18 @@ fn generate_random_hex(length: usize) -> String {
             CHARSET[idx] as char
         })
         .collect()
+}
+
+// Utility function to clone a VMModule for multiple registrations
+impl Clone for VMModule {
+    fn clone(&self) -> Self {
+        Self {
+            module_id: self.module_id.clone(),
+            address: self.address,
+            name: self.name.clone(),
+            bytecode: self.bytecode.clone(),
+            public_functions: self.public_functions.clone(),
+            deploy_block_height: self.deploy_block_height,
+        }
+    }
 }
