@@ -223,9 +223,39 @@ fn process_vm_transaction(transaction: &Transaction, tx: &mpsc::Sender<String>) 
         info!("Processing VM transaction: {} -> {}.{}", 
               transaction.transaction_id, vm_tx.module_id, vm_tx.function);
         
-        // Execute VM transaction
+        // Debug output to troubleshoot module and function calls
+        log::debug!("VM Transaction details:");
+        log::debug!("  Module ID: {}", vm_tx.module_id);
+        log::debug!("  Function: {}", vm_tx.function);
+        log::debug!("  Sender: {}", vm_tx.sender);
+        log::debug!("  Args count: {}", vm_tx.args.len());
+        log::debug!("  Gas budget: {}", vm_tx.gas_budget);
+        
+        // Notify about VM transaction start
+        let start_json = json!({
+            "event": "vm_transaction_started",
+            "transaction_id": transaction.transaction_id,
+            "vm_transaction": {
+                "module": vm_tx.module_id,
+                "function": vm_tx.function
+            },
+            "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+        }).to_string();
+        
+        let _ = tx.try_send(start_json);
+        
+        // Execute VM transaction with enhanced error handling
         match execute_vm_transaction(&vm_tx) {
             Ok(result) => {
+                // Extract result data for better presentation
+                let success = result.get("status").and_then(|s| s.as_str()).unwrap_or("unknown") == "success";
+                let gas_used = result.get("gas_used").and_then(|g| g.as_u64()).unwrap_or(0);
+                let gas_display = result.get("gas_display").and_then(|g| g.as_str()).unwrap_or("");
+                let execution_time = result.get("execution_time_ms").and_then(|t| t.as_u64()).unwrap_or(0);
+                
+                // Determine status string before using in json! macro
+                let status_str = if success { "success" } else { "failed" };
+                
                 // Notify about VM transaction execution
                 let result_json = json!({
                     "event": "vm_transaction_executed",
@@ -233,19 +263,31 @@ fn process_vm_transaction(transaction: &Transaction, tx: &mpsc::Sender<String>) 
                     "vm_transaction": {
                         "module": vm_tx.module_id,
                         "function": vm_tx.function,
-                        "gas_used": result["gas_used"],
-                        "gas_display": result["gas_display"],
-                        "execution_time_ms": result["execution_time_ms"]
+                        "gas_used": gas_used,
+                        "gas_display": gas_display,
+                        "execution_time_ms": execution_time
                     },
-                    "status": "success",
+                    "status": status_str,
+                    "result": result,
                     "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
                 }).to_string();
                 
                 let _ = tx.try_send(result_json);
+                info!("VM transaction completed successfully: {} -> {}.{} ({}ms, {} gas)",
+                      transaction.transaction_id, vm_tx.module_id, vm_tx.function, execution_time, gas_used);
                 true
             },
             Err(e) => {
-                // Notify about VM transaction failure
+                // Provide more detailed error information
+                let error_type = if e.contains("not found") {
+                    "module_not_found"
+                } else if e.contains("Function") && e.contains("not found") {
+                    "function_not_found"
+                } else {
+                    "execution_error"
+                };
+                
+                // Notify about VM transaction failure with more details
                 let error_json = json!({
                     "event": "vm_transaction_error",
                     "transaction_id": transaction.transaction_id,
@@ -254,12 +296,16 @@ fn process_vm_transaction(transaction: &Transaction, tx: &mpsc::Sender<String>) 
                         "function": vm_tx.function
                     },
                     "error": e,
+                    "error_type": error_type,
+                    "suggestions": get_error_suggestions(error_type, &vm_tx),
                     "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
                 }).to_string();
                 
                 let _ = tx.try_send(error_json);
-                warn!("VM transaction execution failed: {}", e);
-                false
+                warn!("VM transaction execution failed: {} ({})", e, error_type);
+                
+                // Return true to indicate we handled this transaction (even though it failed)
+                true
             }
         }
     } else {
@@ -268,7 +314,35 @@ fn process_vm_transaction(transaction: &Transaction, tx: &mpsc::Sender<String>) 
     }
 }
 
-// Improved verify_transaction_processing to handle VM module deployments
+// New helper function to provide suggestions for VM errors
+fn get_error_suggestions(error_type: &str, vm_tx: &VMTransaction) -> Vec<String> {
+    match error_type {
+        "module_not_found" => {
+            vec![
+                format!("Make sure module '{}' was deployed correctly", vm_tx.module_id),
+                "Check the module ID format - it should be 0xADDRESS::module_name".to_string(),
+                "Run 'kari move publish' to deploy your module first".to_string(),
+            ]
+        },
+        "function_not_found" => {
+            vec![
+                format!("Make sure the function '{}' exists in module '{}'", vm_tx.function, vm_tx.module_id),
+                "Function names are case-sensitive in Move".to_string(),
+                "Only public functions can be called externally".to_string(),
+                format!("Try 'kari move inspect --module-id {}' to see available functions", vm_tx.module_id),
+            ]
+        },
+        _ => {
+            vec![
+                "Check your transaction arguments".to_string(),
+                "Ensure your module doesn't have runtime errors".to_string(),
+                "Try redeploying the module with 'kari move publish'".to_string(),
+            ]
+        }
+    }
+}
+
+// Enhanced verify_transaction_processing to handle VM module deployments
 fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sender<String>) {
     for transaction in transactions {
         log::info!("Verifying transaction: {}", transaction.transaction_id);
@@ -303,12 +377,20 @@ fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sen
                             continue; // Skip standard transaction processing for module deployments
                         }
                     }
-                }
-                
-                // Try processing as VM function call transaction
-                if process_vm_transaction(transaction, tx) {
-                    // VM transaction was processed, continue to next transaction
-                    continue;
+                    
+                    // Check for VM function call format and process it prioritizing even if we
+                    // don't recognize the exact format but it looks like a VM transaction
+                    if data_str.starts_with("VM:") || data_str.contains("::") {
+                        if process_vm_transaction(transaction, tx) {
+                            // VM transaction was processed, continue to next transaction
+                            continue;
+                        }
+                    }
+                } else {
+                    // Try processing as VM transaction even if we can't interpret the data as UTF-8
+                    if process_vm_transaction(transaction, tx) {
+                        continue;
+                    }
                 }
             }
         }
@@ -357,32 +439,6 @@ fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sen
     }
 }
 
-// Updated submit_transaction_to_blockchain helper function
-fn submit_transaction_to_blockchain(transaction: &Transaction) -> bool {
-    // Make sure the blockchain can access this transaction
-    let result = mona_blockchain::blockchain::submit_transaction(transaction.clone());
-    
-    match result {
-        Ok(_) => {
-            debug!(
-                "Transaction {} submitted to blockchain: {} -> {} ({} {}A)", 
-                transaction.transaction_id, 
-                transaction.sender,
-                transaction.receiver,
-                transaction.amount,
-                "KARI"
-            );
-            
-            // Also add to pending transaction queue for the next block
-            add_pending_transaction(transaction.clone());
-            true
-        },
-        Err(e) => {
-            error!("Failed to submit transaction to blockchain: {}", e);
-            false
-        }
-    }
-}
 
 // Add this function to process transactions more reliably for each block
 fn process_pending_transactions() -> Vec<Transaction> {

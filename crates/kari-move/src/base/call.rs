@@ -12,17 +12,23 @@ use common::*;
 #[clap(
     about = "Call functions in deployed Move modules on the blockchain",
     after_help = "EXAMPLES:
-    # Call a function with no arguments
-    kari move call --module-id 0x123::coin --function transfer
+    # Call a function that returns information (no arguments needed)
+    kari move call --module-id 0x123::token --function check_info
 
-    # Call a function with typed arguments
-    kari move call --module-id 0x123::coin --function transfer --args address:0x456,u64:100
+    # Mint tokens to an address
+    kari move call --module-id 0x123::token --function mint --args address:0x456,u64:100
+
+    # Burn tokens
+    kari move call --module-id 0x123::token --function burn --args address:0x456
+
+    # Block an address
+    kari move call --module-id 0x123::token --function deny_list_add_admin --args address:0x456
 
     # Specify gas budget
-    kari move call --module-id 0x123::coin --function transfer --gas-budget=5000000
+    kari move call --module-id 0x123::token --function transfer --gas-budget=5000000
 
     # Call from a specific address
-    kari move call --module-id 0x123::coin --function transfer --address=0x789"
+    kari move call --module-id 0x123::token --function transfer --address=0x789"
 )]
 pub struct Call {
     /// Module ID in format <address>::<module_name>
@@ -50,6 +56,15 @@ pub struct Call {
 
 impl Call {
     pub fn execute(self) -> Result<()> {
+        // Check if module_id and function are provided
+        if self.module_id.is_empty() {
+            return Err(anyhow::anyhow!("Module ID is required. Use --module-id <address>::<module_name>"));
+        }
+        
+        if self.function.is_empty() {
+            return Err(anyhow::anyhow!("Function name is required. Use --function <name>"));
+        }
+        
         // Parse module_id into address and module name
         let parts: Vec<&str> = self.module_id.split("::").collect();
         if parts.len() != 2 {
@@ -102,6 +117,8 @@ impl Call {
             for (i, arg) in self.args.iter().enumerate() {
                 println!("  {}. {}", i+1, arg);
             }
+        } else {
+            println!("📝 No arguments provided");
         }
         
         // Create timer to measure call duration
@@ -120,6 +137,8 @@ impl Call {
         let mut attempts = 0;
         let max_attempts = 3;
         let mut last_error = None;
+        
+        println!("\n⏳ Executing function call on blockchain...");
         
         while attempts < max_attempts {
             match execute_vm_transaction(&vm_tx) {
@@ -145,8 +164,17 @@ impl Call {
                     attempts += 1;
                     last_error = Some(e.clone());
                     
-                    if e.contains("Module not found") && attempts < max_attempts {
-                        println!("⚠️ Module not found, retrying ({}/{})", attempts, max_attempts);
+                    if attempts < max_attempts {
+                        println!("⚠️ Attempt {}/{} failed: {}", attempts, max_attempts, e);
+                        
+                        if e.contains("Module not found") {
+                            println!("  💡 Check if the module ID is correct. Are you using the right address?");
+                        } else if e.contains("Function not found") {
+                            println!("  💡 Check if the function name is correct and public/entry.");
+                        } else if e.contains("Argument") {
+                            println!("  💡 Check if you provided the correct number and types of arguments.");
+                        }
+                        
                         // Wait briefly before retrying
                         std::thread::sleep(std::time::Duration::from_millis(500));
                         continue;
@@ -172,7 +200,59 @@ impl Call {
                     // Print the error
                     println!("\n❌ Function call failed after {:.2?} ({} attempts)", duration, attempts);
                     println!("Error: {}\n", e);
-                    println!("Error Details: {}", serde_json::to_string_pretty(&error_result)?);
+                    
+                    // Add helpful suggestions based on error
+                    if e.contains("Module not found") {
+                        println!("💡 Suggestion: Check if your module ID is correct. The module should be deployed at {}.", full_module_id);
+                        println!("💡 Try using shorter address format or check capitalization.");
+                        
+                        // Try to suggest available modules
+                        if let Ok(vm_state) = VM_STATE.read() {
+                            let similar_modules: Vec<&String> = vm_state.modules.keys()
+                                .filter(|key| key.contains(module_name))
+                                .collect();
+                                
+                            if !similar_modules.is_empty() {
+                                println!("\n🔍 Found similar modules that might match what you're looking for:");
+                                for (idx, module) in similar_modules.iter().enumerate().take(5) {
+                                    println!("   {}. {}", idx+1, module);
+                                }
+                                
+                                // Suggest a command with one of the found modules
+                                if !similar_modules.is_empty() {
+                                    println!("\n💡 Try:");
+                                    println!("   kari move call --module-id {} --function {}", 
+                                            similar_modules[0], self.function);
+                                }
+                            }
+                        }
+                    }
+                    else if e.contains("Function") && e.contains("not found") {
+                        println!("💡 Suggestion: Check if the function '{}' exists and is public/entry.", self.function);
+                        
+                        // Try to suggest available functions
+                        if let Ok(vm_state) = VM_STATE.read() {
+                            if let Some(module) = vm_state.modules.get(&full_module_id) {
+                                println!("\n🔍 Available functions in this module:");
+                                for (idx, func) in module.public_functions.iter().enumerate() {
+                                    println!("   {}. {}", idx+1, func);
+                                }
+                                
+                                // Suggest a command with one of the available functions
+                                if !module.public_functions.is_empty() {
+                                    println!("\n💡 Try:");
+                                    println!("   kari move call --module-id {} --function {}", 
+                                            full_module_id, module.public_functions[0]);
+                                }
+                            }
+                        }
+                    }
+                    else if e.contains("argument") || e.contains("parameter") {
+                        println!("💡 Suggestion: Check the number and types of arguments required for this function.");
+                        println!("💡 Arguments should be in the format: <type>:<value> e.g., address:0x123,u64:100");
+                    }
+                    
+                    println!("\nError Details: {}", serde_json::to_string_pretty(&error_result)?);
                     
                     break;
                 }

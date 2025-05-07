@@ -68,12 +68,8 @@ fn load_modules_from_db(state_arc: &Arc<RwLock<VMState>>) -> Result<(), String> 
             
             if let Ok(mut state) = state_arc.write() {
                 for stored_module in modules {
-                    // Parse address from stored module
-                    let address_str = if stored_module.address.starts_with("0x") {
-                        &stored_module.address[2..]
-                    } else {
-                        &stored_module.address
-                    };
+                    // Parse address with better handling of 0x prefix
+                    let address_str = stored_module.address.trim_start_matches("0x");
                     
                     match AccountAddress::from_hex(address_str) {
                         Ok(address) => {
@@ -96,33 +92,60 @@ fn load_modules_from_db(state_arc: &Arc<RwLock<VMState>>) -> Result<(), String> 
                                         Vec::new()
                                     }
                                 },
-                                Err(_) => Vec::new()
+                                Err(e) => {
+                                    log::warn!("Error parsing ABI for module {}: {}", stored_module.module_id, e);
+                                    Vec::new()
+                                }
                             };
                             
-                            // Create and register module
+                            // Create VM module - Clone values that will be used again later
                             let vm_module = VMModule::new(
                                 address,
-                                stored_module.name,
-                                stored_module.bytecode,
-                                public_functions,
+                                stored_module.name.clone(), // Clone the name to avoid move
+                                stored_module.bytecode.clone(),
+                                public_functions.clone(), // Clone public_functions to avoid move
                                 stored_module.deploy_block_height,
                             );
                             
-                            state.register_module(vm_module);
+                            // Register using original module ID for exact matching
+                            state.register_module(vm_module.clone());
+                            
+                            // Also register with full 0x prefix format 
+                            let full_addr = format!("0x{}", address.to_hex());
+                            let full_module_id = format!("{}::{}", full_addr, stored_module.name);
+                            let mut alt_module = vm_module.clone();
+                            alt_module.module_id = full_module_id;
+                            state.register_module(alt_module);
+                            
+                            // Additionally register with the exact stored module_id
+                            // to ensure calls with the exact same format work
+                            let mut exact_module = vm_module.clone();
+                            exact_module.module_id = stored_module.module_id.clone(); // Clone to avoid move
+                            state.register_module(exact_module);
+                            
+                            log::info!("Successfully registered module {} with {} public functions", 
+                                      stored_module.module_id, public_functions.len());
                         },
                         Err(e) => {
-                            log::warn!("Failed to parse address for module {}: {}", stored_module.module_id, e);
+                            log::error!("Failed to parse address for module {}: {}", stored_module.module_id, e);
                         }
                     }
                 }
                 
-                log::info!("Successfully loaded {} modules into VM state", state.modules.len());
+                // Log all registered modules for diagnostics
+                log::info!("VM state now contains {} modules:", state.modules.len());
+                for (id, module) in &state.modules {
+                    log::info!("  - {} (functions: {})", 
+                             id, module.public_functions.join(", "));
+                }
+                
                 Ok(())
             } else {
                 Err("Failed to acquire write lock on VM_STATE".into())
             }
         },
         Err(e) => {
+            log::error!("Failed to list modules from database: {:?}", e);
             Err(format!("Failed to list modules from database: {:?}", e))
         }
     }
@@ -289,11 +312,28 @@ pub fn execute_vm_transaction(tx: &VMTransaction) -> Result<JsonValue, String> {
         None => find_module_with_variations(&state, &tx.module_id)
     }?;
     
-    // Check if function exists in the module
-    if !module.public_functions.contains(&tx.function) {
+    // Check if function exists in the module - IMPROVED with case-insensitive matching
+    let function_lower = tx.function.to_lowercase();
+    let available_functions = &module.public_functions;
+    
+    // Debug the available functions and the requested function
+    log::info!("Requested function (lowercase): '{}'", function_lower);
+    log::info!("Available functions in module {}:", module.module_id);
+    for (i, func) in available_functions.iter().enumerate() {
+        log::info!("  {}. '{}' (lowercase: '{}')", i+1, func, func.to_lowercase());
+    }
+    
+    // Case-insensitive function lookup
+    let matching_function = available_functions.iter()
+        .find(|&f| f.to_lowercase() == function_lower);
+    
+    if let Some(function_name) = matching_function {
+        log::info!("Found matching function: '{}' for requested '{}'", function_name, tx.function);
+    } else {
         log::error!("Function '{}' not found in module {}. Available functions: {}", 
-                  tx.function, tx.module_id, module.public_functions.join(", "));
-        return Err(format!("Function {} not found in module {}", tx.function, tx.module_id));
+                  tx.function, tx.module_id, available_functions.join(", "));
+        return Err(format!("Function '{}' not found in module {}. Available functions: {}", 
+                         tx.function, module.module_id, available_functions.join(", ")));
     }
     
     log::info!("Found module and function, executing transaction");
@@ -454,7 +494,7 @@ fn find_module_with_variations(state: &VMState, module_id: &str) -> Result<VMMod
         }
     };
     
-    // Check if any module in database matches
+    // Check if any module in database matches - FIX TYPO in toLowerCase
     for stored_module in results {
         if stored_module.module_id.to_lowercase() == module_id.to_lowercase() || 
            variations.iter().any(|v| v.to_lowercase() == stored_module.module_id.to_lowercase()) {
@@ -471,48 +511,66 @@ fn find_module_with_variations(state: &VMState, module_id: &str) -> Result<VMMod
             // Create and register the module in VM state
             match AccountAddress::from_hex(address_str) {
                 Ok(address) => {
-                    // Extract public functions from ABI
+                    // Extract public functions from ABI with improved debugging
                     let public_functions = match serde_json::from_str::<serde_json::Value>(&stored_module.abi) {
                         Ok(abi) => {
                             if let Some(funcs) = abi["public_functions"].as_array() {
-                                funcs.iter()
+                                let extracted_functions: Vec<String> = funcs.iter()
                                     .filter_map(|f| f["name"].as_str().map(|s| s.to_string()))
-                                    .collect()
+                                    .collect();
+                                
+                                log::info!("Extracted {} public functions from module: {}", 
+                                          extracted_functions.len(),
+                                          extracted_functions.join(", "));
+                                extracted_functions
                             } else {
+                                log::warn!("No public_functions array found in module ABI");
                                 Vec::new()
                             }
                         },
-                        Err(_) => Vec::new()
+                        Err(e) => {
+                            log::warn!("Failed to parse module ABI: {}", e);
+                            Vec::new()
+                        }
                     };
                     
                     // Create VM module from database record
                     let vm_module = VMModule::new(
                         address,
-                        stored_module.name,
-                        stored_module.bytecode,
+                        stored_module.name.clone(),
+                        stored_module.bytecode.clone(),
                         public_functions,
                         stored_module.deploy_block_height,
                     );
                     
-                    // Register module dynamically
+                    // Register module dynamically - with all common variations
                     let mut vm_state = VM_STATE.write().map_err(|e| {
                         format!("Failed to acquire write lock on VM_STATE: {}", e)
                     })?;
                     
+                    // Register with original ID
                     vm_state.register_module(vm_module.clone());
-                    log::info!("Successfully registered module {} from database", stored_module.module_id);
                     
-                    // Find the module in state again (now that it's registered)
-                    if let Some(module) = vm_state.modules.get(&vm_module.module_id) {
-                        return Ok(module.clone());
-                    }
+                    // Register with exact stored module ID
+                    let mut exact_module = vm_module.clone();
+                    exact_module.module_id = stored_module.module_id.clone();
+                    vm_state.register_module(exact_module);
                     
+                    // Also register with requested module ID for exact match later
+                    let mut requested_module = vm_module.clone();
+                    requested_module.module_id = module_id.to_string();
+                    vm_state.register_module(requested_module);
+                    
+                    log::info!("Successfully registered module {} from database with multiple IDs", 
+                               stored_module.module_id);
+                    
+                    // Try to find the module in state with the original requested ID first
                     if let Some(module) = vm_state.modules.get(module_id) {
                         return Ok(module.clone());
                     }
                     
-                    // If still not found, return the error with more context
-                    return Err(format!("Module registered but not found in VM state: {}", module_id));
+                    // Otherwise return the module we just created
+                    return Ok(vm_module);
                 },
                 Err(e) => {
                     log::warn!("Failed to parse address for module {}: {}", stored_module.module_id, e);
@@ -975,6 +1033,7 @@ impl Publish {
                     "transaction_id": deployment_result.transaction_id,
                     "status": deployment_result.status,
                     "block_height": deployment_result.block_height,
+                    "modules_deployed": deployment_result.modules_deployed,
                     "timestamp": SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .unwrap_or_default()

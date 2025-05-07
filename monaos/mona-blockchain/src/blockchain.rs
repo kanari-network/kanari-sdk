@@ -262,22 +262,8 @@ pub fn get_address_balance(address: &Address) -> Result<u64, BlockchainError> {
 
 // Improved submit_transaction function with better logging
 pub fn submit_transaction(transaction: block::Transaction) -> Result<(), BlockchainError> {
-    // Log transaction details
-    let tx_type = if let Some(data) = &transaction.data {
-        if let Ok(data_str) = std::str::from_utf8(data) {
-            if data_str.starts_with("VM_MODULE:") {
-                "VM Module Deployment"
-            } else if data_str.starts_with("VM:") {
-                "VM Function Call"
-            } else {
-                "Data Transaction"
-            }
-        } else {
-            "Binary Data Transaction"
-        }
-    } else {
-        "Token Transfer"
-    };
+    // Get transaction type for better logging
+    let tx_type = transaction.get_transaction_type();
     
     log::info!(
         "Submitting transaction: {} (type: {}, id: {})",
@@ -285,6 +271,24 @@ pub fn submit_transaction(transaction: block::Transaction) -> Result<(), Blockch
         transaction.transaction_id,
         hex::encode(&transaction.transaction_id.as_bytes()[..8])
     );
+    
+    // Provide detailed VM transaction info if applicable
+    if tx_type == "VM_FUNCTION_CALL" {
+        if let Some(data) = &transaction.data {
+            if let Ok(data_str) = std::str::from_utf8(data) {
+                if data_str.starts_with("VM:") {
+                    let parts: Vec<&str> = data_str.split(':').collect();
+                    if parts.len() >= 3 {
+                        log::info!(
+                            "VM function call: module={}, function={}", 
+                            parts.get(1).unwrap_or(&"unknown"), 
+                            parts.get(2).unwrap_or(&"unknown")
+                        );
+                    }
+                }
+            }
+        }
+    }
     
     // Add to pending transaction queue
     let mut transactions = match PENDING_TRANSACTIONS.lock() {
@@ -298,34 +302,34 @@ pub fn submit_transaction(transaction: block::Transaction) -> Result<(), Blockch
     Ok(())
 }
 
-// Enhanced function to prioritize module deployment transactions
+// Enhanced function to prioritize VM function calls
 pub fn get_next_block_transactions(max_count: usize) -> Vec<block::Transaction> {
     let mut result = Vec::new();
     
     // Try to get pending transactions
     if let Ok(mut queue) = PENDING_TRANSACTIONS.lock() {
-        // First pass: prioritize VM module deployments
+        // First pass: prioritize modules, then VM function calls
+        let mut vm_function_calls = VecDeque::new();
         let mut regular_txs = VecDeque::new();
         
         while let Some(tx) = queue.pop_front() {
-            // Check if it's a module deployment transaction
-            let is_module_deployment = if let Some(data) = &tx.data {
-                if let Ok(data_str) = std::str::from_utf8(data) {
-                    data_str.starts_with("VM_MODULE:")
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
+            // Check transaction type and prioritize accordingly
+            let tx_type = tx.get_transaction_type();
             
-            if is_module_deployment {
-                // Prioritize module deployments
-                log::info!("Prioritizing module deployment transaction: {}", tx.transaction_id);
-                result.push(tx);
-            } else {
-                // Save regular transactions for second pass
-                regular_txs.push_back(tx);
+            match tx_type {
+                "VM_MODULE_DEPLOYMENT" => {
+                    // Highest priority - module deployments
+                    log::info!("Prioritizing module deployment transaction: {}", tx.transaction_id);
+                    result.push(tx);
+                },
+                "VM_FUNCTION_CALL" => {
+                    // Medium priority - VM function calls
+                    vm_function_calls.push_back(tx);
+                },
+                _ => {
+                    // Lowest priority - regular transactions
+                    regular_txs.push_back(tx);
+                }
             }
             
             if result.len() >= max_count {
@@ -333,7 +337,15 @@ pub fn get_next_block_transactions(max_count: usize) -> Vec<block::Transaction> 
             }
         }
         
-        // Second pass: add regular transactions until we reach max_count
+        // Add VM function calls next, up to max_count
+        while result.len() < max_count && !vm_function_calls.is_empty() {
+            if let Some(tx) = vm_function_calls.pop_front() {
+                log::info!("Including VM function call: {}", tx.transaction_id);
+                result.push(tx);
+            }
+        }
+        
+        // Finally add regular transactions
         while result.len() < max_count && !regular_txs.is_empty() {
             if let Some(tx) = regular_txs.pop_front() {
                 result.push(tx);
@@ -341,13 +353,18 @@ pub fn get_next_block_transactions(max_count: usize) -> Vec<block::Transaction> 
         }
         
         // Return any unused transactions back to the queue
+        while let Some(tx) = vm_function_calls.pop_front() {
+            queue.push_back(tx);
+        }
+        
         while let Some(tx) = regular_txs.pop_front() {
             queue.push_back(tx);
         }
         
-        log::debug!("Got {} transactions for next block ({} module deployments), {} remain in queue", 
+        log::debug!("Got {} transactions for next block ({} VM calls, {} regular), {} remain in queue", 
                    result.len(), 
-                   result.iter().filter(|tx| tx.data.as_ref().map_or(false, |d| String::from_utf8_lossy(d).starts_with("VM_MODULE:"))).count(),
+                   result.iter().filter(|tx| tx.is_vm_transaction()).count(),
+                   result.iter().filter(|tx| !tx.is_vm_transaction() && !tx.is_vm_module_deployment()).count(),
                    queue.len());
     } else {
         log::warn!("Failed to lock transaction queue, creating empty block");
