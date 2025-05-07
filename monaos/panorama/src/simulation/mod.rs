@@ -231,6 +231,38 @@ fn process_vm_transaction(transaction: &Transaction, tx: &mpsc::Sender<String>) 
         log::debug!("  Args count: {}", vm_tx.args.len());
         log::debug!("  Gas budget: {}", vm_tx.gas_budget);
         
+        // Check if module exists before execution
+        let module_exists = match crate::check_module_exists(&vm_tx.module_id) {
+            Ok(exists) => exists,
+            Err(e) => {
+                warn!("Error checking module existence: {}", e);
+                false
+            }
+        };
+        
+        if !module_exists {
+            warn!("Module {} not found, VM transaction will fail", vm_tx.module_id);
+            
+            // Notify about missing module
+            let error_json = json!({
+                "event": "vm_transaction_error",
+                "transaction_id": transaction.transaction_id,
+                "vm_transaction": {
+                    "module": vm_tx.module_id,
+                    "function": vm_tx.function
+                },
+                "error": format!("Module {} not found", vm_tx.module_id),
+                "error_type": "module_not_found",
+                "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+            });
+            
+            // Store error result for later retrieval
+            crate::store_vm_transaction_result(&transaction.transaction_id, error_json.clone());
+            
+            let _ = tx.try_send(error_json.to_string());
+            return true;
+        }
+        
         // Notify about VM transaction start
         let start_json = json!({
             "event": "vm_transaction_started",
@@ -270,9 +302,12 @@ fn process_vm_transaction(transaction: &Transaction, tx: &mpsc::Sender<String>) 
                     "status": status_str,
                     "result": result,
                     "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
-                }).to_string();
+                });
                 
-                let _ = tx.try_send(result_json);
+                // Store result for later retrieval
+                crate::store_vm_transaction_result(&transaction.transaction_id, result_json.clone());
+                
+                let _ = tx.try_send(result_json.to_string());
                 info!("VM transaction completed successfully: {} -> {}.{} ({}ms, {} gas)",
                       transaction.transaction_id, vm_tx.module_id, vm_tx.function, execution_time, gas_used);
                 true
@@ -299,9 +334,12 @@ fn process_vm_transaction(transaction: &Transaction, tx: &mpsc::Sender<String>) 
                     "error_type": error_type,
                     "suggestions": get_error_suggestions(error_type, &vm_tx),
                     "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
-                }).to_string();
+                });
                 
-                let _ = tx.try_send(error_json);
+                // Store error result for later retrieval
+                crate::store_vm_transaction_result(&transaction.transaction_id, error_json.clone());
+                
+                let _ = tx.try_send(error_json.to_string());
                 warn!("VM transaction execution failed: {} ({})", e, error_type);
                 
                 // Return true to indicate we handled this transaction (even though it failed)
@@ -358,6 +396,35 @@ fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sen
                             let module_name = parts[1];
                             let module_size = parts[2];
                             
+                            // Double check if module was deployed by querying VM state
+                            let address_hex = transaction.sender.to_hex_literal();
+                            let module_id = format!("{}::{}", address_hex, module_name);
+                            
+                            info!("Checking if module {} was deployed", module_id);
+                            
+                            // Try direct DB query for the module
+                            match mona_vm::db::get_module(&module_id) {
+                                Ok(Some(_)) => {
+                                    info!("✅ Module {} found in database", module_id);
+                                },
+                                Ok(None) => {
+                                    warn!("❌ Module {} not found in database!", module_id);
+                                    
+                                    // Try alternate formats
+                                    let alt_id = if module_id.starts_with("0x") {
+                                        module_id[2..].to_string()
+                                    } else {
+                                        format!("0x{}", module_id)
+                                    };
+                                    
+                                    match mona_vm::db::get_module(&alt_id) {
+                                        Ok(Some(_)) => info!("✅ Module found with alternate ID: {}", alt_id),
+                                        _ => warn!("❌ Module not found with alternate ID either")
+                                    }
+                                },
+                                Err(e) => warn!("Error checking module: {:?}", e)
+                            }
+                            
                             // Notify about module deployment transaction
                             let module_tx_json = json!({
                                 "event": "module_deployed",
@@ -365,6 +432,7 @@ fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sen
                                     "name": module_name,
                                     "size": module_size,
                                     "address": transaction.sender.to_hex_literal(),
+                                    "module_id": module_id,
                                     "transaction_id": transaction.transaction_id
                                 },
                                 "status": "committed",
@@ -378,13 +446,9 @@ fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sen
                         }
                     }
                     
-                    // Check for VM function call format and process it prioritizing even if we
-                    // don't recognize the exact format but it looks like a VM transaction
-                    if data_str.starts_with("VM:") || data_str.contains("::") {
-                        if process_vm_transaction(transaction, tx) {
-                            // VM transaction was processed, continue to next transaction
-                            continue;
-                        }
+                    // Process VM function calls
+                    if process_vm_transaction(transaction, tx) {
+                        continue;
                     }
                 } else {
                     // Try processing as VM transaction even if we can't interpret the data as UTF-8
@@ -438,7 +502,6 @@ fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sen
         }
     }
 }
-
 
 // Add this function to process transactions more reliably for each block
 fn process_pending_transactions() -> Vec<Transaction> {
@@ -715,8 +778,35 @@ pub fn run_blockchain(
             }
         };
 
-        // Get pending transactions for this block - use our new reliable function
-        let transactions = process_pending_transactions();
+        // Get pending transactions for this block - use our improved function
+        let transactions = mona_blockchain::blockchain::get_next_block_transactions(100);
+        
+        // Log transaction types being included in this block
+        if !transactions.is_empty() {
+            info!("Including {} transactions in block {}", transactions.len(), prev_block.index + 1);
+            for (i, tx) in transactions.iter().enumerate() {
+                if let Some(data) = &tx.data {
+                    if let Ok(data_str) = std::str::from_utf8(data) {
+                        if data_str.starts_with("VM_MODULE:") {
+                            let parts: Vec<&str> = data_str.split(':').collect();
+                            if parts.len() >= 3 {
+                                info!("  {}: VM_MODULE_DEPLOYMENT - {} ({} bytes)", 
+                                     i+1, parts[1], parts[2]);
+                                continue;
+                            }
+                        } else if data_str.starts_with("VM:") {
+                            let parts: Vec<&str> = data_str.split(':').collect();
+                            if parts.len() >= 3 {
+                                info!("  {}: VM_FUNCTION_CALL - {}::{}", 
+                                     i+1, parts[1], parts[2]);
+                                continue;
+                            }
+                        }
+                    }
+                }
+                info!("  {}: {} -> {} ({})", i+1, tx.sender, tx.receiver, tx.amount);
+            }
+        }
 
         // Create JSON representation of transactions for the block data
         let tx_json: Vec<Value> = transactions.iter().map(|tx| {
@@ -861,7 +951,12 @@ pub fn run_blockchain(
                 
                 // After saving, run a verification step to ensure transactions were processed
                 if !transactions.is_empty() {
-                    verify_transaction_processing(&transactions, &tx);
+                    // Run transaction verification in a separate thread to avoid blocking
+                    let txs_clone = transactions.clone();
+                    let tx_clone = tx.clone();
+                    std::thread::spawn(move || {
+                        verify_transaction_processing(&txs_clone, &tx_clone);
+                    });
                 }
             },
             Err(e) => {

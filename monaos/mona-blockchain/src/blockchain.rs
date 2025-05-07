@@ -3,6 +3,7 @@ use bincode;
 use consensus_pos::Blake3Algorithm;
 // Replace with common import
 use common::get_kari_dir;
+use log::{info, warn};
 use mona_storage::{BlockchainStorage, RocksDBStorage, StorageError};
 use mona_types::address::Address;
 use serde::{Deserialize, Serialize};
@@ -308,66 +309,78 @@ pub fn get_next_block_transactions(max_count: usize) -> Vec<block::Transaction> 
     
     // Try to get pending transactions
     if let Ok(mut queue) = PENDING_TRANSACTIONS.lock() {
+        // Log queue size for debugging
+        info!("Processing pending transaction queue, size: {}", queue.len());
+        
         // First pass: prioritize modules, then VM function calls
+        let mut vm_module_deployments = VecDeque::new();
         let mut vm_function_calls = VecDeque::new();
         let mut regular_txs = VecDeque::new();
         
+        // Scan through all transactions to sort by priority
         while let Some(tx) = queue.pop_front() {
             // Check transaction type and prioritize accordingly
-            let tx_type = tx.get_transaction_type();
-            
-            match tx_type {
-                "VM_MODULE_DEPLOYMENT" => {
+            if let Some(data) = &tx.data {
+                if let Ok(data_str) = std::str::from_utf8(data) {
                     // Highest priority - module deployments
-                    log::info!("Prioritizing module deployment transaction: {}", tx.transaction_id);
-                    result.push(tx);
-                },
-                "VM_FUNCTION_CALL" => {
+                    if data_str.starts_with("VM_MODULE:") {
+                        info!("Found VM module deployment transaction: {}", tx.transaction_id);
+                        vm_module_deployments.push_back(tx);
+                        continue;
+                    }
                     // Medium priority - VM function calls
-                    vm_function_calls.push_back(tx);
-                },
-                _ => {
-                    // Lowest priority - regular transactions
-                    regular_txs.push_back(tx);
+                    else if data_str.starts_with("VM:") || data_str.contains("::") {
+                        info!("Found VM function call transaction: {}", tx.transaction_id);
+                        vm_function_calls.push_back(tx);
+                        continue;
+                    }
                 }
             }
             
-            if result.len() >= max_count {
-                break;
-            }
+            // Lowest priority - regular transactions
+            regular_txs.push_back(tx);
         }
         
-        // Add VM function calls next, up to max_count
-        while result.len() < max_count && !vm_function_calls.is_empty() {
-            if let Some(tx) = vm_function_calls.pop_front() {
-                log::info!("Including VM function call: {}", tx.transaction_id);
+        // Add VM module deployments first (highest priority)
+        while !vm_module_deployments.is_empty() && result.len() < max_count {
+            if let Some(tx) = vm_module_deployments.pop_front() {
+                info!("Including VM module deployment: {}", tx.transaction_id);
                 result.push(tx);
             }
         }
         
-        // Finally add regular transactions
-        while result.len() < max_count && !regular_txs.is_empty() {
+        // Add VM function calls next (medium priority)
+        while !vm_function_calls.is_empty() && result.len() < max_count {
+            if let Some(tx) = vm_function_calls.pop_front() {
+                info!("Including VM function call: {}", tx.transaction_id);
+                result.push(tx);
+            }
+        }
+        
+        // Finally add regular transactions (lowest priority)
+        while !regular_txs.is_empty() && result.len() < max_count {
             if let Some(tx) = regular_txs.pop_front() {
                 result.push(tx);
             }
         }
         
-        // Return any unused transactions back to the queue
-        while let Some(tx) = vm_function_calls.pop_front() {
-            queue.push_back(tx);
+        // Return any unused transactions back to the queue in order of priority
+        for tx in vm_module_deployments {
+            queue.push_front(tx); // Add back to front for highest priority
         }
         
-        while let Some(tx) = regular_txs.pop_front() {
-            queue.push_back(tx);
+        for tx in vm_function_calls {
+            queue.push_back(tx); // Medium priority
         }
         
-        log::debug!("Got {} transactions for next block ({} VM calls, {} regular), {} remain in queue", 
-                   result.len(), 
-                   result.iter().filter(|tx| tx.is_vm_transaction()).count(),
-                   result.iter().filter(|tx| !tx.is_vm_transaction() && !tx.is_vm_module_deployment()).count(),
-                   queue.len());
+        for tx in regular_txs {
+            queue.push_back(tx); // Lowest priority
+        }
+        
+        info!("Selected {} transactions for next block ({} remain in queue)", 
+             result.len(), queue.len());
     } else {
-        log::warn!("Failed to lock transaction queue, creating empty block");
+        warn!("Failed to lock transaction queue, creating empty block");
     }
     
     result
