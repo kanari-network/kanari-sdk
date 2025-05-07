@@ -503,40 +503,6 @@ fn verify_transaction_processing(transactions: &Vec<Transaction>, tx: &mpsc::Sen
     }
 }
 
-// Add this function to process transactions more reliably for each block
-fn process_pending_transactions() -> Vec<Transaction> {
-    match mona_blockchain::blockchain::PENDING_TRANSACTIONS.lock() {
-        Ok(mut queue) => {
-            let mut block_txs = Vec::new();
-            let max_txs = 100; // Process up to 100 transactions per block
-            
-            log::info!("Processing transaction queue with {} pending transactions", queue.len());
-            
-            while let Some(tx) = queue.pop_front() {
-                log::info!("Including transaction: {} -> {}, amount: {}", 
-                    tx.sender, tx.receiver, tx.amount);
-                block_txs.push(tx);
-                if block_txs.len() >= max_txs {
-                    break;
-                }
-            }
-            
-            if !block_txs.is_empty() {
-                log::info!("Added {} transactions to current block", block_txs.len());
-            }
-            
-            // Update the pending transaction count for gas fee calculation
-            update_pending_transaction_count(queue.len());
-            
-            block_txs
-        },
-        Err(_) => {
-            log::error!("Failed to lock pending transactions queue");
-            Vec::new() // Empty vector on error
-        }
-    }
-}
-
 // Update run_blockchain's block creation to consistently include pending transactions
 pub fn run_blockchain(
     running: Arc<Mutex<bool>>, 

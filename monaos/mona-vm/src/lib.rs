@@ -1,3 +1,4 @@
+use db::{store_module, store_transaction};
 use log::{info, warn};
 use move_package::compilation::compiled_package::CompiledUnitWithSource;
 use move_package::{source_package::layout::SourcePackageLayout, BuildConfig};
@@ -25,9 +26,10 @@ use mona_blockchain::blockchain::{BLOCKCHAIN_DATA, submit_transaction};
 use lazy_static::lazy_static;
 use mona_crypto::verify_signature;
 
-// Add database module
+// Add db module
 pub mod db;
-use db::{store_module, store_transaction};
+pub use db::{StoredModule, StoredTransaction};
+
 
 pub fn reroot_path(path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     let path = path.unwrap_or_else(|| PathBuf::from("."));

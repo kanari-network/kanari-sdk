@@ -30,6 +30,8 @@ pub trait BlockchainStorage {
     fn load_data(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError>;
     fn flush(&self) -> Result<(), StorageError>;
     fn delete_data(&self, key: &[u8]) -> Result<(), StorageError>;
+    // New method to list keys with a prefix
+    fn list_keys_with_prefix(&self, prefix: &[u8]) -> Result<Vec<Vec<u8>>, StorageError>;
 }
 
 pub struct RocksDBStorage {
@@ -162,6 +164,27 @@ impl BlockchainStorage for RocksDBStorage {
                 Err(StorageError::DbError(e))
             }
         }
+    }
+
+    fn list_keys_with_prefix(&self, prefix: &[u8]) -> Result<Vec<Vec<u8>>, StorageError> {
+        debug!("Listing keys with prefix of {} bytes", prefix.len());
+        let mut result = Vec::new();
+        
+        let iter = self.db.prefix_iterator(prefix);
+        for item in iter {
+            match item {
+                Ok((key, _)) => {
+                    result.push(key.to_vec());
+                },
+                Err(e) => {
+                    error!("Error iterating over keys: {}", e);
+                    return Err(StorageError::DbError(e));
+                }
+            }
+        }
+        
+        debug!("Found {} keys with prefix", result.len());
+        Ok(result)
     }
 }
 
