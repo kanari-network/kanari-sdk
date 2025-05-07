@@ -42,6 +42,13 @@ module token::token {
         transfer::public_freeze_object(metadata);
     }
 
+    /// Returns information about the token
+    /// This function can be called directly from the CLI
+    public entry fun check_info(): (vector<u8>, vector<u8>, u64) {
+        // Return token name, symbol and decimals
+        (b"Kanari Token", b"KARI", 9)
+    }
+
     // Function to mint COIN tokens
     entry public fun mint(
         cap: &mut TreasuryCap<TOKEN>,

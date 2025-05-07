@@ -53,6 +53,15 @@ fn display_help(show_error: bool) {
             cmd.description.bright_white()
         );
     }
+    
+    // Add token module calling example
+    println!("\n{}", "EXAMPLES:".bright_yellow().bold());
+    println!("  {} Check token info:", "•".green());
+    println!("    kari move call --module-id 0x<address>::token --function check_info");
+    
+    println!("\n  {} Mint token:", "•".green());
+    println!("    kari move call --module-id 0x<address>::token --function mint --args address:0x<address>,u64:100,address:0x<receiver>");
+    
     println!();
     
     exit(1);
@@ -63,8 +72,32 @@ pub fn handle_move_command() {
     let cost_table = zero_cost_schedule();
     let error_mapping = ErrorMapping::default();
 
-    // Check for minimum arguments
-    if args.len() <= 2 {
+    // Check for minimum arguments and show helpful message for call command
+    if args.len() <= 2 || (args.len() == 3 && args[2] == "call") {
+        if args.len() == 3 && args[2] == "call" {
+            println!("\n{}", "USAGE FOR CALL COMMAND:".bright_yellow().bold());
+            println!("kari move call --module-id <address>::<module> --function <name> [--args <type:value,...>]\n");
+            
+            println!("{}", "REQUIRED ARGUMENTS:".bright_yellow().bold());
+            println!("  {}  {}", "--module-id <address>::<module>".green().bold(), "Address and name of the deployed module".bright_white());
+            println!("  {}  {}", "--function <name>".green().bold(), "Name of the function to call".bright_white());
+            
+            println!("\n{}", "OPTIONAL ARGUMENTS:".bright_yellow().bold());
+            println!("  {}  {}", "--args <type:value,...>".green().bold(), "Arguments to pass to the function".bright_white());
+            println!("  {}  {}", "--gas-budget <amount>".green().bold(), "Gas budget for the call (default: 1000000)".bright_white());
+            println!("  {}  {}", "--address <address>".green().bold(), "Address to call from (default: wallet address)".bright_white());
+            
+            println!("\n{}", "EXAMPLES FOR TOKEN MODULE:".bright_yellow().bold());
+            println!("  • Get token info (no arguments):");
+            println!("    kari move call --module-id 0x123::token --function check_info");
+            
+            println!("\n  • Call mint function with arguments:");
+            println!("    kari move call --module-id 0x123::token --function mint --args address:0x<treasury_cap>,u64:1000,address:0x<receiver>");
+            
+            println!("\nNote: You need the appropriate capabilities (like TreasuryCap) to call certain functions.");
+            exit(1);
+        }
+        
         display_help(false);
         return;
     }
@@ -137,37 +170,71 @@ pub fn handle_move_command() {
                 std::env::current_dir().unwrap_or_else(|_| PathBuf::new())
             };
             
-            // Check for gas_budget parameter (--gas-budget=N)
-            let gas_budget = args.iter().find(|arg| arg.starts_with("--gas-budget"))
-                .and_then(|arg| {
-                    let budget_str = arg.trim_start_matches("--gas-budget=");
-                    budget_str.parse::<u64>().ok()
-                }).unwrap_or(3_000_000); // Default to 3M gas units (0.003 KARI)
+            // Helper function to get parameter values more reliably
+            fn get_param_value(args: &[String], prefix: &str) -> Option<String> {
+                // Check for --param=value format
+                if let Some(arg) = args.iter().find(|arg| arg.starts_with(prefix)) {
+                    return Some(arg.trim_start_matches(prefix).to_string());
+                }
+                
+                // Check for --param value format
+                for i in 0..args.len().saturating_sub(1) {
+                    if args[i] == format!("--{}", prefix.trim_end_matches('=')) {
+                        return Some(args[i+1].clone());
+                    }
+                }
+                
+                None
+            }
+            
+            // Check for gas_budget parameter (improved to handle both formats)
+            let gas_budget = get_param_value(&args, "--gas-budget=")
+                .or_else(|| get_param_value(&args, "--gas-budget"))
+                .and_then(|val| val.parse::<u64>().ok())
+                .unwrap_or(3_000_000); // Default to 3M gas units
             
             // Check for --skip-verify flag
             let skip_verify = args.iter().any(|arg| arg == "--skip-verify");
             
-            // Check for address parameter (--address 0x...)
-            // If not provided, use the first address from the config file or default to 0x1
-            let address = args.iter().find(|arg| arg.starts_with("--address="))
-                .and_then(|arg| {
-                    let addr_str = arg.trim_start_matches("--address=");
-                    // Try parsing with 0x prefix if not present
-                    let addr_with_prefix = if !addr_str.starts_with("0x") {
-                        format!("0x{}", addr_str)
-                    } else {
-                        addr_str.to_string()
-                    };
-                    
-                    use move_core_types::account_address::AccountAddress;
-                    AccountAddress::from_hex_literal(&addr_with_prefix)
-                        .or_else(|_| AccountAddress::from_hex(addr_str))
-                        .ok()
-                });
+            // Get address parameter (improved to handle both formats)
+            let address_str = get_param_value(&args, "--address=")
+                .or_else(|| get_param_value(&args, "--address"));
             
-            // Check for password parameter
-            let password = args.iter().find(|arg| arg.starts_with("--password="))
-                .map(|arg| arg.trim_start_matches("--password=").to_string());
+            // Parse address if provided, with better error handling
+            let address = if let Some(addr_str) = address_str {
+                use move_core_types::account_address::AccountAddress;
+                
+                // Add 0x prefix if missing
+                let addr_with_prefix = if !addr_str.starts_with("0x") {
+                    format!("0x{}", addr_str)
+                } else {
+                    addr_str.clone()
+                };
+                
+                match AccountAddress::from_hex_literal(&addr_with_prefix)
+                    .or_else(|_| AccountAddress::from_hex(&addr_str))
+                {
+                    Ok(addr) => Some(addr),
+                    Err(_) => {
+                        eprintln!("Error: Invalid address format: {}", addr_str);
+                        eprintln!("Address must be in format 0x<hex> or <hex>");
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                None
+            };
+            
+            // Get password parameter (improved to handle both formats)
+            let password = get_param_value(&args, "--password=")
+                .or_else(|| get_param_value(&args, "--password"));
+            
+            // Check if wallet exists before continuing
+            if address.is_none() && common::get_main_wallet().is_none() {
+                eprintln!("Error: No wallet configured. Please specify an address with --address or configure a wallet.");
+                eprintln!("To create a wallet, run: kari wallet create");
+                std::process::exit(1);
+            }
             
             Command::Publish(Publish {
                 module_path,
@@ -178,56 +245,71 @@ pub fn handle_move_command() {
             })
         },
         Some("call") => {
-            // Parse module_id parameter
-            let module_id = args.iter().find(|arg| arg.starts_with("--module-id="))
-                .map(|arg| arg.trim_start_matches("--module-id=").to_string())
-                .ok_or_else(|| {
+            // สร้างฟังก์ชันช่วยในการดึงค่าพารามิเตอร์ทั้งสองรูปแบบ
+            fn get_param_value(args: &[String], name: &str) -> Option<String> {
+                // รูปแบบ --name=value
+                if let Some(arg) = args.iter().find(|arg| arg.starts_with(&format!("{}=", name))) {
+                    return Some(arg.trim_start_matches(&format!("{}=", name)).to_string());
+                }
+
+                // รูปแบบ --name value
+                for i in 0..args.len().saturating_sub(1) {
+                    if args[i] == name {
+                        return Some(args[i + 1].clone());
+                    }
+                }
+
+                None
+            }
+
+            // ดึงค่า module_id
+            let module_id = match get_param_value(&args, "--module-id") {
+                Some(value) => value,
+                None => {
                     eprintln!("Error: --module-id parameter is required");
-                    std::process::exit(1)
-                }).unwrap();
-            
-            // Parse function parameter
-            let function = args.iter().find(|arg| arg.starts_with("--function="))
-                .map(|arg| arg.trim_start_matches("--function=").to_string())
-                .ok_or_else(|| {
+                    std::process::exit(1);
+                }
+            };
+
+            // ดึงค่า function
+            let function = match get_param_value(&args, "--function") {
+                Some(value) => value,
+                None => {
                     eprintln!("Error: --function parameter is required");
-                    std::process::exit(1)
-                }).unwrap();
+                    std::process::exit(1);
+                }
+            };
+
+            // ดึงค่า args (อาร์กิวเมนต์)
+            let mut args_list = Vec::new();
             
-            // Parse arguments if provided
-            let args_list = args.iter()
-                .filter(|arg| arg.starts_with("--args="))
-                .flat_map(|arg| {
-                    arg.trim_start_matches("--args=")
-                        .split(',')
-                        .map(|s| s.to_string())
-                        .collect::<Vec<String>>()
-                })
-                .collect::<Vec<String>>();
-            
-            // Check for gas_budget parameter
-            let gas_budget = args.iter().find(|arg| arg.starts_with("--gas-budget="))
-                .and_then(|arg| {
-                    let budget_str = arg.trim_start_matches("--gas-budget=");
-                    budget_str.parse::<u64>().ok()
-                }).unwrap_or(1_000_000); // Default to 1M gas units
-            
-            // Check for address parameter
-            let address = args.iter().find(|arg| arg.starts_with("--address="))
-                .and_then(|arg| {
-                    let addr_str = arg.trim_start_matches("--address=");
+            // ตรวจสอบ args ในรูปแบบ --args=val1,val2
+            if let Some(args_str) = get_param_value(&args, "--args") {
+                args_list = args_str.split(',')
+                    .map(|s| s.to_string())
+                    .collect();
+            }
+
+            // ดึงค่า gas_budget
+            let gas_budget = get_param_value(&args, "--gas-budget")
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(1_000_000);
+
+            // ดึงค่า address
+            let address = get_param_value(&args, "--address")
+                .and_then(|addr_str| {
                     let addr_with_prefix = if !addr_str.starts_with("0x") {
                         format!("0x{}", addr_str)
                     } else {
-                        addr_str.to_string()
+                        addr_str
                     };
                     
                     use move_core_types::account_address::AccountAddress;
                     AccountAddress::from_hex_literal(&addr_with_prefix)
-                        .or_else(|_| AccountAddress::from_hex(addr_str))
+                        .or_else(|_| AccountAddress::from_hex(&addr_with_prefix.trim_start_matches("0x")))
                         .ok()
                 });
-            
+
             Command::Call(Call {
                 module_id,
                 function,

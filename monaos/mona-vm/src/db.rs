@@ -1,16 +1,17 @@
-use rusqlite::{Connection, Result, params};
+use rocksdb::{DB, Options, ColumnFamilyDescriptor};
 use log::{info, error, debug};
-use serde_json::Value;
+
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::fs;
 use std::sync::{Arc, Mutex, Once};
+use bincode;
+use serde::{Serialize, Deserialize};
 
-use crate::VMTransaction;
 
 static INIT_DB: Once = Once::new();
 lazy_static::lazy_static! {
-    static ref DB_CONNECTION: Arc<Mutex<Connection>> = Arc::new(Mutex::new(create_connection().expect("Failed to create database connection")));
+    static ref DB_CONNECTION: Arc<Mutex<DB>> = Arc::new(Mutex::new(create_connection().expect("Failed to create database connection")));
 }
 
 #[derive(Debug)]
@@ -22,7 +23,7 @@ pub enum DbError {
 }
 
 // Struct representing a stored module
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct StoredModule {
     pub module_id: String,
     pub address: String,
@@ -35,7 +36,7 @@ pub struct StoredModule {
 }
 
 // Struct representing a stored transaction
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct StoredTransaction {
     pub tx_id: String,
     pub module_id: String,
@@ -49,8 +50,8 @@ pub struct StoredTransaction {
     pub block_height: u64,
 }
 
-// Create database connection and initialize schema
-fn create_connection() -> Result<Connection, DbError> {
+// Create database connection and initialize
+fn create_connection() -> Result<DB, DbError> {
     // Get database directory from common config
     let db_dir = get_db_directory();
     
@@ -63,22 +64,30 @@ fn create_connection() -> Result<Connection, DbError> {
         }
     }
     
-    let db_path = db_dir.join("db_mvsm.sqlite");
-    debug!("Opening database at: {}", db_path.display());
+    let db_path = db_dir.join("db_mvsm_rocks");
+    debug!("Opening RocksDB database at: {}", db_path.display());
     
-    // Open database connection
-    match Connection::open(&db_path) {
-        Ok(conn) => {
-            // Initialize schema if needed
+    // Configure RocksDB options
+    let mut opts = Options::default();
+    opts.create_if_missing(true);
+    opts.create_missing_column_families(true);
+    
+    // Define column families (replacing tables in SQLite)
+    let cf_modules = ColumnFamilyDescriptor::new("modules", Options::default());
+    let cf_transactions = ColumnFamilyDescriptor::new("transactions", Options::default());
+    let cf_indexes = ColumnFamilyDescriptor::new("indexes", Options::default());
+    let cf_descriptors = vec![cf_modules, cf_transactions, cf_indexes];
+    
+    // Open RocksDB database
+    match DB::open_cf_descriptors(&opts, &db_path, cf_descriptors) {
+        Ok(db) => {
             INIT_DB.call_once(|| {
-                if let Err(e) = init_db_schema(&conn) {
-                    error!("Failed to initialize database schema: {:?}", e);
-                }
+                info!("RocksDB database initialized successfully");
             });
-            Ok(conn)
+            Ok(db)
         },
         Err(e) => Err(DbError::ConnectionFailed(format!(
-            "Failed to open database connection: {}", e
+            "Failed to open RocksDB database: {}", e
         ))),
     }
 }
@@ -87,63 +96,6 @@ fn create_connection() -> Result<Connection, DbError> {
 fn get_db_directory() -> PathBuf {
     let kari_dir = common::get_kari_dir();
     kari_dir.join("db")
-}
-
-// Initialize database schema
-fn init_db_schema(conn: &Connection) -> Result<(), DbError> {
-    info!("Initializing Move VM database schema");
-    
-    // Create modules table
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS modules (
-            module_id TEXT PRIMARY KEY,
-            address TEXT NOT NULL,
-            name TEXT NOT NULL,
-            bytecode BLOB NOT NULL,
-            abi TEXT NOT NULL,
-            deploy_time INTEGER NOT NULL,
-            deploy_tx_id TEXT NOT NULL,
-            deploy_block_height INTEGER NOT NULL
-        )",
-        [],
-    )
-    .map_err(|e| DbError::QueryFailed(format!("Failed to create modules table: {}", e)))?;
-    
-    // Create transactions table
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS transactions (
-            tx_id TEXT PRIMARY KEY,
-            module_id TEXT NOT NULL,
-            function TEXT NOT NULL,
-            args BLOB NOT NULL,
-            sender TEXT NOT NULL,
-            timestamp INTEGER NOT NULL,
-            gas_used INTEGER NOT NULL,
-            success INTEGER NOT NULL,
-            result_data TEXT NOT NULL,
-            block_height INTEGER NOT NULL,
-            FOREIGN KEY (module_id) REFERENCES modules (module_id)
-        )",
-        [],
-    )
-    .map_err(|e| DbError::QueryFailed(format!("Failed to create transactions table: {}", e)))?;
-    
-    // Create index on module_id for transactions
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_transactions_module_id ON transactions (module_id)",
-        [],
-    )
-    .map_err(|e| DbError::QueryFailed(format!("Failed to create module_id index: {}", e)))?;
-    
-    // Create index on timestamp for transactions
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_transactions_timestamp ON transactions (timestamp)",
-        [],
-    )
-    .map_err(|e| DbError::QueryFailed(format!("Failed to create timestamp index: {}", e)))?;
-    
-    info!("Move VM database schema initialized successfully");
-    Ok(())
 }
 
 // Store deployed module in database
@@ -168,24 +120,63 @@ pub fn store_module(
         .unwrap_or_default()
         .as_secs();
     
-    conn.execute(
-        "INSERT OR REPLACE INTO modules 
-        (module_id, address, name, bytecode, abi, deploy_time, deploy_tx_id, deploy_block_height)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        params![
-            module_id,
-            address,
-            name,
-            bytecode,
-            abi,
-            deploy_time,
-            deploy_tx_id,
-            deploy_block_height
-        ],
-    )
-    .map_err(|e| DbError::QueryFailed(format!(
-        "Failed to store module {}: {}", module_id, e
-    )))?;
+    // Create module record
+    let module = StoredModule {
+        module_id: module_id.to_string(),
+        address: address.to_string(),
+        name: name.to_string(),
+        bytecode: bytecode.to_vec(),
+        abi: abi.to_string(),
+        deploy_time,
+        deploy_tx_id: deploy_tx_id.to_string(),
+        deploy_block_height,
+    };
+    
+    // Serialize module
+    let serialized = bincode::serialize(&module)
+        .map_err(|e| DbError::SerializationError(format!(
+            "Failed to serialize module {}: {}", module_id, e
+        )))?;
+    
+    // Get column family handle
+    let cf_modules = conn.cf_handle("modules")
+        .ok_or_else(|| DbError::QueryFailed("Modules column family not found".to_string()))?;
+    
+    // Store in RocksDB
+    conn.put_cf(&cf_modules, module_id.as_bytes(), serialized)
+        .map_err(|e| DbError::QueryFailed(format!(
+            "Failed to store module {}: {}", module_id, e
+        )))?;
+    
+    // Create module by address index
+    let address_key = format!("address:{}", address);
+    let cf_indexes = conn.cf_handle("indexes")
+        .ok_or_else(|| DbError::QueryFailed("Indexes column family not found".to_string()))?;
+    
+    // Append to list of modules by address
+    let modules_by_address = match conn.get_cf(&cf_indexes, address_key.as_bytes()) {
+        Ok(Some(data)) => {
+            let mut modules: Vec<String> = bincode::deserialize(&data)
+                .map_err(|e| DbError::SerializationError(format!(
+                    "Failed to deserialize modules by address index: {}", e
+                )))?;
+            if !modules.contains(&module_id.to_string()) {
+                modules.push(module_id.to_string());
+            }
+            modules
+        },
+        _ => vec![module_id.to_string()],
+    };
+    
+    let serialized_modules = bincode::serialize(&modules_by_address)
+        .map_err(|e| DbError::SerializationError(format!(
+            "Failed to serialize modules by address index: {}", e
+        )))?;
+    
+    conn.put_cf(&cf_indexes, address_key.as_bytes(), serialized_modules)
+        .map_err(|e| DbError::QueryFailed(format!(
+            "Failed to update address index for module {}: {}", module_id, e
+        )))?;
     
     info!("Module {} stored in database", module_id);
     Ok(())
@@ -215,36 +206,123 @@ pub fn store_transaction(
         .unwrap_or_default()
         .as_secs();
     
-    // Serialize args to binary
-    let serialized_args = match bincode::serialize(args) {
-        Ok(data) => data,
-        Err(e) => return Err(DbError::SerializationError(format!(
-            "Failed to serialize arguments: {}", e
-        ))),
+    // Create transaction record
+    let transaction = StoredTransaction {
+        tx_id: tx_id.to_string(),
+        module_id: module_id.to_string(),
+        function: function.to_string(),
+        args: args.to_vec(),
+        sender: sender.to_string(),
+        timestamp,
+        gas_used,
+        success,
+        result_data: result_data.to_string(),
+        block_height,
     };
     
-    conn.execute(
-        "INSERT OR REPLACE INTO transactions 
-        (tx_id, module_id, function, args, sender, timestamp, gas_used, success, result_data, block_height)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        params![
-            tx_id,
-            module_id,
-            function,
-            serialized_args,
-            sender,
-            timestamp,
-            gas_used,
-            success as i32,
-            result_data,
-            block_height
-        ],
-    )
-    .map_err(|e| DbError::QueryFailed(format!(
-        "Failed to store transaction {}: {}", tx_id, e
-    )))?;
+    // Serialize transaction
+    let serialized = bincode::serialize(&transaction)
+        .map_err(|e| DbError::SerializationError(format!(
+            "Failed to serialize transaction {}: {}", tx_id, e
+        )))?;
+    
+    // Get column family handle
+    let cf_transactions = conn.cf_handle("transactions")
+        .ok_or_else(|| DbError::QueryFailed("Transactions column family not found".to_string()))?;
+    
+    // Store in RocksDB
+    conn.put_cf(&cf_transactions, tx_id.as_bytes(), serialized)
+        .map_err(|e| DbError::QueryFailed(format!(
+            "Failed to store transaction {}: {}", tx_id, e
+        )))?;
+    
+    // Index transactions by module
+    update_module_transaction_index(&conn, module_id, tx_id, timestamp)?;
+    
+    // Index transactions by sender
+    update_sender_transaction_index(&conn, sender, tx_id, timestamp)?;
     
     debug!("Transaction {} ({}.{}) stored in database", tx_id, module_id, function);
+    Ok(())
+}
+
+// Helper function to update module transaction index
+fn update_module_transaction_index(
+    conn: &DB,
+    module_id: &str, 
+    tx_id: &str, 
+    timestamp: u64
+) -> Result<(), DbError> {
+    let cf_indexes = conn.cf_handle("indexes")
+        .ok_or_else(|| DbError::QueryFailed("Indexes column family not found".to_string()))?;
+    
+    let module_tx_key = format!("module_txs:{}", module_id);
+    
+    // Get existing transactions or create new list
+    let tx_list = match conn.get_cf(&cf_indexes, module_tx_key.as_bytes()) {
+        Ok(Some(data)) => {
+            let mut txs: Vec<(String, u64)> = bincode::deserialize(&data)
+                .map_err(|e| DbError::SerializationError(format!(
+                    "Failed to deserialize module transactions index: {}", e
+                )))?;
+            txs.push((tx_id.to_string(), timestamp));
+            // Sort by timestamp descending for easier pagination later
+            txs.sort_by(|a, b| b.1.cmp(&a.1));
+            txs
+        },
+        _ => vec![(tx_id.to_string(), timestamp)],
+    };
+    
+    let serialized_txs = bincode::serialize(&tx_list)
+        .map_err(|e| DbError::SerializationError(format!(
+            "Failed to serialize module transactions index: {}", e
+        )))?;
+    
+    conn.put_cf(&cf_indexes, module_tx_key.as_bytes(), serialized_txs)
+        .map_err(|e| DbError::QueryFailed(format!(
+            "Failed to update module transactions index: {}", e
+        )))?;
+    
+    Ok(())
+}
+
+// Helper function to update sender transaction index
+fn update_sender_transaction_index(
+    conn: &DB,
+    sender: &str, 
+    tx_id: &str, 
+    timestamp: u64
+) -> Result<(), DbError> {
+    let cf_indexes = conn.cf_handle("indexes")
+        .ok_or_else(|| DbError::QueryFailed("Indexes column family not found".to_string()))?;
+    
+    let sender_tx_key = format!("sender_txs:{}", sender);
+    
+    // Get existing transactions or create new list
+    let tx_list = match conn.get_cf(&cf_indexes, sender_tx_key.as_bytes()) {
+        Ok(Some(data)) => {
+            let mut txs: Vec<(String, u64)> = bincode::deserialize(&data)
+                .map_err(|e| DbError::SerializationError(format!(
+                    "Failed to deserialize sender transactions index: {}", e
+                )))?;
+            txs.push((tx_id.to_string(), timestamp));
+            // Sort by timestamp descending for easier pagination later
+            txs.sort_by(|a, b| b.1.cmp(&a.1));
+            txs
+        },
+        _ => vec![(tx_id.to_string(), timestamp)],
+    };
+    
+    let serialized_txs = bincode::serialize(&tx_list)
+        .map_err(|e| DbError::SerializationError(format!(
+            "Failed to serialize sender transactions index: {}", e
+        )))?;
+    
+    conn.put_cf(&cf_indexes, sender_tx_key.as_bytes(), serialized_txs)
+        .map_err(|e| DbError::QueryFailed(format!(
+            "Failed to update sender transactions index: {}", e
+        )))?;
+    
     Ok(())
 }
 
@@ -257,35 +335,25 @@ pub fn get_module(module_id: &str) -> Result<Option<StoredModule>, DbError> {
         ))),
     };
     
-    let mut stmt = conn.prepare(
-        "SELECT module_id, address, name, bytecode, abi, deploy_time, deploy_tx_id, deploy_block_height
-         FROM modules WHERE module_id = ?"
-    )
-    .map_err(|e| DbError::QueryFailed(format!("Failed to prepare query: {}", e)))?;
+    let cf_modules = conn.cf_handle("modules")
+        .ok_or_else(|| DbError::QueryFailed("Modules column family not found".to_string()))?;
     
-    let module_result = stmt.query_row(params![module_id], |row| {
-        Ok(StoredModule {
-            module_id: row.get(0)?,
-            address: row.get(1)?,
-            name: row.get(2)?,
-            bytecode: row.get(3)?,
-            abi: row.get(4)?,
-            deploy_time: row.get(5)?,
-            deploy_tx_id: row.get(6)?,
-            deploy_block_height: row.get(7)?,
-        })
-    });
-    
-    match module_result {
-        Ok(module) => Ok(Some(module)),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+    match conn.get_cf(&cf_modules, module_id.as_bytes()) {
+        Ok(Some(data)) => {
+            let module: StoredModule = bincode::deserialize(&data)
+                .map_err(|e| DbError::SerializationError(format!(
+                    "Failed to deserialize module {}: {}", module_id, e
+                )))?;
+            Ok(Some(module))
+        },
+        Ok(None) => Ok(None),
         Err(e) => Err(DbError::QueryFailed(format!(
             "Failed to query module {}: {}", module_id, e
         ))),
     }
 }
 
-// Get transactions for a module
+// Get transactions for a module with pagination
 pub fn get_module_transactions(
     module_id: &str,
     limit: usize,
@@ -298,54 +366,54 @@ pub fn get_module_transactions(
         ))),
     };
     
-    let mut stmt = conn.prepare(
-        "SELECT tx_id, module_id, function, args, sender, timestamp, gas_used, success, result_data, block_height
-         FROM transactions 
-         WHERE module_id = ?
-         ORDER BY timestamp DESC
-         LIMIT ? OFFSET ?"
-    )
-    .map_err(|e| DbError::QueryFailed(format!("Failed to prepare query: {}", e)))?;
+    let cf_indexes = conn.cf_handle("indexes")
+        .ok_or_else(|| DbError::QueryFailed("Indexes column family not found".to_string()))?;
     
-    let transaction_iter = stmt.query_map(
-        params![module_id, limit as i64, offset as i64],
-        |row| {
-            let args_blob: Vec<u8> = row.get(3)?;
-            let args: Vec<Vec<u8>> = match bincode::deserialize(&args_blob) {
-                Ok(a) => a,
-                Err(_) => Vec::new(), // Return empty vec on error
-            };
+    let module_tx_key = format!("module_txs:{}", module_id);
+    
+    // Get transaction IDs for this module
+    let tx_ids = match conn.get_cf(&cf_indexes, module_tx_key.as_bytes()) {
+        Ok(Some(data)) => {
+            let all_txs: Vec<(String, u64)> = bincode::deserialize(&data)
+                .map_err(|e| DbError::SerializationError(format!(
+                    "Failed to deserialize module transactions index: {}", e
+                )))?;
             
-            Ok(StoredTransaction {
-                tx_id: row.get(0)?,
-                module_id: row.get(1)?,
-                function: row.get(2)?,
-                args,
-                sender: row.get(4)?,
-                timestamp: row.get(5)?,
-                gas_used: row.get(6)?,
-                success: row.get::<_, i32>(7)? != 0,
-                result_data: row.get(8)?,
-                block_height: row.get(9)?,
-            })
+            // Apply pagination
+            all_txs.iter()
+                .skip(offset)
+                .take(limit)
+                .map(|(id, _)| id.clone())
+                .collect::<Vec<String>>()
         },
-    )
-    .map_err(|e| DbError::QueryFailed(format!(
-        "Failed to query transactions for module {}: {}", module_id, e
-    )))?;
+        Ok(None) => return Ok(Vec::new()),
+        Err(e) => return Err(DbError::QueryFailed(format!(
+            "Failed to query module transactions index: {}", e
+        ))),
+    };
     
+    // Load transactions by ID
     let mut transactions = Vec::new();
-    for tx in transaction_iter {
-        match tx {
-            Ok(t) => transactions.push(t),
-            Err(e) => error!("Error retrieving transaction: {}", e),
+    let cf_transactions = conn.cf_handle("transactions")
+        .ok_or_else(|| DbError::QueryFailed("Transactions column family not found".to_string()))?;
+    
+    for tx_id in tx_ids {
+        match conn.get_cf(&cf_transactions, tx_id.as_bytes()) {
+            Ok(Some(data)) => {
+                match bincode::deserialize(&data) {
+                    Ok(tx) => transactions.push(tx),
+                    Err(e) => error!("Error deserializing transaction {}: {}", tx_id, e),
+                }
+            },
+            Ok(None) => debug!("Transaction {} not found", tx_id),
+            Err(e) => error!("Error retrieving transaction {}: {}", tx_id, e),
         }
     }
     
     Ok(transactions)
 }
 
-// Get transactions by sender
+// Get transactions by sender with pagination
 pub fn get_transactions_by_sender(
     sender: &str,
     limit: usize, 
@@ -358,47 +426,47 @@ pub fn get_transactions_by_sender(
         ))),
     };
     
-    let mut stmt = conn.prepare(
-        "SELECT tx_id, module_id, function, args, sender, timestamp, gas_used, success, result_data, block_height
-         FROM transactions 
-         WHERE sender = ?
-         ORDER BY timestamp DESC
-         LIMIT ? OFFSET ?"
-    )
-    .map_err(|e| DbError::QueryFailed(format!("Failed to prepare query: {}", e)))?;
+    let cf_indexes = conn.cf_handle("indexes")
+        .ok_or_else(|| DbError::QueryFailed("Indexes column family not found".to_string()))?;
     
-    let transaction_iter = stmt.query_map(
-        params![sender, limit as i64, offset as i64],
-        |row| {
-            let args_blob: Vec<u8> = row.get(3)?;
-            let args: Vec<Vec<u8>> = match bincode::deserialize(&args_blob) {
-                Ok(a) => a,
-                Err(_) => Vec::new(),
-            };
+    let sender_tx_key = format!("sender_txs:{}", sender);
+    
+    // Get transaction IDs for this sender
+    let tx_ids = match conn.get_cf(&cf_indexes, sender_tx_key.as_bytes()) {
+        Ok(Some(data)) => {
+            let all_txs: Vec<(String, u64)> = bincode::deserialize(&data)
+                .map_err(|e| DbError::SerializationError(format!(
+                    "Failed to deserialize sender transactions index: {}", e
+                )))?;
             
-            Ok(StoredTransaction {
-                tx_id: row.get(0)?,
-                module_id: row.get(1)?,
-                function: row.get(2)?,
-                args,
-                sender: row.get(4)?,
-                timestamp: row.get(5)?,
-                gas_used: row.get(6)?,
-                success: row.get::<_, i32>(7)? != 0,
-                result_data: row.get(8)?,
-                block_height: row.get(9)?,
-            })
+            // Apply pagination
+            all_txs.iter()
+                .skip(offset)
+                .take(limit)
+                .map(|(id, _)| id.clone())
+                .collect::<Vec<String>>()
         },
-    )
-    .map_err(|e| DbError::QueryFailed(format!(
-        "Failed to query transactions for sender {}: {}", sender, e
-    )))?;
+        Ok(None) => return Ok(Vec::new()),
+        Err(e) => return Err(DbError::QueryFailed(format!(
+            "Failed to query sender transactions index: {}", e
+        ))),
+    };
     
+    // Load transactions by ID
     let mut transactions = Vec::new();
-    for tx in transaction_iter {
-        match tx {
-            Ok(t) => transactions.push(t),
-            Err(e) => error!("Error retrieving transaction: {}", e),
+    let cf_transactions = conn.cf_handle("transactions")
+        .ok_or_else(|| DbError::QueryFailed("Transactions column family not found".to_string()))?;
+    
+    for tx_id in tx_ids {
+        match conn.get_cf(&cf_transactions, tx_id.as_bytes()) {
+            Ok(Some(data)) => {
+                match bincode::deserialize(&data) {
+                    Ok(tx) => transactions.push(tx),
+                    Err(e) => error!("Error deserializing transaction {}: {}", tx_id, e),
+                }
+            },
+            Ok(None) => debug!("Transaction {} not found", tx_id),
+            Err(e) => error!("Error retrieving transaction {}: {}", tx_id, e),
         }
     }
     
@@ -414,36 +482,18 @@ pub fn get_transaction(tx_id: &str) -> Result<Option<StoredTransaction>, DbError
         ))),
     };
     
-    let mut stmt = conn.prepare(
-        "SELECT tx_id, module_id, function, args, sender, timestamp, gas_used, success, result_data, block_height
-         FROM transactions WHERE tx_id = ?"
-    )
-    .map_err(|e| DbError::QueryFailed(format!("Failed to prepare query: {}", e)))?;
+    let cf_transactions = conn.cf_handle("transactions")
+        .ok_or_else(|| DbError::QueryFailed("Transactions column family not found".to_string()))?;
     
-    let transaction_result = stmt.query_row(params![tx_id], |row| {
-        let args_blob: Vec<u8> = row.get(3)?;
-        let args: Vec<Vec<u8>> = match bincode::deserialize(&args_blob) {
-            Ok(a) => a,
-            Err(_) => Vec::new(),
-        };
-        
-        Ok(StoredTransaction {
-            tx_id: row.get(0)?,
-            module_id: row.get(1)?,
-            function: row.get(2)?,
-            args,
-            sender: row.get(4)?,
-            timestamp: row.get(5)?,
-            gas_used: row.get(6)?,
-            success: row.get::<_, i32>(7)? != 0,
-            result_data: row.get(8)?,
-            block_height: row.get(9)?,
-        })
-    });
-    
-    match transaction_result {
-        Ok(tx) => Ok(Some(tx)),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+    match conn.get_cf(&cf_transactions, tx_id.as_bytes()) {
+        Ok(Some(data)) => {
+            let transaction: StoredTransaction = bincode::deserialize(&data)
+                .map_err(|e| DbError::SerializationError(format!(
+                    "Failed to deserialize transaction {}: {}", tx_id, e
+                )))?;
+            Ok(Some(transaction))
+        },
+        Ok(None) => Ok(None),
         Err(e) => Err(DbError::QueryFailed(format!(
             "Failed to query transaction {}: {}", tx_id, e
         ))),
@@ -459,14 +509,22 @@ pub fn get_module_count() -> Result<usize, DbError> {
         ))),
     };
     
-    let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM modules",
-        [],
-        |row| row.get(0),
-    )
-    .map_err(|e| DbError::QueryFailed(format!("Failed to count modules: {}", e)))?;
+    let cf_modules = conn.cf_handle("modules")
+        .ok_or_else(|| DbError::QueryFailed("Modules column family not found".to_string()))?;
     
-    Ok(count as usize)
+    // For RocksDB, we need to iterate through all keys
+    let mut count = 0;
+    
+    // Create an iterator over the modules column family
+    let iter = conn.iterator_cf(&cf_modules, rocksdb::IteratorMode::Start);
+    for result in iter {
+        match result {
+            Ok(_) => count += 1,
+            Err(e) => error!("Error iterating modules: {}", e),
+        }
+    }
+    
+    Ok(count)
 }
 
 // Get transaction count
@@ -478,14 +536,22 @@ pub fn get_transaction_count() -> Result<usize, DbError> {
         ))),
     };
     
-    let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM transactions",
-        [],
-        |row| row.get(0),
-    )
-    .map_err(|e| DbError::QueryFailed(format!("Failed to count transactions: {}", e)))?;
+    let cf_transactions = conn.cf_handle("transactions")
+        .ok_or_else(|| DbError::QueryFailed("Transactions column family not found".to_string()))?;
     
-    Ok(count as usize)
+    // For RocksDB, we need to iterate through all keys
+    let mut count = 0;
+    
+    // Create an iterator over the transactions column family
+    let iter = conn.iterator_cf(&cf_transactions, rocksdb::IteratorMode::Start);
+    for result in iter {
+        match result {
+            Ok(_) => count += 1,
+            Err(e) => error!("Error iterating transactions: {}", e),
+        }
+    }
+    
+    Ok(count)
 }
 
 // Get all modules with pagination
@@ -500,36 +566,30 @@ pub fn list_modules(
         ))),
     };
     
-    let mut stmt = conn.prepare(
-        "SELECT module_id, address, name, bytecode, abi, deploy_time, deploy_tx_id, deploy_block_height
-         FROM modules
-         ORDER BY deploy_time DESC
-         LIMIT ? OFFSET ?"
-    )
-    .map_err(|e| DbError::QueryFailed(format!("Failed to prepare query: {}", e)))?;
-    
-    let module_iter = stmt.query_map(
-        params![limit as i64, offset as i64],
-        |row| {
-            Ok(StoredModule {
-                module_id: row.get(0)?,
-                address: row.get(1)?,
-                name: row.get(2)?,
-                bytecode: row.get(3)?,
-                abi: row.get(4)?,
-                deploy_time: row.get(5)?,
-                deploy_tx_id: row.get(6)?,
-                deploy_block_height: row.get(7)?,
-            })
-        },
-    )
-    .map_err(|e| DbError::QueryFailed(format!("Failed to list modules: {}", e)))?;
+    let cf_modules = conn.cf_handle("modules")
+        .ok_or_else(|| DbError::QueryFailed("Modules column family not found".to_string()))?;
     
     let mut modules = Vec::new();
-    for module in module_iter {
-        match module {
-            Ok(m) => modules.push(m),
-            Err(e) => error!("Error retrieving module: {}", e),
+    let mut current = 0;
+    
+    // Create an iterator over the modules column family
+    let iter = conn.iterator_cf(&cf_modules, rocksdb::IteratorMode::Start);
+    for result in iter {
+        match result {
+            Ok((_, value)) => {
+                if current >= offset {
+                    if modules.len() >= limit {
+                        break;
+                    }
+                    
+                    match bincode::deserialize(&value) {
+                        Ok(module) => modules.push(module),
+                        Err(e) => error!("Error deserializing module: {}", e),
+                    }
+                }
+                current += 1;
+            },
+            Err(e) => error!("Error iterating modules: {}", e),
         }
     }
     

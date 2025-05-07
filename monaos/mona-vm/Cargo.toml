@@ -31,3 +31,4 @@ move-package.workspace = true
 move-compiler.workspace = true
 anyhow = "1.0"
 move-binary-format.workspace = true
+rocksdb = "0.23.0"  # Add RocksDB dependency

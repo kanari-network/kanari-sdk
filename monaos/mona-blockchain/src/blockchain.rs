@@ -1,13 +1,13 @@
-use crate::block::Block;
+use crate::block::{self, Block};
 use bincode;
 use consensus_pos::Blake3Algorithm;
 // Replace with common import
 use common::get_kari_dir;
+use log::{info, warn};
 use mona_storage::{BlockchainStorage, RocksDBStorage, StorageError};
 use mona_types::address::Address;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-
 
 use lazy_static::lazy_static;
 use std::collections::{HashMap, VecDeque};
@@ -17,6 +17,7 @@ use std::sync::{Mutex, RwLock, atomic::{AtomicU64, Ordering}};
 lazy_static! {
     pub static ref BLOCKCHAIN_DATA: BlockchainData = BlockchainData::new();
     pub static ref BALANCES: Mutex<HashMap<String, u64>> = Mutex::new(HashMap::new());
+    pub static ref PENDING_TRANSACTIONS: Mutex<VecDeque<block::Transaction>> = Mutex::new(VecDeque::new());
 }
 
 /// Improved blockchain data container with thread-safety and performance features
@@ -63,10 +64,22 @@ impl BlockchainData {
     }
     
     // Modified to return bool indicating success
-    pub fn add_block(&self, block: Block<Blake3Algorithm>) -> bool {
+    pub fn add_block(&self, mut block: Block<Blake3Algorithm>) -> bool {
         let mut chain = self.chain.write().unwrap();
         let height = chain.len();
         
+        // If block has no transactions, check if there are any pending
+        if block.transactions.is_empty() {
+            let pending_txs = get_next_block_transactions(100);
+            if !pending_txs.is_empty() {
+                log::info!("Adding {} pending transactions to block {}", pending_txs.len(), block.index);
+                block.transactions = pending_txs;
+                
+                // Recalculate block hash since we modified it
+                block.hash = block.calculate_hash();
+            }
+        }
+
         // Check if block already exists
         if self.has_block_with_hash(&block.hash) {
             return false;
@@ -202,8 +215,6 @@ pub fn get_hex_from_address(address: &Address) -> String {
     address.to_hex_literal()
 }
 
-
-
 pub fn get_balance(address: &str) -> Result<u64, BlockchainError> {
     let max_retries = 3;
     let mut attempts = 0;
@@ -248,6 +259,147 @@ pub fn get_balance(address: &str) -> Result<u64, BlockchainError> {
 // Add a new function that accepts Address directly
 pub fn get_address_balance(address: &Address) -> Result<u64, BlockchainError> {
     get_balance(&address.to_hex_literal())
+}
+
+// Improved submit_transaction function with better logging
+pub fn submit_transaction(transaction: block::Transaction) -> Result<(), BlockchainError> {
+    // Get transaction type for better logging
+    let tx_type = transaction.get_transaction_type();
+    
+    log::info!(
+        "Submitting transaction: {} (type: {}, id: {})",
+        tx_type,
+        transaction.transaction_id,
+        hex::encode(&transaction.transaction_id.as_bytes()[..8])
+    );
+    
+    // Provide detailed VM transaction info if applicable
+    if tx_type == "VM_FUNCTION_CALL" {
+        if let Some(data) = &transaction.data {
+            if let Ok(data_str) = std::str::from_utf8(data) {
+                if data_str.starts_with("VM:") {
+                    let parts: Vec<&str> = data_str.split(':').collect();
+                    if parts.len() >= 3 {
+                        log::info!(
+                            "VM function call: module={}, function={}", 
+                            parts.get(1).unwrap_or(&"unknown"), 
+                            parts.get(2).unwrap_or(&"unknown")
+                        );
+                    }
+                }
+            }
+        }
+    }
+    
+    // Add to pending transaction queue
+    let mut transactions = match PENDING_TRANSACTIONS.lock() {
+        Ok(t) => t,
+        Err(_) => return Err(BlockchainError::Transaction("Failed to lock pending transactions".to_string()))
+    };
+    
+    transactions.push_back(transaction);
+    log::info!("Transaction added to pending queue. Queue size: {}", transactions.len());
+    
+    Ok(())
+}
+
+// Enhanced function to prioritize VM function calls
+pub fn get_next_block_transactions(max_count: usize) -> Vec<block::Transaction> {
+    let mut result = Vec::new();
+    
+    // Try to get pending transactions
+    if let Ok(mut queue) = PENDING_TRANSACTIONS.lock() {
+        // Log queue size for debugging
+        info!("Processing pending transaction queue, size: {}", queue.len());
+        
+        // First pass: prioritize modules, then VM function calls
+        let mut vm_module_deployments = VecDeque::new();
+        let mut vm_function_calls = VecDeque::new();
+        let mut regular_txs = VecDeque::new();
+        
+        // Scan through all transactions to sort by priority
+        while let Some(tx) = queue.pop_front() {
+            // Check transaction type and prioritize accordingly
+            if let Some(data) = &tx.data {
+                if let Ok(data_str) = std::str::from_utf8(data) {
+                    // Highest priority - module deployments
+                    if data_str.starts_with("VM_MODULE:") {
+                        info!("Found VM module deployment transaction: {}", tx.transaction_id);
+                        vm_module_deployments.push_back(tx);
+                        continue;
+                    }
+                    // Medium priority - VM function calls
+                    else if data_str.starts_with("VM:") || data_str.contains("::") {
+                        info!("Found VM function call transaction: {}", tx.transaction_id);
+                        vm_function_calls.push_back(tx);
+                        continue;
+                    }
+                }
+            }
+            
+            // Lowest priority - regular transactions
+            regular_txs.push_back(tx);
+        }
+        
+        // Add VM module deployments first (highest priority)
+        while !vm_module_deployments.is_empty() && result.len() < max_count {
+            if let Some(tx) = vm_module_deployments.pop_front() {
+                info!("Including VM module deployment: {}", tx.transaction_id);
+                result.push(tx);
+            }
+        }
+        
+        // Add VM function calls next (medium priority)
+        while !vm_function_calls.is_empty() && result.len() < max_count {
+            if let Some(tx) = vm_function_calls.pop_front() {
+                info!("Including VM function call: {}", tx.transaction_id);
+                result.push(tx);
+            }
+        }
+        
+        // Finally add regular transactions (lowest priority)
+        while !regular_txs.is_empty() && result.len() < max_count {
+            if let Some(tx) = regular_txs.pop_front() {
+                result.push(tx);
+            }
+        }
+        
+        // Return any unused transactions back to the queue in order of priority
+        for tx in vm_module_deployments {
+            queue.push_front(tx); // Add back to front for highest priority
+        }
+        
+        for tx in vm_function_calls {
+            queue.push_back(tx); // Medium priority
+        }
+        
+        for tx in regular_txs {
+            queue.push_back(tx); // Lowest priority
+        }
+        
+        info!("Selected {} transactions for next block ({} remain in queue)", 
+             result.len(), queue.len());
+    } else {
+        warn!("Failed to lock transaction queue, creating empty block");
+    }
+    
+    result
+}
+
+// Make sure PENDING_TRANSACTIONS is properly exposed to be processed
+pub fn get_pending_transactions(max_count: usize) -> Vec<block::Transaction> {
+    let mut result = Vec::new();
+    
+    if let Ok(mut queue) = PENDING_TRANSACTIONS.lock() {
+        while let Some(tx) = queue.pop_front() {
+            result.push(tx);
+            if result.len() >= max_count {
+                break;
+            }
+        }
+    }
+    
+    result
 }
 
 // Modified load method to ensure balances are properly loaded

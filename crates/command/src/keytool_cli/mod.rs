@@ -11,7 +11,7 @@ use std::process::exit;
 use serde_json::json;
 use std::process::Command;
 // Add the required import for CurveType and key-related functions
-use key::keys::{CurveType, generate_keypair, keypair_from_mnemonic, keypair_from_private_key, generate_mnemonic};
+use key::keys::{CurveType, keypair_from_mnemonic, keypair_from_private_key, generate_mnemonic};
 
 struct CommandInfo {
     name: &'static str,

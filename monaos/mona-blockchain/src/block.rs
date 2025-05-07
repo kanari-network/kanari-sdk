@@ -18,7 +18,7 @@ pub struct Transaction {
     pub data: Option<Vec<u8>>, // Re-add data field as Option<Vec<u8>>
 }
 
-// Add a new method to verify transaction signatures
+// Add methods to the Transaction struct
 impl Transaction {
     // Create a message representation of the transaction for signing/verification
     pub fn to_signable_message(&self) -> Vec<u8> {
@@ -61,6 +61,39 @@ impl Transaction {
                     self.transaction_id, err);
                 false
             }
+        }
+    }
+    
+    // Check if the transaction is a VM transaction
+    pub fn is_vm_transaction(&self) -> bool {
+        if let Some(data) = &self.data {
+            if let Ok(data_str) = std::str::from_utf8(data) {
+                return data_str.starts_with("VM:") || data_str.contains("::");
+            }
+        }
+        false
+    }
+    
+    // Check if the transaction is a VM module deployment
+    pub fn is_vm_module_deployment(&self) -> bool {
+        if let Some(data) = &self.data {
+            if let Ok(data_str) = std::str::from_utf8(data) {
+                return data_str.starts_with("VM_MODULE:");
+            }
+        }
+        false
+    }
+    
+    // Get transaction type as a string for better logging
+    pub fn get_transaction_type(&self) -> &'static str {
+        if self.is_vm_module_deployment() {
+            "VM_MODULE_DEPLOYMENT"
+        } else if self.is_vm_transaction() {
+            "VM_FUNCTION_CALL"
+        } else if self.data.is_some() {
+            "DATA_TRANSACTION"
+        } else {
+            "TOKEN_TRANSFER"
         }
     }
 }

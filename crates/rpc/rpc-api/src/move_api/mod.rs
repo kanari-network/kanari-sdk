@@ -5,7 +5,7 @@ use serde_json::{json, Value as JsonValue};
 use mona_vm::{
     VM_STATE, VMTransaction, execute_vm_transaction,
 };
-use mona_vm::db::{get_module, get_transaction, get_module_transactions, 
+use mona_vm::db::{get_transaction, get_module_transactions, 
                   get_transactions_by_sender, list_modules, get_module_count, get_transaction_count};
 
 use move_core_types::account_address::AccountAddress;
