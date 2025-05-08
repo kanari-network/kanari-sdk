@@ -310,12 +310,16 @@ pub fn handle_move_command() {
                         .ok()
                 });
 
+            // ดึงค่า password
+            let password = get_param_value(&args, "--password");
+
             Command::Call(Call {
                 module_id,
                 function,
                 args: args_list,
                 gas_budget,
                 address,
+                password,
             })
         },
         Some("sandbox") => Command::Sandbox {
