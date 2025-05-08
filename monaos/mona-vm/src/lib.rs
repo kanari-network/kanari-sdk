@@ -1,4 +1,3 @@
-use db::{store_module, store_transaction};
 use move_package::compilation::compiled_package::CompiledUnitWithSource;
 use move_package::{source_package::layout::SourcePackageLayout, BuildConfig};
 use move_compiler::compiled_unit::CompiledUnit;
@@ -29,93 +28,13 @@ use mona_blockchain::blockchain::{BLOCKCHAIN_DATA, submit_transaction};
 use lazy_static::lazy_static;
 use mona_crypto::verify_signature;
 
-// Add db module
-pub mod db;
-pub use db::{StoredModule, StoredTransaction};
-
-pub fn reroot_path(path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
-    let path = path.unwrap_or_else(|| PathBuf::from("."));
-    let rooted_path = SourcePackageLayout::try_find_root(&path.canonicalize()?)?;
-    std::env::set_current_dir(rooted_path).unwrap();
-
-    Ok(PathBuf::from("."))
-}
-
 // VM Transaction State Manager - Make it public so it can be accessed by the RPC API
 lazy_static! {
     pub static ref VM_STATE: Arc<RwLock<VMState>> = {
-        // Initialize VM_STATE with modules from database
+        // Initialize VM_STATE with empty state (no DB loading)
         let state = VMState::new();
-        
-        // Create and return the Arc<RwLock<VMState>>
-        let state_arc = Arc::new(RwLock::new(state));
-        
-        // Load modules from database in a background thread to avoid blocking init
-        std::thread::spawn({
-            let state_arc = state_arc.clone();
-            move || if let Err(e) = load_modules_from_db(&state_arc) {
-                log::error!("Failed to load modules from database: {}", e);
-            }
-        });
-        
-        state_arc
+        Arc::new(RwLock::new(state))
     };
-}
-
-// New function to load modules from database
-fn load_modules_from_db(state_arc: &Arc<RwLock<VMState>>) -> Result<(), String> {
-    match db::list_modules(1000, 0) {
-        Ok(modules) => {
-            if let Ok(mut state) = state_arc.write() {
-                for stored_module in modules {
-                    let address_str = stored_module.address.trim_start_matches("0x");
-                    
-                    match AccountAddress::from_hex(address_str) {
-                        Ok(address) => {
-                            let public_functions = match serde_json::from_str::<serde_json::Value>(&stored_module.abi) {
-                                Ok(abi) => {
-                                    if let Some(funcs) = abi["public_functions"].as_array() {
-                                        funcs
-                                            .iter()
-                                            .filter_map(|f| f["name"].as_str().map(|s| s.to_string()))
-                                            .collect()
-                                    } else {
-                                        Vec::new()
-                                    }
-                                },
-                                Err(_) => Vec::new(),
-                            };
-                            
-                            let vm_module = VMModule::new(
-                                address,
-                                stored_module.name.clone(),
-                                stored_module.bytecode.clone(),
-                                public_functions.clone(),
-                                stored_module.deploy_block_height,
-                            );
-                            
-                            state.register_module(vm_module.clone());
-                            
-                            let full_addr = format!("0x{}", address.to_hex());
-                            let full_module_id = format!("{}::{}", full_addr, stored_module.name);
-                            let mut alt_module = vm_module.clone();
-                            alt_module.module_id = full_module_id;
-                            state.register_module(alt_module);
-                            
-                            let mut exact_module = vm_module.clone();
-                            exact_module.module_id = stored_module.module_id.clone();
-                            state.register_module(exact_module);
-                        },
-                        Err(_) => {}
-                    }
-                }
-                Ok(())
-            } else {
-                Err("Failed to acquire write lock on VM_STATE".into())
-            }
-        },
-        Err(_) => Err("Failed to list modules from database".into()),
-    }
 }
 
 // Structure to track VM State
@@ -189,6 +108,7 @@ pub struct VMTransaction {
     pub timestamp: u64,
     pub signature: Option<Vec<u8>>,
     pub signer_address: Option<String>,
+    pub mvsm_file: Option<String>,
 }
 
 impl VMTransaction {
@@ -224,6 +144,7 @@ impl VMTransaction {
             timestamp,
             signature: None,
             signer_address: None,
+            mvsm_file: None,
         }
     }
     
@@ -232,29 +153,160 @@ impl VMTransaction {
         self.signer_address = Some(signer_address);
         self
     }
+    
+    pub fn with_mvsm_file(mut self, mvsm_file: String) -> Self {
+        self.mvsm_file = Some(mvsm_file);
+        self
+    }
+}
+
+// Add new function to load module from .mvsm file
+fn load_module_from_mvsm(module_id: &str, mvsm_path: Option<&str>) -> Result<VMModule, String> {
+    // Find .mvsm file - either from provided path or by searching in standard locations
+    let mvsm_file_path = match mvsm_path {
+        Some(path) => PathBuf::from(path),
+        None => {
+            // Extract address and module name from module_id
+            let parts: Vec<&str> = module_id.split("::").collect();
+            if parts.len() != 2 {
+                return Err(format!("Invalid module ID format: {}", module_id));
+            }
+            
+            let address = parts[0].trim_start_matches("0x");
+            let module_name = parts[1];
+            
+            // Check in current directory first
+            let mut paths_to_try = vec![
+                // Current project build/mvsm directory
+                PathBuf::from(format!("./build/mvsm/{}_{}.mvsm", address, module_name)),
+                
+                // Absolute path in case module was published from different directory
+                PathBuf::from(format!("D:/Work/kanari-sdk/example_move/token/build/mvsm/{}_{}.mvsm", address, module_name)),
+                
+                // Global mvsm directory (common location)
+                PathBuf::from(format!("D:/Work/kanari-sdk/build/mvsm/{}_{}.mvsm", address, module_name))
+            ];
+            
+            // Also try with just last 16 chars of address (shortened form)
+            if address.len() > 16 {
+                let short_addr = &address[address.len() - 16..];
+                paths_to_try.push(PathBuf::from(format!("./build/mvsm/{}_{}.mvsm", short_addr, module_name)));
+                paths_to_try.push(PathBuf::from(format!("D:/Work/kanari-sdk/example_move/token/build/mvsm/{}_{}.mvsm", short_addr, module_name)));
+                paths_to_try.push(PathBuf::from(format!("D:/Work/kanari-sdk/build/mvsm/{}_{}.mvsm", short_addr, module_name)));
+            }
+            
+            // Find first path that exists
+            match paths_to_try.into_iter().find(|p| p.exists()) {
+                Some(path) => path,
+                None => return Err(format!("MVSM file not found for module: {}", module_id)),
+            }
+        }
+    };
+    
+    println!("Trying to load MVSM file from: {}", mvsm_file_path.display());
+    
+    // Read file content
+    let file_content = match std::fs::read(&mvsm_file_path) {
+        Ok(content) => content,
+        Err(e) => return Err(format!("Failed to read MVSM file: {}", e)),
+    };
+    
+    // Split metadata and bytecode
+    let content_str = String::from_utf8_lossy(&file_content);
+    let parts: Vec<&str> = content_str.split("\n===BYTECODE===\n").collect();
+    
+    if parts.len() != 2 {
+        return Err("Invalid MVSM file format".to_string());
+    }
+    
+    // Parse metadata
+    let metadata: serde_json::Value = match serde_json::from_str(parts[0]) {
+        Ok(json) => json,
+        Err(e) => return Err(format!("Failed to parse MVSM metadata: {}", e)),
+    };
+    
+    // Extract address
+    let address_str = metadata["address"].as_str()
+        .ok_or_else(|| "Missing address in MVSM metadata".to_string())?;
+    let address = AccountAddress::from_hex_literal(address_str)
+        .or_else(|_| AccountAddress::from_hex(address_str.trim_start_matches("0x")))
+        .map_err(|e| format!("Invalid address format: {}", e))?;
+    
+    // Extract module name
+    let name = metadata["name"].as_str()
+        .ok_or_else(|| "Missing module name in MVSM metadata".to_string())?
+        .to_string();
+    
+    // Extract public functions
+    let public_functions = metadata["public_functions"].as_array()
+        .map(|funcs| funcs.iter()
+            .filter_map(|f| f.as_str().map(|s| s.to_string()))
+            .collect())
+        .unwrap_or_default();
+    
+    // Extract bytecode
+    let bytecode = parts[1].as_bytes().to_vec();
+    
+    // Extract deploy block height
+    let deploy_block_height = metadata["deploy_block_height"]
+        .as_u64()
+        .unwrap_or(0) as u32;
+    
+    // Create VMModule
+    let vm_module = VMModule::new(
+        address,
+        name,
+        bytecode,
+        public_functions,
+        deploy_block_height,
+    );
+    
+    println!("Successfully loaded module {} from MVSM file", vm_module.module_id);
+    
+    Ok(vm_module)
 }
 
 // Execute VM transaction function
 pub fn execute_vm_transaction(tx: &VMTransaction) -> Result<JsonValue, String> {
     let state = VM_STATE.read().map_err(|e| format!("Failed to access VM state: {}", e))?;
     
-    let db_module = match direct_db_module_lookup(&tx.module_id) {
-        Ok(Some(module)) => {
-            if let Ok(mut vm_state) = VM_STATE.write() {
-                vm_state.register_module(module.clone());
-                Some(module)
-            } else {
-                None
-            }
-        },
-        Ok(None) => None,
-        Err(_) => None,
-    };
+    // Try to find module directly from in-memory state
+    let module_result = find_module_with_variations(&state, &tx.module_id);
     
-    let module = match db_module {
-        Some(m) => Ok(m),
-        None => find_module_with_variations(&state, &tx.module_id)
-    }?;
+    // If module not found in memory, try to load from .mvsm file
+    let module = match module_result {
+        Ok(module) => module,
+        Err(_) => {
+            // Try to load from mvsm file if module not found in memory
+            match load_module_from_mvsm(&tx.module_id, tx.mvsm_file.as_deref()) {
+                Ok(module) => {
+                    // Register the loaded module in VM state
+                    drop(state); // Release read lock before acquiring write lock
+                    let mut state_write = VM_STATE.write()
+                        .map_err(|e| format!("Failed to access VM state for writing: {}", e))?;
+                    
+                    // Register both the original module and a copy with potentially different ID format
+                    state_write.register_module(module.clone());
+                    
+                    // Create a module with full address format for better compatibility
+                    let padded_addr = format!("{:0>64}", module.address.to_hex());
+                    let full_module_id = format!("0x{}::{}", padded_addr, module.name);
+                    let mut module_copy = module.clone();
+                    module_copy.module_id = full_module_id;
+                    state_write.register_module(module_copy);
+                    
+                    drop(state_write); // Release write lock
+                    // Re-acquire read lock
+                    let state = VM_STATE.read()
+                        .map_err(|e| format!("Failed to access VM state: {}", e))?;
+                    
+                    // Now the module should be registered, find it again
+                    find_module_with_variations(&state, &tx.module_id)?
+                },
+                Err(e) => return Err(format!("{}\nTry using --mvsm-file parameter to specify the .mvsm file location", e)),
+            }
+        }
+    };
     
     let function_lower = tx.function.to_lowercase();
     let available_functions = &module.public_functions;
@@ -296,84 +348,25 @@ pub fn execute_vm_transaction(tx: &VMTransaction) -> Result<JsonValue, String> {
             .as_secs()
     });
     
-    let result_str = serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string());
-    if let Err(_) = store_transaction(
-        &tx.tx_id,
-        &tx.module_id,
-        &tx.function,
-        &tx.args,
-        &tx.sender,
-        gas_used,
-        true,
-        &result_str,
-        block_height as u64
-    ) {
-    }
-    
     Ok(result)
-}
-
-// New function for direct database lookup bypassing VM state
-fn direct_db_module_lookup(module_id: &str) -> Result<Option<VMModule>, String> {
-    let variations = generate_module_id_variations(module_id);
-    
-    for id in std::iter::once(module_id.to_string()).chain(variations) {
-        match db::get_module(&id) {
-            Ok(Some(stored_module)) => {
-                let address_str = if stored_module.address.starts_with("0x") {
-                    &stored_module.address[2..]
-                } else {
-                    &stored_module.address
-                };
-                
-                match AccountAddress::from_hex(address_str) {
-                    Ok(address) => {
-                        let public_functions = match serde_json::from_str::<serde_json::Value>(&stored_module.abi) {
-                            Ok(abi) => {
-                                if let Some(funcs) = abi["public_functions"].as_array() {
-                                    funcs.iter()
-                                        .filter_map(|f| f["name"].as_str().map(|s| s.to_string()))
-                                        .collect()
-                                } else {
-                                    Vec::new()
-                                }
-                            },
-                            Err(_) => Vec::new()
-                        };
-                        
-                        return Ok(Some(VMModule::new(
-                            address,
-                            stored_module.name,
-                            stored_module.bytecode,
-                            public_functions,
-                            stored_module.deploy_block_height,
-                        )));
-                    },
-                    Err(_) => {}
-                }
-            },
-            Ok(None) => continue,
-            Err(_) => {}
-        }
-    }
-    
-    Ok(None)
 }
 
 // Helper function to find a module with different address formats
 fn find_module_with_variations(state: &VMState, module_id: &str) -> Result<VMModule, String> {
+    // First try exact match
     if let Some(module) = state.modules.get(module_id) {
         return Ok(module.clone());
     }
     
+    // Try variations
     let variations = generate_module_id_variations(module_id);
-    
     for variant in &variations {
         if let Some(module) = state.modules.get(variant) {
             return Ok(module.clone());
         }
     }
     
+    // Try fuzzy match (lowercase contains)
     let module_id_lower = module_id.to_lowercase();
     for (id, module) in state.modules.iter() {
         if id.to_lowercase().contains(&module_id_lower) || 
@@ -382,71 +375,7 @@ fn find_module_with_variations(state: &VMState, module_id: &str) -> Result<VMMod
         }
     }
     
-    let results = match db::list_modules(100, 0) {
-        Ok(modules) => modules,
-        Err(_) => return Err(format!("Module not found: {}", module_id)),
-    };
-    
-    for stored_module in results {
-        if stored_module.module_id.to_lowercase() == module_id.to_lowercase() || 
-           variations.iter().any(|v| v.to_lowercase() == stored_module.module_id.to_lowercase()) {
-            
-            let address_str = if stored_module.address.starts_with("0x") {
-                &stored_module.address[2..]
-            } else {
-                &stored_module.address
-            };
-            
-            match AccountAddress::from_hex(address_str) {
-                Ok(address) => {
-                    let public_functions = match serde_json::from_str::<serde_json::Value>(&stored_module.abi) {
-                        Ok(abi) => {
-                            if let Some(funcs) = abi["public_functions"].as_array() {
-                                let extracted_functions: Vec<String> = funcs.iter()
-                                    .filter_map(|f| f["name"].as_str().map(|s| s.to_string()))
-                                    .collect();
-                                extracted_functions
-                            } else {
-                                Vec::new()
-                            }
-                        },
-                        Err(_) => Vec::new()
-                    };
-                    
-                    let vm_module = VMModule::new(
-                        address,
-                        stored_module.name.clone(),
-                        stored_module.bytecode.clone(),
-                        public_functions,
-                        stored_module.deploy_block_height,
-                    );
-                    
-                    let mut vm_state = VM_STATE.write().map_err(|e| {
-                        format!("Failed to acquire write lock on VM_STATE: {}", e)
-                    })?;
-                    
-                    vm_state.register_module(vm_module.clone());
-                    
-                    let mut exact_module = vm_module.clone();
-                    exact_module.module_id = stored_module.module_id.clone();
-                    vm_state.register_module(exact_module);
-                    
-                    let mut requested_module = vm_module.clone();
-                    requested_module.module_id = module_id.to_string();
-                    vm_state.register_module(requested_module);
-                    
-                    if let Some(module) = vm_state.modules.get(module_id) {
-                        return Ok(module.clone());
-                    }
-                    
-                    return Ok(vm_module);
-                },
-                Err(_) => {}
-            }
-        }
-    }
-    
-    Err(format!("Module not found after all attempts: {}", module_id))
+    Err(format!("Module not found: {}", module_id))
 }
 
 // Enhanced generate_module_id_variations function
@@ -504,6 +433,7 @@ pub fn convert_to_vm_transaction(transaction: &Transaction) -> Option<VMTransact
                     timestamp: transaction.timestamp,
                     signature: None,
                     signer_address: None,
+                    mvsm_file: None,
                 });
             }
         }
@@ -521,6 +451,59 @@ pub struct Publish {
     pub signer_address: Option<String>,
 }
 
+// Add new function to serialize module to .mvsm file
+fn serialize_module_to_mvsm(
+    module: &VMModule,
+    package_name: &str,
+    output_path: Option<&PathBuf>
+) -> anyhow::Result<PathBuf> {
+    // Create output directory structure
+    let mut output_dir = match output_path {
+        Some(path) => path.clone(),
+        None => {
+            let mut path = std::env::current_dir()?;
+            path.push("build");
+            path.push("mvsm");
+            path
+        }
+    };
+    
+    if !output_dir.exists() {
+        std::fs::create_dir_all(&output_dir)?;
+    }
+    
+    // Create filename using address and module name
+    let filename = format!("{}_{}.mvsm", module.address.to_hex(), module.name);
+    output_dir.push(&filename);
+    
+    // Prepare module metadata for serialization
+    let module_data = serde_json::json!({
+        "module_id": module.module_id.clone(),
+        "address": format!("0x{}", module.address.to_hex()),
+        "name": module.name.clone(),
+        "package": package_name,
+        "deploy_block_height": module.deploy_block_height,
+        "public_functions": module.public_functions.clone(),
+        "bytecode_size": module.bytecode.len(),
+        "version": "1.0",
+        "timestamp": SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+    });
+    
+    // Combine metadata JSON with bytecode in a simple format
+    let mut file_content = module_data.to_string().into_bytes();
+    // Add separator between JSON metadata and bytecode
+    file_content.extend_from_slice(b"\n===BYTECODE===\n");
+    file_content.extend_from_slice(&module.bytecode);
+    
+    // Write to file
+    std::fs::write(&output_dir, file_content)?;
+    
+    Ok(output_dir)
+}
+
 fn generate_object_id() -> String {
     let mut hasher = Sha3_256::new();
     let timestamp = SystemTime::now()
@@ -536,6 +519,14 @@ fn generate_object_id() -> String {
 
     let hash = hasher.finalize();
     format!("0x{:0>64}", hex::encode(hash))
+}
+
+pub fn reroot_path(path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
+    let path = path.unwrap_or_else(|| PathBuf::from("."));
+    let rooted_path = SourcePackageLayout::try_find_root(&path.canonicalize()?)?;
+    std::env::set_current_dir(rooted_path).unwrap();
+
+    Ok(PathBuf::from("."))
 }
 
 impl Build {
@@ -821,7 +812,8 @@ impl Publish {
                         .as_secs(),
                 },
                 "signature": signature_info,
-                "deployment": deployment_info
+                "deployment": deployment_info,
+                "mvsm_files": deployment_result.mvsm_files
             }
         });
 
@@ -918,6 +910,7 @@ impl Publish {
         }
         
         let mut blockchain_transactions = Vec::new();
+        let mut mvsm_paths = Vec::new();
         
         let _gas_collector = match AccountAddress::from_hex_literal(
             "0x47621776628ba3a5b9baaab38e61f4c98e893e124204bc4dad52e702e2b24ea1") {
@@ -948,7 +941,7 @@ impl Publish {
                 .filter_map(|f| f["name"].as_str().map(|s| s.to_string()))
                 .collect::<Vec<String>>();
             
-            let module_id = format!("0x{}::{}", address.to_hex(), module_name);
+            let _module_id = format!("0x{}::{}", address.to_hex(), module_name);
             
             let vm_module = VMModule::new(
                 *address,
@@ -957,6 +950,23 @@ impl Publish {
                 public_funcs.clone(),
                 block_height,
             );
+            
+            // Generate .mvsm file for the module
+            let mvsm_path = match serialize_module_to_mvsm(
+                &vm_module, 
+                &package.compiled_package_info.package_name.to_string(),
+                None
+            ) {
+                Ok(path) => {
+                    println!("Generated .mvsm file: {}", path.display());
+                    mvsm_paths.push(path.clone()); // Clone the path before pushing
+                    Some(path)
+                },
+                Err(e) => {
+                    eprintln!("Warning: Failed to generate .mvsm file: {}", e);
+                    None
+                }
+            };
             
             let priority_boost = size_bytes / 100;
             let gas_used = calculate_gas_fee(Some(priority_boost));
@@ -973,7 +983,19 @@ impl Publish {
                 hasher.update(&bytecode);
                 hex::encode(hasher.finalize())
             };
-            let data_str = format!("VM_MODULE:{}:{}:{}", module_name, bytecode.len(), module_hash);
+            
+            // Include mvsm path in transaction data if available
+            let data_str = if let Some(path) = mvsm_path {
+                format!("VM_MODULE:{}:{}:{}:{}", 
+                    module_name, 
+                    bytecode.len(), 
+                    module_hash,
+                    path.to_string_lossy()
+                )
+            } else {
+                format!("VM_MODULE:{}:{}:{}", module_name, bytecode.len(), module_hash)
+            };
+            
             tx_data.extend_from_slice(data_str.as_bytes());
             
             let blockchain_tx = mona_blockchain::block::Transaction {
@@ -988,26 +1010,6 @@ impl Publish {
             };
             
             blockchain_transactions.push(blockchain_tx);
-            
-            let module_abi = serde_json::to_string(module_json).unwrap_or_else(|_| "{}".to_string());
-            match store_module(
-                &module_id,
-                &format!("0x{}", address.to_hex()),
-                module_name,
-                &bytecode,
-                &module_abi,
-                &deploy_tx_id,
-                block_height
-            ) {
-                Ok(_) => {},
-                Err(_) => {}
-            }
-            
-            let _alt_module_id = if module_id.starts_with("0x") {
-                module_id[2..].to_string()
-            } else {
-                format!("0x{}", module_id)
-            };
             
             vm_state.register_module(vm_module.clone());
             
@@ -1048,6 +1050,7 @@ impl Publish {
             execution_time_ms: execution_time as u64,
             block_height: block_height as u64,
             modules_deployed,
+            mvsm_files: mvsm_paths.iter().map(|p| p.to_string_lossy().to_string()).collect(),
         };
     
         Ok(result)
@@ -1061,6 +1064,7 @@ struct DeploymentResult {
     execution_time_ms: u64,
     block_height: u64,
     modules_deployed: usize,
+    mvsm_files: Vec<String>,
 }
 
 fn estimate_gas_for_module(bytecode: &[u8], gas_budget: u64) -> u64 {

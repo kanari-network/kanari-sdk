@@ -24,7 +24,6 @@ use accounts::{get_blockchain_status, get_wallets, list_accounts, transfer_token
 use move_api::{
     list_modules,
     get_module,
-    get_module_transactions,
     execute_function,
     get_transaction,
     get_vm_state
@@ -134,10 +133,6 @@ pub async fn start_rpc_server(network_config: NetworkConfig) -> Result<(), tokio
 
     io.add_method("get_module", |params| {
         futures::future::ready(get_module(params)).boxed()
-    });
-
-    io.add_method("get_module_transactions", |params| {
-        futures::future::ready(get_module_transactions(params)).boxed()
     });
 
     io.add_method("execute_function", |params| {

@@ -2,7 +2,6 @@ use jsonrpc_core::{Error, ErrorCode, Result as JsonRpcResult, Value};
 use serde::{Deserialize, Serialize};
 
 use mona_vm::{
-    db,
     VM_STATE,
     VMTransaction,
     execute_vm_transaction
@@ -21,13 +20,6 @@ struct ListModulesParams {
 #[derive(Debug, Serialize, Deserialize)]
 struct GetModuleParams {
     module_id: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct GetModuleTransactionsParams {
-    module_id: String,
-    limit: Option<usize>,
-    offset: Option<usize>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -52,32 +44,24 @@ pub fn list_modules(params: jsonrpc_core::Params) -> JsonRpcResult<Value> {
     let limit = params.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
     let offset = params.offset.unwrap_or(0);
     
-    // Call the database function to get the actual modules
-    match db::list_modules(limit, offset) {
-        Ok(modules) => {
-            let module_data: Vec<serde_json::Value> = modules.into_iter()
+    // Get modules directly from VM_STATE
+    match VM_STATE.try_read() {
+        Ok(state) => {
+            let modules = state.modules.values()
+                .skip(offset)
+                .take(limit)
+                .collect::<Vec<_>>();
+            
+            let module_data: Vec<serde_json::Value> = modules.iter()
                 .map(|module| {
-                    // Parse the ABI JSON string to extract metadata
-                    let abi = serde_json::from_str(&module.abi)
-                        .unwrap_or_else(|_| serde_json::json!({}));
-                    
-                    // Extract public functions from ABI for easy access
-                    let public_functions = if let Some(funcs) = abi.get("public_functions") {
-                        funcs.clone()
-                    } else {
-                        serde_json::json!([])
-                    };
-                    
                     // Format each module as a JSON object with important fields
                     serde_json::json!({
                         "module_id": module.module_id,
-                        "address": module.address,
+                        "address": format!("0x{}", module.address.to_hex()),
                         "name": module.name,
                         "bytecode_size": module.bytecode.len(),
-                        "deploy_tx_id": module.deploy_tx_id,
                         "deploy_block_height": module.deploy_block_height,
-                        "deploy_time": module.deploy_time,
-                        "public_functions": public_functions
+                        "public_functions": module.public_functions
                     })
                 })
                 .collect();
@@ -85,12 +69,12 @@ pub fn list_modules(params: jsonrpc_core::Params) -> JsonRpcResult<Value> {
             // Return the formatted response with pagination info
             Ok(serde_json::json!({
                 "modules": module_data,
-                "total": module_data.len(),
+                "total": state.modules.len(),
                 "limit": limit,
                 "offset": offset
             }))
         },
-        Err(e) => Err(internal_error(format!("Failed to list modules: {:?}", e)))
+        Err(e) => Err(internal_error(format!("Failed to access VM state: {}", e)))
     }
 }
 
@@ -98,81 +82,23 @@ pub fn list_modules(params: jsonrpc_core::Params) -> JsonRpcResult<Value> {
 pub fn get_module(params: jsonrpc_core::Params) -> JsonRpcResult<Value> {
     let params: GetModuleParams = parse_params(params)?;
     
-    match db::get_module(&params.module_id) {
-        Ok(Some(module)) => {
-            // Parse the ABI JSON string
-            let abi = serde_json::from_str(&module.abi)
-                .unwrap_or_else(|_| serde_json::json!({}));
-            
-            // Extract public functions
-            let public_functions = if let Some(funcs) = abi.get("public_functions") {
-                funcs.clone()
-            } else {
-                serde_json::json!([])
-            };
-            
-            Ok(serde_json::json!({
-                "module_id": module.module_id,
-                "address": module.address,
-                "name": module.name,
-                "bytecode_size": module.bytecode.len(),
-                "deploy_tx_id": module.deploy_tx_id,
-                "deploy_block_height": module.deploy_block_height,
-                "deploy_time": module.deploy_time,
-                "abi": abi,
-                "public_functions": public_functions
-            }))
+    match VM_STATE.try_read() {
+        Ok(state) => {
+            match state.modules.get(&params.module_id) {
+                Some(module) => {
+                    Ok(serde_json::json!({
+                        "module_id": module.module_id,
+                        "address": format!("0x{}", module.address.to_hex()),
+                        "name": module.name,
+                        "bytecode_size": module.bytecode.len(),
+                        "deploy_block_height": module.deploy_block_height,
+                        "public_functions": module.public_functions
+                    }))
+                },
+                None => Err(not_found_error(format!("Module not found: {}", params.module_id)))
+            }
         },
-        Ok(None) => Err(not_found_error(format!("Module not found: {}", params.module_id))),
-        Err(e) => Err(internal_error(format!("Failed to get module: {:?}", e)))
-    }
-}
-
-/// Get transactions related to a specific module
-pub fn get_module_transactions(params: jsonrpc_core::Params) -> JsonRpcResult<Value> {
-    let params: GetModuleTransactionsParams = parse_params(params)?;
-    
-    // Apply defaults and limits
-    let limit = params.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
-    let offset = params.offset.unwrap_or(0);
-    
-    match db::get_module_transactions(&params.module_id, limit, offset) {
-        Ok(transactions) => {
-            let tx_data: Vec<serde_json::Value> = transactions.into_iter()
-                .map(|tx| {
-                    // Parse the result JSON string
-                    let result = serde_json::from_str(&tx.result_data)
-                        .unwrap_or_else(|_| serde_json::json!({}));
-                    
-                    // Format arguments for display
-                    let formatted_args = tx.args.iter()
-                        .map(|arg| format!("0x{}", hex::encode(arg)))
-                        .collect::<Vec<String>>();
-                    
-                    serde_json::json!({
-                        "tx_id": tx.tx_id,
-                        "module_id": tx.module_id,
-                        "function": tx.function,
-                        "args": formatted_args,
-                        "sender": tx.sender,
-                        "gas_used": tx.gas_used,
-                        "success": tx.success,
-                        "block_height": tx.block_height,
-                        "timestamp": tx.timestamp,
-                        "result": result
-                    })
-                })
-                .collect();
-            
-            Ok(serde_json::json!({
-                "transactions": tx_data,
-                "total": tx_data.len(),
-                "limit": limit,
-                "offset": offset,
-                "module_id": params.module_id
-            }))
-        },
-        Err(e) => Err(internal_error(format!("Failed to get module transactions: {:?}", e)))
+        Err(e) => Err(internal_error(format!("Failed to access VM state: {}", e)))
     }
 }
 
@@ -209,36 +135,9 @@ pub fn execute_function(params: jsonrpc_core::Params) -> JsonRpcResult<Value> {
 }
 
 /// Get details of a specific transaction
-pub fn get_transaction(params: jsonrpc_core::Params) -> JsonRpcResult<Value> {
-    let params: GetTransactionParams = parse_params(params)?;
-    
-    match db::get_transaction(&params.tx_id) {
-        Ok(Some(tx)) => {
-            // Parse the result JSON string
-            let result = serde_json::from_str(&tx.result_data)
-                .unwrap_or_else(|_| serde_json::json!({}));
-            
-            // Format arguments for display
-            let formatted_args = tx.args.iter()
-                .map(|arg| format!("0x{}", hex::encode(arg)))
-                .collect::<Vec<String>>();
-            
-            Ok(serde_json::json!({
-                "tx_id": tx.tx_id,
-                "module_id": tx.module_id,
-                "function": tx.function,
-                "args": formatted_args,
-                "sender": tx.sender,
-                "gas_used": tx.gas_used,
-                "success": tx.success,
-                "block_height": tx.block_height,
-                "timestamp": tx.timestamp,
-                "result": result
-            }))
-        },
-        Ok(None) => Err(not_found_error(format!("Transaction not found: {}", params.tx_id))),
-        Err(e) => Err(internal_error(format!("Failed to get transaction: {:?}", e)))
-    }
+pub fn get_transaction(_params: jsonrpc_core::Params) -> JsonRpcResult<Value> {
+    // Transaction history is no longer available in the in-memory implementation
+    Err(not_found_error("Transaction history is not available in the in-memory VM".to_string()))
 }
 
 /// Get VM state information
