@@ -7,6 +7,9 @@ use std::time::Instant;
 
 use mona_vm::*;
 use common::*;
+// Add mona_crypto imports
+use mona_crypto::{load_wallet, WalletError};
+use sha3::{Digest, Sha3_256};
 
 #[derive(Parser)]
 #[clap(
@@ -28,7 +31,10 @@ use common::*;
     kari move call --module-id 0x123::token --function transfer --gas-budget=5000000
 
     # Call from a specific address
-    kari move call --module-id 0x123::token --function transfer --address=0x789"
+    kari move call --module-id 0x123::token --function transfer --address=0x789
+
+    # Sign transaction with wallet password
+    kari move call --module-id 0x123::token --function transfer --password=your_password"
 )]
 pub struct Call {
     /// Module ID in format <address>::<module_name>
@@ -52,6 +58,11 @@ pub struct Call {
     /// Address to call from (sender)
     #[clap(long, help = "Blockchain address to call from (format: 0x...)")]
     pub address: Option<AccountAddress>,
+    
+    /// Password for wallet to sign transaction
+    #[clap(long, help = "Password for wallet to sign transaction")]
+    pub password: Option<String>,
+    pub mvsm_file: Option<String>,
 }
 
 impl Call {
@@ -121,17 +132,107 @@ impl Call {
             println!("📝 No arguments provided");
         }
         
+        // Create transaction payload for signing
+        let mut hasher = Sha3_256::new();
+        hasher.update(sender.to_hex().as_bytes());
+        hasher.update(self.function.as_bytes());
+        hasher.update(full_module_id.as_bytes());
+        hasher.update(self.gas_budget.to_le_bytes());
+        
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        hasher.update(timestamp.to_le_bytes());
+        
+        // Include arguments hash in the payload
+        for arg in &parsed_args {
+            hasher.update(arg);
+        }
+        
+        let payload_hash = hasher.finalize();
+        let payload_to_sign = payload_hash.as_slice();
+        
+        // Sign with wallet if available
+        let (signature, wallet_address) = match get_main_wallet() {
+            Some(wallet_addr) => {
+                // Request password
+                let password = match &self.password {
+                    Some(pwd) => pwd.clone(),
+                    None => {
+                        let display_addr = if wallet_addr.starts_with("0x") {
+                            wallet_addr.clone()
+                        } else {
+                            format!("0x{}", wallet_addr)
+                        };
+                        
+                        println!("Enter password for wallet {}: ", display_addr);
+                        rpassword::read_password().unwrap_or_default()
+                    }
+                };
+                
+                // Load wallet and sign payload
+                match load_wallet(&wallet_addr, &password) {
+                    Ok(wallet) => {
+                        match wallet.sign(payload_to_sign, &password) {
+                            Ok(sig) => {
+                                let display_addr = if wallet_addr.starts_with("0x") {
+                                    wallet_addr.clone()
+                                } else {
+                                    format!("0x{}", wallet_addr)
+                                };
+                                println!("✅ Transaction signed successfully with wallet {}", display_addr);
+                                (Some(sig), Some(wallet_addr.clone()))
+                            },
+                            Err(err) => {
+                                println!("❌ ERROR: Failed to sign transaction: {}", err);
+                                println!("Proceeding with unsigned transaction.");
+                                (None, None)
+                            }
+                        }
+                    },
+                    Err(WalletError::InvalidPassword) => {
+                        let display_addr = if wallet_addr.starts_with("0x") {
+                            wallet_addr.clone()
+                        } else {
+                            format!("0x{}", wallet_addr)
+                        };
+                        println!("❌ ERROR: Invalid password for wallet {}", display_addr);
+                        println!("Proceeding with unsigned transaction.");
+                        (None, None)
+                    },
+                    Err(err) => {
+                        println!("❌ ERROR: Failed to load wallet: {}", err);
+                        println!("Proceeding with unsigned transaction.");
+                        (None, None)
+                    }
+                }
+            },
+            None => {
+                println!("ℹ️ No wallet configured. Proceeding with unsigned transaction.");
+                (None, None)
+            }
+        };
+        
+        // Store whether we have a signature before moving the value
+        let has_signature = signature.is_some();
+        
         // Create timer to measure call duration
         let start_time = Instant::now();
         
         // Create VM transaction
-        let vm_tx = VMTransaction::new(
+        let mut vm_tx = VMTransaction::new(
             format!("0x{}", sender.to_hex()),
             full_module_id.clone(),
             self.function.clone(),
             parsed_args,
             self.gas_budget
         );
+        
+        // Add signature to transaction if available
+        if let (Some(sig), Some(addr)) = (signature, wallet_address) {
+            vm_tx = vm_tx.with_signature(sig, addr);
+        }
         
         // Execute the transaction on the VM with retry logic
         let mut attempts = 0;
@@ -193,7 +294,8 @@ impl Call {
                             "sender": format!("0x{}", sender.to_hex()),
                             "gas_budget": self.gas_budget,
                             "elapsed_time_ms": duration.as_millis(),
-                            "attempts": attempts
+                            "attempts": attempts,
+                            "signed": has_signature
                         }
                     });
                     
@@ -250,6 +352,10 @@ impl Call {
                     else if e.contains("argument") || e.contains("parameter") {
                         println!("💡 Suggestion: Check the number and types of arguments required for this function.");
                         println!("💡 Arguments should be in the format: <type>:<value> e.g., address:0x123,u64:100");
+                    }
+                    else if e.contains("permission") || e.contains("unauthorized") {
+                        println!("💡 Suggestion: You may need proper permissions to call this function.");
+                        println!("💡 Try signing the transaction with a wallet that has the required capabilities.");
                     }
                     
                     println!("\nError Details: {}", serde_json::to_string_pretty(&error_result)?);

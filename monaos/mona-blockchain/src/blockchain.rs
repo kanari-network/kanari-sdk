@@ -7,7 +7,6 @@ use log::{info, warn};
 use mona_storage::{BlockchainStorage, RocksDBStorage, StorageError};
 use mona_types::address::Address;
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 
 use lazy_static::lazy_static;
 use std::collections::{HashMap, VecDeque};
@@ -206,7 +205,7 @@ impl std::fmt::Display for BlockchainError {
 
 // Helper function to normalize addresses
 pub fn normalize_address(address: &str) -> Result<Address, BlockchainError> {
-    Address::from_str(address)
+    Address::from_hex_literal(address)
         .map_err(|_| BlockchainError::InvalidAddress(format!("Invalid address format: {}", address)))
 }
 
