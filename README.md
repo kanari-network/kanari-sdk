@@ -201,6 +201,42 @@ choco install mingw
 ```shell
 cargo install --locked --git https://github.com/kanari-network/kanari-sdk.git --branch kanari-sdk kari
 ```
+
+# Kanari Network SDK
+
+## Automatic Submodule Initialization
+
+This project includes a build support tool that can automatically initialize git submodules. To use it:
+
+```bash
+# From the workspace root
+cargo run -p build-support
+```
+
+This will check and initialize all required git submodules.
+
+### Required Submodules
+
+- `third_party/move` - Move language implementation
+
+### Manual Submodule Initialization
+
+If you prefer to initialize submodules manually, you can run:
+
+```bash
+git submodule update --init --recursive
+```
+
+## Building the Project
+
+```bash
+# First, ensure submodules are initialized
+cargo run -p build-support
+
+# Then build the project
+cargo build
+```
+
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=kanari-network/kanari-sdk&type=Timeline)](https://star-history.com/#kanari-network/kanari-sdk&Timeline)

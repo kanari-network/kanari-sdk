@@ -405,3 +405,29 @@ pub fn detect_curve_type(address: &str) -> Option<CurveType> {
         (false, false) => None,
     }
 }
+
+/// Generate a new Kanari address with the specified mnemonic length and curve type
+pub fn generate_karix_address(mnemonic_length: usize, curve_type: CurveType) -> (String, String, String) {
+    // Generate mnemonic phrase
+    let seed_phrase = generate_mnemonic(mnemonic_length).expect("Failed to generate mnemonic");
+    
+    // Generate keypair from mnemonic
+    let keypair = keypair_from_mnemonic(&seed_phrase, curve_type, "")
+        .expect("Failed to generate keypair from mnemonic");
+    
+    (keypair.private_key, keypair.address, seed_phrase)
+}
+
+/// Import a wallet from a seed phrase
+pub fn import_from_seed_phrase(phrase: &str, curve_type: CurveType) -> Result<(String, String, String), String> {
+    keypair_from_mnemonic(phrase, curve_type, "")
+        .map(|keypair| (keypair.private_key, keypair.public_key, keypair.address))
+        .map_err(|e| e.to_string())
+}
+
+/// Import a wallet from a private key
+pub fn import_from_private_key(private_key: &str, curve_type: CurveType) -> Result<(String, String, String), String> {
+    keypair_from_private_key(private_key, curve_type)
+        .map(|keypair| (keypair.private_key, keypair.public_key, keypair.address))
+        .map_err(|e| e.to_string())
+}
