@@ -1,0 +1,9 @@
+[package]
+name = "build-support"
+version = "0.1.0"
+edition = "2021"
+description = "Build support utilities for Kanari SDK"
+publish = false
+
+[dependencies]
+which = { version = "7.0.3" }
