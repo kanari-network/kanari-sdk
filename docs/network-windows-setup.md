@@ -5,7 +5,7 @@ This guide explains how to set up and run Kanari blockchain nodes on Windows in 
 ## Prerequisites
 
 - Kanari SDK installed
-- Public IP address or domain name
+- Public IP address
 - Administrator privileges to configure Windows Firewall
 - At least one wallet created with `kari keytool generate`
 
@@ -27,26 +27,12 @@ This guide explains how to set up and run Kanari blockchain nodes on Windows in 
    - Visit [whatismyip.com](https://whatismyip.com) or
    - Run `curl ifconfig.me` in PowerShell
 
-### Step 2: Configure TLS Certificates (Optional)
+### Step 2: Configure Security (Optional)
 
-For secure node-to-node communication:
+For secure node communication:
 
-1. Generate self-signed certificates:
-   ```cmd
-   kari certificate generate
-   ```
-
-2. Verify certificate status:
-   ```cmd
-   kari certificate status
-   ```
-
-3. If OpenSSL is not installed, download and install it from [Shining Light Productions](https://slproweb.com/products/Win32OpenSSL.html)
-
-4. Enable TLS in your configuration by editing `%USERPROFILE%\.kari\config.yaml`:
-   ```yaml
-   use_tls: true
-   ```
+1. Set up a firewall to restrict access to required ports only
+2. Consider using a VPN for secure communication between nodes
 
 ### Step 3: Start a Bootstrap Node
 
@@ -101,125 +87,24 @@ To run an additional node on the same machine:
 
 ### Setting up HTTPS on Windows
 
-For example, to use Nginx with HTTPS:
+For secure API access, set up a reverse proxy with HTTPS:
 
 1. Install Nginx for Windows from the official site.
 
-2. Generate a certificate using the Kari CLI (preferred) or OpenSSL directly:
-   ```cmd
-   kari certificate generate
-   ```
-   
-   Or using OpenSSL directly:
-   ```cmd
-   openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout nginx.key -out nginx.crt
-   ```
+2. Create or update your Nginx configuration (e.g., `nginx.conf`) with HTTPS settings
 
-3. Create or update your Nginx configuration (e.g., `nginx.conf`) with the following:
-   ```nginx
-   server {
-       listen       443 ssl;
-       server_name  your.domain.com;
-
-       ssl_certificate      "C:/path/to/nginx.crt";
-       ssl_certificate_key  "C:/path/to/nginx.key";
-
-       location / {
-           proxy_pass http://localhost:30030;
-           proxy_set_header Host $host;
-           proxy_set_header X-Real-IP $remote_addr;
-           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-           proxy_set_header X-Forwarded-Proto https;
-       }
-   }
-   ```
-
-4. Open port 443 in Windows Firewall:
+3. Open port 443 in Windows Firewall:
    ```cmd
    netsh advfirewall firewall add rule name="Nginx HTTPS" dir=in action=allow protocol=TCP localport=443
    ```
 
-Your Kanari RPC endpoint will now be accessible via HTTPS at your configured domain.
-
-### Configuring Domain Names on Windows
-
-If you're setting up a domain name (like "devnet.kanari.site") on Windows:
-
-1. First, check if your domain resolves correctly:
-   ```cmd
-   nslookup devnet.kanari.site
-   ```
-   
-   The response should show your server's IP address.
-
-2. Edit the configuration file:
-   ```cmd
-   notepad %USERPROFILE%\.kari\config.yaml
-   ```
-   
-   Add your domain to the configuration:
-   ```yaml
-   domain: "devnet.kanari.site"
-   ```
-
-3. To set up HTTPS with your domain on Windows:
-   
-   a) Using Let's Encrypt with Windows:
-      - Install [Certify The Web](https://certifytheweb.com/) (GUI tool)
-      - Create a new certificate for your domain
-      - Select "Save to file" with private key
-      - Save to your Kari certs directory
-
-   b) Using self-signed certificates:
-      ```cmd
-      kari certificate generate
-      ```
-
-4. Configure IIS or Nginx for Windows as a reverse proxy:
-
-   ```cmd
-   REM Install Nginx for Windows if not already installed
-   choco install nginx
-
-   REM Edit nginx.conf
-   notepad "C:\Program Files\nginx\conf\nginx.conf"
-   ```
-
-   Add this server block to the nginx.conf file:
-   ```
-   server {
-       listen 443 ssl;
-       server_name devnet.kanari.site;
-
-       ssl_certificate "C:/Users/YourUser/.kari/certs/node.crt";
-       ssl_certificate_key "C:/Users/YourUser/.kari/certs/node.key";
-
-       location / {
-           proxy_pass http://localhost:30030;
-           proxy_set_header Host $host;
-           proxy_set_header X-Real-IP $remote_addr;
-       }
-   }
-   ```
-
-5. Open Windows Firewall for HTTP(S) and P2P ports:
-   ```cmd
-   netsh advfirewall firewall add rule name="HTTPS for Kari" dir=in action=allow protocol=TCP localport=443
-   ```
-
-For detailed instructions, see the [Domain Configuration Guide](domain_setup_guide.md).
-
-### Certificate Management
-
-1. Certificates are stored in `%USERPROFILE%\.kari\certs\`
-2. View certificate status with `kari certificate status`
-3. If you need to regenerate certificates, delete the existing ones first
+Your Kanari RPC endpoint will now be accessible via HTTPS.
 
 ## System Requirements
 
 - CPU: 4+ cores
 - RAM: 8GB minimum
 - Storage: 100GB (SSD or HDD)
-- Network: Stable connection with a public IP address or domain name
+- Network: Stable connection with a public IP address
 
 For more details, also see the [General Kanari Network Node Setup Guide](network-setup.md).

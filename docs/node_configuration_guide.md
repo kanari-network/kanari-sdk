@@ -9,12 +9,11 @@ This document provides comprehensive instructions for configuring a Kari blockch
 3. [Peer-to-Peer (P2P) Settings](#peer-to-peer-p2p-settings)
 4. [RPC Server Configuration](#rpc-server-configuration)
 5. [Wallet Management](#wallet-management)
-6. [Certificate Management](#certificate-management)
-7. [Staking Configuration](#staking-configuration)
-8. [Security Settings](#security-settings)
-9. [Firewall Configuration](#firewall-configuration)
-10. [Advanced Options](#advanced-options)
-11. [Troubleshooting](#troubleshooting)
+6. [Staking Configuration](#staking-configuration)
+7. [Security Settings](#security-settings)
+8. [Firewall Configuration](#firewall-configuration)
+9. [Advanced Options](#advanced-options)
+10. [Troubleshooting](#troubleshooting)
 
 ## Basic Configuration
 
@@ -30,7 +29,6 @@ Basic configuration example:
 chain_id: "kari-testnet-001"
 rpc_port: 30030
 address: "0x7a1c8f19cAE0A90d4A4E445793eB0BED2FaA9ecF"
-use_tls: false
 ```
 
 ### First-time Setup
@@ -52,70 +50,7 @@ The following network settings can be configured:
 | `rpc_port` | Port for RPC API server | `30030` |
 | `peers` | List of peer nodes to connect with | `[]` |
 | `chain_id` | Blockchain network identifier | `"kari-testnet-001"` |
-| `use_tls` | Whether to use TLS for secure connections | `false` |
-| `domain` | Domain name for the node (optional) | `null` |
-
-### Domain Configuration
-
-Using a domain name for your node is recommended for production environments:
-
-```yaml
-# In ~/.kari/config.yaml
-domain: "api.devnet.kanari.site"        # Domain for RPC API access
-domain_peer: "devnet.kanari.site"       # Domain for P2P node connections
-```
-
-#### Setting Up Official Kanari Domains
-
-If you're setting up an official Kanari network domain like "devnet.kanari.site":
-
-1. Request access from the Kanari DevOps team
-2. Provide your node's public IP address
-3. The DevOps team will configure the DNS A records to point to your node
-4. Update your node configuration to use the domains
-
-#### Setting Up Your Own Domain
-
-If you're setting up your own domain:
-
-1. Register a domain with any registrar (Namecheap, GoDaddy, etc.)
-2. Create A records for both P2P and API subdomains pointing to your server's IP address
-3. Configure your node with the domain names
-4. Set up proper TLS certificates for the domains using `kari certificate generate`
-
-#### Official Kanari Network Domains
-
-The Kanari Network uses these standard domain naming conventions:
-
-| Domain Type | Domain Name | Purpose | Environment |
-|-------------|-------------|---------|-------------|
-| **P2P Domains** ||||
-| | `devnet.kanari.site` | P2P node communication | Development network - unstable, frequent resets |
-| | `testnet.kanari.site` | P2P node communication | Testing network - more stable, occasional resets |
-| | `mainnet.kanari.site` | P2P node communication | Production network - stable, no resets |
-| **API Domains** ||||
-| | `api.devnet.kanari.site` | RPC API services | Development network API access |
-| | `api.testnet.kanari.site` | RPC API services | Testing network API access |
-| | `api.mainnet.kanari.site` | RPC API services | Production network API access |
-
-When connecting to these networks for P2P communications, use the P2P domains:
-
-```bash
-kari start --peer devnet.kanari.site:51303
-```
-
-For RPC API access, use the API domains:
-
-```bash
-curl -X POST -H "Content-Type: application/json" -d '{
-  "jsonrpc": "2.0", 
-  "method": "blockchain_status",
-  "params": [],
-  "id": 1
-}' https://api.devnet.kanari.site
-```
-
-For complete domain setup instructions, see the [Domain Configuration Guide](domain_setup_guide.md).
+| `localhost_only` | Restrict node to localhost only | `false` |
 
 ### Running With Custom Port
 
@@ -126,6 +61,20 @@ kari start --port 8545
 ```
 
 This will update your configuration file with the new port.
+
+### Running in Localhost-Only Mode
+
+To restrict the node to operate only on localhost (no external connections):
+
+```bash
+kari start --localhost
+```
+
+In localhost-only mode:
+- The RPC API will only be accessible from the local machine (127.0.0.1)
+- The node will not connect to any peers
+- External nodes cannot connect to this node
+- This mode is useful for development, testing, or running a private node
 
 ## Peer-to-Peer (P2P) Settings
 
@@ -221,47 +170,6 @@ kari keytool list
 
 The node will use the wallet specified in your config file (`address`).
 
-## Certificate Management
-
-Kari supports TLS certificate management for secure node-to-node and client-node communication.
-
-### Certificate Commands
-
-| Command | Description |
-|---------|-------------|
-| `kari certificate generate` | Generate self-signed TLS certificates |
-| `kari certificate status` | Check the status of current certificates |
-| `kari certificate help` | Display certificate command help |
-
-### Generating Certificates
-
-To generate self-signed certificates:
-
-```bash
-kari certificate generate
-```
-
-This will:
-1. Create a certificates directory in your Kari data directory
-2. Generate a self-signed certificate and private key
-3. Store them as `node.crt` and `node.key`
-
-### Certificate Location
-
-Certificates are stored in your Kari data directory:
-- Windows: `%USERPROFILE%\.kari\certs\`
-- Linux/macOS: `~/.kari/certs/`
-
-### Enabling TLS
-
-To enable TLS, modify your config file:
-
-```yaml
-use_tls: true
-```
-
-Or regenerate your configuration with TLS enabled.
-
 ## Staking Configuration
 
 Staking allows nodes to participate in consensus and earn rewards.
@@ -287,22 +195,6 @@ To run a regular node:
 
 ## Security Settings
 
-### TLS Configuration
-
-For fully secure connections:
-
-1. Generate certificates using `kari certificate generate`
-2. Enable TLS in your configuration (`use_tls: true`)
-3. For public-facing nodes, use a reverse proxy like Nginx or Caddy with valid certificates
-
-### HTTPS Setup
-
-The built-in server supports HTTP only, but you can set up HTTPS using a reverse proxy:
-
-1. Configure a reverse proxy (Nginx, Caddy, etc.)
-2. Point it to your Kari node's RPC port
-3. Set up certificates in the proxy
-
 ### Password Security
 
 Your wallet password is used to:
@@ -311,6 +203,14 @@ Your wallet password is used to:
 3. Authenticate certain node operations
 
 Use a strong password and keep it secure.
+
+### HTTPS Setup
+
+For secure connections, you can set up HTTPS using a reverse proxy:
+
+1. Configure a reverse proxy (Nginx, Caddy, etc.)
+2. Point it to your Kari node's RPC port
+3. Set up certificates in the proxy
 
 ## Firewall Configuration
 
@@ -386,13 +286,6 @@ Note: The explorer is a web-based interface that connects to your node's RPC API
 1. Check if another process is using the specified port
 2. Try a different port with `kari start --port <PORT>`
 3. Ensure you have sufficient permissions
-
-#### Certificate issues
-
-1. Run `kari certificate status` to check certificate status
-2. Verify that OpenSSL is installed if generating certificates
-3. Check that certificate paths in configuration are correct
-4. If TLS is enabled but certificates are missing, TLS will be automatically disabled
 
 #### Node fails to sync
 

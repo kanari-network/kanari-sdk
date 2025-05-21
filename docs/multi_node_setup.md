@@ -41,19 +41,14 @@ The first node will serve as a bootstrap node for others:
    kari keytool generate
    ```
 
-2. (Optional) Generate TLS certificates for secure communication:
-   ```bash
-   kari certificate generate
-   ```
-
-3. Start the node:
+2. Start the node:
    ```bash
    kari start
    ```
 
-4. Note the IP address displayed in the console (this will be needed for other nodes)
+3. Note the IP address displayed in the console (this will be needed for other nodes)
 
-5. This node will listen for P2P connections on port 51303 by default
+4. This node will listen for P2P connections on port 51303 by default
 
 ## Additional Nodes Setup
 
@@ -64,17 +59,12 @@ For each additional node:
    kari keytool generate
    ```
 
-2. (Optional) Generate certificates for this node:
-   ```bash
-   kari certificate generate
-   ```
-
-3. Start the node specifying the first node as a peer:
+2. Start the node specifying the first node as a peer:
    ```bash
    kari start --peer <FIRST_NODE_IP>:51303
    ```
 
-4. If running multiple nodes on the same machine, specify different RPC ports:
+3. If running multiple nodes on the same machine, specify different RPC ports:
    ```bash
    kari start --peer 192.168.1.100:51303 --port 30031
    ```
@@ -97,122 +87,24 @@ peers:
 use_tls: true  # Enable TLS if certificates are available
 ```
 
-### Domain Name Configuration
-
-In multi-node setups, using domain names instead of IP addresses provides stability and flexibility:
-
-#### Benefits of Using Domains for Nodes
-- Easier maintenance (IP changes don't require reconfiguring peers)
-- More professional and memorable addresses
-- Better security when combined with proper TLS certificates
-
-#### Configuring Domain Names for Multiple Nodes
-
-1. Follow a consistent naming scheme for your nodes:
-   - For P2P connections:
-     ```
-     node1p2p.your-domain.com
-     node2p2p.your-domain.com
-     validator1p2p.your-domain.com
-     ```
-   
-   - For RPC API access:
-     ```
-     api.node1.your-domain.com
-     api.node2.your-domain.com
-     api.validator1.your-domain.com
-     ```
-   
-   - Or for Kanari's official domains:
-     - P2P domains:
-       ```
-       devnet.kanari.site (development network)
-       testnet.kanari.site (testing network)
-       mainnet.kanari.site (production network)
-       ```
-     
-     - RPC API domains:
-       ```
-       api.devnet.kanari.site (development network API)
-       api.testnet.kanari.site (testing network API)
-       api.mainnet.kanari.site (production network API)
-       ```
-
-2. Create A records for each subdomain in your DNS configuration
-3. Configure each node with both domain types:
-   ```yaml
-   # In ~/.kari/config.yaml for each node
-   domain_peer: "devnet.kanari.site"       # For P2P connections
-   domain: "api.devnet.kanari.site"        # For RPC API access
-   ```
-
-4. Reference other nodes by their P2P domain name when connecting:
-   ```bash
-   kari start --peer devnet.kanari.site:51303 --peer testnet.kanari.site:51303
-   ```
-
-For detailed domain and DNS setup instructions, see the [Domain Configuration Guide](domain_setup_guide.md).
-
 ### Load Balancing Multiple Nodes
 
 For high availability in a production environment, consider:
 
-1. Running multiple nodes behind a load balancer:
-   ```
-   api.kanari.site → Load Balancer → Multiple Kari Nodes
-   ```
-
-2. Configure your DNS with multiple A records for automatic round-robin:
-   ```
-   api.kanari.site. IN A 203.0.113.1
-   api.kanari.site. IN A 203.0.113.2
-   api.kanari.site. IN A 203.0.113.3
-   ```
-
-3. For advanced setups, use georouting to direct users to the closest node:
-   ```
-   api-us.kanari.site → US-based nodes
-   api-eu.kanari.site → Europe-based nodes
-   api-asia.kanari.site → Asia-based nodes
-   ```
+1. Running multiple nodes behind a load balancer
+2. For advanced setups, use georouting to direct users to the closest node
 
 This configuration provides redundancy and improved response times.
 
 ## Security Configuration
 
-### TLS Certificate Setup
+### Secure Communication
 
-For secure node-to-node communication:
+For secure communication between nodes:
 
-1. Generate certificates on each node:
-   ```bash
-   kari certificate generate
-   ```
-
-2. Check certificate status:
-   ```bash
-   kari certificate status
-   ```
-
-3. Enable TLS in the configuration:
-   ```yaml
-   use_tls: true
-   ```
-
-4. If OpenSSL is not installed:
-   - On Linux: `apt-get install openssl` or `yum install openssl`
-   - On macOS: `brew install openssl`
-   - On Windows: Download from [slproweb.com](https://slproweb.com/products/Win32OpenSSL.html)
-
-### Certificate Locations
-
-Certificates are stored in the Kari data directory:
-- Linux/macOS: `~/.kari/certs/`
-- Windows: `%USERPROFILE%\.kari\certs\`
-
-The following files are used:
-- `node.crt` - The node's certificate
-- `node.key` - The node's private key
+1. Use a virtual private network (VPN) for node-to-node communication
+2. Configure firewalls to allow only specific IP addresses
+3. Use a reverse proxy for HTTPS support
 
 ## Firewall Configuration
 
@@ -256,13 +148,6 @@ To configure a node as a validator:
 2. Check firewall settings on both machines
 3. Ensure the peer node is actually running
 4. Try using the machine's local network IP (192.168.x.x) instead of localhost
-
-### Certificate Issues
-
-1. Make sure certificates exist in the expected location
-2. Check that OpenSSL is installed and accessible
-3. Verify that the ownership and permissions of certificate files are correct
-4. If TLS is enabled but certificates are missing, TLS will be automatically disabled
 
 ### Connection Lost After Initial Connection
 

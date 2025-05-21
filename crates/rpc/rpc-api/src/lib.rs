@@ -4,7 +4,6 @@ use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::{ServerBuilder, AccessControlAllowOrigin, DomainsValidation};
 use metadata::{get_file, upload_file};
 use network::NetworkConfig;
-use colored::Colorize;
 mod metadata;
 mod stake;
 mod get_block;
@@ -147,35 +146,25 @@ pub async fn start_rpc_server(network_config: NetworkConfig) -> Result<(), tokio
         futures::future::ready(get_vm_state(params)).boxed()
     });
 
-    // Configure socket address to bind to all interfaces
-    let bind_addr = SocketAddr::new(
-        IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), // Bind to all interfaces
-        network_config.port
-    );
+    // Configure socket address - bind only to localhost if in localhost_only mode
+    let bind_addr = if network_config.localhost_only {
+        println!("Localhost-only mode: Binding to 127.0.0.1");
+        SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), // Bind only to localhost
+            network_config.port
+        )
+    } else {
+        SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), // Bind to all interfaces
+            network_config.port
+        )
+    };
 
     // Create CORS settings for production
     let allowed_origins = vec![
         AccessControlAllowOrigin::Any, // Allow all origins for testing
     ];
 
-    // Check if TLS certificates are available - FIXED: Clearer messaging about TLS
-    let kari_dir = common::get_kari_dir();
-    let cert_path = kari_dir.join("certs").join("node.crt");
-    let key_path = kari_dir.join("certs").join("node.key");
-    
-    let use_tls = cert_path.exists() && key_path.exists();
-    
-    if use_tls {
-        println!("TLS certificates found at:");
-        println!("  - Certificate: {}", cert_path.display());
-        println!("  - Key: {}", key_path.display());
-        println!("Note: For TLS support, please use a reverse proxy like Nginx or Caddy.");
-        println!("      The built-in server only supports HTTP.");
-    } else {
-        println!("TLS certificates not found. Running in HTTP mode.");
-        println!("To set up TLS, run 'kari certificate generate' and configure a reverse proxy.");
-    }
-    
     // Start HTTP server
     match ServerBuilder::new(io)
         .cors(DomainsValidation::AllowOnly(allowed_origins))
@@ -185,69 +174,19 @@ pub async fn start_rpc_server(network_config: NetworkConfig) -> Result<(), tokio
         .start_http(&bind_addr)
     {
         Ok(server) => {
-            // Check for domain configuration and load it from config
-            let domain = common::get_node_domain();
-            
-            // Display server connection information with domain if available
-            if let Some(domain_name) = domain {
-                println!("HTTP server running on http://{}:{}", network_config.node_address, network_config.port);
-                
-                // If domain includes port, extract just the hostname
-                let domain_parts: Vec<&str> = domain_name.split(':').collect();
-                let hostname = domain_parts[0];
-                let domain_port = if domain_parts.len() > 1 {
-                    domain_parts[1]
-                } else {
-                    "80"
-                };
-                
-                println!("Domain configured: {}", domain_name.bright_green());
-                println!("You can access the RPC API at:");
-                println!("  - http://{}:{} (direct IP)", network_config.node_address, network_config.port);
-                
-                // Fix: Use conditional printing to avoid temporary value issue
-                if domain_port == "80" {
-                    println!("  - http://{} (domain)", hostname);
-                } else {
-                    println!("  - http://{}:{} (domain)", hostname, domain_port);
-                }
-                
-                // For kanari.site domains, suggest how other nodes can connect
-                if hostname.contains("kanari.site") {
-                    println!("\nTo connect other nodes to this node:");
-                    println!("  kari start --peer {}:51303", hostname);
-                }
-                
-                // Try to resolve the domain name to verify it's pointed to this server
-                if let Ok(addrs) = format!("{}:80", hostname).to_socket_addrs() {
-                    let resolved_ips: Vec<String> = addrs.map(|a| a.ip().to_string()).collect();
-                    if !resolved_ips.is_empty() {
-                        println!("Domain resolves to: {}", resolved_ips.join(", "));
-                        
-                        // Get the local IP to compare
-                        if let Some(local_ip) = panorama::node::get_local_ip() {
-                            if resolved_ips.contains(&local_ip) {
-                                println!("✓ Domain correctly resolves to this server's IP ({})", local_ip);
-                            } else {
-                                println!("⚠ Domain doesn't resolve to this server's IP ({})", local_ip);
-                                println!("  To fix: Update DNS A record to point to your server's IP address");
-                            }
-                        }
-                    } else {
-                        println!("⚠ Could not resolve domain. DNS might not be properly configured.");
-                    }
-                }
+            // Display basic server information
+            if network_config.localhost_only {
+                println!("Running in LOCALHOST-ONLY mode");
+                println!("HTTP server running on http://127.0.0.1:{}", network_config.port);
+                println!("Note: The node will not connect to or accept connections from other nodes");
             } else {
                 println!("HTTP server running on http://{}:{}", network_config.node_address, network_config.port);
-                println!("No domain configured. To set up a domain:");
-                println!("  1. Register a domain and set up DNS to point to your server's IP");
-                println!("  2. Add 'domain: \"your-domain.com\"' to your ~/.kari/config.yaml file");
-            }
-            
-            if !network_config.peers.is_empty() {
-                println!("Connected to peers:");
-                for peer in &network_config.peers {
-                    println!("  - {}", peer);
+                
+                if !network_config.peers.is_empty() {
+                    println!("Connected to peers:");
+                    for peer in &network_config.peers {
+                        println!("  - {}", peer);
+                    }
                 }
             }
             

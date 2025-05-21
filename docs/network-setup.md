@@ -5,7 +5,7 @@ This guide explains how to set up and run Kanari blockchain nodes in a real netw
 ## Prerequisites
 
 - Kanari SDK installed
-- Public IP address or domain name
+- Public IP address
 - Open ports in your firewall
 - At least one wallet created with `kari keytool generate`
 
@@ -24,23 +24,11 @@ This guide explains how to set up and run Kanari blockchain nodes in a real netw
 
 ### Step 2: Configure Security (Optional)
 
-Generate TLS certificates for secure communication:
+For improved security:
 
-```bash
-# Generate self-signed certificates
-kari certificate generate
-
-# Check certificate status
-kari certificate status
-```
-
-To enable TLS, edit your configuration file:
-
-```yaml
-use_tls: true
-```
-
-Note: The node will automatically disable TLS if certificates are missing.
+1. Use a firewall to restrict access to your node
+2. Consider setting up a VPN for secure network communication
+3. Use a reverse proxy to add HTTPS to your API endpoints
 
 ### Step 3: Start a Bootstrap Node (First Node)
 
@@ -130,108 +118,7 @@ If running multiple nodes on one machine, each node must use:
 
 ## Advanced Configuration
 
-### Using Domain Names
-
-For production nodes, using domain names is recommended over IP addresses. Kanari Network uses separate domains for P2P connections and RPC API access:
-
-```yaml
-# Configure domains in config.yaml
-domain: "api.devnet.kanari.site"   # For RPC API access
-domain_peer: "devnet.kanari.site"  # For P2P node connections
-
-# Start the node with normal command
-kari start
-```
-
-#### Setting Up devnet.kanari.site and api.devnet.kanari.site
-
-To set up the Kanari domains (or your own domains):
-
-1. **Register your domain** with a registrar like Namecheap, GoDaddy, or Cloudflare
-2. **Create DNS A records**:
-   - P2P Domain:
-     - Type: A
-     - Host: devnet (or your subdomain)
-     - Value: Your server's public IP address
-     - TTL: 3600 (1 hour)
-   - API Domain:
-     - Type: A
-     - Host: api.devnet (or your subdomain)
-     - Value: Your server's public IP address
-     - TTL: 3600 (1 hour)
-
-3. **Check DNS propagation**:
-   ```bash
-   dig devnet.kanari.site A
-   dig api.devnet.kanari.site A
-   # OR
-   nslookup devnet.kanari.site
-   nslookup api.devnet.kanari.site
-   ```
-
-4. **Update your node configuration**:
-   ```yaml
-   # In ~/.kari/config.yaml
-   domain_peer: "devnet.kanari.site"       # For P2P node connections
-   domain: "api.devnet.kanari.site"        # For RPC API access
-   ```
-
-5. **Configure port forwarding** on your router/firewall:
-   - Forward port 30030 (RPC) to your server
-   - Forward port 51303 (P2P) to your server
-
-For complete domain setup instructions, see the [Domain Configuration Guide](domain_setup_guide.md).
-
 ### Network Security
-
-#### Using Certificates with Your Domain
-
-Generate certificates that match your domain name:
-
-```bash
-# Generate self-signed certificates
-kari certificate generate
-
-# Check certificate status
-kari certificate status
-```
-
-For production environments, obtain trusted certificates:
-
-```bash
-# Using Let's Encrypt with Certbot
-sudo certbot certonly --standalone -d devnet.kanari.site
-```
-
-Then update your reverse proxy configuration to use these certificates:
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name devnet.kanari.site;
-
-    ssl_certificate /etc/letsencrypt/live/devnet.kanari.site/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/devnet.kanari.site/privkey.pem;
-
-    location / {
-        proxy_pass http://localhost:30030;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-#### Certificate Management
-
-Certificates are stored in your Kari data directory's `certs` folder:
-- Linux/macOS: `~/.kari/certs/`
-- Windows: `%USERPROFILE%\.kari\certs\`
-
-The following files are used:
-- `node.crt` - The node's certificate
-- `node.key` - The node's private key
 
 #### Securing RPC Endpoints
 
@@ -353,5 +240,5 @@ curl -X POST -H "Content-Type: application/json" -d '{
 - RAM: 8GB minimum
 - Storage: 100GB SSD
 - Network: 100Mbps+ stable connection
-- Public IP or domain name
+- Public IP
 - Open ports: 30030 (RPC), 51303 (P2P)

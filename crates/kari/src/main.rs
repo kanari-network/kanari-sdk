@@ -45,6 +45,11 @@ const COMMANDS: &[CommandInfo] = &[
         description: "Start a node on specific port (default: 30030)",
     },
     CommandInfo {
+        name: "start --localhost",
+        alias: None,
+        description: "Start node in localhost-only mode (no external connections)",
+    },
+    CommandInfo {
         name: "public",
         alias: None,
         description: "Manage Web3 public files and IPFS storage",
@@ -62,7 +67,7 @@ const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         name: "certificate",
         alias: None,
-        description: "Manage TLS certificates for secure node connections",
+        description: "Command has been deprecated",
     },
     CommandInfo {
         name: "version",
@@ -130,6 +135,7 @@ async fn main() {
             // Extract peer and port arguments
             let mut peers = Vec::new();
             let mut port = None;
+            let mut localhost_only = false;
             
             let mut i = 2;
             while i < args.len() {
@@ -160,6 +166,10 @@ async fn main() {
                             exit(1);
                         }
                     },
+                    Some("--localhost") => {
+                        localhost_only = true;
+                        i += 1;
+                    },
                     _ => {
                         eprintln!("Unknown argument: {}", args[i]);
                         display_help(true);
@@ -168,7 +178,7 @@ async fn main() {
                 }
             }
             
-            start_node_with_peers(peers, port).await;
+            start_node_with_peers(peers, port, localhost_only).await;
         },
         Some("public") => {
             let _ = handle_public_command();
@@ -177,9 +187,7 @@ async fn main() {
         Some("keytool") => {
             let _ = handle_keytool_command();
         }
-        Some("certificate") => {
-            let _ = command::certificate_cli::handle_certificate_command();
-        }
+
         Some("version") | Some("--V") => println!("CLI Version: {}", VERSION),
         Some("help") | Some("--h") => display_help(false),
         Some("info") | Some("--i") => {
@@ -207,7 +215,7 @@ async fn main() {
 }
 
 // Add a new function to start node with peer information
-async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
+async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>, localhost_only: bool) {
     // Check if any wallet exists first
     if !check_wallet_exists() {
         println!("{}", "No wallet found!".red());
@@ -263,23 +271,11 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
         NetworkConfig {
             node_address: "127.0.0.1".to_string(),
             port: rpc_port,
-            peers,  // Use provided peers
+            peers: if localhost_only { vec![] } else { peers }, // No peers in localhost mode
             chain_id,
             max_connections: 100,
             api_enabled: true,
-            // Use domain_peer specifically for P2P connections
-            domain_peer: config.get("domain_peer").and_then(|v| v.as_str()).map(String::from)
-                .or_else(|| config.get("domain").and_then(|v| v.as_str()).map(String::from)),
-            // Use domain for RPC API endpoints
-            domain_api: config.get("domain").and_then(|v| v.as_str()).map(String::from)
-                .map(|d| {
-                    if d.starts_with("api.") {
-                        d
-                    } else {
-                        format!("api.{}", d)
-                    }
-                }),
-            use_tls: config.get("use_tls").and_then(|v| v.as_bool()).unwrap_or(false),
+            localhost_only,
         }
     } else {
         // Call configure_network and get the NetworkConfig
@@ -292,11 +288,14 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
                     config.port = p;
                 }
                 
-                if !peers.is_empty() {
+                if !localhost_only && !peers.is_empty() {
                     println!("Using specified peers: {:?}", peers);
                     config.peers = peers;
+                } else {
+                    config.peers = vec![];
                 }
                 
+                config.localhost_only = localhost_only;
                 config
             },
             Err(err) => {
@@ -414,14 +413,6 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
             );
         }
         
-        // Add domain name to configuration if provided
-        if let Some(domain) = config.get("domain").and_then(|v| v.as_str()) {
-            map.insert(
-                serde_yaml::Value::String("domain".to_string()),
-                serde_yaml::Value::String(domain.to_string()),
-            );
-        }
-        
         map
     });
     save_config(&final_config).expect("Failed to save configuration");
@@ -439,7 +430,7 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
     let (tx, mut rx) = mpsc::channel::<String>(100);
     
     // Create a oneshot channel for shutdown signaling
-    let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
     let running_clone = Arc::clone(&running);
     let address_clone = address.clone();
@@ -450,7 +441,7 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
         run_blockchain(running_clone, address_clone, tx);
     });
 
-    // Remove duplicate get_local_ip function and use the one from the node module
+    // Get the local IP address
     let local_ip = match panorama::node::get_local_ip() {
         Some(ip) => ip,
         None => {
@@ -459,42 +450,38 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>) {
         }
     };
 
-    // Update RPC configuration
+    // Update RPC configuration to reflect localhost-only mode
     let rpc_config = NetworkConfig {
-        node_address: local_ip.clone(),
+        node_address: if localhost_only { "127.0.0.1".to_string() } else { local_ip.clone() },
         port: network_config.port,
         peers: network_config.peers.clone(),
         chain_id: network_config.chain_id.clone(),
         max_connections: 100,
         api_enabled: true,
-        // Use domain_peer specifically for P2P connections
-        domain_peer: config.get("domain_peer").and_then(|v| v.as_str()).map(|s| s.to_string())
-            .or_else(|| config.get("domain").and_then(|v| v.as_str()).map(|s| s.to_string())),
-        // Use domain for RPC API endpoints, adding api. prefix if needed
-        domain_api: config.get("domain").and_then(|v| v.as_str()).map(|s| {
-            if s.starts_with("api.") {
-                s.to_string()
-            } else {
-                format!("api.{}", s)
-            }
-        }),
-        use_tls: config.get("use_tls").and_then(|v| v.as_bool()).unwrap_or(false),
+        localhost_only,
     };
 
     // Display IP address and port information for connecting nodes
     println!("{}", "Node network information:".bright_yellow());
-    println!("  RPC API:   {}:{} (HTTP)", local_ip, rpc_config.port);
-    println!("  P2P:       {}:51303", local_ip); // FIXED: Show the P2P port explicitly
-
-    // Display peer connection information if applicable
-    if !network_config.peers.is_empty() {
-        println!("{}", "Node will connect to the following peers:".bright_yellow());
-        for peer in &network_config.peers {
-            println!("  - {}", peer.green());
-        }
+    
+    if localhost_only {
+        println!("  LOCALHOST-ONLY MODE: Node is only accessible from this machine");
+        println!("  RPC API:   127.0.0.1:{} (HTTP)", rpc_config.port);
+        println!("  No external P2P connections will be allowed");
     } else {
-        println!("{}", "Warning: No peers configured. Running in standalone mode.".yellow());
-        println!("  To connect peers, use: kari start --peer <IP:PORT>");
+        println!("  RPC API:   {}:{} (HTTP)", local_ip, rpc_config.port);
+        println!("  P2P:       {}:51303", local_ip); 
+
+        // Display peer connection information if applicable
+        if !network_config.peers.is_empty() {
+            println!("{}", "Node will connect to the following peers:".bright_yellow());
+            for peer in &network_config.peers {
+                println!("  - {}", peer.green());
+            }
+        } else {
+            println!("{}", "Warning: No peers configured. Running in standalone mode.".yellow());
+            println!("  To connect peers, use: kari start --peer <IP:PORT>");
+        }
     }
 
     // Start RPC server with shutdown signal
