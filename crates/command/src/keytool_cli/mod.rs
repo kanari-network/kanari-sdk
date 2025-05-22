@@ -1,7 +1,7 @@
 use colored::Colorize;
 use mona_crypto::{
     list_wallet_files,
-    load_wallet, save_wallet, set_selected_wallet,
+    load_wallet, save_wallet, set_selected_wallet, migrate_legacy_wallets,
 };
 use std::io::{self, Write};
 
@@ -51,6 +51,10 @@ const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         name: "privatekey",
         description: "Import from private key",
+    },
+    CommandInfo {
+        name: "migrate",
+        description: "Migrate legacy wallets to keystore format",
     },
 ];
 
@@ -744,6 +748,56 @@ pub fn handle_keytool_command() -> Option<String> {
                     }
                 }
             }
+
+            "migrate" => {
+                println!("{}", "⚠️ Migrating Legacy Wallets to Keystore ⚠️".yellow().bold());
+                println!("This will migrate all .enc wallet files to the kanari.keystore format");
+                println!();
+                
+                // Ask for password
+                print!("Enter password for the wallets: ");
+                io::stdout().flush().unwrap();
+                let password = match read_password() {
+                    Ok(pwd) => pwd,
+                    Err(e) => {
+                        eprintln!("Error reading password: {}. Falling back to standard input.", e);
+                        let mut input = String::new();
+                        io::stdin().read_line(&mut input).expect("Failed to read input");
+                        input.trim().to_string()
+                    }
+                };
+                
+                if password.trim().is_empty() {
+                    println!("{}", "Error: Password cannot be empty".red());
+                    return None;
+                }
+                
+                match migrate_legacy_wallets(&password) {
+                    Ok(count) => {
+                        if count > 0 {
+                            println!("{}", format!("✅ Migration complete: {} wallets migrated", count).green());
+                            
+                            // After migration, check for wallets and return the first one
+                            match list_wallet_files() {
+                                Ok(wallets) if !wallets.is_empty() => {
+                                    let address = wallets[0].0.trim_end_matches(".enc").to_string();
+                                    println!("Using wallet: {}", address.green());
+                                    return Some(address);
+                                }
+                                _ => return None,
+                            }
+                        } else {
+                            println!("No wallets to migrate (or all wallets already in keystore)");
+                            return None;
+                        }
+                    },
+                    Err(e) => {
+                        println!("{}", format!("Error during migration: {}", e).red());
+                        return None;
+                    }
+                }
+            },
+
             _ => {
                 display_help(true);
                 return None;

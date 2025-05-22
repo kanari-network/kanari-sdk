@@ -9,6 +9,7 @@
 pub mod signatures;
 pub mod encryption;
 pub mod wallet;
+pub mod keystore;
 
 // Re-export signature functionality
 pub use signatures::{
@@ -19,7 +20,7 @@ pub use signatures::{
     secure_clear,
 };
 
-// Re-export encryption functionality
+// Re-export encryption functionality - now using actual functions from the module
 pub use encryption::{
     encrypt_data,
     decrypt_data,
@@ -27,6 +28,7 @@ pub use encryption::{
     decrypt_string,
     secure_erase,
     EncryptionError,
+    EncryptedData,
 };
 
 // Re-export wallet functionality
@@ -39,6 +41,16 @@ pub use wallet::{
     get_selected_wallet,
     set_selected_wallet,
     check_wallet_exists,
+};
+
+// Re-export the migration function
+pub use crate::wallet::migrate_legacy_wallets;
+
+// Re-export keystore functionality
+pub use keystore::{
+    Keystore,
+    keystore_exists,
+    get_keystore_path,
 };
 
 /// Hash algorithm options

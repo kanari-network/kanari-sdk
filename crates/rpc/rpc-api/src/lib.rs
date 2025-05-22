@@ -56,6 +56,15 @@ fn format_kari_amount(ka_amount: u64) -> String {
 pub async fn start_rpc_server(network_config: NetworkConfig) -> Result<(), tokio::io::Error> {
     let mut io = IoHandler::new();
 
+    // Load kanari config to keep track of node connection details
+    let mut kanari_config = match common::load_kanari_config() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("Warning: Failed to load kanari configuration: {}", e);
+            serde_yaml::Value::Mapping(serde_yaml::Mapping::new())
+        }
+    };
+
     // Add file operations
     io.add_method("upload_file", |params| {
         futures::future::ready(upload_file(params)).boxed()
@@ -181,6 +190,32 @@ pub async fn start_rpc_server(network_config: NetworkConfig) -> Result<(), tokio
                 println!("Note: The node will not connect to or accept connections from other nodes");
             } else {
                 println!("HTTP server running on http://{}:{}", network_config.node_address, network_config.port);
+                
+                // Update kanari config with the actual running port
+                if let Some(kanari_mapping) = kanari_config.as_mapping_mut() {
+                    // Extract active_env as a String to avoid immutable borrow persisting
+                    let active_env = kanari_mapping.get("active_env")
+                                     .and_then(|v| v.as_str())
+                                     .unwrap_or("local")
+                                     .to_string();
+                                     
+                    if let Some(envs) = kanari_mapping.get_mut("envs").and_then(|v| v.as_sequence_mut()) {
+                        for env in envs {
+                            if let Some(alias) = env.get("alias").and_then(|v| v.as_str()) {
+                                if alias == active_env {
+                                    // Update RPC URL with the new port
+                                    env["rpc"] = serde_yaml::Value::String(format!("http://127.0.0.1:{}", network_config.port));
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Save the updated kanari config
+                    if let Err(e) = common::save_kanari_config(&kanari_config) {
+                        eprintln!("Warning: Failed to save updated kanari config: {}", e);
+                    }
+                }
                 
                 if !network_config.peers.is_empty() {
                     println!("Connected to peers:");

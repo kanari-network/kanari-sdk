@@ -11,7 +11,7 @@ use command::public_cli::handle_public_command;
 use network::NetworkConfig;
 use panorama::simulation::run_blockchain;
 
-use common::get_kari_dir;
+use common::{get_kari_dir, load_kanari_config, save_kanari_config};
 use mona_blockchain::blockchain::{load_blockchain, save_blockchain};
 use mona_blockchain::chain_id::CHAIN_ID;
 use panorama::config::{configure_network, load_config, save_config};
@@ -19,6 +19,7 @@ use rpc_api::start_rpc_server;
 use std::process::Command;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
+use serde_yaml::Value;
 
 static VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -65,9 +66,9 @@ const COMMANDS: &[CommandInfo] = &[
         description: "Manage Kari accounts and cryptographic keys",
     },
     CommandInfo {
-        name: "certificate",
+        name: "network",
         alias: None,
-        description: "Command has been deprecated",
+        description: "Manage network configurations",
     },
     CommandInfo {
         name: "version",
@@ -136,7 +137,7 @@ async fn main() {
             let mut peers = Vec::new();
             let mut port = None;
             let mut localhost_only = false;
-            
+
             let mut i = 2;
             while i < args.len() {
                 match args.get(i).map(|s| s.as_str()) {
@@ -148,14 +149,14 @@ async fn main() {
                             eprintln!("Error: --peer requires an address argument");
                             exit(1);
                         }
-                    },
+                    }
                     Some("--port") => {
                         if let Some(port_str) = args.get(i + 1) {
                             match port_str.parse::<u16>() {
                                 Ok(p) => {
                                     port = Some(p);
                                     i += 2;
-                                },
+                                }
                                 Err(_) => {
                                     eprintln!("Error: Invalid port number");
                                     exit(1);
@@ -165,11 +166,11 @@ async fn main() {
                             eprintln!("Error: --port requires a number argument");
                             exit(1);
                         }
-                    },
+                    }
                     Some("--localhost") => {
                         localhost_only = true;
                         i += 1;
-                    },
+                    }
                     _ => {
                         eprintln!("Unknown argument: {}", args[i]);
                         display_help(true);
@@ -177,9 +178,9 @@ async fn main() {
                     }
                 }
             }
-            
+
             start_node_with_peers(peers, port, localhost_only).await;
-        },
+        }
         Some("public") => {
             let _ = handle_public_command();
         }
@@ -187,7 +188,9 @@ async fn main() {
         Some("keytool") => {
             let _ = handle_keytool_command();
         }
-
+        Some("network") => {
+            let _ = command::network_cli::handle_network_command();
+        }
         Some("version") | Some("--V") => println!("CLI Version: {}", VERSION),
         Some("help") | Some("--h") => display_help(false),
         Some("info") | Some("--i") => {
@@ -214,7 +217,6 @@ async fn main() {
     }
 }
 
-// Add a new function to start node with peer information
 async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>, localhost_only: bool) {
     // Check if any wallet exists first
     if !check_wallet_exists() {
@@ -225,11 +227,20 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>, localhost_
     }
 
     // Load configuration with better error handling
-    let mut config = match load_config() {
+    let config = match load_config() {
         Ok(cfg) => cfg,
         Err(e) => {
             eprintln!("Failed to load configuration: {}", e);
             eprintln!("Creating a new configuration...");
+            serde_yaml::Value::Mapping(serde_yaml::Mapping::new())
+        }
+    };
+
+    // Also load kanari configuration
+    let mut kanari_config = match load_kanari_config() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("Failed to load kanari configuration: {}", e);
             serde_yaml::Value::Mapping(serde_yaml::Mapping::new())
         }
     };
@@ -240,18 +251,46 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>, localhost_
         .unwrap_or(CHAIN_ID);
 
     // Check if the configuration already exists
-    let network_config = if config.get("network_type").is_some()
-        && config.get("rpc_port").is_some()
-        && config.get("chain_id").is_some()
-    {
+    let network_config = if config.get("rpc_port").is_some() && config.get("chain_id").is_some() {
         println!("Configuration already exists. Skipping configuration process.");
-        
+
         // Use provided port if given, otherwise use configured port
         let rpc_port = match port {
             Some(p) => {
                 println!("Using specified port: {}", p);
+
+                // Update kanari config with the new port if we have kanari config
+                if let Some(kanari_mapping) = kanari_config.as_mapping_mut() {
+                    // Store active_env as a String to end the immutable borrow
+                    let active_env = kanari_mapping
+                        .get("active_env")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("local")
+                        .to_string();
+
+                    if let Some(envs) = kanari_mapping
+                        .get_mut("envs")
+                        .and_then(|v| v.as_sequence_mut())
+                    {
+                        for env in envs {
+                            if let Some(alias) = env.get("alias").and_then(|v| v.as_str()) {
+                                if alias == active_env {
+                                    // Update RPC URL with the new port
+                                    env["rpc"] = Value::String(format!("http://127.0.0.1:{}", p));
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    // Save the updated kanari config
+                    if let Err(e) = save_kanari_config(&kanari_config) {
+                        eprintln!("Warning: Failed to save updated kanari config: {}", e);
+                    }
+                }
+
                 p
-            },
+            }
             None => match config.get("rpc_port").unwrap().as_u64() {
                 Some(p) => p as u16,
                 None => {
@@ -260,7 +299,7 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>, localhost_
                 }
             },
         };
-        
+
         let chain_id = config
             .get("chain_id")
             .unwrap()
@@ -286,18 +325,49 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>, localhost_
                 if let Some(p) = port {
                     println!("Using specified port: {}", p);
                     config.port = p;
+
+                    // Update kanari config with the new port
+                    if let Some(kanari_mapping) = kanari_config.as_mapping_mut() {
+                        // Store active_env as a String to end the immutable borrow
+                        let active_env = kanari_mapping
+                            .get("active_env")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("local")
+                            .to_string();
+    
+                        if let Some(envs) = kanari_mapping
+                            .get_mut("envs")
+                            .and_then(|v| v.as_sequence_mut())
+                        {
+                            for env in envs {
+                                if let Some(alias) = env.get("alias").and_then(|v| v.as_str()) {
+                                    if alias == active_env {
+                                        // Update RPC URL with the new port
+                                        env["rpc"] =
+                                            Value::String(format!("http://127.0.0.1:{}", p));
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Save the updated kanari config
+                        if let Err(e) = save_kanari_config(&kanari_config) {
+                            eprintln!("Warning: Failed to save updated kanari config: {}", e);
+                        }
+                    }
                 }
-                
+
                 if !localhost_only && !peers.is_empty() {
                     println!("Using specified peers: {:?}", peers);
                     config.peers = peers;
                 } else {
                     config.peers = vec![];
                 }
-                
+
                 config.localhost_only = localhost_only;
                 config
-            },
+            }
             Err(err) => {
                 eprintln!("Error configuring network: {}", err);
                 exit(1);
@@ -307,19 +377,22 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>, localhost_
 
     // Try to load blockchain with better error handling
     if let Err(e) = load_blockchain() {
-        eprintln!("Warning: Failed to load blockchain: {}. A new blockchain will be created.", e);
+        eprintln!(
+            "Warning: Failed to load blockchain: {}. A new blockchain will be created.",
+            e
+        );
     }
-    
+
     let running = Arc::new(Mutex::new(true));
 
-    // Load address with validation
-    let address = match config.get("address").and_then(|v| v.as_str()) {
-        Some(address) => {
+    // Try to get address from kanari config first, then fall back to old config
+    let address = if let Some(kanari_mapping) = kanari_config.as_mapping() {
+        if let Some(addr) = kanari_mapping.get("active_address").and_then(|v| v.as_str()) {
             // Verify wallet file exists for this address
             if !std::path::Path::new(
                 &get_kari_dir()
                     .join("wallets")
-                    .join(format!("{}.enc", address)),
+                    .join(format!("{}.enc", addr)),
             )
             .exists()
             {
@@ -330,13 +403,15 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>, localhost_
                         let first_wallet = wallets[0].0.trim_end_matches(".enc").to_string();
                         println!("Using existing wallet as address: {}", first_wallet.green());
 
-                        // Convert config to Map to modify it
-                        if let serde_yaml::Value::Mapping(ref mut map) = config {
-                            map.insert(
-                                serde_yaml::Value::String("address".to_string()),
-                                serde_yaml::Value::String(first_wallet.clone()),
+                        // Update kanari config with the new address
+                        if let Some(kanari_mapping) = kanari_config.as_mapping_mut() {
+                            kanari_mapping.insert(
+                                Value::String("active_address".to_string()),
+                                Value::String(first_wallet.clone()),
                             );
-                            save_config(&config).expect("Failed to save configuration");
+                            if let Err(e) = save_kanari_config(&kanari_config) {
+                                eprintln!("Warning: Failed to save updated kanari config: {}", e);
+                            }
                         }
 
                         first_wallet
@@ -349,40 +424,138 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>, localhost_
                     }
                 }
             } else {
-                address.to_string()
+                addr.to_string()
+            }
+        } else {
+            // Fall back to config.yaml
+            match config.get("address").and_then(|v| v.as_str()) {
+                Some(address) => {
+                    // Verify wallet file exists for this address
+                    if !std::path::Path::new(
+                        &get_kari_dir()
+                            .join("wallets")
+                            .join(format!("{}.enc", address)),
+                    )
+                    .exists()
+                    {
+                        // Try to find any existing wallet
+                        match list_wallet_files() {
+                            Ok(wallets) if !wallets.is_empty() => {
+                                // Access first element of tuple (filename)
+                                let first_wallet = wallets[0].0.trim_end_matches(".enc").to_string();
+                                println!("Using existing wallet as address: {}", first_wallet.green());
+
+                                // Update kanari config with the new address
+                                if let Some(kanari_mapping) = kanari_config.as_mapping_mut() {
+                                    kanari_mapping.insert(
+                                        Value::String("active_address".to_string()),
+                                        Value::String(first_wallet.clone()),
+                                    );
+                                    if let Err(e) = save_kanari_config(&kanari_config) {
+                                        eprintln!("Warning: Failed to save updated kanari config: {}", e);
+                                    }
+                                }
+
+                                first_wallet
+                            }
+                            _ => {
+                                println!("{}", "No valid wallets found!".red());
+                                println!("Please create a wallet first using:");
+                                println!("{}", "kari keytool generate".green());
+                                exit(1);
+                            }
+                        }
+                    } else {
+                        address.to_string()
+                    }
+                }
+                None => {
+                    // Try to find any existing wallet
+                    match list_wallet_files() {
+                        Ok(wallets) if !wallets.is_empty() => {
+                            let first_wallet = wallets[0].0.trim_end_matches(".enc").to_string();
+                            println!(
+                                "Setting address to existing wallet: {}",
+                                first_wallet.green()
+                            );
+
+                            // Update kanari config with the new address
+                            if let Some(kanari_mapping) = kanari_config.as_mapping_mut() {
+                                kanari_mapping.insert(
+                                    Value::String("active_address".to_string()),
+                                    Value::String(first_wallet.clone()),
+                                );
+                                if let Err(e) = save_kanari_config(&kanari_config) {
+                                    eprintln!("Warning: Failed to save updated kanari config: {}", e);
+                                }
+                            }
+
+                            first_wallet
+                        }
+                        _ => {
+                            println!("{}", "No wallets found!".red());
+                            println!("Please create a wallet first using:");
+                            println!("{}", "kari keytool create".green());
+                            exit(1);
+                        }
+                    }
+                }
             }
         }
-        None => {
-            // Try to find any existing wallet
-            match list_wallet_files() {
-                Ok(wallets) if !wallets.is_empty() => {
-                    let first_wallet = wallets[0].0.trim_end_matches(".enc").to_string();
-                    println!(
-                        "Setting address to existing wallet: {}",
-                        first_wallet.green()
-                    );
-
-                    // Update config with new address using serde_yaml::Value
-                    if let serde_yaml::Value::Mapping(ref mut map) = config {
-                        map.insert(
-                            serde_yaml::Value::String("address".to_string()),
-                            serde_yaml::Value::String(first_wallet.clone()),
-                        );
-                        save_config(&config).expect("Failed to save configuration");
+    } else {
+        // Fall back to old behavior if kanari config is not available
+        match config.get("address").and_then(|v| v.as_str()) {
+            Some(address) => {
+                // Verify wallet file exists for this address
+                if !std::path::Path::new(
+                    &get_kari_dir()
+                        .join("wallets")
+                        .join(format!("{}.enc", address)),
+                )
+                .exists()
+                {
+                    // Try to find any existing wallet
+                    match list_wallet_files() {
+                        Ok(wallets) if !wallets.is_empty() => {
+                            // Access first element of tuple (filename)
+                            let first_wallet = wallets[0].0.trim_end_matches(".enc").to_string();
+                            println!("Using existing wallet as address: {}", first_wallet.green());
+                            first_wallet
+                        }
+                        _ => {
+                            println!("{}", "No valid wallets found!".red());
+                            println!("Please create a wallet first using:");
+                            println!("{}", "kari keytool generate".green());
+                            exit(1);
+                        }
                     }
-
-                    first_wallet
+                } else {
+                    address.to_string()
                 }
-                _ => {
-                    println!("{}", "No wallets found!".red());
-                    println!("Please create a wallet first using:");
-                    println!("{}", "kari keytool create".green());
-                    exit(1);
+            }
+            None => {
+                // Try to find any existing wallet
+                match list_wallet_files() {
+                    Ok(wallets) if !wallets.is_empty() => {
+                        let first_wallet = wallets[0].0.trim_end_matches(".enc").to_string();
+                        println!(
+                            "Setting address to existing wallet: {}",
+                            first_wallet.green()
+                        );
+                        first_wallet
+                    }
+                    _ => {
+                        println!("{}", "No wallets found!".red());
+                        println!("Please create a wallet first using:");
+                        println!("{}", "kari keytool create".green());
+                        exit(1);
+                    }
                 }
             }
         }
     };
 
+    // Save final configuration to both config formats
     let final_config = serde_yaml::Value::Mapping({
         let mut map = serde_yaml::Mapping::new();
         map.insert(
@@ -394,28 +567,40 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>, localhost_
             serde_yaml::Value::Number(serde_yaml::Number::from(network_config.port)),
         );
 
-    
-        
         map.insert(
             serde_yaml::Value::String("address".to_string()),
             serde_yaml::Value::String(address.clone()),
         );
-        
+
         // Add peers to configuration if specified
         if !network_config.peers.is_empty() {
-            let peers_array = network_config.peers.iter()
+            let peers_array = network_config
+                .peers
+                .iter()
                 .map(|peer| serde_yaml::Value::String(peer.clone()))
                 .collect::<Vec<_>>();
-            
+
             map.insert(
                 serde_yaml::Value::String("peers".to_string()),
                 serde_yaml::Value::Sequence(peers_array),
             );
         }
-        
+
         map
     });
+
     save_config(&final_config).expect("Failed to save configuration");
+
+    // Make sure kanari.yaml has the active address
+    if let Some(kanari_mapping) = kanari_config.as_mapping_mut() {
+        kanari_mapping.insert(
+            serde_yaml::Value::String("active_address".to_string()),
+            serde_yaml::Value::String(address.clone()),
+        );
+        if let Err(e) = save_kanari_config(&kanari_config) {
+            eprintln!("Warning: Failed to save updated kanari config: {}", e);
+        }
+    }
 
     if address.is_empty() {
         println!("Please generate an address first using the 'kari keytool' command.");
@@ -428,7 +613,7 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>, localhost_
 
     // Create a channel for block status updates
     let (tx, mut rx) = mpsc::channel::<String>(100);
-    
+
     // Create a oneshot channel for shutdown signaling
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -452,7 +637,11 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>, localhost_
 
     // Update RPC configuration to reflect localhost-only mode
     let rpc_config = NetworkConfig {
-        node_address: if localhost_only { "127.0.0.1".to_string() } else { local_ip.clone() },
+        node_address: if localhost_only {
+            "127.0.0.1".to_string()
+        } else {
+            local_ip.clone()
+        },
         port: network_config.port,
         peers: network_config.peers.clone(),
         chain_id: network_config.chain_id.clone(),
@@ -463,14 +652,14 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>, localhost_
 
     // Display IP address and port information for connecting nodes
     println!("{}", "Node network information:".bright_yellow());
-    
+
     if localhost_only {
         println!("  LOCALHOST-ONLY MODE: Node is only accessible from this machine");
         println!("  RPC API:   127.0.0.1:{} (HTTP)", rpc_config.port);
         println!("  No external P2P connections will be allowed");
     } else {
         println!("  RPC API:   {}:{} (HTTP)", local_ip, rpc_config.port);
-        println!("  P2P:       {}:51303", local_ip); 
+        println!("  P2P:       {}:51303", local_ip);
 
         // Display peer connection information if applicable
         if !network_config.peers.is_empty() {
@@ -479,7 +668,10 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>, localhost_
                 println!("  - {}", peer.green());
             }
         } else {
-            println!("{}", "Warning: No peers configured. Running in standalone mode.".yellow());
+            println!(
+                "{}",
+                "Warning: No peers configured. Running in standalone mode.".yellow()
+            );
             println!("  To connect peers, use: kari start --peer <IP:PORT>");
         }
     }
@@ -487,11 +679,11 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>, localhost_
     // Start RPC server with shutdown signal
     let rpc_handle = tokio::spawn(async move {
         println!("Starting RPC server on port {}...", rpc_config.port);
-        
+
         // Try multiple times to start the server in case of port issues
         let mut attempts = 0;
         const MAX_ATTEMPTS: usize = 3;
-        
+
         while attempts < MAX_ATTEMPTS {
             match start_rpc_server(rpc_config.clone()).await {
                 Ok(_) => {
@@ -500,13 +692,19 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>, localhost_
                 }
                 Err(e) => {
                     attempts += 1;
-                    eprintln!("Failed to start RPC server (attempt {}/{}): {}", attempts, MAX_ATTEMPTS, e);
-                    
+                    eprintln!(
+                        "Failed to start RPC server (attempt {}/{}): {}",
+                        attempts, MAX_ATTEMPTS, e
+                    );
+
                     if attempts >= MAX_ATTEMPTS {
-                        eprintln!("Failed to start RPC server after {} attempts. Exiting.", MAX_ATTEMPTS);
+                        eprintln!(
+                            "Failed to start RPC server after {} attempts. Exiting.",
+                            MAX_ATTEMPTS
+                        );
                         std::process::exit(1);
                     }
-                    
+
                     // Try with a different port
                     let mut new_config = rpc_config.clone();
                     new_config.port += 1;
@@ -515,7 +713,7 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>, localhost_
                 }
             }
         }
-        
+
         // Keep this task alive until it's aborted
         loop {
             tokio::time::sleep(Duration::from_secs(1)).await;
@@ -563,7 +761,7 @@ async fn start_node_with_peers(peers: Vec<String>, port: Option<u16>, localhost_
 
     // Ensure blockchain state is saved
     let _ = save_blockchain();
-    
+
     // Wait for blockchain task to complete (with timeout)
     match tokio::time::timeout(Duration::from_secs(5), blockchain_handle).await {
         Ok(_) => println!("Blockchain stopped gracefully"),

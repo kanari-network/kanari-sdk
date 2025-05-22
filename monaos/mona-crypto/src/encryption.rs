@@ -4,184 +4,224 @@
 //! modern secure algorithms (AES-256-GCM with Argon2 key derivation).
 
 use aes_gcm::{
-    Aes256Gcm, Nonce,
-    aead::{Aead, KeyInit},
+    aead::{Aead, AeadCore, KeyInit, OsRng},
+    Aes256Gcm, Key,
 };
 use argon2::{
-    Argon2,
+    Argon2, Algorithm, Version, // Remove Variant as it doesn't exist
     password_hash::{PasswordHasher, SaltString},
 };
-use bip39::rand::{rngs::OsRng, RngCore};
-use serde::{Serialize, Deserialize};
+use base64::{Engine as _, engine::general_purpose};
+use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::string::ToString;
 use thiserror::Error;
-// Update the base64 import to use the new Engine types
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 
-/// Errors that can occur during encryption/decryption
+/// Error types for encryption operations
 #[derive(Error, Debug)]
 pub enum EncryptionError {
     #[error("Encryption error: {0}")]
-    EncryptionFailed(String),
-
-    #[error("Decryption error: {0}")]
-    DecryptionFailed(String),
+    AeadError(String),
     
-    #[error("Key derivation failed: {0}")]
-    KeyDerivationFailed(String),
+    #[error("Key derivation error: {0}")]
+    KeyDerivationError(String),
     
-    #[error("Invalid input: {0}")]
-    InvalidInput(String),
+    #[error("Invalid format error: {0}")]
+    InvalidFormat(String),
     
-    #[error("Serialization error: {0}")]
-    SerializationError(String),
+    #[error("Decryption error")]
+    DecryptionError,
 }
 
-/// Structure for encrypted data with necessary metadata
-#[derive(Serialize, Deserialize, Debug)]
+/// Structure representing encrypted data
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EncryptedData {
-    /// The encrypted data (ciphertext)
-    pub ciphertext: Vec<u8>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    ciphertext_array: Vec<u8>,
     
-    /// Salt used for key derivation
-    pub salt: String,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "String::is_empty")]
+    ciphertext: String,
     
-    /// Nonce used for encryption
-    pub nonce: Vec<u8>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    nonce_array: Vec<u8>,
     
-    /// Optional tag for authentication
-    pub tag: Option<Vec<u8>>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "String::is_empty")]
+    nonce: String,
+    
+    salt: String,
+    
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tag: Option<String>,
 }
 
-/// Encrypt data using a password
+impl EncryptedData {
+    /// Get the ciphertext bytes, regardless of format
+    pub fn get_ciphertext(&self) -> Vec<u8> {
+        if !self.ciphertext.is_empty() {
+            general_purpose::STANDARD.decode(&self.ciphertext).unwrap_or_default()
+        } else {
+            self.ciphertext_array.clone()
+        }
+    }
+    
+    /// Get the nonce bytes, regardless of format
+    pub fn get_nonce(&self) -> Vec<u8> {
+        if !self.nonce.is_empty() {
+            general_purpose::STANDARD.decode(&self.nonce).unwrap_or_default()
+        } else {
+            self.nonce_array.clone()
+        }
+    }
+}
+
+impl fmt::Display for EncryptedData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let cipher_len = if !self.ciphertext.is_empty() {
+            self.ciphertext.len()
+        } else {
+            self.ciphertext_array.len()
+        };
+        
+        let nonce_len = if !self.nonce.is_empty() {
+            self.nonce.len()
+        } else {
+            self.nonce_array.len()
+        };
+        
+        write!(
+            f,
+            "EncryptedData {{ ciphertext: [{}], nonce: [{}], salt: {}, tag: {:?} }}",
+            cipher_len,
+            nonce_len,
+            self.salt,
+            self.tag
+        )
+    }
+}
+
+/// Encrypt data with a password
 pub fn encrypt_data(data: &[u8], password: &str) -> Result<EncryptedData, EncryptionError> {
-    // Basic validation
-    if data.is_empty() {
-        return Err(EncryptionError::InvalidInput("Cannot encrypt empty data".to_string()));
-    }
-    
-    if password.is_empty() {
-        return Err(EncryptionError::InvalidInput("Empty password not allowed".to_string()));
-    }
-    
-    // Generate a random salt
+    // Generate a random salt for key derivation
     let salt = SaltString::generate(&mut OsRng);
     
-    // Derive encryption key from password
-    let key = derive_key(password, &salt)?;
+    // Derive a cryptographic key from the password
+    let params = argon2_params();
+    let password_hash = Argon2::new(
+        Algorithm::Argon2id,
+        Version::V0x13,
+        params,
+    )
+    .hash_password(password.as_bytes(), &salt)
+    .map_err(|e| EncryptionError::KeyDerivationError(e.to_string()))?;
     
-    // Initialize AES-GCM cipher
-    let cipher = Aes256Gcm::new_from_slice(&key)
-        .map_err(|e| EncryptionError::EncryptionFailed(e.to_string()))?;
+    // Fix for the temporary value dropped error - bind to variable first
+    let hash = password_hash.hash.unwrap();
+    let key_bytes = hash.as_bytes();
+    let key = Key::<Aes256Gcm>::from_slice(key_bytes);
     
-    // Generate random nonce
-    let mut nonce_bytes = [0u8; 12];
-    OsRng.fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    // Generate a random nonce for AES-GCM
+    let nonce_bytes = Aes256Gcm::generate_nonce(&mut OsRng).to_vec();
+    
+    // Create the cipher for encryption
+    let cipher = Aes256Gcm::new(key);
     
     // Encrypt the data
-    let ciphertext = cipher.encrypt(nonce, data)
-        .map_err(|e| EncryptionError::EncryptionFailed(e.to_string()))?;
+    let ciphertext = cipher
+        .encrypt(aes_gcm::Nonce::from_slice(&nonce_bytes), data)
+        .map_err(|e| EncryptionError::AeadError(e.to_string()))?;
+    
+    // Store values in a more compact base64 representation
+    let ciphertext_b64 = general_purpose::STANDARD.encode(&ciphertext);
+    let nonce_b64 = general_purpose::STANDARD.encode(&nonce_bytes);
     
     Ok(EncryptedData {
-        ciphertext,
+        ciphertext_array: Vec::new(),
+        ciphertext: ciphertext_b64,
+        nonce_array: Vec::new(),
+        nonce: nonce_b64,
         salt: salt.to_string(),
-        nonce: nonce.to_vec(),
-        tag: None, // AES-GCM includes the tag with the ciphertext
+        tag: None,
     })
 }
 
-/// Decrypt data using a password
-pub fn decrypt_data(encrypted_data: &EncryptedData, password: &str) -> Result<Vec<u8>, EncryptionError> {
-    // Basic validation
-    if password.is_empty() {
-        return Err(EncryptionError::InvalidInput("Empty password not allowed".to_string()));
-    }
+/// Decrypt data with a password
+pub fn decrypt_data(encrypted: &EncryptedData, password: &str) -> Result<Vec<u8>, EncryptionError> {
+    // Get salt from the encrypted data
+    let salt = SaltString::from_b64(&encrypted.salt)
+        .map_err(|e| EncryptionError::InvalidFormat(e.to_string()))?;
     
-    if encrypted_data.ciphertext.is_empty() {
-        return Err(EncryptionError::InvalidInput("Cannot decrypt empty ciphertext".to_string()));
-    }
+    // Derive key from password and salt
+    let params = argon2_params();
+    let password_hash = Argon2::new(
+        Algorithm::Argon2id,
+        Version::V0x13,
+        params,
+    )
+    .hash_password(password.as_bytes(), &salt)
+    .map_err(|e| EncryptionError::KeyDerivationError(e.to_string()))?;
     
-    if encrypted_data.nonce.len() != 12 {
-        return Err(EncryptionError::InvalidInput("Invalid nonce length".to_string()));
-    }
+    // Fix for the temporary value dropped error
+    let hash = password_hash.hash.unwrap();
+    let key_bytes = hash.as_bytes();
+    let key = Key::<Aes256Gcm>::from_slice(key_bytes);
     
-    // Parse the salt
-    let salt = SaltString::from_b64(&encrypted_data.salt)
-        .map_err(|e| EncryptionError::DecryptionFailed(format!("Invalid salt: {}", e)))?;
+    // Get ciphertext and nonce from the encrypted data
+    let ciphertext = encrypted.get_ciphertext();
+    let nonce_bytes = encrypted.get_nonce();
     
-    // Derive the key from password and salt
-    let key = derive_key(password, &salt)?;
+    // Create nonce for decryption - fix the Nonce usage
+    let nonce = aes_gcm::Nonce::from_slice(&nonce_bytes);
     
-    // Initialize AES-GCM cipher
-    let cipher = Aes256Gcm::new_from_slice(&key)
-        .map_err(|e| EncryptionError::DecryptionFailed(e.to_string()))?;
-    
-    // Create nonce from stored bytes
-    let nonce = Nonce::from_slice(&encrypted_data.nonce);
-    
-    // Decrypt the data
-    let plaintext = cipher.decrypt(nonce, encrypted_data.ciphertext.as_slice())
-        .map_err(|e| EncryptionError::DecryptionFailed(format!("Decryption failed: {}", e)))?;
-    
-    Ok(plaintext)
-}
-
-/// Derive a cryptographic key from a password using Argon2
-fn derive_key(password: &str, salt: &SaltString) -> Result<[u8; 32], EncryptionError> {
-    // Configure Argon2 with secure parameters
-    let argon2 = Argon2::default();
-    
-    // Generate password hash
-    let password_hash = argon2.hash_password(password.as_bytes(), salt)
-        .map_err(|e| EncryptionError::KeyDerivationFailed(e.to_string()))?;
-    
-    // Extract bytes for the key
-    let hash_bytes = password_hash.hash
-        .ok_or_else(|| EncryptionError::KeyDerivationFailed("No hash produced".to_string()))?;
-    
-    // Ensure we have enough bytes for the key
-    if hash_bytes.as_bytes().len() < 32 {
-        return Err(EncryptionError::KeyDerivationFailed(
-            "Hash too short for key derivation".to_string()
-        ));
-    }
-    
-    // Copy first 32 bytes into key array
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&hash_bytes.as_bytes()[0..32]);
-    
-    Ok(key)
-}
-
-/// Encrypt a string with a password and convert to base64
-pub fn encrypt_string(text: &str, password: &str) -> Result<String, EncryptionError> {
-    // Encrypt the text
-    let encrypted = encrypt_data(text.as_bytes(), password)?;
-    
-    // Serialize to JSON and encode as base64
-    let json = serde_json::to_string(&encrypted)
-        .map_err(|e| EncryptionError::SerializationError(e.to_string()))?;
-    
-    // Use the new Engine-based API
-    Ok(STANDARD.encode(json))
-}
-
-/// Decrypt a base64-encoded encrypted string
-pub fn decrypt_string(encoded: &str, password: &str) -> Result<String, EncryptionError> {
-    // Decode from base64 using the new Engine-based API
-    let json_bytes = STANDARD.decode(encoded)
-        .map_err(|e| EncryptionError::InvalidInput(format!("Invalid base64: {}", e)))?;
-    
-    // Parse JSON
-    let encrypted: EncryptedData = serde_json::from_slice(&json_bytes)
-        .map_err(|e| EncryptionError::SerializationError(e.to_string()))?;
+    // Create cipher for decryption
+    let cipher = Aes256Gcm::new(key);
     
     // Decrypt the data
-    let plaintext = decrypt_data(&encrypted, password)?;
-    
-    // Convert back to string
-    String::from_utf8(plaintext)
-        .map_err(|e| EncryptionError::InvalidInput(format!("Invalid UTF-8: {}", e)))
+    cipher
+        .decrypt(nonce, ciphertext.as_ref())
+        .map_err(|_| EncryptionError::DecryptionError)
+}
+
+// Helper function to get consistent argon2 parameters
+fn argon2_params() -> argon2::Params {
+    argon2::Params::new(
+        19456, // Memory cost (19 MB)
+        2,     // Time cost (2 iterations)
+        1,     // Parallelism (1 thread)
+        None,  // No Output::BLOCK_SIZE in this version
+    )
+    .expect("Failed to create Argon2 parameters")
+}
+
+/// Upgrade legacy encrypted data to new base64 format
+pub fn upgrade_encrypted_data(old_data: EncryptedData) -> EncryptedData {
+    // Only upgrade if using older array format
+    if !old_data.ciphertext_array.is_empty() && old_data.ciphertext.is_empty() {
+        EncryptedData {
+            ciphertext: general_purpose::STANDARD.encode(&old_data.ciphertext_array),
+            ciphertext_array: Vec::new(),
+            nonce: general_purpose::STANDARD.encode(&old_data.nonce_array),
+            nonce_array: Vec::new(),
+            salt: old_data.salt,
+            tag: old_data.tag,
+        }
+    } else {
+        old_data
+    }
+}
+
+/// Encrypt a string with a password
+pub fn encrypt_string(data: &str, password: &str) -> Result<EncryptedData, EncryptionError> {
+    encrypt_data(data.as_bytes(), password)
+}
+
+/// Decrypt a string with a password
+pub fn decrypt_string(encrypted: &EncryptedData, password: &str) -> Result<String, EncryptionError> {
+    let bytes = decrypt_data(encrypted, password)?;
+    String::from_utf8(bytes).map_err(|e| EncryptionError::InvalidFormat(e.to_string()))
 }
 
 /// Securely erase sensitive data from memory

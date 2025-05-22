@@ -11,12 +11,13 @@ use thiserror::Error;
 use serde::{Serialize, Deserialize};
 
 use mona_types::address::Address;
-use common::{get_kari_dir, load_config, save_config};
+use common::{get_kari_dir, load_config, save_config, load_kanari_config, save_kanari_config};
 use serde_yaml::{Mapping, Value};
 
 use crate::encryption;
-use crate::encryption::EncryptedData;
 use crate::signatures;
+use crate::EncryptedData;
+use crate::Keystore;
 
 /// Errors that can occur during wallet operations
 #[derive(Error, Debug)]
@@ -41,6 +42,9 @@ pub enum WalletError {
     
     #[error("Signing error: {0}")]
     SigningError(String),
+    
+    #[error("Keystore error: {0}")]
+    KeystoreError(String),
 }
 
 /// Structure representing a wallet with private key and address
@@ -121,7 +125,7 @@ impl Wallet {
     }
 }
 
-/// Save a wallet to disk with encryption
+/// Save a wallet to the keystore
 pub fn save_wallet(
     address: &Address,
     private_key: &str,
@@ -156,23 +160,21 @@ pub fn save_wallet(
         password
     ).map_err(|e| WalletError::EncryptionError(e.to_string()))?;
 
-    // Serialize the encrypted data
-    let encrypted_json = serde_json::to_string(&encrypted_data)
-        .map_err(|e| WalletError::SerializationError(e.to_string()))?;
-
-    // Ensure wallet directory exists
-    let kari_dir = get_kari_dir();
-    let wallet_dir = kari_dir.join("wallets");
-    fs::create_dir_all(&wallet_dir)?;
-
-    // Write encrypted wallet to file
-    let wallet_file = wallet_dir.join(format!("{}.enc", address));
-    fs::write(wallet_file, encrypted_json)?;
+    // Load or create the keystore
+    let mut keystore = Keystore::load()
+        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
+    
+    // Add the wallet to the keystore with the address as the key
+    keystore.add_wallet(&address.to_string(), encrypted_data)
+        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
+    
+    // Also update the active_address in kanari.yaml
+    update_active_address(&address.to_string())?;
     
     Ok(())
 }
 
-/// Load a wallet from disk and decrypt it
+/// Load a wallet from the keystore
 pub fn load_wallet(address: &str, password: &str) -> Result<Wallet, WalletError> {
     // Validate inputs
     if address.is_empty() {
@@ -183,20 +185,16 @@ pub fn load_wallet(address: &str, password: &str) -> Result<Wallet, WalletError>
         return Err(WalletError::InvalidPassword);
     }
     
-    // Get path to wallet file
-    let kari_dir = get_kari_dir();
-    let wallet_file = kari_dir.join("wallets").join(format!("{}.enc", address));
-
-    // Read encrypted wallet data
-    let encrypted_json = fs::read_to_string(&wallet_file)
-        .map_err(|_| WalletError::NotFound(address.to_string()))?;
-
-    // Parse encrypted data
-    let encrypted_data: EncryptedData = serde_json::from_str(&encrypted_json)
-        .map_err(|e| WalletError::SerializationError(e.to_string()))?;
-
+    // Load the keystore
+    let keystore = Keystore::load()
+        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
+    
+    // Get the encrypted data for this wallet
+    let encrypted_data = keystore.get_wallet(address)
+        .ok_or_else(|| WalletError::NotFound(address.to_string()))?;
+    
     // Decrypt wallet data
-    let decrypted = encryption::decrypt_data(&encrypted_data, password)
+    let decrypted = encryption::decrypt_data(encrypted_data, password)
         .map_err(|_| WalletError::InvalidPassword)?;
 
     // Parse wallet data
@@ -210,48 +208,54 @@ pub fn load_wallet(address: &str, password: &str) -> Result<Wallet, WalletError>
     Ok(wallet_data)
 }
 
-/// Check if any wallets exist on the system
+/// Check if any wallets exist
 pub fn check_wallet_exists() -> bool {
-    match list_wallet_files() {
-        Ok(wallets) => !wallets.is_empty(),
-        Err(_) => false,
+    if let Ok(keystore) = Keystore::load() {
+        !keystore.list_wallets().is_empty()
+    } else {
+        false
     }
 }
 
 /// List all available wallets with selection status
 pub fn list_wallet_files() -> Result<Vec<(String, bool)>, io::Error> {
-    // Get wallet directory
-    let kari_dir = get_kari_dir();
-    let wallet_dir = kari_dir.join("wallets");
-
-    // Create wallet directory if it doesn't exist
-    if !wallet_dir.exists() {
-        fs::create_dir_all(&wallet_dir)?;
-    }
-
     // Get currently selected wallet
     let selected = get_selected_wallet().unwrap_or_default();
-    
     let mut wallets = Vec::new();
     
-    // Read all wallet files
-    for entry in fs::read_dir(wallet_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        
-        if path.is_file() {
-            if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
-                // Only include .enc files
-                if filename.ends_with(".enc") {
-                    // Get wallet address without .enc extension
-                    let wallet_name = filename.trim_end_matches(".enc");
-                    let is_selected = wallet_name == selected;
-                    wallets.push((filename.to_string(), is_selected));
+    // Try to load the keystore
+    match Keystore::load() {
+        Ok(keystore) => {
+            // Return addresses from the keystore
+            for address in keystore.list_wallets() {
+                let is_selected = address == selected;
+                wallets.push((address, is_selected));
+            }
+        },
+        Err(_) => {
+            // Fall back to checking legacy wallet files (one-time migration path)
+            let kari_dir = get_kari_dir();
+            let wallet_dir = kari_dir.join("wallets");
+            
+            if wallet_dir.exists() {
+                for entry in fs::read_dir(wallet_dir)? {
+                    let entry = entry?;
+                    let path = entry.path();
+                    
+                    if path.is_file() {
+                        if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
+                            if filename.ends_with(".enc") {
+                                let wallet_address = filename.trim_end_matches(".enc").to_string();
+                                let is_selected = wallet_address == selected;
+                                wallets.push((wallet_address, is_selected));
+                            }
+                        }
+                    }
                 }
             }
         }
     }
-
+    
     // Sort wallets alphabetically
     wallets.sort_by(|a, b| a.0.cmp(&b.0));
     
@@ -260,12 +264,16 @@ pub fn list_wallet_files() -> Result<Vec<(String, bool)>, io::Error> {
 
 /// Set the currently selected wallet address in configuration
 pub fn set_selected_wallet(wallet_address: &str) -> io::Result<()> {
+    // Strip any extension to get the clean address
+    let formatted_address = wallet_address.trim_end_matches(".enc").to_string();
+    
+    // Update active_address in kanari.yaml
+    update_active_address(&formatted_address)?;
+    
+    // Keep the old config.yaml updated for backward compatibility
     // Load existing config
     let mut config = load_config()?;
-
-    // Format the address (remove .enc if present)
-    let formatted_address = wallet_address.trim_end_matches(".enc").to_string();
-
+    
     // Update address in config using the keys expected by the system
     if let Some(mapping) = config.as_mapping_mut() {
         // Set both keys for maximum compatibility
@@ -296,8 +304,42 @@ pub fn set_selected_wallet(wallet_address: &str) -> io::Result<()> {
     save_config(&config)
 }
 
+/// Helper function to update active_address in kanari.yaml
+fn update_active_address(address: &str) -> io::Result<()> {
+    // Try to load kanari config
+    match load_kanari_config() {
+        Ok(mut kanari_config) => {
+            if let Some(mapping) = kanari_config.as_mapping_mut() {
+                mapping.insert(
+                    Value::String("active_address".to_string()),
+                    Value::String(address.to_string()),
+                );
+                save_kanari_config(&kanari_config)?;
+            }
+        },
+        Err(_) => {
+            // If kanari config doesn't exist or load, create it
+            let mut mapping = Mapping::new();
+            mapping.insert(
+                Value::String("active_address".to_string()),
+                Value::String(address.to_string()),
+            );
+            save_kanari_config(&Value::Mapping(mapping))?;
+        }
+    }
+    Ok(())
+}
+
 /// Get the currently selected wallet from configuration
 pub fn get_selected_wallet() -> Option<String> {
+    // First try to get from kanari config
+    if let Ok(kanari_config) = load_kanari_config() {
+        if let Some(active_address) = kanari_config.get("active_address").and_then(|v| v.as_str()) {
+            return Some(active_address.to_string());
+        }
+    }
+    
+    // Fall back to legacy config
     match load_config() {
         Ok(config) => {
             if let Some(mapping) = config.as_mapping() {
@@ -316,7 +358,62 @@ pub fn get_selected_wallet() -> Option<String> {
     }
 }
 
-/// Get the path to the wallet directory
+/// Get the path to the wallet directory (legacy)
 pub fn get_wallet_dir() -> PathBuf {
     get_kari_dir().join("wallets")
+}
+
+/// Migrate legacy .enc wallet files to the keystore format
+pub fn migrate_legacy_wallets(password: &str) -> Result<usize, WalletError> {
+    let _ = password;
+    let wallet_dir = get_wallet_dir();
+    if !wallet_dir.exists() {
+        return Ok(0);
+    }
+    
+    let mut migrated_count = 0;
+    let mut keystore = Keystore::load()
+        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
+    
+    // Read each .enc file
+    match fs::read_dir(wallet_dir) {
+        Ok(entries) => {
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    let path = entry.path();
+                    if path.is_file() {
+                        if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
+                            if filename.ends_with(".enc") {
+                                // Extract address from filename
+                                let address = filename.trim_end_matches(".enc");
+                                
+                                // Skip if already in keystore
+                                if keystore.wallet_exists(address) {
+                                    continue;
+                                }
+                                
+                                // Read encrypted wallet data
+                                if let Ok(encrypted_json) = fs::read_to_string(&path) {
+                                    if let Ok(encrypted_data) = serde_json::from_str::<EncryptedData>(&encrypted_json) {
+                                        // Add to keystore
+                                        if keystore.add_wallet(address, encrypted_data).is_ok() {
+                                            migrated_count += 1;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        Err(e) => {
+            return Err(WalletError::IoError(e));
+        }
+    }
+    
+    // Save the keystore after migration
+    keystore.save().map_err(|e| WalletError::KeystoreError(e.to_string()))?;
+    
+    Ok(migrated_count)
 }

@@ -4,7 +4,7 @@ use serde_yaml::{Value, Mapping};
 use network::NetworkConfig;
 
 // Simply re-export functions from common
-pub use common::{load_config, save_config};
+pub use common::{load_config, save_config, load_kanari_config, save_kanari_config};
 
 
 pub fn format_address(address: &str) -> String {
@@ -69,6 +69,30 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
         Value::String("chain_id".to_string()),
         Value::String(chain_id.to_string())
     );
+
+    // Update the kanari.yaml configuration as well
+    let mut kanari_config = load_kanari_config()?;
+    if let Some(kanari_mapping) = kanari_config.as_mapping_mut() {
+        let active_env = kanari_mapping.get("active_env")
+                         .and_then(|v| v.as_str())
+                         .unwrap_or("local")
+                         .to_string();
+                         
+        if let Some(envs) = kanari_mapping.get_mut("envs").and_then(|v| v.as_sequence_mut()) {
+            for env in envs {
+                if let Some(alias) = env.get("alias").and_then(|v| v.as_str()) {
+                    if alias == active_env {
+                        // Update RPC URL with the new port
+                        env["rpc"] = Value::String(format!("http://127.0.0.1:{}", rpc_port));
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Save the updated kanari config
+        save_kanari_config(&kanari_config)?;
+    }
 
     let network_config = NetworkConfig {
         node_address: get_local_ip().unwrap_or_else(|| "0.0.0.0".to_string()),
