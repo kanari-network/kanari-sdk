@@ -1,144 +1,26 @@
 use consensus_pos::Blake3Algorithm;
 use log::{error, info, warn, debug};
 use tokio::sync::mpsc;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
-use std::collections::VecDeque;
 
 use mona_blockchain::block::{Block, Transaction};
 use mona_blockchain::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN_DATA, normalize_address};
-use crate::transfer_tokens::transfer_tokens;
-use mona_types::kari::{KARI, KA_PER_KARI, POOL_ADDRESS, POOL_RESERVED_KA, POOL_RESERVED_KARI, TOTAL_SUPPLY_KA, TOTAL_SUPPLY_KARI, VALIDATOR_STAKING_MINIMUM_KARI, NODE_STAKING_MINIMUM_KARI};
-use crate::utils::{update_pending_transaction_count, update_last_block_time, calculate_gas_fee, format_gas_fee_display};
-use crate::staking::{load_staking_state, process_rewards, is_validator};
+use mona_types::kari::{KARI, KA_PER_KARI, POOL_ADDRESS, POOL_RESERVED_KA, POOL_RESERVED_KARI, TOTAL_SUPPLY_KA, TOTAL_SUPPLY_KARI};
+use crate::utils::update_last_block_time;
+use crate::staking::{load_staking_state, process_rewards, is_validator, get_pool_remaining_balance};
 use crate::node::{NodeConfig, start_node, stop_node, propagate_block, get_peer_count};
 
 pub mod create_genesis_block;
+pub mod transaction;
+pub mod blockchain_display;
+
 use create_genesis_block::create_genesis_block;
 
-// Add pending transactions queue
-lazy_static::lazy_static! {
-    static ref PENDING_TRANSACTIONS: RwLock<VecDeque<Transaction>> = RwLock::new(VecDeque::new());
-}
-
-// Simplified pending transaction function
-pub fn add_pending_transaction(transaction: Transaction) -> bool {
-    PENDING_TRANSACTIONS.write()
-        .map(|mut queue| {
-            queue.push_back(transaction);
-            update_pending_transaction_count(queue.len());
-            true
-        })
-        .unwrap_or(false)
-}
-
-// Improved function to ensure transactions are committed properly
-pub fn process_transfer(
-    from_address: &str,
-    to_address: &str,
-    amount: u64,
-    password: &str,
-    priority_boost: Option<u64>,  // Add optional priority boost
-    tx: &mpsc::Sender<String>
-) -> Result<Transaction, String> {
-    // Parse addresses
-    let from = match normalize_address(from_address) {
-        Ok(addr) => addr,
-        Err(e) => return Err(format!("Invalid sender address: {}", e)),
-    };
-    
-    let to = match normalize_address(to_address) {
-        Ok(addr) => addr, 
-        Err(e) => return Err(format!("Invalid receiver address: {}", e)),
-    };
-    
-    // Calculate gas fee dynamically
-    let gas_fee = calculate_gas_fee(priority_boost);
-    let gas_fee_display = format_gas_fee_display(gas_fee);
-    
-    // Execute transfer using string representation and password for signing
-    match transfer_tokens(&from.to_hex_literal(), &to.to_hex_literal(), amount, password, gas_fee) {
-        Ok(transaction) => {
-            // Verify signature right after creation for better debugging
-            let signature_status = if transaction.signature.is_empty() {
-                "unsigned"
-            } else {
-                match crate::transfer_tokens::verify_transaction::verify_transaction(&transaction) {
-                    Ok(true) => "valid",
-                    Ok(false) => "invalid",
-                    Err(e) => {
-                        warn!("Error verifying signature: {}", e);
-                        "unknown"
-                    }
-                }
-            };
-            
-            // Add to pending transactions
-            if add_pending_transaction(transaction.clone()) {
-                // Notify about successful transaction submission
-                let tx_json = json!({
-                    "event": "transaction_created",
-                    "transaction": {
-                        "id": transaction.transaction_id,
-                        "sender": transaction.sender.to_hex_literal(),
-                        "receiver": transaction.receiver.to_hex_literal(),
-                        "amount": amount,
-                        "gas_fee": transaction.gas_fee,
-                        "gas_fee_display": format_gas_fee_display(transaction.gas_fee),
-                        "gas_collector": crate::utils::GAS_FEE_COLLECTOR,
-                        "total_cost": crate::utils::calculate_total_transaction_cost(amount, transaction.gas_fee),
-                        "timestamp": transaction.timestamp,
-                        "signed": !transaction.signature.is_empty(),
-                        "signature_status": signature_status
-                    },
-                    "status": "pending"
-                }).to_string();
-                
-                let _ = tx.try_send(tx_json);
-                
-                // Force save blockchain state to ensure transaction persistence
-                match mona_blockchain::blockchain::save_blockchain() {
-                    Ok(_) => info!("Transaction recorded and blockchain state saved"),
-                    Err(e) => warn!("Transaction recorded but failed to save state: {}", e),
-                }
-                
-                // Return transaction
-                Ok(transaction)
-            } else {
-                // Try to add the transaction directly to the next block
-                match force_transaction_inclusion(&transaction) {
-                    true => {
-                        info!("Transaction bypassed queue and directly included in blockchain");
-                        Ok(transaction)
-                    },
-                    false => Err("Failed to add transaction to blockchain".to_string())
-                }
-            }
-        },
-        Err(e) => {
-            // Update error JSON to use calculated gas fee
-            let error_json = json!({
-                "event": "transaction_error",
-                "error": format!("{}", e),
-                "details": {
-                    "sender": from_address,
-                    "receiver": to_address,
-                    "amount": amount,
-                    "gas_fee": gas_fee,
-                    "gas_fee_display": gas_fee_display,
-                    "total_cost": crate::utils::calculate_total_transaction_cost(amount, gas_fee)
-                }
-            }).to_string();
-            
-            let _ = tx.try_send(error_json);
-            
-            // Return error
-            Err(format!("{}", e))
-        }
-    }
-}
+// Re-export the functions from transaction module
+pub use transaction::{add_pending_transaction, process_transfer, PENDING_TRANSACTIONS};
 
 // Function to handle transactions when queue fails
 fn force_transaction_inclusion(transaction: &Transaction) -> bool {
@@ -203,7 +85,6 @@ fn force_transaction_inclusion(transaction: &Transaction) -> bool {
     }
 }
 
-
 // Update run_blockchain's block creation to consistently include pending transactions
 pub fn run_blockchain(
     running: Arc<Mutex<bool>>, 
@@ -230,12 +111,12 @@ pub fn run_blockchain(
         Err(e) => {
             error!("Invalid node address: {}", e);
             // Send error notification
-            let error_json = json!({
-                "event": "blockchain_error",
-                "error": format!("Invalid node address: {}", e),
-                "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
-            }).to_string();
-            let _ = tx.try_send(error_json);
+            blockchain_display::send_error_notification(
+                &tx, 
+                "blockchain", 
+                &format!("Invalid node address: {}", e), 
+                None
+            );
             return;
         }
     };
@@ -281,24 +162,16 @@ pub fn run_blockchain(
         info!("Node networking started");
     }
 
-    // Send initial status including staking information
-    let init_status = json!({
-        "event": "blockchain_initializing",
-        "coin": {
-            "name": coin.name,
-            "symbol": coin.symbol,
-            "decimals": coin.decimals,
-            "total_supply": coin.total_supply,
-            "display_supply": TOTAL_SUPPLY_KARI
-        },
-        "node_address": normalized_address,
-        "staking": {
-            "validator_minimum": VALIDATOR_STAKING_MINIMUM_KARI,
-            "node_minimum": NODE_STAKING_MINIMUM_KARI,
-        },
-        "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
-    }).to_string();
-    let _ = tx.try_send(init_status);
+    // Send initialization status using the display module
+    blockchain_display::send_initialization_status(
+        &tx,
+        &coin.name,
+        &coin.symbol,
+        coin.decimals,
+        coin.total_supply,
+        TOTAL_SUPPLY_KARI as f64,
+        &normalized_address
+    );
 
     // Check if blockchain is already initialized
     if !BLOCKCHAIN_DATA.is_empty() {
@@ -307,22 +180,11 @@ pub fn run_blockchain(
             BLOCKCHAIN_DATA.len()
         );
 
-        // Enhanced blockchain status
+        // Enhanced blockchain status through display module
         let blocks = BLOCKCHAIN_DATA.iter();
         let last_block = blocks.last().unwrap();
         
-        let status_json = json!({
-            "event": "blockchain_loaded",
-            "blocks": BLOCKCHAIN_DATA.len(),
-            "last_block": {
-                "index": last_block.index,
-                "hash": last_block.hash,
-                "timestamp": last_block.timestamp
-            },
-            "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
-        }).to_string();
-        
-        let _ = tx.try_send(status_json);
+        blockchain_display::send_blockchain_loaded_status(&tx, BLOCKCHAIN_DATA.len(), last_block);
 
         // Check balance using both original and normalized address for troubleshooting
         match mona_blockchain::blockchain::get_balance(&normalized_address) {
@@ -353,31 +215,17 @@ pub fn run_blockchain(
         let genesis_block = create_genesis_block(&node_address, &coin);
         BLOCKCHAIN_DATA.add_block(genesis_block.clone());
 
-        // Enhanced genesis block info
-        let genesis_json = json!({
-            "event": "genesis_created",
-            "block": {
-                "index": genesis_block.index,
-                "hash": genesis_block.hash,
-                "timestamp": genesis_block.timestamp,
-                "datetime": chrono::DateTime::<chrono::Utc>::from_timestamp(genesis_block.timestamp as i64, 0)
-                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-                    .unwrap_or_else(|| "Unknown time".to_string())
-            },
-            "coin": {
-                "name": coin.name,
-                "symbol": coin.symbol,
-                "decimals": coin.decimals
-            },
-            "minter": normalized_address,
-            "total_supply": {
-                "amount": TOTAL_SUPPLY_KA,
-                "display": TOTAL_SUPPLY_KARI,
-                "symbol": coin.symbol
-            }
-        }).to_string();
-        
-        let _ = tx.try_send(genesis_json);
+        // Send genesis block creation notification
+        blockchain_display::send_genesis_created_notification(
+            &tx,
+            &genesis_block,
+            &coin.name,
+            &coin.symbol,
+            coin.decimals,
+            &normalized_address,
+            TOTAL_SUPPLY_KA,
+            TOTAL_SUPPLY_KARI as f64
+        );
 
         // Update balances with normalized address
         {
@@ -426,12 +274,8 @@ pub fn run_blockchain(
                 warn!("Error stopping node: {}", e);
             }
             
-            // Send shutdown notification
-            let shutdown_json = json!({
-                "event": "blockchain_stopped",
-                "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
-            }).to_string();
-            let _ = tx.try_send(shutdown_json);
+            // Send shutdown notification using display module
+            blockchain_display::send_blockchain_stopped_notification(&tx);
             break;
         }
 
@@ -441,18 +285,23 @@ pub fn run_blockchain(
             Some(block) => block,
             None => {
                 error!("Cannot find previous block");
+                blockchain_display::send_error_notification(
+                    &tx,
+                    "blockchain",
+                    "Cannot find previous block",
+                    None
+                );
                 break;
             }
         };
 
-        // Get pending transactions for this block - use our improved function
+        // Get pending transactions for this block
         let transactions = mona_blockchain::blockchain::get_next_block_transactions(100);
         
-
         // Create JSON representation of transactions for the block data
         let tx_json: Vec<Value> = transactions.iter().map(|tx| {
             json!({
-                "id": tx.transaction_id, // Include transaction ID
+                "id": tx.transaction_id,
                 "sender": tx.sender,
                 "receiver": tx.receiver,
                 "amount": tx.amount,
@@ -514,49 +363,21 @@ pub fn run_blockchain(
         
         // Check if the node operator is staking as validator
         let validator_status = is_validator(&node_address);
-
-        // Convert timestamp to human-readable format
-        let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(new_block.timestamp as i64, 0)
-            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-            .unwrap_or_else(|| "Unknown time".to_string());
-
-        // Enhanced block status update as JSON with staking info and peer info
-        let status_json = json!({
-            "event": "block_mined",
-            "block": {
-                "index": new_block.index,
-                "hash": new_block.hash,
-                "prev_hash": new_block.prev_hash,
-                "timestamp": new_block.timestamp,
-                "datetime": datetime,
-                "minter": normalized_address,
-                "transactions": new_block.transactions.len(),
-            },
-            "blockchain": {
-                "height": BLOCKCHAIN_DATA.len(),
-                "last_update": current_time
-            },
-            "staking": {
-                "rewards_distributed": staking_rewards,
-                "is_validator": validator_status,
-                "display_rewards": staking_rewards as f64 / KA_PER_KARI as f64,
-                "pool_balance": match crate::staking::get_pool_remaining_balance() {
-                    Ok(balance) => balance,
-                    Err(_) => 0
-                },
-                "pool_balance_display": match crate::staking::get_pool_remaining_balance() {
-                    Ok(balance) => balance as f64 / KA_PER_KARI as f64,
-                    Err(_) => 0.0
-                },
-                "pool_address": POOL_ADDRESS
-            },
-            "networking": {
-                "peer_count": get_peer_count(),
-                "node_id": format!("node-{}", normalized_address[..8].to_string()),
-            }
-        }).to_string();
         
-        let _ = tx.try_send(status_json);
+        // Get pool remaining balance
+        let pool_balance = get_pool_remaining_balance().ok();
+
+        // Send block mining notification using display module
+        blockchain_display::send_block_mined_notification(
+            &tx,
+            &new_block,
+            BLOCKCHAIN_DATA.len(),
+            &normalized_address,
+            staking_rewards,
+            validator_status,
+            pool_balance,
+            get_peer_count()
+        );
 
         // Save blockchain state - make sure it happens reliably after transaction block
         match save_blockchain() {
@@ -569,14 +390,13 @@ pub fn run_blockchain(
             },
             Err(e) => {
                 error!("Failed to save blockchain: {}", e);
-                // Notify clients of save error
-                let error_json = json!({
-                    "event": "blockchain_error",
-                    "error": format!("Failed to save blockchain: {}", e),
-                    "block_index": new_block.index,
-                    "timestamp": current_time
-                }).to_string();
-                let _ = tx.try_send(error_json);
+                // Notify clients of save error using display module
+                blockchain_display::send_error_notification(
+                    &tx,
+                    "blockchain",
+                    &format!("Failed to save blockchain: {}", e),
+                    Some(json!({ "block_index": new_block.index }))
+                );
             },
         }
 
@@ -584,21 +404,14 @@ pub fn run_blockchain(
         if new_block.index % 5 == 0 {
             match mona_blockchain::blockchain::get_balance(&normalized_address) {
                 Ok(balance) => {
-                    // Enhanced balance update with more details
-                    let balance_json = json!({
-                        "event": "balance_update",
-                        "address": normalized_address,
-                        "balance": {
-                            "amount": balance,
-                            "display": balance as f64 / KA_PER_KARI as f64,
-                            "symbol": coin.symbol,
-                            "formatted": format!("{:.9} {}", balance as f64 / KA_PER_KARI as f64, coin.symbol)
-                        },
-                        "block_height": new_block.index,
-                        "timestamp": current_time
-                    }).to_string();
-                    
-                    let _ = tx.try_send(balance_json);
+                    // Send balance update through display module
+                    blockchain_display::send_balance_update(
+                        &tx,
+                        &normalized_address,
+                        balance,
+                        &coin.symbol,
+                        new_block.index.into()
+                    );
                     
                     // Log balance info
                     debug!(
@@ -608,14 +421,13 @@ pub fn run_blockchain(
                 },
                 Err(e) => {
                     warn!("Failed to get balance: {}", e);
-                    // Notify of balance error
-                    let error_json = json!({
-                        "event": "balance_error",
-                        "error": format!("Failed to get balance: {}", e),
-                        "address": normalized_address,
-                        "timestamp": current_time
-                    }).to_string();
-                    let _ = tx.try_send(error_json);
+                    // Notify of balance error through display module
+                    blockchain_display::send_error_notification(
+                        &tx,
+                        "balance",
+                        &format!("Failed to get balance: {}", e),
+                        Some(json!({ "address": normalized_address }))
+                    );
                 },
             }
             
@@ -626,13 +438,8 @@ pub fn run_blockchain(
                     debug!("  {} => {}", addr, bal);
                 }
                 
-                // Send system-wide balance report
-                let balance_report = json!({
-                    "event": "system_balances",
-                    "account_count": balances.len(),
-                    "timestamp": current_time
-                }).to_string();
-                let _ = tx.try_send(balance_report);
+                // Send system-wide balance report through display module
+                blockchain_display::send_system_balances_report(&tx, balances.len());
             }
         }
 
