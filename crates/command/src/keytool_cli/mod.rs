@@ -1,7 +1,7 @@
 use colored::Colorize;
 use mona_crypto::{
     list_wallet_files,
-    load_wallet, save_wallet, set_selected_wallet, migrate_legacy_wallets,
+    load_wallet, save_wallet, set_selected_wallet,
 };
 use std::io::{self, Write};
 
@@ -51,10 +51,6 @@ const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         name: "privatekey",
         description: "Import from private key",
-    },
-    CommandInfo {
-        name: "migrate",
-        description: "Migrate legacy wallets to keystore format",
     },
 ];
 
@@ -475,15 +471,30 @@ pub fn handle_keytool_command() -> Option<String> {
                         return None;
                     }
 
-                    println!("\nAvailable wallets:");
+                    println!("\n{}", "Available wallets:".bright_yellow().bold());
+                    println!("{}", "─".repeat(60));
+                    println!("{:<5} {:<42} {}", "No.", "Address", "Status");
+                    println!("{}", "─".repeat(60));
+                    
                     for (i, (wallet, is_selected)) in wallets.iter().enumerate() {
                         let wallet_name = wallet.trim_end_matches(".enc");
-                        if *is_selected {
-                            println!("{}. {} {}", i + 1, wallet_name, "(current)".green());
+                        let display_name = if wallet_name.len() > 38 {
+                            format!("{}...", &wallet_name[..35])
                         } else {
-                            println!("{}. {}", i + 1, wallet_name);
+                            wallet_name.to_string()
+                        };
+                        
+                        if *is_selected {
+                            println!("{:<5} {:<42} {}", 
+                                (i + 1).to_string().green().bold(),
+                                display_name.green(),
+                                "ACTIVE".green().bold()
+                            );
+                        } else {
+                            println!("{:<5} {:<42}", (i + 1), display_name);
                         }
                     }
+                    println!("{}", "─".repeat(60));
 
                     println!("\nEnter wallet number to select (or press Enter to cancel):");
                     let mut input = String::new();
@@ -498,9 +509,9 @@ pub fn handle_keytool_command() -> Option<String> {
                                     let selected = wallets[index - 1].0.trim_end_matches(".enc");
                                     match set_selected_wallet(selected) {
                                         Ok(_) => {
-                                            println!(
-                                                "{}",
-                                                format!("Selected wallet: {}", selected).green()
+                                            println!("{} {}", 
+                                                "✓".green().bold(), 
+                                                format!("Wallet selected: {}", selected).green()
                                             );
                                             Some(selected.to_string())
                                         }
@@ -541,11 +552,26 @@ pub fn handle_keytool_command() -> Option<String> {
 
                         match load_wallet(&public_address, &password) {
                             Ok(wallet_data) => {
-                                println!("Wallet loaded:");
-                                // Convert Address to String before applying green()
-                                println!("Address: {}", wallet_data.address.to_string().green());
-                                println!("Private Key: {}", wallet_data.private_key.green());
-                                println!("Seed Phrase: {}", wallet_data.seed_phrase.green());
+                                println!("\n{}", "Wallet Information:".bright_yellow().bold());
+                                println!("{}", "─".repeat(60));
+                                println!("{:<15} {}", "Address:".bold(), wallet_data.address.to_string().green());
+                                println!("{:<15} {}", "Curve Type:".bold(), format!("{:?}", wallet_data.curve_type).green());
+                                
+                                // Show full private key instead of truncated version
+                                println!("{:<15} {}", "Private Key:".bold(), wallet_data.private_key.green());
+                                
+                                if !wallet_data.seed_phrase.is_empty() {
+                                    // Show full seed phrase instead of just word count
+                                    println!("{:<15} {}", "Seed Phrase:".bold(), wallet_data.seed_phrase.green());
+                                } else {
+                                    println!("{:<15} {}", "Seed Phrase:".bold(), "None".yellow());
+                                }
+                                println!("{}", "─".repeat(60));
+                                
+                                println!("\n{} {}", 
+                                    "✓".green().bold(), 
+                                    "Wallet loaded successfully".green()
+                                );
                                 return Some(public_address);
                             }
                             Err(e) => {
@@ -559,22 +585,36 @@ pub fn handle_keytool_command() -> Option<String> {
                         return None;
                     }
                 }
-            }
+            },
 
             "list" => {
                 match list_wallet_files() {
                     Ok(wallets) => {
-                        println!("\nAvailable Wallets:");
-                        println!("------------------");
+                        if wallets.is_empty() {
+                            println!("{}", "\nNo wallets found!".yellow());
+                            return None;
+                        }
+                        
+                        // Store the length before consuming the collection
+                        let wallet_count = wallets.len();
+                        
+                        println!("\n{}", "Available Wallets:".bright_yellow().bold());
+                        println!("{}", "─".repeat(70));
+                        
                         for (wallet_name, is_selected) in wallets {
                             let wallet_display = wallet_name.trim_end_matches(".enc");
                             if is_selected {
-                                println!("➤ {} {}", wallet_display.green().bold(), "[SELECTED]".green().bold());
+                                println!("{} {} {}", 
+                                    "➤".green().bold(),
+                                    wallet_display.green().bold(),
+                                    "[ACTIVE]".green().bold()
+                                );
                             } else {
                                 println!("  {}", wallet_display);
                             }
                         }
-                        println!("------------------");
+                        println!("{}", "─".repeat(70));
+                        println!("Total wallets: {}", wallet_count);
                     }
                     Err(e) => {
                         println!(
@@ -748,55 +788,6 @@ pub fn handle_keytool_command() -> Option<String> {
                     }
                 }
             }
-
-            "migrate" => {
-                println!("{}", "⚠️ Migrating Legacy Wallets to Keystore ⚠️".yellow().bold());
-                println!("This will migrate all .enc wallet files to the kanari.keystore format");
-                println!();
-                
-                // Ask for password
-                print!("Enter password for the wallets: ");
-                io::stdout().flush().unwrap();
-                let password = match read_password() {
-                    Ok(pwd) => pwd,
-                    Err(e) => {
-                        eprintln!("Error reading password: {}. Falling back to standard input.", e);
-                        let mut input = String::new();
-                        io::stdin().read_line(&mut input).expect("Failed to read input");
-                        input.trim().to_string()
-                    }
-                };
-                
-                if password.trim().is_empty() {
-                    println!("{}", "Error: Password cannot be empty".red());
-                    return None;
-                }
-                
-                match migrate_legacy_wallets(&password) {
-                    Ok(count) => {
-                        if count > 0 {
-                            println!("{}", format!("✅ Migration complete: {} wallets migrated", count).green());
-                            
-                            // After migration, check for wallets and return the first one
-                            match list_wallet_files() {
-                                Ok(wallets) if !wallets.is_empty() => {
-                                    let address = wallets[0].0.trim_end_matches(".enc").to_string();
-                                    println!("Using wallet: {}", address.green());
-                                    return Some(address);
-                                }
-                                _ => return None,
-                            }
-                        } else {
-                            println!("No wallets to migrate (or all wallets already in keystore)");
-                            return None;
-                        }
-                    },
-                    Err(e) => {
-                        println!("{}", format!("Error during migration: {}", e).red());
-                        return None;
-                    }
-                }
-            },
 
             _ => {
                 display_help(true);

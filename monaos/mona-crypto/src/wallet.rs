@@ -3,20 +3,18 @@
 //! This module handles wallet operations including creation, encryption, 
 //! storage, and loading of cryptocurrency wallets.
 
-use std::fs;
 use std::io;
-use std::path::PathBuf;
 use key::keys::CurveType;
 use thiserror::Error;
 use serde::{Serialize, Deserialize};
 
 use mona_types::address::Address;
-use common::{get_kari_dir, load_config, save_config, load_kanari_config, save_kanari_config};
+use common::{load_kanari_config, save_kanari_config};
 use serde_yaml::{Mapping, Value};
 
 use crate::encryption;
+use crate::compression;
 use crate::signatures;
-use crate::EncryptedData;
 use crate::Keystore;
 
 /// Errors that can occur during wallet operations
@@ -142,10 +140,17 @@ pub fn save_wallet(
         return Err(WalletError::EncryptionError("Empty private key not allowed".to_string()));
     }
     
+    // Ensure private key has kanari prefix
+    let formatted_private_key = if private_key.starts_with("kanari") {
+        private_key.to_string()
+    } else {
+        format!("kanari{}", private_key)
+    };
+    
     // Create wallet object
     let wallet_data = Wallet {
         address: *address,
-        private_key: private_key.to_string(),
+        private_key: formatted_private_key,
         seed_phrase: seed_phrase.to_string(),
         curve_type,
     };
@@ -154,9 +159,13 @@ pub fn save_wallet(
     let toml_string = toml::to_string(&wallet_data)
         .map_err(|e| WalletError::SerializationError(e.to_string()))?;
 
+    // Compress data before encryption to reduce ciphertext size
+    let compressed_data = compression::compress_data(toml_string.as_bytes())
+        .map_err(|e| WalletError::SerializationError(format!("Compression error: {}", e)))?;
+
     // Encrypt the wallet data
     let encrypted_data = encryption::encrypt_data(
-        toml_string.as_bytes(),
+        &compressed_data,
         password
     ).map_err(|e| WalletError::EncryptionError(e.to_string()))?;
 
@@ -197,15 +206,57 @@ pub fn load_wallet(address: &str, password: &str) -> Result<Wallet, WalletError>
     let decrypted = encryption::decrypt_data(encrypted_data, password)
         .map_err(|_| WalletError::InvalidPassword)?;
 
-    // Parse wallet data
-    let decrypted_str = String::from_utf8(decrypted)
-        .map_err(|e| WalletError::DecryptionError(e.to_string()))?;
+    // Decompress the decrypted data (handle both compressed and uncompressed formats)
+    let decompressed_data = match compression::decompress_data(&decrypted) {
+        Ok(data) => data,
+        Err(e) => {
+            // If decompression fails, the data might not be compressed
+            // (compatibility with wallets created before compression was added)
+            if let Ok(str_data) = std::str::from_utf8(&decrypted) {
+                if str_data.starts_with("address") || str_data.contains("private_key") {
+                    // This appears to be valid uncompressed TOML data, use it directly
+                    decrypted
+                } else {
+                    return Err(WalletError::DecryptionError(
+                        format!("Decompression failed and data isn't valid TOML: {}", e)
+                    ));
+                }
+            } else {
+                return Err(WalletError::DecryptionError(
+                    format!("Failed to decompress or parse wallet data: {}", e)
+                ));
+            }
+        }
+    };
 
-    // Parse TOML
-    let wallet_data: Wallet = toml::from_str(&decrypted_str)
-        .map_err(|e| WalletError::SerializationError(e.to_string()))?;
-
-    Ok(wallet_data)
+    // Parse wallet data - try TOML first
+    match std::str::from_utf8(&decompressed_data) {
+        Ok(decompressed_str) => {
+            // Try to parse as TOML
+            match toml::from_str::<Wallet>(decompressed_str) {
+                Ok(wallet_data) => Ok(wallet_data),
+                Err(e) => {
+                    // If TOML parsing fails, provide a detailed error
+                    Err(WalletError::SerializationError(
+                        format!("Failed to parse wallet data as TOML: {}. First 50 bytes: {:?}", 
+                            e, 
+                            &decompressed_data.get(..50.min(decompressed_data.len()))
+                                .unwrap_or(&[])
+                        )
+                    ))
+                }
+            }
+        },
+        Err(e) => {
+            Err(WalletError::DecryptionError(
+                format!("Decrypted data is not valid UTF-8: {}. First 50 bytes: {:?}", 
+                    e, 
+                    &decompressed_data.get(..50.min(decompressed_data.len()))
+                        .unwrap_or(&[])
+                )
+            ))
+        }
+    }
 }
 
 /// Check if any wallets exist
@@ -223,7 +274,7 @@ pub fn list_wallet_files() -> Result<Vec<(String, bool)>, io::Error> {
     let selected = get_selected_wallet().unwrap_or_default();
     let mut wallets = Vec::new();
     
-    // Try to load the keystore
+    // Load the keystore
     match Keystore::load() {
         Ok(keystore) => {
             // Return addresses from the keystore
@@ -231,77 +282,28 @@ pub fn list_wallet_files() -> Result<Vec<(String, bool)>, io::Error> {
                 let is_selected = address == selected;
                 wallets.push((address, is_selected));
             }
-        },
-        Err(_) => {
-            // Fall back to checking legacy wallet files (one-time migration path)
-            let kari_dir = get_kari_dir();
-            let wallet_dir = kari_dir.join("wallets");
             
-            if wallet_dir.exists() {
-                for entry in fs::read_dir(wallet_dir)? {
-                    let entry = entry?;
-                    let path = entry.path();
-                    
-                    if path.is_file() {
-                        if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
-                            if filename.ends_with(".enc") {
-                                let wallet_address = filename.trim_end_matches(".enc").to_string();
-                                let is_selected = wallet_address == selected;
-                                wallets.push((wallet_address, is_selected));
-                            }
-                        }
-                    }
-                }
-            }
+            // Sort wallets alphabetically
+            wallets.sort_by(|a, b| a.0.cmp(&b.0));
+            
+            Ok(wallets)
+        },
+        Err(e) => {
+            Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to load keystore: {}", e)
+            ))
         }
     }
-    
-    // Sort wallets alphabetically
-    wallets.sort_by(|a, b| a.0.cmp(&b.0));
-    
-    Ok(wallets)
 }
 
 /// Set the currently selected wallet address in configuration
 pub fn set_selected_wallet(wallet_address: &str) -> io::Result<()> {
-    // Strip any extension to get the clean address
+    // Clean address
     let formatted_address = wallet_address.trim_end_matches(".enc").to_string();
     
     // Update active_address in kanari.yaml
-    update_active_address(&formatted_address)?;
-    
-    // Keep the old config.yaml updated for backward compatibility
-    // Load existing config
-    let mut config = load_config()?;
-    
-    // Update address in config using the keys expected by the system
-    if let Some(mapping) = config.as_mapping_mut() {
-        // Set both keys for maximum compatibility
-        mapping.insert(
-            Value::String("address".to_string()),
-            Value::String(formatted_address.clone()),
-        );
-
-        mapping.insert(
-            Value::String("selected_wallet".to_string()),
-            Value::String(formatted_address),
-        );
-    } else {
-        // Create new mapping if none exists
-        let mut mapping = Mapping::new();
-        mapping.insert(
-            Value::String("address".to_string()),
-            Value::String(formatted_address.clone()),
-        );
-        mapping.insert(
-            Value::String("selected_wallet".to_string()),
-            Value::String(formatted_address),
-        );
-        config = Value::Mapping(mapping);
-    }
-
-    // Save updated config
-    save_config(&config)
+    update_active_address(&formatted_address)
 }
 
 /// Helper function to update active_address in kanari.yaml
@@ -314,7 +316,15 @@ fn update_active_address(address: &str) -> io::Result<()> {
                     Value::String("active_address".to_string()),
                     Value::String(address.to_string()),
                 );
-                save_kanari_config(&kanari_config)?;
+                save_kanari_config(&kanari_config)
+            } else {
+                // Create mapping if none exists
+                let mut mapping = Mapping::new();
+                mapping.insert(
+                    Value::String("active_address".to_string()),
+                    Value::String(address.to_string()),
+                );
+                save_kanari_config(&Value::Mapping(mapping))
             }
         },
         Err(_) => {
@@ -324,96 +334,18 @@ fn update_active_address(address: &str) -> io::Result<()> {
                 Value::String("active_address".to_string()),
                 Value::String(address.to_string()),
             );
-            save_kanari_config(&Value::Mapping(mapping))?;
+            save_kanari_config(&Value::Mapping(mapping))
         }
     }
-    Ok(())
 }
 
 /// Get the currently selected wallet from configuration
 pub fn get_selected_wallet() -> Option<String> {
-    // First try to get from kanari config
+    // Only use kanari config
     if let Ok(kanari_config) = load_kanari_config() {
         if let Some(active_address) = kanari_config.get("active_address").and_then(|v| v.as_str()) {
-            return Some(active_address.to_string());
+            return Some(active_address.trim_end_matches(".enc").to_string());
         }
     }
-    
-    // Fall back to legacy config
-    match load_config() {
-        Ok(config) => {
-            if let Some(mapping) = config.as_mapping() {
-                // Try each possible key for wallet selection
-                if let Some(wallet) = mapping.get("selected_wallet").and_then(|v| v.as_str()) {
-                    return Some(wallet.trim_end_matches(".enc").to_string());
-                }
-
-                if let Some(wallet) = mapping.get("address").and_then(|v| v.as_str()) {
-                    return Some(wallet.trim_end_matches(".enc").to_string());
-                }
-            }
-            None
-        }
-        Err(_) => None,
-    }
-}
-
-/// Get the path to the wallet directory (legacy)
-pub fn get_wallet_dir() -> PathBuf {
-    get_kari_dir().join("wallets")
-}
-
-/// Migrate legacy .enc wallet files to the keystore format
-pub fn migrate_legacy_wallets(password: &str) -> Result<usize, WalletError> {
-    let _ = password;
-    let wallet_dir = get_wallet_dir();
-    if !wallet_dir.exists() {
-        return Ok(0);
-    }
-    
-    let mut migrated_count = 0;
-    let mut keystore = Keystore::load()
-        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
-    
-    // Read each .enc file
-    match fs::read_dir(wallet_dir) {
-        Ok(entries) => {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    let path = entry.path();
-                    if path.is_file() {
-                        if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
-                            if filename.ends_with(".enc") {
-                                // Extract address from filename
-                                let address = filename.trim_end_matches(".enc");
-                                
-                                // Skip if already in keystore
-                                if keystore.wallet_exists(address) {
-                                    continue;
-                                }
-                                
-                                // Read encrypted wallet data
-                                if let Ok(encrypted_json) = fs::read_to_string(&path) {
-                                    if let Ok(encrypted_data) = serde_json::from_str::<EncryptedData>(&encrypted_json) {
-                                        // Add to keystore
-                                        if keystore.add_wallet(address, encrypted_data).is_ok() {
-                                            migrated_count += 1;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        Err(e) => {
-            return Err(WalletError::IoError(e));
-        }
-    }
-    
-    // Save the keystore after migration
-    keystore.save().map_err(|e| WalletError::KeystoreError(e.to_string()))?;
-    
-    Ok(migrated_count)
+    None
 }

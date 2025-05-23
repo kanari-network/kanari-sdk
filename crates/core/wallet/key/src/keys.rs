@@ -79,6 +79,23 @@ pub struct KeyPair {
     pub curve_type: CurveType,
 }
 
+/// Prefix used for Kanari private keys
+pub const KANARI_KEY_PREFIX: &str = "kanari";
+
+/// Format a raw hex private key with the Kanari prefix
+pub fn format_private_key(raw_key: &str) -> String {
+    format!("{}{}", KANARI_KEY_PREFIX, raw_key)
+}
+
+/// Extract the raw hex key from a formatted private key
+pub fn extract_raw_key(formatted_key: &str) -> &str {
+    if formatted_key.starts_with(KANARI_KEY_PREFIX) {
+        &formatted_key[KANARI_KEY_PREFIX.len()..]
+    } else {
+        formatted_key // Return as-is if it doesn't have the prefix
+    }
+}
+
 /// Generate a keypair for the specified curve type
 pub fn generate_keypair(curve_type: CurveType) -> Result<KeyPair, KeyError> {
     match curve_type {
@@ -105,7 +122,10 @@ fn generate_k256_keypair() -> Result<KeyPair, KeyError> {
     hex_encoded.truncate(64); // Keep consistent with the existing approach
 
     let address = format!("0x{}", hex_encoded);
-    let private_key = hex::encode(signing_key.to_bytes());
+    let raw_private_key = hex::encode(signing_key.to_bytes());
+    
+    // Format private key with kanari prefix
+    let private_key = format_private_key(&raw_private_key);
 
     Ok(KeyPair {
         private_key,
@@ -130,7 +150,10 @@ fn generate_p256_keypair() -> Result<KeyPair, KeyError> {
     hex_encoded.truncate(64); // Keep consistent with secp256k1 method
 
     let address = format!("0x{}", hex_encoded);
-    let private_key = hex::encode(secret_key);
+    let raw_private_key = hex::encode(secret_key);
+    
+    // Format private key with kanari prefix
+    let private_key = format_private_key(&raw_private_key);
 
     Ok(KeyPair {
         private_key,
@@ -158,7 +181,10 @@ fn generate_ed25519_keypair() -> Result<KeyPair, KeyError> {
     // Format the public key
     let hex_encoded = hex::encode(&public_key_bytes);
     let address = format!("0x{}", hex_encoded);
-    let private_key = hex::encode(private_key_bytes);
+    let raw_private_key = hex::encode(private_key_bytes);
+    
+    // Format private key with kanari prefix
+    let private_key = format_private_key(&raw_private_key);
     
     Ok(KeyPair {
         private_key,
@@ -196,7 +222,10 @@ pub fn keypair_from_mnemonic(
             hex_encoded.truncate(64);
             
             let address = format!("0x{}", hex_encoded);
-            let private_key = hex::encode(signing_key.to_bytes());
+            let raw_private_key = hex::encode(signing_key.to_bytes());
+            
+            // Format private key with kanari prefix
+            let private_key = format_private_key(&raw_private_key);
             
             Ok(KeyPair {
                 private_key,
@@ -217,8 +246,11 @@ pub fn keypair_from_mnemonic(
             hex_encoded.truncate(64);
             
             let address = format!("0x{}", hex_encoded);
-            let private_key = hex::encode(&signing_key.to_bytes());
+            let raw_private_key = hex::encode(&signing_key.to_bytes());
             
+            // Format private key with kanari prefix
+            let private_key = format_private_key(&raw_private_key);
+
             Ok(KeyPair {
                 private_key,
                 public_key: hex_encoded,
@@ -238,6 +270,9 @@ pub fn keypair_from_mnemonic(
             let hex_encoded = hex::encode(&public_key_bytes);
             let address = format!("0x{}", hex_encoded);
             
+            // Format private key with kanari prefix
+            let private_key = format_private_key(&private_key);
+            
             Ok(KeyPair {
                 private_key,
                 public_key: hex_encoded,
@@ -253,7 +288,10 @@ pub fn keypair_from_private_key(
     private_key: &str, 
     curve_type: CurveType
 ) -> Result<KeyPair, KeyError> {
-    let private_key_bytes = hex::decode(private_key)
+    // Remove kanari prefix if present
+    let raw_private_key = extract_raw_key(private_key);
+    
+    let private_key_bytes = hex::decode(raw_private_key)
         .map_err(|_| KeyError::InvalidPrivateKey)?;
         
     match curve_type {
@@ -271,8 +309,15 @@ pub fn keypair_from_private_key(
             
             let address = format!("0x{}", hex_encoded);
             
+            // Format with kanari prefix if not already formatted
+            let formatted_private_key = if private_key.starts_with(KANARI_KEY_PREFIX) {
+                private_key.to_string()
+            } else {
+                format_private_key(private_key)
+            };
+            
             Ok(KeyPair {
-                private_key: private_key.to_string(),
+                private_key: formatted_private_key,
                 public_key: hex_encoded,
                 address,
                 curve_type: CurveType::K256,
@@ -291,8 +336,15 @@ pub fn keypair_from_private_key(
             
             let address = format!("0x{}", hex_encoded);
             
+            // Format with kanari prefix if not already formatted
+            let formatted_private_key = if private_key.starts_with(KANARI_KEY_PREFIX) {
+                private_key.to_string()
+            } else {
+                format_private_key(private_key)
+            };
+            
             Ok(KeyPair {
-                private_key: private_key.to_string(),
+                private_key: formatted_private_key,
                 public_key: hex_encoded,
                 address, 
                 curve_type: CurveType::P256,
@@ -312,6 +364,9 @@ pub fn keypair_from_private_key(
             let public_key_bytes = verifying_key.to_bytes();
             let hex_encoded = hex::encode(&public_key_bytes);
             let address = format!("0x{}", hex_encoded);
+            
+            // Format private key with kanari prefix
+            let private_key = format_private_key(private_key);
             
             Ok(KeyPair {
                 private_key: private_key.to_string(),

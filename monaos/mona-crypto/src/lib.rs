@@ -10,6 +10,7 @@ pub mod signatures;
 pub mod encryption;
 pub mod wallet;
 pub mod keystore;
+pub mod compression;
 
 // Re-export signature functionality
 pub use signatures::{
@@ -43,14 +44,19 @@ pub use wallet::{
     check_wallet_exists,
 };
 
-// Re-export the migration function
-pub use crate::wallet::migrate_legacy_wallets;
+
 
 // Re-export keystore functionality
 pub use keystore::{
     Keystore,
     keystore_exists,
     get_keystore_path,
+};
+
+// Re-export compression functionality
+pub use compression::{
+    compress_data,
+    decompress_data,
 };
 
 /// Hash algorithm options

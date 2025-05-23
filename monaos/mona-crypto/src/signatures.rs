@@ -83,10 +83,17 @@ pub fn sign_message(
     message: &[u8],
     curve_type: CurveType,
 ) -> Result<Vec<u8>, SignatureError> {
+    // Extract raw key if it has the kanari prefix
+    let raw_key = if private_key_hex.starts_with("kanari") {
+        &private_key_hex["kanari".len()..]
+    } else {
+        private_key_hex
+    };
+    
     match curve_type {
-        CurveType::K256 => sign_message_k256(private_key_hex, message),
-        CurveType::P256 => sign_message_p256(private_key_hex, message),
-        CurveType::Ed25519 => sign_message_ed25519(private_key_hex, message),
+        CurveType::K256 => sign_message_k256(raw_key, message),
+        CurveType::P256 => sign_message_p256(raw_key, message),
+        CurveType::Ed25519 => sign_message_ed25519(raw_key, message),
     }
 }
 
