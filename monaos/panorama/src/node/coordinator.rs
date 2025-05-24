@@ -56,73 +56,34 @@ pub fn resolve_domain(addr: &str) -> Result<String, BlockchainError> {
         if parts.len() != 2 {
             return Err(BlockchainError::Network(format!("Invalid address format: {}", addr)));
         }
-        (parts[0].to_string(), parts[1].to_string())
+        (parts[0], parts[1])
     } else {
         // Default to P2P port if no port specified
-        (addr.to_string(), "51303".to_string())
+        (addr, "51303")
     };
     
     // If it's already an IP address, just return it
     if host.parse::<std::net::IpAddr>().is_ok() {
-        return Ok(format!("{}:{}", host, port));
+        return Ok(addr.to_string());
     }
     
-    // Security check - reject private domains for built-in seeds
-    if host.ends_with(".local") || host.ends_with(".internal") || host.ends_with(".private") {
-        return Err(BlockchainError::Network(format!(
-            "Rejected potentially unsafe domain: {}", host
-        )));
-    }
-    
-    // Attempt DNS resolution with timeout for security
+    // Attempt DNS resolution
     let socket_addr = format!("{}:{}", host, port);
     info!("Attempting DNS resolution for {}", socket_addr);
     
-    // Clone data for thread to avoid lifetime issues
-    let host_clone = host.clone();
-    let socket_addr_clone = socket_addr.clone();
-    
-    // Set timeout for DNS resolution to prevent hanging
-    let result = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let result_clone = result.clone();
-    
-    // Create thread for DNS resolution with timeout
-    let resolution_thread = std::thread::spawn(move || {
-        match socket_addr_clone.to_socket_addrs() {
-            Ok(mut addrs) => {
-                if let Some(addr) = addrs.next() {
-                    let resolved = format!("{}:{}", addr.ip(), addr.port());
-                    *result_clone.lock().unwrap() = Some(Ok(resolved));
-                } else {
-                    *result_clone.lock().unwrap() = Some(Err(BlockchainError::Network(
-                        format!("Could not resolve domain: {}", host_clone)
-                    )));
-                }
-            },
-            Err(e) => {
-                *result_clone.lock().unwrap() = Some(Err(BlockchainError::Network(
-                    format!("DNS resolution failed for {}: {}", host_clone, e)
-                )));
-            }
-        }
-    });
-    
-    // Remove the unused variable by prefixing with underscore
-    let _timeout_duration = std::time::Duration::from_secs(5);
-    let _ = resolution_thread.join();
-    
-    match std::sync::Arc::try_unwrap(result) {
-        Ok(mutex) => {
-            match mutex.into_inner().unwrap() {
-                Some(result) => result,
-                None => Err(BlockchainError::Network(format!(
-                    "DNS resolution timed out for {}", host
-                )))
+    match socket_addr.to_socket_addrs() {
+        Ok(mut addrs) => {
+            if let Some(addr) = addrs.next() {
+                let resolved = format!("{}:{}", addr.ip(), addr.port());
+                info!("Resolved {} to {}", socket_addr, resolved);
+                Ok(resolved)
+            } else {
+                Err(BlockchainError::Network(format!("Could not resolve domain: {}", host)))
             }
         },
-        Err(_) => Err(BlockchainError::Network(format!(
-            "Failed to retrieve DNS resolution result for {}", host
-        )))
+        Err(e) => {
+            Err(BlockchainError::Network(format!("DNS resolution failed for {}: {}", host, e)))
+        }
     }
 }
 
@@ -136,17 +97,10 @@ pub fn broadcast_transaction(transaction: &Transaction) -> Result<(), Blockchain
         transaction_ids: vec![transaction_id.clone()],
     };
     
-    // Get list of connected peers with additional filtering for security
+    // Get list of connected peers
     let peer_ids = {
         let connections = ACTIVE_CONNECTIONS.read().unwrap();
-        // Only broadcast to peers we've fully authenticated
-        connections.keys()
-            .filter(|id| {
-                let peers = super::PEER_LIST.read().unwrap();
-                peers.contains_key(*id)
-            })
-            .cloned()
-            .collect::<Vec<_>>()
+        connections.keys().cloned().collect::<Vec<_>>()
     };
     
     // Exit early if no peers
@@ -183,22 +137,16 @@ pub fn broadcast_transaction(transaction: &Transaction) -> Result<(), Blockchain
 
 // Broadcast a block to all peers
 pub fn broadcast_block(block: &Block<Blake3Algorithm>, status_tx: &mpsc::Sender<String>) -> Result<(), BlockchainError> {
-    // Create block announcement with enhanced security
+    // Create block announcement
     let announcement = NodeMessage::BlockAnnounce {
         block_index: block.index as u64, // Convert u32 to u64
         block_hash: block.hash.clone(),
     };
     
-    // Get list of connected peers with security filtering
+    // Get list of connected peers
     let peer_ids = {
         let connections = ACTIVE_CONNECTIONS.read().unwrap();
-        let peers = super::PEER_LIST.read().unwrap();
-        
-        // Only broadcast to authenticated peers
-        connections.keys()
-            .filter(|id| peers.contains_key(*id))
-            .cloned()
-            .collect::<Vec<_>>()
+        connections.keys().cloned().collect::<Vec<_>>()
     };
     
     // Exit early if no peers
@@ -230,17 +178,13 @@ pub fn broadcast_block(block: &Block<Blake3Algorithm>, status_tx: &mpsc::Sender<
             .as_secs();
     }
     
-    // Notify UI about the block broadcast with enhanced status
+    // Notify UI about the block broadcast
     let broadcast_status = serde_json::json!({
         "event": "block_broadcast",
         "block_index": block.index,
         "block_hash": block.hash,
         "peer_count": peer_ids.len(),
-        "success_count": success_count,
-        "timestamp": SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
+        "success_count": success_count
     }).to_string();
     
     let _ = status_tx.blocking_send(broadcast_status);
@@ -288,11 +232,6 @@ pub fn request_sync_from_peer(peer_id: &str) -> Result<(), BlockchainError> {
 
 // Connect to a peer using domain name or IP address
 pub fn connect_to_peer_by_name(address: &str) -> Result<String, BlockchainError> {
-    // Validate address format before attempting to connect
-    if address.is_empty() {
-        return Err(BlockchainError::Network("Empty peer address".to_string()));
-    }
-    
     // First, try to resolve the domain name if needed
     let resolved_addr = match resolve_domain(address) {
         Ok(addr) => addr,
@@ -302,29 +241,8 @@ pub fn connect_to_peer_by_name(address: &str) -> Result<String, BlockchainError>
         }
     };
     
-    // Validate resolved address
-    if resolved_addr.split(':').collect::<Vec<&str>>().len() != 2 {
-        return Err(BlockchainError::Network(format!(
-            "Invalid resolved address format: {}", resolved_addr
-        )));
-    }
-    
-    // Get node configuration for connection attempt with security checks
+    // Get node configuration for connection attempt
     let config = super::NODE_CONFIG.read().unwrap().clone();
-    
-    // Check if we're in localhost-only mode
-    if config.localhost_only {
-        // Extract IP from resolved address
-        let ip_part = resolved_addr.split(':').next().unwrap_or("");
-        if let Ok(ip) = ip_part.parse::<std::net::IpAddr>() {
-            if !ip.is_loopback() {
-                return Err(BlockchainError::Network(format!(
-                    "Cannot connect to non-localhost peer {} in localhost-only mode", 
-                    resolved_addr
-                )));
-            }
-        }
-    }
     
     // Attempt connection with resolved address
     info!("Connecting to peer at {} (resolved from {})", resolved_addr, address);
@@ -339,4 +257,16 @@ pub fn connect_to_peer_by_name(address: &str) -> Result<String, BlockchainError>
             Err(e)
         }
     }
+}
+
+// Choose appropriate domain for network type
+pub fn get_domain_for_network(network_type: &str, is_api: bool) -> Option<String> {
+    let domain = match network_type.to_lowercase().as_str() {
+        "devnet" => if is_api { "api.devnet.kanari.site" } else { "devnet.kanari.site" },
+        "testnet" => if is_api { "api.testnet.kanari.site" } else { "testnet.kanari.site" },
+        "mainnet" => if is_api { "api.mainnet.kanari.site" } else { "mainnet.kanari.site" },
+        _ => return None,
+    };
+    
+    Some(domain.to_string())
 }
