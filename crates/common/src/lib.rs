@@ -69,122 +69,93 @@ pub fn save_kanari_config(config: &Value) -> io::Result<()> {
 
 /// Load configuration (now completely from kanari.yaml)
 pub fn load_config() -> io::Result<Value> {
-    // Get configuration from kanari.yaml
     let kanari_config = load_kanari_config()?;
     
-    if let Some(active_env) = kanari_config.get("active_env").and_then(|v| v.as_str()) {
-        if let Some(envs) = kanari_config.get("envs").and_then(|v| v.as_sequence()) {
-            // Find the active environment
-            for env in envs {
-                if let Some(alias) = env.get("alias").and_then(|v| v.as_str()) {
-                    if alias == active_env {
-                        // Create a config-compatible structure
-                        let mut config = Mapping::new();
-                        
-                        // Add chain_id based on environment
-                        let chain_id = match active_env {
-                            "local" => "kari-local-001",
-                            "dev" => "kari-dev-001",
-                            "test" => "kari-testnet-001",
-                            "main" => "kari-mainnet-001",
-                            _ => "kari-testnet-001"
-                        };
-                        
-                        config.insert(
-                            Value::String("chain_id".to_string()),
-                            Value::String(chain_id.to_string())
-                        );
-                        
-                        // Add address from kanari config
-                        if let Some(addr) = kanari_config.get("active_address").and_then(|v| v.as_str()) {
-                            config.insert(
-                                Value::String("address".to_string()),
-                                Value::String(addr.to_string())
-                            );
-                        }
-                        
-                        // Add RPC port from the URL
-                        if let Some(rpc_url) = env.get("rpc").and_then(|v| v.as_str()) {
-                            if rpc_url.contains("localhost") || rpc_url.contains("127.0.0.1") {
-                                // Extract port from local URL
-                                if let Some(port_str) = rpc_url.split(':').nth(2) {
-                                    if let Ok(port) = port_str.parse::<u64>() {
-                                        config.insert(
-                                            Value::String("rpc_port".to_string()),
-                                            Value::Number(serde_yaml::Number::from(port))
-                                        );
-                                    }
-                                } else {
-                                    // Default port if not specified
-                                    config.insert(
-                                        Value::String("rpc_port".to_string()),
-                                        Value::Number(serde_yaml::Number::from(30030u64))
-                                    );
-                                }
-                            } else {
-                                // Remote server, just default to 30030 for local RPC
-                                config.insert(
-                                    Value::String("rpc_port".to_string()),
-                                    Value::Number(serde_yaml::Number::from(30030u64))
-                                );
-                            }
-                        }
-                        
-                        return Ok(Value::Mapping(config));
-                    }
-                }
-            }
+    let active_env_str = match kanari_config.get("active_env").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return Ok(Value::Mapping(Mapping::new())), // No active_env, return empty
+    };
+
+    let envs = match kanari_config.get("envs").and_then(|v| v.as_sequence()) {
+        Some(s) => s,
+        None => return Ok(Value::Mapping(Mapping::new())), // No envs sequence, return empty
+    };
+
+    if let Some(active_env_config) = envs.iter().find(|env| {
+        env.get("alias").and_then(|v| v.as_str()) == Some(active_env_str)
+    }) {
+        let mut config_map = Mapping::new();
+
+        let chain_id = match active_env_str {
+            "local" => "kari-local-001",
+            "dev" => "kari-dev-001",
+            "test" => "kari-testnet-001",
+            "main" => "kari-mainnet-001",
+            _ => "kari-testnet-001", // Default or consider error
+        };
+        config_map.insert(Value::String("chain_id".to_string()), Value::String(chain_id.to_string()));
+
+        if let Some(addr) = kanari_config.get("active_address").and_then(|v| v.as_str()) {
+            config_map.insert(Value::String("address".to_string()), Value::String(addr.to_string()));
         }
+
+        if let Some(rpc_url) = active_env_config.get("rpc").and_then(|v| v.as_str()) {
+            let rpc_port = if rpc_url.starts_with("http://127.0.0.1:") || rpc_url.starts_with("http://localhost:") {
+                rpc_url.split(':').nth(2).and_then(|p_str| p_str.parse::<u64>().ok()).unwrap_or(30030)
+            } else {
+                30030 // Default for remote or unparseable local
+            };
+            config_map.insert(Value::String("rpc_port".to_string()), Value::Number(serde_yaml::Number::from(rpc_port)));
+        } else {
+             config_map.insert(Value::String("rpc_port".to_string()), Value::Number(serde_yaml::Number::from(30030u64))); // Default if rpc field is missing
+        }
+        
+        return Ok(Value::Mapping(config_map));
     }
     
-    // Return empty config if no environment found
-    Ok(Value::Mapping(Mapping::new()))
+    Ok(Value::Mapping(Mapping::new())) // Active environment not found in envs list
 }
 
 /// Save configuration to kanari.yaml file
-pub fn save_config(config: &Value) -> io::Result<()> {
-    // Get current kanari config
+pub fn save_config(config_to_save: &Value) -> io::Result<()> {
     let mut kanari_config = load_kanari_config().unwrap_or_else(|_| Value::Mapping(Mapping::new()));
     
-    // If we have an active_env, update that environment
-    // Clone the active_env to end the immutable borrow
-    let active_env = if let Some(env) = kanari_config.get("active_env").and_then(|v| v.as_str()) {
-        env.to_string()
-    } else {
-        return Ok(());
+    let active_env_alias = match kanari_config.get("active_env").and_then(|v| v.as_str()) {
+        Some(alias) => alias.to_string(),
+        None => return Ok(()), // No active_env to update
     };
 
-    if let Some(mapping) = config.as_mapping() {
-        // Create or update the environment
-        if let Some(envs) = kanari_config.get_mut("envs").and_then(|v| v.as_sequence_mut()) {
-            // Find and update the active environment
-            for env in envs {
-                if let Some(alias) = env.get("alias").and_then(|v| v.as_str()) {
-                    if alias == active_env {
-                        // Update the RPC port if it exists in the config
-                        if let Some(rpc_port) = mapping.get("rpc_port") {
-                            if let Some(port) = rpc_port.as_u64() {
-                                env["rpc"] = Value::String(format!("http://127.0.0.1:{}", port));
-                            }
-                        }
-                        break;
+    let config_to_save_map = match config_to_save.as_mapping() {
+        Some(map) => map,
+        None => return Ok(()), // Nothing to save if not a mapping
+    };
+
+    if let Some(kanari_config_map) = kanari_config.as_mapping_mut() {
+        // Update active_address if "address" is in config_to_save
+        if let Some(addr_val) = config_to_save_map.get("address").and_then(|v| v.as_str()) {
+            kanari_config_map.insert(
+                Value::String("active_address".to_string()),
+                Value::String(addr_val.to_string()),
+            );
+        }
+
+        // Update RPC URL in the active environment if "rpc_port" is in config_to_save
+        if let Some(envs) = kanari_config_map.get_mut("envs").and_then(|v| v.as_sequence_mut()) {
+            if let Some(env_to_update) = envs.iter_mut().find(|env| {
+                env.get("alias").and_then(|v| v.as_str()) == Some(&active_env_alias)
+            }) {
+                if let Some(rpc_port_val) = config_to_save_map.get("rpc_port").and_then(|v| v.as_u64()) {
+                    if let Some(env_map_mut) = env_to_update.as_mapping_mut() {
+                        env_map_mut.insert(
+                            Value::String("rpc".to_string()),
+                            Value::String(format!("http://127.0.0.1:{}", rpc_port_val)),
+                        );
                     }
                 }
             }
         }
         
-        // Update active_address if address exists in the config
-        if let Some(addr) = mapping.get("address").and_then(|v| v.as_str()) {
-            if let Some(mapping) = kanari_config.as_mapping_mut() {
-                mapping.insert(
-                    Value::String("active_address".to_string()),
-                    Value::String(addr.to_string())
-                );
-            }
-        }
-        
-        // Save the updated kanari config
-        save_kanari_config(&kanari_config)?;
+        save_kanari_config(&Value::Mapping(kanari_config_map.clone()))?; // Clone because save_kanari_config takes &Value
     }
     
     Ok(())
@@ -192,11 +163,8 @@ pub fn save_config(config: &Value) -> io::Result<()> {
 
 /// Get current main wallet address
 pub fn get_main_wallet() -> Option<String> {
-    // Only use kanari config
-    if let Ok(kanari_config) = load_kanari_config() {
-        if let Some(addr) = kanari_config.get("active_address").and_then(|v| v.as_str()) {
-            return Some(addr.to_string());
-        }
-    }
-    None
+    load_kanari_config().ok()
+        .and_then(|config| config.get("active_address")
+            .and_then(|v| v.as_str())
+            .map(String::from))
 }

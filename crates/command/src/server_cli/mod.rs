@@ -1,5 +1,3 @@
-
-
 use std::process::exit;
 
 use colored::Colorize;
@@ -7,6 +5,7 @@ use colored::Colorize;
 
 pub mod generate_certs;
 pub mod start_server;
+pub mod init_server;
 
 struct CommandInfo {
     name: &'static str,
@@ -17,6 +16,10 @@ const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         name: "start",
         description: "Start the Kari server",
+    },
+    CommandInfo {
+        name: "init",
+        description: "Initialize the Kari server",
     },
     CommandInfo {
         name: "generate-certs",
@@ -187,6 +190,16 @@ pub async fn handle_server_command() -> Option<String> {
                 Ok(_) => Some("SSL certificates generated successfully".to_string()),
                 Err(e) => {
                     eprintln!("{}", format!("Error generating certificates: {}", e).red().bold());
+                    None
+                }
+            }
+        }
+
+        "init" => {
+            match init_server::init_server_config() {
+                Ok(_) => Some("Kari server initialized successfully. Default kanari.yaml created.".to_string()),
+                Err(e) => {
+                    eprintln!("{}", format!("Error initializing server: {}", e).red().bold());
                     None
                 }
             }
