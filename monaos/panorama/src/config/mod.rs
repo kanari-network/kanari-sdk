@@ -4,7 +4,7 @@ use serde_yaml::{Value, Mapping};
 use network::NetworkConfig;
 
 // Simply re-export functions from common
-pub use common::{load_config, save_config, load_kanari_config, save_kanari_config};
+use common::{load_config, save_config, load_kanari_config, save_kanari_config};
 
 
 // Function to prompt the user for a value with a default

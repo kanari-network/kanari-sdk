@@ -1,6 +1,5 @@
 use colored::Colorize;
 use std::process::Command;
-use std::path::Path;
 use common::get_kari_dir;
 
 pub fn generate_ssl_certificates() -> Result<(), String> {

@@ -1,6 +1,7 @@
 use colored::Colorize;
 use command::keytool_cli::handle_keytool_command;
 use command::move_cli::handle_move_command;
+use command::server_cli::handle_server_command;
 
 use std::process::exit;
 
@@ -108,7 +109,9 @@ async fn main() {
 
     match args.get(1).map(|s| s.as_str()) {
         Some("server") => {
-            let _ = command::server_cli::handle_server_command();
+            if let Some(message) = handle_server_command().await {
+                println!("{}", message.bright_green().bold());
+            }
         }
         Some("public") => {
             let _ = handle_public_command();
