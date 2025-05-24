@@ -300,7 +300,7 @@ pub fn list_wallet_files() -> Result<Vec<(String, bool)>, io::Error> {
 /// Set the currently selected wallet address in configuration
 pub fn set_selected_wallet(wallet_address: &str) -> io::Result<()> {
     // Clean address
-    let formatted_address = wallet_address.trim_end_matches(".enc").to_string();
+    let formatted_address = wallet_address.to_string();
     
     // Update active_address in kanari.yaml
     update_active_address(&formatted_address)
@@ -344,7 +344,7 @@ pub fn get_selected_wallet() -> Option<String> {
     // Only use kanari config
     if let Ok(kanari_config) = load_kanari_config() {
         if let Some(active_address) = kanari_config.get("active_address").and_then(|v| v.as_str()) {
-            return Some(active_address.trim_end_matches(".enc").to_string());
+            return Some(active_address.to_string());
         }
     }
     None

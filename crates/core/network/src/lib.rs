@@ -12,6 +12,8 @@ use std::path::Path;
     pub max_connections: u32,
     pub api_enabled: bool,
     pub localhost_only: bool, // New field to restrict to localhost only
+    pub use_tls: bool,        // Whether to use TLS encryption
+    pub trusted_peers: Vec<String>, // List of trusted peer IDs or addresses
 }
 
 
@@ -42,5 +44,36 @@ impl NetworkConfig {
         self.max_connections = new_config.max_connections;
         self.api_enabled = new_config.api_enabled;
         self.localhost_only = new_config.localhost_only;
+        self.use_tls = new_config.use_tls;
+        self.trusted_peers = new_config.trusted_peers;
+    }
+    
+    // New method to add trusted peers
+    pub fn add_trusted_peer(&mut self, peer: String) {
+        if !self.trusted_peers.contains(&peer) {
+            self.trusted_peers.push(peer);
+        }
+    }
+    
+    // New method to check if a peer is trusted
+    pub fn is_trusted_peer(&self, peer: &str) -> bool {
+        self.trusted_peers.contains(&peer.to_string())
+    }
+}
+
+// Default implementation
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        Self {
+            node_address: "0.0.0.0".to_string(),
+            port: 30030,
+            peers: Vec::new(),
+            chain_id: "kanari-local".to_string(),
+            max_connections: 100,
+            api_enabled: true,
+            localhost_only: false,
+            use_tls: false,
+            trusted_peers: Vec::new(),
+        }
     }
 }

@@ -4,12 +4,8 @@ use serde_yaml::{Value, Mapping};
 use network::NetworkConfig;
 
 // Simply re-export functions from common
-pub use common::{load_config, save_config, load_kanari_config, save_kanari_config};
+use common::{load_config, save_config, load_kanari_config, save_kanari_config};
 
-
-pub fn format_address(address: &str) -> String {
-    address.trim_end_matches(".enc").to_string()
-}
 
 // Function to prompt the user for a value with a default
 pub fn prompt_for_value(prompt: &str, default: &str) -> String {
@@ -45,6 +41,26 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
     if mapping.contains_key("rpc_port") &&
        mapping.contains_key("chain_id") {
         println!("Configuration already exists. Skipping configuration process.");
+        
+        // Check for security settings and add defaults if missing
+        let localhost_only = mapping.get("localhost_only")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+            
+        let use_tls = mapping.get("use_tls")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+            
+        let trusted_peers = mapping.get("trusted_peers")
+            .and_then(|v| v.as_sequence())
+            .map(|seq| {
+                seq.iter()
+                   .filter_map(|v| v.as_str())
+                   .map(|s| s.to_string())
+                   .collect::<Vec<String>>()
+            })
+            .unwrap_or_else(|| Vec::new());
+        
         return Ok(NetworkConfig {
             node_address: get_local_ip().unwrap_or_else(|| "0.0.0.0".to_string()),
             port: mapping.get("rpc_port").and_then(|v| v.as_u64()).unwrap_or(30030) as u16,
@@ -52,7 +68,9 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
             chain_id: mapping.get("chain_id").and_then(|v| v.as_str()).unwrap_or(chain_id).to_string(),
             max_connections: 100,
             api_enabled: true,
-            localhost_only: false, // Default to false
+            localhost_only,
+            use_tls,
+            trusted_peers,
         });
     }
 
@@ -68,6 +86,28 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
     mapping.insert(
         Value::String("chain_id".to_string()),
         Value::String(chain_id.to_string())
+    );
+    
+    // Prompt for security settings
+    let localhost_only_str = prompt_for_value("Restrict to localhost only? (true/false)", "false");
+    let localhost_only = localhost_only_str.to_lowercase() == "true";
+    mapping.insert(
+        Value::String("localhost_only".to_string()),
+        Value::Bool(localhost_only)
+    );
+    
+    let use_tls_str = prompt_for_value("Use TLS encryption for P2P communication? (true/false)", "false");
+    let use_tls = use_tls_str.to_lowercase() == "true";
+    mapping.insert(
+        Value::String("use_tls".to_string()),
+        Value::Bool(use_tls)
+    );
+    
+    // Add empty trusted peers list
+    let trusted_peers = Vec::<String>::new();
+    mapping.insert(
+        Value::String("trusted_peers".to_string()),
+        Value::Sequence(trusted_peers.iter().map(|s| Value::String(s.clone())).collect())
     );
 
     // Update the kanari.yaml configuration as well
@@ -101,7 +141,9 @@ pub fn configure_network(chain_id: &str) -> io::Result<NetworkConfig> {
         chain_id: chain_id.to_string(),
         max_connections: 100,
         api_enabled: true,
-        localhost_only: false, // Default to false
+        localhost_only,
+        use_tls,
+        trusted_peers,
     };
 
     let owned_mapping = mapping.clone();    
