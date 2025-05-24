@@ -182,26 +182,45 @@ pub fn get_local_ip() -> Option<String> {
             for server in dns_servers {
                 if socket.connect(server).is_ok() {
                     if let Ok(addr) = socket.local_addr() {
+                        debug!("Local IP determined via UDP socket connect to {}: {}", server, addr.ip());
                         return Some(addr.ip().to_string());
                     }
                 }
             }
+            warn!("Failed to determine local IP via UDP socket connect method.");
         }
-        Err(_) => {}
+        Err(e) => {
+            warn!("Failed to bind UDP socket for IP discovery: {}", e);
+        }
     }
 
     // More fallback methods for IP detection
     if let Ok(hostname_output) = std::process::Command::new("hostname").output() {
-        let hostname = String::from_utf8_lossy(&hostname_output.stdout).trim().to_string();
-        if let Ok(addrs) = hostname.to_socket_addrs() {
-            for addr in addrs {
-                if !addr.ip().is_loopback() && !addr.ip().is_unspecified() {
-                    return Some(addr.ip().to_string());
+        let hostname_str = String::from_utf8_lossy(&hostname_output.stdout);
+        let hostname = hostname_str.trim();
+        if hostname.is_empty() {
+            warn!("Hostname command returned empty output.");
+        } else {
+            match (hostname, 0u16).to_socket_addrs() { // Use a dummy port for resolution
+                Ok(addrs) => {
+                    for addr in addrs {
+                        if !addr.ip().is_loopback() && !addr.ip().is_unspecified() {
+                            debug!("Local IP determined via hostname ('{}') command: {}", hostname, addr.ip());
+                            return Some(addr.ip().to_string());
+                        }
+                    }
+                    warn!("No suitable IP found from hostname ('{}') resolution.", hostname);
+                }
+                Err(e) => {
+                    warn!("Failed to resolve hostname '{}' to socket addresses: {}", hostname, e);
                 }
             }
         }
+    } else {
+        warn!("Hostname command failed or could not be executed for IP discovery.");
     }
 
+    warn!("All methods to determine local IP failed.");
     None
 }
 

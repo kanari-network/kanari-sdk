@@ -2,7 +2,7 @@ use colored::Colorize;
 use network::NetworkConfig;
 use panorama::simulation::run_blockchain;
 
-use common::{get_kari_dir, load_kanari_config, save_kanari_config, load_config, save_config};
+use common::{load_kanari_config, save_kanari_config, load_config};
 use mona_blockchain::blockchain::{load_blockchain, save_blockchain};
 use mona_blockchain::chain_id::CHAIN_ID;
 use panorama::config::{configure_network,};
@@ -15,7 +15,7 @@ use tokio::time::{Duration, sleep};
 use mona_crypto::{check_wallet_exists, list_wallet_files};
 use std::sync::{Arc, Mutex};
 use serde_yaml::Value;
-use std::path::Path; // Added import
+// Removed: use std::path::Path; // No longer needed for wallet checks here
 use std::io::{self, Write};
 use std::error::Error; // For Box<dyn Error>
 
@@ -57,6 +57,15 @@ pub async fn start_server(
         .get("chain_id")
         .and_then(|v| v.as_str())
         .unwrap_or(CHAIN_ID);
+
+    // Get the local IP address earlier for consistent use in configurations
+    let determined_local_ip = match panorama::node::get_local_ip() {
+        Some(ip) => ip,
+        None => {
+            eprintln!("Warning: Could not determine local IP address. Defaulting to 127.0.0.1 for configuration purposes.");
+            "127.0.0.1".to_string()
+        }
+    };
 
     // Check if the configuration already exists
     let network_config = if config.get("rpc_port").is_some() && config.get("chain_id").is_some() {
@@ -116,7 +125,7 @@ pub async fn start_server(
             .to_string();
 
         NetworkConfig {
-            node_address: "127.0.0.1".to_string(),
+            node_address: if localhost_only { "127.0.0.1".to_string() } else { determined_local_ip.clone() },
             port: rpc_port,
             peers: if localhost_only { vec![] } else { peers }, // No peers in localhost mode
             chain_id,
@@ -222,32 +231,12 @@ pub async fn start_server(
 
     // Address selection logic updated for selected_wallet
     let address = if let Some(wallet_name) = selected_wallet {
-        let wallet_path = get_kari_dir().join("wallets").join(format!("{}.enc", wallet_name));
-        if !wallet_path.exists() {
-            println!("Selected wallet '{}' does not exist.", wallet_name.red());
-            // Try to find any existing wallet as a fallback
-            match list_wallet_files() {
-                Ok(wallets) if !wallets.is_empty() => {
-                    let first_wallet = wallets[0].0.trim_end_matches(".enc").to_string();
-                    println!("Falling back to existing wallet: {}", first_wallet.green());
-                    if let Some(kanari_mapping) = kanari_config.as_mapping_mut() {
-                        kanari_mapping.insert(
-                            Value::String("active_address".to_string()),
-                            Value::String(first_wallet.clone()),
-                        );
-                        if let Err(e) = save_kanari_config(&kanari_config) {
-                            eprintln!("Warning: Failed to save updated kanari config: {}", e);
-                        }
-                    }
-                    first_wallet
-                }
-                _ => {
-                    println!("{}", "No other wallets found!".red());
-                    println!("Please create a wallet or ensure the selected wallet exists.");
-                    return Err(Box::from("Selected wallet not found and no fallback wallets available."));
-                }
-            }
-        } else {
+        let all_wallets = list_wallet_files().unwrap_or_else(|e| {
+            eprintln!("Warning: Failed to list wallet files: {}", e);
+            Vec::new()
+        });
+
+        if all_wallets.iter().any(|(addr, _)| addr == &wallet_name) {
             println!("Using selected wallet as address: {}", wallet_name.green());
             if let Some(kanari_mapping) = kanari_config.as_mapping_mut() {
                 kanari_mapping.insert(
@@ -259,156 +248,135 @@ pub async fn start_server(
                 }
             }
             wallet_name
+        } else {
+            println!("Selected wallet '{}' does not exist.", wallet_name.red());
+            if let Some((first_wallet_addr, _)) = all_wallets.first() {
+                println!("Falling back to existing wallet: {}", first_wallet_addr.green());
+                if let Some(kanari_mapping) = kanari_config.as_mapping_mut() {
+                    kanari_mapping.insert(
+                        Value::String("active_address".to_string()),
+                        Value::String(first_wallet_addr.clone()),
+                    );
+                    if let Err(e) = save_kanari_config(&kanari_config) {
+                        eprintln!("Warning: Failed to save updated kanari config: {}", e);
+                    }
+                }
+                first_wallet_addr.clone()
+            } else {
+                println!("{}", "No other wallets found!".red());
+                println!("Please create a wallet or ensure the selected wallet exists.");
+                return Err(Box::from("Selected wallet not found and no fallback wallets available."));
+            }
         }
     } else {
         // Original logic if no specific wallet is selected
-        if let Some(kanari_mapping) = kanari_config.as_mapping() {
-            if let Some(addr) = kanari_mapping.get("active_address").and_then(|v| v.as_str()) {
-                if !Path::new(&get_kari_dir().join("wallets").join(format!("{}.enc", addr))).exists() {
-                    match list_wallet_files() {
-                        Ok(wallets) if !wallets.is_empty() => {
-                            let first_wallet = wallets[0].0.trim_end_matches(".enc").to_string();
-                            println!("Active address wallet not found. Using existing wallet: {}", first_wallet.green());
-                            if let Some(kanari_mapping_mut) = kanari_config.as_mapping_mut() {
-                                kanari_mapping_mut.insert(
+        let all_wallets = list_wallet_files().unwrap_or_else(|e| {
+            eprintln!("Warning: Failed to list wallet files: {}", e);
+            Vec::new()
+        });
+
+        if let Some(kanari_mapping) = kanari_config.as_mapping_mut() { // Changed to as_mapping_mut for potential updates
+            if let Some(active_addr_str) = kanari_mapping.get("active_address").and_then(|v| v.as_str()) {
+                if all_wallets.iter().any(|(addr, _)| addr == active_addr_str) {
+                    active_addr_str.to_string()
+                } else {
+                    println!("Active address wallet '{}' not found in keystore.", active_addr_str.red());
+                    if let Some((first_wallet_addr, _)) = all_wallets.first() {
+                        println!("Using existing wallet: {}", first_wallet_addr.green());
+                        kanari_mapping.insert(
+                            Value::String("active_address".to_string()),
+                            Value::String(first_wallet_addr.clone()),
+                        );
+                        if let Err(e) = save_kanari_config(&kanari_config) {
+                            eprintln!("Warning: Failed to save updated kanari config: {}", e);
+                        }
+                        first_wallet_addr.clone()
+                    } else {
+                        println!("{}", "No valid wallets found!".red());
+                        return Err(Box::from("No valid wallets found after checking active_address."));
+                    }
+                }
+            } else {
+                // No active_address in kanari_config, try config.yaml or list_wallet_files
+                match config.get("address").and_then(|v| v.as_str()) {
+                    Some(address_str_from_config) => {
+                        if all_wallets.iter().any(|(addr, _)| addr == address_str_from_config) {
+                            // Update kanari_config with this address
+                            kanari_mapping.insert(
+                                Value::String("active_address".to_string()),
+                                Value::String(address_str_from_config.to_string()),
+                            );
+                            if let Err(e) = save_kanari_config(&kanari_config) {
+                                eprintln!("Warning: Failed to save updated kanari config: {}", e);
+                            }
+                            address_str_from_config.to_string()
+                        } else {
+                            println!("Config address wallet '{}' not found in keystore.", address_str_from_config.red());
+                            if let Some((first_wallet_addr, _)) = all_wallets.first() {
+                                println!("Using existing wallet: {}", first_wallet_addr.green());
+                                kanari_mapping.insert(
                                     Value::String("active_address".to_string()),
-                                    Value::String(first_wallet.clone()),
+                                    Value::String(first_wallet_addr.clone()),
                                 );
                                 if let Err(e) = save_kanari_config(&kanari_config) {
                                     eprintln!("Warning: Failed to save updated kanari config: {}", e);
                                 }
+                                first_wallet_addr.clone()
+                            } else {
+                                println!("{}", "No valid wallets found!".red());
+                                return Err(Box::from("No valid wallets found after checking config.address."));
                             }
-                            first_wallet
-                        }
-                        _ => {
-                            println!("{}", "No valid wallets found!".red());
-                            return Err(Box::from("No valid wallets found after checking active_address."));
-                        }
-                    }
-                } else {
-                    addr.to_string()
-                }
-            } else {
-                // Fall back to config.yaml or list_wallet_files
-                match config.get("address").and_then(|v| v.as_str()) {
-                    Some(address_str) => {
-                        if !Path::new(&get_kari_dir().join("wallets").join(format!("{}.enc", address_str))).exists() {
-                            match list_wallet_files() {
-                                Ok(wallets) if !wallets.is_empty() => {
-                                    let first_wallet = wallets[0].0.trim_end_matches(".enc").to_string();
-                                    println!("Config address wallet not found. Using existing wallet: {}", first_wallet.green());
-                                     if let Some(kanari_mapping_mut) = kanari_config.as_mapping_mut() {
-                                        kanari_mapping_mut.insert( Value::String("active_address".to_string()), Value::String(first_wallet.clone()));
-                                        if let Err(e) = save_kanari_config(&kanari_config) { eprintln!("Warning: Failed to save updated kanari config: {}", e); }
-                                    }
-                                    first_wallet
-                                }
-                                _ => {
-                                    println!("{}", "No valid wallets found!".red());
-                                    return Err(Box::from("No valid wallets found after checking config.address."));
-                                }
-                            }
-                        } else {
-                            address_str.to_string()
                         }
                     }
                     None => {
-                        match list_wallet_files() {
-                            Ok(wallets) if !wallets.is_empty() => {
-                                let first_wallet = wallets[0].0.trim_end_matches(".enc").to_string();
-                                println!("Setting address to existing wallet: {}", first_wallet.green());
-                                if let Some(kanari_mapping_mut) = kanari_config.as_mapping_mut() {
-                                    kanari_mapping_mut.insert(
-                                        Value::String("active_address".to_string()),
-                                        Value::String(first_wallet.clone()),
-                                    );
-                                    if let Err(e) = save_kanari_config(&kanari_config) {
-                                        eprintln!("Warning: Failed to save updated kanari config: {}", e);
-                                    }
-                                }
-                                first_wallet
+                        // No address in config.yaml, use first from list_wallet_files
+                        if let Some((first_wallet_addr, _)) = all_wallets.first() {
+                            println!("Setting address to existing wallet: {}", first_wallet_addr.green());
+                            kanari_mapping.insert(
+                                Value::String("active_address".to_string()),
+                                Value::String(first_wallet_addr.clone()),
+                            );
+                            if let Err(e) = save_kanari_config(&kanari_config) {
+                                eprintln!("Warning: Failed to save updated kanari config: {}", e);
                             }
-                            _ => {
-                                println!("{}", "No wallets found!".red());
-                                return Err(Box::from("No wallets found at all."));
-                            }
+                            first_wallet_addr.clone()
+                        } else {
+                            println!("{}", "No wallets found!".red());
+                            return Err(Box::from("No wallets found at all."));
                         }
                     }
                 }
             }
         } else {
-             // Fall back to old behavior if kanari config is not available (should not happen if loaded above)
+             // Fallback if kanari_config is not a mapping (e.g., corrupted or new)
+             // This block might be less likely if kanari_config is initialized to a mapping earlier
             match config.get("address").and_then(|v| v.as_str()) {
-                Some(address_str) => {
-                     if !Path::new(&get_kari_dir().join("wallets").join(format!("{}.enc", address_str))).exists() {
-                        match list_wallet_files() {
-                            Ok(wallets) if !wallets.is_empty() => {
-                                let first_wallet = wallets[0].0.trim_end_matches(".enc").to_string();
-                                println!("Config address wallet not found (no kanari_config). Using existing wallet: {}", first_wallet.green());
-                                first_wallet
-                            }
-                            _ => {
-                                println!("{}", "No valid wallets found!".red());
-                                return Err(Box::from("No valid wallets found (no kanari_config, config.address invalid)."));
-                            }
-                        }
+                Some(address_str_from_config) => {
+                     if all_wallets.iter().any(|(addr, _)| addr == address_str_from_config) {
+                        address_str_from_config.to_string()
                     } else {
-                        address_str.to_string()
+                        println!("Config address wallet '{}' not found (no kanari_config). Using existing wallet.", address_str_from_config.red());
+                        if let Some((first_wallet_addr, _)) = all_wallets.first() {
+                            println!("Using existing wallet: {}", first_wallet_addr.green());
+                            first_wallet_addr.clone()
+                        } else {
+                            println!("{}", "No valid wallets found!".red());
+                            return Err(Box::from("No valid wallets found (no kanari_config, config.address invalid)."));
+                        }
                     }
                 }
                 None => {
-                    match list_wallet_files() {
-                        Ok(wallets) if !wallets.is_empty() => {
-                            let first_wallet = wallets[0].0.trim_end_matches(".enc").to_string();
-                            println!("Setting address to existing wallet (no kanari_config, no config.address): {}", first_wallet.green());
-                            first_wallet
-                        }
-                        _ => {
-                            println!("{}", "No wallets found!".red());
-                            return Err(Box::from("No wallets found (no kanari_config, no config.address)."));
-                        }
+                    if let Some((first_wallet_addr, _)) = all_wallets.first() {
+                        println!("Setting address to existing wallet (no kanari_config, no config.address): {}", first_wallet_addr.green());
+                        first_wallet_addr.clone()
+                    } else {
+                        println!("{}", "No wallets found!".red());
+                        return Err(Box::from("No wallets found (no kanari_config, no config.address)."));
                     }
                 }
             }
         }
     };
-
-
-    // Save final configuration to both config formats
-    let final_config = serde_yaml::Value::Mapping({
-        let mut map = serde_yaml::Mapping::new();
-        map.insert(
-            serde_yaml::Value::String("chain_id".to_string()),
-            serde_yaml::Value::String(network_config.chain_id.clone()),
-        );
-        map.insert(
-            serde_yaml::Value::String("rpc_port".to_string()),
-            serde_yaml::Value::Number(serde_yaml::Number::from(network_config.port)),
-        );
-
-        map.insert(
-            serde_yaml::Value::String("address".to_string()),
-            serde_yaml::Value::String(address.clone()),
-        );
-
-        // Add peers to configuration if specified
-        if !network_config.peers.is_empty() {
-            let peers_array = network_config
-                .peers
-                .iter()
-                .map(|peer| serde_yaml::Value::String(peer.clone()))
-                .collect::<Vec<_>>();
-
-            map.insert(
-                serde_yaml::Value::String("peers".to_string()),
-                serde_yaml::Value::Sequence(peers_array),
-            );
-        }
-
-        map
-    });
-
-    save_config(&final_config).expect("Failed to save configuration");
 
     // Make sure kanari.yaml has the active address
     if let Some(kanari_mapping) = kanari_config.as_mapping_mut() {
@@ -445,14 +413,8 @@ pub async fn start_server(
         run_blockchain(running_clone, address_clone, tx);
     });
 
-    // Get the local IP address
-    let local_ip = match panorama::node::get_local_ip() {
-        Some(ip) => ip,
-        None => {
-            eprintln!("Could not determine local IP address, using 127.0.0.1");
-            "127.0.0.1".to_string()
-        }
-    };
+    // Use the local IP address determined earlier
+    let local_ip = determined_local_ip;
 
     // Update RPC configuration to reflect localhost-only mode
     let rpc_config = NetworkConfig {
