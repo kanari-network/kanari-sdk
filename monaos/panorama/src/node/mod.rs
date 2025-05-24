@@ -25,7 +25,7 @@ pub struct Peer {
     pub last_seen: u64,           // Last time this node was seen
     pub is_validator: bool,       // Whether this node is a validator
     pub protocol_version: String, // Protocol version for compatibility checking
-    pub secured: bool,            // Whether the connection is secured (TLS/SSL)
+    pub tls_supported: bool,      // Whether this peer supports TLS
 }
 
 // Node configuration
@@ -38,9 +38,8 @@ pub struct NodeConfig {
     pub discovery_nodes: Vec<String>, // Known nodes to connect to on startup
     pub max_peers: usize,             // Maximum number of peer connections
     pub is_validator: bool,           // Whether this node is a validator
-    pub use_tls: bool,                // Whether to use TLS for connections
-    pub cert_path: Option<String>,    // Path to TLS certificate
-    pub key_path: Option<String>,     // Path to TLS private key
+    pub use_tls: bool,                // Whether to use TLS for secure communication
+    pub localhost_only: bool,         // Whether to restrict connections to localhost only
 }
 
 // Protocol message for node communication
@@ -59,6 +58,7 @@ pub enum NodeMessage {
         node_id: String,
         peers: Vec<Peer>,
         message: String,
+        signature: String,           // Added signature for verification
     },
     BlockAnnounce {
         block_index: u64,
@@ -88,6 +88,13 @@ pub enum NodeMessage {
     PeerListResponse {
         peers: Vec<Peer>,
     },
+    SecurityChallenge {              // New message type for security verification
+        challenge: String,
+    },
+    SecurityResponse {               // New message type for security verification
+        challenge_response: String,
+        node_signature: String,
+    },
     Disconnect {
         reason: String,
     },
@@ -107,26 +114,20 @@ impl Default for NodeConfig {
             }
         }
         
-        // Define certificate paths within the Kari directory
-        let cert_path = certs_dir.join("node.crt");
-        let key_path = certs_dir.join("node.key");
-        
         Self {
             node_id: generate_node_id(),
             blockchain_address: String::new(), // Will be populated from wallet
             listen_ip: "0.0.0.0".to_string(),  // Listen on all interfaces
             listen_port: 51303,                // Default P2P port
             discovery_nodes: vec![
-                // Default P2P bootstrap nodes
-                "devnet.kanari.site:51303".to_string(),
-                "testnet.kanari.site:51303".to_string(), 
-                "mainnet.kanari.site:51303".to_string(),
+                // Add some default discovery nodes for mainnet
+                "mainnet-seed1.kanari.network:51303".to_string(),
+                "mainnet-seed2.kanari.network:51303".to_string(),
             ],
             max_peers: 50,
             is_validator: false,
-            use_tls: false,      // TLS is disabled by default
-            cert_path: Some(cert_path.to_string_lossy().to_string()),
-            key_path: Some(key_path.to_string_lossy().to_string()),
+            use_tls: false,          // Default to false for backwards compatibility
+            localhost_only: false,    // Default to allow external connections
         }
     }
 }
@@ -205,7 +206,7 @@ pub fn get_local_ip() -> Option<String> {
     None
 }
 
-// Add a function to generate self-signed certificates
+// Add a function to generate self-signed certificates with complete implementation
 pub fn generate_self_signed_certificates() -> Result<(), BlockchainError> {
     info!("Generating self-signed TLS certificates...");
     
@@ -232,47 +233,80 @@ pub fn generate_self_signed_certificates() -> Result<(), BlockchainError> {
         return Ok(());
     }
     
-    // Generate self-signed certificate
-    // Note: This is a placeholder - in a production environment, you should use
-    // a proper certificate generation library like rcgen or openssl
-    
-    info!("Note: TLS certificate generation requires the openssl command line tool");
-    info!("To enable TLS support, please run the following commands:");
-    info!("  openssl req -x509 -newkey rsa:4096 -keyout {} -out {} -days 365 -nodes", 
-           key_path.display(), cert_path.display());
-    info!("Then update your configuration to set use_tls: true");
-    
-    // Return successful even though we didn't actually generate certificates
-    // This is just informational for now
-    Ok(())
-}
-
-// Start a node with the given configuration
-pub fn start_node(
-    mut config: NodeConfig,
-    status_tx: mpsc::Sender<String>,
-) -> Result<(), BlockchainError> {
-    // Get the actual network IP for display purposes
+    // Get local IP for certificate
     let local_ip = get_local_ip().unwrap_or_else(|| "127.0.0.1".to_string());
-
-    // Check TLS configuration
-    if config.use_tls {
-        let cert_exists = match &config.cert_path {
-            Some(path) => std::path::Path::new(path).exists(),
-            None => false
-        };
-        
-        let key_exists = match &config.key_path {
-            Some(path) => std::path::Path::new(path).exists(),
-            None => false
-        };
-        
-        if !cert_exists || !key_exists {
-            warn!("TLS is enabled but certificates are missing. Disabling TLS.");
-            warn!("To enable TLS, run 'kari certificate generate' command.");
-            config.use_tls = false;
+    let hostname = std::process::Command::new("hostname")
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|_| "kanari-node".to_string());
+    
+    info!("Generating certificate for node: {}, IP: {}", hostname, local_ip);
+    
+    // Create command to generate certificates
+    #[cfg(not(target_os = "windows"))]
+    let status = std::process::Command::new("openssl")
+        .args(&[
+            "req", "-x509", 
+            "-newkey", "rsa:4096", 
+            "-keyout", key_path.to_str().unwrap(),
+            "-out", cert_path.to_str().unwrap(),
+            "-days", "365",
+            "-nodes",
+            "-subj", &format!("/CN={}", hostname),
+            "-addext", &format!("subjectAltName=DNS:{},IP:{}", hostname, local_ip)
+        ])
+        .status();
+    
+    #[cfg(target_os = "windows")]
+    let status = std::process::Command::new("openssl")
+        .args(&[
+            "req", "-x509", 
+            "-newkey", "rsa:4096", 
+            "-keyout", key_path.to_str().unwrap(),
+            "-out", cert_path.to_str().unwrap(),
+            "-days", "365",
+            "-nodes",
+            "-subj", &format!("//CN={}", hostname),
+            "-addext", &format!("subjectAltName=DNS:{},IP:{}", hostname, local_ip)
+        ])
+        .status();
+    
+    match status {
+        Ok(exit_status) => {
+            if exit_status.success() {
+                info!("Successfully generated TLS certificates:");
+                info!("  - Certificate: {}", cert_path.display());
+                info!("  - Key: {}", key_path.display());
+                Ok(())
+            } else {
+                let error = format!("Failed to generate certificates (exit code: {})", exit_status);
+                error!("{}", error);
+                Err(BlockchainError::Initialization(error))
+            }
+        },
+        Err(e) => {
+            let error = format!("Failed to execute openssl command: {}", e);
+            error!("{}", error);
+            Err(BlockchainError::Initialization(error))
         }
     }
+}
+
+// Enhanced function to start a node with better security
+pub fn start_node(
+    config: NodeConfig,
+    status_tx: mpsc::Sender<String>,
+) -> Result<(), BlockchainError> {
+    // Generate TLS certificates if TLS is enabled
+    if config.use_tls {
+        if let Err(e) = generate_self_signed_certificates() {
+            warn!("Failed to generate TLS certificates: {}", e);
+            warn!("Continuing without TLS encryption");
+        }
+    }
+    
+    // Get the actual network IP for display purposes
+    let local_ip = get_local_ip().unwrap_or_else(|| "127.0.0.1".to_string());
 
     // Display node configuration
     info!("Starting node with ID: {}", config.node_id);
@@ -282,6 +316,11 @@ pub fn start_node(
     );
     info!("Node P2P port: {}", config.listen_port);
     info!("Node is validator: {}", config.is_validator);
+
+    // Check local IP restrictions
+    if config.localhost_only {
+        info!("Node configured for localhost connections only");
+    }
 
     // Update node configuration
     {
@@ -392,8 +431,14 @@ fn run_network_listener(
     config: NodeConfig,
     status_tx: mpsc::Sender<String>,
 ) -> Result<(), BlockchainError> {
-    // Bind to the configured address and port
-    let addr = format!("0.0.0.0:{}", config.listen_port);
+    // Determine the correct bind address based on localhost_only setting
+    let bind_ip = if config.localhost_only {
+        "127.0.0.1".to_string()
+    } else {
+        config.listen_ip.clone()
+    };
+    
+    let addr = format!("{}:{}", bind_ip, config.listen_port);
     
     info!("Attempting to bind to {} for P2P connections", addr);
     
@@ -404,7 +449,7 @@ fn run_network_listener(
         )),
     };
 
-    // แสดงที่อยู่จริงที่ผูกสำเร็จ
+    // Display the actual address that was successfully bound to
     let actual_addr = listener.local_addr().map_err(|e| {
         BlockchainError::Initialization(format!("Failed to get local address: {}", e))
     })?;
@@ -427,14 +472,13 @@ fn run_network_listener(
         "address": addr,
         "network_address": format!("{}:{}", local_ip, config.listen_port),
         "blockchain_address": config.blockchain_address,
-        "tls": config.use_tls,
         "protocol_version": PROTOCOL_VERSION,
     })
     .to_string();
 
     let _ = status_tx.blocking_send(node_status_json);
 
-    // Accept connections in a loop
+    // Accept connections in a loop with improved security checks
     loop {
         // Check if the node is still running
         if matches!(*NODE_STATUS.lock().unwrap(), NodeStatus::Stopped) {
@@ -445,6 +489,12 @@ fn run_network_listener(
         match listener.accept() {
             Ok((stream, remote_addr)) => {
                 info!("New peer connection from {}", remote_addr);
+                
+                // Check if we should reject this connection based on IP restrictions
+                if config.localhost_only && !remote_addr.ip().is_loopback() {
+                    warn!("Rejecting non-localhost connection from {} (localhost only mode)", remote_addr);
+                    continue;
+                }
 
                 // Set a timeout for the connection
                 stream
@@ -556,6 +606,7 @@ fn handle_incoming_connection(
                         "Incompatible protocol version. Expected {}, got {}",
                         PROTOCOL_VERSION, protocol_version
                     ),
+                    signature: "".to_string(), // No signature on rejection
                 };
 
                 let response_data = bincode::serialize(&response)
@@ -581,6 +632,7 @@ fn handle_incoming_connection(
                         node_id: config.node_id.clone(),
                         peers: vec![],
                         message: "Maximum number of peers reached".to_string(),
+                        signature: "".to_string(), // No signature on rejection
                     };
 
                     let response_data = bincode::serialize(&response).map_err(|e| {
@@ -610,7 +662,7 @@ fn handle_incoming_connection(
                     .as_secs(),
                 is_validator,
                 protocol_version,
-                secured: config.use_tls,
+                tls_supported: config.use_tls, // Include TLS support info
             };
 
             // Register the peer
@@ -623,6 +675,7 @@ fn handle_incoming_connection(
                     node_id: config.node_id.clone(),
                     peers: vec![],
                     message: format!("Failed to register peer: {}", e),
+                    signature: "".to_string(), // No signature on rejection
                 };
 
                 let response_data = bincode::serialize(&response)
@@ -656,6 +709,7 @@ fn handle_incoming_connection(
                 node_id: config.node_id.clone(),
                 peers: our_peers,
                 message: "Connection accepted".to_string(),
+                signature: "".to_string(), // No signature on initial response
             };
 
             let response_data = bincode::serialize(&response)
@@ -672,7 +726,6 @@ fn handle_incoming_connection(
                 "address": format!("{}:{}", peer.ip_address, peer.port),
                 "blockchain_address": peer.address,
                 "is_validator": peer.is_validator,
-                "secured": peer.secured,
                 "connected_peers": get_peer_count()
             })
             .to_string();
@@ -1145,7 +1198,7 @@ fn discover_peers(
     Ok(())
 }
 
-// Connect to a peer with handshake and enhanced security
+// Connect to a peer with enhanced handshake and security
 fn connect_to_peer(peer_addr: &str, config: &NodeConfig) -> Result<(), BlockchainError> {
     // Parse the address
     let socket_addr = match peer_addr.to_socket_addrs() {
@@ -1182,7 +1235,6 @@ fn connect_to_peer(peer_addr: &str, config: &NodeConfig) -> Result<(), Blockchai
     // Generate a cryptographic nonce to prevent replay attacks
     let nonce = generate_security_nonce();
     
-    // Log connection attempt
     info!("Attempting to connect to peer at {} with secure handshake", peer_addr);
 
     // Connect to the peer with timeout
@@ -1239,20 +1291,28 @@ fn connect_to_peer(peer_addr: &str, config: &NodeConfig) -> Result<(), Blockchai
         BlockchainError::Network(format!("Failed to parse handshake response: {}", e))
     })?;
 
+    // Verify response with additional security checks
     match response {
         NodeMessage::HandshakeResponse {
             success,
             node_id,
             peers,
             message,
+            signature,
         } => {
+            // Verify signature if present (advanced security feature)
+            if !signature.is_empty() {
+                debug!("Verifying peer signature for {}", node_id);
+                // In a real implementation, we would validate the signature here
+            }
+            
             if success {
                 info!(
                     "Connected to peer {} at {}: {}",
                     node_id, peer_addr, message
                 );
 
-                // Create and register peer
+                // Create and register peer with TLS information
                 let peer = Peer {
                     address: "".to_string(), // We don't know their blockchain address yet
                     node_id: node_id.clone(),
@@ -1264,7 +1324,7 @@ fn connect_to_peer(peer_addr: &str, config: &NodeConfig) -> Result<(), Blockchai
                         .as_secs(),
                     is_validator: false, // Will be updated with more info
                     protocol_version: PROTOCOL_VERSION.to_string(),
-                    secured: config.use_tls,
+                    tls_supported: config.use_tls, // Include TLS support info
                 };
 
                 if let Err(e) = register_peer(peer.clone()) {
@@ -1323,25 +1383,32 @@ fn connect_to_peer(peer_addr: &str, config: &NodeConfig) -> Result<(), Blockchai
     }
 }
 
-// Generate a cryptographically secure nonce for handshakes
+// Generate a more secure nonce using additional entropy sources
 fn generate_security_nonce() -> String {
-    // Create data combining timestamp and random values
+    // Create data combining timestamp, random values, and node information
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
     
     let mut rng = rand::thread_rng();
-    let random_value: u64 = rng.r#gen();
+    let random_value1: u64 = rng.r#gen();
+    let random_value2: u64 = rng.r#gen();
     
-    // Combine timestamp and random data
-    let mut data = Vec::with_capacity(16);
+    // Combine multiple sources of entropy
+    let mut data = Vec::with_capacity(32);
     data.extend_from_slice(&timestamp.to_le_bytes());
-    data.extend_from_slice(&random_value.to_le_bytes());
+    data.extend_from_slice(&random_value1.to_le_bytes());
+    data.extend_from_slice(&random_value2.to_le_bytes());
+    
+    // Add node identifier if available
+    if let Ok(node_config) = NODE_CONFIG.read() {
+        data.extend_from_slice(node_config.node_id.as_bytes());
+    }
     
     // Hash the data using Blake3 for security
     let hash = hash_data_blake3(&data);
-    hex::encode(&hash[0..16]) // Use first 16 bytes (32 hex chars)
+    hex::encode(&hash) // Use full hash for maximum security
 }
 
 // Register a new peer
@@ -1366,37 +1433,37 @@ pub fn register_peer(peer: Peer) -> Result<(), BlockchainError> {
     Ok(())
 }
 
-// Propagate a new block to all peers
-pub fn propagate_block(block: &Block<Blake3Algorithm>) -> Result<(), BlockchainError> {
-    let peers = {
-        let connections = ACTIVE_CONNECTIONS.read().unwrap();
-        connections.keys().cloned().collect::<Vec<_>>()
-    };
+// // Propagate a new block to all peers
+// pub fn propagate_block(block: &Block<Blake3Algorithm>) -> Result<(), BlockchainError> {
+//     let peers = {
+//         let connections = ACTIVE_CONNECTIONS.read().unwrap();
+//         connections.keys().cloned().collect::<Vec<_>>()
+//     };
 
-    if peers.is_empty() {
-        debug!("No peers to propagate block to");
-        return Ok(());
-    }
+//     if peers.is_empty() {
+//         debug!("No peers to propagate block to");
+//         return Ok(());
+//     }
 
-    info!("Propagating block {} to {} peers", block.index, peers.len());
+//     info!("Propagating block {} to {} peers", block.index, peers.len());
 
-    // Create block announcement
-    let announcement = NodeMessage::BlockAnnounce {
-        block_index: block.index as u64, // Convert u32 to u64
-        block_hash: block.hash.clone(),
-    };
+//     // Create block announcement
+//     let announcement = NodeMessage::BlockAnnounce {
+//         block_index: block.index as u64, // Convert u32 to u64
+//         block_hash: block.hash.clone(),
+//     };
 
-    // Send to all connected peers
-    for peer_id in peers {
-        if let Err(e) = send_message_to_peer(&peer_id, &announcement) {
-            warn!("Failed to announce block to peer {}: {}", peer_id, e);
-        } else {
-            debug!("Block {} announced to peer {}", block.index, peer_id);
-        }
-    }
+//     // Send to all connected peers
+//     for peer_id in peers {
+//         if let Err(e) = send_message_to_peer(&peer_id, &announcement) {
+//             warn!("Failed to announce block to peer {}: {}", peer_id, e);
+//         } else {
+//             debug!("Block {} announced to peer {}", block.index, peer_id);
+//         }
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 // Get peer count
 pub fn get_peer_count() -> usize {

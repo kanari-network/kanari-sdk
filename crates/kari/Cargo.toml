@@ -12,34 +12,12 @@ repository.workspace = true
 description.workspace = true
 
 [dependencies]
-digest.workspace = true
-serde.workspace = true
-hex.workspace = true
-serde_json.workspace = true
-sha2.workspace = true
-bincode.workspace = true
-jsonrpc-core.workspace = true
-jsonrpc-http-server.workspace = true
-futures.workspace = true
-rand.workspace = true
-bip39.workspace = true
 colored.workspace = true
 chrono.workspace = true
-dirs.workspace = true
 tokio.workspace = true
-log.workspace = true    
-serde_yaml.workspace = true
-env_logger.workspace = true
-semver.workspace = true
-reqwest.workspace = true
 
 # This is a workspace crate, so we need to include the following dependencies
 mona-crypto.workspace = true
 mona-blockchain.workspace = true
 panorama.workspace = true 
 command.workspace = true
-network.workspace = true
-consensus-pos.workspace = true
-p2p-protocol.workspace = true
-rpc-api.workspace = true
-common.workspace = true

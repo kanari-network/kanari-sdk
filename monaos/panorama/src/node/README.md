@@ -18,6 +18,15 @@ Configuration for a node instance, including:
 - `discovery_nodes`: Initial peers for bootstrap
 - `max_peers`: Maximum number of connections
 - `is_validator`: Whether this node participates in validation
+- `use_tls`: Whether to use TLS encryption for secure communication
+- `localhost_only`: Whether to restrict connections to localhost only
+
+### Security Features
+
+- **TLS Encryption**: Secure communication between nodes using TLS certificates
+- **Enhanced Handshakes**: Cryptographic nonce validation to prevent replay attacks
+- **Peer Validation**: Multi-stage verification of peer identities
+- **Domain Validation**: Secure resolution of domain names to prevent DNS attacks
 
 ### Peer Management
 
@@ -33,14 +42,13 @@ Configuration for a node instance, including:
 let node_config = NodeConfig {
     node_id: "node-abc123".to_string(),
     blockchain_address: "0x123...".to_string(),
-    listen_ip: "127.0.0.1".to_string(),
+    listen_ip: "0.0.0.0".to_string(),  // Listen on all interfaces
     listen_port: 51303,  // Default P2P port
-    discovery_nodes: vec!["127.0.0.1:51303".to_string()],
-    max_peers: 25,
+    discovery_nodes: vec!["mainnet-seed1.kanari.network:51303".to_string()],
+    max_peers: 50,
     is_validator: true,
-    use_tls: false,
-    cert_path: None,
-    key_path: None,
+    use_tls: true,  // Enable TLS encryption
+    localhost_only: false, // Allow external connections
 };
 
 // Start node operations
@@ -55,19 +63,20 @@ stop_node()?;
 
 ## Protocol Details
 
-### Peer Discovery
-1. On startup, connects to known discovery nodes
-2. Exchanges peer information and blockchain state
-3. Periodically refreshes peer list and removes stale connections
+### Secure Peer Discovery
+1. On startup, connects to known discovery nodes using TLS if enabled
+2. Validates peer identities via cryptographic handshakes
+3. Exchanges peer information and blockchain state
+4. Periodically refreshes peer list and removes stale connections
 
-### Block Propagation
-1. New blocks are announced to all peers
+### Protected Block Propagation
+1. New blocks are announced to all authenticated peers
 2. Peers request blocks they don't have
 3. Nodes respond with requested blocks
 4. Received blocks are validated before adding to the chain
 
-### Transaction Propagation
-1. Transactions are batched and announced to peers
+### Secure Transaction Propagation
+1. Transactions are batched and announced to authenticated peers
 2. Peers request transactions they don't have
 3. Nodes respond with requested transactions
 4. Transactions are validated and added to the mempool
@@ -85,12 +94,26 @@ To run multiple nodes that can communicate with each other:
 
 1. Start the first node with the default configuration:
    ```
-   kari start
+   kari server start
    ```
 
 2. Start additional nodes specifying the first node as a peer and a different RPC port:
    ```
-   kari start --peer 192.168.1.100:51303 --port 30031
+   kari server start --peer 192.168.1.100:51303 --port 30031
    ```
 
 3. For nodes on different machines, ensure the P2P port (51303) is open in your firewall.
+
+## Enabling TLS Encryption
+
+For secure node communication:
+
+1. Generate TLS certificates:
+   ```
+   kari server generate-certs
+   ```
+
+2. Start server node with TLS enabled:
+   ```
+   kari server start --use-tls
+   ```

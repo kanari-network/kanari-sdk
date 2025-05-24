@@ -13,12 +13,6 @@ pub fn get_kari_dir() -> PathBuf {
     path
 }
 
-/// Function to format address by removing any legacy suffixes
-fn format_address(addr: &str) -> String {
-    // Simply ensure no .enc or other suffixes remain
-    addr.trim_end_matches(".enc").to_string()
-}
-
 /// Get path to the kanari.yaml configuration file
 pub fn get_kanari_config_path() -> PathBuf {
     let mut config_dir = get_kari_dir();
@@ -101,11 +95,11 @@ pub fn load_config() -> io::Result<Value> {
                             Value::String(chain_id.to_string())
                         );
                         
-                        // Add address from kanari config (ensure it's formatted)
+                        // Add address from kanari config
                         if let Some(addr) = kanari_config.get("active_address").and_then(|v| v.as_str()) {
                             config.insert(
                                 Value::String("address".to_string()),
-                                Value::String(format_address(addr))
+                                Value::String(addr.to_string())
                             );
                         }
                         
@@ -184,7 +178,7 @@ pub fn save_config(config: &Value) -> io::Result<()> {
             if let Some(mapping) = kanari_config.as_mapping_mut() {
                 mapping.insert(
                     Value::String("active_address".to_string()),
-                    Value::String(format_address(addr))
+                    Value::String(addr.to_string())
                 );
             }
         }
@@ -201,7 +195,7 @@ pub fn get_main_wallet() -> Option<String> {
     // Only use kanari config
     if let Ok(kanari_config) = load_kanari_config() {
         if let Some(addr) = kanari_config.get("active_address").and_then(|v| v.as_str()) {
-            return Some(format_address(addr));
+            return Some(addr.to_string());
         }
     }
     None

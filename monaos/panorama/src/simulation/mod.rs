@@ -11,7 +11,8 @@ use mona_blockchain::blockchain::{save_blockchain, BALANCES, BLOCKCHAIN_DATA, no
 use mona_types::kari::{KARI, KA_PER_KARI, POOL_ADDRESS, POOL_RESERVED_KA, POOL_RESERVED_KARI, TOTAL_SUPPLY_KA, TOTAL_SUPPLY_KARI};
 use crate::utils::update_last_block_time;
 use crate::staking::{load_staking_state, process_rewards, is_validator, get_pool_remaining_balance};
-use crate::node::{NodeConfig, start_node, stop_node, propagate_block, get_peer_count};
+use crate::node::{NodeConfig, start_node, stop_node, get_peer_count};
+use crate::node::coordinator; // Add import for the coordinator module
 
 pub mod create_genesis_block;
 pub mod transaction;
@@ -140,15 +141,11 @@ pub fn run_blockchain(
         listen_port: 51303, // Use fixed default port instead of dynamic calculation
         discovery_nodes: vec![
             // List of discovery nodes for peer discovery
-            "devnet.kanari.site:51303".to_string(),
-            "testnet.kanari.site:51303".to_string(),
-            "mainnet.kanari.site:51303".to_string(),
         ],
         max_peers: 50, // Increased max peers for better network connectivity
         is_validator: is_validator(&node_address), // Dynamically check if this node is a validator
-        use_tls: false, // TLS disabled by default
-        cert_path: Some(format!("{}/certs/node.crt", common::get_kari_dir().display())),
-        key_path: Some(format!("{}/certs/node.key", common::get_kari_dir().display())),
+        use_tls: false, // Default to false for backward compatibility
+        localhost_only: false, // Default to allow external connections
     };
     
     // Log node network configuration
@@ -323,7 +320,6 @@ pub fn run_blockchain(
             "miner": normalized_address,
             "transactions": tx_json,
             "metadata": {
-                "network": "testnet",
                 "client_version": env!("CARGO_PKG_VERSION"),
                 "previous_block_hash": prev_block.hash
             }
@@ -343,12 +339,12 @@ pub fn run_blockchain(
         // Add block to chain and ensure we save the state
         BLOCKCHAIN_DATA.add_block(new_block.clone());
         
-        // Propagate block to connected peers
+        // Propagate block to connected peers using the coordinator module
         if get_peer_count() > 0 {
-            if let Err(e) = propagate_block(&new_block) {
-                warn!("Failed to propagate block to peers: {}", e);
+            if let Err(e) = coordinator::broadcast_block(&new_block, &tx) {
+                warn!("Failed to broadcast block to peers: {}", e);
             } else {
-                info!("Block {} propagated to {} peers", new_block.index, get_peer_count());
+                info!("Block {} broadcasted to {} peers", new_block.index, get_peer_count());
             }
         }
         
