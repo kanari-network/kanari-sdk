@@ -159,8 +159,6 @@ rocksdb = "0.23.0"
 # Testing
 datatest-stable = "0.3.2"
 
-# Build script dependencies
-which = "7.0.3"  # For checking if a command exists in PATH
 
 # Path Definitions for Workspace Members: Define paths for each crate in the workspace.
 # Allows referencing these crates as dependencies within other workspace crates using their names.

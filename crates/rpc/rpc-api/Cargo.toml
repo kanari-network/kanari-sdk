@@ -27,6 +27,8 @@ common.workspace = true
 colored.workspace = true
 
 # Project dependencies
+axum = "0.8.4"
+tower-http = { version = "0.6.4", features = ["cors"] }
 network = { workspace = true }
 panorama = { workspace = true }
 mona-types = { workspace = true }

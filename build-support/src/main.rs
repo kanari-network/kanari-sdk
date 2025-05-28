@@ -1,6 +1,5 @@
 use std::process::Command;
-use std::path::Path;
-use std::env;
+use std::path::PathBuf; // Added for PathBuf
 
 fn main() {
     println!("Kanari SDK Build Support Tool");
@@ -18,11 +17,20 @@ fn main() {
         return;
     }
 
-    // Get the workspace root directory
-    let current_dir = env::current_dir().expect("Failed to get current directory");
-    let workspace_root = current_dir.ancestors()
-        .find(|path| Path::new(&path).join("Cargo.toml").exists())
-        .unwrap_or(&current_dir);
+    // Get the workspace root directory (root of the git repository)
+    let workspace_root_output = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .expect("Failed to execute 'git rev-parse --show-toplevel'. Is git installed and in PATH?");
+
+    if !workspace_root_output.status.success() {
+        println!("Error: Failed to determine git repository root using 'git rev-parse --show-toplevel'.");
+        eprintln!("Stderr: {}", String::from_utf8_lossy(&workspace_root_output.stderr));
+        return;
+    }
+
+    let workspace_root_str = String::from_utf8_lossy(&workspace_root_output.stdout).trim().to_string();
+    let workspace_root = PathBuf::from(workspace_root_str);
 
     println!("Initializing submodules in workspace: {}", workspace_root.display());
     
@@ -39,7 +47,7 @@ fn main() {
             
             // Initialize and update the submodule
             let status = Command::new("git")
-                .current_dir(workspace_root)
+                .current_dir(&workspace_root) // Ensure this uses the correct workspace_root
                 .args(&["submodule", "update", "--init", "--recursive", submodule])
                 .status();
             
