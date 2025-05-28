@@ -25,7 +25,7 @@ members = [
     "crates/command",            # Crate for command-line interface utilities.
     "crates/common",             # Common utilities and types used across the workspace.
     "framework",                 # High-level framework crate for the SDK.
-    "build-support",             # Crate for build scripts and workspace setup.
+    # "build-support",             # Crate for build scripts and workspace setup.
 
     # Move Crates: Crates specifically related to MoveVM integration.
     "monaos/*",                  # Include all crates under the 'monaos' directory, likely storage or Move related.
