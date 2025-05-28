@@ -138,6 +138,72 @@ impl Keystore {
     pub fn list_wallets(&self) -> Vec<String> {
         self.keys.keys().cloned().collect()
     }
+    
+    /// Set encrypted mnemonic phrase
+    pub fn set_mnemonic(&mut self, encrypted_mnemonic: EncryptedData, addresses: Vec<String>) -> Result<(), KeystoreError> {
+        self.mnemonic.mnemonic_phrase_encryption = Some(encrypted_mnemonic);
+        self.mnemonic.addresses = addresses;
+        self.save()?;
+        Ok(())
+    }
+    
+    /// Get encrypted mnemonic phrase
+    pub fn get_mnemonic(&self) -> Option<&EncryptedData> {
+        self.mnemonic.mnemonic_phrase_encryption.as_ref()
+    }
+    
+    /// Get addresses derived from mnemonic
+    pub fn get_mnemonic_addresses(&self) -> &Vec<String> {
+        &self.mnemonic.addresses
+    }
+    
+    /// Add address to mnemonic-derived addresses
+    pub fn add_mnemonic_address(&mut self, address: &str) -> Result<(), KeystoreError> {
+        if !self.mnemonic.addresses.contains(&address.to_string()) {
+            self.mnemonic.addresses.push(address.to_string());
+            self.save()?;
+        }
+        Ok(())
+    }
+    
+    /// Remove mnemonic and all associated data
+    pub fn remove_mnemonic(&mut self) -> Result<(), KeystoreError> {
+        self.mnemonic.mnemonic_phrase_encryption = None;
+        self.mnemonic.addresses.clear();
+        self.save()?;
+        Ok(())
+    }
+    
+    /// Add session key
+    pub fn add_session_key(&mut self, key: &str, value: &str) -> Result<(), KeystoreError> {
+        self.session_keys.insert(key.to_string(), value.to_string());
+        self.save()?;
+        Ok(())
+    }
+    
+    /// Get session key
+    pub fn get_session_key(&self, key: &str) -> Option<&String> {
+        self.session_keys.get(key)
+    }
+    
+    /// Remove session key
+    pub fn remove_session_key(&mut self, key: &str) -> Result<(), KeystoreError> {
+        self.session_keys.remove(key);
+        self.save()?;
+        Ok(())
+    }
+    
+    /// Clear all session keys
+    pub fn clear_session_keys(&mut self) -> Result<(), KeystoreError> {
+        self.session_keys.clear();
+        self.save()?;
+        Ok(())
+    }
+    
+    /// Check if mnemonic exists
+    pub fn has_mnemonic(&self) -> bool {
+        self.mnemonic.mnemonic_phrase_encryption.is_some()
+    }
 }
 
 /// Get path to the keystore file

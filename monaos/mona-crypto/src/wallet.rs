@@ -259,6 +259,138 @@ pub fn load_wallet(address: &str, password: &str) -> Result<Wallet, WalletError>
     }
 }
 
+/// Save mnemonic phrase to keystore
+pub fn save_mnemonic(
+    mnemonic: &str,
+    password: &str,
+    addresses: Vec<String>,
+) -> Result<(), WalletError> {
+    // Validate inputs
+    if password.is_empty() {
+        return Err(WalletError::EncryptionError("Empty password not allowed".to_string()));
+    }
+    
+    if mnemonic.is_empty() {
+        return Err(WalletError::EncryptionError("Empty mnemonic not allowed".to_string()));
+    }
+    
+    // Compress mnemonic before encryption
+    let compressed_data = compression::compress_data(mnemonic.as_bytes())
+        .map_err(|e| WalletError::SerializationError(format!("Compression error: {}", e)))?;
+    
+    // Encrypt the mnemonic
+    let encrypted_data = encryption::encrypt_data(&compressed_data, password)
+        .map_err(|e| WalletError::EncryptionError(e.to_string()))?;
+    
+    // Load keystore and save mnemonic
+    let mut keystore = Keystore::load()
+        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
+    
+    keystore.set_mnemonic(encrypted_data, addresses)
+        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
+    
+    Ok(())
+}
+
+/// Load mnemonic phrase from keystore
+pub fn load_mnemonic(password: &str) -> Result<String, WalletError> {
+    // Validate inputs
+    if password.is_empty() {
+        return Err(WalletError::InvalidPassword);
+    }
+    
+    // Load keystore
+    let keystore = Keystore::load()
+        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
+    
+    // Get encrypted mnemonic
+    let encrypted_data = keystore.get_mnemonic()
+        .ok_or_else(|| WalletError::NotFound("Mnemonic not found".to_string()))?;
+    
+    // Decrypt mnemonic
+    let decrypted = encryption::decrypt_data(encrypted_data, password)
+        .map_err(|_| WalletError::InvalidPassword)?;
+    
+    // Decompress the decrypted data
+    let decompressed_data = compression::decompress_data(&decrypted)
+        .map_err(|e| WalletError::DecryptionError(format!("Failed to decompress mnemonic: {}", e)))?;
+    
+    // Convert to string
+    String::from_utf8(decompressed_data)
+        .map_err(|e| WalletError::DecryptionError(format!("Invalid UTF-8 in mnemonic: {}", e)))
+}
+
+/// Get addresses derived from mnemonic
+pub fn get_mnemonic_addresses() -> Result<Vec<String>, WalletError> {
+    let keystore = Keystore::load()
+        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
+    
+    Ok(keystore.get_mnemonic_addresses().clone())
+}
+
+/// Check if mnemonic exists in keystore
+pub fn check_mnemonic_exists() -> bool {
+    if let Ok(keystore) = Keystore::load() {
+        keystore.has_mnemonic()
+    } else {
+        false
+    }
+}
+
+/// Remove mnemonic from keystore
+pub fn remove_mnemonic() -> Result<(), WalletError> {
+    let mut keystore = Keystore::load()
+        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
+    
+    keystore.remove_mnemonic()
+        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
+    
+    Ok(())
+}
+
+/// Session key management functions
+
+/// Save session key
+pub fn save_session_key(key: &str, value: &str) -> Result<(), WalletError> {
+    let mut keystore = Keystore::load()
+        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
+    
+    keystore.add_session_key(key, value)
+        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
+    
+    Ok(())
+}
+
+/// Load session key
+pub fn load_session_key(key: &str) -> Result<Option<String>, WalletError> {
+    let keystore = Keystore::load()
+        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
+    
+    Ok(keystore.get_session_key(key).cloned())
+}
+
+/// Remove session key
+pub fn remove_session_key(key: &str) -> Result<(), WalletError> {
+    let mut keystore = Keystore::load()
+        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
+    
+    keystore.remove_session_key(key)
+        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
+    
+    Ok(())
+}
+
+/// Clear all session keys
+pub fn clear_session_keys() -> Result<(), WalletError> {
+    let mut keystore = Keystore::load()
+        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
+    
+    keystore.clear_session_keys()
+        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
+    
+    Ok(())
+}
+
 /// Check if any wallets exist
 pub fn check_wallet_exists() -> bool {
     if let Ok(keystore) = Keystore::load() {

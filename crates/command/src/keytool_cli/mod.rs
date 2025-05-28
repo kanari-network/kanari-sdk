@@ -2,6 +2,8 @@ use colored::Colorize;
 use mona_crypto::{
     list_wallet_files,
     load_wallet, save_wallet, set_selected_wallet,
+    save_mnemonic, load_mnemonic, check_mnemonic_exists, remove_mnemonic, get_mnemonic_addresses,
+    save_session_key, load_session_key, remove_session_key, clear_session_keys,
 };
 use std::io::{self, Write};
 
@@ -51,6 +53,14 @@ const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         name: "privatekey",
         description: "Import from private key",
+    },
+    CommandInfo {
+        name: "mnemonic",
+        description: "Manage BIP39 mnemonic phrases",
+    },
+    CommandInfo {
+        name: "session",
+        description: "Manage session keys",
     },
 ];
 
@@ -786,6 +796,298 @@ pub fn handle_keytool_command() -> Option<String> {
                         println!("{}", format!("Failed to read curve choice: {}", e).red());
                         return None;
                     }
+                }
+            }
+
+            "mnemonic" => {
+                // Handle mnemonic subcommands
+                if args.len() > 3 {
+                    let subcommand = &args[3];
+                    match subcommand.as_str() {
+                        "save" => {
+                            println!("Enter BIP39 mnemonic phrase:");
+                            let mut mnemonic = String::new();
+                            match io::stdin().read_line(&mut mnemonic) {
+                                Ok(_) => {
+                                    let mnemonic = mnemonic.trim();
+                                    
+                                    // Validate mnemonic (basic check for word count)
+                                    let word_count = mnemonic.split_whitespace().count();
+                                    if word_count != 12 && word_count != 24 {
+                                        println!("{}", "Invalid mnemonic: must be 12 or 24 words".red());
+                                        return None;
+                                    }
+                                    
+                                    println!("Enter associated addresses (comma-separated, or press Enter for none):");
+                                    let mut addresses_input = String::new();
+                                    match io::stdin().read_line(&mut addresses_input) {
+                                        Ok(_) => {
+                                            let addresses: Vec<String> = if addresses_input.trim().is_empty() {
+                                                Vec::new()
+                                            } else {
+                                                addresses_input
+                                                    .trim()
+                                                    .split(',')
+                                                    .map(|s| s.trim().to_string())
+                                                    .filter(|s| !s.is_empty())
+                                                    .collect()
+                                            };
+                                            
+                                            let password = prompt_password(true);
+                                            
+                                            match save_mnemonic(mnemonic, &password, addresses) {
+                                                Ok(_) => {
+                                                    println!("{}", "✓ Mnemonic saved successfully!".green().bold());
+                                                    return Some("mnemonic_saved".to_string());
+                                                }
+                                                Err(e) => {
+                                                    println!("{}", format!("Failed to save mnemonic: {}", e).red());
+                                                    return None;
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            println!("{}", format!("Error reading addresses: {}", e).red());
+                                            return None;
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    println!("{}", format!("Error reading mnemonic: {}", e).red());
+                                    return None;
+                                }
+                            }
+                        }
+                        
+                        "load" => {
+                            if !check_mnemonic_exists() {
+                                println!("{}", "No mnemonic found in keystore".yellow());
+                                return None;
+                            }
+                            
+                            let password = prompt_password(false);
+                            
+                            match load_mnemonic(&password) {
+                                Ok(mnemonic) => {
+                                    println!("\n{}", "Mnemonic Information:".bright_yellow().bold());
+                                    println!("{}", "─".repeat(60));
+                                    println!("{:<15} {}", "Mnemonic:".bold(), mnemonic.green());
+                                    
+                                    match get_mnemonic_addresses() {
+                                        Ok(addresses) => {
+                                            if !addresses.is_empty() {
+                                                println!("{:<15}", "Addresses:".bold());
+                                                for addr in addresses {
+                                                    println!("                {}", addr.green());
+                                                }
+                                            } else {
+                                                println!("{:<15} {}", "Addresses:".bold(), "None".yellow());
+                                            }
+                                        }
+                                        Err(e) => {
+                                            println!("{}", format!("Error getting addresses: {}", e).red());
+                                        }
+                                    }
+                                    println!("{}", "─".repeat(60));
+                                    
+                                    return Some("mnemonic_loaded".to_string());
+                                }
+                                Err(e) => {
+                                    println!("{}", format!("Failed to load mnemonic: {}", e).red());
+                                    return None;
+                                }
+                            }
+                        }
+                        
+                        "remove" => {
+                            if !check_mnemonic_exists() {
+                                println!("{}", "No mnemonic found in keystore".yellow());
+                                return None;
+                            }
+                            
+                            println!("{}", "⚠️  WARNING: This will permanently delete your mnemonic phrase!".red().bold());
+                            println!("Type 'CONFIRM' to proceed:");
+                            
+                            let mut confirmation = String::new();
+                            match io::stdin().read_line(&mut confirmation) {
+                                Ok(_) => {
+                                    if confirmation.trim() == "CONFIRM" {
+                                        match remove_mnemonic() {
+                                            Ok(_) => {
+                                                println!("{}", "✓ Mnemonic removed successfully".green().bold());
+                                                return Some("mnemonic_removed".to_string());
+                                            }
+                                            Err(e) => {
+                                                println!("{}", format!("Failed to remove mnemonic: {}", e).red());
+                                                return None;
+                                            }
+                                        }
+                                    } else {
+                                        println!("Operation cancelled.");
+                                        return None;
+                                    }
+                                }
+                                Err(e) => {
+                                    println!("{}", format!("Error reading confirmation: {}", e).red());
+                                    return None;
+                                }
+                            }
+                        }
+                        
+                        "status" => {
+                            if check_mnemonic_exists() {
+                                println!("{}", "✓ Mnemonic exists in keystore".green().bold());
+                                match get_mnemonic_addresses() {
+                                    Ok(addresses) => {
+                                        println!("Associated addresses: {}", addresses.len());
+                                        for addr in addresses {
+                                            println!("  - {}", addr.green());
+                                        }
+                                    }
+                                    Err(e) => {
+                                        println!("{}", format!("Error getting addresses: {}", e).red());
+                                    }
+                                }
+                            } else {
+                                println!("{}", "No mnemonic found in keystore".yellow());
+                            }
+                            return None;
+                        }
+                        
+                        _ => {
+                            println!("{}", "Mnemonic subcommands:".bright_yellow().bold());
+                            println!("  save    - Save a BIP39 mnemonic phrase");
+                            println!("  load    - Load and display mnemonic phrase");
+                            println!("  remove  - Remove mnemonic from keystore");
+                            println!("  status  - Check mnemonic status");
+                            return None;
+                        }
+                    }
+                } else {
+                    println!("{}", "Mnemonic subcommands:".bright_yellow().bold());
+                    println!("  save    - Save a BIP39 mnemonic phrase");
+                    println!("  load    - Load and display mnemonic phrase");
+                    println!("  remove  - Remove mnemonic from keystore");
+                    println!("  status  - Check mnemonic status");
+                    return None;
+                }
+            }
+            
+            "session" => {
+                // Handle session key subcommands
+                if args.len() > 3 {
+                    let subcommand = &args[3];
+                    match subcommand.as_str() {
+                        "set" => {
+                            if args.len() > 5 {
+                                let key = &args[4];
+                                let value = &args[5];
+                                
+                                match save_session_key(key, value) {
+                                    Ok(_) => {
+                                        println!("{}", format!("✓ Session key '{}' saved", key).green().bold());
+                                        return Some(format!("session_set_{}", key));
+                                    }
+                                    Err(e) => {
+                                        println!("{}", format!("Failed to save session key: {}", e).red());
+                                        return None;
+                                    }
+                                }
+                            } else {
+                                println!("Usage: kari keytool session set <key> <value>");
+                                return None;
+                            }
+                        }
+                        
+                        "get" => {
+                            if args.len() > 4 {
+                                let key = &args[4];
+                                
+                                match load_session_key(key) {
+                                    Ok(Some(value)) => {
+                                        println!("{}: {}", key.green().bold(), value.green());
+                                        return Some(format!("session_get_{}", key));
+                                    }
+                                    Ok(None) => {
+                                        println!("{}", format!("Session key '{}' not found", key).yellow());
+                                        return None;
+                                    }
+                                    Err(e) => {
+                                        println!("{}", format!("Failed to load session key: {}", e).red());
+                                        return None;
+                                    }
+                                }
+                            } else {
+                                println!("Usage: kari keytool session get <key>");
+                                return None;
+                            }
+                        }
+                        
+                        "remove" => {
+                            if args.len() > 4 {
+                                let key = &args[4];
+                                
+                                match remove_session_key(key) {
+                                    Ok(_) => {
+                                        println!("{}", format!("✓ Session key '{}' removed", key).green().bold());
+                                        return Some(format!("session_removed_{}", key));
+                                    }
+                                    Err(e) => {
+                                        println!("{}", format!("Failed to remove session key: {}", e).red());
+                                        return None;
+                                    }
+                                }
+                            } else {
+                                println!("Usage: kari keytool session remove <key>");
+                                return None;
+                            }
+                        }
+                        
+                        "clear" => {
+                            println!("{}", "⚠️  This will remove ALL session keys. Continue? (y/n)".yellow().bold());
+                            
+                            let mut confirmation = String::new();
+                            match io::stdin().read_line(&mut confirmation) {
+                                Ok(_) => {
+                                    if confirmation.trim().eq_ignore_ascii_case("y") {
+                                        match clear_session_keys() {
+                                            Ok(_) => {
+                                                println!("{}", "✓ All session keys cleared".green().bold());
+                                                return Some("session_cleared".to_string());
+                                            }
+                                            Err(e) => {
+                                                println!("{}", format!("Failed to clear session keys: {}", e).red());
+                                                return None;
+                                            }
+                                        }
+                                    } else {
+                                        println!("Operation cancelled.");
+                                        return None;
+                                    }
+                                }
+                                Err(e) => {
+                                    println!("{}", format!("Error reading confirmation: {}", e).red());
+                                    return None;
+                                }
+                            }
+                        }
+                        
+                        _ => {
+                            println!("{}", "Session key subcommands:".bright_yellow().bold());
+                            println!("  set <key> <value>  - Save a session key");
+                            println!("  get <key>          - Get a session key value");
+                            println!("  remove <key>       - Remove a session key");
+                            println!("  clear              - Remove all session keys");
+                            return None;
+                        }
+                    }
+                } else {
+                    println!("{}", "Session key subcommands:".bright_yellow().bold());
+                    println!("  set <key> <value>  - Save a session key");
+                    println!("  get <key>          - Get a session key value");
+                    println!("  remove <key>       - Remove a session key");
+                    println!("  clear              - Remove all session keys");
+                    return None;
                 }
             }
 

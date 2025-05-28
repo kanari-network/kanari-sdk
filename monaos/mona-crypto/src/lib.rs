@@ -42,9 +42,16 @@ pub use wallet::{
     get_selected_wallet,
     set_selected_wallet,
     check_wallet_exists,
+    save_mnemonic,
+    load_mnemonic,
+    check_mnemonic_exists,
+    remove_mnemonic,
+    get_mnemonic_addresses,
+    save_session_key,
+    load_session_key,
+    remove_session_key,
+    clear_session_keys,
 };
-
-
 
 // Re-export keystore functionality
 pub use keystore::{
