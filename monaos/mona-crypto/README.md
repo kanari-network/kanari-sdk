@@ -85,16 +85,61 @@ let signature = wallet.sign(message, password)
     .expect("Failed to sign message");
 ```
 
+### Mnemonic Operations
+
+```rust
+use mona_crypto::{save_mnemonic, load_mnemonic, check_mnemonic_exists};
+
+// Save mnemonic phrase (BIP39)
+let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+let addresses = vec!["0x123...".to_string(), "0x456...".to_string()];
+save_mnemonic(mnemonic, password, addresses)
+    .expect("Failed to save mnemonic");
+
+// Load mnemonic phrase
+if check_mnemonic_exists() {
+    let loaded_mnemonic = load_mnemonic(password)
+        .expect("Failed to load mnemonic");
+    println!("Mnemonic loaded successfully");
+}
+
+// Get addresses derived from mnemonic
+let mnemonic_addresses = get_mnemonic_addresses()
+    .expect("Failed to get mnemonic addresses");
+```
+
+### Session Key Management
+
+```rust
+use mona_crypto::{save_session_key, load_session_key, clear_session_keys};
+
+// Save temporary session data
+save_session_key("auth_token", "abc123")
+    .expect("Failed to save session key");
+
+// Load session data
+if let Some(token) = load_session_key("auth_token")
+    .expect("Failed to load session key") {
+    println!("Auth token: {}", token);
+}
+
+// Clear all session keys (e.g., on logout)
+clear_session_keys()
+    .expect("Failed to clear session keys");
+```
+
 ## Security Best Practices
 
 1. **Never hardcode passwords** in your application
 2. **Always use strong, unique passwords** for wallet encryption (use `is_password_strong` function)
-3. **Never print or log private keys** - they should never be exposed
+3. **Never print or log private keys or mnemonics** - they should never be exposed
 4. **Clear sensitive data from memory** after use with `secure_clear` or `secure_erase`
 5. **Verify signatures with correct curve type** when possible
 6. **Always validate user input** before processing cryptographic operations
 7. **Use password-based key derivation** for all encryption operations
 8. **Implement proper error handling** without revealing sensitive details in error messages
+9. **Clear session keys on logout** to prevent unauthorized access
+10. **Store mnemonics securely** and never expose them in logs or error messages
 
 ## License
 
