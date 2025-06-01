@@ -1,4 +1,5 @@
 use colored::Colorize;
+use command::env_cli::handle_env_command;
 use command::keytool_cli::handle_keytool_command;
 use command::move_cli::handle_move_command;
 use command::server_cli::handle_server_command;
@@ -42,8 +43,8 @@ const COMMANDS: &[CommandInfo] = &[
         description: "Manage Kari accounts and cryptographic keys",
     },
     CommandInfo {
-        name: "network",
-        alias: None,
+        name: "env",
+        alias: Some("--e"),
         description: "Manage network configurations",
     },
     CommandInfo {
@@ -120,8 +121,8 @@ async fn main() {
         Some("keytool") => {
             let _ = handle_keytool_command();
         }
-        Some("network") => {
-            let _ = command::network_cli::handle_network_command();
+        Some("env") => {
+            let _ = handle_env_command();
         }
         Some("version") | Some("--V") => println!("CLI Version: {}", VERSION),
         Some("help") | Some("--h") => display_help(false),
