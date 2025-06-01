@@ -15,6 +15,7 @@ use std::process::Command;
 // Add the required import for CurveType and key-related functions
 use key::keys::{import_from_private_key, import_from_seed_phrase, generate_karix_address};
 use key::keys::CurveType;
+use common::{load_config, load_kanari_config};
 
 struct CommandInfo {
     name: &'static str,
@@ -235,6 +236,9 @@ pub fn handle_keytool_command() -> Option<String> {
                 // Load blockchain first
                 match load_blockchain_with_retry() {
                     Ok(_) => {
+                        // Get RPC endpoint from configuration
+                        let rpc_endpoint = get_rpc_endpoint();
+                        
                         // Get sender address (current wallet)
                         let wallets = match list_wallet_files() {
                             Ok(w) => w,
@@ -378,9 +382,6 @@ pub fn handle_keytool_command() -> Option<String> {
                         
                         println!("Sending transaction...");
                         
-                        // Use a simple command-line tool for making HTTP requests
-                        // Instead of using reqwest blocking client
-                        
                         // Create the JSON payload
                         let json_payload = json!({
                             "jsonrpc": "2.0",
@@ -404,12 +405,12 @@ pub fn handle_keytool_command() -> Option<String> {
                                 "curl"
                             };
                             
-                            // Execute curl command to send the request
+                            // Execute curl command to send the request with dynamic endpoint
                             let output = Command::new(curl_cmd)
                                 .arg("-s")
                                 .arg("-X")
                                 .arg("POST")
-                                .arg("http://127.0.0.1:30031")
+                                .arg(&rpc_endpoint)  // Use dynamic endpoint instead of hardcoded
                                 .arg("-H")
                                 .arg("Content-Type: application/json")
                                 .arg("-d")
@@ -448,14 +449,14 @@ pub fn handle_keytool_command() -> Option<String> {
                                             }
                                         }
                                     } else {
-                                        println!("{}", "HTTP request failed".red());
+                                        println!("{}", format!("HTTP request failed to {}", rpc_endpoint).red());
                                         println!("Error: {}", String::from_utf8_lossy(&output.stderr));
                                         return None;
                                     }
                                 },
                                 Err(e) => {
-                                    println!("{}", format!("Failed to execute HTTP request: {}", e).red());
-                                    println!("Make sure curl is installed on your system");
+                                    println!("{}", format!("Failed to execute HTTP request to {}: {}", rpc_endpoint, e).red());
+                                    println!("Make sure curl is installed and the node is running at {}", rpc_endpoint);
                                     return None;
                                 }
                             }
@@ -1165,4 +1166,40 @@ fn prompt_password(confirm: bool) -> String {
         }
     }
     password
+}
+
+// Add helper function to get RPC endpoint from configuration
+fn get_rpc_endpoint() -> String {
+    // Try to get RPC endpoint from kanari config first
+    if let Ok(kanari_config) = load_kanari_config() {
+        if let Some(active_env) = kanari_config.get("active_env").and_then(|v| v.as_str()) {
+            if let Some(envs) = kanari_config.get("envs").and_then(|v| v.as_sequence()) {
+                for env in envs {
+                    if let Some(alias) = env.get("alias").and_then(|v| v.as_str()) {
+                        if alias == active_env {
+                            if let Some(rpc_url) = env.get("rpc").and_then(|v| v.as_str()) {
+                                println!("Using RPC endpoint from kanari config: {}", rpc_url.green());
+                                return rpc_url.to_string();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Fallback to load_config (legacy support)
+    if let Ok(config) = load_config() {
+        if let Some(port) = config.get("rpc_port").and_then(|v| v.as_u64()) {
+            let endpoint = format!("http://127.0.0.1:{}", port);
+            println!("Using RPC endpoint from config: {}", endpoint.green());
+            return endpoint;
+        }
+    }
+    
+    // Final fallback to default
+    let default_endpoint = "http://127.0.0.1:30030".to_string();
+    println!("{}", format!("Warning: Could not determine RPC endpoint from config, using default: {}", default_endpoint).yellow());
+    println!("Make sure your node is running on the default port or check your configuration.");
+    default_endpoint
 }

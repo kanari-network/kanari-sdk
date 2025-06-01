@@ -15,3 +15,4 @@ description.workspace = true
 [dependencies]
 dirs.workspace = true
 serde_yaml.workspace = true
+network.workspace = true
