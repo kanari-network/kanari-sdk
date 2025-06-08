@@ -4,7 +4,6 @@ use mona_types::address::Address;
 
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use serde_json::json;
 
 
 use mona_blockchain::block::{Block, Transaction};
@@ -44,36 +43,29 @@ pub(crate) fn create_genesis_block(address: &Address, coin: &KARI) -> Block<Blak
     let mut transactions = Vec::new();
     transactions.push(pool_transaction);
 
-    // Enhanced genesis data with pool allocation information
-    let genesis_data = json!({
-        "block_type": "genesis",
-        "coin": {
-            "name": coin.name,
-            "symbol": coin.symbol,
-            "decimals": coin.decimals,
-            "total_supply": {
-                "amount": coin.total_supply,
-                "display": TOTAL_SUPPLY_KARI,
-                "symbol": coin.symbol
-            },
-            "block_reward": coin.block_reward,
-            "max_supply": coin.max_supply,
-            "pool_allocation": {
-                "address": POOL_ADDRESS,
-                "amount": POOL_RESERVED_KA,
-                "display_amount": POOL_RESERVED_KARI
-            }
-        },
-        "network": {
-            "name": "Kanari Testnet",
-            "version": env!("CARGO_PKG_VERSION"),
-            "timestamp": timestamp,
-            "datetime": chrono::DateTime::<chrono::Utc>::from_timestamp(timestamp as i64, 0)
-                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-                .unwrap_or_else(|| "Unknown time".to_string())
-        },
-        "genesis_address": address.to_hex_literal()
-    }).to_string().into_bytes();
+    // Enhanced genesis data with direct string formatting instead of JSON
+    let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(timestamp as i64, 0)
+        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_else(|| "Unknown time".to_string());
+        
+    let genesis_data = format!(
+        "{{\"block_type\":\"genesis\",\"coin\":{{\"name\":\"{}\",\"symbol\":\"{}\",\"decimals\":{},\"total_supply\":{{\"amount\":{},\"display\":{},\"symbol\":\"{}\"}},\"block_reward\":{},\"max_supply\":{},\"pool_allocation\":{{\"address\":\"{}\",\"amount\":{},\"display_amount\":{}}}}},\"network\":{{\"name\":\"Kanari Testnet\",\"version\":\"{}\",\"timestamp\":{},\"datetime\":\"{}\"}},\"genesis_address\":\"{}\"}}",
+        coin.name,
+        coin.symbol,
+        coin.decimals,
+        coin.total_supply,
+        TOTAL_SUPPLY_KARI,
+        coin.symbol,
+        coin.block_reward,
+        coin.max_supply,
+        POOL_ADDRESS,
+        POOL_RESERVED_KA,
+        POOL_RESERVED_KARI,
+        env!("CARGO_PKG_VERSION"),
+        timestamp,
+        datetime,
+        address.to_hex_literal()
+    ).into_bytes();
 
     info!("Creating genesis block for {} with {} total supply", coin.name, coin.total_supply);
     info!("Reserving {} {} ({} {}A) for pool address: {}", 

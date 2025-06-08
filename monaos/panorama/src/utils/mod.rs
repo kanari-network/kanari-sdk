@@ -4,7 +4,6 @@ use rand::{Rng, thread_rng};
 
 use mona_blockchain::block::Transaction;
 use crate::simulation::add_pending_transaction;
-// Add mona-crypto imports for enhanced security
 use mona_crypto::{hash_data_blake3, HashAlgorithm, hash_data_with_algorithm, secure_clear};
 
 // Make the gas module public
@@ -71,23 +70,20 @@ pub fn process_blockchain_transfer(
                 info!("Transaction added to pending queue: {} -> {}, amount: {}, gas fee: {}", 
                       transaction.sender, transaction.receiver, amount, gas_fee);
                 
-                // Send notification if channel provided
+                // Send notification with direct string formatting instead of JSON
                 if let Some(tx) = notification_channel {
-                    let tx_json = serde_json::json!({
-                        "event": "transaction_created",
-                        "transaction": {
-                            "id": transaction.transaction_id,
-                            "sender": transaction.sender.to_hex_literal(),
-                            "receiver": transaction.receiver.to_hex_literal(),
-                            "amount": amount,
-                            "gas_fee": gas_fee,
-                            "timestamp": transaction.timestamp,
-                            "signed": !transaction.signature.is_empty()
-                        },
-                        "status": "pending"
-                    }).to_string();
+                    let tx_msg = format!(
+                        "{{\"event\":\"transaction_created\",\"transaction\":{{\"id\":\"{}\",\"sender\":\"{}\",\"receiver\":\"{}\",\"amount\":{},\"gas_fee\":{},\"timestamp\":{},\"signed\":{}}},\"status\":\"pending\"}}",
+                        transaction.transaction_id,
+                        transaction.sender.to_hex_literal(),
+                        transaction.receiver.to_hex_literal(),
+                        amount,
+                        gas_fee,
+                        transaction.timestamp,
+                        !transaction.signature.is_empty()
+                    );
                     
-                    let _ = tx.try_send(tx_json);
+                    let _ = tx.try_send(tx_msg);
                 }
                 
                 Ok(transaction)
@@ -99,20 +95,18 @@ pub fn process_blockchain_transfer(
         Err(e) => {
             error!("Transaction failed: {}", e);
             
-            // Send notification if channel provided
+            // Send notification with direct string formatting
             if let Some(tx) = notification_channel {
-                let error_json = serde_json::json!({
-                    "event": "transaction_error",
-                    "error": format!("{}", e),
-                    "details": {
-                        "sender": from_address,
-                        "receiver": to_address,
-                        "amount": amount,
-                        "gas_fee": gas_fee,
-                    }
-                }).to_string();
+                let error_msg = format!(
+                    "{{\"event\":\"transaction_error\",\"error\":\"{}\",\"details\":{{\"sender\":\"{}\",\"receiver\":\"{}\",\"amount\":{},\"gas_fee\":{}}}}}",
+                    e,
+                    from_address,
+                    to_address,
+                    amount,
+                    gas_fee
+                );
                 
-                let _ = tx.try_send(error_json);
+                let _ = tx.try_send(error_msg);
             }
             
             Err(format!("Transaction failed: {}", e))

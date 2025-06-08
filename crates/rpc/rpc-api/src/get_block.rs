@@ -191,34 +191,55 @@ pub fn search_transactions(params: Params) -> JsonRpcResult<JsonValue> {
         Err(_) => return Err(RpcError::invalid_params("Invalid address format")),
     };
 
+    // Debug info: count blocks and total transactions
+    let blockchain_blocks = BLOCKCHAIN_DATA.iter();
+    let total_blocks = blockchain_blocks.len();
+    let total_transactions_in_blockchain: usize = blockchain_blocks.iter().map(|b| b.transactions.len()).sum();
+    
+    // Log debug information
+    log::debug!("Search transactions for address: {}", search_params.address);
+    log::debug!("Parsed address: {}", search_address);
+    log::debug!("Blockchain has {} blocks with {} total transactions", total_blocks, total_transactions_in_blockchain);
+
     // Find all transactions involving this address (either as sender or receiver)
     let mut transactions = BLOCKCHAIN_DATA.iter()
         .into_iter()
-        .flat_map(|block| {
+        .enumerate()
+        .flat_map(|(block_idx, block)| {
+            log::debug!("Checking block {} with {} transactions", block_idx, block.transactions.len());
             block.transactions.iter()
-                .filter(|tx| tx.sender == search_address || tx.receiver == search_address)
-                .map(|tx| {
-                    // Determine if this is incoming or outgoing for the search address
-                    let tx_type = if tx.receiver == search_address { "incoming" } else { "outgoing" };
+                .enumerate()
+                .filter_map(|(tx_idx, tx)| {
+                    log::debug!("Block {}, TX {}: {} -> {} (match: sender={}, receiver={})", 
+                               block_idx, tx_idx, tx.sender, tx.receiver,
+                               tx.sender == search_address, tx.receiver == search_address);
                     
-                    json!({
-                        "id": tx.transaction_id,
-                        "type": tx_type,
-                        "sender": tx.sender.to_string(),
-                        "receiver": tx.receiver.to_string(),
-                        "amount": tx.amount,
-                        "amount_formatted": format_kari_amount(tx.amount),
-                        "timestamp": tx.timestamp,
-                        "datetime": chrono::DateTime::<chrono::Utc>::from_timestamp(tx.timestamp as i64, 0)
-                            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-                            .unwrap_or_else(|| "Unknown time".to_string()),
-                        "block_index": block.index,
-                    })
+                    if tx.sender == search_address || tx.receiver == search_address {
+                        // Determine if this is incoming or outgoing for the search address
+                        let tx_type = if tx.receiver == search_address { "incoming" } else { "outgoing" };
+                        
+                        Some(json!({
+                            "id": tx.transaction_id,
+                            "type": tx_type,
+                            "sender": tx.sender.to_string(),
+                            "receiver": tx.receiver.to_string(),
+                            "amount": tx.amount,
+                            "amount_formatted": format_kari_amount(tx.amount),
+                            "timestamp": tx.timestamp,
+                            "datetime": chrono::DateTime::<chrono::Utc>::from_timestamp(tx.timestamp as i64, 0)
+                                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                                .unwrap_or_else(|| "Unknown time".to_string()),
+                            "block_index": block.index,
+                        }))
+                    } else {
+                        None
+                    }
                 })
                 .collect::<Vec<_>>()
         })
-        .collect::<Vec<_>>();
-    
+        .collect::<Vec<_>>();    
+    log::debug!("Found {} matching transactions", transactions.len());
+
     // Sort transactions by timestamp, most recent first
     transactions.sort_by(|a, b| {
         let a_time = a["timestamp"].as_u64().unwrap_or(0);
@@ -246,13 +267,18 @@ pub fn search_transactions(params: Params) -> JsonRpcResult<JsonValue> {
         vec![]
     };
     
-    // Create response
+    // Create response with debug information
     Ok(json!({
         "address": search_params.address,
         "total_transactions": total_count,
         "returned_transactions": transactions.len(),
         "offset": offset,
-        "transactions": transactions
+        "transactions": transactions,
+        "debug": {
+            "blockchain_blocks": total_blocks,
+            "blockchain_total_transactions": total_transactions_in_blockchain,
+            "search_address_parsed": search_address.to_string()
+        }
     }))
 }
 

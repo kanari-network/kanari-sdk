@@ -2,7 +2,7 @@ use mona_blockchain::{block::Transaction, blockchain::{get_balance, normalize_ad
 use crate::utils::{GAS_FEE_COLLECTOR, calculate_total_transaction_cost};
 pub mod verify_transaction;
 use verify_transaction::verify_transaction;
-use mona_crypto::{load_wallet, secure_clear, is_password_strong}; // Add password strength check
+use mona_crypto::{load_wallet, secure_clear, is_password_strong};
 
 /// Transfer tokens from one address to another
 pub fn transfer_tokens(
