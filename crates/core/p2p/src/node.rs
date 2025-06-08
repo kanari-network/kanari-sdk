@@ -12,8 +12,10 @@ use mona_blockchain::block::Block;
 use mona_blockchain::blockchain::BlockchainError;
 use consensus_pos::Blake3Algorithm;
 use mona_crypto::hash_data_blake3;
-use rand::Rng; // Add Rng trait import
-pub mod coordinator;
+use rand::Rng;
+
+use crate::coordinator; 
+
 
 // Peer data structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1060,7 +1062,7 @@ fn process_peer_message(
 }
 
 // Helper function to send a message to a specific peer
-fn send_message_to_peer(peer_id: &str, message: &NodeMessage) -> Result<(), BlockchainError> {
+pub fn send_message_to_peer(peer_id: &str, message: &NodeMessage) -> Result<(), BlockchainError> {
     let connections = ACTIVE_CONNECTIONS.read().unwrap();
 
     let stream = match connections.get(peer_id) {
@@ -1165,7 +1167,7 @@ fn discover_peers(
 }
 
 // Connect to a peer with handshake and enhanced security
-fn connect_to_peer(peer_addr: &str, config: &NodeConfig) -> Result<(), BlockchainError> {
+pub fn connect_to_peer(peer_addr: &str, config: &NodeConfig) -> Result<(), BlockchainError> {
     // Parse the address
     let socket_addr = match peer_addr.to_socket_addrs() {
         Ok(mut addrs) => match addrs.next() {

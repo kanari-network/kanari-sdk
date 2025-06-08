@@ -1,5 +1,6 @@
 use colored::Colorize;
 use network::NetworkConfig;
+use p2p_protocol::node::get_local_ip;
 use panorama::simulation::run_blockchain;
 
 use common::{load_kanari_config, save_kanari_config, ensure_network_config, load_config};
@@ -52,7 +53,7 @@ pub async fn start_server(
     };
 
     // Get the local IP address earlier for consistent use in configurations
-    let determined_local_ip = match panorama::node::get_local_ip() {
+    let determined_local_ip = match get_local_ip() {
         Some(ip) => ip,
         None => {
             eprintln!("Warning: Could not determine local IP address. Defaulting to 127.0.0.1 for configuration purposes.");

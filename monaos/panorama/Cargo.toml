@@ -56,7 +56,7 @@ common = { workspace = true }
 # Keep key dependency but only for signing functions, not circular features
 key = { path = "../../crates/core/wallet/key", default-features = false }
 
-
+p2p-protocol.workspace = true
 
 mona-storage.workspace = true
 mona-crypto.workspace = true

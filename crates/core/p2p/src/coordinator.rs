@@ -8,7 +8,8 @@ use consensus_pos::Blake3Algorithm;
 use mona_blockchain::blockchain::BlockchainError;
 use std::net::ToSocketAddrs;
 
-use super::{send_message_to_peer, ACTIVE_CONNECTIONS, NodeMessage};
+use crate::node::{send_message_to_peer, ACTIVE_CONNECTIONS, NodeMessage, NODE_CONFIG, connect_to_peer};
+
 
 /// Network statistics tracker
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -198,7 +199,7 @@ pub fn get_network_statistics() -> NetworkStats {
     let mut stats = NETWORK_STATS.lock().unwrap();
     
     // Update peer count
-    stats.peers_connected = super::get_peer_count();
+    stats.peers_connected = crate::node::get_peer_count();
     
     // Update timestamp
     stats.last_update = SystemTime::now()
@@ -243,12 +244,12 @@ pub fn connect_to_peer_by_name(address: &str) -> Result<String, BlockchainError>
     };
     
     // Get node configuration for connection attempt
-    let config = super::NODE_CONFIG.read().unwrap().clone();
+    let config = NODE_CONFIG.read().unwrap().clone();
     
     // Attempt connection with resolved address
     info!("Connecting to peer at {} (resolved from {})", resolved_addr, address);
     
-    match super::connect_to_peer(&resolved_addr, &config) {
+    match connect_to_peer(&resolved_addr, &config) {
         Ok(()) => {
             info!("Successfully connected to peer at {} ({})", address, resolved_addr);
             Ok(resolved_addr)

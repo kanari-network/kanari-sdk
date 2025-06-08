@@ -6,8 +6,7 @@ use std::{path::PathBuf, process::exit};
 use kari_move::{
     base::{
         build::Build, coverage::{Coverage, CoverageSummaryOptions}, disassemble::Disassemble, 
-        docgen::Docgen, errmap::Errmap, info::Info, migrate::Migrate, new::New, 
-        publish::Publish, call::Call, test::Test
+        docgen::Docgen, errmap::Errmap, info::Info, migrate::Migrate, new::New, test::Test
     }, run_cli, sandbox, Command, Move
 };
 
@@ -28,8 +27,6 @@ const COMMANDS: &[CommandInfo] = &[
     CommandInfo { name: "new", description: "Create a new Move package with name `name` at `path`. If `path` is not provided the package will" },
     CommandInfo { name: "", description: "be created in the directory `name`" },
     CommandInfo { name: "test", description: "Run Move unit tests" },
-    CommandInfo { name: "publish", description: "Publish Move module to blockchain network" },
-    CommandInfo { name: "call", description: "Call a function in a Move module on the blockchain" },
     CommandInfo { name: "sandbox", description: "Execute sandbox commands" },
 ];
 
@@ -162,170 +159,6 @@ pub fn handle_move_command() {
             compute_coverage: false,
             gas_limit: None
         }),
-        Some("publish") => {
-            // Default to current directory if not specified
-            let module_path = if args.len() > 3 && !args[3].starts_with("--") {
-                PathBuf::from(args[3].clone())
-            } else {
-                std::env::current_dir().unwrap_or_else(|_| PathBuf::new())
-            };
-            
-            // Helper function to get parameter values more reliably
-            fn get_param_value(args: &[String], prefix: &str) -> Option<String> {
-                // Check for --param=value format
-                if let Some(arg) = args.iter().find(|arg| arg.starts_with(prefix)) {
-                    return Some(arg.trim_start_matches(prefix).to_string());
-                }
-                
-                // Check for --param value format
-                for i in 0..args.len().saturating_sub(1) {
-                    if args[i] == format!("--{}", prefix.trim_end_matches('=')) {
-                        return Some(args[i+1].clone());
-                    }
-                }
-                
-                None
-            }
-            
-            // Check for gas_budget parameter (improved to handle both formats)
-            let gas_budget = get_param_value(&args, "--gas-budget=")
-                .or_else(|| get_param_value(&args, "--gas-budget"))
-                .and_then(|val| val.parse::<u64>().ok())
-                .unwrap_or(3_000_000); // Default to 3M gas units
-            
-            // Check for --skip-verify flag
-            let skip_verify = args.iter().any(|arg| arg == "--skip-verify");
-            
-            // Get address parameter (improved to handle both formats)
-            let address_str = get_param_value(&args, "--address=")
-                .or_else(|| get_param_value(&args, "--address"));
-            
-            // Parse address if provided, with better error handling
-            let address = if let Some(addr_str) = address_str {
-                use move_core_types::account_address::AccountAddress;
-                
-                // Add 0x prefix if missing
-                let addr_with_prefix = if !addr_str.starts_with("0x") {
-                    format!("0x{}", addr_str)
-                } else {
-                    addr_str.clone()
-                };
-                
-                match AccountAddress::from_hex_literal(&addr_with_prefix)
-                    .or_else(|_| AccountAddress::from_hex(&addr_str))
-                {
-                    Ok(addr) => Some(addr),
-                    Err(_) => {
-                        eprintln!("Error: Invalid address format: {}", addr_str);
-                        eprintln!("Address must be in format 0x<hex> or <hex>");
-                        std::process::exit(1);
-                    }
-                }
-            } else {
-                None
-            };
-            
-            // Get password parameter (improved to handle both formats)
-            let password = get_param_value(&args, "--password=")
-                .or_else(|| get_param_value(&args, "--password"));
-            
-            // Check if wallet exists before continuing
-            if address.is_none() && common::get_main_wallet().is_none() {
-                eprintln!("Error: No wallet configured. Please specify an address with --address or configure a wallet.");
-                eprintln!("To create a wallet, run: kari wallet create");
-                std::process::exit(1);
-            }
-            
-            Command::Publish(Publish {
-                module_path,
-                gas_budget,
-                skip_verify,
-                address,
-                password,
-            })
-        },
-        Some("call") => {
-            // สร้างฟังก์ชันช่วยในการดึงค่าพารามิเตอร์ทั้งสองรูปแบบ
-            fn get_param_value(args: &[String], name: &str) -> Option<String> {
-                // รูปแบบ --name=value
-                if let Some(arg) = args.iter().find(|arg| arg.starts_with(&format!("{}=", name))) {
-                    return Some(arg.trim_start_matches(&format!("{}=", name)).to_string());
-                }
-
-                // รูปแบบ --name value
-                for i in 0..args.len().saturating_sub(1) {
-                    if args[i] == name {
-                        return Some(args[i + 1].clone());
-                    }
-                }
-
-                None
-            }
-
-            // ดึงค่า module_id
-            let module_id = match get_param_value(&args, "--module-id") {
-                Some(value) => value,
-                None => {
-                    eprintln!("Error: --module-id parameter is required");
-                    std::process::exit(1);
-                }
-            };
-
-            // ดึงค่า function
-            let function = match get_param_value(&args, "--function") {
-                Some(value) => value,
-                None => {
-                    eprintln!("Error: --function parameter is required");
-                    std::process::exit(1);
-                }
-            };
-
-            // ดึงค่า args (อาร์กิวเมนต์)
-            let mut args_list = Vec::new();
-            
-            // ตรวจสอบ args ในรูปแบบ --args=val1,val2
-            if let Some(args_str) = get_param_value(&args, "--args") {
-                args_list = args_str.split(',')
-                    .map(|s| s.to_string())
-                    .collect();
-            }
-
-            // ดึงค่า gas_budget
-            let gas_budget = get_param_value(&args, "--gas-budget")
-                .and_then(|v| v.parse::<u64>().ok())
-                .unwrap_or(1_000_000);
-
-            // ดึงค่า address
-            let address = get_param_value(&args, "--address")
-                .and_then(|addr_str| {
-                    let addr_with_prefix = if !addr_str.starts_with("0x") {
-                        format!("0x{}", addr_str)
-                    } else {
-                        addr_str
-                    };
-                    
-                    use move_core_types::account_address::AccountAddress;
-                    AccountAddress::from_hex_literal(&addr_with_prefix)
-                        .or_else(|_| AccountAddress::from_hex(&addr_with_prefix.trim_start_matches("0x")))
-                        .ok()
-                });
-
-            // ดึงค่า password
-            let password = get_param_value(&args, "--password");
-            
-            // Check for .mvsm file path if provided
-            let mvsm_path = get_param_value(&args, "--mvsm-file");
-
-            Command::Call(Call {
-                module_id,
-                function,
-                args: args_list,
-                gas_budget,
-                address,
-                password,
-                mvsm_file: mvsm_path,
-            })
-        },
         Some("sandbox") => Command::Sandbox {
             storage_dir: PathBuf::from(kari_move::DEFAULT_STORAGE_DIR),
             cmd: sandbox::cli::SandboxCommand::Clean {}

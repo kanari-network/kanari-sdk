@@ -62,9 +62,7 @@ pub enum Command {
     Info(base::Info),
     Migrate(base::Migrate),
     New(base::New),
-    Publish(base::Publish),
     Test(base::Test),
-    Call(base::Call),
     Sandbox {
         /// Directory storing Move resources, events, and module bytecodes produced by module publishing
         /// and script execution.
@@ -115,12 +113,6 @@ pub fn run_cli(
                 vec![],
                 Some(cost_table.clone()),
             )
-        },
-        Command::Publish(cmd) => {
-            cmd.execute(args.package_path, args.build_config)
-        },
-        Command::Call(cmd) => {
-            cmd.execute()
         },
         Command::Sandbox { storage_dir, cmd } => {
             cmd.handle_command(

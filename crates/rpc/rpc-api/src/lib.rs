@@ -8,7 +8,6 @@ mod metadata;
 mod stake;
 mod get_block;
 mod accounts;
-mod move_api; // Add the new module
 
 use stake::{get_staking_info, get_staking_stats, stake_tokens, unstake_tokens};
 use get_block::{
@@ -20,13 +19,7 @@ use get_block::{
     get_gas_fee_info
 };
 use accounts::{get_blockchain_status, get_wallets, list_accounts, transfer_tokens};
-use move_api::{
-    list_modules,
-    get_module,
-    execute_function,
-    get_transaction,
-    get_vm_state
-};
+
 
 // Format function locally since panorama::utils is not available
 fn format_kari_amount(ka_amount: u64) -> String {
@@ -134,26 +127,6 @@ pub async fn start_rpc_server(network_config: NetworkConfig) -> Result<(), tokio
         futures::future::ready(get_staking_stats(params)).boxed()
     });
 
-    // Add Move VM operations
-    io.add_method("list_modules", |params| {
-        futures::future::ready(list_modules(params)).boxed()
-    });
-
-    io.add_method("get_module", |params| {
-        futures::future::ready(get_module(params)).boxed()
-    });
-
-    io.add_method("execute_function", |params| {
-        futures::future::ready(execute_function(params)).boxed()
-    });
-
-    io.add_method("get_transaction", |params| {
-        futures::future::ready(get_transaction(params)).boxed()
-    });
-
-    io.add_method("get_vm_state", |params| {
-        futures::future::ready(get_vm_state(params)).boxed()
-    });
 
     // Configure socket address - bind only to localhost if in localhost_only mode
     let bind_addr = if network_config.localhost_only {
