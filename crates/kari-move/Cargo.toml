@@ -37,7 +37,6 @@ common.workspace = true
 mona-crypto.workspace = true
 mona-blockchain.workspace = true
 mona-types.workspace = true
-mona-vm.workspace = true
 
 
 # Move dependencies
