@@ -2,7 +2,7 @@ use mona_blockchain::{block::Transaction, blockchain::{get_balance, normalize_ad
 use crate::utils::{GAS_FEE_COLLECTOR, calculate_total_transaction_cost};
 pub mod verify_transaction;
 use verify_transaction::verify_transaction;
-use mona_crypto::{load_wallet, secure_clear, is_password_strong};
+use mona_crypto::{load_wallet, is_password_strong};
 
 /// Transfer tokens from one address to another
 pub fn transfer_tokens(
@@ -77,16 +77,13 @@ pub fn transfer_tokens(
     let address_str = from.to_hex_literal();
     log::debug!("Trying to load wallet for address: {}", address_str);
     
-    // Create secure password copy
-    let password_copy = password.to_string();
-    
-    // Try to sign with mona-crypto
-    let signing_result = match load_wallet(&address_str, &password_copy) {
+    // Try to sign with mona-crypto (using password directly to minimize copies)
+    let signing_result = match load_wallet(&address_str, password) {
         Ok(wallet) => {
             log::debug!("Successfully loaded wallet with curve type: {:?}", wallet.curve_type);
             
             // Sign the transaction with mona-crypto
-            match wallet.sign(&message, &password_copy) {
+            match wallet.sign(&message, password) {
                 Ok(signature) => {
                     let sig_len = signature.len();
                     log::debug!("Successfully signed transaction: signature length = {}", sig_len);
@@ -120,14 +117,8 @@ pub fn transfer_tokens(
         }
     };
     
-    // Securely clear password copy from memory
-    let mut password_bytes = password_copy.into_bytes();
-    secure_clear(&mut password_bytes);
-    
     // Handle signing result
-    if let Err(e) = signing_result {
-        return Err(e);
-    }
+    signing_result?;
     
     let mut balances = match BALANCES.lock() {
         Ok(guard) => guard,

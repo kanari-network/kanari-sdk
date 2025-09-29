@@ -53,12 +53,17 @@ fn create_mock_transaction(
 ) -> Transaction {
     use std::time::{SystemTime, UNIX_EPOCH};
     
-    // Generate a transaction ID
+    // Generate a unique transaction ID (thread-safe)
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs();
-    let transaction_id = format!("mock_tx_{}_{}_{}", sender.to_hex_literal(), receiver.to_hex_literal(), now);
+        .as_nanos(); // Use nanoseconds for better uniqueness
+    let random_component = rand::thread_rng().gen_range(0u32..u32::MAX); // Add randomness
+    let transaction_id = format!("mock_tx_{}_{}_{}_{}", 
+        sender.to_hex_literal(), 
+        receiver.to_hex_literal(), 
+        now, 
+        random_component);
     
     // Create signature with varying complexity
     let mut dummy_signature = vec![0u8; 64]; // Base signature size
@@ -74,10 +79,10 @@ fn create_mock_transaction(
     
     Transaction {
         transaction_id,
-        sender: sender.clone(),
-        receiver: receiver.clone(),
+        sender: *sender,
+        receiver: *receiver,
         amount,
-        timestamp: now,
+        timestamp: (now / 1_000_000_000) as u64, // Convert nanoseconds to seconds
         gas_fee: 10 + (complexity_factor as u64 / 10), // Gas fee scales with complexity
         signature: dummy_signature,
         data: None, // No real data payload

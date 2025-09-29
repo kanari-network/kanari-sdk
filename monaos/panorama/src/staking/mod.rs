@@ -7,7 +7,7 @@ use mona_types::kari::{
     KA_PER_KARI, NODE_STAKING_MINIMUM_KA, VALIDATOR_STAKING_MINIMUM_KA,
     STAKING_REWARD_PERCENTAGE, POOL_ADDRESS, POOL_RESERVED_KA
 };
-use log::{debug, info, warn};
+use log::{debug, info, warn, error};
 use serde::{Serialize, Deserialize};
 use bincode;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -94,7 +94,7 @@ pub fn stake_tokens(
     
     // Create staked node with security hash
     let staked_node = StakedNode {
-        address: address.clone(),
+        address: *address,
         staked_amount: amount,
         is_validator,
         staked_at: current_time,
@@ -107,27 +107,37 @@ pub fn stake_tokens(
     // Update staking pool
     {
         // Lock balances and deduct staked amount
-        let mut balances = BALANCES.lock().unwrap();
+        let mut balances = BALANCES.lock().map_err(|_| 
+            BlockchainError::Transaction("Failed to lock balances".to_string())
+        )?;
         if let Some(user_balance) = balances.get_mut(&address_str) {
             if *user_balance < amount {
                 return Err(BlockchainError::InsufficientFunds(
-                    format!("Insufficient balance during staking lock")
+                    "Insufficient balance during staking lock".to_string()
                 ));
             }
             *user_balance -= amount;
         } else {
             return Err(BlockchainError::InsufficientFunds(
-                format!("User balance not found during staking process")
+                "User balance not found during staking process".to_string()
             ));
         }
     }
     
     // Update staking data with security hash
     {
-        let mut staking_nodes = STAKING_NODES.write().unwrap();
-        let mut staking_pool = STAKING_POOL.lock().unwrap();
-        let mut active_validators = ACTIVE_VALIDATORS.write().unwrap();
-        let mut hash_cache = NODE_HASH_CACHE.write().unwrap();
+        let mut staking_nodes = STAKING_NODES.write().map_err(|_| 
+            BlockchainError::Transaction("Failed to lock staking nodes".to_string())
+        )?;
+        let mut staking_pool = STAKING_POOL.lock().map_err(|_| 
+            BlockchainError::Transaction("Failed to lock staking pool".to_string())
+        )?;
+        let mut active_validators = ACTIVE_VALIDATORS.write().map_err(|_| 
+            BlockchainError::Transaction("Failed to lock active validators".to_string())
+        )?;
+        let mut hash_cache = NODE_HASH_CACHE.write().map_err(|_| 
+            BlockchainError::Transaction("Failed to lock node hash cache".to_string())
+        )?;
         
         // Update staking stats
         staking_pool.total_staked += amount;
@@ -165,7 +175,9 @@ pub fn unstake_tokens(
     
     // Get staked node info
     let (staked_amount, is_validator, unlock_time, accumulated_rewards) = {
-        let staking_nodes = STAKING_NODES.read().unwrap();
+        let staking_nodes = STAKING_NODES.read().map_err(|_| 
+            BlockchainError::Transaction("Failed to lock staking nodes for reading".to_string())
+        )?;
         
         match staking_nodes.get(&address_str) {
             Some(node) => (
@@ -192,8 +204,10 @@ pub fn unstake_tokens(
     
     if current_time < unlock_time {
         // Calculate penalty (10% of staked amount)
-        early_unlock_penalty = staked_amount / 10;
-        withdrawal_amount -= early_unlock_penalty;
+        early_unlock_penalty = staked_amount.checked_div(10)
+            .ok_or_else(|| BlockchainError::Transaction("Division error in penalty calculation".to_string()))?;
+        withdrawal_amount = withdrawal_amount.checked_sub(early_unlock_penalty)
+            .ok_or_else(|| BlockchainError::Transaction("Underflow in withdrawal calculation".to_string()))?;
         
         warn!(
             "Early unstaking by {}. Penalty: {} KARI ({} KA)",
@@ -201,13 +215,40 @@ pub fn unstake_tokens(
             early_unlock_penalty as f64 / KA_PER_KARI as f64,
             early_unlock_penalty
         );
+        
+        // Return penalty to the reward pool
+        if early_unlock_penalty > 0 {
+            let pool_address = match normalize_address(POOL_ADDRESS) {
+                Ok(addr) => addr.to_hex_literal(),
+                Err(_) => {
+                    error!("Invalid pool address, penalty lost: {} KA", early_unlock_penalty);
+                    // Continue without adding penalty to pool
+                    String::new()
+                }
+            };
+            
+            if !pool_address.is_empty() {
+                let mut balances = BALANCES.lock().map_err(|_| 
+                    BlockchainError::Transaction("Failed to lock balances for penalty".to_string())
+                )?;
+                let pool_balance = balances.entry(pool_address).or_insert(0);
+                *pool_balance = pool_balance.checked_add(early_unlock_penalty)
+                    .ok_or_else(|| BlockchainError::Transaction("Overflow in pool penalty addition".to_string()))?;
+            }
+        }
     }
     
     // Update staking data
     {
-        let mut staking_nodes = STAKING_NODES.write().unwrap();
-        let mut staking_pool = STAKING_POOL.lock().unwrap();
-        let mut active_validators = ACTIVE_VALIDATORS.write().unwrap();
+        let mut staking_nodes = STAKING_NODES.write().map_err(|_| 
+            BlockchainError::Transaction("Failed to lock staking nodes for update".to_string())
+        )?;
+        let mut staking_pool = STAKING_POOL.lock().map_err(|_| 
+            BlockchainError::Transaction("Failed to lock staking pool for update".to_string())
+        )?;
+        let mut active_validators = ACTIVE_VALIDATORS.write().map_err(|_| 
+            BlockchainError::Transaction("Failed to lock active validators for update".to_string())
+        )?;
         
         staking_pool.total_staked -= staked_amount;
         staking_pool.nodes_count -= 1;
@@ -223,8 +264,14 @@ pub fn unstake_tokens(
     
     // Return tokens to user's balance (minus penalty if applicable)
     {
-        let mut balances = BALANCES.lock().unwrap();
-        *balances.entry(address_str.clone()).or_insert(0) += withdrawal_amount + accumulated_rewards;
+        let mut balances = BALANCES.lock().map_err(|_| 
+            BlockchainError::Transaction("Failed to lock balances for withdrawal".to_string())
+        )?;
+        let total_return = withdrawal_amount.checked_add(accumulated_rewards)
+            .ok_or_else(|| BlockchainError::Transaction("Integer overflow in withdrawal calculation".to_string()))?;
+        let current_balance = balances.entry(address_str.clone()).or_insert(0);
+        *current_balance = current_balance.checked_add(total_return)
+            .ok_or_else(|| BlockchainError::Transaction("Integer overflow in balance update".to_string()))?;
     }
     
     info!(

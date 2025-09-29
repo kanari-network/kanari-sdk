@@ -26,7 +26,9 @@ fn parse_address(address: &str) -> Result<Address, String> {
         .map_err(|_| format!("Invalid address format: {}", address))
 }
 
-// Add pending transactions queue
+// Add pending transactions queue with size limit to prevent memory leaks
+const MAX_PENDING_TRANSACTIONS: usize = 100000; // Configurable limit
+
 lazy_static::lazy_static! {
     static ref PENDING_TRANSACTIONS: RwLock<VecDeque<Transaction>> = RwLock::new(VecDeque::new());
 }
@@ -35,12 +37,51 @@ lazy_static::lazy_static! {
 pub fn add_pending_transaction(transaction: Transaction) -> bool {
     match PENDING_TRANSACTIONS.write() {
         Ok(mut queue) => {
+            // Check if queue is at capacity
+            if queue.len() >= MAX_PENDING_TRANSACTIONS {
+                warn!("Pending transactions queue at capacity ({}), dropping oldest transaction", MAX_PENDING_TRANSACTIONS);
+                queue.pop_front(); // Remove oldest transaction
+            }
+            
             queue.push_back(transaction);
             // Update pending transaction count for gas calculation
             update_pending_transaction_count(queue.len());
             true
         },
-        Err(_) => false
+        Err(e) => {
+            error!("Failed to write to pending transactions queue: {:?}", e);
+            false
+        }
+    }
+}
+
+// Clean up old pending transactions (call periodically)
+pub fn cleanup_old_pending_transactions(max_age_seconds: u64) -> Result<usize, String> {
+    match PENDING_TRANSACTIONS.write() {
+        Ok(mut queue) => {
+            let current_time = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            
+            let initial_len = queue.len();
+            queue.retain(|tx| {
+                let age = current_time.saturating_sub(tx.timestamp);
+                age <= max_age_seconds
+            });
+            
+            let removed_count = initial_len - queue.len();
+            if removed_count > 0 {
+                info!("Cleaned up {} old pending transactions", removed_count);
+                update_pending_transaction_count(queue.len());
+            }
+            
+            Ok(removed_count)
+        },
+        Err(e) => {
+            error!("Failed to cleanup pending transactions: {:?}", e);
+            Err("Failed to lock pending transactions for cleanup".to_string())
+        }
     }
 }
 
@@ -158,8 +199,7 @@ fn force_transaction_inclusion(transaction: &Transaction) -> bool {
     };
 
     // Create transaction list
-    let mut transactions = Vec::new();
-    transactions.push(transaction.clone());
+    let transactions = vec![transaction.clone()];
 
     // Create a forced block with this transaction
     let timestamp = std::time::SystemTime::now()
@@ -565,11 +605,17 @@ pub fn run_blockchain(
             staking_rewards as f64 / KA_PER_KARI as f64,
             match crate::staking::get_pool_remaining_balance() {
                 Ok(balance) => balance,
-                Err(_) => 0
+                Err(e) => {
+                    warn!("Failed to get pool balance: {}", e);
+                    0
+                }
             },
             match crate::staking::get_pool_remaining_balance() {
                 Ok(balance) => balance as f64 / KA_PER_KARI as f64,
-                Err(_) => 0.0
+                Err(e) => {
+                    warn!("Failed to get pool balance for display: {}", e);
+                    0.0
+                }
             },
             POOL_ADDRESS,
             get_peer_count(),
