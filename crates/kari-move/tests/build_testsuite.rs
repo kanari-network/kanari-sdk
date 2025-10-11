@@ -2,14 +2,13 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-
-use std::path::{Path, PathBuf};
-use std::env;
 use kari_move::sandbox::commands::test;
+use std::env;
+use std::path::{Path, PathBuf};
 
 fn run_all(args_path: &Path) -> datatest_stable::Result<()> {
-    let cli_exe = env::var("CARGO_BIN_EXE_move")
-        .expect("Failed to get move binary path from environment");
+    let cli_exe =
+        env::var("CARGO_BIN_EXE_move").expect("Failed to get move binary path from environment");
     let use_temp_dir = !args_path.parent().unwrap().join("NO_TEMPDIR").exists();
     test::run_one(
         args_path,

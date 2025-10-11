@@ -7,15 +7,15 @@ use crate::{DEFAULT_BUILD_DIR, DEFAULT_STORAGE_DIR};
 use move_command_line_common::{
     env::read_bool_env_var,
     files::{find_filenames, path_to_string},
-    testing::{add_update_baseline_fix, format_diff, read_env_update_baseline, EXP_EXT},
+    testing::{EXP_EXT, add_update_baseline_fix, format_diff, read_env_update_baseline},
 };
 use move_compiler::command_line::COLOR_MODE_ENV_VAR;
 use move_coverage::coverage_map::{CoverageMap, ExecCoverageMapWithModules};
 use move_package::{
+    BuildConfig,
     compilation::{compiled_package::OnDiskCompiledPackage, package_layout::CompiledPackageLayout},
     resolution::resolution_graph::ResolvedGraph,
     source_package::{layout::SourcePackageLayout, manifest_parser::parse_move_manifest_from_file},
-    BuildConfig,
 };
 use std::{
     collections::{BTreeMap, HashMap},

@@ -1,15 +1,16 @@
+use consensus_pos::Blake3Algorithm;
+use log::{debug, info, warn};
+use mona_blockchain::block::{Block, Transaction};
+use mona_blockchain::blockchain::BlockchainError;
+use serde::{Deserialize, Serialize};
+use std::net::ToSocketAddrs;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use log::{info, warn, debug};
 use tokio::sync::mpsc;
-use serde::{Serialize, Deserialize};
-use mona_blockchain::block::{Block, Transaction};
-use consensus_pos::Blake3Algorithm;
-use mona_blockchain::blockchain::BlockchainError;
-use std::net::ToSocketAddrs;
 
-use crate::node::{send_message_to_peer, ACTIVE_CONNECTIONS, NodeMessage, NODE_CONFIG, connect_to_peer};
-
+use crate::node::{
+    ACTIVE_CONNECTIONS, NODE_CONFIG, NodeMessage, connect_to_peer, send_message_to_peer,
+};
 
 /// Network statistics tracker
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,28 +51,31 @@ lazy_static::lazy_static! {
 // Domain resolution helper - Resolves domain names to IP addresses
 pub fn resolve_domain(addr: &str) -> Result<String, BlockchainError> {
     debug!("Resolving address: {}", addr);
-    
+
     // Check if address contains a port
     let (host, port) = if addr.contains(':') {
         let parts: Vec<&str> = addr.split(':').collect();
         if parts.len() != 2 {
-            return Err(BlockchainError::Network(format!("Invalid address format: {}", addr)));
+            return Err(BlockchainError::Network(format!(
+                "Invalid address format: {}",
+                addr
+            )));
         }
         (parts[0], parts[1])
     } else {
         // Default to P2P port if no port specified
         (addr, "51303")
     };
-    
+
     // If it's already an IP address, just return it
     if host.parse::<std::net::IpAddr>().is_ok() {
         return Ok(addr.to_string());
     }
-    
+
     // Attempt DNS resolution
     let socket_addr = format!("{}:{}", host, port);
     info!("Attempting DNS resolution for {}", socket_addr);
-    
+
     match socket_addr.to_socket_addrs() {
         Ok(mut addrs) => {
             if let Some(addr) = addrs.next() {
@@ -79,39 +83,47 @@ pub fn resolve_domain(addr: &str) -> Result<String, BlockchainError> {
                 info!("Resolved {} to {}", socket_addr, resolved);
                 Ok(resolved)
             } else {
-                Err(BlockchainError::Network(format!("Could not resolve domain: {}", host)))
+                Err(BlockchainError::Network(format!(
+                    "Could not resolve domain: {}",
+                    host
+                )))
             }
-        },
-        Err(e) => {
-            Err(BlockchainError::Network(format!("DNS resolution failed for {}: {}", host, e)))
         }
+        Err(e) => Err(BlockchainError::Network(format!(
+            "DNS resolution failed for {}: {}",
+            host, e
+        ))),
     }
 }
 
 // Broadcast a transaction to all peers
 pub fn broadcast_transaction(transaction: &Transaction) -> Result<(), BlockchainError> {
     let transaction_id = transaction.transaction_id.clone();
-    
+
     // Create transaction announcement with just the ID
     // Peers will request the full transaction if needed
     let announcement = NodeMessage::TransactionAnnounce {
         transaction_ids: vec![transaction_id.clone()],
     };
-    
+
     // Get list of connected peers
     let peer_ids = {
         let connections = ACTIVE_CONNECTIONS.read().unwrap();
         connections.keys().cloned().collect::<Vec<_>>()
     };
-    
+
     // Exit early if no peers
     if peer_ids.is_empty() {
         debug!("No peers to broadcast transaction {}", transaction_id);
         return Ok(());
     }
-    
-    info!("Broadcasting transaction {} to {} peers", transaction_id, peer_ids.len());
-    
+
+    info!(
+        "Broadcasting transaction {} to {} peers",
+        transaction_id,
+        peer_ids.len()
+    );
+
     // Broadcast to all peers
     let mut success_count = 0;
     for peer_id in &peer_ids {
@@ -119,10 +131,13 @@ pub fn broadcast_transaction(transaction: &Transaction) -> Result<(), Blockchain
             warn!("Failed to announce transaction to peer {}: {}", peer_id, e);
         } else {
             success_count += 1;
-            debug!("Transaction {} announced to peer {}", transaction_id, peer_id);
+            debug!(
+                "Transaction {} announced to peer {}",
+                transaction_id, peer_id
+            );
         }
     }
-    
+
     // Update statistics
     if success_count > 0 {
         let mut stats = NETWORK_STATS.lock().unwrap();
@@ -133,32 +148,39 @@ pub fn broadcast_transaction(transaction: &Transaction) -> Result<(), Blockchain
             .unwrap_or_default()
             .as_secs();
     }
-    
+
     Ok(())
 }
 
 // Broadcast a block to all peers
-pub fn broadcast_block(block: &Block<Blake3Algorithm>, status_tx: &mpsc::Sender<String>) -> Result<(), BlockchainError> {
+pub fn broadcast_block(
+    block: &Block<Blake3Algorithm>,
+    status_tx: &mpsc::Sender<String>,
+) -> Result<(), BlockchainError> {
     // Create block announcement
     let announcement = NodeMessage::BlockAnnounce {
         block_index: block.index as u64, // Convert u32 to u64
         block_hash: block.hash.clone(),
     };
-    
+
     // Get list of connected peers
     let peer_ids = {
         let connections = ACTIVE_CONNECTIONS.read().unwrap();
         connections.keys().cloned().collect::<Vec<_>>()
     };
-    
+
     // Exit early if no peers
     if peer_ids.is_empty() {
         debug!("No peers to broadcast block {}", block.index);
         return Ok(());
     }
-    
-    info!("Broadcasting block {} to {} peers", block.index, peer_ids.len());
-    
+
+    info!(
+        "Broadcasting block {} to {} peers",
+        block.index,
+        peer_ids.len()
+    );
+
     // Broadcast to all peers
     let mut success_count = 0;
     for peer_id in &peer_ids {
@@ -169,7 +191,7 @@ pub fn broadcast_block(block: &Block<Blake3Algorithm>, status_tx: &mpsc::Sender<
             debug!("Block {} announced to peer {}", block.index, peer_id);
         }
     }
-    
+
     // Update statistics
     if success_count > 0 {
         let mut stats = NETWORK_STATS.lock().unwrap();
@@ -179,7 +201,7 @@ pub fn broadcast_block(block: &Block<Blake3Algorithm>, status_tx: &mpsc::Sender<
             .unwrap_or_default()
             .as_secs();
     }
-    
+
     // Notify UI about the block broadcast
     let broadcast_status = serde_json::json!({
         "event": "block_broadcast",
@@ -187,26 +209,27 @@ pub fn broadcast_block(block: &Block<Blake3Algorithm>, status_tx: &mpsc::Sender<
         "block_hash": block.hash,
         "peer_count": peer_ids.len(),
         "success_count": success_count
-    }).to_string();
-    
+    })
+    .to_string();
+
     let _ = status_tx.blocking_send(broadcast_status);
-    
+
     Ok(())
 }
 
 // Get the latest network statistics
 pub fn get_network_statistics() -> NetworkStats {
     let mut stats = NETWORK_STATS.lock().unwrap();
-    
+
     // Update peer count
     stats.peers_connected = crate::node::get_peer_count();
-    
+
     // Update timestamp
     stats.last_update = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    
+
     stats.clone()
 }
 
@@ -225,10 +248,10 @@ pub fn get_connected_peers() -> Vec<String> {
 // Sync blockchain with a specific peer
 pub fn request_sync_from_peer(peer_id: &str) -> Result<(), BlockchainError> {
     info!("Requesting blockchain sync from peer {}", peer_id);
-    
+
     // Send a custom sync request message
     // (This could be expanded in the protocol)
-    
+
     Ok(())
 }
 
@@ -242,20 +265,29 @@ pub fn connect_to_peer_by_name(address: &str) -> Result<String, BlockchainError>
             return Err(e);
         }
     };
-    
+
     // Get node configuration for connection attempt
     let config = NODE_CONFIG.read().unwrap().clone();
-    
+
     // Attempt connection with resolved address
-    info!("Connecting to peer at {} (resolved from {})", resolved_addr, address);
-    
+    info!(
+        "Connecting to peer at {} (resolved from {})",
+        resolved_addr, address
+    );
+
     match connect_to_peer(&resolved_addr, &config) {
         Ok(()) => {
-            info!("Successfully connected to peer at {} ({})", address, resolved_addr);
+            info!(
+                "Successfully connected to peer at {} ({})",
+                address, resolved_addr
+            );
             Ok(resolved_addr)
-        },
+        }
         Err(e) => {
-            warn!("Failed to connect to peer at {} ({}): {}", address, resolved_addr, e);
+            warn!(
+                "Failed to connect to peer at {} ({}): {}",
+                address, resolved_addr, e
+            );
             Err(e)
         }
     }

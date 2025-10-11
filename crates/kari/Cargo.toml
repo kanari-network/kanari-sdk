@@ -11,10 +11,13 @@ license.workspace = true
 repository.workspace = true
 description.workspace = true
 
+
 [dependencies]
 colored.workspace = true
 chrono.workspace = true
 tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
 
 # This is a workspace crate, so we need to include the following dependencies
 mona-crypto.workspace = true

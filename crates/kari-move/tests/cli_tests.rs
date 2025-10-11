@@ -2,15 +2,14 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-
-use std::{env, path::PathBuf};
 use kari_move::sandbox::commands::test;
+use std::{env, path::PathBuf};
 
 pub const CLI_METATEST_PATH: [&str; 3] = ["tests", "metatests", "args.txt"];
 
 fn get_cli_binary_path() -> PathBuf {
-    let cli_exe = env::var("CARGO_BIN_EXE_move")
-        .expect("Failed to get move binary path from environment");
+    let cli_exe =
+        env::var("CARGO_BIN_EXE_move").expect("Failed to get move binary path from environment");
     PathBuf::from(cli_exe)
 }
 

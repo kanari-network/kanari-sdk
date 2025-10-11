@@ -82,47 +82,23 @@ pub fn run_cli(
 ) -> Result<()> {
     let _ = files;
     match command {
-        Command::Build(cmd) => {
-            cmd.execute(args.package_path, args.build_config)
-        },
-        Command::Coverage(cmd) => {
-            cmd.execute(args.package_path, args.build_config)
-        },
-        Command::Disassemble(cmd) => {
-            cmd.execute(args.package_path, args.build_config)
-        },
-        Command::Docgen(cmd) => {
-            cmd.execute(args.package_path, args.build_config)
-        },
-        Command::Errmap(cmd) => {
-            cmd.execute(args.package_path, args.build_config)
-        },
-        Command::Info(cmd) => {
-            cmd.execute(args.package_path, args.build_config)
-        },
-        Command::Migrate(cmd) => {
-            cmd.execute(args.package_path, args.build_config)
-        },
-        Command::New(cmd) => {
-            cmd.execute_with_defaults(args.package_path)
-        },
-        Command::Test(cmd) => {
-            cmd.execute(
-                args.package_path,
-                args.build_config,
-                vec![],
-                Some(cost_table.clone()),
-            )
-        },
+        Command::Build(cmd) => cmd.execute(args.package_path, args.build_config),
+        Command::Coverage(cmd) => cmd.execute(args.package_path, args.build_config),
+        Command::Disassemble(cmd) => cmd.execute(args.package_path, args.build_config),
+        Command::Docgen(cmd) => cmd.execute(args.package_path, args.build_config),
+        Command::Errmap(cmd) => cmd.execute(args.package_path, args.build_config),
+        Command::Info(cmd) => cmd.execute(args.package_path, args.build_config),
+        Command::Migrate(cmd) => cmd.execute(args.package_path, args.build_config),
+        Command::New(cmd) => cmd.execute_with_defaults(args.package_path),
+        Command::Test(cmd) => cmd.execute(
+            args.package_path,
+            args.build_config,
+            vec![],
+            Some(cost_table.clone()),
+        ),
         Command::Sandbox { storage_dir, cmd } => {
-            cmd.handle_command(
-                vec![],
-                cost_table,
-                error_descriptions,
-                &args,
-                &storage_dir,
-            )
-        },
+            cmd.handle_command(vec![], cost_table, error_descriptions, &args, &storage_dir)
+        }
     }
 }
 
@@ -141,4 +117,3 @@ pub fn move_cli(
         args.cmd,
     )
 }
-

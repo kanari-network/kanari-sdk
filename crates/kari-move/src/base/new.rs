@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use clap::*;
+use common::load_config;
 use move_package::source_package::layout::SourcePackageLayout;
 use std::{
     fmt::Display,
-    fs::{create_dir_all, File},
+    fs::{File, create_dir_all},
     io::Write,
     path::{Path, PathBuf},
 };
-use common::load_config;
 // TODO get a stable path to this stdlib
 // pub const MOVE_STDLIB_PACKAGE_NAME: &str = "MoveStdlib";
 // pub const MOVE_STDLIB_PACKAGE_PATH: &str = "{ \
@@ -31,15 +31,13 @@ pub struct New {
 }
 
 impl New {
-
     fn get_address_from_config() -> Option<String> {
         match load_config() {
-            Ok(config) => {
-                config.get("address")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.trim_end_matches(".enc").to_string())
-            },
-            Err(_) => None
+            Ok(config) => config
+                .get("address")
+                .and_then(|v| v.as_str())
+                .map(|s| s.trim_end_matches(".enc").to_string()),
+            Err(_) => None,
         }
     }
 
@@ -112,9 +110,8 @@ MoveStdlib = {{ git = "https://github.com/kanari-network/kanari-sdk.git", subdir
             writeln!(w, "{addr_name} = \"{addr_val}\"")?;
         }
 
-        let address = Self::get_address_from_config()
-            .unwrap_or_else(|| "0x1".to_string());
-        
+        let address = Self::get_address_from_config().unwrap_or_else(|| "0x1".to_string());
+
         writeln!(
             w,
             r#"

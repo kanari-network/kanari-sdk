@@ -23,12 +23,12 @@ use move_compiler::{
     shared::Identifier,
 };
 use move_symbol_pool::Symbol;
-use url::Url;
 use std::{
     collections::{BTreeMap, HashSet},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
+use url::Url;
 use vfs::VfsPath;
 
 /// Constructs an `lsp_types::CompletionItem` with the given `label` and `kind`.
@@ -283,7 +283,9 @@ fn context_specific_no_trigger(
             // the init function has a struct thats an one-time-witness candidate struct
             let otw_candidate = Symbol::from(mod_ident.module.value().to_uppercase());
             let init_snippet = if def_mdef.structs().contains_key(&otw_candidate) {
-                format!("{INIT_FN_NAME}(${{1:witness}}: {otw_candidate}, {sui_ctx_arg}) {{\n\t${{2:}}\n}}\n")
+                format!(
+                    "{INIT_FN_NAME}(${{1:witness}}: {otw_candidate}, {sui_ctx_arg}) {{\n\t${{2:}}\n}}\n"
+                )
             } else {
                 format!("{INIT_FN_NAME}({sui_ctx_arg}) {{\n\t${{1:}}\n}}\n")
             };
@@ -368,7 +370,7 @@ pub fn on_completion_request(
     eprintln!("handling completion request");
     let parameters = serde_json::from_value::<CompletionParams>(request.params.clone())
         .expect("could not deserialize completion request");
-    
+
     let path = Url::parse(parameters.text_document_position.text_document.uri.as_str())
         .ok()
         .and_then(|url| url.to_file_path().ok())

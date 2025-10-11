@@ -59,16 +59,16 @@ use crate::{
     diagnostics::{lsp_diagnostics, lsp_empty_diagnostics},
     utils::get_loc,
 };
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use codespan_reporting::files::SimpleFiles;
 use crossbeam::channel::Sender;
 use derivative::*;
 use im::ordmap::OrdMap;
 use lsp_server::{Request, RequestId};
 use lsp_types::{
-    request::GotoTypeDefinitionParams, Diagnostic, DocumentSymbol, DocumentSymbolParams,
-    GotoDefinitionParams, Hover, HoverContents, HoverParams, Location, MarkupContent, MarkupKind,
-    Position, Range, ReferenceParams, SymbolKind,
+    Diagnostic, DocumentSymbol, DocumentSymbolParams, GotoDefinitionParams, Hover, HoverContents,
+    HoverParams, Location, MarkupContent, MarkupKind, Position, Range, ReferenceParams, SymbolKind,
+    request::GotoTypeDefinitionParams,
 };
 
 use std::{
@@ -82,27 +82,27 @@ use std::{
 use tempfile::tempdir;
 use url::Url;
 use vfs::{
-    impls::{memory::MemoryFS, overlay::OverlayFS, physical::PhysicalFS},
     VfsPath,
+    impls::{memory::MemoryFS, overlay::OverlayFS, physical::PhysicalFS},
 };
 
 use move_command_line_common::files::FileHash;
 use move_compiler::{
-    command_line::compiler::{construct_pre_compiled_lib, FullyCompiledProgram},
+    PASS_CFGIR, PASS_PARSER, PASS_TYPING,
+    command_line::compiler::{FullyCompiledProgram, construct_pre_compiled_lib},
     editions::{Edition, FeatureGate, Flavor},
     expansion::ast::{
         self as E, AbilitySet, Fields, ModuleIdent, ModuleIdent_, Mutability, Value, Value_,
         Visibility,
     },
     linters::LintLevel,
-    naming::ast::{StructDefinition, StructFields, TParam, Type, TypeName_, Type_, UseFuns},
+    naming::ast::{StructDefinition, StructFields, TParam, Type, Type_, TypeName_, UseFuns},
     parser::ast::{self as P, DatatypeName},
-    shared::{unique_map::UniqueMap, Identifier, Name},
+    shared::{Identifier, Name, unique_map::UniqueMap},
     typing::ast::{
-        BuiltinFunction_, Exp, ExpListItem, Function, FunctionBody_, LValue, LValueList, LValue_,
+        BuiltinFunction_, Exp, ExpListItem, Function, FunctionBody_, LValue, LValue_, LValueList,
         ModuleCall, ModuleDefinition, SequenceItem, SequenceItem_, UnannotatedExp_,
     },
-    PASS_CFGIR, PASS_PARSER, PASS_TYPING,
 };
 use move_ir_types::location::*;
 use move_package::{
@@ -1115,7 +1115,8 @@ pub fn get_symbols(
         file_id_to_lines.insert(id, lines);
     }
     let compiler_flags = resolution_graph.build_options.compiler_flags().clone();
-    let build_plan = BuildPlan::create(resolution_graph)?.set_compiler_vfs_root(overlay_fs_root.clone());
+    let build_plan =
+        BuildPlan::create(resolution_graph)?.set_compiler_vfs_root(overlay_fs_root.clone());
     let mut parsed_ast = None;
     let mut typed_ast = None;
     let mut diagnostics = None;
@@ -3421,10 +3422,16 @@ pub fn on_go_to_def_request(context: &Context, request: &Request, symbols: &Symb
     let parameters = serde_json::from_value::<GotoDefinitionParams>(request.params.clone())
         .expect("could not deserialize go-to-def request");
 
-    let fpath = Url::parse(parameters.text_document_position_params.text_document.uri.as_str())
-        .ok()
-        .and_then(|url| url.to_file_path().ok())
-        .unwrap();
+    let fpath = Url::parse(
+        parameters
+            .text_document_position_params
+            .text_document
+            .uri
+            .as_str(),
+    )
+    .ok()
+    .and_then(|url| url.to_file_path().ok())
+    .unwrap();
     let loc = parameters.text_document_position_params.position;
     let line = loc.line;
     let col = loc.character;
@@ -3463,10 +3470,16 @@ pub fn on_go_to_type_def_request(context: &Context, request: &Request, symbols: 
     let parameters = serde_json::from_value::<GotoTypeDefinitionParams>(request.params.clone())
         .expect("could not deserialize go-to-type-def request");
 
-    let fpath = Url::parse(parameters.text_document_position_params.text_document.uri.as_str())
-        .ok()
-        .and_then(|url| url.to_file_path().ok())
-        .unwrap();
+    let fpath = Url::parse(
+        parameters
+            .text_document_position_params
+            .text_document
+            .uri
+            .as_str(),
+    )
+    .ok()
+    .and_then(|url| url.to_file_path().ok())
+    .unwrap();
     let loc = parameters.text_document_position_params.position;
     let line = loc.line;
     let col = loc.character;
@@ -3563,10 +3576,16 @@ pub fn on_hover_request(context: &Context, request: &Request, symbols: &Symbols)
     let parameters = serde_json::from_value::<HoverParams>(request.params.clone())
         .expect("could not deserialize hover request");
 
-    let fpath = Url::parse(parameters.text_document_position_params.text_document.uri.as_str())
-        .ok()
-        .and_then(|url| url.to_file_path().ok())
-        .unwrap();
+    let fpath = Url::parse(
+        parameters
+            .text_document_position_params
+            .text_document
+            .uri
+            .as_str(),
+    )
+    .ok()
+    .and_then(|url| url.to_file_path().ok())
+    .unwrap();
     let loc = parameters.text_document_position_params.position;
     let line = loc.line;
     let col = loc.character;
@@ -4068,7 +4087,9 @@ fn docstring_test() {
         "M6.move",
         "fun Symbols::M6::other_doc_struct(): Symbols::M7::OtherDocStruct",
         Some((3, 11, "M7.move")),
-        Some("\nThis is a multiline docstring\n\nThis docstring has empty lines.\n\nIt uses the ** format instead of ///\n\n"),
+        Some(
+            "\nThis is a multiline docstring\n\nThis docstring has empty lines.\n\nIt uses the ** format instead of ///\n\n",
+        ),
     );
 
     // docstring construction for single-line /** .. */ based strings

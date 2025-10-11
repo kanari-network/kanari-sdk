@@ -3,7 +3,9 @@
 
 use crate::utils::get_loc;
 use codespan_reporting::{diagnostic::Severity, files::SimpleFiles};
-use lsp_types::{Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, Location, Range, Uri};
+use lsp_types::{
+    Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, Location, Range, Uri,
+};
 use move_command_line_common::files::FileHash;
 use move_ir_types::location::Loc;
 use move_symbol_pool::Symbol;

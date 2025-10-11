@@ -1,13 +1,15 @@
-use std::{str::FromStr, time::{SystemTime, UNIX_EPOCH}};
-use jsonrpc_core::{Params, Result as JsonRpcResult, Error as RpcError, ErrorCode};
+use jsonrpc_core::{Error as RpcError, ErrorCode, Params, Result as JsonRpcResult};
+use std::{
+    str::FromStr,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use mona_blockchain::blockchain::load_blockchain_with_retry;
 use mona_crypto::load_wallet;
 use serde::Deserialize;
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 
 use crate::format_kari_amount;
-
 
 // Staking API structures
 #[derive(Deserialize)]
@@ -27,9 +29,10 @@ pub struct UnstakeParams {
 // Staking API methods
 pub fn stake_tokens(params: Params) -> JsonRpcResult<JsonValue> {
     // Parse stake params
-    let stake_params: StakeParams = params.parse()
+    let stake_params: StakeParams = params
+        .parse()
         .map_err(|e| RpcError::invalid_params(format!("Invalid parameters: {}", e)))?;
-    
+
     // Load blockchain data if needed
     if let Err(e) = load_blockchain_with_retry() {
         return Err(RpcError {
@@ -38,20 +41,20 @@ pub fn stake_tokens(params: Params) -> JsonRpcResult<JsonValue> {
             data: None,
         });
     }
-    
+
     // Validate address and password by loading the wallet
     match load_wallet(&stake_params.address, &stake_params.password) {
         Ok(_) => {
             // Calculate amount in KA units (1 KARI = 10^9 KA)
             const KA_PER_KARI: u64 = 1_000_000_000;
             let amount_ka = (stake_params.amount * KA_PER_KARI as f64) as u64;
-            
+
             // Parse the address
             let address = match mona_types::address::Address::from_str(&stake_params.address) {
                 Ok(addr) => addr,
                 Err(_) => return Err(RpcError::invalid_params("Invalid address format")),
             };
-            
+
             // Stake tokens
             match panorama::staking::stake_tokens(&address, amount_ka, stake_params.validator) {
                 Ok(staked_node) => {
@@ -69,31 +72,28 @@ pub fn stake_tokens(params: Params) -> JsonRpcResult<JsonValue> {
                         "status": "staked",
                         "validator_rewards_rate": mona_types::kari::STAKING_REWARD_PERCENTAGE * 100.0
                     }))
-                },
-                Err(e) => {
-                    Err(RpcError {
-                        code: ErrorCode::InternalError,
-                        message: format!("Failed to stake tokens: {}", e),
-                        data: None,
-                    })
                 }
+                Err(e) => Err(RpcError {
+                    code: ErrorCode::InternalError,
+                    message: format!("Failed to stake tokens: {}", e),
+                    data: None,
+                }),
             }
-        },
-        Err(_) => {
-            Err(RpcError {
-                code: ErrorCode::InvalidParams,
-                message: "Invalid wallet password".to_string(),
-                data: None,
-            })
         }
+        Err(_) => Err(RpcError {
+            code: ErrorCode::InvalidParams,
+            message: "Invalid wallet password".to_string(),
+            data: None,
+        }),
     }
 }
 
 pub fn unstake_tokens(params: Params) -> JsonRpcResult<JsonValue> {
     // Parse unstake params
-    let unstake_params: UnstakeParams = params.parse()
+    let unstake_params: UnstakeParams = params
+        .parse()
         .map_err(|e| RpcError::invalid_params(format!("Invalid parameters: {}", e)))?;
-    
+
     // Load blockchain data if needed
     if let Err(e) = load_blockchain_with_retry() {
         return Err(RpcError {
@@ -102,7 +102,7 @@ pub fn unstake_tokens(params: Params) -> JsonRpcResult<JsonValue> {
             data: None,
         });
     }
-    
+
     // Validate address and password by loading the wallet
     match load_wallet(&unstake_params.address, &unstake_params.password) {
         Ok(_) => {
@@ -111,7 +111,7 @@ pub fn unstake_tokens(params: Params) -> JsonRpcResult<JsonValue> {
                 Ok(addr) => addr,
                 Err(_) => return Err(RpcError::invalid_params("Invalid address format")),
             };
-            
+
             // Unstake tokens
             match panorama::staking::unstake_tokens(&address) {
                 Ok((withdrawn_amount, rewards)) => {
@@ -127,23 +127,19 @@ pub fn unstake_tokens(params: Params) -> JsonRpcResult<JsonValue> {
                         "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
                         "status": "unstaked"
                     }))
-                },
-                Err(e) => {
-                    Err(RpcError {
-                        code: ErrorCode::InternalError,
-                        message: format!("Failed to unstake tokens: {}", e),
-                        data: None,
-                    })
                 }
+                Err(e) => Err(RpcError {
+                    code: ErrorCode::InternalError,
+                    message: format!("Failed to unstake tokens: {}", e),
+                    data: None,
+                }),
             }
-        },
-        Err(_) => {
-            Err(RpcError {
-                code: ErrorCode::InvalidParams,
-                message: "Invalid wallet password".to_string(),
-                data: None,
-            })
         }
+        Err(_) => Err(RpcError {
+            code: ErrorCode::InvalidParams,
+            message: "Invalid wallet password".to_string(),
+            data: None,
+        }),
     }
 }
 
@@ -158,16 +154,22 @@ pub fn get_staking_info(params: Params) -> JsonRpcResult<JsonValue> {
                 Some(addr) => addr.to_string(),
                 None => return Err(RpcError::invalid_params("Invalid address format")),
             }
-        },
-        Params::Map(map) => {
-            match map.get("address").and_then(|v| v.as_str()) {
-                Some(addr) => addr.to_string(),
-                None => return Err(RpcError::invalid_params("Address parameter missing or invalid")),
+        }
+        Params::Map(map) => match map.get("address").and_then(|v| v.as_str()) {
+            Some(addr) => addr.to_string(),
+            None => {
+                return Err(RpcError::invalid_params(
+                    "Address parameter missing or invalid",
+                ));
             }
         },
-        _ => return Err(RpcError::invalid_params("Expected array or object parameters")),
+        _ => {
+            return Err(RpcError::invalid_params(
+                "Expected array or object parameters",
+            ));
+        }
     };
-    
+
     // Load blockchain data if needed
     if let Err(e) = load_blockchain_with_retry() {
         return Err(RpcError {
@@ -176,13 +178,13 @@ pub fn get_staking_info(params: Params) -> JsonRpcResult<JsonValue> {
             data: None,
         });
     }
-    
+
     // Parse the address
     let address = match mona_types::address::Address::from_str(&address_str) {
         Ok(addr) => addr,
         Err(_) => return Err(RpcError::invalid_params("Invalid address format")),
     };
-    
+
     // Get staking info
     match panorama::staking::get_staking_info(&address) {
         Some(node) => {
@@ -191,10 +193,14 @@ pub fn get_staking_info(params: Params) -> JsonRpcResult<JsonValue> {
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
-            
+
             let can_unstake = current_time >= node.unlock_time;
-            let early_unstake_penalty = if can_unstake { 0 } else { node.staked_amount / 10 };
-            
+            let early_unstake_penalty = if can_unstake {
+                0
+            } else {
+                node.staked_amount / 10
+            };
+
             // Format the response
             Ok(json!({
                 "address": address_str,
@@ -208,9 +214,9 @@ pub fn get_staking_info(params: Params) -> JsonRpcResult<JsonValue> {
                     .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
                     .unwrap_or_else(|| "Unknown time".to_string()),
                 "lock_status": if can_unstake { "unlocked" } else { "locked" },
-                "time_remaining": if can_unstake { 
-                    0 
-                } else { 
+                "time_remaining": if can_unstake {
+                    0
+                } else {
                     node.unlock_time - current_time
                 },
                 "accumulated_rewards": node.accumulated_rewards,
@@ -225,7 +231,7 @@ pub fn get_staking_info(params: Params) -> JsonRpcResult<JsonValue> {
                 },
                 "estimated_return_period": "daily"
             }))
-        },
+        }
         None => {
             // Not staking
             Ok(json!({
@@ -249,16 +255,16 @@ pub fn get_staking_stats(_params: Params) -> JsonRpcResult<JsonValue> {
             data: None,
         });
     }
-    
+
     // Get staking pool stats
     let pool = panorama::staking::get_staking_stats();
-    
+
     // Get pool balance
     let pool_balance = match panorama::staking::get_pool_remaining_balance() {
         Ok(balance) => balance,
         Err(_) => 0,
     };
-    
+
     // Format the response
     Ok(json!({
         "total_staked": pool.total_staked,

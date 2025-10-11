@@ -6,12 +6,11 @@ use command::server_cli::handle_server_command;
 
 use std::process::exit;
 
-
 use command::public_cli::handle_public_command;
-
+use tracing_subscriber::fmt::time::UtcTime;
+use tracing_subscriber::prelude::*;
 
 use std::process::Command;
-
 
 static VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -102,6 +101,17 @@ fn display_help(show_error: bool) {
 
 #[tokio::main]
 async fn main() {
+    // Initialize global tracing/log formatting to match desired output
+    // Format: [RFC3339_TIMESTAMP LEVEL target] message
+    let fmt_layer = tracing_subscriber::fmt()
+        .with_timer(UtcTime::rfc_3339())
+        .with_target(true)
+        .with_ansi(true)
+        .finish();
+
+    // Initialize the subscriber globally. try_init returns a Result which we ignore here.
+    let _ = fmt_layer.try_init();
+
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() <= 1 {
@@ -149,4 +159,3 @@ async fn main() {
         _ => display_help(true),
     }
 }
-

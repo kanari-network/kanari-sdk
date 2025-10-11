@@ -127,6 +127,7 @@ lazy_static = "1.5.0"
 log = "0.4.26"
 thiserror = "2.0.12"
 tracing = "0.1.41"
+tracing-subscriber = { version = "0.3", features = ["time"] }
 primitive-types = "0.13.1" # For u256 and u512 types
 
 # CLI & User Interface

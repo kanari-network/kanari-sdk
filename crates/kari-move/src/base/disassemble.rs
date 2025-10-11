@@ -5,7 +5,7 @@ use super::reroot_path;
 use clap::*;
 use move_compiler::compiled_unit::NamedCompiledModule;
 use move_disassembler::disassembler::Disassembler;
-use move_package::{compilation::compiled_package::CompiledUnitWithSource, BuildConfig};
+use move_package::{BuildConfig, compilation::compiled_package::CompiledUnitWithSource};
 use std::path::PathBuf;
 
 /// Disassemble the Move bytecode pointed to

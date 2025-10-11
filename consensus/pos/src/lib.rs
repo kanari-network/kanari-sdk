@@ -1,7 +1,6 @@
-use serde::{Deserialize, Serialize};
 use blake3::Hasher;
 use hex::encode;
-
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Blake3Algorithm;
@@ -30,7 +29,3 @@ impl HashAlgorithm for Blake3Algorithm {
         println!("Hashing input: {:?}", input);
     }
 }
-
-
-
-

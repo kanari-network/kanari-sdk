@@ -1,9 +1,12 @@
 use chrono;
 use jsonrpc_core::{Error as RpcError, ErrorCode, Params, Result as JsonRpcResult};
+use mona_blockchain::{
+    blockchain::{BLOCKCHAIN_DATA, get_balance, load_blockchain_with_retry},
+    chain_id::CHAIN_ID,
+};
 use mona_types::address::Address;
-use mona_blockchain::{blockchain::{BLOCKCHAIN_DATA, get_balance, load_blockchain_with_retry}, chain_id::CHAIN_ID};
 use serde::Deserialize;
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 use std::str::FromStr;
 
 use crate::format_kari_amount;
@@ -29,7 +32,7 @@ pub fn get_all_blocks(params: Params) -> JsonRpcResult<JsonValue> {
         Ok(limit) => Some(limit),
         Err(_) => None, // If parsing fails, no limit will be applied
     };
-    
+
     // Load blockchain data if needed
     if let Err(e) = load_blockchain_with_retry() {
         return Err(RpcError {
@@ -38,22 +41,25 @@ pub fn get_all_blocks(params: Params) -> JsonRpcResult<JsonValue> {
             data: None,
         });
     }
-    
+
     let blocks = BLOCKCHAIN_DATA.iter();
     let block_count = blocks.len();
-    
+
     // Apply the limit if provided
     let blocks_to_show = if let Some(limit) = limit {
         if limit < block_count {
             // Take the most recent blocks if a limit is specified
-            blocks.into_iter().skip(block_count - limit).collect::<Vec<_>>()
+            blocks
+                .into_iter()
+                .skip(block_count - limit)
+                .collect::<Vec<_>>()
         } else {
             blocks
         }
     } else {
         blocks
     };
-    
+
     // Convert blocks to JSON format
     let blocks_json: Vec<JsonValue> = blocks_to_show
         .into_iter()
@@ -72,7 +78,6 @@ pub fn get_all_blocks(params: Params) -> JsonRpcResult<JsonValue> {
                     })
                 })
                 .collect();
-                
             // Format the block
             json!({
                 "index": block.index,
@@ -89,7 +94,7 @@ pub fn get_all_blocks(params: Params) -> JsonRpcResult<JsonValue> {
             })
         })
         .collect();
-    
+
     // Create the response JSON
     let response = json!({
         "chain_id": CHAIN_ID.to_string(),
@@ -97,15 +102,16 @@ pub fn get_all_blocks(params: Params) -> JsonRpcResult<JsonValue> {
         "blocks_returned": blocks_json.len(),
         "blocks": blocks_json
     });
-    
+
     Ok(response)
 }
 
 pub fn get_account_details(params: Params) -> JsonRpcResult<JsonValue> {
     // Parse account address
-    let account_params: AccountParams = params.parse()
+    let account_params: AccountParams = params
+        .parse()
         .map_err(|e| RpcError::invalid_params(format!("Invalid parameters: {}", e)))?;
-    
+
     // Load blockchain data if needed
     if let Err(e) = load_blockchain_with_retry() {
         return Err(RpcError {
@@ -114,7 +120,7 @@ pub fn get_account_details(params: Params) -> JsonRpcResult<JsonValue> {
             data: None,
         });
     }
-    
+
     // Parse the address string into Address type
     let address = match Address::from_str(&account_params.address) {
         Ok(addr) => addr,
@@ -126,7 +132,7 @@ pub fn get_account_details(params: Params) -> JsonRpcResult<JsonValue> {
         Ok(balance) => balance,
         Err(_) => return Err(RpcError::invalid_params("Account not found")),
     };
-    
+
     // Find all transactions involving this account
     let transactions = BLOCKCHAIN_DATA.iter()
         .into_iter()
@@ -136,7 +142,6 @@ pub fn get_account_details(params: Params) -> JsonRpcResult<JsonValue> {
                 .map(|tx| {
                     // Determine if this is incoming or outgoing for this address
                     let tx_type = if tx.receiver == address { "incoming" } else { "outgoing" };
-                    
                     json!({
                         "id": tx.transaction_id,
                         "type": tx_type,
@@ -154,11 +159,11 @@ pub fn get_account_details(params: Params) -> JsonRpcResult<JsonValue> {
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
-    
+
     // Determine if this is a contract address (simplified check, can be expanded)
     let is_contract = false; // Add contract detection logic if available
     let account_type = if is_contract { "contract" } else { "wallet" };
-    
+
     // Create response
     Ok(json!({
         "address": account_params.address,
@@ -173,9 +178,10 @@ pub fn get_account_details(params: Params) -> JsonRpcResult<JsonValue> {
 
 pub fn search_transactions(params: Params) -> JsonRpcResult<JsonValue> {
     // Parse search parameters
-    let search_params: SearchTransactionsParams = params.parse()
+    let search_params: SearchTransactionsParams = params
+        .parse()
         .map_err(|e| RpcError::invalid_params(format!("Invalid parameters: {}", e)))?;
-    
+
     // Load blockchain data if needed
     if let Err(e) = load_blockchain_with_retry() {
         return Err(RpcError {
@@ -184,7 +190,7 @@ pub fn search_transactions(params: Params) -> JsonRpcResult<JsonValue> {
             data: None,
         });
     }
-    
+
     // Parse the address string into Address type
     let search_address = match Address::from_str(&search_params.address) {
         Ok(addr) => addr,
@@ -194,12 +200,17 @@ pub fn search_transactions(params: Params) -> JsonRpcResult<JsonValue> {
     // Debug info: count blocks and total transactions
     let blockchain_blocks = BLOCKCHAIN_DATA.iter();
     let total_blocks = blockchain_blocks.len();
-    let total_transactions_in_blockchain: usize = blockchain_blocks.iter().map(|b| b.transactions.len()).sum();
-    
+    let total_transactions_in_blockchain: usize =
+        blockchain_blocks.iter().map(|b| b.transactions.len()).sum();
+
     // Log debug information
     log::debug!("Search transactions for address: {}", search_params.address);
     log::debug!("Parsed address: {}", search_address);
-    log::debug!("Blockchain has {} blocks with {} total transactions", total_blocks, total_transactions_in_blockchain);
+    log::debug!(
+        "Blockchain has {} blocks with {} total transactions",
+        total_blocks,
+        total_transactions_in_blockchain
+    );
 
     // Find all transactions involving this address (either as sender or receiver)
     let mut transactions = BLOCKCHAIN_DATA.iter()
@@ -213,11 +224,10 @@ pub fn search_transactions(params: Params) -> JsonRpcResult<JsonValue> {
                     log::debug!("Block {}, TX {}: {} -> {} (match: sender={}, receiver={})", 
                                block_idx, tx_idx, tx.sender, tx.receiver,
                                tx.sender == search_address, tx.receiver == search_address);
-                    
                     if tx.sender == search_address || tx.receiver == search_address {
                         // Determine if this is incoming or outgoing for the search address
                         let tx_type = if tx.receiver == search_address { "incoming" } else { "outgoing" };
-                        
+                        log::debug!("Found matching transaction: {} (type: {})", tx.transaction_id, tx_type);
                         Some(json!({
                             "id": tx.transaction_id,
                             "type": tx_type,
@@ -237,7 +247,7 @@ pub fn search_transactions(params: Params) -> JsonRpcResult<JsonValue> {
                 })
                 .collect::<Vec<_>>()
         })
-        .collect::<Vec<_>>();    
+        .collect::<Vec<_>>();
     log::debug!("Found {} matching transactions", transactions.len());
 
     // Sort transactions by timestamp, most recent first
@@ -246,11 +256,11 @@ pub fn search_transactions(params: Params) -> JsonRpcResult<JsonValue> {
         let b_time = b["timestamp"].as_u64().unwrap_or(0);
         b_time.cmp(&a_time)
     });
-    
+
     // Apply pagination if provided
     let total_count = transactions.len();
     let offset = search_params.offset.unwrap_or(0);
-    
+
     // Apply offset and limit
     let transactions = if offset < transactions.len() {
         let paginated = &transactions[offset..];
@@ -266,7 +276,7 @@ pub fn search_transactions(params: Params) -> JsonRpcResult<JsonValue> {
     } else {
         vec![]
     };
-    
+
     // Create response with debug information
     Ok(json!({
         "address": search_params.address,
@@ -285,9 +295,10 @@ pub fn search_transactions(params: Params) -> JsonRpcResult<JsonValue> {
 // New API method to search for a transaction by its ID
 pub fn get_transaction_by_id(params: Params) -> JsonRpcResult<JsonValue> {
     // Parse transaction ID parameter
-    let tx_id: String = params.parse()
+    let tx_id: String = params
+        .parse()
         .map_err(|e| RpcError::invalid_params(format!("Invalid transaction ID: {}", e)))?;
-    
+
     // Load blockchain data if needed
     if let Err(e) = load_blockchain_with_retry() {
         return Err(RpcError {
@@ -296,27 +307,28 @@ pub fn get_transaction_by_id(params: Params) -> JsonRpcResult<JsonValue> {
             data: None,
         });
     }
-    
+
     // Search for the transaction in all blocks
     for block in BLOCKCHAIN_DATA.iter() {
         for tx in &block.transactions {
             if tx.transaction_id == tx_id {
                 // Found the transaction
-                let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(tx.timestamp as i64, 0)
-                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-                    .unwrap_or_else(|| "Unknown time".to_string());
-                
+                let datetime =
+                    chrono::DateTime::<chrono::Utc>::from_timestamp(tx.timestamp as i64, 0)
+                        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                        .unwrap_or_else(|| "Unknown time".to_string());
+
                 // Get sender and receiver balances
                 let sender_balance = match get_balance(&tx.sender.to_hex_literal()) {
                     Ok(balance) => balance,
                     Err(_) => 0,
                 };
-                
+
                 let receiver_balance = match get_balance(&tx.receiver.to_hex_literal()) {
                     Ok(balance) => balance,
                     Err(_) => 0,
                 };
-                
+
                 // Add gas fee information
                 return Ok(json!({
                     "transaction": {
@@ -355,7 +367,7 @@ pub fn get_transaction_by_id(params: Params) -> JsonRpcResult<JsonValue> {
             }
         }
     }
-    
+
     // Transaction not found
     Err(RpcError {
         code: ErrorCode::InvalidParams,
@@ -367,9 +379,10 @@ pub fn get_transaction_by_id(params: Params) -> JsonRpcResult<JsonValue> {
 // New API method to get transaction status
 pub fn get_transaction_status(params: Params) -> JsonRpcResult<JsonValue> {
     // Parse transaction ID parameter
-    let tx_id: String = params.parse()
+    let tx_id: String = params
+        .parse()
         .map_err(|e| RpcError::invalid_params(format!("Invalid transaction ID: {}", e)))?;
-    
+
     // Load blockchain data if needed
     if let Err(e) = load_blockchain_with_retry() {
         return Err(RpcError {
@@ -378,7 +391,7 @@ pub fn get_transaction_status(params: Params) -> JsonRpcResult<JsonValue> {
             data: None,
         });
     }
-    
+
     // First check if the transaction is in a block (confirmed)
     for block in BLOCKCHAIN_DATA.iter() {
         for tx in &block.transactions {
@@ -394,10 +407,10 @@ pub fn get_transaction_status(params: Params) -> JsonRpcResult<JsonValue> {
             }
         }
     }
-    
+
     // If not found in blocks, it might be pending
     // In a more advanced implementation, we would check the pending transaction queue
-    
+
     // Not found at all
     Ok(json!({
         "transaction_id": tx_id,
@@ -408,15 +421,14 @@ pub fn get_transaction_status(params: Params) -> JsonRpcResult<JsonValue> {
 
 // Update get_gas_fee_info to provide dynamic gas fee information
 pub fn get_gas_fee_info(_params: Params) -> JsonRpcResult<JsonValue> {
-    
     // Get current network stats
     let network_stats = panorama::utils::get_network_stats();
-    
+
     // Calculate sample gas fees for different priority levels
     let base_fee = panorama::utils::calculate_gas_fee(None);
     let medium_fee = panorama::utils::calculate_gas_fee(Some(5));
     let high_fee = panorama::utils::calculate_gas_fee(Some(10));
-    
+
     Ok(json!({
         "gas_fee": {
             "current": base_fee,

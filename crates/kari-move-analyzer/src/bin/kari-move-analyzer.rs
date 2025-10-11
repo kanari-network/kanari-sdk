@@ -7,9 +7,10 @@ use clap::Parser;
 use crossbeam::channel::{bounded, select};
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
-    notification::Notification as _, request::Request as _, CompletionOptions, Diagnostic,
-    HoverProviderCapability, OneOf, SaveOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextDocumentSyncOptions, TypeDefinitionProviderCapability, WorkDoneProgressOptions,
+    CompletionOptions, Diagnostic, HoverProviderCapability, OneOf, SaveOptions,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+    TypeDefinitionProviderCapability, WorkDoneProgressOptions, notification::Notification as _,
+    request::Request as _,
 };
 use move_compiler::linters::LintLevel;
 use std::{
@@ -23,7 +24,7 @@ use kari_move_analyzer::{
     vfs::on_text_document_sync_notification,
 };
 use url::Url;
-use vfs::{impls::memory::MemoryFS, VfsPath};
+use vfs::{VfsPath, impls::memory::MemoryFS};
 
 const LINT_NONE: &str = "none";
 const LINT_DEFAULT: &str = "default";
@@ -155,15 +156,18 @@ fn main() {
         // with diagnostics as they will be recomputed whenever the first source file is opened. The
         // main reason for this is to enable unit tests that rely on the symbolication information
         // to be available right after the client is initialized.
-        if let Some(folder) = initialize_params.workspace_folders.and_then(|folders| folders.first().cloned()) {
-            // Convert lsp_types::Url to url::Url 
+        if let Some(folder) = initialize_params
+            .workspace_folders
+            .and_then(|folders| folders.first().cloned())
+        {
+            // Convert lsp_types::Url to url::Url
             if let Ok(url) = url::Url::parse(folder.uri.as_str()) {
                 // Then convert url::Url to PathBuf
                 if let Ok(file_path) = url.to_file_path() {
                     if let Some(p) = symbols::SymbolicatorRunner::root_dir(&file_path) {
                         if let Ok((Some(new_symbols), _)) = symbols::get_symbols(
                             Arc::new(Mutex::new(BTreeMap::new())),
-                            ide_files_root.clone(), 
+                            ide_files_root.clone(),
                             p.as_path(),
                             lint,
                         ) {

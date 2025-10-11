@@ -4,7 +4,8 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]pub struct NetworkConfig {
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct NetworkConfig {
     pub node_address: String,
     pub port: u16,
     pub peers: Vec<String>,
@@ -15,7 +16,6 @@ use std::path::Path;
     pub use_tls: bool,        // Whether to use TLS encryption
     pub trusted_peers: Vec<String>, // List of trusted peer IDs or addresses
 }
-
 
 impl NetworkConfig {
     // Loads configuration from a specified file
@@ -47,14 +47,14 @@ impl NetworkConfig {
         self.use_tls = new_config.use_tls;
         self.trusted_peers = new_config.trusted_peers;
     }
-    
+
     // New method to add trusted peers
     pub fn add_trusted_peer(&mut self, peer: String) {
         if !self.trusted_peers.contains(&peer) {
             self.trusted_peers.push(peer);
         }
     }
-    
+
     // New method to check if a peer is trusted
     pub fn is_trusted_peer(&self, peer: &str) -> bool {
         self.trusted_peers.contains(&peer.to_string())
