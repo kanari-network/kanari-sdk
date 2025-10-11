@@ -10,6 +10,8 @@ use rpc_api::start_rpc_server;
 
 use tokio::sync::mpsc;
 use tokio::time::{Duration, sleep};
+use tokio::sync::watch;
+use atty::Stream;
 
 use mona_crypto::{check_wallet_exists, list_wallet_files};
 use serde_yaml::Value;
@@ -294,8 +296,8 @@ pub async fn start_server(
     // Create a channel for block status updates
     let (tx, mut rx) = mpsc::channel::<String>(100);
 
-    // Create a oneshot channel for shutdown signaling
-    let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
+    // Create a watch channel for shutdown signaling so many tasks can observe it
+    let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
 
     let running_clone = Arc::clone(&running);
     let address_clone = address.clone();
@@ -409,28 +411,41 @@ pub async fn start_server(
         }
     });
 
-    // This task will handle the Enter keypress
+    // This message is helpful for interactive runs
     println!(
         "{}",
         "Block status will be shown below. Press Enter to stop the node.".yellow()
     );
     io::stdout().flush().unwrap();
 
-    // Spawn a task to listen for Enter key
-    tokio::spawn(async move {
-        let mut input = String::new();
-        match io::stdin().read_line(&mut input) {
-            Ok(_) => {
-                println!("Received shutdown request...");
-                // Signal shutdown
-                let _ = shutdown_tx.send(());
+    // Spawn a task to listen for Enter key only if stdin is a TTY.
+    // In detached Docker runs stdin is not a TTY and read_line would return immediately,
+    // causing the container to stop. So guard with atty check.
+    if atty::is(Stream::Stdin) {
+        let shutdown_tx_clone = shutdown_tx.clone();
+        tokio::spawn(async move {
+            let mut input = String::new();
+            match io::stdin().read_line(&mut input) {
+                Ok(_) => {
+                    println!("Received shutdown request...");
+                    let _ = shutdown_tx_clone.send(true);
+                }
+                Err(e) => {
+                    println!("Error reading input: {}", e);
+                    let _ = shutdown_tx_clone.send(true);
+                }
             }
-            Err(e) => {
-                println!("Error reading input: {}", e);
-                let _ = shutdown_tx.send(());
-            }
-        }
-    });
+        });
+    } else {
+        // Not interactive; listen for SIGINT/SIGTERM to allow `docker stop` to work
+        let shutdown_tx_clone = shutdown_tx.clone();
+        tokio::spawn(async move {
+            // Wait for either CTRL-C or SIGTERM
+            let _ = tokio::signal::ctrl_c().await;
+            println!("Shutdown signal received from OS (ctrl-c or docker stop)...");
+            let _ = shutdown_tx_clone.send(true);
+        });
+    }
 
     // Display block status updates; break loop once shutdown is signaled
     loop {
@@ -439,10 +454,13 @@ pub async fn start_server(
                 // Show block status without cyan coloring to match plain log output
                 println!("{}", status);
             }
-            _ = &mut shutdown_rx => {
-                println!("Shutdown signal received. Stopping node...");
-                *running.lock().unwrap() = false;
-                break;
+            // Watch channel returns when value changes; check for true
+            _ = shutdown_rx.changed() => {
+                if *shutdown_rx.borrow() {
+                    println!("Shutdown signal received. Stopping node...");
+                    *running.lock().unwrap() = false;
+                    break;
+                }
             }
         }
     }

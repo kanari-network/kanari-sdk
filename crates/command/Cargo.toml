@@ -53,3 +53,4 @@ kari-move.workspace = true
 move-vm-test-utils = { workspace = true }
 move-core-types = { workspace = true }
 move-package = { workspace = true }
+atty = "0.2"
