@@ -2,31 +2,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import axios from 'axios';
+import { getAccountDetails, API_URL, AccountDetails, Transaction } from '../../../lib/api';
 import Link from 'next/link';
 import Navbar from '../../../components/Navbar';
 import { useTheme } from '../../../contexts/ThemeContext';
 import TransactionChart from '../../../components/TransactionChart';
 
-interface Transaction {
-  sender: string;
-  receiver: string;
-  amount: number;
-  block_index?: number;
-  timestamp?: number;
-  hash?: string;
-}
-
-interface AccountDetails {
-  address: string;
-  balance: number;
-  balance_formatted: string;
-  account_type: string;
-  is_contract: boolean;
-  transaction_count: number;
-  transactions: Transaction[];
-  code?: string;
-}
+// using shared types from src/lib/api
 
 const formatKariAmount = (kaAmount: number, showDecimals: boolean = true): string => {
   const KA_PER_KARI: number = 1_000_000_000;
@@ -54,31 +36,11 @@ export default function AccountDetailsPage() {
   const [error, setError] = useState('');
   const [accountDetails, setAccountDetails] = useState<AccountDetails | null>(null);
 
-  const API_URL = 'http://192.168.1.103:30030';
-
   const fetchAccountDetails = async () => {
     try {
       setLoading(true);
-      
-      // Use the new get_account_details endpoint
-      const accountResponse = await axios.post(API_URL, {
-        jsonrpc: "2.0",
-        method: "get_account_details",
-        params: {
-          address: address
-        },
-        id: 1
-      }, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (accountResponse.data.error) {
-        throw new Error(accountResponse.data.error.message || 'Failed to fetch account details');
-      }
-
-      setAccountDetails(accountResponse.data.result);
+      const result = await getAccountDetails(address);
+      setAccountDetails(result);
       setError('');
     } catch (error) {
       console.error('Error fetching account details:', error);

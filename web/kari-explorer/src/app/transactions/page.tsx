@@ -1,22 +1,10 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { getTransactionById as rpcGetTransactionById, searchTransactions as rpcSearchTransactions, getGasFeeInfo as rpcGetGasFeeInfo, API_URL, Transaction } from '../../lib/api';
 import Navbar from '../../components/Navbar';
 import Link from 'next/link';
 import { useTheme } from '../../contexts/ThemeContext';
-
-interface Transaction {
-  id: string;
-  sender: string;
-  receiver: string;
-  amount: number;
-  amount_formatted: string;
-  gas_fee: number;
-  gas_fee_formatted: string;
-  timestamp: number;
-  block_index?: number;
-}
 
 const formatKariAmount = (kaAmount: number, showDecimals: boolean = true): string => {
   const KA_PER_KARI: number = 1_000_000_000;
@@ -46,8 +34,6 @@ export default function TransactionsPage() {
   const [totalTransactions, setTotalTransactions] = useState(0);
   const [gasInfo, setGasInfo] = useState<any>(null);
 
-  const API_URL = 'http://192.168.1.103:30030';
-
   const searchTransactions = async () => {
     // Reset single transaction view
     setSingleTransaction(null);
@@ -59,45 +45,21 @@ export default function TransactionsPage() {
       // Check if search is for a transaction ID (starts with 0x followed by 64 hex characters)
       if (searchTx.match(/^0x[a-fA-F0-9]{64}$/)) {
         // Search for specific transaction by ID
-        const response = await axios.post(API_URL, {
-          jsonrpc: "2.0",
-          method: "get_transaction_by_id",
-          params: searchTx,
-          id: 1
-        }, {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (response.data.result) {
-          setSingleTransaction(response.data.result);
+        try {
+          const result = await rpcGetTransactionById(searchTx);
+          setSingleTransaction(result);
           setTransactionResults([]);
-        } else if (response.data.error) {
-          setError(response.data.error.message || 'Transaction not found');
+        } catch (err: any) {
+          setError(err?.message || 'Transaction not found');
         }
       } else if (searchTx) {
         // Search transactions by address
-        const response = await axios.post(API_URL, {
-          jsonrpc: "2.0",
-          method: "search_transactions",
-          params: {
-            address: searchTx,
-            limit: limit,
-            offset: offset
-          },
-          id: 1
-        }, {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (response.data.result) {
-          setTransactionResults(response.data.result.transactions || []);
-          setTotalTransactions(response.data.result.total_count || 0);
-        } else if (response.data.error) {
-          setError(response.data.error.message || 'Failed to search transactions');
+        try {
+          const result = await rpcSearchTransactions(searchTx, limit, offset);
+          setTransactionResults(result.transactions || []);
+          setTotalTransactions(result.total_count || 0);
+        } catch (err: any) {
+          setError(err?.message || 'Failed to search transactions');
         }
       } else {
         setError('Please enter a transaction ID or address to search');
@@ -112,20 +74,8 @@ export default function TransactionsPage() {
 
   const fetchGasFeeInfo = async () => {
     try {
-      const response = await axios.post(API_URL, {
-        jsonrpc: "2.0",
-        method: "get_gas_fee_info",
-        params: [],
-        id: 1
-      }, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (response.data.result) {
-        setGasInfo(response.data.result);
-      }
+  const result = await rpcGetGasFeeInfo();
+  if (result) setGasInfo(result);
     } catch (error) {
       console.error('Error fetching gas fee info:', error);
     }
@@ -257,7 +207,7 @@ export default function TransactionsPage() {
               
               <div>
                 <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Timestamp</p>
-                <p className="mt-1">{formatTimestamp(singleTransaction.timestamp)}</p>
+                <p className="mt-1">{singleTransaction.timestamp ? formatTimestamp(singleTransaction.timestamp) : 'N/A'}</p>
               </div>
             </div>
             
@@ -292,7 +242,7 @@ export default function TransactionsPage() {
               <div>
                 <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Gas Fee</p>
                 <p className={`mt-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                  {singleTransaction.gas_fee_formatted || formatKariAmount(singleTransaction.gas_fee)} KARI
+                  {singleTransaction.gas_fee_formatted || (singleTransaction.gas_fee !== undefined ? formatKariAmount(singleTransaction.gas_fee) : 'N/A')} KARI
                 </p>
               </div>
             </div>
@@ -336,11 +286,11 @@ export default function TransactionsPage() {
                         <td className={`px-4 py-3 font-mono text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
                           <Link href={`?txid=${tx.id}`} onClick={(e) => {
                             e.preventDefault();
-                            setSearchTx(tx.id);
+                            if (tx.id) setSearchTx(tx.id);
                             searchTransactions();
                           }}>
                             <span className="text-orange-500 hover:text-orange-400">
-                              {tx.id.substring(0, 10)}...{tx.id.substring(tx.id.length - 10)}
+                              {tx.id ? `${tx.id.substring(0, 10)}...${tx.id.substring(tx.id.length - 10)}` : 'N/A'}
                             </span>
                           </Link>
                         </td>
@@ -362,7 +312,7 @@ export default function TransactionsPage() {
                           {tx.amount_formatted || formatKariAmount(tx.amount)} KARI
                         </td>
                         <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                          {formatTimestamp(tx.timestamp)}
+                          {tx.timestamp ? formatTimestamp(tx.timestamp) : 'N/A'}
                         </td>
                       </tr>
                     ))}

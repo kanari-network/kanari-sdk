@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { listAccounts, API_URL } from '../../lib/api';
 import Navbar from '../../components/Navbar';
 import Link from 'next/link';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -40,25 +40,14 @@ export default function AccountsPage() {
   const [searchAccount, setSearchAccount] = useState('');
   const [filteredAccounts, setFilteredAccounts] = useState<Account[]>([]);
 
-  const API_URL = 'http://192.168.1.103:30030';
-
   const fetchAllAccounts = async () => {
     try {
       setLoading(true);
-      const response = await axios.post(API_URL, {
-        jsonrpc: "2.0",
-        method: "list_accounts",
-        params: [],
-        id: 1
-      }, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+      const result = await listAccounts();
 
-      if (response.data.result && response.data.result.accounts) {
-        setAccounts(response.data.result.accounts);
-        setFilteredAccounts(response.data.result.accounts);
+      if (result && result.accounts) {
+        setAccounts(result.accounts);
+        setFilteredAccounts(result.accounts);
         setError('');
       } else {
         setAccounts([]);

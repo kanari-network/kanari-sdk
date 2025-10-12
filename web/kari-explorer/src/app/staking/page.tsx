@@ -1,37 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { getStakingStats, getStakingInfo, API_URL, StakingStats, StakingInfo } from '../../lib/api';
 import Navbar from '../../components/Navbar';
-import Link from 'next/link';
 import { useTheme } from '../../contexts/ThemeContext';
-
-interface StakingStats {
-  total_staked_amount: number;
-  total_staked_amount_formatted: string;
-  total_validators: number;
-  total_nodes: number;
-  average_reward_rate: number;
-  latest_rewards_distributed: number;
-  latest_rewards_distributed_formatted: string;
-}
-
-interface StakingInfo {
-  address: string;
-  is_staking: boolean;
-  minimum_staking_amount: number;
-  minimum_staking_formatted: string;
-  minimum_validator_amount: number;
-  minimum_validator_formatted: string;
-  staked_amount?: number;
-  staked_amount_formatted?: string;
-  is_validator?: boolean;
-  rewards_earned?: number;
-  rewards_earned_formatted?: string;
-  stake_date?: number;
-  unlock_date?: number;
-  status?: string;
-}
 
 const formatKariAmount = (kaAmount: number, showDecimals: boolean = true): string => {
   const KA_PER_KARI: number = 1_000_000_000;
@@ -56,28 +28,13 @@ export default function StakingPage() {
   const [statsLoading, setStatsLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const API_URL = 'http://192.168.1.103:30030';
 
   const fetchStakingStats = async () => {
     try {
       setStatsLoading(true);
-      const response = await axios.post(
-        API_URL,
-        {
-          jsonrpc: "2.0",
-          method: "get_staking_stats",
-          params: [],
-          id: 1,
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      if (response.data.result) {
-        console.log("Staking stats response:", response.data.result);
+      const result = await getStakingStats();
+      if (result) {
+        console.log("Staking stats response:", result);
         const stats = {
           total_staked_amount: 0,
           total_staked_amount_formatted: "0.000000000",
@@ -86,7 +43,7 @@ export default function StakingPage() {
           average_reward_rate: 0.01,
           latest_rewards_distributed: 0,
           latest_rewards_distributed_formatted: "0.000000000",
-          ...response.data.result
+          ...result,
         };
         setStakingStats(stats);
       }
@@ -107,25 +64,11 @@ export default function StakingPage() {
       setLoading(true);
       setError('');
 
-      const response = await axios.post(
-        API_URL,
-        {
-          jsonrpc: "2.0",
-          method: "get_staking_info",
-          params: [searchAddress],
-          id: 1,
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      if (response.data.result) {
-        setStakingInfo(response.data.result);
-      } else if (response.data.error) {
-        setError(response.data.error.message || 'No staking information found for this address');
+      try {
+        const result = await getStakingInfo(searchAddress);
+        setStakingInfo(result);
+      } catch (err: any) {
+        setError(err?.message || 'No staking information found for this address');
         setStakingInfo(null);
       }
     } catch (error) {
@@ -411,25 +354,25 @@ export default function StakingPage() {
                 </h3>
                 <ul className="space-y-2">
                   <li className="flex items-start">
-                    <span className={`inline-block w-5 h-5 rounded-full flex items-center justify-center mt-1 mr-2 ${
+                    <span className={`inline-flex w-5 h-5 rounded-full items-center justify-center mt-1 mr-2 ${
                       isDarkMode ? 'bg-orange-700 text-white' : 'bg-orange-100 text-orange-700'
                     }`}>•</span>
                     <span>Minimum stake: 200 KARI</span>
                   </li>
                   <li className="flex items-start">
-                    <span className={`inline-block w-5 h-5 rounded-full flex items-center justify-center mt-1 mr-2 ${
+                    <span className={`inline-flex w-5 h-5 rounded-full items-center justify-center mt-1 mr-2 ${
                       isDarkMode ? 'bg-orange-700 text-white' : 'bg-orange-100 text-orange-700'
                     }`}>•</span>
                     <span>24-hour lock period for all staked tokens</span>
                   </li>
                   <li className="flex items-start">
-                    <span className={`inline-block w-5 h-5 rounded-full flex items-center justify-center mt-1 mr-2 ${
+                    <span className={`inline-flex w-5 h-5 rounded-full items-center justify-center mt-1 mr-2 ${
                       isDarkMode ? 'bg-orange-700 text-white' : 'bg-orange-100 text-orange-700'
                     }`}>•</span>
                     <span>Early unstaking incurs a 10% penalty</span>
                   </li>
                   <li className="flex items-start">
-                    <span className={`inline-block w-5 h-5 rounded-full flex items-center justify-center mt-1 mr-2 ${
+                    <span className={`inline-flex w-5 h-5 rounded-full items-center justify-center mt-1 mr-2 ${
                       isDarkMode ? 'bg-orange-700 text-white' : 'bg-orange-100 text-orange-700'
                     }`}>•</span>
                     <span>No rewards - helps secure the network</span>
@@ -443,25 +386,25 @@ export default function StakingPage() {
                 </h3>
                 <ul className="space-y-2">
                   <li className="flex items-start">
-                    <span className={`inline-block w-5 h-5 rounded-full flex items-center justify-center mt-1 mr-2 ${
+                    <span className={`inline-flex w-5 h-5 rounded-full items-center justify-center mt-1 mr-2 ${
                       isDarkMode ? 'bg-orange-700 text-white' : 'bg-orange-100 text-orange-700'
                     }`}>•</span>
                     <span>Minimum stake: 32 KARI</span>
                   </li>
                   <li className="flex items-start">
-                    <span className={`inline-block w-5 h-5 rounded-full flex items-center justify-center mt-1 mr-2 ${
+                    <span className={`inline-flex w-5 h-5 rounded-full items-center justify-center mt-1 mr-2 ${
                       isDarkMode ? 'bg-orange-700 text-white' : 'bg-orange-100 text-orange-700'
                     }`}>•</span>
                     <span>24-hour lock period for all staked tokens</span>
                   </li>
                   <li className="flex items-start">
-                    <span className={`inline-block w-5 h-5 rounded-full flex items-center justify-center mt-1 mr-2 ${
+                    <span className={`inline-flex w-5 h-5 rounded-full items-center justify-center mt-1 mr-2 ${
                       isDarkMode ? 'bg-orange-700 text-white' : 'bg-orange-100 text-orange-700'
                     }`}>•</span>
                     <span>Earn 0.01% annual rewards on staked amount</span>
                   </li>
                   <li className="flex items-start">
-                    <span className={`inline-block w-5 h-5 rounded-full flex items-center justify-center mt-1 mr-2 ${
+                    <span className={`inline-flex w-5 h-5 rounded-full items-center justify-center mt-1 mr-2 ${
                       isDarkMode ? 'bg-orange-700 text-white' : 'bg-orange-100 text-orange-700'
                     }`}>•</span>
                     <span>Participate in consensus and earn additional gas rewards</span>

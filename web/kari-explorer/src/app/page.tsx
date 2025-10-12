@@ -1,9 +1,9 @@
 "use client";
 
-import axios from 'axios';
 import React, { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import { useTheme } from '../contexts/ThemeContext';
+import { API_URL, getAllBlocks, getBlockchainStatus, Block, BlockchainStatus } from '../lib/api';
 
 // Add utility function to format Kanari amounts
 const formatKariAmount = (kaAmount: number, showDecimals: boolean = true): string => {
@@ -22,46 +22,7 @@ const formatKariAmount = (kaAmount: number, showDecimals: boolean = true): strin
     wholeFormatted;
 };
 
-interface Transaction {
-  sender: string;
-  receiver: string;
-  amount: number;
-}
-
-interface Block {
-  index: number;
-  hash: string;
-  prev_hash: string;
-  timestamp: number;
-  datetime: string;
-  miner: string;
-  transactions: Transaction[];
-  transaction_count: number;
-  tokens_minted: number;
-}
-
-interface Account {
-  address: string;
-  balance: number;
-  balance_formatted: string;
-  transaction_count: number;
-  is_contract: boolean;
-}
-
-interface BlockchainStatus {
-  chain_id: string;
-  block_height: number;
-  block_count: number;
-  latest_block: {
-    index: number;
-    hash: string;
-    timestamp: number;
-    transactions: number;
-    miner: string;
-  };
-  total_transactions: number;
-  genesis_timestamp: number;
-}
+// Using Block and BlockchainStatus from src/lib/api
 
 const KanariBlockchainExplorer = () => {
   const { isDarkMode } = useTheme();
@@ -79,39 +40,19 @@ const KanariBlockchainExplorer = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [mintedTokens, setMintedTokens] = useState(0);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://192.168.1.103:30030';
+  // use centralized API_URL from src/lib/api.ts
 
   const fetchBlocks = async () => {
     try {
-      const response = await axios.post(API_URL, {
-        jsonrpc: "2.0",
-        method: "get_all_blocks",
-        params: [],
-        id: 1
-      }, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+      const result = await getAllBlocks();
+      const blocksData: Block[] = result.blocks || [];
+      setBlocks([...blocksData].reverse());
+      setTotalBlocks(result.block_count || 0);
+      setTotalPages(Math.ceil((result.block_count || 0) / blocksPerPage));
 
-      console.log("Full Response:", response.data);
-
-      if (response.data.result) {
-        // Store blocks in reverse order (newest first)
-        const blocksData = response.data.result.blocks || [];
-        setBlocks([...blocksData].reverse());
-        
-        setTotalBlocks(response.data.result.block_count || 0);
-        setTotalPages(Math.ceil((response.data.result.block_count || 0) / blocksPerPage));
-        
-        // Calculate total minted tokens from blocks
-        const totalMinted = blocksData.reduce(
-          (sum: number, block: Block) => sum + (block.tokens_minted || 0), 0
-        );
-        setMintedTokens(totalMinted);
-        
-        setError('');
-      }
+      const totalMinted = blocksData.reduce((sum: number, block: Block) => sum + (block.tokens_minted || 0), 0);
+      setMintedTokens(totalMinted);
+      setError('');
     } catch (error) {
       console.error('Error fetching blocks:', error);
       setError('An error occurred while fetching blocks. Please try again later.');
@@ -120,31 +61,13 @@ const KanariBlockchainExplorer = () => {
 
   const fetchBlockchainStatus = async () => {
     try {
-      const response = await axios.post(API_URL, {
-        jsonrpc: "2.0",
-        method: "blockchain_status",
-        params: [],
-        id: 1
-      }, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (response.data.result) {
-        const status = response.data.result;
-        setBlockchainStatus(status);
-        setChainId(status.chain_id || '');
-        setTotalBlocks(status.block_count || 0);
-        setLatestBlock(status.latest_block || null);
-        setGenesisDate(status.genesis_timestamp || 0);
-        setTotalTokens(status.totalSupply || 0);
-        
-        // Use total_transactions from blockchain status if available
-        if (status.total_transactions !== undefined) {
-          // This will be updated when we have actual transaction data
-        }
-      }
+      const status: BlockchainStatus = await getBlockchainStatus();
+      setBlockchainStatus(status);
+      setChainId(status.chain_id || '');
+      setTotalBlocks(status.block_count || 0);
+      setLatestBlock(status.latest_block || null);
+      setGenesisDate(status.genesis_timestamp || 0);
+      setTotalTokens(status.totalSupply || 0);
     } catch (error) {
       console.error('Error fetching blockchain status:', error);
     }
