@@ -148,6 +148,8 @@ pub struct TransactionResult {
     pub status: String,
     pub gas_used: u64,
     pub created_objects: Vec<ObjectInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
 }
 
 /// Blockchain statistics

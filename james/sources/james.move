@@ -32,6 +32,12 @@ module james::james {
         transfer::public_transfer(treasury_cap, tx_context::sender(ctx));
     }
 
+    /// Setup function that can be called from CLI
+    /// This creates the currency without requiring witness/TxContext parameters  
+    public entry fun setup(ctx: &mut TxContext) {
+        init(JAMES {}, ctx);
+    }
+
     /// Mint new JAMES tokens
     /// Only the holder of TreasuryCap can call this
     /// Usage: kanari move call --function mint --args <amount> <recipient>

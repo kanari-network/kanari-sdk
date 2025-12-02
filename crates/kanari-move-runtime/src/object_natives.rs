@@ -41,9 +41,13 @@ fn native_transfer_object(
     ty_args: Vec<move_vm_types::loaded_data::runtime_types::Type>,
     mut arguments: VecDeque<Value>,
 ) -> PartialVMResult<NativeResult> {
+    eprintln!("🔍 native_transfer_object called!");
+    
     // Pop arguments: object (generic T), recipient (address)
     let recipient = pop_arg!(arguments, AccountAddress);
     let object_value = arguments.pop_back(); // Generic object value
+    
+    eprintln!("🔍 Recipient: {}", recipient);
     
     // Serialize object type and data
     let object_type = if !ty_args.is_empty() {
@@ -51,6 +55,8 @@ fn native_transfer_object(
     } else {
         "Unknown".to_string()
     };
+    
+    eprintln!("🔍 Object type: {}", object_type);
     
     // Serialize object value to bytes (simplified)
     let object_data = if let Some(val) = &object_value {
@@ -71,9 +77,11 @@ fn native_transfer_object(
         hash_result[0..16].to_vec() // Use first 16 bytes
     };
     
+    eprintln!("🔍 Object ID: {}", hex::encode(&object_id));
+    
     // Store in global pending operations
     let transfer = ObjectTransfer {
-        object_id,
+        object_id: object_id.clone(),
         object_type: object_type.clone(),
         object_data,
         recipient,
@@ -82,6 +90,7 @@ fn native_transfer_object(
     {
         let mut ops = GLOBAL_PENDING_OPS.lock().unwrap();
         ops.add_transfer(transfer);
+        eprintln!("🔍 Added to GLOBAL_PENDING_OPS, total transfers: {}", ops.transfers.len());
     }
     
     eprintln!("🔄 Object Transfer: {} -> {}", object_type, recipient);

@@ -248,6 +248,11 @@ impl Publish {
                                 println!("     📊 Status: {}", tx_result.status);
                                 println!("     ⛽ Gas used: {} Mist", tx_result.gas_used);
                                 
+                                // Show error message if transaction failed
+                                if let Some(ref error_msg) = tx_result.error_message {
+                                    eprintln!("\n     ❌ Transaction failed: {}", error_msg);
+                                }
+                                
                                 if !tx_result.created_objects.is_empty() {
                                     println!("\n     📦 Created Objects:");
                                     for obj in &tx_result.created_objects {

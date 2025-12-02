@@ -10,6 +10,7 @@ pub mod object_natives;
 pub mod object_storage;
 pub mod pending_objects;
 pub mod state;
+pub mod tx_context_natives;
 
 pub use blockchain::{Block, BlockHeader, Blockchain, SignedTransaction, Transaction};
 pub use changeset::Event;

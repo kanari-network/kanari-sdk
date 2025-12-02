@@ -475,6 +475,7 @@ async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest) -> 
                 status: if changeset.success { "success".to_string() } else { "failed".to_string() },
                 gas_used: changeset.gas_used,
                 created_objects,
+                error_message: changeset.error_message.clone(),
             };
             
             RpcResponse {
@@ -564,18 +565,38 @@ async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) -> R
         signed_tx.signature = Some(sig);
     }
 
-    // Submit to blockchain
-    match state.engine.submit_transaction(signed_tx) {
-        Ok(tx_hash) => {
+    // Execute transaction immediately to get changeset with objects
+    match state.engine.execute_transaction_immediate(signed_tx) {
+        Ok((tx_hash, changeset)) => {
             let tx_hash_hex = hex::encode(&tx_hash);
             info!("Function called successfully: {}", tx_hash_hex);
-            let result = serde_json::json!({
-                "hash": tx_hash_hex,
-                "status": "pending"
-            });
+            
+            // Get created objects from changeset transfers
+            let created_objects = changeset.object_operations.transfers.iter()
+                .map(|transfer| {
+                    use kanari_rpc_api::ObjectInfo;
+                    ObjectInfo {
+                        id: hex::encode(&transfer.object_id),
+                        owner: format!("{:?}", transfer.recipient),
+                        type_: transfer.object_type.clone(),
+                        data: transfer.object_data.clone(),
+                        version: 1,
+                    }
+                })
+                .collect::<Vec<_>>();
+            
+            use kanari_rpc_api::TransactionResult;
+            let result = TransactionResult {
+                hash: tx_hash_hex,
+                status: if changeset.success { "success".to_string() } else { "failed".to_string() },
+                gas_used: changeset.gas_used,
+                created_objects,
+                error_message: changeset.error_message.clone(),
+            };
+            
             RpcResponse {
                 jsonrpc: "2.0".to_string(),
-                result: Some(result),
+                result: Some(serde_json::to_value(result).unwrap()),
                 error: None,
                 id: request.id,
             }

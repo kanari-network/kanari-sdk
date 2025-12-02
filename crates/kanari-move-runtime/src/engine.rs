@@ -137,7 +137,9 @@ impl BlockchainEngine {
                 {
                     Ok(cs) => cs,
                     Err(e) => {
-                        changeset.mark_failed(format!("Module publish failed: {}", e));
+                        let error_msg = format!("Module publish failed: {}", e);
+                        eprintln!("❌ {}", error_msg);
+                        changeset.mark_failed(error_msg);
 
                         // CRITICAL: Even for failed transactions, deduct gas and increment sequence
                         let sender_change = changeset.get_or_create_change(addr);
@@ -243,8 +245,8 @@ impl BlockchainEngine {
                     function,
                     type_tags,
                     args.clone(),
-                    None,
-                    None,
+                    Some(sender_addr), // Pass sender for TxContext
+                    None, // Gas handled by engine, not runtime
                 ) {
                     Ok(cs) => cs,
                     Err(e) => {

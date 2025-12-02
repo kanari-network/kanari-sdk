@@ -84,7 +84,7 @@ impl MoveRuntime {
         })
     }
 
-    /// Create runtime with Kanari system natives (crypto + stdlib + object)
+    /// Create runtime with Kanari system natives (crypto + stdlib + object + tx_context)
     /// Also loads pre-compiled Kanari system modules (0x2::*)
     pub fn new_with_kanari_natives() -> Result<Self> {
         // Standard library natives at 0x1
@@ -101,9 +101,12 @@ impl MoveRuntime {
         // Kanari object natives at 0x2
         let object_natives = crate::object_natives::object_natives(system_addr);
         
+        // Kanari tx_context natives at 0x2
+        let tx_context_natives = crate::tx_context_natives::tx_context_natives(system_addr);
+        
         // Create runtime with natives
         let mut runtime = Self::new_with_natives(
-            vec![std_natives, crypto_natives, object_natives], 
+            vec![std_natives, crypto_natives, object_natives, tx_context_natives], 
             true
         )?;
         
@@ -141,6 +144,8 @@ impl MoveRuntime {
             });
 
         let modules_dir = std::path::Path::new(&stdlib_path);
+        
+        println!("✓ Looking for Move stdlib modules at: {:?}", modules_dir);
         
         if !modules_dir.exists() {
             eprintln!("Warning: Move stdlib modules not found at {:?}", modules_dir);
@@ -204,6 +209,8 @@ impl MoveRuntime {
             });
 
         let modules_dir = std::path::Path::new(&framework_path);
+        
+        println!("✓ Looking for Kanari system modules at: {:?}", modules_dir);
         
         if !modules_dir.exists() {
             eprintln!("Warning: Kanari system modules not found at {:?}", modules_dir);
@@ -456,8 +463,32 @@ impl MoveRuntime {
 
         let ident = IdentStr::new(function_name).map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
+        // Auto-inject TxContext if function expects it as last parameter
+        let mut final_args = args.clone();
+        
+        // Create TxContext struct: { sender, tx_hash, epoch, epoch_timestamp_ms, ids_created }
+        let sender_addr = sender.unwrap_or(AccountAddress::ZERO);
+        let tx_hash = vec![0u8; 32]; // Placeholder
+        let epoch = 0u64;
+        let epoch_timestamp_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let ids_created = 0u64;
+        
+        // Serialize TxContext struct fields in order
+        let mut tx_context_bytes = Vec::new();
+        tx_context_bytes.extend(bcs::to_bytes(&sender_addr)?);
+        tx_context_bytes.extend(bcs::to_bytes(&tx_hash)?);
+        tx_context_bytes.extend(bcs::to_bytes(&epoch)?);
+        tx_context_bytes.extend(bcs::to_bytes(&epoch_timestamp_ms)?);
+        tx_context_bytes.extend(bcs::to_bytes(&ids_created)?);
+        
+        // Add TxContext as last argument
+        final_args.push(tx_context_bytes);
+
         session
-            .execute_entry_function(module_id, ident, ty_args_loaded, args, &mut gas)
+            .execute_entry_function(module_id, ident, ty_args_loaded, final_args, &mut gas)
             .map_err(|e| anyhow::anyhow!(format!("exec error: {:?}", e)))?;
 
         let (res, new_storage) = session.finish();

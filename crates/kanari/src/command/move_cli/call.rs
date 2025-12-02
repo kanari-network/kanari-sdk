@@ -19,7 +19,7 @@ pub struct Call {
     /// Module name (required). Use `--module <NAME>` with `--package <ADDRESS>`.
     #[clap(long = "module", value_name = "MODULE")]
     pub module: String,
-    
+
     /// Function name in module
     #[clap(long = "function")]
     pub function: String,
@@ -241,8 +241,8 @@ impl Call {
         let module_full = format!("{}::{}", package_normalized, module_name);
 
         let call_req = CallFunctionRequest {
-            sender: sender_normalized,
-            package: package_normalized,
+            sender: sender_normalized.clone(),
+            package: package_normalized.clone(),
             module: module_full,
             function: self.function.clone(),
             type_args: self.type_args.clone(),
@@ -269,7 +269,44 @@ impl Call {
                     if let Some(err) = rpc_resp.error {
                         eprintln!("RPC error: {} (code {})", err.message, err.code);
                     } else if let Some(result) = rpc_resp.result {
-                        println!("RPC result: {}", result);
+                        // Try to parse as TransactionResult
+                        if let Ok(tx_result) = serde_json::from_value::<kanari_rpc_api::TransactionResult>(result.clone()) {
+                            println!("✅ Transaction: {}", tx_result.hash);
+                            println!("📊 Status: {}", tx_result.status);
+                            println!("⛽ Gas used: {} Mist", tx_result.gas_used);
+                            
+                            // Show error message if transaction failed
+                            if let Some(ref error_msg) = tx_result.error_message {
+                                eprintln!("\n❌ Transaction failed: {}", error_msg);
+                            }
+                            
+                            // Show created objects (e.g., TreasuryCap)
+                            if !tx_result.created_objects.is_empty() {
+                                println!("\n📦 Created Objects:");
+                                for obj in &tx_result.created_objects {
+                                    println!("   🆔 Object ID: {}", obj.id);
+                                    println!("      Owner: {}", obj.owner);
+                                    println!("      Type: {}", obj.type_);
+                                    
+                                    // Highlight TreasuryCap objects
+                                    if obj.type_.contains("TreasuryCap") {
+                                        println!("      💰 This is a TreasuryCap - use this ID for minting!");
+                                        println!("\n      📋 To mint tokens, use:");
+                                        println!("      kanari move call \\");
+                                        println!("        --package {} \\", package_normalized);
+                                        println!("        --module {} \\", module_name);
+                                        println!("        --function mint \\");
+                                        println!("        --sender {} \\", sender_normalized);
+                                        println!("        --password <PASSWORD> \\");
+                                        println!("        --args {} <AMOUNT> <RECIPIENT>", obj.id);
+                                    }
+                                    println!();
+                                }
+                            }
+                        } else {
+                            // Fallback to plain JSON display
+                            println!("RPC result: {}", result);
+                        }
                     } else {
                         println!("RPC response has no result and no error");
                     }
