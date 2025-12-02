@@ -123,11 +123,12 @@ kanari move publish \
   --gas-limit 1000000 \
   --gas-price 1000
 
-# Test mode (skip signature)
+# Dry-run / Test mode
 kanari move publish \
-  --package-path ./my_project \
-  --sender 0x1 \
-  --skip-signature
+    --package-path ./my_project \
+    --sender 0x1 \
+    --password <PASSWORD> \
+    --dry-run
 ```
 
 ### Using Rust API
@@ -208,8 +209,8 @@ kanari move call \
   --function transfer \
   --args "0x3,1000" \
   --sender 0x1 \
-  --skip-signature \
-  --dry-run
+    --password <PASSWORD> \
+    --dry-run
 ```
 
 ### Using Rust API

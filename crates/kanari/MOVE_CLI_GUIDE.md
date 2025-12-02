@@ -303,8 +303,7 @@ kanari move publish [OPTIONS]
 
 - `--package-path <PATH>` - Path to Move package (default: current directory)
 - `--sender <ADDRESS>` - Account address from wallet (required)
-- `--password <PASSWORD>` - Wallet password for signing (required unless --skip-signature)
-- `--skip-signature` - Skip signature for testing only
+- `--password <PASSWORD>` - Wallet password for signing (required)
 - `--gas-limit <AMOUNT>` - Maximum gas units (default: 1000000)
 - `--gas-price <PRICE>` - Gas price in Mist (default: 1000)
 - `--rpc <URL>` - RPC endpoint (default: <http://127.0.0.1:3000>)
@@ -338,10 +337,11 @@ kanari move publish \
 # 
 # ✅ Package build and validation complete!
 
-# Test mode (skip signature)
+# Dry-run / Test mode
 kanari move publish \
   --sender 0x1 \
-  --skip-signature
+  --password <PASSWORD> \
+  --dry-run
 
 # Custom gas settings
 kanari move publish \
@@ -369,7 +369,6 @@ let publish = Publish {
     gas_price: 1_000,
     sender: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb8".to_string(),
     password: Some("mypassword".to_string()),
-    skip_signature: false,
     rpc_endpoint: "http://127.0.0.1:3000".to_string(),
 };
 
@@ -395,8 +394,7 @@ kanari move call [OPTIONS]
 - `--module <NAME>` - Module name (required)
 - `--function <NAME>` - Function name (required)
 - `--sender <ADDRESS>` - Caller address from wallet (required)
-- `--password <PASSWORD>` - Wallet password for signing (required unless --skip-signature)
-- `--skip-signature` - Skip signature for testing
+- `--password <PASSWORD>` - Wallet password for signing (required)
 - `--type-args <TYPE>...` - Generic type arguments
 - `--args <ARG>...` - Function arguments
 - `--gas-limit <AMOUNT>` - Maximum gas units (default: 200000)
@@ -510,7 +508,7 @@ kanari move call \
   --module coin \
   --function transfer \
   --sender 0x1 \
-  --skip-signature \
+  --password <PASSWORD> \
   --args "0x3" "1000" \
   --dry-run
 
@@ -528,13 +526,13 @@ kanari move call \
 **Test Mode:**
 
 ```bash
-# Skip wallet authentication for testing
+# For local testing use `--dry-run` or run against a testnet with a test wallet
 kanari move call \
   --package 0x2 \
   --module test \
   --function test_func \
   --sender 0x1 \
-  --skip-signature \
+  --password <PASSWORD> \
   --args "100"
 ```
 
@@ -587,7 +585,7 @@ kanari move call \
 - Wallets are encrypted with password
 - Private keys never exposed in logs
 - Signatures created in-memory only
-- Use `--skip-signature` only for testing
+- Use `--dry-run` for estimation or run against a testnet/test wallet for functional testing
 
 ---
 
@@ -720,7 +718,7 @@ kanari move call \
   --module swap \
   --function get_reserves \
   --sender 0x1 \
-  --skip-signature \
+  --password <PASSWORD> \
   --args "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb8"
 ```
 
@@ -790,7 +788,7 @@ kanari move call \
 # Check balance
 kanari move call \
   --package 0x742d35... --module token --function balance \
-  --sender 0x1 --skip-signature \
+  --sender 0x1 --password <PASSWORD> \
   --args "0x742d35..."
 ```
 

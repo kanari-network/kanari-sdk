@@ -33,9 +33,6 @@ pub struct Publish {
     #[clap(long = "password")]
     pub password: Option<String>,
 
-    /// Skip signature (for testing only)
-    #[clap(long = "skip-signature")]
-    pub skip_signature: bool,
 
     /// RPC endpoint
     #[clap(long = "rpc", default_value = "http://127.0.0.1:3000")]
@@ -78,22 +75,19 @@ impl Publish {
             bail!("No modules found in package");
         }
 
-        // Load wallet if not skipping signature
-        let _wallet = if !self.skip_signature {
+        // Load wallet (signing is required)
+        let wallet = {
             let password = self
                 .password
                 .as_ref()
-                .context("Password required for signing (use --password or --skip-signature)")?;
+                .context("Password required for signing (use --password)")?;
 
             let w = load_wallet(&self.sender, password).context(
                 "Failed to load wallet. Make sure the wallet exists and password is correct",
             )?;
 
             println!("Wallet loaded: {} (curve: {})", self.sender, w.curve_type);
-            Some(w)
-        } else {
-            println!("Test mode: Skipping signature");
-            None
+            w
         };
 
         println!("\nPublishing modules to blockchain...");
@@ -195,9 +189,8 @@ impl Publish {
                 }
             }
 
-            // Sign transaction if wallet is available
-            let signature = if let Some(ref wallet) = _wallet {
-                // Create proper Transaction to match server's expectation
+            // Sign transaction using the loaded wallet
+            let signature = {
                 use kanari_move_runtime::Transaction;
                 let transaction = Transaction::PublishModule {
                     sender: sender_normalized.clone(),
@@ -212,8 +205,7 @@ impl Publish {
                 let tx_hash = transaction.hash();
 
                 // Sign with wallet
-                match kanari_crypto::sign_message(&wallet.private_key, &tx_hash, wallet.curve_type)
-                {
+                match kanari_crypto::sign_message(&wallet.private_key, &tx_hash, wallet.curve_type) {
                     Ok(sig) => {
                         println!("     🔐 Transaction signed with {} key", wallet.curve_type);
                         Some(sig)
@@ -223,8 +215,6 @@ impl Publish {
                         None
                     }
                 }
-            } else {
-                None
             };
 
             let pub_req = PublishModuleRequest {

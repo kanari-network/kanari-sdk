@@ -2,7 +2,6 @@ use anyhow::Result;
 use kanari_crypto::wallet::list_wallet_files;
 use kanari_move_runtime::{BlockchainEngine, MoveRuntime};
 use kanari_rpc_server::start_server;
-use kanari_types::framework_path::FrameworkPath;
 use kanari_types::module_registry::ModuleRegistry;
 
 use move_core_types::account_address::AccountAddress;

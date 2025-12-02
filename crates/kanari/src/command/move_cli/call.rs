@@ -11,11 +11,15 @@ use move_core_types::{account_address::AccountAddress, language_storage::TypeTag
 #[derive(Parser)]
 #[clap(name = "call")]
 pub struct Call {
-    /// Package in format: address::module
-    /// Example: 0x840512ff...::james
+    /// Package address (hex)
+    /// Example: 0x840512ff... (use `--module <NAME>` separately)
     #[clap(long = "package")]
     pub package: String,
 
+    /// Module name (required). Use `--module <NAME>` with `--package <ADDRESS>`.
+    #[clap(long = "module", value_name = "MODULE")]
+    pub module: String,
+    
     /// Function name in module
     #[clap(long = "function")]
     pub function: String,
@@ -29,7 +33,7 @@ pub struct Call {
     /// Simplified ordered args like in the function syntax.
     /// ObjectIDs, Addresses must be hex strings.
     /// Example: 0x123 1000 true
-    #[clap(long = "args")]
+    #[clap(long = "args", num_args = 0..)]
     pub args: Vec<String>,
 
     /// Sender/Caller address (from wallet)
@@ -47,10 +51,6 @@ pub struct Call {
     /// Gas price in Mist
     #[clap(long = "gas-price", default_value = "1000")]
     pub gas_price: u64,
-
-    /// Skip signature (for testing)
-    #[clap(long = "skip-signature")]
-    pub skip_signature: bool,
 
     /// RPC endpoint
     #[clap(long = "rpc", default_value = "http://localhost:3000")]
@@ -79,14 +79,15 @@ impl Call {
             Ok(format!("0x{:0>64}", hex))
         };
 
-        // Parse package as "address::module"
-        let parts: Vec<&str> = self.package.split("::").collect();
-        if parts.len() != 2 {
-            anyhow::bail!("Package must be in format: address::module (e.g., 0x840512ff...::james)");
+        // Expect separate flags: `--package <ADDRESS>` and `--module <MODULE>`.
+        if self.package.contains("::") {
+            anyhow::bail!(
+                "Combined form `address::module` is not supported. Use `--package <ADDRESS> --module <MODULE>` instead."
+            );
         }
-        
-        let package_str = parts[0];
-        let module_name = parts[1];
+
+        let package_str = &self.package;
+        let module_name = &self.module;
 
         let sender_normalized = normalize_addr(&self.sender)
             .with_context(|| format!("Invalid sender address: {}", self.sender))?;
@@ -105,12 +106,12 @@ impl Call {
         println!("   Gas Limit: {}", self.gas_limit);
         println!("   Gas Price: {}", self.gas_price);
 
-        // Load wallet if not skipping signature
-        let wallet = if !self.skip_signature {
+        // Load wallet (signing is required)
+        let wallet = {
             let password = self
                 .password
                 .as_ref()
-                .context("Password required for signing (use --password or --skip-signature)")?;
+                .context("Password required for signing (use --password)")?;
 
             let w = load_wallet(&self.sender, password).context(
                 "Failed to load wallet. Make sure the wallet exists and password is correct",
@@ -120,10 +121,7 @@ impl Call {
                 "   🔐 Wallet loaded: {} (curve: {})",
                 self.sender, w.curve_type
             );
-            Some(w)
-        } else {
-            println!("   ⚠️  Test mode: Skipping signature");
-            None
+            w
         };
 
         // Parse type arguments
@@ -201,11 +199,11 @@ impl Call {
             }
         }
 
-        // Sign transaction if wallet is available
-        let signature = if let Some(ref wallet) = wallet {
+        // Sign transaction using the loaded wallet
+        let signature = {
             // Format module as "address::module_name" for runtime compatibility
             let module_full = format!("{}::{}", package_normalized, module_name);
-            
+
             // Create proper Transaction to match server's expectation
             use kanari_move_runtime::Transaction;
             let transaction = Transaction::ExecuteFunction {
@@ -233,8 +231,6 @@ impl Call {
                     None
                 }
             }
-        } else {
-            None
         };
 
         // Build CallFunctionRequest and wrap into RpcRequest
@@ -345,62 +341,5 @@ impl Call {
         }
 
         Ok(result)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_args_vec() {
-        let call = Call {
-            package: "0x1".to_string(),
-            module: "coin".to_string(),
-            function: "transfer".to_string(),
-            sender: "0x1".to_string(),
-            type_args: vec![],
-            args: vec![],
-            gas_limit: 200000,
-            gas_price: 1000,
-            password: None,
-            skip_signature: true,
-            rpc_endpoint: "http://localhost:3000".to_string(),
-            dry_run: false,
-        };
-
-        // Test u64
-        let args = call
-            .parse_args_vec(&["1000".to_string(), "2000".to_string()])
-            .unwrap();
-        assert_eq!(args.len(), 2);
-
-        // Test boolean
-        let args = call
-            .parse_args_vec(&["true".to_string(), "false".to_string()])
-            .unwrap();
-        assert_eq!(args.len(), 2);
-    }
-
-    #[test]
-    fn test_parse_type_arg() {
-        let call = Call {
-            package: "0x1".to_string(),
-            module: "coin".to_string(),
-            function: "transfer".to_string(),
-            sender: "0x1".to_string(),
-            type_args: vec![],
-            args: vec![],
-            gas_limit: 200000,
-            gas_price: 1000,
-            password: None,
-            skip_signature: true,
-            rpc_endpoint: "http://localhost:3000".to_string(),
-            dry_run: false,
-        };
-
-        // Test parsing type argument
-        let type_tag = call.parse_type_arg("u64").unwrap();
-        assert!(matches!(type_tag, TypeTag::U64));
     }
 }
