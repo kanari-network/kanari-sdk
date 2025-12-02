@@ -52,6 +52,26 @@ impl GasParameters {
                     per_byte: 0.into(),
                     legacy_min_input_len: 0.into(),
                 },
+                keccak256: hash::KeccakLikeGasParameters {
+                    base: 0.into(),
+                    per_byte: 0.into(),
+                    legacy_min_input_len: 0.into(),
+                },
+                blake2b256: hash::KeccakLikeGasParameters {
+                    base: 0.into(),
+                    per_byte: 0.into(),
+                    legacy_min_input_len: 0.into(),
+                },
+                blake3_256: hash::KeccakLikeGasParameters {
+                    base: 0.into(),
+                    per_byte: 0.into(),
+                    legacy_min_input_len: 0.into(),
+                },
+                ripemd160: hash::Ripemd160GasParameters {
+                    base: 0.into(),
+                    per_byte: 0.into(),
+                    legacy_min_input_len: 0.into(),
+                },
             },
             type_name: type_name::GasParameters {
                 get: type_name::GetGasParameters {

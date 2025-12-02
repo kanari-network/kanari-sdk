@@ -20,6 +20,9 @@ smallvec.workspace = true
 sha2.workspace = true
 sha3.workspace = true
 hex.workspace = true
+blake3 = "1.8.2"
+blake2b_simd = "1.0.3"
+ripemd160 = "0.9"
 
 [features]
 default = []

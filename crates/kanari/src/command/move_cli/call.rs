@@ -1,0 +1,406 @@
+// Copyright (c) The Move Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+use anyhow::{Context, Result};
+use clap::*;
+use kanari_crypto::wallet::load_wallet;
+use kanari_types::address::Address;
+use move_core_types::{account_address::AccountAddress, language_storage::TypeTag, parser};
+
+/// Call a Move function on the blockchain
+#[derive(Parser)]
+#[clap(name = "call")]
+pub struct Call {
+    /// Package in format: address::module
+    /// Example: 0x840512ff...::james
+    #[clap(long = "package")]
+    pub package: String,
+
+    /// Function name in module
+    #[clap(long = "function")]
+    pub function: String,
+
+    /// Type arguments to the generic function being called.
+    /// All must be specified, or the call will fail.
+    /// Example: 0x1::coin::KANARI
+    #[clap(long = "type-args")]
+    pub type_args: Vec<String>,
+
+    /// Simplified ordered args like in the function syntax.
+    /// ObjectIDs, Addresses must be hex strings.
+    /// Example: 0x123 1000 true
+    #[clap(long = "args")]
+    pub args: Vec<String>,
+
+    /// Sender/Caller address (from wallet)
+    #[clap(long = "sender")]
+    pub sender: String,
+
+    /// Wallet password (required for signing)
+    #[clap(long = "password")]
+    pub password: Option<String>,
+
+    /// Gas limit for the transaction
+    #[clap(long = "gas-limit", default_value = "200000")]
+    pub gas_limit: u64,
+
+    /// Gas price in Mist
+    #[clap(long = "gas-price", default_value = "1000")]
+    pub gas_price: u64,
+
+    /// Skip signature (for testing)
+    #[clap(long = "skip-signature")]
+    pub skip_signature: bool,
+
+    /// RPC endpoint
+    #[clap(long = "rpc", default_value = "http://localhost:3000")]
+    pub rpc_endpoint: String,
+
+    /// Dry run (estimate gas without executing)
+    #[clap(long = "dry-run")]
+    pub dry_run: bool,
+}
+
+impl Call {
+    pub fn execute(self) -> Result<()> {
+        println!("📞 Preparing function call...");
+
+        // Normalize and validate addresses
+        let normalize_addr = |a: &str| -> Result<String> {
+            let s = a.trim();
+            let hex = if s.starts_with("0x") || s.starts_with("0X") {
+                &s[2..]
+            } else {
+                s
+            };
+            if hex.len() > 64 {
+                anyhow::bail!("Address too long: {}", a);
+            }
+            Ok(format!("0x{:0>64}", hex))
+        };
+
+        // Parse package as "address::module"
+        let parts: Vec<&str> = self.package.split("::").collect();
+        if parts.len() != 2 {
+            anyhow::bail!("Package must be in format: address::module (e.g., 0x840512ff...::james)");
+        }
+        
+        let package_str = parts[0];
+        let module_name = parts[1];
+
+        let sender_normalized = normalize_addr(&self.sender)
+            .with_context(|| format!("Invalid sender address: {}", self.sender))?;
+        let package_normalized = normalize_addr(package_str)
+            .with_context(|| format!("Invalid package address: {}", package_str))?;
+
+        let _sender_addr = Address::from_hex_literal(&sender_normalized)
+            .with_context(|| format!("Invalid sender address: {}", self.sender))?;
+        let _package_addr = Address::from_hex_literal(&package_normalized)
+            .with_context(|| format!("Invalid package address: {}", package_str))?;
+
+        println!("\n📋 Call Details:");
+        println!("   Package: {}::{}", package_normalized, module_name);
+        println!("   Function: {}", self.function);
+        println!("   Sender: {}", self.sender);
+        println!("   Gas Limit: {}", self.gas_limit);
+        println!("   Gas Price: {}", self.gas_price);
+
+        // Load wallet if not skipping signature
+        let wallet = if !self.skip_signature {
+            let password = self
+                .password
+                .as_ref()
+                .context("Password required for signing (use --password or --skip-signature)")?;
+
+            let w = load_wallet(&self.sender, password).context(
+                "Failed to load wallet. Make sure the wallet exists and password is correct",
+            )?;
+
+            println!(
+                "   🔐 Wallet loaded: {} (curve: {})",
+                self.sender, w.curve_type
+            );
+            Some(w)
+        } else {
+            println!("   ⚠️  Test mode: Skipping signature");
+            None
+        };
+
+        // Parse type arguments
+        let _type_args = if !self.type_args.is_empty() {
+            let mut parsed = Vec::new();
+            for type_arg in &self.type_args {
+                let type_tag = self.parse_type_arg(type_arg)?;
+                parsed.push(type_tag);
+            }
+            println!("   Type Args: {}", self.type_args.join(", "));
+            parsed
+        } else {
+            vec![]
+        };
+
+        // Parse arguments
+        let _args = if !self.args.is_empty() {
+            let parsed = self.parse_args_vec(&self.args)?;
+            println!("   Arguments: {} args provided", parsed.len());
+            for (i, arg) in self.args.iter().enumerate() {
+                println!("     [{}]: {}", i, arg);
+            }
+            parsed
+        } else {
+            vec![]
+        };
+
+        // Estimate gas
+        let estimated_gas = 35_000 + (self.function.len() as u64 * 100);
+        println!("\n⛽ Gas Estimation:");
+        println!("   Estimated: {} units", estimated_gas);
+        println!("   Limit: {} units", self.gas_limit);
+        println!("   Total Cost: {} Mist", estimated_gas * self.gas_price);
+
+        if self.dry_run {
+            println!("\n🧪 Dry run mode - not executing");
+            return Ok(());
+        }
+
+        // Create transaction
+        println!("\n🔨 Creating transaction...");
+
+        // Query account sequence number so signature and RPC include it
+        let mut seq_num: u64 = 0;
+        {
+            use kanari_rpc_api::{RpcRequest, RpcResponse, methods};
+            let acct_req = RpcRequest {
+                jsonrpc: "2.0".to_string(),
+                method: methods::GET_ACCOUNT.to_string(),
+                params: serde_json::to_value(sender_normalized.clone())
+                    .unwrap_or(serde_json::json!(null)),
+                id: 1,
+            };
+
+            let client = Client::new();
+            match client.post(&self.rpc_endpoint).json(&acct_req).send() {
+                Ok(resp) => match resp.json::<RpcResponse>() {
+                    Ok(rpc_resp) => {
+                        if let Some(result) = rpc_resp.result {
+                            if let Ok(account_value) =
+                                serde_json::from_value::<serde_json::Value>(result)
+                            {
+                                if let Some(sn) = account_value
+                                    .get("sequence_number")
+                                    .and_then(|v| v.as_u64())
+                                {
+                                    seq_num = sn;
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => eprintln!("   Failed to parse account RPC response: {}", e),
+                },
+                Err(e) => eprintln!("   Failed to query account sequence: {}", e),
+            }
+        }
+
+        // Sign transaction if wallet is available
+        let signature = if let Some(ref wallet) = wallet {
+            // Format module as "address::module_name" for runtime compatibility
+            let module_full = format!("{}::{}", package_normalized, module_name);
+            
+            // Create proper Transaction to match server's expectation
+            use kanari_move_runtime::Transaction;
+            let transaction = Transaction::ExecuteFunction {
+                sender: sender_normalized.clone(),
+                module: module_full.clone(),
+                function: self.function.clone(),
+                type_args: self.type_args.clone(),
+                args: _args.clone(),
+                gas_limit: self.gas_limit,
+                gas_price: self.gas_price,
+                sequence_number: seq_num,
+            };
+
+            // Get transaction hash (same way server does it)
+            let tx_hash = transaction.hash();
+
+            // Sign with wallet
+            match kanari_crypto::sign_message(&wallet.private_key, &tx_hash, wallet.curve_type) {
+                Ok(sig) => {
+                    println!("   🔐 Transaction signed with {} key", wallet.curve_type);
+                    Some(sig)
+                }
+                Err(e) => {
+                    eprintln!("   ⚠️  Failed to sign transaction: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        // Build CallFunctionRequest and wrap into RpcRequest
+        use kanari_rpc_api::{CallFunctionRequest, RpcRequest, RpcResponse, methods};
+        use reqwest::blocking::Client;
+
+        // Format module as "address::module_name" for runtime compatibility
+        let module_full = format!("{}::{}", package_normalized, module_name);
+
+        let call_req = CallFunctionRequest {
+            sender: sender_normalized,
+            package: package_normalized,
+            module: module_full,
+            function: self.function.clone(),
+            type_args: self.type_args.clone(),
+            args: _args.clone(),
+            gas_limit: self.gas_limit,
+            gas_price: self.gas_price,
+            sequence_number: seq_num,
+            signature,
+        };
+
+        let rpc_request = RpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: methods::CALL_FUNCTION.to_string(),
+            params: serde_json::to_value(call_req).unwrap_or(serde_json::json!(null)),
+            id: 1,
+        };
+
+        println!("\n🔁 Sending RPC request to {} ...", self.rpc_endpoint);
+
+        let client = Client::new();
+        match client.post(&self.rpc_endpoint).json(&rpc_request).send() {
+            Ok(resp) => match resp.json::<RpcResponse>() {
+                Ok(rpc_resp) => {
+                    if let Some(err) = rpc_resp.error {
+                        eprintln!("RPC error: {} (code {})", err.message, err.code);
+                    } else if let Some(result) = rpc_resp.result {
+                        println!("RPC result: {}", result);
+                    } else {
+                        println!("RPC response has no result and no error");
+                    }
+                }
+                Err(e) => eprintln!("Failed to parse RPC response: {}", e),
+            },
+            Err(e) => eprintln!("Failed to send RPC request: {}", e),
+        }
+
+        println!("\n✅ Function call prepared and RPC sent (see output above)");
+
+        println!("\n💡 Next steps:");
+        println!("   • Check transaction status");
+        println!("   • View execution results on explorer");
+
+        Ok(())
+    }
+
+    /// Parse a single type argument
+    fn parse_type_arg(&self, type_arg: &str) -> Result<TypeTag> {
+        let type_arg = type_arg.trim();
+
+        // Parse type tag
+        let type_tag = parser::parse_type_tag(type_arg)
+            .with_context(|| format!("Failed to parse type argument: {}", type_arg))?;
+
+        Ok(type_tag)
+    }
+
+    /// Parse function arguments from Vec<String>
+    fn parse_args_vec(&self, args_vec: &[String]) -> Result<Vec<Vec<u8>>> {
+        let mut result = Vec::new();
+
+        for arg in args_vec {
+            let arg = arg.trim();
+
+            // Try to parse as different types
+            let bytes = if arg.starts_with(r"0x") {
+                // Hex address or bytes
+                let hex_str = &arg[2..];
+
+                // Check if it looks like an address (1-64 hex chars)
+                if hex_str.len() <= 64 && hex_str.chars().all(|c| c.is_ascii_hexdigit()) {
+                    // Pad to 32 bytes for addresses
+                    let padded = format!("{:0>64}", hex_str);
+                    let addr = AccountAddress::from_hex_literal(&format!(r"0x{}", padded))
+                        .with_context(|| format!("Failed to parse address: {}", arg))?;
+                    bcs::to_bytes(&addr)?
+                } else {
+                    // Raw hex bytes
+                    hex::decode(hex_str).with_context(|| format!("Failed to parse hex: {}", arg))?
+                }
+            } else if let Ok(num) = arg.parse::<u64>() {
+                // u64 number
+                bcs::to_bytes(&num)?
+            } else if let Ok(num) = arg.parse::<u128>() {
+                // u128 number
+                bcs::to_bytes(&num)?
+            } else if arg == "true" || arg == "false" {
+                // Boolean
+                let b = arg == "true";
+                bcs::to_bytes(&b)?
+            } else {
+                // String
+                bcs::to_bytes(arg)?
+            };
+
+            result.push(bytes);
+        }
+
+        Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_args_vec() {
+        let call = Call {
+            package: "0x1".to_string(),
+            module: "coin".to_string(),
+            function: "transfer".to_string(),
+            sender: "0x1".to_string(),
+            type_args: vec![],
+            args: vec![],
+            gas_limit: 200000,
+            gas_price: 1000,
+            password: None,
+            skip_signature: true,
+            rpc_endpoint: "http://localhost:3000".to_string(),
+            dry_run: false,
+        };
+
+        // Test u64
+        let args = call
+            .parse_args_vec(&["1000".to_string(), "2000".to_string()])
+            .unwrap();
+        assert_eq!(args.len(), 2);
+
+        // Test boolean
+        let args = call
+            .parse_args_vec(&["true".to_string(), "false".to_string()])
+            .unwrap();
+        assert_eq!(args.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_type_arg() {
+        let call = Call {
+            package: "0x1".to_string(),
+            module: "coin".to_string(),
+            function: "transfer".to_string(),
+            sender: "0x1".to_string(),
+            type_args: vec![],
+            args: vec![],
+            gas_limit: 200000,
+            gas_price: 1000,
+            password: None,
+            skip_signature: true,
+            rpc_endpoint: "http://localhost:3000".to_string(),
+            dry_run: false,
+        };
+
+        // Test parsing type argument
+        let type_tag = call.parse_type_arg("u64").unwrap();
+        assert!(matches!(type_tag, TypeTag::U64));
+    }
+}

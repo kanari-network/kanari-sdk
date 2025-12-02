@@ -1,0 +1,32 @@
+[package]
+name = "kanari-types"
+edition.workspace = true
+categories.workspace = true
+keywords.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[dependencies]
+# The `move-core-types` crate contains the core types of the Move language.
+# Move dependencies
+move-core-types = { workspace = true}
+
+# Error handling
+anyhow = { workspace = true }
+
+
+log = { workspace = true }
+lazy_static = { workspace = true }
+bcs = { workspace = true }
+serde = { workspace = true }
+hex = { workspace = true }
+primitive-types = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

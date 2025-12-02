@@ -1,242 +1,80 @@
-Kanari SDK
+# Kanari (kanari-cp)
 
-# Kanari SDK Architecture
+Kanari is a Rust workspace that demonstrates integrating the Move VM with a Rust runtime and CLI. The repository includes Rust crates for types, crypto utilities, a Move runtime bridge, and Move packages that define the on-chain logic.
 
-```mermaid
-flowchart TB
-  %% Application Layer
-  subgraph "Application Layer"
-    A1["CLI Tools"]
-    A2["Web Explorer A"]
-    A3["Web Explorer B"]
-    A4["RPC API"]
-  end
+This README gives a concise developer quick-start, project layout, and common commands for working with the codebase locally (Windows PowerShell examples).
 
-  %% Framework Layer
-  subgraph "Framework Layer"
-    F1["Kanari SDK"]
-    F2["Move Standard Library"]
-    F3["System SDK"]
-  end
+## Project layout (high level)
 
-  %% Core Layer
-  subgraph "Core Layer"
-    %% Blockchain Sub-layer
-    subgraph "Blockchain"
-      C1["Panorama Core"]
-      C2["TX Management"]
-      C3["State Management"]
-    end
-    %% Runtime Sub-layer
-    subgraph "Runtime"
-      R1["Move VM"]
-      R2["Move Compiler"]
-    end
-    %% Consensus Sub-layer
-    subgraph "Consensus"
-      CS2["PoS Engine"]
-    end
-  end
+- `crates/kanari` — CLI binary (`kanari`) and bootstrap logic.
+- `crates/kanari-types` — shared domain types (accounts, balances, `TransferRecord`).
+- `crates/kanari-move-runtime` — Move VM integration (calling Move functions, validating transfers, persisting state).
+- `crates/kanari-crypto` — key management, signing, and crypto utilities.
+- `crates/kanari-frameworks/packages/kanari-system` — Move packages (Move modules used by this system).
+- `third_party/move` — bundled Move toolchain and crates used as path dependencies in some places.
 
-  %% Network Layer
-  subgraph "Network Layer"
-    N1["P2P Network"]
-    N2["RPC Network"]
-  end
+## Local state
 
-  %% Storage Layer
-  subgraph "Storage Layer"
-    S1["Wallet Store"]
-    S2["File Store"]
-    S3["State DB"]
-  end
+- By default the runtime persists state into RocksDB at `~/.kari/kanari-db/move_vm_db`.
+- The runtime stores the serialized `MoveVMState` under the key `"state"`.
 
-  %% Legend
-  subgraph "Legend"
-    L1["Application Layer (Light Blue)"]
-    L2["Framework Layer (Light Green)"]
-    L3["Core Layer (Light Pink)"]
-    L4["Network Layer (Khaki)"]
-    L5["Storage Layer (Light Grey)"]
-  end
+## Prerequisites
 
-  %% Inter-layer Connections
-  %% Application -> Framework
-  A1 --> F1
-  A2 --> F1
-  A3 --> F1
-  A4 --> F1
+- Rust and Cargo (stable channel recommended).
+- (Optional) If you plan to use the Move toolchain independently, install it; the repository contains a local copy used as a path dependency in some crates.
 
-  %% Framework -> Core
-  F1 --> C1
-  F1 --> R1
+## Build and run (PowerShell)
 
-  %% Internal Core - Blockchain, Runtime, Consensus
-  C1 --> C2
-  C1 --> C3
-  R1 --> R2
-  %% Bidirectional interactions between Blockchain and Runtime
-  C1 <--> R1
-  %% Bidirectional interactions between Blockchain and Consensus engines
-  C1 <--> CS1
-  C1 <--> CS2
+```powershell
+# Build the kanari CLI
+cargo build -p kanari
 
-  %% Core -> Network
-  C1 --> N1
-  C1 --> N2
-
-  %% Network internal bidirectional exchange
-  N1 <--> N2
-
-  %% Core -> Storage
-  C1 --> S3
-  C3 --> S3
-  S1 --> S3
-  S2 --> S3
-
-  %% Class Definitions for color coding
-  class A1,A2,A3,A4 application
-  class F1,F2,F3 framework
-  class C1,C2,C3,R1,R2,CS1,CS2 core
-  class N1,N2 network
-  class S1,S2,S3 storage
-
-  classDef application fill:#ADD8E6,stroke:#333,stroke-width:2px;
-  classDef framework fill:#90EE90,stroke:#333,stroke-width:2px;
-  classDef core fill:#FFB6C1,stroke:#333,stroke-width:2px;
-  classDef network fill:#F0E68C,stroke:#333,stroke-width:2px;
-  classDef storage fill:#D3D3D3,stroke:#333,stroke-width:2px;
-
-  %% Click Events from Component Mapping
-  click A1 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/crates/command"
-  click A2 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/web/kari-explorer"
-  click A3 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/web/tool_mata"
-  click A4 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/crates/rpc/rpc-api"
-  click F1 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/framework/kanari-framework"
-  click F2 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/framework/move-stdlib"
-  click F3 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/framework/kanari-system"
-  click C1 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/crates/core/panorama"
-  click R1 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/crates/kari-move"
-  click R2 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/crates/kari-move"
-  click CS1 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/consensus/pow"
-  click CS2 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/consensus/pos"
-  click N1 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/crates/core/p2p"
-  click N2 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/crates/core/network"
-  click S1 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/crates/core/wallet"
-  click S2 "https://github.com/kanari-network/kanari-sdk/tree/kanari-sdk/monaos/mona-storage"
+# Run the CLI and list wallets (this will perform a Rust-side genesis on first run)
+cargo run -p kanari -- list-wallets
 ```
 
-### 1. Setup Environment
-- Ensure you have Ubuntu or a similar Linux distribution.
-- Install necessary dependencies like `build-essential`, `curl`, `clang`, `gcc`, `libssl-dev`, `llvm`, `make`, `pkg-config`, `tmux`, `xz-utils`, `ufw` using the provided `build_ubuntu.sh` script.
+Notes:
 
-### 2. Install Rust
-- Rust is required for building and running the Kari chain. Use the command provided in the `build_ubuntu.sh` script to install Rust and its package manager, Cargo.
+- On first run (or if the DB directory is removed), the CLI performs a bootstrap/genesis that mints the initial supply to the developer address embedded in the code.
+- To reset state, remove `~/.kari/kanari-db/move_vm_db` and rerun the command above.
 
-### 3. Clone the Kari Chain Repository
-- Obtain the source code for Kari chain. This might involve cloning a Git repository or downloading source code from a specific location.
+## Examples — using the CLI
 
-### 4. Build the Project
-- Navigate to the project directory.
-- Run `cargo build --release` to compile the project. This command compiles the project in release mode, optimizing the binary for performance.
+```powershell
+# Show wallets
+cargo run -p kanari -- list-wallets
 
-### 5. Run the Node
-- After building, you can start a Kari chain node using `cargo run --release`. This command runs the compiled project.
-- Depending on the project's specifics, you might need to add additional flags or configuration files to successfully start a node.
-
-### 6. Interact with the Kari Chain
-- Use the provided tools and documentation to interact with the Kari chain. This could involve sending transactions, mining blocks, or querying the blockchain state.
-
-### 7. Update and Maintain
-- Regularly update your local repository with the latest changes from the main Kari chain source.
-- Rebuild the project as needed to ensure you're running the latest version.
-
-### Usage Example
-```shell
-# Update and install dependencies
-./build_ubuntu.sh
-
-# Clone the Kari chain repo 
-git clone  https://github.com/kanari-network/kanari-sdk.git
-cd kanari-network
-
-# Initialize and update submodules
-git submodule init
-git submodule update --init --recursive
-
-# Build the project
-cargo build --release
+# Forward Move subcommands to the in-repo Move CLI (examples)
+cargo run -p kanari -- move new <package-name>
+cargo run -p kanari -- move test <path-to-move-package>
 ```
 
-### Environment Setup
-```shell
+If you see errors when forwarding Move commands, ensure the workspace builds and that the `third_party/move` path dependencies are present.
 
-# Generate wallet
-cargo run --release --bin kari keytool generate
+## Testing
 
-# Configure and start node
-# Interactive prompts will ask for:
-# 1. Node type (enter 1 for validator)
-# 2. RPC port (default: 3031)
-# 3. Network domain (default: devnet.kari.network)
-cargo run --release --bin kari start
+```powershell
+# Run the tests for the shared types crate
+cargo test -p kanari-types
 
-# Start Kari node
-# Windows
-cargo run --release --bin kari start
-
-# Linux/MacOS
-cargo run --release --bin kari start
+# Run all workspace tests (may take longer)
+cargo test
 ```
 
-### Kari CLI Install
+## Key files to inspect when developing
 
-#### Prerequisites for Windows
-- Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
-- Install [Rust](https://www.rust-lang.org/tools/install)
-- Install MinGW via chocolatey:
-```shell
-choco install mingw
-```
-```shell
-cargo install --locked --git https://github.com/kanari-network/kanari-sdk.git --branch kanari-sdk kari
-```
+- `crates/kanari/src/main.rs` — CLI wiring and bootstrap logic.
+- `crates/kanari-move-runtime/src/move_runtime.rs` — Move VM integration helpers.
+- `crates/kanari-types/src/transfer.rs` — `TransferRecord` shape and validation.
+- `crates/kanari-frameworks/packages/kanari-system` — Move modules and package layout.
+- `DOCS/SYSTEM_ER.md` — ER diagram and mapping between runtime entities and code (additional documentation).
 
-# Kanari Network SDK
+## Development notes and suggested next tasks
 
-## Automatic Submodule Initialization
+- Decide whether genesis should be executed inside the Move VM (preferred for Move-governed logic) or remain a Rust-side bootstrap. Currently the project seeds genesis from Rust when the DB is empty.
+- Add a `kanari status` command that prints total supply and non-zero balances in JSON for easier verification.
+- Clean up markdown lint warnings in `DOCS/SYSTEM_ER.md` for clearer docs.
 
-This project includes a build support tool that can automatically initialize git submodules. To use it:
+## Need help or want changes?
 
-```bash
-# From the workspace root
-cargo run -p build-support
-```
-
-This will check and initialize all required git submodules.
-
-### Required Submodules
-
-- `third_party/move` - Move language implementation
-
-### Manual Submodule Initialization
-
-If you prefer to initialize submodules manually, you can run:
-
-```bash
-git submodule update --init --recursive
-```
-
-## Building the Project
-
-```bash
-# First, ensure submodules are initialized
-cargo run -p build-support
-
-# Then build the project
-cargo build
-```
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=kanari-network/kanari-sdk&type=Timeline)](https://star-history.com/#kanari-network/kanari-sdk&Timeline)
+Tell me if you want the README expanded (CI steps, Docker, contributor guide), or if you want me to implement one of the suggested next tasks. I can also convert this README into Thai or another language if preferred.

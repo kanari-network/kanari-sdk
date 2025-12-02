@@ -1,0 +1,30 @@
+[package]
+name = "kanari-rpc-server"
+edition.workspace = true
+categories.workspace = true
+keywords.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[dependencies]
+kanari-rpc-api.workspace = true
+kanari-move-runtime.workspace = true
+kanari-types.workspace = true
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+blake3 = "1.6"
+hex = { workspace = true }
+tracing-subscriber = { workspace = true }
+move-binary-format = { workspace = true }
+move-core-types = { workspace = true }
