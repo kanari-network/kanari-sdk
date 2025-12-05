@@ -13,6 +13,29 @@ pub struct MoveVMState {
 }
 
 impl MoveVMState {
+    /// Create an in-memory MoveVMState for testing (uses temp directory)
+    #[cfg(test)]
+    pub fn new_in_memory() -> Result<Self> {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        // Create unique temp directory for this test
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_path = std::env::temp_dir().join(format!("kanari_test_{}", timestamp));
+
+        std::fs::create_dir_all(&temp_path)
+            .context("Failed to create temp MoveVMState directory")?;
+
+        let mut opts = Options::default();
+        opts.create_if_missing(true);
+        let db =
+            DB::open(&opts, temp_path).context("Failed to open temp RocksDB for MoveVMState")?;
+
+        Ok(MoveVMState { db })
+    }
+
     /// Open default DB at `~/.kari/kanari-db/move_vm_db`.
     pub fn open_default() -> Result<Self> {
         // Allow overriding the DB directory via env var for tests or custom setups.

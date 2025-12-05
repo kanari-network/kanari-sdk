@@ -11,6 +11,9 @@ pub mod natives;
 pub mod objects;
 pub mod state;
 
+#[cfg(test)]
+mod tests;
+
 pub use blockchain::{Block, BlockHeader, Blockchain, SignedTransaction, Transaction};
 pub use changeset::Event;
 pub use changeset::{AccountChange, ChangeSet};

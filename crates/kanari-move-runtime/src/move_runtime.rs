@@ -13,6 +13,7 @@ use move_vm_runtime::native_functions::NativeFunctionTable;
 use move_vm_test_utils::InMemoryStorage;
 use move_vm_types::gas::UnmeteredGasMeter;
 
+use crate::PendingObjectOps;
 use crate::gas::{GasMeter, GasOperation};
 use crate::objects::PendingObjectOpsRef;
 use crate::objects::pending_objects::new_pending_ops;
@@ -523,8 +524,12 @@ impl MoveRuntime {
         self.parse_move_changeset(&move_changeset, &mut cs);
         self.parse_move_events(&events, &mut cs);
 
-        // Collect pending object operations from global storage
-        cs.object_operations = crate::natives::object_natives::take_pending_ops();
+        // Collect pending object operations from runtime's pending_objects
+        // Note: Native functions store operations in GLOBAL_PENDING_OPS
+        // We merge both sources to ensure all operations are captured
+        let global_ops = crate::natives::object_natives::take_pending_ops();
+        let runtime_ops = self.take_pending_objects();
+        cs.object_operations = runtime_ops.merge(global_ops);
 
         // If gas accounting requested, include gas debit/credit in ChangeSet.
         if let Some((gas_limit, gas_price)) = gas_info {
@@ -642,5 +647,42 @@ impl MoveRuntime {
             };
             kanari_cs.add_event(kanari_event);
         }
+    }
+
+    /// Get and clear pending object operations from runtime
+    pub fn take_pending_objects(&mut self) -> PendingObjectOps {
+        let pending = self.pending_objects.lock().unwrap();
+        let ops = pending.clone();
+        drop(pending);
+        self.clear_pending_objects();
+        ops
+    }
+
+    /// Clear pending object operations
+    pub fn clear_pending_objects(&mut self) {
+        let mut pending = self.pending_objects.lock().unwrap();
+        *pending = PendingObjectOps::new();
+    }
+
+    /// Get reference to pending objects (read-only)
+    pub fn get_pending_objects(&self) -> PendingObjectOps {
+        self.pending_objects.lock().unwrap().clone()
+    }
+
+    /// Add object operation to pending operations
+    pub fn add_pending_transfer(
+        &mut self,
+        object_id: Vec<u8>,
+        object_type: String,
+        object_data: Vec<u8>,
+        recipient: AccountAddress,
+    ) {
+        let mut pending = self.pending_objects.lock().unwrap();
+        pending.add_transfer(crate::objects::ObjectTransfer {
+            object_id,
+            object_type,
+            object_data,
+            recipient,
+        });
     }
 }

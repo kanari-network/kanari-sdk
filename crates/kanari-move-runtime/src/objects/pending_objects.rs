@@ -59,6 +59,15 @@ impl PendingObjectOps {
     pub fn is_empty(&self) -> bool {
         self.transfers.is_empty() && self.freezes.is_empty() && self.shares.is_empty()
     }
+
+    /// Merge another PendingObjectOps into this one
+    /// This combines all transfers, freezes, and shares from both
+    pub fn merge(mut self, other: PendingObjectOps) -> Self {
+        self.transfers.extend(other.transfers);
+        self.freezes.extend(other.freezes);
+        self.shares.extend(other.shares);
+        self
+    }
 }
 
 /// Thread-safe wrapper for pending object operations
