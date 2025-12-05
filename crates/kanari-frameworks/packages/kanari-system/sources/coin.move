@@ -11,22 +11,24 @@ module kanari_system::coin {
     // --- Data Structures ---
 
     /// Coin resource wrapper with balance
-    struct Coin<phantom T> has store, drop {
+    struct Coin<phantom T> has key, store {
+        id: object::UID,
         balance: Balance<T>,
     }
 
     /// Capability allowing the bearer to mint and burn coins
-    struct TreasuryCap<phantom T> has store, drop {
+    struct TreasuryCap<phantom T> has key, store {
         id: object::UID,
         total_supply: u64, // Tracking total supply directly in the cap
     }
 
     /// Treasury: holds authority to mint into a Supply (deprecated, use TreasuryCap)
-    struct Treasury<phantom T> has store, drop {
+    struct Treasury<phantom T> has key, store {
+        id: object::UID,
     }
 
     /// Metadata resource for a currency (stored as an object with UID)
-    struct CoinMetadata<phantom T> has key, store, drop {
+    struct CoinMetadata<phantom T> has key, store {
         id: object::UID,
         decimals: u8,
         name: string::String,
@@ -84,7 +86,7 @@ module kanari_system::coin {
     public fun mint<T>(
         cap: &mut TreasuryCap<T>,
         amount: u64,
-        _ctx: &mut TxContext,
+        ctx: &mut TxContext,
     ): Coin<T> {
         assert!(amount > 0, EZERO_AMOUNT);
         let new_total = cap.total_supply + amount;
@@ -93,6 +95,7 @@ module kanari_system::coin {
         cap.total_supply = new_total;
         
         Coin {
+            id: object::new(ctx),
             balance: balance::create(amount),
         }
     }
@@ -110,7 +113,7 @@ module kanari_system::coin {
 
     /// Burn coins, decreasing total supply
     public fun burn<T>(cap: &mut TreasuryCap<T>, coin: Coin<T>): u64 {
-        let Coin { balance } = coin;
+        let Coin { id: _, balance } = coin;
         let value = balance::destroy(balance);
         
         assert!(cap.total_supply >= value, EUNDERFLOW); // Check for underflow
@@ -121,15 +124,18 @@ module kanari_system::coin {
 
     /// Convert a `Coin<T>` into its inner `Balance<T>`.
     public fun into_balance<T>(coin: Coin<T>): Balance<T> {
-        let Coin { balance } = coin;
+        let Coin { id: _, balance } = coin;
         balance
     }
 
     /// Construct a `Coin<T>` from a `Balance<T>`.
     /// This helper allows other modules to wrap balances into Coin objects
     /// when they take custody of raw balances (e.g., DEX pools).
-    public fun from_balance<T>(balance: Balance<T>): Coin<T> {
-        Coin { balance }
+    public fun from_balance<T>(balance: Balance<T>, ctx: &mut TxContext): Coin<T> {
+        Coin { 
+            id: object::new(ctx),
+            balance 
+        }
     }
 
     /// Get total supply from TreasuryCap
@@ -145,15 +151,15 @@ module kanari_system::coin {
     /// Split a coin into two. Returns the new coin with the specified amount.
     public fun split<T>(coin: &mut Coin<T>, amount: u64, ctx: &mut TxContext): Coin<T> {
         // Assert for sufficient balance is implicitly handled by balance::split
-        let _ = ctx;
         Coin {
+            id: object::new(ctx),
             balance: balance::split(&mut coin.balance, amount),
         }
     }
 
     /// Join two coins together (adds the balance of 'other' into 'coin').
     public fun join<T>(coin: &mut Coin<T>, other: Coin<T>) {
-        let Coin { balance } = other;
+        let Coin { id: _, balance } = other;
         balance::merge(&mut coin.balance, balance);
     }
     
