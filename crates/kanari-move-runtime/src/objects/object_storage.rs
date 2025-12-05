@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -138,10 +138,12 @@ impl ObjectStorage {
     /// Transfer object to a new owner
     pub fn transfer(&mut self, id: &ObjectID, new_owner: AccountAddress) -> Result<()> {
         // Get old owner first
-        let old_owner = self.objects
+        let old_owner = self
+            .objects
             .get(id)
             .ok_or_else(|| anyhow!("Object not found: {:?}", id))?
-            .owner.clone();
+            .owner
+            .clone();
 
         // Remove from old owner index
         if let Owner::AddressOwner(old_owner_addr) = &old_owner {
@@ -167,10 +169,12 @@ impl ObjectStorage {
     /// Share an object (make it accessible to all)
     pub fn share(&mut self, id: &ObjectID) -> Result<()> {
         // Get old owner first
-        let old_owner = self.objects
+        let old_owner = self
+            .objects
             .get(id)
             .ok_or_else(|| anyhow!("Object not found: {:?}", id))?
-            .owner.clone();
+            .owner
+            .clone();
 
         // Remove from owner index
         if let Owner::AddressOwner(owner_addr) = &old_owner {
@@ -189,10 +193,12 @@ impl ObjectStorage {
     /// Freeze an object (make it immutable)
     pub fn freeze(&mut self, id: &ObjectID) -> Result<()> {
         // Get old owner first
-        let old_owner = self.objects
+        let old_owner = self
+            .objects
             .get(id)
             .ok_or_else(|| anyhow!("Object not found: {:?}", id))?
-            .owner.clone();
+            .owner
+            .clone();
 
         // Remove from owner index
         if let Owner::AddressOwner(owner_addr) = &old_owner {
@@ -212,11 +218,7 @@ impl ObjectStorage {
     pub fn get_owned_objects(&self, owner: &AccountAddress) -> Vec<&Object> {
         self.owner_index
             .get(owner)
-            .map(|ids| {
-                ids.iter()
-                    .filter_map(|id| self.objects.get(id))
-                    .collect()
-            })
+            .map(|ids| ids.iter().filter_map(|id| self.objects.get(id)).collect())
             .unwrap_or_default()
     }
 
@@ -233,11 +235,7 @@ impl ObjectStorage {
     }
 
     /// Get all objects of a specific type owned by an address
-    pub fn get_owned_objects_by_type(
-        &self,
-        owner: &AccountAddress,
-        type_: &str,
-    ) -> Vec<&Object> {
+    pub fn get_owned_objects_by_type(&self, owner: &AccountAddress, type_: &str) -> Vec<&Object> {
         self.get_owned_objects(owner)
             .into_iter()
             .filter(|obj| obj.type_ == type_)
@@ -248,11 +246,7 @@ impl ObjectStorage {
     pub fn get_objects_by_type(&self, type_: &str) -> Vec<&Object> {
         self.type_index
             .get(type_)
-            .map(|ids| {
-                ids.iter()
-                    .filter_map(|id| self.objects.get(id))
-                    .collect()
-            })
+            .map(|ids| ids.iter().filter_map(|id| self.objects.get(id)).collect())
             .unwrap_or_default()
     }
 

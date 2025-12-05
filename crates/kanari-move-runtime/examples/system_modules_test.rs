@@ -10,17 +10,17 @@ fn main() -> anyhow::Result<()> {
     // Create runtime with Kanari natives and system modules
     println!("Initializing MoveRuntime with Kanari natives...");
     let runtime = MoveRuntime::new_with_kanari_natives()?;
-    
+
     println!("\n✓ Runtime initialized successfully");
     println!("✓ Native functions loaded (ecdsa_k1, ecdsa_r1, ed25519)");
     println!("✓ System modules loaded (transfer, coin, balance, etc.)\n");
 
     // Verify critical system modules are available
     let system_addr = AccountAddress::from_hex_literal("0x2")?;
-    
+
     let modules_to_check = vec![
         "transfer",
-        "coin", 
+        "coin",
         "balance",
         "object",
         "tx_context",
@@ -32,11 +32,8 @@ fn main() -> anyhow::Result<()> {
 
     println!("Checking system modules:");
     for module_name in modules_to_check {
-        let module_id = ModuleId::new(
-            system_addr,
-            module_name.parse().unwrap()
-        );
-        
+        let module_id = ModuleId::new(system_addr, module_name.parse().unwrap());
+
         let exists = runtime.has_module(&module_id);
         let status = if exists { "✓" } else { "✗" };
         println!("  {} 0x2::{}", status, module_name);

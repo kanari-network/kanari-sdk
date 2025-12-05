@@ -1,5 +1,7 @@
-use crate::changeset::{ChangeSet, Event};
-use crate::object_storage::ObjectStorage;
+use crate::{
+    changeset::{ChangeSet, Event},
+    objects::ObjectStorage,
+};
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
 use kanari_types::address::Address as KanariAddress;
@@ -33,26 +35,27 @@ impl Account {
     pub fn add_module(&mut self, module_name: String) {
         self.modules.insert(module_name);
     }
-    
+
     pub fn set_token_balance(&mut self, token_type: String, amount: u64) {
         self.token_balances.insert(token_type, amount);
     }
-    
+
     pub fn get_token_balance(&self, token_type: &str) -> u64 {
         self.token_balances.get(token_type).copied().unwrap_or(0)
     }
-    
+
     pub fn add_token(&mut self, token_type: String, amount: u64) {
         let current = self.get_token_balance(&token_type);
         self.token_balances.insert(token_type, current + amount);
     }
-    
+
     pub fn sub_token(&mut self, token_type: &str, amount: u64) -> Result<()> {
         let current = self.get_token_balance(token_type);
         if current < amount {
             anyhow::bail!("Insufficient token balance");
         }
-        self.token_balances.insert(token_type.to_string(), current - amount);
+        self.token_balances
+            .insert(token_type.to_string(), current - amount);
         Ok(())
     }
 
@@ -197,8 +200,8 @@ impl StateManager {
 
         // Process object operations (transfers, freezes, shares)
         if !changeset.object_operations.is_empty() {
-            use crate::object_storage::{Object, Owner};
-            
+            use crate::objects::object_storage::{Object, Owner};
+
             // Process transfers
             for transfer in &changeset.object_operations.transfers {
                 let object = Object {
@@ -209,16 +212,19 @@ impl StateManager {
                     data: transfer.object_data.clone(),
                     version: 1,
                 };
-                
+
                 self.objects.insert(object)?;
-                
+
                 // If it's a TreasuryCap, track in account (for display)
                 if transfer.object_type.contains("TreasuryCap") {
                     // Note: This is for CLI display purposes
-                    eprintln!("💰 TreasuryCap created: {} for {}", transfer.object_type, transfer.recipient);
+                    eprintln!(
+                        "💰 TreasuryCap created: {} for {}",
+                        transfer.object_type, transfer.recipient
+                    );
                 }
             }
-            
+
             // Process freezes
             for freeze in &changeset.object_operations.freezes {
                 let object_id = AccountAddress::from_bytes(&freeze.object_id)
@@ -227,7 +233,7 @@ impl StateManager {
                     obj.owner = Owner::Immutable;
                 }
             }
-            
+
             // Process shares
             for share in &changeset.object_operations.shares {
                 let object_id = AccountAddress::from_bytes(&share.object_id)

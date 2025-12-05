@@ -1,7 +1,8 @@
 use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::pending_objects::PendingObjectOps;
+
+use crate::objects::PendingObjectOps;
 
 /// Move VM Event representation
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -49,32 +49,32 @@ async fn handle_rpc(
         methods::GET_BALANCE => handle_get_balance(&state, &request).await,
         methods::GET_TOKEN_BALANCE => handle_get_token_balance(&state, &request).await,
         methods::GET_ALL_BALANCES => handle_get_all_balances(&state, &request).await,
-        
+
         // Blocks & Transactions
         methods::GET_BLOCK => handle_get_block(&state, &request).await,
         methods::GET_BLOCK_HEIGHT => handle_get_block_height(&state, &request).await,
         methods::GET_STATS => handle_get_stats(&state, &request).await,
         methods::SUBMIT_TRANSACTION => handle_submit_transaction(&state, &request).await,
-        
+
         // Health
         methods::HEALTH => handle_health(&state, &request).await,
-        
+
         // Module operations
         methods::PUBLISH_MODULE => handle_publish_module(&state, &request).await,
         methods::UPGRADE_MODULE => handle_upgrade_module(&state, &request).await,
         methods::GET_MODULE => handle_get_module(&state, &request).await,
         methods::LIST_MODULES => handle_list_modules(&state, &request).await,
         methods::VERIFY_MODULE => handle_verify_module(&state, &request).await,
-        
+
         // Function calls
         methods::CALL_FUNCTION => handle_call_function(&state, &request).await,
         methods::SIMULATE_FUNCTION => handle_simulate_function(&state, &request).await,
-        
+
         // Object operations
         methods::GET_OBJECT => handle_get_object(&state, &request).await,
         methods::GET_OWNED_OBJECTS => handle_get_owned_objects(&state, &request).await,
         methods::GET_OBJECTS_BY_TYPE => handle_get_objects_by_type(&state, &request).await,
-        
+
         _ => RpcResponse {
             jsonrpc: "2.0".to_string(),
             result: None,
@@ -440,21 +440,23 @@ async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest) -> 
         Ok((tx_hash, changeset)) => {
             let tx_hash_hex = hex::encode(&tx_hash);
             info!("Module published successfully: {}", tx_hash_hex);
-            
+
             // Extract created objects from state
             let created_objects = {
                 let state_guard = state.engine.state.read().unwrap();
                 let objects = &state_guard.objects;
-                
+
                 // Get recently created objects (simplification: get all objects owned by sender)
-                let sender_addr = kanari_types::address::Address::from_hex_literal(&module_data.sender)
-                    .unwrap();
+                let sender_addr =
+                    kanari_types::address::Address::from_hex_literal(&module_data.sender).unwrap();
                 let sender_bytes = sender_addr.to_bytes();
                 let mut addr_array = [0u8; 32];
                 addr_array.copy_from_slice(&sender_bytes[0..32]);
-                let sender_account_addr = move_core_types::account_address::AccountAddress::new(addr_array);
-                
-                objects.get_objects_by_owner(&sender_account_addr)
+                let sender_account_addr =
+                    move_core_types::account_address::AccountAddress::new(addr_array);
+
+                objects
+                    .get_objects_by_owner(&sender_account_addr)
                     .into_iter()
                     .map(|obj| {
                         use kanari_rpc_api::ObjectInfo;
@@ -468,16 +470,20 @@ async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest) -> 
                     })
                     .collect::<Vec<_>>()
             };
-            
+
             use kanari_rpc_api::TransactionResult;
             let result = TransactionResult {
                 hash: tx_hash_hex,
-                status: if changeset.success { "success".to_string() } else { "failed".to_string() },
+                status: if changeset.success {
+                    "success".to_string()
+                } else {
+                    "failed".to_string()
+                },
                 gas_used: changeset.gas_used,
                 created_objects,
                 error_message: changeset.error_message.clone(),
             };
-            
+
             RpcResponse {
                 jsonrpc: "2.0".to_string(),
                 result: Some(serde_json::to_value(result).unwrap()),
@@ -570,9 +576,12 @@ async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) -> R
         Ok((tx_hash, changeset)) => {
             let tx_hash_hex = hex::encode(&tx_hash);
             info!("Function called successfully: {}", tx_hash_hex);
-            
+
             // Get created objects from changeset transfers
-            let created_objects = changeset.object_operations.transfers.iter()
+            let created_objects = changeset
+                .object_operations
+                .transfers
+                .iter()
                 .map(|transfer| {
                     use kanari_rpc_api::ObjectInfo;
                     ObjectInfo {
@@ -584,16 +593,20 @@ async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) -> R
                     }
                 })
                 .collect::<Vec<_>>();
-            
+
             use kanari_rpc_api::TransactionResult;
             let result = TransactionResult {
                 hash: tx_hash_hex,
-                status: if changeset.success { "success".to_string() } else { "failed".to_string() },
+                status: if changeset.success {
+                    "success".to_string()
+                } else {
+                    "failed".to_string()
+                },
                 gas_used: changeset.gas_used,
                 created_objects,
                 error_message: changeset.error_message.clone(),
             };
-            
+
             RpcResponse {
                 jsonrpc: "2.0".to_string(),
                 result: Some(serde_json::to_value(result).unwrap()),
@@ -631,14 +644,14 @@ pub async fn start_server(engine: Arc<BlockchainEngine>, addr: &str) -> Result<(
 /// Handle health check
 async fn handle_health(_state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     use kanari_rpc_api::HealthStatus;
-    
+
     let health = HealthStatus {
         status: "ok".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         uptime_seconds: 0, // TODO: Track actual uptime
         sync_status: "synced".to_string(),
     };
-    
+
     RpcResponse {
         jsonrpc: "2.0".to_string(),
         result: Some(serde_json::to_value(health).unwrap()),
@@ -660,7 +673,10 @@ async fn handle_upgrade_module(state: &RpcServerState, request: &RpcRequest) -> 
             return RpcResponse {
                 jsonrpc: "2.0".to_string(),
                 result: None,
-                error: Some(RpcError::module_error(format!("Invalid module data: {}", e))),
+                error: Some(RpcError::module_error(format!(
+                    "Invalid module data: {}",
+                    e
+                ))),
                 id: request.id,
             };
         }
@@ -721,7 +737,7 @@ async fn handle_upgrade_module(state: &RpcServerState, request: &RpcRequest) -> 
 /// Handle get module
 async fn handle_get_module(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     use kanari_rpc_api::ModuleInfo;
-    
+
     #[derive(serde::Deserialize)]
     struct GetModuleParams {
         address: String,
@@ -741,7 +757,10 @@ async fn handle_get_module(state: &RpcServerState, request: &RpcRequest) -> RpcR
     };
 
     // Get module bytecode from Move storage
-    match state.engine.get_module_bytecode(&params.address, &params.name) {
+    match state
+        .engine
+        .get_module_bytecode(&params.address, &params.name)
+    {
         Some(bytecode) => {
             let module_info = ModuleInfo {
                 address: params.address,
@@ -769,7 +788,7 @@ async fn handle_get_module(state: &RpcServerState, request: &RpcRequest) -> RpcR
 /// Handle list modules
 async fn handle_list_modules(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     use kanari_rpc_api::ModuleInfo;
-    
+
     // Get modules from Move storage instead of contracts
     let modules_data = state.engine.list_all_modules();
     let modules: Vec<ModuleInfo> = modules_data
@@ -876,7 +895,7 @@ async fn handle_simulate_function(_state: &RpcServerState, request: &RpcRequest)
 /// Handle get object request
 async fn handle_get_object(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     use move_core_types::account_address::AccountAddress;
-    
+
     let object_id: String = match serde_json::from_value(request.params.clone()) {
         Ok(id) => id,
         Err(e) => {
@@ -896,7 +915,10 @@ async fn handle_get_object(state: &RpcServerState, request: &RpcRequest) -> RpcR
             return RpcResponse {
                 jsonrpc: "2.0".to_string(),
                 result: None,
-                error: Some(RpcError::invalid_params(format!("Invalid object ID: {}", e))),
+                error: Some(RpcError::invalid_params(format!(
+                    "Invalid object ID: {}",
+                    e
+                ))),
                 id: request.id,
             };
         }
@@ -938,7 +960,7 @@ async fn handle_get_object(state: &RpcServerState, request: &RpcRequest) -> RpcR
 /// Handle get owned objects request
 async fn handle_get_owned_objects(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     use move_core_types::account_address::AccountAddress;
-    
+
     let req_data: GetOwnedObjectsRequest = match serde_json::from_value(request.params.clone()) {
         Ok(data) => data,
         Err(e) => {
@@ -958,16 +980,21 @@ async fn handle_get_owned_objects(state: &RpcServerState, request: &RpcRequest) 
             return RpcResponse {
                 jsonrpc: "2.0".to_string(),
                 result: None,
-                error: Some(RpcError::invalid_params(format!("Invalid owner address: {}", e))),
+                error: Some(RpcError::invalid_params(format!(
+                    "Invalid owner address: {}",
+                    e
+                ))),
                 id: request.id,
             };
         }
     };
 
     let state_manager = state.engine.state.read().unwrap();
-    
+
     let objects = if let Some(obj_type) = req_data.object_type {
-        state_manager.objects.get_owned_objects_by_type(&owner, &obj_type)
+        state_manager
+            .objects
+            .get_owned_objects_by_type(&owner, &obj_type)
     } else {
         state_manager.objects.get_owned_objects(&owner)
     };
@@ -1035,7 +1062,6 @@ async fn handle_get_objects_by_type(state: &RpcServerState, request: &RpcRequest
     }
 }
 
-
 /// Handle get token balance request
 async fn handle_get_token_balance(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     use kanari_rpc_api::GetTokenBalanceRequest;
@@ -1052,7 +1078,9 @@ async fn handle_get_token_balance(state: &RpcServerState, request: &RpcRequest) 
         }
     };
 
-    let balance = state.engine.get_token_balance(&req_data.address, &req_data.token_type);
+    let balance = state
+        .engine
+        .get_token_balance(&req_data.address, &req_data.token_type);
 
     RpcResponse {
         jsonrpc: "2.0".to_string(),
@@ -1082,21 +1110,19 @@ async fn handle_get_all_balances(state: &RpcServerState, request: &RpcRequest) -
     };
 
     let account_info = state.engine.get_account_info(&req_data.address);
-    
+
     match account_info {
         Some(info) => {
-            let mut balances = vec![
-                serde_json::json!({
-                    "token_type": "KANARI",
-                    "balance": info.balance,
-                    "decimals": 9,
-                    "symbol": "KANARI"
-                })
-            ];
-            
+            let mut balances = vec![serde_json::json!({
+                "token_type": "KANARI",
+                "balance": info.balance,
+                "decimals": 9,
+                "symbol": "KANARI"
+            })];
+
             for (token_type, amount) in info.token_balances.iter() {
                 let symbol = token_type.split("::").last().unwrap_or(token_type);
-                
+
                 balances.push(serde_json::json!({
                     "token_type": token_type,
                     "balance": amount,
@@ -1104,7 +1130,7 @@ async fn handle_get_all_balances(state: &RpcServerState, request: &RpcRequest) -
                     "symbol": symbol
                 }));
             }
-            
+
             RpcResponse {
                 jsonrpc: "2.0".to_string(),
                 result: Some(serde_json::json!({
@@ -1114,14 +1140,12 @@ async fn handle_get_all_balances(state: &RpcServerState, request: &RpcRequest) -
                 error: None,
                 id: request.id,
             }
-        },
-        None => {
-            RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: None,
-                error: Some(RpcError::invalid_params("Account not found")),
-                id: request.id,
-            }
         }
+        None => RpcResponse {
+            jsonrpc: "2.0".to_string(),
+            result: None,
+            error: Some(RpcError::invalid_params("Account not found")),
+            id: request.id,
+        },
     }
 }

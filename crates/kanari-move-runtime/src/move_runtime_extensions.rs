@@ -16,7 +16,7 @@ impl MoveRuntime {
     /// Checks basic invariants and dependencies
     pub fn verify_module(&self, module: &CompiledModule) -> Result<()> {
         // Basic verification checks
-        
+
         // 1. Check module has valid self-id
         let module_id = module.self_id();
         if module_id.name().as_str().is_empty() {
@@ -137,12 +137,12 @@ impl MoveRuntime {
     ) -> Result<u64> {
         // Simulate execution and estimate based on complexity
         let _cs = self.simulate_entry_function(module_id, function_name, type_args, args)?;
-        
+
         // Simple gas estimation based on function complexity
         // In production, this would analyze the actual gas consumption
         let base_gas = 1000u64;
         let complexity_gas = function_name.len() as u64 * 10;
-        
+
         Ok(base_gas + complexity_gas)
     }
 

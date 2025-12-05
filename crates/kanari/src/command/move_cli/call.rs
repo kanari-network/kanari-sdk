@@ -270,16 +270,19 @@ impl Call {
                         eprintln!("RPC error: {} (code {})", err.message, err.code);
                     } else if let Some(result) = rpc_resp.result {
                         // Try to parse as TransactionResult
-                        if let Ok(tx_result) = serde_json::from_value::<kanari_rpc_api::TransactionResult>(result.clone()) {
+                        if let Ok(tx_result) = serde_json::from_value::<
+                            kanari_rpc_api::TransactionResult,
+                        >(result.clone())
+                        {
                             println!("✅ Transaction: {}", tx_result.hash);
                             println!("📊 Status: {}", tx_result.status);
                             println!("⛽ Gas used: {} Mist", tx_result.gas_used);
-                            
+
                             // Show error message if transaction failed
                             if let Some(ref error_msg) = tx_result.error_message {
                                 eprintln!("\n❌ Transaction failed: {}", error_msg);
                             }
-                            
+
                             // Show created objects (e.g., TreasuryCap)
                             if !tx_result.created_objects.is_empty() {
                                 println!("\n📦 Created Objects:");
@@ -287,10 +290,12 @@ impl Call {
                                     println!("   🆔 Object ID: {}", obj.id);
                                     println!("      Owner: {}", obj.owner);
                                     println!("      Type: {}", obj.type_);
-                                    
+
                                     // Highlight TreasuryCap objects
                                     if obj.type_.contains("TreasuryCap") {
-                                        println!("      💰 This is a TreasuryCap - use this ID for minting!");
+                                        println!(
+                                            "      💰 This is a TreasuryCap - use this ID for minting!"
+                                        );
                                         println!("\n      📋 To mint tokens, use:");
                                         println!("      kanari move call \\");
                                         println!("        --package {} \\", package_normalized);

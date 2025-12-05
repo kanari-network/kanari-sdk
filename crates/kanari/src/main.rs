@@ -487,8 +487,7 @@ fn main() -> Result<()> {
         }
 
         Commands::Balances(balances) => {
-            balances.execute()
-                .context("Failed to query balances")?;
+            balances.execute().context("Failed to query balances")?;
             Ok(())
         }
 

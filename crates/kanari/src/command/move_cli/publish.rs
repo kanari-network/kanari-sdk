@@ -33,7 +33,6 @@ pub struct Publish {
     #[clap(long = "password")]
     pub password: Option<String>,
 
-
     /// RPC endpoint
     #[clap(long = "rpc", default_value = "http://127.0.0.1:3000")]
     pub rpc_endpoint: String,
@@ -205,7 +204,8 @@ impl Publish {
                 let tx_hash = transaction.hash();
 
                 // Sign with wallet
-                match kanari_crypto::sign_message(&wallet.private_key, &tx_hash, wallet.curve_type) {
+                match kanari_crypto::sign_message(&wallet.private_key, &tx_hash, wallet.curve_type)
+                {
                     Ok(sig) => {
                         println!("     🔐 Transaction signed with {} key", wallet.curve_type);
                         Some(sig)
@@ -243,33 +243,47 @@ impl Publish {
                             eprintln!("     RPC error: {} (code {})", err.message, err.code);
                         } else if let Some(result) = rpc_resp.result {
                             // Try to parse as TransactionResult
-                            if let Ok(tx_result) = serde_json::from_value::<kanari_rpc_api::TransactionResult>(result.clone()) {
+                            if let Ok(tx_result) = serde_json::from_value::<
+                                kanari_rpc_api::TransactionResult,
+                            >(result.clone())
+                            {
                                 println!("     ✅ Transaction: {}", tx_result.hash);
                                 println!("     📊 Status: {}", tx_result.status);
                                 println!("     ⛽ Gas used: {} Mist", tx_result.gas_used);
-                                
+
                                 // Show error message if transaction failed
                                 if let Some(ref error_msg) = tx_result.error_message {
                                     eprintln!("\n     ❌ Transaction failed: {}", error_msg);
                                 }
-                                
+
                                 if !tx_result.created_objects.is_empty() {
                                     println!("\n     📦 Created Objects:");
                                     for obj in &tx_result.created_objects {
                                         println!("        🆔 Object ID: {}", obj.id);
                                         println!("           Owner: {}", obj.owner);
                                         println!("           Type: {}", obj.type_);
-                                        
+
                                         // Highlight TreasuryCap objects
                                         if obj.type_.contains("TreasuryCap") {
-                                            println!("           💰 This is a TreasuryCap - use for minting!");
+                                            println!(
+                                                "           💰 This is a TreasuryCap - use for minting!"
+                                            );
                                             println!("\n           📋 To mint tokens, use:");
                                             println!("           kanari move call \\");
-                                            println!("             --sender {} \\", sender_normalized);
+                                            println!(
+                                                "             --sender {} \\",
+                                                sender_normalized
+                                            );
                                             println!("             --password <PASSWORD> \\");
-                                            println!("             --module \"{}::{}\" \\", module_addr_normalized, module_name);
+                                            println!(
+                                                "             --module \"{}::{}\" \\",
+                                                module_addr_normalized, module_name
+                                            );
                                             println!("             --function mint \\");
-                                            println!("             --args {} <AMOUNT> <RECIPIENT>", obj.id);
+                                            println!(
+                                                "             --args {} <AMOUNT> <RECIPIENT>",
+                                                obj.id
+                                            );
                                         }
                                         println!();
                                     }

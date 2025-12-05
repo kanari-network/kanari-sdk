@@ -246,7 +246,7 @@ impl BlockchainEngine {
                     type_tags,
                     args.clone(),
                     Some(sender_addr), // Pass sender for TxContext
-                    None, // Gas handled by engine, not runtime
+                    None,              // Gas handled by engine, not runtime
                 ) {
                     Ok(cs) => cs,
                     Err(e) => {
@@ -489,19 +489,21 @@ impl BlockchainEngine {
             token_balances: acc.token_balances.clone(),
         })
     }
-    
+
     /// Get token balance for specific token type
     pub fn get_token_balance(&self, address: &str, token_type: &str) -> u64 {
         let state = self.state.read().unwrap();
-        state.get_account_by_hex(address)
+        state
+            .get_account_by_hex(address)
             .map(|acc| acc.get_token_balance(token_type))
             .unwrap_or(0)
     }
-    
+
     /// Get all token balances for an address
     pub fn get_all_token_balances(&self, address: &str) -> std::collections::HashMap<String, u64> {
         let state = self.state.read().unwrap();
-        state.get_account_by_hex(address)
+        state
+            .get_account_by_hex(address)
             .map(|acc| acc.token_balances.clone())
             .unwrap_or_default()
     }
@@ -560,18 +562,20 @@ impl BlockchainEngine {
 
     /// Get module bytecode from Move storage
     pub fn get_module_bytecode(&self, address: &str, module_name: &str) -> Option<Vec<u8>> {
-        use move_core_types::{account_address::AccountAddress, identifier::Identifier, language_storage::ModuleId};
-        
+        use move_core_types::{
+            account_address::AccountAddress, identifier::Identifier, language_storage::ModuleId,
+        };
+
         let addr = match AccountAddress::from_hex_literal(address) {
             Ok(a) => a,
             Err(_) => return None,
         };
-        
+
         let ident = match Identifier::new(module_name) {
             Ok(i) => i,
             Err(_) => return None,
         };
-        
+
         let module_id = ModuleId::new(addr, ident);
         let runtime = self.move_runtime.read().unwrap();
         runtime.get_module_bytes(&module_id)
@@ -580,7 +584,8 @@ impl BlockchainEngine {
     /// List all published modules in Move storage
     pub fn list_all_modules(&self) -> Vec<(String, String)> {
         let runtime = self.move_runtime.read().unwrap();
-        runtime.list_modules()
+        runtime
+            .list_modules()
             .into_iter()
             .map(|module_id| {
                 (

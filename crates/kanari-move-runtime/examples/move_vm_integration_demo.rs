@@ -54,28 +54,28 @@ fn demo_module_publishing() -> Result<()> {
     println!("\n--- Demo 2: Module Publishing with Verification ---");
 
     let mut runtime = MoveRuntime::new_with_kanari_natives()?;
-    
+
     // In a real scenario, you would compile Move source to bytecode
     // For this demo, we'll show the process conceptually
     println!("✓ Compiling Move module...");
-    
+
     // Example module source (conceptual):
     // module 0xCAFE::MyToken {
     //     struct Token has key { value: u64 }
     //     public entry fun mint(account: &signer, amount: u64) { ... }
     // }
-    
+
     let sender = AccountAddress::from_hex_literal("0xCAFE")?;
-    
+
     println!("  Module address: {}", sender.short_str_lossless());
     println!("  Sender has enough balance for gas");
-    
+
     // Verification happens automatically during publish_module
     // It checks:
     // 1. Module has valid self-id
     // 2. Dependencies are available
     // 3. Size limits
-    
+
     println!("✓ Module verification checks:");
     println!("  - Valid module identifier");
     println!("  - Dependencies resolved");
@@ -91,13 +91,10 @@ fn demo_gas_metering() -> Result<()> {
     let sender = AccountAddress::from_hex_literal("0xCAFE")?;
 
     // Gas estimation for function execution
-    let module_id = ModuleId::new(
-        AccountAddress::from_hex_literal("0x1")?,
-        "vector".parse()?,
-    );
+    let module_id = ModuleId::new(AccountAddress::from_hex_literal("0x1")?, "vector".parse()?);
 
     println!("✓ Estimating gas for function call...");
-    
+
     // Estimate gas (conceptual - requires compiled module)
     let estimated_gas = 1000; // Would come from runtime.estimate_gas()
     println!("  Estimated gas: {} units", estimated_gas);
@@ -105,7 +102,7 @@ fn demo_gas_metering() -> Result<()> {
     // Set gas parameters
     let gas_limit = estimated_gas * 2; // Add 100% buffer
     let gas_price = 100; // 100 units per gas
-    
+
     println!("✓ Gas configuration:");
     println!("  Gas limit: {}", gas_limit);
     println!("  Gas price: {}", gas_price);
@@ -141,7 +138,7 @@ fn demo_script_execution() -> Result<()> {
     // script {
     //     use 0xCAFE::MyToken;
     //     use 0x1::vector;
-    //     
+    //
     //     fun batch_transfer(sender: &signer, recipients: vector<address>, amounts: vector<u64>) {
     //         let i = 0;
     //         while (i < vector::length(&recipients)) {

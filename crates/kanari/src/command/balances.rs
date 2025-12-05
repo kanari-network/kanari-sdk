@@ -42,9 +42,7 @@ impl Balances {
             .send()
             .context("Failed to send RPC request")?;
 
-        let rpc_response: Value = response
-            .json()
-            .context("Failed to parse RPC response")?;
+        let rpc_response: Value = response.json().context("Failed to parse RPC response")?;
 
         if let Some(error) = rpc_response.get("error") {
             println!("❌ Error: {}", error.get("message").unwrap_or(&Value::Null));
@@ -58,19 +56,20 @@ impl Balances {
                 println!("├─────────────────────────────────────────────────────────────┤");
 
                 for balance in balances {
-                    let token_type = balance.get("token_type")
+                    let token_type = balance
+                        .get("token_type")
                         .and_then(|t| t.as_str())
                         .unwrap_or("UNKNOWN");
-                    
-                    let symbol = balance.get("symbol")
+
+                    let symbol = balance
+                        .get("symbol")
                         .and_then(|s| s.as_str())
                         .unwrap_or(token_type);
-                    
-                    let amount = balance.get("balance")
-                        .and_then(|a| a.as_u64())
-                        .unwrap_or(0);
-                    
-                    let decimals = balance.get("decimals")
+
+                    let amount = balance.get("balance").and_then(|a| a.as_u64()).unwrap_or(0);
+
+                    let decimals = balance
+                        .get("decimals")
                         .and_then(|d| d.as_u64())
                         .unwrap_or(9);
 
@@ -82,14 +81,21 @@ impl Balances {
                     if self.detailed {
                         println!("│                                                             │");
                         println!("│  Token: {:<52} │", symbol);
-                        println!("│  Balance: {}.{:0width$} {:<38} │", 
-                            whole, fraction, symbol, width = decimals as usize);
+                        println!(
+                            "│  Balance: {}.{:0width$} {:<38} │",
+                            whole,
+                            fraction,
+                            symbol,
+                            width = decimals as usize
+                        );
                         println!("│  Type: {:<53} │", token_type);
                         println!("│  Raw Amount: {:<47} │", amount);
                         println!("│─────────────────────────────────────────────────────────────│");
                     } else {
-                        println!("│  {:12} {:>15}.{:0<9} {:<24} │", 
-                            symbol, whole, fraction, "");
+                        println!(
+                            "│  {:12} {:>15}.{:0<9} {:<24} │",
+                            symbol, whole, fraction, ""
+                        );
                     }
                 }
 

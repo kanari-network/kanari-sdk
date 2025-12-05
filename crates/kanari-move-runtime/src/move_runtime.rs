@@ -14,11 +14,13 @@ use move_vm_test_utils::InMemoryStorage;
 use move_vm_types::gas::UnmeteredGasMeter;
 
 use crate::gas::{GasMeter, GasOperation};
+use crate::objects::PendingObjectOpsRef;
+use crate::objects::pending_objects::new_pending_ops;
 use kanari_types::address::Address as KanariAddress;
 
 use crate::changeset::ChangeSet;
 use crate::move_vm_state::MoveVMState;
-use crate::pending_objects::{PendingObjectOps, PendingObjectOpsRef, new_pending_ops};
+
 use std::collections::HashSet;
 
 /// Enhanced runtime wrapper around `move-vm` for executing functions, publishing modules,
@@ -43,16 +45,16 @@ impl MoveRuntime {
     }
 
     /// Create a new MoveRuntime with custom native functions.
-    /// 
+    ///
     /// # Arguments
     /// * `natives` - Native function tables for custom functions (e.g., crypto operations)
     /// * `enable_gas_metering` - Whether to enable gas metering in VM sessions
-    /// 
+    ///
     /// # Example
     /// ```ignore
     /// use kanari_crypto::move_natives;
     /// use move_core_types::account_address::AccountAddress;
-    /// 
+    ///
     /// let system_addr = AccountAddress::from_hex_literal("0x2").unwrap();
     /// let natives = move_natives::all_natives(system_addr);
     /// let runtime = MoveRuntime::new_with_natives(vec![natives], true)?;
@@ -64,16 +66,17 @@ impl MoveRuntime {
         let state = MoveVMState::open_default()?;
         let mut storage = InMemoryStorage::new();
         state.load_into_storage(&mut storage)?;
-        
+
         // Flatten all native tables into a single iterator
-        let all_natives: Vec<_> = natives.into_iter()
+        let all_natives: Vec<_> = natives
+            .into_iter()
             .flat_map(|table| table.into_iter())
             .collect();
-        
+
         // Initialize VM with custom natives
         let vm = MoveVM::new(all_natives)
             .map_err(|e| anyhow::anyhow!(format!("VM init error: {:?}", e)))?;
-        
+
         Ok(MoveRuntime {
             vm,
             storage,
@@ -89,30 +92,34 @@ impl MoveRuntime {
     pub fn new_with_kanari_natives() -> Result<Self> {
         // Standard library natives at 0x1
         let std_addr = AccountAddress::from_hex_literal("0x1")?;
-        let std_natives = move_stdlib_natives::all_natives(
-            std_addr,
-            move_stdlib_natives::GasParameters::zeros()
-        );
-        
+        let std_natives =
+            move_stdlib_natives::all_natives(std_addr, move_stdlib_natives::GasParameters::zeros());
+
         // Kanari crypto natives at 0x2
         let system_addr = AccountAddress::from_hex_literal("0x2")?;
         let crypto_natives = kanari_crypto::move_natives::all_natives(system_addr);
-        
+
         // Kanari object natives at 0x2
-        let object_natives = crate::object_natives::object_natives(system_addr);
-        
+        let object_natives = crate::natives::object_natives::object_natives(system_addr);
+
         // Kanari tx_context natives at 0x2
-        let tx_context_natives = crate::tx_context_natives::tx_context_natives(system_addr);
-        
+        let tx_context_natives =
+            crate::natives::tx_context_natives::tx_context_natives(system_addr);
+
         // Create runtime with natives
         let mut runtime = Self::new_with_natives(
-            vec![std_natives, crypto_natives, object_natives, tx_context_natives], 
-            true
+            vec![
+                std_natives,
+                crypto_natives,
+                object_natives,
+                tx_context_natives,
+            ],
+            true,
         )?;
-        
+
         // Load pre-compiled Kanari system modules
         runtime.load_system_modules()?;
-        
+
         Ok(runtime)
     }
 
@@ -121,34 +128,36 @@ impl MoveRuntime {
     fn load_system_modules(&mut self) -> Result<()> {
         // First, load move-stdlib modules (0x1::*)
         self.load_move_stdlib()?;
-        
+
         // Then load Kanari system modules (0x2::*)
         self.load_kanari_system()?;
-        
+
         Ok(())
     }
 
     /// Load move-stdlib modules (0x1::*)
     fn load_move_stdlib(&mut self) -> Result<()> {
-        let stdlib_path = std::env::var("MOVE_STDLIB_PATH")
-            .unwrap_or_else(|_| {
-                let mut path = std::env::current_dir().unwrap_or_default();
-                path.push("crates");
-                path.push("kanari-frameworks");
-                path.push("packages");
-                path.push("move-stdlib");
-                path.push("build");
-                path.push("MoveStdlib");
-                path.push("bytecode_modules");
-                path.to_string_lossy().to_string()
-            });
+        let stdlib_path = std::env::var("MOVE_STDLIB_PATH").unwrap_or_else(|_| {
+            let mut path = std::env::current_dir().unwrap_or_default();
+            path.push("crates");
+            path.push("kanari-frameworks");
+            path.push("packages");
+            path.push("move-stdlib");
+            path.push("build");
+            path.push("MoveStdlib");
+            path.push("bytecode_modules");
+            path.to_string_lossy().to_string()
+        });
 
         let modules_dir = std::path::Path::new(&stdlib_path);
-        
+
         println!("✓ Looking for Move stdlib modules at: {:?}", modules_dir);
-        
+
         if !modules_dir.exists() {
-            eprintln!("Warning: Move stdlib modules not found at {:?}", modules_dir);
+            eprintln!(
+                "Warning: Move stdlib modules not found at {:?}",
+                modules_dir
+            );
             eprintln!("Standard library will not be pre-loaded.");
             return Ok(());
         }
@@ -185,7 +194,7 @@ impl MoveRuntime {
                 }
             }
         }
-        
+
         println!("✓ Loaded {} move-stdlib modules (0x1::*)", count);
         Ok(())
     }
@@ -193,28 +202,32 @@ impl MoveRuntime {
     /// Load Kanari system modules (0x2::*)
     fn load_kanari_system(&mut self) -> Result<()> {
         // Path to pre-compiled Kanari system modules
-        let framework_path = std::env::var("KANARI_FRAMEWORK_PATH")
-            .unwrap_or_else(|_| {
-                // Default: relative to workspace root
-                let mut path = std::env::current_dir().unwrap_or_default();
-                // Navigate to framework package
-                path.push("crates");
-                path.push("kanari-frameworks");
-                path.push("packages");
-                path.push("kanari-system");
-                path.push("build");
-                path.push("KanariSystem");
-                path.push("bytecode_modules");
-                path.to_string_lossy().to_string()
-            });
+        let framework_path = std::env::var("KANARI_FRAMEWORK_PATH").unwrap_or_else(|_| {
+            // Default: relative to workspace root
+            let mut path = std::env::current_dir().unwrap_or_default();
+            // Navigate to framework package
+            path.push("crates");
+            path.push("kanari-frameworks");
+            path.push("packages");
+            path.push("kanari-system");
+            path.push("build");
+            path.push("KanariSystem");
+            path.push("bytecode_modules");
+            path.to_string_lossy().to_string()
+        });
 
         let modules_dir = std::path::Path::new(&framework_path);
-        
+
         println!("✓ Looking for Kanari system modules at: {:?}", modules_dir);
-        
+
         if !modules_dir.exists() {
-            eprintln!("Warning: Kanari system modules not found at {:?}", modules_dir);
-            eprintln!("System modules will not be pre-loaded. You may need to publish them manually.");
+            eprintln!(
+                "Warning: Kanari system modules not found at {:?}",
+                modules_dir
+            );
+            eprintln!(
+                "System modules will not be pre-loaded. You may need to publish them manually."
+            );
             eprintln!();
             eprintln!("To fix this:");
             eprintln!("  cd crates/kanari-frameworks");
@@ -242,7 +255,7 @@ impl MoveRuntime {
 
         for module_file in module_files {
             let module_path = modules_dir.join(module_file);
-            
+
             if let Ok(module_bytes) = std::fs::read(&module_path) {
                 // Publish module silently (no gas accounting for system modules)
                 match self.publish_module(module_bytes.clone(), system_addr, None) {
@@ -277,7 +290,7 @@ impl MoveRuntime {
         let compiled = CompiledModule::deserialize_with_defaults(&module_bytes)
             .map_err(|e| anyhow::anyhow!(format!("deserialize error: {:?}", e)))?;
         let module_id = compiled.self_id();
-        
+
         let storage_clone = self.storage.clone();
         let mut session = self.vm.new_session(storage_clone);
         let mut gas = UnmeteredGasMeter;
@@ -294,7 +307,7 @@ impl MoveRuntime {
         // In that case, we'll handle it as an upgrade
         let mut storage = new_storage;
         let apply_result = storage.apply(move_changeset.clone());
-        
+
         match apply_result {
             Ok(_) => {
                 // New module published successfully
@@ -305,7 +318,8 @@ impl MoveRuntime {
                 let err_msg = format!("{:?}", e);
                 if err_msg.contains("already exists") {
                     // Module upgrade - use publish_or_overwrite instead of apply
-                    self.storage.publish_or_overwrite_module(module_id.clone(), module_bytes.clone());
+                    self.storage
+                        .publish_or_overwrite_module(module_id.clone(), module_bytes.clone());
                     self.published_modules.insert(module_id.clone());
                 } else {
                     return Err(anyhow::anyhow!(format!("apply error: {:?}", e)));
@@ -344,7 +358,7 @@ impl MoveRuntime {
 
         // Note: Modules with init() must be manually called after publish
         // Use: kanari move call --function <module>::init
-        
+
         Ok(cs)
     }
 
@@ -465,7 +479,7 @@ impl MoveRuntime {
 
         // Auto-inject TxContext if function expects it as last parameter
         let mut final_args = args.clone();
-        
+
         // Create TxContext struct: { sender, tx_hash, epoch, epoch_timestamp_ms, ids_created }
         let sender_addr = sender.unwrap_or(AccountAddress::ZERO);
         let tx_hash = vec![0u8; 32]; // Placeholder
@@ -475,7 +489,7 @@ impl MoveRuntime {
             .unwrap_or_default()
             .as_millis() as u64;
         let ids_created = 0u64;
-        
+
         // Serialize TxContext struct fields in order
         let mut tx_context_bytes = Vec::new();
         tx_context_bytes.extend(bcs::to_bytes(&sender_addr)?);
@@ -483,7 +497,7 @@ impl MoveRuntime {
         tx_context_bytes.extend(bcs::to_bytes(&epoch)?);
         tx_context_bytes.extend(bcs::to_bytes(&epoch_timestamp_ms)?);
         tx_context_bytes.extend(bcs::to_bytes(&ids_created)?);
-        
+
         // Add TxContext as last argument
         final_args.push(tx_context_bytes);
 
@@ -510,7 +524,7 @@ impl MoveRuntime {
         self.parse_move_events(&events, &mut cs);
 
         // Collect pending object operations from global storage
-        cs.object_operations = crate::object_natives::take_pending_ops();
+        cs.object_operations = crate::natives::object_natives::take_pending_ops();
 
         // If gas accounting requested, include gas debit/credit in ChangeSet.
         if let Some((gas_limit, gas_price)) = gas_info {

@@ -288,13 +288,13 @@ pub mod methods {
     pub const GET_BALANCE: &str = "kanari_getBalance";
     pub const GET_TOKEN_BALANCE: &str = "kanari_getTokenBalance";
     pub const GET_ALL_BALANCES: &str = "kanari_getAllBalances";
-    
+
     // Blocks & Transactions
     pub const GET_BLOCK: &str = "kanari_getBlock";
     pub const GET_BLOCK_HEIGHT: &str = "kanari_getBlockHeight";
     pub const GET_TRANSACTION: &str = "kanari_getTransaction";
     pub const SUBMIT_TRANSACTION: &str = "kanari_submitTransaction";
-    
+
     // Stats & Info
     pub const GET_STATS: &str = "kanari_getStats";
     pub const ESTIMATE_GAS: &str = "kanari_estimateGas";
@@ -306,11 +306,11 @@ pub mod methods {
     pub const GET_MODULE: &str = "kanari_getModule";
     pub const LIST_MODULES: &str = "kanari_listModules";
     pub const VERIFY_MODULE: &str = "kanari_verifyModule";
-    
+
     // Function calls
     pub const CALL_FUNCTION: &str = "kanari_callFunction";
     pub const SIMULATE_FUNCTION: &str = "kanari_simulateFunction";
-    
+
     // Object operations
     pub const GET_OBJECT: &str = "kanari_getObject";
     pub const GET_OWNED_OBJECTS: &str = "kanari_getOwnedObjects";

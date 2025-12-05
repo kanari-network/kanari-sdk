@@ -6,11 +6,10 @@ pub mod gas;
 pub mod move_runtime;
 pub mod move_runtime_extensions;
 pub mod move_vm_state;
-pub mod object_natives;
-pub mod object_storage;
-pub mod pending_objects;
+
+pub mod natives;
+pub mod objects;
 pub mod state;
-pub mod tx_context_natives;
 
 pub use blockchain::{Block, BlockHeader, Blockchain, SignedTransaction, Transaction};
 pub use changeset::Event;
@@ -25,6 +24,8 @@ pub use kanari_crypto::keys::CurveType;
 pub use move_runtime::MoveRuntime;
 pub use move_runtime_extensions::RuntimeStats;
 pub use move_vm_state::MoveVMState;
-pub use object_storage::{Object, ObjectID, ObjectStorage, Owner};
-pub use pending_objects::{PendingObjectOps, PendingObjectOpsRef, ObjectTransfer, ObjectFreeze, ObjectShare};
+pub use objects::object_storage::{Object, ObjectID, ObjectStorage, Owner};
+pub use objects::pending_objects::{
+    ObjectFreeze, ObjectShare, ObjectTransfer, PendingObjectOps, PendingObjectOpsRef,
+};
 pub use state::{Account, StateManager};
