@@ -41,26 +41,12 @@ fn main() {
             continue;
         }
 
-        // Prepare BuildConfig with install_dir = <pkg>/build
-        let out_dir = path.join("build");
-        if let Err(e) = fs::create_dir_all(&out_dir) {
-            println!(
-                "cargo:warning=Failed to create output dir {}: {}",
-                out_dir.display(),
-                e
-            );
-            continue;
-        }
-
-        println!(
-            "cargo:warning=Compiling Move package: {} -> {}",
-            path.display(),
-            out_dir.display()
-        );
+        println!("cargo:warning=Compiling Move package: {}", path.display());
 
         // Use move-package crate programmatically
+        // install_dir points to the package dir, compiler will create build/ inside it
         let mut config = move_package::BuildConfig::default();
-        config.install_dir = Some(out_dir.clone());
+        config.install_dir = Some(path.clone());
 
         // compile_package consumes the config
         match config.compile_package(&path, &mut io::stdout()) {
