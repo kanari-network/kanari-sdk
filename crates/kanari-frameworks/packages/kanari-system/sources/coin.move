@@ -11,24 +11,24 @@ module kanari_system::coin {
     // --- Data Structures ---
 
     /// Coin resource wrapper with balance
-    struct Coin<phantom T> has key, store {
+    struct Coin<phantom T> has key, store, drop {
         id: object::UID,
         balance: Balance<T>,
     }
 
     /// Capability allowing the bearer to mint and burn coins
-    struct TreasuryCap<phantom T> has key, store {
+    struct TreasuryCap<phantom T> has key, store, drop {
         id: object::UID,
         total_supply: u64, // Tracking total supply directly in the cap
     }
 
     /// Treasury: holds authority to mint into a Supply (deprecated, use TreasuryCap)
-    struct Treasury<phantom T> has key, store {
+    struct Treasury<phantom T> has key, store, drop {
         id: object::UID,
     }
 
     /// Metadata resource for a currency (stored as an object with UID)
-    struct CoinMetadata<phantom T> has key, store {
+    struct CoinMetadata<phantom T> has key, store, drop {
         id: object::UID,
         decimals: u8,
         name: string::String,
