@@ -37,6 +37,25 @@ impl BlockchainEngine {
         })
     }
 
+    /// Helper to apply gas deduction and sequence increment consistently.
+    /// Used for both failed and successful transactions to avoid duplication.
+    fn apply_gas_and_sequence(
+        &self,
+        changeset: &mut ChangeSet,
+        sender: AccountAddress,
+        gas_cost: u64,
+        gas_used: u64,
+    ) -> Result<()> {
+        let sender_change = changeset.get_or_create_change(sender);
+        sender_change.increment_sequence();
+        sender_change.debit(gas_cost);
+
+        let dao_addr = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
+        changeset.collect_gas(dao_addr, gas_cost);
+        changeset.set_gas_used(gas_used);
+        Ok(())
+    }
+
     /// Add signed transaction to pending pool after verifying signature
     pub fn submit_transaction(&self, signed_tx: SignedTransaction) -> Result<Vec<u8>> {
         // Verify signature before accepting transaction
@@ -119,14 +138,7 @@ impl BlockchainEngine {
                         ));
 
                         // CRITICAL: Even pre-flight failures must deduct gas and increment sequence
-                        let sender_change = changeset.get_or_create_change(addr);
-                        sender_change.increment_sequence(); // Prevent replay
-                        sender_change.debit(gas_cost);
-
-                        let dao_addr =
-                            AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
-                        changeset.collect_gas(dao_addr, gas_cost);
-                        changeset.set_gas_used(gas_meter.gas_used);
+                        self.apply_gas_and_sequence(&mut changeset, addr, gas_cost, gas_meter.gas_used)?;
                         return Ok(changeset);
                     }
                 }
@@ -142,14 +154,7 @@ impl BlockchainEngine {
                         changeset.mark_failed(error_msg);
 
                         // CRITICAL: Even for failed transactions, deduct gas and increment sequence
-                        let sender_change = changeset.get_or_create_change(addr);
-                        sender_change.increment_sequence(); // Prevent replay
-                        sender_change.debit(gas_cost);
-
-                        let dao_addr =
-                            AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
-                        changeset.collect_gas(dao_addr, gas_cost);
-                        changeset.set_gas_used(gas_meter.gas_used);
+                        self.apply_gas_and_sequence(&mut changeset, addr, gas_cost, gas_meter.gas_used)?;
                         return Ok(changeset);
                     }
                 };
@@ -158,15 +163,7 @@ impl BlockchainEngine {
                 changeset.merge(move_changeset);
 
                 // CRITICAL: Increment sequence and deduct gas for successful transaction
-                let sender_change = changeset.get_or_create_change(addr);
-                sender_change.increment_sequence(); // Prevent replay attacks
-                sender_change.debit(gas_cost);
-
-                // Credit gas to DAO
-                let dao_addr = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
-                changeset.collect_gas(dao_addr, gas_cost);
-
-                changeset.set_gas_used(gas_meter.gas_used);
+                self.apply_gas_and_sequence(&mut changeset, addr, gas_cost, gas_meter.gas_used)?;
             }
 
             Transaction::ExecuteFunction {
@@ -198,14 +195,7 @@ impl BlockchainEngine {
                         ));
 
                         // CRITICAL: Even pre-flight failures must deduct gas and increment sequence
-                        let sender_change = changeset.get_or_create_change(sender_addr);
-                        sender_change.increment_sequence(); // Prevent replay
-                        sender_change.debit(gas_cost);
-
-                        let dao_addr =
-                            AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
-                        changeset.collect_gas(dao_addr, gas_cost);
-                        changeset.set_gas_used(gas_meter.gas_used);
+                        self.apply_gas_and_sequence(&mut changeset, sender_addr, gas_cost, gas_meter.gas_used)?;
                         return Ok(changeset);
                     }
                 }
@@ -253,14 +243,7 @@ impl BlockchainEngine {
                         changeset.mark_failed(format!("Function execution failed: {}", e));
 
                         // CRITICAL: Even for failed transactions, deduct gas and increment sequence
-                        let sender_change = changeset.get_or_create_change(sender_addr);
-                        sender_change.increment_sequence(); // Prevent replay
-                        sender_change.debit(gas_cost);
-
-                        let dao_addr =
-                            AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
-                        changeset.collect_gas(dao_addr, gas_cost);
-                        changeset.set_gas_used(gas_meter.gas_used);
+                        self.apply_gas_and_sequence(&mut changeset, sender_addr, gas_cost, gas_meter.gas_used)?;
                         return Ok(changeset);
                     }
                 };
@@ -269,15 +252,7 @@ impl BlockchainEngine {
                 changeset.merge(move_changeset);
 
                 // Build ChangeSet: increment sequence
-                let sender_change = changeset.get_or_create_change(sender_addr);
-                sender_change.increment_sequence();
-                sender_change.debit(gas_cost);
-
-                // Credit gas to DAO
-                let dao_addr = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
-                changeset.collect_gas(dao_addr, gas_cost);
-
-                changeset.set_gas_used(gas_meter.gas_used);
+                self.apply_gas_and_sequence(&mut changeset, sender_addr, gas_cost, gas_meter.gas_used)?;
             }
 
             Transaction::Transfer {
@@ -306,14 +281,7 @@ impl BlockchainEngine {
                         ));
 
                         // CRITICAL: Even if balance check fails, deduct gas and increment sequence
-                        let sender_change = changeset.get_or_create_change(from_addr);
-                        sender_change.increment_sequence(); // Prevent replay
-                        sender_change.debit(gas_cost); // User still pays for attempt
-
-                        let dao_addr =
-                            AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
-                        changeset.collect_gas(dao_addr, gas_cost);
-                        changeset.set_gas_used(gas_meter.gas_used);
+                        self.apply_gas_and_sequence(&mut changeset, from_addr, gas_cost, gas_meter.gas_used)?;
                         return Ok(changeset);
                     }
                 }
@@ -322,15 +290,7 @@ impl BlockchainEngine {
                 changeset.transfer(from_addr, to_addr, *amount);
 
                 // CRITICAL: Increment sequence and deduct gas for successful transfer
-                let sender_change = changeset.get_or_create_change(from_addr);
-                sender_change.increment_sequence(); // Prevent replay attacks
-                sender_change.debit(gas_cost);
-
-                // Credit gas to DAO
-                let dao_addr = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
-                changeset.collect_gas(dao_addr, gas_cost);
-
-                changeset.set_gas_used(gas_meter.gas_used);
+                self.apply_gas_and_sequence(&mut changeset, from_addr, gas_cost, gas_meter.gas_used)?;
             }
             Transaction::Burn { from, amount, .. } => {
                 // Calculate gas for burn
@@ -355,14 +315,7 @@ impl BlockchainEngine {
                         ));
 
                         // Deduct gas and increment sequence even on failure
-                        let sender_change = changeset.get_or_create_change(from_addr);
-                        sender_change.increment_sequence();
-                        sender_change.debit(gas_cost);
-
-                        let dao_addr =
-                            AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
-                        changeset.collect_gas(dao_addr, gas_cost);
-                        changeset.set_gas_used(gas_meter.gas_used);
+                        self.apply_gas_and_sequence(&mut changeset, from_addr, gas_cost, gas_meter.gas_used)?;
                         return Ok(changeset);
                     }
                 }
@@ -371,15 +324,7 @@ impl BlockchainEngine {
                 changeset.burn(from_addr, *amount);
 
                 // Increment sequence and deduct gas for successful burn
-                let sender_change = changeset.get_or_create_change(from_addr);
-                sender_change.increment_sequence();
-                sender_change.debit(gas_cost);
-
-                // Credit gas to DAO
-                let dao_addr = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
-                changeset.collect_gas(dao_addr, gas_cost);
-
-                changeset.set_gas_used(gas_meter.gas_used);
+                self.apply_gas_and_sequence(&mut changeset, from_addr, gas_cost, gas_meter.gas_used)?;
             }
         }
 

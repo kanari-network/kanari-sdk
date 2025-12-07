@@ -35,11 +35,8 @@ module kanari_system::tx_context {
     /// Return the address of the user that signed the current
     /// transaction
     public fun sender(self: &TxContext): address {
-        native_sender(self)
+        self.sender
     }
-
-    /// Native function to get sender address
-    native fun native_sender(self: &TxContext): address;
 
     /// Return the transaction digest (hash of transaction inputs).
     /// Please do not use as a source of randomness.
@@ -49,32 +46,23 @@ module kanari_system::tx_context {
 
     /// Return the current epoch
     public fun epoch(self: &TxContext): u64 {
-        native_epoch(self)
+        self.epoch
     }
-
-    /// Native function to get current epoch
-    native fun native_epoch(self: &TxContext): u64;
 
     /// Return the epoch start time as a unix timestamp in milliseconds.
     public fun epoch_timestamp_ms(self: &TxContext): u64 {
-       native_epoch_timestamp_ms(self)
+       self.epoch_timestamp_ms
     }
-
-    /// Native function to get epoch timestamp
-    native fun native_epoch_timestamp_ms(self: &TxContext): u64;
 
     /// Create an `address` that has not been used. As it is an object address, it will never
     /// occur as the address for a user.
     /// In other words, the generated address is a globally unique object ID.
     public fun fresh_object_address(ctx: &mut TxContext): address {
         let ids_created = ctx.ids_created;
-        let id = native_derive_id(*&ctx.tx_hash, ids_created);
+        let id = derive_id(*&ctx.tx_hash, ids_created);
         ctx.ids_created = ids_created + 1;
         id
     }
-
-    /// Native function to derive a unique object address
-    native fun native_derive_id(tx_hash: vector<u8>, ids_created: u64): address;
 
     #[allow(unused_function)]
     /// Return the number of id's created by the current transaction.

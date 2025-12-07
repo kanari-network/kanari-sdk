@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// Transaction context structure
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TxContextRecord {
-    pub sender: String,
+    pub sender: crate::address::Address,
     pub tx_hash: Vec<u8>,
     pub epoch: u64,
     pub epoch_timestamp_ms: u64,
@@ -18,7 +18,7 @@ pub struct TxContextRecord {
 impl TxContextRecord {
     /// Create a new transaction context
     pub fn new(
-        sender: String,
+        sender: crate::address::Address,
         tx_hash: Vec<u8>,
         epoch: u64,
         epoch_timestamp_ms: u64,
@@ -41,17 +41,13 @@ impl TxContextRecord {
         epoch_timestamp_ms: u64,
         ids_created: u64,
     ) -> Self {
-        Self::new(
-            format!("{}", sender),
-            tx_hash,
-            epoch,
-            epoch_timestamp_ms,
-            ids_created,
-        )
+        // Convert Move AccountAddress into canonical Address type
+        let addr: crate::address::Address = sender.into();
+        Self::new(addr, tx_hash, epoch, epoch_timestamp_ms, ids_created)
     }
 
     /// Get sender address
-    pub fn sender(&self) -> &str {
+    pub fn sender(&self) -> &crate::address::Address {
         &self.sender
     }
 
@@ -122,8 +118,9 @@ mod tests {
     #[test]
     fn test_tx_context_creation() {
         let tx_hash = vec![1, 2, 3, 4];
-        let ctx = TxContextRecord::new("0x1".to_string(), tx_hash.clone(), 5, 1_600_000_000, 2);
-        assert_eq!(ctx.sender(), "0x1");
+        let addr = AccountAddress::from_hex_literal("0x1").unwrap();
+        let ctx = TxContextRecord::from_address(addr, tx_hash.clone(), 5, 1_600_000_000, 2);
+        assert_eq!(format!("{}", ctx.sender()), format!("{}", addr));
         assert_eq!(ctx.epoch(), 5);
         assert_eq!(ctx.tx_hash(), &tx_hash);
         assert_eq!(ctx.epoch_timestamp_ms(), 1_600_000_000);

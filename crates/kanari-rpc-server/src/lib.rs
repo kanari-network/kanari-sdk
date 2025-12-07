@@ -435,64 +435,24 @@ async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest) -> 
         signed_tx.signature = Some(sig);
     }
 
-    // Submit to blockchain
-    match state.engine.execute_transaction_immediate(signed_tx) {
-        Ok((tx_hash, changeset)) => {
+    // Submit to blockchain pending pool (do not execute immediately)
+    match state.engine.submit_transaction(signed_tx) {
+        Ok(tx_hash) => {
             let tx_hash_hex = hex::encode(&tx_hash);
-            info!("Module published successfully: {}", tx_hash_hex);
-
-            // Extract created objects from state
-            let created_objects = {
-                let state_guard = state.engine.state.read().unwrap();
-                let objects = &state_guard.objects;
-
-                // Get recently created objects (simplification: get all objects owned by sender)
-                let sender_addr =
-                    kanari_types::address::Address::from_hex_literal(&module_data.sender).unwrap();
-                let sender_bytes = sender_addr.to_bytes();
-                let mut addr_array = [0u8; 32];
-                addr_array.copy_from_slice(&sender_bytes[0..32]);
-                let sender_account_addr =
-                    move_core_types::account_address::AccountAddress::new(addr_array);
-
-                objects
-                    .get_objects_by_owner(&sender_account_addr)
-                    .into_iter()
-                    .map(|obj| {
-                        use kanari_rpc_api::ObjectInfo;
-                        ObjectInfo {
-                            id: hex::encode(obj.id.to_vec()),
-                            owner: format!("{:?}", obj.owner),
-                            type_: obj.type_.clone(),
-                            data: obj.data.clone(),
-                            version: obj.version,
-                        }
-                    })
-                    .collect::<Vec<_>>()
-            };
-
-            use kanari_rpc_api::TransactionResult;
-            let result = TransactionResult {
-                hash: tx_hash_hex,
-                status: if changeset.success {
-                    "success".to_string()
-                } else {
-                    "failed".to_string()
-                },
-                gas_used: changeset.gas_used,
-                created_objects,
-                error_message: changeset.error_message.clone(),
-            };
-
+            info!("Module publish transaction submitted: {}", tx_hash_hex);
             RpcResponse {
                 jsonrpc: "2.0".to_string(),
-                result: Some(serde_json::to_value(result).unwrap()),
+                result: Some(serde_json::json!({
+                    "hash": tx_hash_hex,
+                    "status": "pending",
+                    "action": "publish"
+                })),
                 error: None,
                 id: request.id,
             }
         }
         Err(e) => {
-            error!("Failed to publish module: {}", e);
+            error!("Failed to submit publish transaction: {}", e);
             RpcResponse {
                 jsonrpc: "2.0".to_string(),
                 result: None,

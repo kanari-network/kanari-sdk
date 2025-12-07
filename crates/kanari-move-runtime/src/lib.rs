@@ -7,7 +7,6 @@ pub mod move_runtime;
 pub mod move_runtime_extensions;
 pub mod move_vm_state;
 
-pub mod natives;
 pub mod objects;
 pub mod state;
 

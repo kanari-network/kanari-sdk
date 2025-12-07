@@ -65,31 +65,21 @@ module kanari_system::transfer {
         assert!(get_amount(&t) == 500, 2);
     }
 
-    /// Transfer an object with store ability to a recipient
-    /// This calls the native function to handle actual ownership transfer
-    public fun public_transfer<T: store>(obj: T, recipient: address) {
-        native_transfer(obj, recipient)
-    }
-    
-    /// Native function to transfer object ownership
-    native fun native_transfer<T: store>(obj: T, recipient: address);
-
     /// Minimal helper to 'freeze' a metadata object returned by currency creation.
-    /// This calls the native function to mark object as immutable
-    public fun public_freeze_object<T: store>(obj: T) {
-        native_freeze(obj)
+    /// This implementation is a no-op placeholder that consumes the object.
+    public fun public_freeze_object<T: drop>(_obj: T) {
+        // In a full implementation this would mark the metadata as immutable
+        // or store it in a global registry. Here we simply accept the object.
     }
-    
-    /// Native function to freeze object
-    native fun native_freeze<T: store>(obj: T);
-    
-    /// Share an object (make it accessible to all)
-    public fun public_share_object<T: store>(obj: T) {
-        native_share(obj)
+
+    /// Transfer an object with store ability to a recipient
+    /// This is a simplified implementation for testing
+    public fun public_transfer<T: store + drop>(obj: T, recipient: address) {
+        // In a full implementation this would handle object ownership transfer
+        // For now, we consume the object and ignore the recipient
+        let _ = obj;
+        let _ = recipient;
     }
-    
-    /// Native function to share object
-    native fun native_share<T: store>(obj: T);
 
     #[test]
     fun test_total_amount() {

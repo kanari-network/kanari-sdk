@@ -99,13 +99,8 @@ fn main() {
     // 7. Demonstrate TxContext module
     println!("\n📝 Transaction Context Module Demo:");
     let tx_hash = vec![1, 2, 3, 4];
-    let tx_ctx = tx_context::TxContextRecord::new(
-        "0xabcd".to_string(),
-        tx_hash.clone(),
-        100,
-        1_650_000_000,
-        50,
-    );
+    let addr = move_core_types::account_address::AccountAddress::from_hex_literal("0xabcd").unwrap();
+    let tx_ctx = tx_context::TxContextRecord::from_address(addr, tx_hash.clone(), 100, 1_650_000_000, 50);
     println!("   Sender: {}", tx_ctx.sender());
     println!("   Epoch: {}", tx_ctx.epoch());
     println!("   Tx Hash: {:?}", tx_ctx.tx_hash());

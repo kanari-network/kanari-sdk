@@ -21,6 +21,7 @@ use kanari_types::address::Address as KanariAddress;
 
 use crate::changeset::ChangeSet;
 use crate::move_vm_state::MoveVMState;
+use kanari_types::tx_context::TxContextRecord;
 
 use std::collections::HashSet;
 
@@ -100,20 +101,11 @@ impl MoveRuntime {
         let system_addr = AccountAddress::from_hex_literal("0x2")?;
         let crypto_natives = kanari_crypto::move_natives::all_natives(system_addr);
 
-        // Kanari object natives at 0x2
-        let object_natives = crate::natives::object_natives::object_natives(system_addr);
-
-        // Kanari tx_context natives at 0x2
-        let tx_context_natives =
-            crate::natives::tx_context_natives::tx_context_natives(system_addr);
-
         // Create runtime with natives
         let mut runtime = Self::new_with_natives(
             vec![
                 std_natives,
                 crypto_natives,
-                object_natives,
-                tx_context_natives,
             ],
             true,
         )?;
@@ -337,20 +329,10 @@ impl MoveRuntime {
 
         // If caller provided gas info, include gas accounting in the ChangeSet.
         if let Some((gas_limit, gas_price)) = gas_info {
-            let mut meter = GasMeter::new(gas_limit, gas_price);
             let gas_op = GasOperation::PublishModule {
                 module_size: module_bytes.len(),
             };
-            meter.consume(gas_op.gas_units())?;
-            let gas_cost = meter.total_cost();
-
-            let sender_change = cs.get_or_create_change(sender);
-            sender_change.increment_sequence();
-            sender_change.debit(gas_cost);
-
-            let dao_addr = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
-            cs.collect_gas(dao_addr, gas_cost);
-            cs.set_gas_used(meter.gas_used);
+            self.apply_gas_info(&mut cs, Some(sender), gas_limit, gas_price, gas_op)?;
         }
 
         // Parse Move VM changeset and events
@@ -481,7 +463,7 @@ impl MoveRuntime {
         // Auto-inject TxContext if function expects it as last parameter
         let mut final_args = args.clone();
 
-        // Create TxContext struct: { sender, tx_hash, epoch, epoch_timestamp_ms, ids_created }
+        // Create TxContext struct using canonical Kanari type and serialize with BCS
         let sender_addr = sender.unwrap_or(AccountAddress::ZERO);
         let tx_hash = vec![0u8; 32]; // Placeholder
         let epoch = 0u64;
@@ -491,13 +473,15 @@ impl MoveRuntime {
             .as_millis() as u64;
         let ids_created = 0u64;
 
-        // Serialize TxContext struct fields in order
-        let mut tx_context_bytes = Vec::new();
-        tx_context_bytes.extend(bcs::to_bytes(&sender_addr)?);
-        tx_context_bytes.extend(bcs::to_bytes(&tx_hash)?);
-        tx_context_bytes.extend(bcs::to_bytes(&epoch)?);
-        tx_context_bytes.extend(bcs::to_bytes(&epoch_timestamp_ms)?);
-        tx_context_bytes.extend(bcs::to_bytes(&ids_created)?);
+        let tx_ctx = TxContextRecord::from_address(
+            sender_addr,
+            tx_hash.clone(),
+            epoch,
+            epoch_timestamp_ms,
+            ids_created,
+        );
+
+        let tx_context_bytes = bcs::to_bytes(&tx_ctx)?;
 
         // Add TxContext as last argument
         final_args.push(tx_context_bytes);
@@ -524,34 +508,39 @@ impl MoveRuntime {
         self.parse_move_changeset(&move_changeset, &mut cs);
         self.parse_move_events(&events, &mut cs);
 
-        // Collect pending object operations from runtime's pending_objects
-        // Note: Native functions store operations in GLOBAL_PENDING_OPS
-        // We merge both sources to ensure all operations are captured
-        let global_ops = crate::natives::object_natives::take_pending_ops();
-        let runtime_ops = self.take_pending_objects();
-        cs.object_operations = runtime_ops.merge(global_ops);
-
         // If gas accounting requested, include gas debit/credit in ChangeSet.
         if let Some((gas_limit, gas_price)) = gas_info {
-            let mut meter = GasMeter::new(gas_limit, gas_price);
-            // We use a default complexity of 1 when called directly via runtime.
             let gas_op = GasOperation::ExecuteFunction { complexity: 1 };
-            meter.consume(gas_op.gas_units())?;
-            let gas_cost = meter.total_cost();
-
-            // If sender provided, debit them and increment sequence to prevent replay.
-            if let Some(saddr) = sender {
-                let sender_change = cs.get_or_create_change(saddr);
-                sender_change.increment_sequence();
-                sender_change.debit(gas_cost);
-            }
-
-            let dao_addr = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
-            cs.collect_gas(dao_addr, gas_cost);
-            cs.set_gas_used(meter.gas_used);
+            self.apply_gas_info(&mut cs, sender, gas_limit, gas_price, gas_op)?;
         }
 
         Ok(cs)
+    }
+
+    /// Helper to apply gas accounting to a ChangeSet. Handles sender debit + sequence increment
+    /// and credits gas to DAO. `sender` may be `None` for system-level calls.
+    fn apply_gas_info(
+        &self,
+        cs: &mut ChangeSet,
+        sender: Option<AccountAddress>,
+        gas_limit: u64,
+        gas_price: u64,
+        gas_op: GasOperation,
+    ) -> Result<()> {
+        let mut meter = GasMeter::new(gas_limit, gas_price);
+        meter.consume(gas_op.gas_units())?;
+        let gas_cost = meter.total_cost();
+
+        if let Some(saddr) = sender {
+            let sender_change = cs.get_or_create_change(saddr);
+            sender_change.increment_sequence();
+            sender_change.debit(gas_cost);
+        }
+
+        let dao_addr = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
+        cs.collect_gas(dao_addr, gas_cost);
+        cs.set_gas_used(meter.gas_used);
+        Ok(())
     }
 
     /// Parse Move VM ChangeSet and extract state changes into Kanari ChangeSet
