@@ -63,7 +63,7 @@ pub struct Call {
 
 impl Call {
     pub fn execute(self) -> Result<()> {
-        println!("📞 Preparing function call...");
+        println!("Preparing function call...");
 
         // Normalize and validate addresses
         let normalize_addr = |a: &str| -> Result<String> {
@@ -99,7 +99,7 @@ impl Call {
         let _package_addr = Address::from_hex_literal(&package_normalized)
             .with_context(|| format!("Invalid package address: {}", package_str))?;
 
-        println!("\n📋 Call Details:");
+        println!("Call Details:");
         println!("   Package: {}::{}", package_normalized, module_name);
         println!("   Function: {}", self.function);
         println!("   Sender: {}", self.sender);
@@ -118,7 +118,7 @@ impl Call {
             )?;
 
             println!(
-                "   🔐 Wallet loaded: {} (curve: {})",
+                "   Wallet loaded: {} (curve: {})",
                 self.sender, w.curve_type
             );
             w
@@ -151,18 +151,18 @@ impl Call {
 
         // Estimate gas
         let estimated_gas = 35_000 + (self.function.len() as u64 * 100);
-        println!("\n⛽ Gas Estimation:");
+        println!("Gas estimation:");
         println!("   Estimated: {} units", estimated_gas);
         println!("   Limit: {} units", self.gas_limit);
         println!("   Total Cost: {} Mist", estimated_gas * self.gas_price);
 
         if self.dry_run {
-            println!("\n🧪 Dry run mode - not executing");
+            println!("Dry run mode - not executing");
             return Ok(());
         }
 
         // Create transaction
-        println!("\n🔨 Creating transaction...");
+        println!("Creating transaction...");
 
         // Query account sequence number so signature and RPC include it
         let mut seq_num: u64 = 0;
@@ -223,11 +223,11 @@ impl Call {
             // Sign with wallet
             match kanari_crypto::sign_message(&wallet.private_key, &tx_hash, wallet.curve_type) {
                 Ok(sig) => {
-                    println!("   🔐 Transaction signed with {} key", wallet.curve_type);
+                    println!("   Transaction signed (curve: {})", wallet.curve_type);
                     Some(sig)
                 }
                 Err(e) => {
-                    eprintln!("   ⚠️  Failed to sign transaction: {}", e);
+                    eprintln!("   Failed to sign transaction: {}", e);
                     None
                 }
             }
@@ -260,7 +260,7 @@ impl Call {
             id: 1,
         };
 
-        println!("\n🔁 Sending RPC request to {} ...", self.rpc_endpoint);
+        println!("Sending RPC request to {}...", self.rpc_endpoint);
 
         let client = Client::new();
         match client.post(&self.rpc_endpoint).json(&rpc_request).send() {
@@ -274,39 +274,13 @@ impl Call {
                             kanari_rpc_api::TransactionResult,
                         >(result.clone())
                         {
-                            println!("✅ Transaction: {}", tx_result.hash);
-                            println!("📊 Status: {}", tx_result.status);
-                            println!("⛽ Gas used: {} Mist", tx_result.gas_used);
+                            println!("Transaction: {}", tx_result.hash);
+                            println!("Status: {}", tx_result.status);
+                            println!("Gas used: {} Mist", tx_result.gas_used);
 
                             // Show error message if transaction failed
                             if let Some(ref error_msg) = tx_result.error_message {
-                                eprintln!("\n❌ Transaction failed: {}", error_msg);
-                            }
-
-                            // Show created objects (e.g., TreasuryCap)
-                            if !tx_result.created_objects.is_empty() {
-                                println!("\n📦 Created Objects:");
-                                for obj in &tx_result.created_objects {
-                                    println!("   🆔 Object ID: {}", obj.id);
-                                    println!("      Owner: {}", obj.owner);
-                                    println!("      Type: {}", obj.type_);
-
-                                    // Highlight TreasuryCap objects
-                                    if obj.type_.contains("TreasuryCap") {
-                                        println!(
-                                            "      💰 This is a TreasuryCap - use this ID for minting!"
-                                        );
-                                        println!("\n      📋 To mint tokens, use:");
-                                        println!("      kanari move call \\");
-                                        println!("        --package {} \\", package_normalized);
-                                        println!("        --module {} \\", module_name);
-                                        println!("        --function mint \\");
-                                        println!("        --sender {} \\", sender_normalized);
-                                        println!("        --password <PASSWORD> \\");
-                                        println!("        --args {} <AMOUNT> <RECIPIENT>", obj.id);
-                                    }
-                                    println!();
-                                }
+                                eprintln!("Transaction failed: {}", error_msg);
                             }
                         } else {
                             // Fallback to plain JSON display
@@ -321,11 +295,10 @@ impl Call {
             Err(e) => eprintln!("Failed to send RPC request: {}", e),
         }
 
-        println!("\n✅ Function call prepared and RPC sent (see output above)");
-
-        println!("\n💡 Next steps:");
-        println!("   • Check transaction status");
-        println!("   • View execution results on explorer");
+        println!("Function call prepared and RPC sent.");
+        println!("Next steps:");
+        println!(" - Check transaction status");
+        println!(" - View execution results on explorer");
 
         Ok(())
     }

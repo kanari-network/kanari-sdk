@@ -89,7 +89,7 @@ impl Publish {
             w
         };
 
-        println!("\nPublishing modules to blockchain...");
+        println!("Publishing modules to blockchain...");
         println!("   RPC: {}", self.rpc_endpoint);
         println!("   Sender: {}", sender_normalized);
 
@@ -114,7 +114,7 @@ impl Publish {
             // Only publish modules where the module address matches the sender
             if module_addr_normalized.to_lowercase() != sender_normalized.to_lowercase() {
                 println!(
-                    "\n   ⏭️  Skipping Module: {} (address {} doesn't match sender)",
+                    "   Skipping module: {} (address {} doesn't match sender)",
                     module_name, module_address
                 );
                 skipped_count += 1;
@@ -127,7 +127,7 @@ impl Publish {
                 bytes
             };
 
-            println!("\n   Module: {}", module_name);
+            println!("   Module: {}", module_name);
             println!("     Size: {} bytes", module_bytecode.len());
             println!("     Address: {}", module.self_id().address());
             println!("     Functions: {}", module.function_defs.len());
@@ -207,11 +207,11 @@ impl Publish {
                 match kanari_crypto::sign_message(&wallet.private_key, &tx_hash, wallet.curve_type)
                 {
                     Ok(sig) => {
-                        println!("     🔐 Transaction signed with {} key", wallet.curve_type);
+                        println!("     Transaction signed (curve: {})", wallet.curve_type);
                         Some(sig)
                     }
                     Err(e) => {
-                        eprintln!("     ⚠️  Failed to sign transaction: {}", e);
+                        eprintln!("     Failed to sign transaction: {}", e);
                         None
                     }
                 }
@@ -234,7 +234,7 @@ impl Publish {
                 id: 1,
             };
 
-            println!("     🔁 Sending publish RPC to {} ...", self.rpc_endpoint);
+            println!("     Sending publish RPC to {}...", self.rpc_endpoint);
             let client = Client::new();
             match client.post(&self.rpc_endpoint).json(&rpc_request).send() {
                 Ok(resp) => match resp.json::<RpcResponse>() {
@@ -247,47 +247,15 @@ impl Publish {
                                 kanari_rpc_api::TransactionResult,
                             >(result.clone())
                             {
-                                println!("     ✅ Transaction: {}", tx_result.hash);
-                                println!("     📊 Status: {}", tx_result.status);
-                                println!("     ⛽ Gas used: {} Mist", tx_result.gas_used);
+                                println!("     Transaction: {}", tx_result.hash);
+                                println!("     Status: {}", tx_result.status);
+                                println!("     Gas used: {} Mist", tx_result.gas_used);
 
                                 // Show error message if transaction failed
                                 if let Some(ref error_msg) = tx_result.error_message {
-                                    eprintln!("\n     ❌ Transaction failed: {}", error_msg);
-                                }
-
-                                if !tx_result.created_objects.is_empty() {
-                                    println!("\n     📦 Created Objects:");
-                                    for obj in &tx_result.created_objects {
-                                        println!("        🆔 Object ID: {}", obj.id);
-                                        println!("           Owner: {}", obj.owner);
-                                        println!("           Type: {}", obj.type_);
-
-                                        // Highlight TreasuryCap objects
-                                        if obj.type_.contains("TreasuryCap") {
-                                            println!(
-                                                "           💰 This is a TreasuryCap - use for minting!"
-                                            );
-                                            println!("\n           📋 To mint tokens, use:");
-                                            println!("           kanari move call \\");
-                                            println!(
-                                                "             --sender {} \\",
-                                                sender_normalized
-                                            );
-                                            println!("             --password <PASSWORD> \\");
-                                            println!(
-                                                "             --module \"{}::{}\" \\",
-                                                module_addr_normalized, module_name
-                                            );
-                                            println!("             --function mint \\");
-                                            println!(
-                                                "             --args {} <AMOUNT> <RECIPIENT>",
-                                                obj.id
-                                            );
-                                        }
-                                        println!();
-                                    }
-                                }
+                                    eprintln!("     Transaction failed: {}", error_msg);
+                                } // Note: TransactionResult does not provide created_objects.
+                            // Created-objects printing removed to match current API.
                             } else {
                                 // Fallback to old format
                                 println!("     RPC result: {}", result);
@@ -304,7 +272,7 @@ impl Publish {
             published_count += 1;
         }
 
-        println!("\n✅ Package build and validation complete!");
+        println!("Package build and validation complete!");
         println!("   Published: {} modules", published_count);
         println!("   Skipped: {} dependency modules", skipped_count);
 

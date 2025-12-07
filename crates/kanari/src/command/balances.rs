@@ -22,7 +22,7 @@ pub struct Balances {
 
 impl Balances {
     pub fn execute(&self) -> Result<()> {
-        println!("\n💰 Querying token balances...");
+        println!("Querying token balances...");
         println!("   Address: {}", self.address);
         println!("   RPC: {}\n", self.rpc_endpoint);
 
@@ -51,9 +51,8 @@ impl Balances {
 
         if let Some(result) = rpc_response.get("result") {
             if let Some(balances) = result.get("balances").and_then(|b| b.as_array()) {
-                println!("┌─────────────────────────────────────────────────────────────┐");
-                println!("│                    TOKEN BALANCES                           │");
-                println!("├─────────────────────────────────────────────────────────────┤");
+                println!("TOKEN BALANCES");
+                println!("------------------------------");
 
                 for balance in balances {
                     let token_type = balance
@@ -79,33 +78,27 @@ impl Balances {
                     let fraction = amount % divisor;
 
                     if self.detailed {
-                        println!("│                                                             │");
-                        println!("│  Token: {:<52} │", symbol);
+                        println!("Token: {}", symbol);
                         println!(
-                            "│  Balance: {}.{:0width$} {:<38} │",
+                            "  Balance: {}.{:0width$} {}",
                             whole,
                             fraction,
                             symbol,
                             width = decimals as usize
                         );
-                        println!("│  Type: {:<53} │", token_type);
-                        println!("│  Raw Amount: {:<47} │", amount);
-                        println!("│─────────────────────────────────────────────────────────────│");
+                        println!("  Type: {}", token_type);
+                        println!("  Raw Amount: {}", amount);
+                        println!("------------------------------");
                     } else {
-                        println!(
-                            "│  {:12} {:>15}.{:0<9} {:<24} │",
-                            symbol, whole, fraction, ""
-                        );
+                        println!("  {} {}.{:0<9}", symbol, whole, fraction);
                     }
                 }
-
-                println!("└─────────────────────────────────────────────────────────────┘");
-                println!("\n✅ Total tokens: {}", balances.len());
+                println!("\nTotal tokens: {}", balances.len());
             } else {
-                println!("❌ No balances found");
+                println!("No balances found");
             }
         } else {
-            println!("❌ Invalid response format");
+            println!("Invalid response format");
         }
 
         Ok(())

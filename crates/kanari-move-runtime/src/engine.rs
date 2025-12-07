@@ -138,7 +138,12 @@ impl BlockchainEngine {
                         ));
 
                         // CRITICAL: Even pre-flight failures must deduct gas and increment sequence
-                        self.apply_gas_and_sequence(&mut changeset, addr, gas_cost, gas_meter.gas_used)?;
+                        self.apply_gas_and_sequence(
+                            &mut changeset,
+                            addr,
+                            gas_cost,
+                            gas_meter.gas_used,
+                        )?;
                         return Ok(changeset);
                     }
                 }
@@ -154,7 +159,12 @@ impl BlockchainEngine {
                         changeset.mark_failed(error_msg);
 
                         // CRITICAL: Even for failed transactions, deduct gas and increment sequence
-                        self.apply_gas_and_sequence(&mut changeset, addr, gas_cost, gas_meter.gas_used)?;
+                        self.apply_gas_and_sequence(
+                            &mut changeset,
+                            addr,
+                            gas_cost,
+                            gas_meter.gas_used,
+                        )?;
                         return Ok(changeset);
                     }
                 };
@@ -195,7 +205,12 @@ impl BlockchainEngine {
                         ));
 
                         // CRITICAL: Even pre-flight failures must deduct gas and increment sequence
-                        self.apply_gas_and_sequence(&mut changeset, sender_addr, gas_cost, gas_meter.gas_used)?;
+                        self.apply_gas_and_sequence(
+                            &mut changeset,
+                            sender_addr,
+                            gas_cost,
+                            gas_meter.gas_used,
+                        )?;
                         return Ok(changeset);
                     }
                 }
@@ -243,7 +258,12 @@ impl BlockchainEngine {
                         changeset.mark_failed(format!("Function execution failed: {}", e));
 
                         // CRITICAL: Even for failed transactions, deduct gas and increment sequence
-                        self.apply_gas_and_sequence(&mut changeset, sender_addr, gas_cost, gas_meter.gas_used)?;
+                        self.apply_gas_and_sequence(
+                            &mut changeset,
+                            sender_addr,
+                            gas_cost,
+                            gas_meter.gas_used,
+                        )?;
                         return Ok(changeset);
                     }
                 };
@@ -252,7 +272,12 @@ impl BlockchainEngine {
                 changeset.merge(move_changeset);
 
                 // Build ChangeSet: increment sequence
-                self.apply_gas_and_sequence(&mut changeset, sender_addr, gas_cost, gas_meter.gas_used)?;
+                self.apply_gas_and_sequence(
+                    &mut changeset,
+                    sender_addr,
+                    gas_cost,
+                    gas_meter.gas_used,
+                )?;
             }
 
             Transaction::Transfer {
@@ -281,7 +306,12 @@ impl BlockchainEngine {
                         ));
 
                         // CRITICAL: Even if balance check fails, deduct gas and increment sequence
-                        self.apply_gas_and_sequence(&mut changeset, from_addr, gas_cost, gas_meter.gas_used)?;
+                        self.apply_gas_and_sequence(
+                            &mut changeset,
+                            from_addr,
+                            gas_cost,
+                            gas_meter.gas_used,
+                        )?;
                         return Ok(changeset);
                     }
                 }
@@ -290,7 +320,12 @@ impl BlockchainEngine {
                 changeset.transfer(from_addr, to_addr, *amount);
 
                 // CRITICAL: Increment sequence and deduct gas for successful transfer
-                self.apply_gas_and_sequence(&mut changeset, from_addr, gas_cost, gas_meter.gas_used)?;
+                self.apply_gas_and_sequence(
+                    &mut changeset,
+                    from_addr,
+                    gas_cost,
+                    gas_meter.gas_used,
+                )?;
             }
             Transaction::Burn { from, amount, .. } => {
                 // Calculate gas for burn
@@ -315,7 +350,12 @@ impl BlockchainEngine {
                         ));
 
                         // Deduct gas and increment sequence even on failure
-                        self.apply_gas_and_sequence(&mut changeset, from_addr, gas_cost, gas_meter.gas_used)?;
+                        self.apply_gas_and_sequence(
+                            &mut changeset,
+                            from_addr,
+                            gas_cost,
+                            gas_meter.gas_used,
+                        )?;
                         return Ok(changeset);
                     }
                 }
@@ -324,7 +364,12 @@ impl BlockchainEngine {
                 changeset.burn(from_addr, *amount);
 
                 // Increment sequence and deduct gas for successful burn
-                self.apply_gas_and_sequence(&mut changeset, from_addr, gas_cost, gas_meter.gas_used)?;
+                self.apply_gas_and_sequence(
+                    &mut changeset,
+                    from_addr,
+                    gas_cost,
+                    gas_meter.gas_used,
+                )?;
             }
         }
 

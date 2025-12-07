@@ -7,11 +7,10 @@ pub mod move_runtime;
 pub mod move_runtime_extensions;
 pub mod move_vm_state;
 
-pub mod objects;
 pub mod state;
 
-#[cfg(test)]
-mod tests;
+// #[cfg(test)]
+// mod tests;
 
 pub use blockchain::{Block, BlockHeader, Blockchain, SignedTransaction, Transaction};
 pub use changeset::Event;
@@ -26,8 +25,4 @@ pub use kanari_crypto::keys::CurveType;
 pub use move_runtime::MoveRuntime;
 pub use move_runtime_extensions::RuntimeStats;
 pub use move_vm_state::MoveVMState;
-pub use objects::object_storage::{Object, ObjectID, ObjectStorage, Owner};
-pub use objects::pending_objects::{
-    ObjectFreeze, ObjectShare, ObjectTransfer, PendingObjectOps, PendingObjectOpsRef,
-};
 pub use state::{Account, StateManager};

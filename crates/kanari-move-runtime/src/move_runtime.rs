@@ -13,10 +13,7 @@ use move_vm_runtime::native_functions::NativeFunctionTable;
 use move_vm_test_utils::InMemoryStorage;
 use move_vm_types::gas::UnmeteredGasMeter;
 
-use crate::PendingObjectOps;
 use crate::gas::{GasMeter, GasOperation};
-use crate::objects::PendingObjectOpsRef;
-use crate::objects::pending_objects::new_pending_ops;
 use kanari_types::address::Address as KanariAddress;
 
 use crate::changeset::ChangeSet;
@@ -35,8 +32,6 @@ pub struct MoveRuntime {
     pub(crate) enable_gas_metering: bool,
     /// Index of published modules for faster listing
     pub(crate) published_modules: HashSet<ModuleId>,
-    /// Pending object operations from native function calls
-    pub(crate) pending_objects: PendingObjectOpsRef,
 }
 
 impl MoveRuntime {
@@ -85,7 +80,6 @@ impl MoveRuntime {
             state,
             enable_gas_metering,
             published_modules: HashSet::new(),
-            pending_objects: new_pending_ops(),
         })
     }
 
@@ -102,13 +96,7 @@ impl MoveRuntime {
         let crypto_natives = kanari_crypto::move_natives::all_natives(system_addr);
 
         // Create runtime with natives
-        let mut runtime = Self::new_with_natives(
-            vec![
-                std_natives,
-                crypto_natives,
-            ],
-            true,
-        )?;
+        let mut runtime = Self::new_with_natives(vec![std_natives, crypto_natives], true)?;
 
         // Load pre-compiled Kanari system modules
         runtime.load_system_modules()?;
@@ -636,42 +624,5 @@ impl MoveRuntime {
             };
             kanari_cs.add_event(kanari_event);
         }
-    }
-
-    /// Get and clear pending object operations from runtime
-    pub fn take_pending_objects(&mut self) -> PendingObjectOps {
-        let pending = self.pending_objects.lock().unwrap();
-        let ops = pending.clone();
-        drop(pending);
-        self.clear_pending_objects();
-        ops
-    }
-
-    /// Clear pending object operations
-    pub fn clear_pending_objects(&mut self) {
-        let mut pending = self.pending_objects.lock().unwrap();
-        *pending = PendingObjectOps::new();
-    }
-
-    /// Get reference to pending objects (read-only)
-    pub fn get_pending_objects(&self) -> PendingObjectOps {
-        self.pending_objects.lock().unwrap().clone()
-    }
-
-    /// Add object operation to pending operations
-    pub fn add_pending_transfer(
-        &mut self,
-        object_id: Vec<u8>,
-        object_type: String,
-        object_data: Vec<u8>,
-        recipient: AccountAddress,
-    ) {
-        let mut pending = self.pending_objects.lock().unwrap();
-        pending.add_transfer(crate::objects::ObjectTransfer {
-            object_id,
-            object_type,
-            object_data,
-            recipient,
-        });
     }
 }

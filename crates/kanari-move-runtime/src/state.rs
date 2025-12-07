@@ -1,7 +1,4 @@
-use crate::{
-    changeset::{ChangeSet, Event},
-    objects::ObjectStorage,
-};
+use crate::changeset::{ChangeSet, Event};
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
 use kanari_types::address::Address as KanariAddress;
@@ -75,8 +72,6 @@ pub struct StateManager {
     pub accounts: HashMap<AccountAddress, Account>,
     pub total_supply: u64,
     pub events: Vec<Event>,
-    /// Object storage for Move objects
-    pub objects: ObjectStorage,
 }
 
 impl StateManager {
@@ -108,7 +103,6 @@ impl StateManager {
             accounts,
             total_supply: TOTAL_SUPPLY_MIST,
             events: Vec::new(),
-            objects: ObjectStorage::new(),
         }
     }
 
@@ -196,52 +190,6 @@ impl StateManager {
         // Persist events emitted by Move VM into state event store
         if !changeset.events.is_empty() {
             self.events.extend(changeset.events.clone());
-        }
-
-        // Process object operations (transfers, freezes, shares)
-        if !changeset.object_operations.is_empty() {
-            use crate::objects::object_storage::{Object, Owner};
-
-            // Process transfers
-            for transfer in &changeset.object_operations.transfers {
-                let object = Object {
-                    id: AccountAddress::from_bytes(&transfer.object_id)
-                        .unwrap_or_else(|_| AccountAddress::ZERO),
-                    owner: Owner::AddressOwner(transfer.recipient),
-                    type_: transfer.object_type.clone(),
-                    data: transfer.object_data.clone(),
-                    version: 1,
-                };
-
-                self.objects.insert(object)?;
-
-                // If it's a TreasuryCap, track in account (for display)
-                if transfer.object_type.contains("TreasuryCap") {
-                    // Note: This is for CLI display purposes
-                    eprintln!(
-                        "💰 TreasuryCap created: {} for {}",
-                        transfer.object_type, transfer.recipient
-                    );
-                }
-            }
-
-            // Process freezes
-            for freeze in &changeset.object_operations.freezes {
-                let object_id = AccountAddress::from_bytes(&freeze.object_id)
-                    .unwrap_or_else(|_| AccountAddress::ZERO);
-                if let Some(obj) = self.objects.get_mut(&object_id) {
-                    obj.owner = Owner::Immutable;
-                }
-            }
-
-            // Process shares
-            for share in &changeset.object_operations.shares {
-                let object_id = AccountAddress::from_bytes(&share.object_id)
-                    .unwrap_or_else(|_| AccountAddress::ZERO);
-                if let Some(obj) = self.objects.get_mut(&object_id) {
-                    obj.owner = Owner::Shared;
-                }
-            }
         }
 
         Ok(())

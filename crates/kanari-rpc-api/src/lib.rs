@@ -147,7 +147,6 @@ pub struct TransactionResult {
     pub hash: String,
     pub status: String,
     pub gas_used: u64,
-    pub created_objects: Vec<ObjectInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
 }
@@ -310,9 +309,4 @@ pub mod methods {
     // Function calls
     pub const CALL_FUNCTION: &str = "kanari_callFunction";
     pub const SIMULATE_FUNCTION: &str = "kanari_simulateFunction";
-
-    // Object operations
-    pub const GET_OBJECT: &str = "kanari_getObject";
-    pub const GET_OWNED_OBJECTS: &str = "kanari_getOwnedObjects";
-    pub const GET_OBJECTS_BY_TYPE: &str = "kanari_getObjectsByType";
 }

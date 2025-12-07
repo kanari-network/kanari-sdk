@@ -2,8 +2,6 @@ use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::objects::PendingObjectOps;
-
 /// Move VM Event representation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
@@ -58,7 +56,6 @@ pub struct ChangeSet {
     pub gas_used: u64,
     pub success: bool,
     pub error_message: Option<String>,
-    pub object_operations: PendingObjectOps,
 }
 
 impl ChangeSet {
@@ -69,7 +66,6 @@ impl ChangeSet {
             gas_used: 0,
             success: true,
             error_message: None,
-            object_operations: PendingObjectOps::new(),
         }
     }
 
@@ -80,7 +76,6 @@ impl ChangeSet {
             gas_used,
             success: true,
             error_message: None,
-            object_operations: PendingObjectOps::new(),
         }
     }
 
@@ -91,7 +86,6 @@ impl ChangeSet {
             gas_used,
             success: false,
             error_message: Some(error),
-            object_operations: PendingObjectOps::new(),
         }
     }
 

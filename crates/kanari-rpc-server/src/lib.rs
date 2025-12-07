@@ -70,11 +70,6 @@ async fn handle_rpc(
         methods::CALL_FUNCTION => handle_call_function(&state, &request).await,
         methods::SIMULATE_FUNCTION => handle_simulate_function(&state, &request).await,
 
-        // Object operations
-        methods::GET_OBJECT => handle_get_object(&state, &request).await,
-        methods::GET_OWNED_OBJECTS => handle_get_owned_objects(&state, &request).await,
-        methods::GET_OBJECTS_BY_TYPE => handle_get_objects_by_type(&state, &request).await,
-
         _ => RpcResponse {
             jsonrpc: "2.0".to_string(),
             result: None,
@@ -537,23 +532,6 @@ async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) -> R
             let tx_hash_hex = hex::encode(&tx_hash);
             info!("Function called successfully: {}", tx_hash_hex);
 
-            // Get created objects from changeset transfers
-            let created_objects = changeset
-                .object_operations
-                .transfers
-                .iter()
-                .map(|transfer| {
-                    use kanari_rpc_api::ObjectInfo;
-                    ObjectInfo {
-                        id: hex::encode(&transfer.object_id),
-                        owner: format!("{:?}", transfer.recipient),
-                        type_: transfer.object_type.clone(),
-                        data: transfer.object_data.clone(),
-                        version: 1,
-                    }
-                })
-                .collect::<Vec<_>>();
-
             use kanari_rpc_api::TransactionResult;
             let result = TransactionResult {
                 hash: tx_hash_hex,
@@ -563,7 +541,6 @@ async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) -> R
                     "failed".to_string()
                 },
                 gas_used: changeset.gas_used,
-                created_objects,
                 error_message: changeset.error_message.clone(),
             };
 
@@ -847,176 +824,6 @@ async fn handle_simulate_function(_state: &RpcServerState, request: &RpcRequest)
             "gas_used": 1000,
             "return_values": []
         })),
-        error: None,
-        id: request.id,
-    }
-}
-
-/// Handle get object request
-async fn handle_get_object(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    use move_core_types::account_address::AccountAddress;
-
-    let object_id: String = match serde_json::from_value(request.params.clone()) {
-        Ok(id) => id,
-        Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: None,
-                error: Some(RpcError::invalid_params(e.to_string())),
-                id: request.id,
-            };
-        }
-    };
-
-    // Parse object ID
-    let obj_id = match AccountAddress::from_hex_literal(&object_id) {
-        Ok(id) => id,
-        Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: None,
-                error: Some(RpcError::invalid_params(format!(
-                    "Invalid object ID: {}",
-                    e
-                ))),
-                id: request.id,
-            };
-        }
-    };
-
-    let state_manager = state.engine.state.read().unwrap();
-    let object = state_manager.objects.get(&obj_id);
-
-    match object {
-        Some(obj) => {
-            let obj_info = ObjectInfo {
-                id: format!("{:#x}", obj.id),
-                owner: match &obj.owner {
-                    kanari_move_runtime::Owner::AddressOwner(addr) => format!("{:#x}", addr),
-                    kanari_move_runtime::Owner::Shared => "shared".to_string(),
-                    kanari_move_runtime::Owner::Immutable => "immutable".to_string(),
-                },
-                type_: obj.type_.clone(),
-                data: obj.data.clone(),
-                version: obj.version,
-            };
-
-            RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: Some(serde_json::to_value(obj_info).unwrap()),
-                error: None,
-                id: request.id,
-            }
-        }
-        None => RpcResponse {
-            jsonrpc: "2.0".to_string(),
-            result: None,
-            error: Some(RpcError::internal_error("Object not found")),
-            id: request.id,
-        },
-    }
-}
-
-/// Handle get owned objects request
-async fn handle_get_owned_objects(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    use move_core_types::account_address::AccountAddress;
-
-    let req_data: GetOwnedObjectsRequest = match serde_json::from_value(request.params.clone()) {
-        Ok(data) => data,
-        Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: None,
-                error: Some(RpcError::invalid_params(e.to_string())),
-                id: request.id,
-            };
-        }
-    };
-
-    // Parse owner address
-    let owner = match AccountAddress::from_hex_literal(&req_data.owner) {
-        Ok(addr) => addr,
-        Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: None,
-                error: Some(RpcError::invalid_params(format!(
-                    "Invalid owner address: {}",
-                    e
-                ))),
-                id: request.id,
-            };
-        }
-    };
-
-    let state_manager = state.engine.state.read().unwrap();
-
-    let objects = if let Some(obj_type) = req_data.object_type {
-        state_manager
-            .objects
-            .get_owned_objects_by_type(&owner, &obj_type)
-    } else {
-        state_manager.objects.get_owned_objects(&owner)
-    };
-
-    let obj_infos: Vec<ObjectInfo> = objects
-        .iter()
-        .map(|obj| ObjectInfo {
-            id: format!("{:#x}", obj.id),
-            owner: match &obj.owner {
-                kanari_move_runtime::Owner::AddressOwner(addr) => format!("{:#x}", addr),
-                kanari_move_runtime::Owner::Shared => "shared".to_string(),
-                kanari_move_runtime::Owner::Immutable => "immutable".to_string(),
-            },
-            type_: obj.type_.clone(),
-            data: obj.data.clone(),
-            version: obj.version,
-        })
-        .collect();
-
-    RpcResponse {
-        jsonrpc: "2.0".to_string(),
-        result: Some(serde_json::to_value(obj_infos).unwrap()),
-        error: None,
-        id: request.id,
-    }
-}
-
-/// Handle get objects by type request
-async fn handle_get_objects_by_type(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let object_type: String = match serde_json::from_value(request.params.clone()) {
-        Ok(t) => t,
-        Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: None,
-                error: Some(RpcError::invalid_params(e.to_string())),
-                id: request.id,
-            };
-        }
-    };
-
-    let state_manager = state.engine.state.read().unwrap();
-    let objects = state_manager.objects.get_objects_by_type(&object_type);
-
-    let obj_infos: Vec<ObjectInfo> = objects
-        .iter()
-        .map(|obj| ObjectInfo {
-            id: format!("{:#x}", obj.id),
-            owner: match &obj.owner {
-                kanari_move_runtime::Owner::AddressOwner(addr) => format!("{:#x}", addr),
-                kanari_move_runtime::Owner::Shared => "shared".to_string(),
-                kanari_move_runtime::Owner::Immutable => "immutable".to_string(),
-            },
-            type_: obj.type_.clone(),
-            data: obj.data.clone(),
-            version: obj.version,
-        })
-        .collect();
-
-    RpcResponse {
-        jsonrpc: "2.0".to_string(),
-        result: Some(serde_json::to_value(obj_infos).unwrap()),
         error: None,
         id: request.id,
     }

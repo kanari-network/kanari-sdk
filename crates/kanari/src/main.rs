@@ -223,7 +223,7 @@ fn main() -> Result<()> {
                         let wallet =
                             load_wallet(&from_addr, &password).context("Failed to load sender wallet")?;
 
-                println!("💸 Transferring Kanari tokens...");
+                println!("Transferring Kanari tokens...");
                 println!("  From: {}", from_addr);
                 println!("  To: {}", to);
                 println!("  Amount: {} KANARI", amount);
@@ -240,9 +240,9 @@ fn main() -> Result<()> {
 
                 // Get current block height to verify connection
                 match client.get_block_height().await {
-                    Ok(height) => println!("  📡 Connected to node (height: {})", height),
+                    Ok(height) => println!("  Connected to node (height: {})", height),
                     Err(_) => {
-                        eprintln!("  ❌ Cannot connect to RPC server at http://127.0.0.1:3000");
+                        eprintln!("  Cannot connect to RPC server at http://127.0.0.1:3000");
                         eprintln!("  Please start the node first: cargo run --bin kanari-node");
                         return Err(anyhow::anyhow!("RPC server not available"));
                     }
@@ -272,9 +272,9 @@ fn main() -> Result<()> {
                 signed_tx
                     .sign(&wallet.private_key, wallet.curve_type)
                     .context("Failed to sign transaction")?;
-                println!("  🔒 Transaction signed");
+                println!("  Transaction signed");
 
-                println!("  📤 Submitting transaction to node...");
+                println!("  Submitting transaction to node...");
 
                 // Convert SignedTransaction to RPC format
                 use kanari_rpc_api::SignedTransactionData;
@@ -291,17 +291,17 @@ fn main() -> Result<()> {
                 // Submit transaction via RPC
                 match client.submit_transaction(tx_data).await {
                     Ok(status) => {
-                        println!("  ✅ Transaction submitted successfully!");
+                        println!("  Transaction submitted successfully");
                         println!("  Transaction hash: {}", status.hash);
                         println!("  Status: {}", status.status);
-                        println!("  ⏳ Waiting for block confirmation...");
+                        println!("  Waiting for block confirmation...");
                         println!(
                             "  Check balance with: cargo run --bin kanari balance --address {}",
                             to
                         );
                     }
                     Err(e) => {
-                        eprintln!("  ❌ Failed to submit transaction: {}", e);
+                        eprintln!("  Failed to submit transaction: {}", e);
                         return Err(e);
                     }
                 }
@@ -326,7 +326,7 @@ fn main() -> Result<()> {
 
                 let wallet = load_wallet(&from_addr, &password).context("Failed to load sender wallet")?;
 
-                println!("🔥 Burning Kanari tokens...");
+                println!("Burning Kanari tokens...");
                 println!("  From: {}", from_addr);
                 println!("  Amount: {} KANARI", amount);
 
@@ -340,9 +340,9 @@ fn main() -> Result<()> {
                 let client = RpcClient::new("http://127.0.0.1:3000");
 
                 match client.get_block_height().await {
-                    Ok(height) => println!("  📡 Connected to node (height: {})", height),
+                    Ok(height) => println!("  Connected to node (height: {})", height),
                     Err(_) => {
-                        eprintln!("  ❌ Cannot connect to RPC server at http://127.0.0.1:3000");
+                        eprintln!("  Cannot connect to RPC server at http://127.0.0.1:3000");
                         eprintln!("  Please start the node first: cargo run --bin kanari-node");
                         return Err(anyhow::anyhow!("RPC server not available"));
                     }
@@ -371,9 +371,9 @@ fn main() -> Result<()> {
                 signed_tx
                     .sign(&wallet.private_key, wallet.curve_type)
                     .context("Failed to sign transaction")?;
-                println!("  🔒 Transaction signed");
+                println!("  Transaction signed");
 
-                println!("  📤 Submitting burn transaction to node...");
+                println!("  Submitting burn transaction to node...");
 
                 use kanari_rpc_api::SignedTransactionData;
                 let tx_data = SignedTransactionData {
@@ -388,13 +388,13 @@ fn main() -> Result<()> {
 
                 match client.submit_transaction(tx_data).await {
                     Ok(status) => {
-                        println!("  ✅ Burn transaction submitted successfully!");
+                        println!("  Burn transaction submitted successfully");
                         println!("  Transaction hash: {}", status.hash);
                         println!("  Status: {}", status.status);
-                        println!("  ⏳ Waiting for block confirmation...");
+                        println!("  Waiting for block confirmation...");
                     }
                     Err(e) => {
-                        eprintln!("  ❌ Failed to submit burn transaction: {}", e);
+                        eprintln!("  Failed to submit burn transaction: {}", e);
                         return Err(e);
                     }
                 }
@@ -414,7 +414,7 @@ fn main() -> Result<()> {
                         const MIST_PER_KANARI: f64 = 1_000_000_000.0;
                         let balance_kanari = account.balance as f64 / MIST_PER_KANARI;
 
-                        println!("💰 Balance for {}", address);
+                        println!("Balance for {}", address);
                         println!("  Kanari: {:.9} KANARI", balance_kanari);
                         println!("  Mist: {} Mist", account.balance);
                         println!("  Sequence: {}", account.sequence_number);
@@ -424,10 +424,10 @@ fn main() -> Result<()> {
                     }
                     Err(e) => {
                         if e.to_string().contains("Account not found") {
-                            println!("❌ Account not found: {}", address);
+                            println!("Account not found: {}", address);
                             println!("   This address has no transactions yet.");
                         } else {
-                            eprintln!("  ❌ Cannot connect to RPC server");
+                            eprintln!("  Cannot connect to RPC server");
                             eprintln!("  Please start the node first: cargo run --bin kanari-node");
                             return Err(e);
                         }
@@ -449,8 +449,8 @@ fn main() -> Result<()> {
                         const MIST_PER_KANARI: f64 = 1_000_000_000.0;
                         let total_supply_kanari = stats.total_supply as f64 / MIST_PER_KANARI;
 
-                        println!("📊 Kanari Blockchain Statistics");
-                        println!("─────────────────────────────────");
+                        println!("Kanari Blockchain Statistics");
+                        println!("------------------------------");
                         println!("  Block Height: {}", stats.height);
                         println!("  Total Blocks: {}", stats.total_blocks);
                         println!("  Total Transactions: {}", stats.total_transactions);
@@ -460,7 +460,7 @@ fn main() -> Result<()> {
                         println!("─────────────────────────────────");
                     }
                     Err(_) => {
-                        eprintln!("  ❌ Cannot connect to RPC server at http://127.0.0.1:3000");
+                        eprintln!("  Cannot connect to RPC server at http://127.0.0.1:3000");
                         eprintln!("  Please start the node first: cargo run --bin kanari-node");
                         return Err(anyhow::anyhow!("RPC server not available"));
                     }
@@ -473,14 +473,14 @@ fn main() -> Result<()> {
         }
 
         Commands::Modules => {
-            println!("📦 Available Move Modules");
-            println!("─────────────────────────────────");
+            println!("Available Move Modules");
+            println!("------------------------------");
 
             for info in ModuleRegistry::all_modules_info() {
                 println!("\n{}", info.display());
             }
 
-            println!("\n─────────────────────────────────");
+            println!("\n------------------------------");
             println!("Total modules: {}", ModuleRegistry::all_modules().len());
 
             Ok(())
