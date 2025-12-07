@@ -578,7 +578,41 @@ async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) -> R
         signed_tx.signature = Some(sig);
     }
 
-    // Execute transaction immediately to get changeset with objects
+    // If caller requested immediate execution, execute and return the changeset
+    if call_data.execute_immediate.unwrap_or(false) {
+        match state.engine.execute_transaction_immediate(signed_tx) {
+            Ok((tx_hash, changeset)) => {
+                let tx_hash_hex = hex::encode(&tx_hash);
+                info!("Function executed immediately: {}", tx_hash_hex);
+                let cs_value = serde_json::to_value(&changeset).unwrap_or(serde_json::json!(null));
+                return RpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: Some(serde_json::json!({
+                        "hash": tx_hash_hex,
+                        "status": if changeset.success { "executed" } else { "failed" },
+                        "action": "call",
+                        "changeset": cs_value
+                    })),
+                    error: None,
+                    id: request.id,
+                };
+            }
+            Err(e) => {
+                error!("Failed to execute function immediately: {}", e);
+                return RpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: None,
+                    error: Some(RpcError::internal_error(format!(
+                        "Immediate execution failed: {}",
+                        e
+                    ))),
+                    id: request.id,
+                };
+            }
+        }
+    }
+
+    // Otherwise, execute transaction immediately to get changeset (default behavior)
     match state.engine.execute_transaction_immediate(signed_tx) {
         Ok((tx_hash, changeset)) => {
             let tx_hash_hex = hex::encode(&tx_hash);

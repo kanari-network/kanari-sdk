@@ -56,6 +56,10 @@ pub struct Call {
     #[clap(long = "rpc", default_value = "http://localhost:3000")]
     pub rpc_endpoint: String,
 
+    /// Execute immediately and return changeset (shows created objects)
+    #[clap(long = "immediate")]
+    pub immediate: bool,
+
     /// Dry run (estimate gas without executing)
     #[clap(long = "dry-run")]
     pub dry_run: bool,
@@ -251,6 +255,7 @@ impl Call {
             gas_price: self.gas_price,
             sequence_number: seq_num,
             signature,
+            execute_immediate: if self.immediate { Some(true) } else { None },
         };
 
         let rpc_request = RpcRequest {
@@ -281,6 +286,39 @@ impl Call {
                             // Show error message if transaction failed
                             if let Some(ref error_msg) = tx_result.error_message {
                                 eprintln!("Transaction failed: {}", error_msg);
+                            }
+                        } else if self.immediate {
+                            // Try to parse immediate execution response with changeset
+                            if let Some(changeset_obj) = result.get("changeset") {
+                                println!("Transaction: {}", result.get("hash").and_then(|v| v.as_str()).unwrap_or("unknown"));
+                                println!("Status: {}", result.get("status").and_then(|v| v.as_str()).unwrap_or("unknown"));
+                                
+                                // Show created objects
+                                if let Some(created_objs) = changeset_obj.get("created_objects").and_then(|v| v.as_array()) {
+                                    if !created_objs.is_empty() {
+                                        println!("\nCreated Objects:");
+                                        for obj in created_objs {
+                                            if let (Some(id), Some(obj_type), Some(owner)) = (
+                                                obj.get("id").and_then(|v| v.as_str()),
+                                                obj.get("type").and_then(|v| v.as_str()),
+                                                obj.get("owner").and_then(|v| v.as_str())
+                                            ) {
+                                                println!("  📦 Object ID: {}", id);
+                                                println!("     Type: {}", obj_type);
+                                                println!("     Owner: {}", owner);
+                                            }
+                                        }
+                                    } else {
+                                        println!("\nNo objects created");
+                                    }
+                                }
+                                
+                                // Show gas used
+                                if let Some(gas_used) = changeset_obj.get("gas_used").and_then(|v| v.as_u64()) {
+                                    println!("\nGas used: {} Mist", gas_used);
+                                }
+                            } else {
+                                println!("RPC result: {}", result);
                             }
                         } else {
                             // Fallback to plain JSON display

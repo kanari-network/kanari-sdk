@@ -210,6 +210,7 @@ pub struct CallFunctionRequest {
     pub gas_price: u64,
     pub sequence_number: u64,
     pub signature: Option<Vec<u8>>,
+    pub execute_immediate: Option<bool>,
 }
 
 /// Module query response

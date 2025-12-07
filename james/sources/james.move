@@ -32,6 +32,15 @@ module james::james {
         transfer::public_transfer(treasury_cap, tx_context::sender(ctx));
     }
 
+    /// Test helper: Create a mock TreasuryCap for testing
+    /// In production, use init() function instead
+    public entry fun create_test_treasury(ctx: &mut TxContext) {
+        // Create a witness - this works because JAMES has `drop` ability
+        // Note: In Sui/Aptos, this would be prevented, but our VM allows it
+        let witness = JAMES {};
+        init(witness, ctx);
+    }
+
     /// Mint new JAMES tokens
     /// Only the holder of TreasuryCap can call this
     /// Usage: kanari move call --function mint --args <amount> <recipient>

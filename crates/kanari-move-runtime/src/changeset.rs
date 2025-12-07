@@ -144,10 +144,10 @@ impl ChangeSet {
     }
 
     /// Module publish operation
+    /// Note: Does NOT increment sequence - that's handled by the engine layer
     pub fn publish_module(&mut self, publisher: AccountAddress, module_name: String) {
         let account = self.get_or_create_change(publisher);
         account.add_module(module_name);
-        account.increment_sequence();
     }
 
     /// Collect gas fees to DAO
@@ -180,7 +180,13 @@ impl ChangeSet {
             let existing = self.get_or_create_change(addr);
             existing.balance_delta += other_change.balance_delta;
             existing.sequence_increment += other_change.sequence_increment;
-            existing.modules_added.extend(other_change.modules_added);
+            
+            // Merge modules_added without duplicates
+            for module in other_change.modules_added {
+                if !existing.modules_added.contains(&module) {
+                    existing.modules_added.push(module);
+                }
+            }
         }
         self.events.extend(other.events);
         self.treasuries.extend(other.treasuries);
@@ -263,6 +269,7 @@ mod tests {
         let change = cs.account_changes.get(&publisher).unwrap();
         assert_eq!(change.modules_added.len(), 1);
         assert_eq!(change.modules_added[0], "kanari");
-        assert_eq!(change.sequence_increment, 1);
+        // Note: sequence_increment is NOT set by publish_module - it's handled by engine
+        assert_eq!(change.sequence_increment, 0);
     }
 }

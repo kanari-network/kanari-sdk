@@ -2,6 +2,7 @@
 /// Uses proper address types with validation
 module kanari_system::transfer {
     use std::vector;
+    use kanari_system::object::{Self, UID};
 
     /// Error codes
     const ERR_INVALID_AMOUNT: u64 = 1;
@@ -12,6 +13,14 @@ module kanari_system::transfer {
         from: address,
         to: address,
         amount: u64,
+    }
+
+    /// ObjectStore: Global registry for transferred objects
+    /// Stores objects by owner address for later retrieval
+    struct ObjectStore<T: key + store> has key {
+        id: UID,
+        inner: T,
+        owner: address,
     }
 
     /// Create a transfer record with full validation
@@ -72,13 +81,21 @@ module kanari_system::transfer {
         // or store it in a global registry. Here we simply accept the object.
     }
 
-    /// Transfer an object with store ability to a recipient
-    /// This is a simplified implementation for testing
-    public fun public_transfer<T: store + drop>(obj: T, recipient: address) {
-        // In a full implementation this would handle object ownership transfer
-        // For now, we consume the object and ignore the recipient
-        let _ = obj;
-        let _ = recipient;
+    /// DEPRECATED: Transfer function that doesn't properly track objects
+    /// Use share_object() or keep objects as function returns instead
+    public fun public_transfer<T: key + store>(obj: T, recipient: address) {
+        // WORKAROUND: Store object data for tracking before consuming
+        // Extract UID if object has one
+        transfer_with_uid(obj, recipient);
+    }
+
+    /// Internal transfer that extracts UID for tracking
+    native fun transfer_with_uid<T: key + store>(obj: T, recipient: address);
+
+    /// Share an object by returning it instead of transferring
+    /// The caller should handle storage. This is a workaround for object tracking.
+    public fun share_object<T: store>(obj: T): T {
+        obj
     }
 
     #[test]
