@@ -100,6 +100,9 @@ pub struct AccountInfo {
     pub modules: Vec<String>,
     /// Token balances: token_type -> amount
     pub token_balances: std::collections::HashMap<String, u64>,
+    /// Owned objects discovered by the runtime (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owned_objects: Option<Vec<ObjectInfo>>,
 }
 
 /// Token balance info
@@ -190,6 +193,8 @@ pub struct PublishModuleRequest {
     pub gas_price: u64,
     pub sequence_number: u64,
     pub signature: Option<Vec<u8>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execute_immediate: Option<bool>,
 }
 
 /// Call function request

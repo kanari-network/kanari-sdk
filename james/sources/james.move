@@ -13,7 +13,7 @@ module james::james {
 
     /// Module initializer - runs once when module is published
     /// Creates currency and transfers TreasuryCap to publisher
-    fun init(witness: JAMES, ctx: &mut TxContext) {
+    public entry fun init(witness: JAMES, ctx: &mut TxContext) {
         let (treasury_cap, metadata) = coin::create_currency(
             witness,
             9,  // decimals
@@ -32,12 +32,6 @@ module james::james {
         transfer::public_transfer(treasury_cap, tx_context::sender(ctx));
     }
 
-    /// Setup function that can be called from CLI
-    /// This creates the currency without requiring witness/TxContext parameters  
-    public entry fun setup(ctx: &mut TxContext) {
-        init(JAMES {}, ctx);
-    }
-
     /// Mint new JAMES tokens
     /// Only the holder of TreasuryCap can call this
     /// Usage: kanari move call --function mint --args <amount> <recipient>
@@ -51,14 +45,29 @@ module james::james {
         transfer::public_transfer(coin, recipient);
     }
 
-    /// Transfer JAMES tokens from sender to recipient
-    /// This requires the sender to have a Coin<JAMES> object
-    public entry fun transfer(c: coin::Coin<JAMES>, recipient: address) {
-        transfer::public_transfer(c, recipient)
+
+    /// Transfer a specific `amount` of JAMES from a mutable Coin held by the caller
+    /// Usage: provide the caller's coin, the amount to send, and the recipient
+    public entry fun transfer_amount(
+        c: &mut coin::Coin<JAMES>,
+        amount: u64,
+        recipient: address,
+        ctx: &mut TxContext
+    ) {
+        let split_coin = coin::split(c, amount, ctx);
+        transfer::public_transfer(split_coin, recipient);
     }
 
-    /// Burns JAMES tokens, decreasing total supply
-    public entry fun burn(treasury_cap: &mut TreasuryCap<JAMES>, coin: Coin<JAMES>) {
-        coin::burn(treasury_cap, coin);
+
+    /// Burn a specific `amount` of JAMES from a mutable Coin held by the caller
+    /// Usage: provide the TreasuryCap, a mutable coin owned by caller, amount to burn, and tx context
+    public entry fun burn_amount(
+        treasury_cap: &mut TreasuryCap<JAMES>,
+        c: &mut Coin<JAMES>,
+        amount: u64,
+        ctx: &mut TxContext
+    ) {
+        let to_burn = coin::split(c, amount, ctx);
+        let _burned = coin::burn(treasury_cap, to_burn);
     }
 }

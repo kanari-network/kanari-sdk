@@ -2,6 +2,17 @@ use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Created object information captured from Move VM write-sets
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatedObject {
+    pub id: String,
+    pub owner: AccountAddress,
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub data: Vec<u8>,
+    pub version: u64,
+}
+
 /// Move VM Event representation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
@@ -53,6 +64,12 @@ impl AccountChange {
 pub struct ChangeSet {
     pub account_changes: HashMap<AccountAddress, AccountChange>,
     pub events: Vec<Event>,
+    /// Treasury creations or updates: (owner, token_type, total_supply)
+    pub treasuries: Vec<(AccountAddress, String, u64)>,
+    /// Per-account token balances (absolute set): (owner, token_type, amount)
+    pub token_balance_sets: Vec<(AccountAddress, String, u64)>,
+    /// Objects created during execution
+    pub created_objects: Vec<CreatedObject>,
     pub gas_used: u64,
     pub success: bool,
     pub error_message: Option<String>,
@@ -63,6 +80,9 @@ impl ChangeSet {
         Self {
             account_changes: HashMap::new(),
             events: Vec::new(),
+            treasuries: Vec::new(),
+            token_balance_sets: Vec::new(),
+            created_objects: Vec::new(),
             gas_used: 0,
             success: true,
             error_message: None,
@@ -73,6 +93,9 @@ impl ChangeSet {
         Self {
             account_changes: HashMap::new(),
             events: Vec::new(),
+            treasuries: Vec::new(),
+            token_balance_sets: Vec::new(),
+            created_objects: Vec::new(),
             gas_used,
             success: true,
             error_message: None,
@@ -83,6 +106,9 @@ impl ChangeSet {
         Self {
             account_changes: HashMap::new(),
             events: Vec::new(),
+            treasuries: Vec::new(),
+            token_balance_sets: Vec::new(),
+            created_objects: Vec::new(),
             gas_used,
             success: false,
             error_message: Some(error),
@@ -157,6 +183,9 @@ impl ChangeSet {
             existing.modules_added.extend(other_change.modules_added);
         }
         self.events.extend(other.events);
+        self.treasuries.extend(other.treasuries);
+        self.token_balance_sets.extend(other.token_balance_sets);
+        self.created_objects.extend(other.created_objects);
         self.gas_used += other.gas_used;
         if !other.success {
             self.success = false;
@@ -166,6 +195,21 @@ impl ChangeSet {
 
     pub fn add_event(&mut self, event: Event) {
         self.events.push(event);
+    }
+
+    /// Record a treasury (TreasuryCap) creation/update for a given token type
+    pub fn add_treasury(&mut self, owner: AccountAddress, token_type: String, total_supply: u64) {
+        self.treasuries.push((owner, token_type, total_supply));
+    }
+
+    /// Record an absolute token balance for an account (after execution)
+    pub fn add_token_balance_set(&mut self, owner: AccountAddress, token_type: String, amount: u64) {
+        self.token_balance_sets.push((owner, token_type, amount));
+    }
+
+    /// Record a created object discovered in Move write-sets
+    pub fn add_created_object(&mut self, id: String, owner: AccountAddress, type_: String, data: Vec<u8>, version: u64) {
+        self.created_objects.push(CreatedObject { id, owner, type_, data, version });
     }
 }
 

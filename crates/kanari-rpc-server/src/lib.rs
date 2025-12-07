@@ -97,12 +97,30 @@ async fn handle_get_account(state: &RpcServerState, request: &RpcRequest) -> Rpc
 
     match state.engine.get_account_info(&address) {
         Some(info) => {
+            let owned_objects = if !info.owned_objects.is_empty() {
+                Some(
+                    info.owned_objects
+                        .into_iter()
+                        .map(|o| ObjectInfo {
+                            id: o.id,
+                            owner: o.owner,
+                            type_: o.type_,
+                            data: o.data,
+                            version: o.version,
+                        })
+                        .collect(),
+                )
+            } else {
+                None
+            };
+
             let account_info = AccountInfo {
                 address: info.address,
                 balance: info.balance,
                 sequence_number: info.sequence_number,
                 modules: info.modules,
                 token_balances: info.token_balances,
+                owned_objects,
             };
             RpcResponse {
                 jsonrpc: "2.0".to_string(),
@@ -430,7 +448,41 @@ async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest) -> 
         signed_tx.signature = Some(sig);
     }
 
-    // Submit to blockchain pending pool (do not execute immediately)
+    // If caller requested immediate execution, execute and return the changeset
+    if module_data.execute_immediate.unwrap_or(false) {
+        match state.engine.execute_transaction_immediate(signed_tx) {
+            Ok((tx_hash, changeset)) => {
+                let tx_hash_hex = hex::encode(&tx_hash);
+                info!("Module publish executed immediately: {}", tx_hash_hex);
+                let cs_value = serde_json::to_value(&changeset).unwrap_or(serde_json::json!(null));
+                return RpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: Some(serde_json::json!({
+                        "hash": tx_hash_hex,
+                        "status": "executed",
+                        "action": "publish",
+                        "changeset": cs_value
+                    })),
+                    error: None,
+                    id: request.id,
+                };
+            }
+            Err(e) => {
+                error!("Failed to execute publish immediately: {}", e);
+                return RpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: None,
+                    error: Some(RpcError::internal_error(format!(
+                        "Immediate execution failed: {}",
+                        e
+                    ))),
+                    id: request.id,
+                };
+            }
+        }
+    }
+
+    // Otherwise, submit to blockchain pending pool (do not execute immediately)
     match state.engine.submit_transaction(signed_tx) {
         Ok(tx_hash) => {
             let tx_hash_hex = hex::encode(&tx_hash);

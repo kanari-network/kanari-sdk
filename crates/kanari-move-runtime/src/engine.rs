@@ -471,12 +471,35 @@ impl BlockchainEngine {
     /// Get account info
     pub fn get_account_info(&self, address: &str) -> Option<AccountInfo> {
         let state = self.state.read().unwrap();
-        state.get_account_by_hex(address).map(|acc| AccountInfo {
-            address: format!("{:#x}", acc.address),
-            balance: acc.balance,
-            sequence_number: acc.sequence_number,
-            modules: acc.modules.iter().cloned().collect(),
-            token_balances: acc.token_balances.clone(),
+        state.get_account_by_hex(address).map(|acc| {
+            // collect owned object ids for this account and map to ObjectInfo
+            let owned_ids = state
+                .owned_objects
+                .get(&acc.address)
+                .cloned()
+                .unwrap_or_default();
+
+            let mut owned_objs: Vec<ObjectInfo> = Vec::new();
+            for id in owned_ids {
+                if let Some(obj) = state.objects.get(&id) {
+                    owned_objs.push(ObjectInfo {
+                        id: obj.id.clone(),
+                        owner: format!("{:#x}", obj.owner),
+                        type_: obj.type_.clone(),
+                        data: obj.data.clone(),
+                        version: obj.version,
+                    });
+                }
+            }
+
+            AccountInfo {
+                address: format!("{:#x}", acc.address),
+                balance: acc.balance,
+                sequence_number: acc.sequence_number,
+                modules: acc.modules.iter().cloned().collect(),
+                token_balances: acc.token_balances.clone(),
+                owned_objects: owned_objs,
+            }
         })
     }
 
@@ -617,6 +640,17 @@ pub struct AccountInfo {
     pub sequence_number: u64,
     pub modules: Vec<String>,
     pub token_balances: std::collections::HashMap<String, u64>,
+    /// Owned objects (object id, owner, type, data, version)
+    pub owned_objects: Vec<ObjectInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObjectInfo {
+    pub id: String,
+    pub owner: String,
+    pub type_: String,
+    pub data: Vec<u8>,
+    pub version: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

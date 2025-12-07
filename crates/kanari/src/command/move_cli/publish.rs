@@ -36,6 +36,10 @@ pub struct Publish {
     /// RPC endpoint
     #[clap(long = "rpc", default_value = "http://127.0.0.1:3000")]
     pub rpc_endpoint: String,
+
+    /// Execute the publish immediately on the node (return changeset)
+    #[clap(long = "immediate")]
+    pub immediate: bool,
 }
 
 impl Publish {
@@ -113,10 +117,7 @@ impl Publish {
 
             // Only publish modules where the module address matches the sender
             if module_addr_normalized.to_lowercase() != sender_normalized.to_lowercase() {
-                println!(
-                    "   Skipping module: {} (address {} doesn't match sender)",
-                    module_name, module_address
-                );
+                // Quietly skip dependency modules that don't belong to the sender.
                 skipped_count += 1;
                 continue;
             }
@@ -225,6 +226,7 @@ impl Publish {
                 gas_price: self.gas_price,
                 sequence_number: seq_num,
                 signature,
+                execute_immediate: if self.immediate { Some(true) } else { None },
             };
 
             let rpc_request = RpcRequest {

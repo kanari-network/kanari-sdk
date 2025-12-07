@@ -98,6 +98,11 @@ enum Commands {
     Modules,
     /// Show token balances for an address
     Balances(command::balances::Balances),
+    /// Account operations (get account info)
+    Account {
+        #[command(subcommand)]
+        command: command::account::AccountCommand,
+    },
     /// Manage Move packages and tools
     Move {
         #[command(subcommand)]
@@ -488,6 +493,11 @@ fn main() -> Result<()> {
 
         Commands::Balances(balances) => {
             balances.execute().context("Failed to query balances")?;
+            Ok(())
+        }
+
+        Commands::Account { command } => {
+            command.execute().context("Failed to query account")?;
             Ok(())
         }
 

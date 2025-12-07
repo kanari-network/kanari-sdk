@@ -1,4 +1,4 @@
-use crate::changeset::{ChangeSet, Event};
+use crate::changeset::{ChangeSet, Event, CreatedObject};
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
 use kanari_types::address::Address as KanariAddress;
@@ -72,6 +72,14 @@ pub struct StateManager {
     pub accounts: HashMap<AccountAddress, Account>,
     pub total_supply: u64,
     pub events: Vec<Event>,
+    /// Per-token total supplies tracked via TreasuryCap (token_type -> total_supply)
+    pub token_supplies: HashMap<String, u64>,
+    /// Owner of TreasuryCap for a token type (token_type -> owner address)
+    pub token_treasuries: HashMap<String, AccountAddress>,
+    /// Map of object id -> CreatedObject for objects created by Move executions
+    pub objects: HashMap<String, CreatedObject>,
+    /// Per-account list of owned object ids
+    pub owned_objects: HashMap<AccountAddress, Vec<String>>,
 }
 
 impl StateManager {
@@ -103,6 +111,10 @@ impl StateManager {
             accounts,
             total_supply: TOTAL_SUPPLY_MIST,
             events: Vec::new(),
+            token_supplies: HashMap::new(),
+            token_treasuries: HashMap::new(),
+            objects: HashMap::new(),
+            owned_objects: HashMap::new(),
         }
     }
 
@@ -185,6 +197,35 @@ impl StateManager {
                 }
                 self.total_supply -= burn_amount;
             }
+        }
+
+        // Apply treasury creations/updates from ChangeSet (track token supplies and owners)
+        for (owner, token_type, total_supply) in &changeset.treasuries {
+            // set or update total supply for this token
+            self.token_supplies
+                .insert(token_type.clone(), *total_supply);
+            // record treasury owner
+            self.token_treasuries
+                .insert(token_type.clone(), *owner);
+        }
+
+        // Apply per-account token balance sets from ChangeSet (absolute values)
+        for (owner, token_type, amount) in &changeset.token_balance_sets {
+            let account = self.get_or_create_account(*owner);
+            account.set_token_balance(token_type.clone(), *amount);
+        }
+
+        // Persist created objects from ChangeSet into the object registry and
+        // register ownership mapping so RPC/account queries can list owned objects.
+        for created in &changeset.created_objects {
+            // store the object by id
+            self.objects.insert(created.id.clone(), created.clone());
+
+            // add to owner's owned_objects list
+            self.owned_objects
+                .entry(created.owner)
+                .or_insert_with(Vec::new)
+                .push(created.id.clone());
         }
 
         // Persist events emitted by Move VM into state event store

@@ -118,19 +118,37 @@ impl MoveRuntime {
 
     /// Load move-stdlib modules (0x1::*)
     fn load_move_stdlib(&mut self) -> Result<()> {
-        let stdlib_path = std::env::var("MOVE_STDLIB_PATH").unwrap_or_else(|_| {
-            let mut path = std::env::current_dir().unwrap_or_default();
-            path.push("crates");
-            path.push("kanari-frameworks");
-            path.push("packages");
-            path.push("move-stdlib");
-            path.push("build");
-            path.push("MoveStdlib");
-            path.push("bytecode_modules");
-            path.to_string_lossy().to_string()
-        });
+        // Determine stdlib path. Allow override via MOVE_STDLIB_PATH env var.
+        let modules_dir = if let Ok(path_str) = std::env::var("MOVE_STDLIB_PATH") {
+            std::path::PathBuf::from(path_str)
+        } else {
+            // Try two candidate locations to avoid duplicated `crates/crates` when cwd is already the `crates` folder.
+            let cwd = std::env::current_dir().unwrap_or_default();
+            let candidate1 = cwd
+                .join("crates")
+                .join("kanari-frameworks")
+                .join("packages")
+                .join("move-stdlib")
+                .join("build")
+                .join("MoveStdlib")
+                .join("bytecode_modules");
 
-        let modules_dir = std::path::Path::new(&stdlib_path);
+            if candidate1.exists() {
+                candidate1
+            } else if let Some(parent) = cwd.parent() {
+                let candidate2 = parent
+                    .join("crates")
+                    .join("kanari-frameworks")
+                    .join("packages")
+                    .join("move-stdlib")
+                    .join("build")
+                    .join("MoveStdlib")
+                    .join("bytecode_modules");
+                candidate2
+            } else {
+                candidate1
+            }
+        };
 
         println!("✓ Looking for Move stdlib modules at: {:?}", modules_dir);
 
@@ -183,21 +201,35 @@ impl MoveRuntime {
     /// Load Kanari system modules (0x2::*)
     fn load_kanari_system(&mut self) -> Result<()> {
         // Path to pre-compiled Kanari system modules
-        let framework_path = std::env::var("KANARI_FRAMEWORK_PATH").unwrap_or_else(|_| {
-            // Default: relative to workspace root
-            let mut path = std::env::current_dir().unwrap_or_default();
-            // Navigate to framework package
-            path.push("crates");
-            path.push("kanari-frameworks");
-            path.push("packages");
-            path.push("kanari-system");
-            path.push("build");
-            path.push("KanariSystem");
-            path.push("bytecode_modules");
-            path.to_string_lossy().to_string()
-        });
+        // Determine kanari system framework path (allow override via KANARI_FRAMEWORK_PATH).
+        let modules_dir = if let Ok(path_str) = std::env::var("KANARI_FRAMEWORK_PATH") {
+            std::path::PathBuf::from(path_str)
+        } else {
+            let cwd = std::env::current_dir().unwrap_or_default();
+            let candidate1 = cwd
+                .join("crates")
+                .join("kanari-frameworks")
+                .join("packages")
+                .join("kanari-system")
+                .join("build")
+                .join("KanariSystem")
+                .join("bytecode_modules");
 
-        let modules_dir = std::path::Path::new(&framework_path);
+            if candidate1.exists() {
+                candidate1
+            } else if let Some(parent) = cwd.parent() {
+                parent
+                    .join("crates")
+                    .join("kanari-frameworks")
+                    .join("packages")
+                    .join("kanari-system")
+                    .join("build")
+                    .join("KanariSystem")
+                    .join("bytecode_modules")
+            } else {
+                candidate1
+            }
+        };
 
         println!("✓ Looking for Kanari system modules at: {:?}", modules_dir);
 
@@ -217,13 +249,15 @@ impl MoveRuntime {
         }
 
         // List of system modules to load in dependency order
+        // Load system modules in dependency order. Note: some modules (coin) depend on transfer,
+        // so transfer must be published before coin.
         let module_files = vec![
             "tx_context.mv",
             "object.mv",
             "url.mv",
             "balance.mv",
-            "coin.mv",
             "transfer.mv",
+            "coin.mv",
             "kanari.mv",
             // Crypto modules (these are wrappers for native functions)
             "ecdsa_k1.mv",
@@ -560,22 +594,74 @@ impl MoveRuntime {
             for (struct_tag, op) in account_changes.resources() {
                 match op {
                     MoveOp::New(bytes) | MoveOp::Modify(bytes) => {
-                        // Try to parse balance changes from Coin/Balance resources
-                        // Format: 0xADDR::coin::Coin<0xADDR::kanari::KANARI>
+                        // Parse resource bytes and set per-account token balances when applicable
                         if self.is_balance_resource(struct_tag) {
-                            if let Some(balance) = self.extract_balance_from_bytes(bytes) {
-                                // Note: This is a simplified approach
-                                // In production, you'd track the delta by comparing with previous value
-                                eprintln!(
-                                    "Balance resource changed for {}: {} (type: {})",
-                                    addr, balance, struct_tag
-                                );
+                            if let Some(amount) = self.extract_balance_from_bytes(bytes, struct_tag)
+                            {
+                                if let Some(token_type) =
+                                    self.token_type_from_struct_tag(struct_tag)
+                                {
+                                    // Record absolute token balance for this account
+                                    kanari_cs.add_token_balance_set(
+                                        *addr,
+                                        token_type.clone(),
+                                        amount,
+                                    );
+                                    eprintln!(
+                                        "Set token balance for {}: {} = {}",
+                                        addr, token_type, amount
+                                    );
+                                }
+                            }
+                        }
+
+                        // Parse TreasuryCap resources: track total_supply and owner
+                        if self.is_treasury_resource(struct_tag) {
+                            if let Some(total) = self.extract_treasury_total_from_bytes(bytes) {
+                                if let Some(token_type) =
+                                    self.token_type_from_struct_tag(struct_tag)
+                                {
+                                    kanari_cs.add_treasury(*addr, token_type.clone(), total);
+                                    eprintln!(
+                                        "TreasuryCap for {} created/updated at {} with supply {}",
+                                        token_type, addr, total
+                                    );
+                                }
+                            }
+                        }
+
+                        // Detect created objects with UID in first bytes (object::UID.addr)
+                        // For common kanari-system objects (Coin, TreasuryCap, CoinMetadata)
+                        // the serialized layout starts with the UID address (32 bytes).
+                        let name = struct_tag.name.as_str();
+                        if name == "Coin" || name == "TreasuryCap" || name == "CoinMetadata" {
+                            if bytes.len() >= 32 {
+                                let id_bytes = &bytes[0..32];
+                                let id_hex = hex::encode(id_bytes);
+                                let obj_type = if let Some(tt) = self.token_type_from_struct_tag(struct_tag) {
+                                    tt
+                                } else {
+                                    format!("0x{}::{}::{}", struct_tag.address.short_str_lossless(), struct_tag.module.as_str(), struct_tag.name.as_str())
+                                };
+                                // Record created object (version 0 for new objects)
+                                kanari_cs.add_created_object(id_hex.clone(), *addr, obj_type, bytes.to_vec(), 0);
+                                eprintln!("Created object detected: {} owner={} type={}", addr, id_hex, struct_tag.name);
                             }
                         }
                     }
                     MoveOp::Delete => {
-                        // Resource deletion
-                        eprintln!("Resource deleted for {}: {}", addr, struct_tag);
+                        // Resource deletion: if Coin/Balance deleted, set token balance to 0
+                        if self.is_balance_resource(struct_tag) {
+                            if let Some(token_type) = self.token_type_from_struct_tag(struct_tag) {
+                                kanari_cs.add_token_balance_set(*addr, token_type.clone(), 0);
+                                eprintln!(
+                                    "Deleted token resource for {}: {} -> balance 0",
+                                    addr, token_type
+                                );
+                            }
+                        } else {
+                            eprintln!("Resource deleted for {}: {}", addr, struct_tag);
+                        }
                     }
                 }
             }
@@ -592,17 +678,56 @@ impl MoveRuntime {
         name == "Coin" || name == "Balance" || name == "Account"
     }
 
-    /// Extract u64 balance from Move BCS-encoded bytes
-    /// This is a simplified parser - production code would use proper BCS deserialization
-    fn extract_balance_from_bytes(&self, bytes: &[u8]) -> Option<u64> {
-        // Simple u64 BCS encoding: little-endian 8 bytes
-        // In real implementation, parse full struct with bcs::from_bytes
+    fn is_treasury_resource(
+        &self,
+        struct_tag: &move_core_types::language_storage::StructTag,
+    ) -> bool {
+        struct_tag.name.as_str() == "TreasuryCap"
+    }
+
+    /// Extract balance value from bytes for resources that may include UID + Balance
+    fn extract_balance_from_bytes(
+        &self,
+        bytes: &[u8],
+        struct_tag: &move_core_types::language_storage::StructTag,
+    ) -> Option<u64> {
+        // For `Balance<T>` serialized alone, the bytes are just u64 little-endian.
+        // For `Coin<T>` or `TreasuryCap<T>`, the layout is typically: UID (address) followed by u64.
+        // We'll try both: if length >= 8, prefer the last 8 bytes as the u64 value.
         if bytes.len() >= 8 {
-            let balance_bytes: [u8; 8] = bytes[0..8].try_into().ok()?;
+            let start = bytes.len() - 8;
+            let balance_bytes: [u8; 8] = bytes[start..].try_into().ok()?;
             Some(u64::from_le_bytes(balance_bytes))
         } else {
             None
         }
+    }
+
+    fn extract_treasury_total_from_bytes(&self, bytes: &[u8]) -> Option<u64> {
+        // TreasuryCap layout: UID (address) + total_supply: u64
+        if bytes.len() >= 8 {
+            let start = bytes.len() - 8;
+            let supply_bytes: [u8; 8] = bytes[start..].try_into().ok()?;
+            Some(u64::from_le_bytes(supply_bytes))
+        } else {
+            None
+        }
+    }
+
+    fn token_type_from_struct_tag(
+        &self,
+        struct_tag: &move_core_types::language_storage::StructTag,
+    ) -> Option<String> {
+        use move_core_types::language_storage::TypeTag;
+        if let Some(first) = struct_tag.type_params.get(0) {
+            if let TypeTag::Struct(st) = first {
+                let addr = st.address.short_str_lossless();
+                let module = st.module.as_str().to_string();
+                let name = st.name.as_str().to_string();
+                return Some(format!("0x{}::{}::{}", addr, module, name));
+            }
+        }
+        None
     }
 
     /// Parse Move VM events and add to Kanari ChangeSet
