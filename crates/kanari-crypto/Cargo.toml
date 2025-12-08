@@ -14,29 +14,29 @@ description.workspace = true
 [dependencies]
 bip39.workspace = true
 # Core crypto libraries
-k256 = { version = "0.13.4", features = ["ecdsa", "std"] }
-p256 = { version = "0.13.2", features = ["ecdsa", "std"] }
-ed25519-dalek = { version = "2", features = ["rand_core"] }
-sha3 = "0.10.8"
-zstd = "0.13.3"
+k256 = { workspace = true, features = ["ecdsa", "std"] }
+p256 = { workspace = true, features = ["ecdsa", "std"] }
+ed25519-dalek = { workspace = true, features = ["rand_core"] }
+sha3.workspace = true
+zstd.workspace = true
 
-smallvec = "1.12"
-sha2 = "0.10"
-secp256k1 = { version = "0.30", features = ["recovery"] }
+smallvec.workspace = true
+sha2.workspace = true
+secp256k1 = { workspace = true, features = ["recovery"] }
 
 
 # Post-Quantum Cryptography (PQC) - NIST Standards
-pqcrypto-dilithium = "0.5"  # Post-quantum signatures
-pqcrypto-kyber = "0.8"      # Post-quantum key encapsulation
-pqcrypto-sphincsplus = "0.7.2" # Hash-based signatures (ultra-secure)
-pqcrypto-traits = "0.3"     # Common traits for PQC
+pqcrypto-dilithium.workspace = true  # Post-quantum signatures
+pqcrypto-kyber.workspace = true     # Post-quantum key encapsulation
+pqcrypto-sphincsplus.workspace = true # Hash-based signatures (ultra-secure)
+pqcrypto-traits.workspace = true    # Common traits for PQC
 
 # Make blake3 optional and enabled via the blake3 feature
-blake3 = { version = "1.3.1", optional = true }
-bincode = "2.0.1"
+blake3 = { workspace = true, optional = true }
+bincode.workspace = true
 
 # BIP32/BIP44 HD wallet support
-bip32 = "0.3"
+bip32.workspace = true
 
 rand.workspace = true
 hex.workspace = true

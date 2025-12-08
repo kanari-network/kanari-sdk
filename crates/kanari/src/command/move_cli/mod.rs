@@ -60,8 +60,7 @@ impl MoveCommand {
 
                 // Construct kanari crypto/system natives (registered under package address 0x2)
                 let system_addr = AccountAddress::from_hex_literal("0x2").unwrap();
-                let crypto_natives =
-                    kanari_crypto::move_natives::all_natives(system_addr).into_iter();
+                let crypto_natives = kanari_types::crypto::all_natives(system_addr).into_iter();
 
                 // Merge all natives and pass into test runner
                 let natives = std_natives.chain(crypto_natives).collect();

@@ -7,7 +7,6 @@ use kanari_crypto::{
 use kanari_move_runtime::SignedTransaction;
 use kanari_rpc_client::RpcClient;
 use kanari_types::address::Address;
-use kanari_types::module_registry::ModuleRegistry;
 use std::str::FromStr;
 
 pub mod command;
@@ -94,8 +93,6 @@ enum Commands {
     },
     /// Show blockchain statistics
     Stats,
-    /// Show available Move modules
-    Modules,
     /// Show token balances for an address
     Balances(command::balances::Balances),
     /// Account operations (get account info)
@@ -473,20 +470,6 @@ fn main() -> Result<()> {
 
                 Ok::<(), anyhow::Error>(())
             })?;
-
-            Ok(())
-        }
-
-        Commands::Modules => {
-            println!("Available Move Modules");
-            println!("------------------------------");
-
-            for info in ModuleRegistry::all_modules_info() {
-                println!("\n{}", info.display());
-            }
-
-            println!("\n------------------------------");
-            println!("Total modules: {}", ModuleRegistry::all_modules().len());
 
             Ok(())
         }

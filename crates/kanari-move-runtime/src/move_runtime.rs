@@ -97,7 +97,7 @@ impl MoveRuntime {
 
         // Kanari crypto natives at 0x2
         let system_addr = AccountAddress::from_hex_literal("0x2")?;
-        let crypto_natives = kanari_crypto::move_natives::all_natives(system_addr);
+        let crypto_natives = kanari_types::crypto::all_natives(system_addr);
 
         // Transfer natives at 0x2 (same address as kanari_system)
         let transfer_natives = crate::transfer_natives::all_natives(system_addr);

@@ -2,7 +2,6 @@ use anyhow::Result;
 use kanari_crypto::wallet::list_wallet_files;
 use kanari_move_runtime::{BlockchainEngine, MoveRuntime};
 use kanari_rpc_server::start_server;
-use kanari_types::module_registry::ModuleRegistry;
 
 use move_core_types::account_address::AccountAddress;
 
@@ -76,14 +75,6 @@ async fn main() -> Result<()> {
                     println!("  Transactions: {}", block.tx_count);
                 }
                 None => println!("Block not found: {}", height),
-            }
-            return Ok(());
-        }
-
-        "modules" => {
-            println!("📦 Available Modules:");
-            for info in ModuleRegistry::all_modules_info() {
-                println!("\n{}", info.display());
             }
             return Ok(());
         }

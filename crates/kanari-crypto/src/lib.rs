@@ -19,7 +19,6 @@ pub mod hsm;
 pub mod key_rotation;
 pub mod keys;
 pub mod keystore;
-pub mod move_natives;
 pub mod signatures;
 pub mod wallet;
 
