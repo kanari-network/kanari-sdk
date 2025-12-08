@@ -3,7 +3,7 @@ use crate::changeset::{ChangeSet, Event};
 use crate::contract::{ContractCall, ContractDeployment, ContractInfo, ContractRegistry};
 use crate::gas::{GasMeter, GasOperation};
 use crate::move_runtime::MoveRuntime;
-use crate::persistent_store::PersistentStore;
+use crate::storage::persistent_store::PersistentStore;
 use crate::state::StateManager;
 use anyhow::{Context, Result};
 use kanari_types::address::Address as KanariAddress;

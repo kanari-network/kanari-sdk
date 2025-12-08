@@ -8,7 +8,7 @@ use rocksdb::IteratorMode;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::shared_db::get_or_open_db;
+use crate::storage::shared_db::get_or_open_db;
 use rocksdb::DB;
 
 /// Simple persistent store for published modules and small runtime state.

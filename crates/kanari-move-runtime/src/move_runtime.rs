@@ -17,7 +17,7 @@ use crate::gas::{GasMeter, GasOperation};
 use kanari_types::address::Address as KanariAddress;
 
 use crate::changeset::ChangeSet;
-use crate::move_vm_state::MoveVMState;
+use crate::storage::move_vm_state::MoveVMState;
 use crate::object_storage::ObjectStorage;
 use kanari_types::tx_context::TxContextRecord;
 

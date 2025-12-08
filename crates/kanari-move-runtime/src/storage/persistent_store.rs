@@ -3,7 +3,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::shared_db::get_or_open_db;
+use crate::storage::shared_db::get_or_open_db;
 use rocksdb::DB;
 
 /// Lightweight persistent JSON store for runtime state (blockchain, accounts, etc.)
