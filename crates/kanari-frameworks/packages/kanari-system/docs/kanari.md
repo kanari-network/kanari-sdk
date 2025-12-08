@@ -14,9 +14,7 @@ It has 9 decimals, and the smallest unit (10^-9) is called "MIST".
 -  [Function `burn`](#0x2_kanari_burn)
 
 
-<pre><code><b>use</b> <a href="dependencies/move-stdlib/ascii.md#0x1_ascii">0x1::ascii</a>;
-<b>use</b> <a href="dependencies/move-stdlib/option.md#0x1_option">0x1::option</a>;
-<b>use</b> <a href="dependencies/move-stdlib/string.md#0x1_string">0x1::string</a>;
+<pre><code><b>use</b> <a href="dependencies/move-stdlib/option.md#0x1_option">0x1::option</a>;
 <b>use</b> <a href="coin.md#0x2_coin">0x2::coin</a>;
 <b>use</b> <a href="transfer.md#0x2_transfer">0x2::transfer</a>;
 <b>use</b> <a href="tx_context.md#0x2_tx_context">0x2::tx_context</a>;
@@ -130,9 +128,9 @@ The total supply of Kanari denominated in Mist (100 Million * 10^9)
     <b>let</b> (treasury, metadata) = <a href="coin.md#0x2_coin_create_currency">coin::create_currency</a>(
         <a href="kanari.md#0x2_kanari_KANARI">KANARI</a> {},
         9,
-        <a href="dependencies/move-stdlib/ascii.md#0x1_ascii_string">ascii::string</a>(b"<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>"),
-        <a href="dependencies/move-stdlib/string.md#0x1_string_utf8">string::utf8</a>(b"Kanari Network Coin"),
-        <a href="dependencies/move-stdlib/string.md#0x1_string_utf8">string::utf8</a>(b""),
+        b"<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>",
+        b"Kanari Network Coin",
+        b"",
         <a href="dependencies/move-stdlib/option.md#0x1_option_none">option::none</a>(),
         ctx
     );

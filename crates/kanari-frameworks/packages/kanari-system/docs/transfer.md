@@ -8,6 +8,7 @@ Uses proper address types with validation
 
 
 -  [Struct `Transfer`](#0x2_transfer_Transfer)
+-  [Resource `ObjectStore`](#0x2_transfer_ObjectStore)
 -  [Constants](#@Constants_0)
 -  [Function `create_transfer`](#0x2_transfer_create_transfer)
 -  [Function `get_amount`](#0x2_transfer_get_amount)
@@ -17,9 +18,12 @@ Uses proper address types with validation
 -  [Function `is_valid_amount`](#0x2_transfer_is_valid_amount)
 -  [Function `public_freeze_object`](#0x2_transfer_public_freeze_object)
 -  [Function `public_transfer`](#0x2_transfer_public_transfer)
+-  [Function `transfer_with_uid`](#0x2_transfer_transfer_with_uid)
+-  [Function `share_object`](#0x2_transfer_share_object)
 
 
-<pre><code></code></pre>
+<pre><code><b>use</b> <a href="object.md#0x2_object">0x2::object</a>;
+</code></pre>
 
 
 
@@ -54,6 +58,45 @@ Transfer record
 </dd>
 <dt>
 <code>amount: u64</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a name="0x2_transfer_ObjectStore"></a>
+
+## Resource `ObjectStore`
+
+
+
+<pre><code><b>struct</b> <a href="transfer.md#0x2_transfer_ObjectStore">ObjectStore</a>&lt;T: store, key&gt; <b>has</b> key
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>id: <a href="object.md#0x2_object_UID">object::UID</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>inner: T</code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>owner: <b>address</b></code>
 </dt>
 <dd>
 
@@ -279,11 +322,11 @@ This implementation is a no-op placeholder that consumes the object.
 
 ## Function `public_transfer`
 
-Transfer an object with store ability to a recipient
-This is a simplified implementation for testing
+DEPRECATED: Transfer function that doesn't properly track objects
+Use share_object() or keep objects as function returns instead
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_public_transfer">public_transfer</a>&lt;T: drop, store&gt;(obj: T, recipient: <b>address</b>)
+<pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_public_transfer">public_transfer</a>&lt;T: store, key&gt;(obj: T, recipient: <b>address</b>)
 </code></pre>
 
 
@@ -292,11 +335,59 @@ This is a simplified implementation for testing
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_public_transfer">public_transfer</a>&lt;T: store + drop&gt;(obj: T, recipient: <b>address</b>) {
-    // In a full implementation this would handle <a href="object.md#0x2_object">object</a> ownership <a href="transfer.md#0x2_transfer">transfer</a>
-    // For now, we consume the <a href="object.md#0x2_object">object</a> and ignore the recipient
-    <b>let</b> _ = obj;
-    <b>let</b> _ = recipient;
+<pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_public_transfer">public_transfer</a>&lt;T: key + store&gt;(obj: T, recipient: <b>address</b>) {
+    // WORKAROUND: Store <a href="object.md#0x2_object">object</a> data for tracking before consuming
+    // Extract UID <b>if</b> <a href="object.md#0x2_object">object</a> <b>has</b> one
+    <a href="transfer.md#0x2_transfer_transfer_with_uid">transfer_with_uid</a>(obj, recipient);
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_transfer_transfer_with_uid"></a>
+
+## Function `transfer_with_uid`
+
+Internal transfer that extracts UID for tracking
+
+
+<pre><code><b>fun</b> <a href="transfer.md#0x2_transfer_transfer_with_uid">transfer_with_uid</a>&lt;T: store, key&gt;(obj: T, recipient: <b>address</b>)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>native</b> <b>fun</b> <a href="transfer.md#0x2_transfer_transfer_with_uid">transfer_with_uid</a>&lt;T: key + store&gt;(obj: T, recipient: <b>address</b>);
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_transfer_share_object"></a>
+
+## Function `share_object`
+
+Share an object by returning it instead of transferring
+The caller should handle storage. This is a workaround for object tracking.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_share_object">share_object</a>&lt;T: store&gt;(obj: T): T
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_share_object">share_object</a>&lt;T: store&gt;(obj: T): T {
+    obj
 }
 </code></pre>
 

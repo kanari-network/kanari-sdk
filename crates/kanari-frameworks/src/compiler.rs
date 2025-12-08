@@ -104,8 +104,9 @@ pub fn compile_package(
 
     // Write .rpd file as package.rpd
     let output_file = address_dir.join("package.rpd");
-    let json_data = serde_json::to_string_pretty(&package)?;
-    fs::write(&output_file, json_data)?;
+    // Write binary .rpd using `bincode` for a raw byte format
+    let bin_data = bincode::serialize(&package).context("Failed to serialize package to binary")?;
+    fs::write(&output_file, bin_data)?;
 
     println!("  ✓ Created: {:?}", output_file);
 

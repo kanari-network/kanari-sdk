@@ -19,6 +19,8 @@
 -  [Function `new_supply`](#0x2_balance_new_supply)
 -  [Function `increase_supply`](#0x2_balance_increase_supply)
 -  [Function `destroy_supply`](#0x2_balance_destroy_supply)
+-  [Function `decrease_supply`](#0x2_balance_decrease_supply)
+-  [Function `supply_total`](#0x2_balance_supply_total)
 -  [Function `merge`](#0x2_balance_merge)
 -  [Function `split`](#0x2_balance_split)
 
@@ -62,7 +64,7 @@ Balance resource - Stores the balance value (generic per token type)
 Supply: mutable minting handle consumed to create balances
 
 
-<pre><code><b>struct</b> <a href="balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt; <b>has</b> store
+<pre><code><b>struct</b> <a href="balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt; <b>has</b> drop, store
 </code></pre>
 
 
@@ -402,6 +404,60 @@ Decrease/destroy a supply handle (legacy)
 
 <pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_destroy_supply">destroy_supply</a>&lt;T&gt;(s: <a href="balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt;) {
     <b>let</b> <a href="balance.md#0x2_balance_Supply">Supply</a> { total: _ } = s;
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_balance_decrease_supply"></a>
+
+## Function `decrease_supply`
+
+Decrease supply by <code>amount</code>. Useful for burning coins.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_decrease_supply">decrease_supply</a>&lt;T&gt;(s: &<b>mut</b> <a href="balance.md#0x2_balance_Supply">balance::Supply</a>&lt;T&gt;, amount: u64)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_decrease_supply">decrease_supply</a>&lt;T&gt;(s: &<b>mut</b> <a href="balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt;, amount: u64) {
+    // Ensure amount is non-zero
+    <b>assert</b>!(amount &gt; 0, <a href="balance.md#0x2_balance_ERR_ZERO_AMOUNT">ERR_ZERO_AMOUNT</a>);
+    // Ensure sufficient total supply
+    <b>assert</b>!(s.total &gt;= amount, <a href="balance.md#0x2_balance_ERR_INSUFFICIENT_BALANCE">ERR_INSUFFICIENT_BALANCE</a>);
+    s.total = s.total - amount;
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_balance_supply_total"></a>
+
+## Function `supply_total`
+
+Read the current total supply value from a supply handle.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_supply_total">supply_total</a>&lt;T&gt;(s: &<a href="balance.md#0x2_balance_Supply">balance::Supply</a>&lt;T&gt;): u64
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="balance.md#0x2_balance_supply_total">supply_total</a>&lt;T&gt;(s: &<a href="balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt;): u64 {
+    s.total
 }
 </code></pre>
 

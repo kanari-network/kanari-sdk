@@ -33,3 +33,4 @@ move-prover.workspace = true
 move-vm-types.workspace = true
 log.workspace = true
 walkdir.workspace = true
+bincode = "1.3"

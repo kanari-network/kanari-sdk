@@ -33,10 +33,12 @@ The Kanari System is built on top of the Move programming language, providing a 
 
 -  [`0x2::balance`](balance.md#0x2_balance)
 -  [`0x2::coin`](coin.md#0x2_coin)
+-  [`0x2::deny_list`](deny_list.md#0x2_deny_list)
 -  [`0x2::ecdsa_k1`](ecdsa_k1.md#0x2_ecdsa_k1)
 -  [`0x2::ecdsa_r1`](ecdsa_r1.md#0x2_ecdsa_r1)
 -  [`0x2::ed25519`](ed25519.md#0x2_ed25519)
 -  [`0x2::kanari`](kanari.md#0x2_kanari)
+-  [`0x2::kanari_laps_coin`](kanari_laps_coin.md#0x2_kanari_laps_coin)
 -  [`0x2::object`](object.md#0x2_object)
 -  [`0x2::transfer`](transfer.md#0x2_transfer)
 -  [`0x2::tx_context`](tx_context.md#0x2_tx_context)
