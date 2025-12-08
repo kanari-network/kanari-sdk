@@ -6,6 +6,8 @@ pub mod gas;
 pub mod move_runtime;
 pub mod move_runtime_extensions;
 pub mod move_vm_state;
+pub mod persistent_store;
+pub mod shared_db;
 pub mod transfer_natives;
 pub mod object_storage;
 

@@ -9,6 +9,7 @@ use kanari_types::address::Address as KanariAddress;
 use move_core_types::{account_address::AccountAddress, language_storage::ModuleId};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
+use crate::persistent_store::PersistentStore;
 
 /// Complete blockchain engine with Move VM integration
 pub struct BlockchainEngine {
@@ -17,12 +18,37 @@ pub struct BlockchainEngine {
     pub move_runtime: Arc<RwLock<MoveRuntime>>,
     pub pending_txs: Arc<RwLock<Vec<Transaction>>>,
     pub contract_registry: Arc<RwLock<ContractRegistry>>,
+    pub persistent_store: Option<Arc<PersistentStore>>,
 }
 
 impl BlockchainEngine {
     pub fn new() -> Result<Self> {
-        let blockchain = Arc::new(RwLock::new(Blockchain::new()));
-        let state = Arc::new(RwLock::new(StateManager::new()));
+        // Try to open a persistent store for state + blockchain. If unavailable,
+        // fall back to in-memory defaults.
+        let persistent_store = match PersistentStore::open_default() {
+            Ok(s) => Some(Arc::new(s)),
+            Err(_) => None,
+        };
+
+        let blockchain = if let Some(store) = &persistent_store {
+            if let Ok(Some(b)) = store.load_json::<Blockchain>("blockchain") {
+                Arc::new(RwLock::new(b))
+            } else {
+                Arc::new(RwLock::new(Blockchain::new()))
+            }
+        } else {
+            Arc::new(RwLock::new(Blockchain::new()))
+        };
+
+        let state = if let Some(store) = &persistent_store {
+            if let Ok(Some(s)) = store.load_json::<StateManager>("state_manager") {
+                Arc::new(RwLock::new(s))
+            } else {
+                Arc::new(RwLock::new(StateManager::new()))
+            }
+        } else {
+            Arc::new(RwLock::new(StateManager::new()))
+        };
         // Use enhanced runtime with Kanari natives
         let move_runtime = Arc::new(RwLock::new(MoveRuntime::new_with_kanari_natives()?));
         let pending_txs = Arc::new(RwLock::new(Vec::new()));
@@ -34,6 +60,7 @@ impl BlockchainEngine {
             move_runtime,
             pending_txs,
             contract_registry,
+            persistent_store,
         })
     }
 
@@ -441,6 +468,20 @@ impl BlockchainEngine {
         let block_hash = block.hash();
 
         chain.add_block(block)?;
+
+        // Persist updated blockchain and state if a persistent store is available
+        if let Some(store) = &self.persistent_store {
+            // Persist blockchain
+            store
+                .save_json("blockchain", &*chain)
+                .context("Failed to persist blockchain")?;
+
+            // Persist state snapshot
+            let state_guard = self.state.read().unwrap();
+            store
+                .save_json("state_manager", &*state_guard)
+                .context("Failed to persist state manager")?;
+        }
 
         Ok(BlockInfo {
             height,

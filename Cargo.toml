@@ -78,6 +78,7 @@ walkdir = "2.5.0"
 tempfile = "3.23.0"
 smallvec = "1.15.1"
 lazy_static = { version = "1.5.0", default-features = true }
+once_cell = "1.20.0"
 
 # Randomness, error handling
 rand = "0.8.5"

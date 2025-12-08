@@ -4,12 +4,16 @@ use move_core_types::identifier::Identifier;
 use move_core_types::language_storage::ModuleId;
 use move_vm_test_utils::InMemoryStorage;
 use rocksdb::Direction;
-use rocksdb::{DB, IteratorMode, Options};
+use rocksdb::IteratorMode;
 use std::path::PathBuf;
+use std::sync::Arc;
+
+use crate::shared_db::get_or_open_db;
+use rocksdb::DB;
 
 /// Simple persistent store for published modules and small runtime state.
 pub struct MoveVMState {
-    db: DB,
+    db: Arc<DB>,
 }
 
 impl MoveVMState {
@@ -28,40 +32,23 @@ impl MoveVMState {
         std::fs::create_dir_all(&temp_path)
             .context("Failed to create temp MoveVMState directory")?;
 
-        let mut opts = Options::default();
-        opts.create_if_missing(true);
-        let db =
-            DB::open(&opts, temp_path).context("Failed to open temp RocksDB for MoveVMState")?;
-
+        // For test-only in-memory/temp DB we open a fresh RocksDB instance and wrap in Arc.
+        let db = get_or_open_db(Some(temp_path))?;
         Ok(MoveVMState { db })
     }
 
     /// Open default DB at `~/.kari/kanari-db/move_vm_db`.
     pub fn open_default() -> Result<Self> {
-        // Allow overriding the DB directory via env var for tests or custom setups.
-        if let Ok(dir) = std::env::var("KANARI_MOVE_VM_DB") {
-            let mut path = PathBuf::from(dir);
-            std::fs::create_dir_all(&path).context("Failed to create MoveVMState DB directory")?;
-            // Use given path directly (can be a file path or a directory). If it's a directory,
-            // use a default DB name inside it.
-            if path.is_dir() {
-                path.push("move_vm_db");
-            }
-            let mut opts = Options::default();
-            opts.create_if_missing(true);
-            let db = DB::open(&opts, path).context("Failed to open RocksDB for MoveVMState")?;
-            return Ok(MoveVMState { db });
-        }
+        // Use shared DB (single RocksDB instance for the process). The shared DB path
+        // can be overridden via `KANARI_DB` env var; legacy `KANARI_MOVE_VM_DB` is also supported
+        // for backward compatibility (mapped into the shared DB).
+        let db_path = if let Ok(dir) = std::env::var("KANARI_MOVE_VM_DB") {
+            Some(PathBuf::from(dir))
+        } else {
+            None
+        };
 
-        let mut path = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        path.push(".kari");
-        path.push("kanari-db");
-        std::fs::create_dir_all(&path).context("Failed to create MoveVMState DB directory")?;
-        path.push("move_vm_db");
-
-        let mut opts = Options::default();
-        opts.create_if_missing(true);
-        let db = DB::open(&opts, path).context("Failed to open RocksDB for MoveVMState")?;
+        let db = get_or_open_db(db_path)?;
         Ok(MoveVMState { db })
     }
 
@@ -84,9 +71,7 @@ impl MoveVMState {
     pub fn load_into_storage(&self, storage: &mut InMemoryStorage) -> Result<()> {
         // Start iteration from the module prefix to avoid scanning unrelated keys.
         let prefix = b"module:";
-        let iter = self
-            .db
-            .iterator(IteratorMode::From(prefix, Direction::Forward));
+        let iter = self.db.iterator(IteratorMode::From(prefix, Direction::Forward));
 
         for item in iter {
             let (key, value) = item.context("Error iterating MoveVMState RocksDB")?;

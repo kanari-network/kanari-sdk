@@ -22,6 +22,7 @@ hex = { workspace = true }
 smallvec = { workspace = true }
 sha2 = { workspace = true }
 lazy_static = { workspace = true }
+once_cell = { workspace = true }
 
 # Move VM dependencies (use workspace/local paths similar to other crates)
 move-core-types = { workspace = true }
