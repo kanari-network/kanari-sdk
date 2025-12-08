@@ -51,7 +51,7 @@ tokio = { version = "1.48.0", features = ["full"] }
 reqwest = { version = "0.12.24", features = ["json"] }
 axum = "0.8.7"
 tower = "0.5.2"
-tower-http = { version = "0.6.7", features = ["cors"] }
+tower-http = { version = "0.6.8", features = ["cors"] }
 
 # Database / storage
 rocksdb = "0.24.0"
@@ -66,7 +66,7 @@ bcs = { version = "0.1.6" }
 # Crypto / hashing / keys
 sha2 = "0.10.9"
 sha3 = "0.10.8"
-bip39 = { version = "2.0.0", features = ["rand"] }
+bip39 = { version = "2.2.2", features = ["rand"] }
 hex = "0.4.3"
 primitive-types = { version = "0.14.0", default-features = true }
 argon2 = { version = "0.5.3", default-features = true }
@@ -76,21 +76,21 @@ p256 = { version = "0.13.2", features = ["ecdsa", "std"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 zstd = "0.13.3"
 
-secp256k1 = { version = "0.30", features = ["recovery"] }
+secp256k1 = { version = "0.31.1", features = ["recovery"] }
 
 
 # Post-Quantum Cryptography (PQC) - NIST Standards
 pqcrypto-dilithium = "0.5"  # Post-quantum signatures
-pqcrypto-kyber = "0.8"      # Post-quantum key encapsulation
+pqcrypto-kyber = "0.8.1"      # Post-quantum key encapsulation
 pqcrypto-sphincsplus = "0.7.2" # Hash-based signatures (ultra-secure)
-pqcrypto-traits = "0.3"     # Common traits for PQC
+pqcrypto-traits = "0.3.5"     # Common traits for PQC
 
 # Make blake3 optional and enabled via the blake3 feature
-blake3 = { version = "1.3.1"}
+blake3 = { version = "1.8.2"}
 bincode = "2.0.1"
 
 # BIP32/BIP44 HD wallet support
-bip32 = "0.3"
+bip32 = "0.5.3"
 
 # CLI / tooling / utilities
 clap = { version = "4.5.53", features = ["derive"] }

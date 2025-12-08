@@ -101,7 +101,7 @@ pub fn all_natives(
             };
             // Use `from_digest` to construct a Message from a 32-byte digest (avoids deprecated API)
             let message = SecpMessage::from_digest(msg32);
-            let pubkey = match secp.recover_ecdsa(&message, &secp_sig) {
+            let pubkey = match secp.recover_ecdsa(message, &secp_sig) {
                 Ok(pk) => pk,
                 Err(_) => return Ok(NR::err(context.gas_used(), 1)),
             };
