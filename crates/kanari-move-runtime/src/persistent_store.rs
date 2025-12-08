@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -22,7 +22,8 @@ impl PersistentStore {
 
     /// Save a serializable value under `key` as JSON.
     pub fn save_json<T: Serialize>(&self, key: &str, value: &T) -> Result<()> {
-        let bytes = serde_json::to_vec(value).context("Failed to serialize value for PersistentStore")?;
+        let bytes =
+            serde_json::to_vec(value).context("Failed to serialize value for PersistentStore")?;
         self.db
             .put(key.as_bytes(), &bytes)
             .context("Failed to write value into PersistentStore RocksDB")?;
@@ -33,7 +34,8 @@ impl PersistentStore {
     pub fn load_json<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
         match self.db.get(key.as_bytes()) {
             Ok(Some(v)) => {
-                let obj = serde_json::from_slice(&v).context("Failed to deserialize value from PersistentStore")?;
+                let obj = serde_json::from_slice(&v)
+                    .context("Failed to deserialize value from PersistentStore")?;
                 Ok(Some(obj))
             }
             Ok(None) => Ok(None),

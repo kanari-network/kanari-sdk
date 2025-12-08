@@ -180,7 +180,7 @@ impl ChangeSet {
             let existing = self.get_or_create_change(addr);
             existing.balance_delta += other_change.balance_delta;
             existing.sequence_increment += other_change.sequence_increment;
-            
+
             // Merge modules_added without duplicates
             for module in other_change.modules_added {
                 if !existing.modules_added.contains(&module) {
@@ -209,13 +209,31 @@ impl ChangeSet {
     }
 
     /// Record an absolute token balance for an account (after execution)
-    pub fn add_token_balance_set(&mut self, owner: AccountAddress, token_type: String, amount: u64) {
+    pub fn add_token_balance_set(
+        &mut self,
+        owner: AccountAddress,
+        token_type: String,
+        amount: u64,
+    ) {
         self.token_balance_sets.push((owner, token_type, amount));
     }
 
     /// Record a created object discovered in Move write-sets
-    pub fn add_created_object(&mut self, id: String, owner: AccountAddress, type_: String, data: Vec<u8>, version: u64) {
-        self.created_objects.push(CreatedObject { id, owner, type_, data, version });
+    pub fn add_created_object(
+        &mut self,
+        id: String,
+        owner: AccountAddress,
+        type_: String,
+        data: Vec<u8>,
+        version: u64,
+    ) {
+        self.created_objects.push(CreatedObject {
+            id,
+            owner,
+            type_,
+            data,
+            version,
+        });
     }
 }
 

@@ -38,19 +38,20 @@ impl ObjectStorage {
 
         // Store object
         {
-            let mut objects = self.objects.write()
+            let mut objects = self
+                .objects
+                .write()
                 .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
             objects.insert(id.clone(), obj);
         }
 
         // Update owner index
         {
-            let mut owner_index = self.owner_index.write()
+            let mut owner_index = self
+                .owner_index
+                .write()
                 .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
-            owner_index
-                .entry(owner)
-                .or_insert_with(Vec::new)
-                .push(id);
+            owner_index.entry(owner).or_insert_with(Vec::new).push(id);
         }
 
         Ok(())
@@ -88,14 +89,18 @@ impl ObjectStorage {
     /// Delete object by ID
     pub fn delete_object(&self, id: &str) -> Result<(), String> {
         let removed = {
-            let mut objects = self.objects.write()
+            let mut objects = self
+                .objects
+                .write()
                 .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
             objects.remove(id)
         };
 
         if let Some(obj) = removed {
             // Remove from owner index
-            let mut owner_index = self.owner_index.write()
+            let mut owner_index = self
+                .owner_index
+                .write()
                 .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
             if let Some(ids) = owner_index.get_mut(&obj.owner) {
                 ids.retain(|oid| oid != id);
@@ -108,12 +113,15 @@ impl ObjectStorage {
     /// Update object ownership
     pub fn transfer_object(&self, id: &str, new_owner: AccountAddress) -> Result<(), String> {
         let old_owner = {
-            let mut objects = self.objects.write()
+            let mut objects = self
+                .objects
+                .write()
                 .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
-            
-            let obj = objects.get_mut(id)
+
+            let obj = objects
+                .get_mut(id)
                 .ok_or_else(|| format!("Object {} not found", id))?;
-            
+
             let old_owner = obj.owner;
             obj.owner = new_owner;
             old_owner
@@ -121,9 +129,11 @@ impl ObjectStorage {
 
         // Update owner indices
         {
-            let mut owner_index = self.owner_index.write()
+            let mut owner_index = self
+                .owner_index
+                .write()
                 .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
-            
+
             // Remove from old owner
             if let Some(ids) = owner_index.get_mut(&old_owner) {
                 ids.retain(|oid| oid != id);
@@ -141,20 +151,22 @@ impl ObjectStorage {
 
     /// Get total number of objects
     pub fn count(&self) -> usize {
-        self.objects.read()
-            .map(|objs| objs.len())
-            .unwrap_or(0)
+        self.objects.read().map(|objs| objs.len()).unwrap_or(0)
     }
 
     /// Clear all objects
     pub fn clear(&self) -> Result<(), String> {
         {
-            let mut objects = self.objects.write()
+            let mut objects = self
+                .objects
+                .write()
                 .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
             objects.clear();
         }
         {
-            let mut owner_index = self.owner_index.write()
+            let mut owner_index = self
+                .owner_index
+                .write()
                 .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
             owner_index.clear();
         }
@@ -176,7 +188,7 @@ mod tests {
     fn test_store_and_get_object() {
         let storage = ObjectStorage::new();
         let owner = AccountAddress::random();
-        
+
         let obj = StoredObject {
             id: "test123".to_string(),
             owner,
@@ -186,7 +198,7 @@ mod tests {
         };
 
         storage.store_object(obj.clone()).unwrap();
-        
+
         let retrieved = storage.get_object("test123").unwrap();
         assert_eq!(retrieved.id, obj.id);
         assert_eq!(retrieved.owner, obj.owner);
@@ -196,7 +208,7 @@ mod tests {
     fn test_get_objects_by_owner() {
         let storage = ObjectStorage::new();
         let owner = AccountAddress::random();
-        
+
         for i in 0..3 {
             let obj = StoredObject {
                 id: format!("obj{}", i),
@@ -217,7 +229,7 @@ mod tests {
         let storage = ObjectStorage::new();
         let owner1 = AccountAddress::random();
         let owner2 = AccountAddress::random();
-        
+
         let obj = StoredObject {
             id: "test123".to_string(),
             owner: owner1,

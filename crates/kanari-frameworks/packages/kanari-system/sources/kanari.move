@@ -5,8 +5,6 @@ module kanari_system::kanari {
     use kanari_system::coin;
     use kanari_system::coin::{Coin, TreasuryCap};
     use kanari_system::tx_context::{Self, TxContext};
-    use std::string;
-    use std::ascii;
     use std::option;
     use kanari_system::transfer;
 
@@ -40,9 +38,9 @@ module kanari_system::kanari {
         let (treasury, metadata) = coin::create_currency(
             KANARI {},
             9,
-            ascii::string(b"KANARI"),
-            string::utf8(b"Kanari Network Coin"),
-            string::utf8(b""),
+            b"KANARI",
+            b"Kanari Network Coin",
+            b"",
             option::none(),
             ctx
         );

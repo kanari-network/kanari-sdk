@@ -71,7 +71,9 @@ impl MoveVMState {
     pub fn load_into_storage(&self, storage: &mut InMemoryStorage) -> Result<()> {
         // Start iteration from the module prefix to avoid scanning unrelated keys.
         let prefix = b"module:";
-        let iter = self.db.iterator(IteratorMode::From(prefix, Direction::Forward));
+        let iter = self
+            .db
+            .iterator(IteratorMode::From(prefix, Direction::Forward));
 
         for item in iter {
             let (key, value) = item.context("Error iterating MoveVMState RocksDB")?;

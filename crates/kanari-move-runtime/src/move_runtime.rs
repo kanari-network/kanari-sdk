@@ -98,12 +98,13 @@ impl MoveRuntime {
         // Kanari crypto natives at 0x2
         let system_addr = AccountAddress::from_hex_literal("0x2")?;
         let crypto_natives = kanari_crypto::move_natives::all_natives(system_addr);
-        
+
         // Transfer natives at 0x2 (same address as kanari_system)
         let transfer_natives = crate::transfer_natives::all_natives(system_addr);
 
         // Create runtime with natives
-        let mut runtime = Self::new_with_natives(vec![std_natives, crypto_natives, transfer_natives], true)?;
+        let mut runtime =
+            Self::new_with_natives(vec![std_natives, crypto_natives, transfer_natives], true)?;
 
         // Load pre-compiled Kanari system modules
         runtime.load_system_modules()?;
@@ -264,6 +265,8 @@ impl MoveRuntime {
             "url.mv",
             "balance.mv",
             "transfer.mv",
+            // Deny-list must be published before coin which references it
+            "deny_list.mv",
             "coin.mv",
             "kanari.mv",
             // Crypto modules (these are wrappers for native functions)
@@ -368,12 +371,20 @@ impl MoveRuntime {
         self.parse_move_changeset(&move_changeset, &mut cs);
         self.parse_move_events(&events, &mut cs);
 
-        // Auto-call init() function if it exists
-        // Move VM won't call init() automatically, so we must do it manually
+        // Auto-call init() function if it exists. Move VM won't call init() automatically,
+        // so call it here and merge its returned ChangeSet into the publish ChangeSet.
         if self.module_has_init_function(&compiled) {
-            println!("[PUBLISH] ✓ Module has init() function - will call manually after publish");
-            println!("[PUBLISH]   Note: init() should be called separately with:");
-            println!("[PUBLISH]   kanari move call --module {} --function init --immediate", module_id.name());
+            println!("[PUBLISH] ✓ Module has init() function - calling init() now");
+            match self.auto_call_init(&module_id, sender) {
+                Ok(init_cs) => {
+                    // Merge init() changes into publish changeset
+                    cs.merge(init_cs);
+                    println!("[PUBLISH] ✓ init() executed and merged into ChangeSet");
+                }
+                Err(e) => {
+                    eprintln!("[PUBLISH] ✗ init() call failed: {}", e);
+                }
+            }
         }
 
         Ok(cs)
@@ -560,19 +571,28 @@ impl MoveRuntime {
     }
 
     /// Get all objects owned by an address
-    pub fn get_objects_by_owner(&self, owner: &AccountAddress) -> Vec<crate::object_storage::StoredObject> {
+    pub fn get_objects_by_owner(
+        &self,
+        owner: &AccountAddress,
+    ) -> Vec<crate::object_storage::StoredObject> {
         self.object_storage.get_objects_by_owner(owner)
     }
 
     /// Transfer object ownership
-    pub fn transfer_object_ownership(&mut self, object_id: &str, new_owner: AccountAddress) -> Result<()> {
-        self.object_storage.transfer_object(object_id, new_owner)
+    pub fn transfer_object_ownership(
+        &mut self,
+        object_id: &str,
+        new_owner: AccountAddress,
+    ) -> Result<()> {
+        self.object_storage
+            .transfer_object(object_id, new_owner)
             .map_err(|e| anyhow::anyhow!(e))
     }
 
     /// Delete object from storage
     pub fn delete_object(&mut self, object_id: &str) -> Result<()> {
-        self.object_storage.delete_object(object_id)
+        self.object_storage
+            .delete_object(object_id)
             .map_err(|e| anyhow::anyhow!(e))
     }
 
@@ -686,15 +706,30 @@ impl MoveRuntime {
                             self.generate_object_id(addr, struct_tag, bytes)
                         };
 
-                        let obj_type = if let Some(tt) = self.token_type_from_struct_tag(struct_tag) {
+                        let obj_type = if let Some(tt) = self.token_type_from_struct_tag(struct_tag)
+                        {
                             tt
                         } else {
-                            format!("0x{}::{}::{}", struct_tag.address.short_str_lossless(), struct_tag.module.as_str(), struct_tag.name.as_str())
+                            format!(
+                                "0x{}::{}::{}",
+                                struct_tag.address.short_str_lossless(),
+                                struct_tag.module.as_str(),
+                                struct_tag.name.as_str()
+                            )
                         };
-                        
+
                         // Record created object (version 0 for new objects)
-                        kanari_cs.add_created_object(obj_id.clone(), *addr, obj_type.clone(), bytes.to_vec(), 0);
-                        eprintln!("Created object detected: id={} owner={} type={}", obj_id, addr, obj_type);
+                        kanari_cs.add_created_object(
+                            obj_id.clone(),
+                            *addr,
+                            obj_type.clone(),
+                            bytes.to_vec(),
+                            0,
+                        );
+                        eprintln!(
+                            "Created object detected: id={} owner={} type={}",
+                            obj_id, addr, obj_type
+                        );
                     }
                     MoveOp::Delete => {
                         // Resource deletion: if Coin/Balance deleted, set token balance to 0
@@ -719,23 +754,26 @@ impl MoveRuntime {
     /// Also persists objects to ObjectStorage for later retrieval
     fn add_transferred_objects(&mut self, cs: &mut ChangeSet) {
         let transferred = crate::transfer_natives::take_transferred_objects();
-        
+
         let count = transferred.len();
         println!("[DEBUG] Processing {} transferred objects", count);
-        
+
         for obj in transferred {
             println!(
                 "[DEBUG] Adding transferred object: id={}, type={}, owner={}, data_len={}",
-                obj.object_id, obj.object_type, obj.recipient, obj.data.len()
+                obj.object_id,
+                obj.object_type,
+                obj.recipient,
+                obj.data.len()
             );
-            
+
             // Add to created_objects in changeset (for immediate response)
             cs.add_created_object(
                 obj.object_id.clone(),
                 obj.recipient,
                 obj.object_type.clone(),
                 obj.data.clone(),
-                0
+                0,
             );
 
             // Persist to ObjectStorage if flagged
@@ -764,7 +802,7 @@ impl MoveRuntime {
                 }
             }
         }
-        
+
         if count > 0 {
             println!("[DEBUG] Total {} objects added to changeset", count);
         }
@@ -779,7 +817,7 @@ impl MoveRuntime {
         data: &[u8],
     ) -> String {
         use kanari_crypto::hash_data_blake3;
-        
+
         // Create unique input: owner + module_id + struct_name + data
         let mut input = Vec::new();
         input.extend_from_slice(owner.as_ref());
@@ -787,7 +825,7 @@ impl MoveRuntime {
         input.extend_from_slice(struct_tag.module.as_str().as_bytes());
         input.extend_from_slice(struct_tag.name.as_str().as_bytes());
         input.extend_from_slice(data);
-        
+
         // Hash to get unique ID
         let hash = hash_data_blake3(&input);
         hex::encode(&hash[0..32]) // Use first 32 bytes for object ID
@@ -865,18 +903,22 @@ impl MoveRuntime {
     }
 
     /// Auto-call init() function after module publish
-    fn auto_call_init(&mut self, module_id: &ModuleId, sender: AccountAddress) -> Result<ChangeSet> {
+    fn auto_call_init(
+        &mut self,
+        module_id: &ModuleId,
+        sender: AccountAddress,
+    ) -> Result<ChangeSet> {
         // For init() function with witness pattern:
         // - First parameter is the witness (module's one-time-witness struct)
         // - Last parameter is TxContext
-        // 
+        //
         // The witness struct typically:
         // - Has the same name as module (but uppercase)
         // - Has only `drop` ability
         // - Has no fields (zero-size struct)
         //
         // We serialize an empty struct for the witness (0 bytes for struct with no fields)
-        
+
         let type_args = vec![];
         let witness_bytes = vec![]; // Empty struct with no fields = 0 bytes in BCS
         let args = vec![witness_bytes];

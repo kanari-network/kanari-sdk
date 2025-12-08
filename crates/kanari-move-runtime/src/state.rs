@@ -1,4 +1,4 @@
-use crate::changeset::{ChangeSet, Event, CreatedObject};
+use crate::changeset::{ChangeSet, CreatedObject, Event};
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
 use kanari_types::address::Address as KanariAddress;
@@ -205,8 +205,7 @@ impl StateManager {
             self.token_supplies
                 .insert(token_type.clone(), *total_supply);
             // record treasury owner
-            self.token_treasuries
-                .insert(token_type.clone(), *owner);
+            self.token_treasuries.insert(token_type.clone(), *owner);
         }
 
         // Apply per-account token balance sets from ChangeSet (absolute values)

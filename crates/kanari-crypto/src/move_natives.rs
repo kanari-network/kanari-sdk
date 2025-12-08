@@ -99,10 +99,8 @@ pub fn all_natives(
                 a.copy_from_slice(&msg_hash[0..32]);
                 a
             };
-            let message = match SecpMessage::from_slice(&msg32) {
-                Ok(m) => m,
-                Err(_) => return Ok(NR::err(context.gas_used(), 1)),
-            };
+            // Use `from_digest` to construct a Message from a 32-byte digest (avoids deprecated API)
+            let message = SecpMessage::from_digest(msg32);
             let pubkey = match secp.recover_ecdsa(&message, &secp_sig) {
                 Ok(pk) => pk,
                 Err(_) => return Ok(NR::err(context.gas_used(), 1)),

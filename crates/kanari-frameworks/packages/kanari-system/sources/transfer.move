@@ -2,7 +2,7 @@
 /// Uses proper address types with validation
 module kanari_system::transfer {
     use std::vector;
-    use kanari_system::object::{Self, UID};
+    use kanari_system::object::UID;
 
     /// Error codes
     const ERR_INVALID_AMOUNT: u64 = 1;
@@ -15,8 +15,9 @@ module kanari_system::transfer {
         amount: u64,
     }
 
-    /// ObjectStore: Global registry for transferred objects
-    /// Stores objects by owner address for later retrieval
+    // ObjectStore: Global registry for transferred objects
+    // Stores objects by owner address for later retrieval
+    #[allow(unused_field)]
     struct ObjectStore<T: key + store> has key {
         id: UID,
         inner: T,

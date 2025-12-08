@@ -11,7 +11,7 @@ module kanari_system::balance {
     }
 
     /// Supply: mutable minting handle consumed to create balances
-    struct Supply<phantom T> has store {
+    struct Supply<phantom T> has store, drop {
         total: u64,
     }
 
@@ -88,6 +88,20 @@ module kanari_system::balance {
         let Supply { total: _ } = s;
     }
 
+    /// Decrease supply by `amount`. Useful for burning coins.
+    public fun decrease_supply<T>(s: &mut Supply<T>, amount: u64) {
+        // Ensure amount is non-zero
+        assert!(amount > 0, ERR_ZERO_AMOUNT);
+        // Ensure sufficient total supply
+        assert!(s.total >= amount, ERR_INSUFFICIENT_BALANCE);
+        s.total = s.total - amount;
+    }
+
+    /// Read the current total supply value from a supply handle.
+    public fun supply_total<T>(s: &Supply<T>): u64 {
+        s.total
+    }
+
     
 
     /// Merge two Balances together
@@ -151,5 +165,27 @@ module kanari_system::balance {
         let balance = create<u8>(100);
         decrease<u8>(&mut (balance), 200);
         destroy<u8>(balance);
+    }
+
+    #[test]
+    fun test_supply_operations() {
+        let s = new_supply<u8>();
+        let b1 = increase_supply<u8>(&mut s, 1000);
+        assert!(supply_total(&s) == 1000, 0);
+        let b2 = increase_supply<u8>(&mut s, 500);
+        assert!(value(&b2) == 500, 1);
+        assert!(supply_total(&s) == 1500, 2);
+        decrease_supply<u8>(&mut s, 800);
+        assert!(supply_total(&s) == 700, 3);
+        destroy<u8>(b1);
+        destroy<u8>(b2);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = ERR_INSUFFICIENT_BALANCE)]
+    fun test_decrease_supply_insufficient() {
+        let s = new_supply<u8>();
+        increase_supply<u8>(&mut s, 100);
+        decrease_supply<u8>(&mut s, 200);
     }
 }

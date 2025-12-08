@@ -7,8 +7,8 @@ use move_vm_types::natives::function::NativeResult;
 use move_vm_types::natives::function::PartialVMResult;
 use move_vm_types::pop_arg;
 use smallvec::smallvec;
-use std::{collections::VecDeque, sync::Arc};
 use std::cell::RefCell;
+use std::{collections::VecDeque, sync::Arc};
 
 // Thread-local storage for tracking transferred objects
 thread_local! {
@@ -34,9 +34,7 @@ pub fn record_transfer(obj: TransferredObject) {
 
 /// Get and clear all transferred objects
 pub fn take_transferred_objects() -> Vec<TransferredObject> {
-    TRANSFERRED_OBJECTS.with(|objects| {
-        objects.borrow_mut().drain(..).collect()
-    })
+    TRANSFERRED_OBJECTS.with(|objects| objects.borrow_mut().drain(..).collect())
 }
 
 /// Build a NativeFunction from closure
@@ -58,13 +56,11 @@ where
 pub fn all_natives(
     move_addr: AccountAddress,
 ) -> move_vm_runtime::native_functions::NativeFunctionTable {
-    let natives = vec![
-        (
-            "transfer",
-            "transfer_with_uid",
-            make_native(native_transfer_with_uid),
-        ),
-    ];
+    let natives = vec![(
+        "transfer",
+        "transfer_with_uid",
+        make_native(native_transfer_with_uid),
+    )];
 
     make_table_from_iter(move_addr, natives)
 }
@@ -89,10 +85,14 @@ fn native_transfer_with_uid(
 
     // Extract type information
     let type_str = format!("{:?}", ty_args[0]);
-    
+
     // Clean up the debug format to get a readable type string
     let type_str = if type_str.contains("Struct") {
-        type_str.replace("Struct(", "").replace(")", "").trim().to_string()
+        type_str
+            .replace("Struct(", "")
+            .replace(")", "")
+            .trim()
+            .to_string()
     } else {
         type_str
     };
@@ -108,7 +108,7 @@ fn native_transfer_with_uid(
         data.extend_from_slice(type_str.as_bytes()); // type name
         data
     };
-    
+
     // Generate unique object ID
     let obj_id = {
         use kanari_crypto::hash_data_blake3;
@@ -127,7 +127,10 @@ fn native_transfer_with_uid(
 
     println!(
         "[NATIVE] transfer_with_uid: object_id={}, type={}, recipient={}, data_len={}",
-        obj_id, type_str, recipient, obj_data.len()
+        obj_id,
+        type_str,
+        recipient,
+        obj_data.len()
     );
 
     // Record the transfer in thread-local storage
@@ -144,6 +147,6 @@ fn native_transfer_with_uid(
 
     // Gas cost: 2000 gas units for transfer tracking
     let gas_cost = GasQuantity::new(2000);
-    
+
     Ok(NR::ok(context.gas_used() + gas_cost, smallvec![]))
 }

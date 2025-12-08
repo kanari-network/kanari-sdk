@@ -4,7 +4,7 @@ module kanari_system::coin {
     use std::ascii;
     use kanari_system::url;
     use kanari_system::object;
-    use kanari_system::balance::{Self, Balance, Supply};
+    use kanari_system::balance::Balance;
     use kanari_system::tx_context::TxContext;
     use kanari_system::transfer;
     
@@ -20,11 +20,6 @@ module kanari_system::coin {
     struct TreasuryCap<phantom T> has key, store, drop {
         id: object::UID,
         total_supply: u64, // Tracking total supply directly in the cap
-    }
-
-    /// Treasury: holds authority to mint into a Supply (deprecated, use TreasuryCap)
-    struct Treasury<phantom T> has key, store, drop {
-        id: object::UID,
     }
 
     /// Metadata resource for a currency (stored as an object with UID)
@@ -51,19 +46,23 @@ module kanari_system::coin {
     public fun create_currency<T: drop>(
         witness: T,
         decimals: u8,
-        symbol: ascii::String,
-        name: string::String,
-        description: string::String,
+        symbol_bytes: vector<u8>,
+        name_bytes: vector<u8>,
+        description_bytes: vector<u8>,
         icon_url: option::Option<url::Url>,
         ctx: &mut TxContext,
     ): (TreasuryCap<T>, CoinMetadata<T>) {
         // 1. Consume the witness type
         let _ = witness;
         
-        // Basic safety checks for decimals (Move's u8 can hold max 255, but typically < 27 for real-world)
-        // We'll set a soft limit based on common standards.
+        // Basic safety checks for decimals
         assert!(decimals <= 27, EINVALID_DECIMALS); 
-        
+
+        // Convert byte literals into string types
+        let symbol = ascii::string(symbol_bytes);
+        let name = string::utf8(name_bytes);
+        let description = string::utf8(description_bytes);
+
         // 2. Create the Capability and Metadata, explicitly specifying the generic type T
         let treasury_cap = TreasuryCap<T> { id: object::new(ctx), total_supply: 0 };
         let metadata = CoinMetadata<T> { 
@@ -75,10 +74,39 @@ module kanari_system::coin {
             icon_url 
         };
 
-        // Return the newly-created capability and metadata. Callers decide how
-        // to distribute or freeze them (e.g., transfer the cap to an address
-        // or freeze the metadata for public visibility).
+        // Return the newly-created capability and metadata.
         (treasury_cap, metadata)
+    }
+
+    /// Create a regulated currency (compatibility with Sui): returns a treasury capability,
+    /// a deny-capability for administration of a deny-list, and the metadata object.
+    public fun create_regulated_currency<T: drop>(
+        witness: T,
+        decimals: u8,
+        symbol_bytes: vector<u8>,
+        name_bytes: vector<u8>,
+        description_bytes: vector<u8>,
+        icon_url: option::Option<url::Url>,
+        ctx: &mut TxContext,
+    ): (TreasuryCap<T>, kanari_system::deny_list::DenyCap<T>, CoinMetadata<T>) {
+        let _ = witness;
+        assert!(decimals <= 27, EINVALID_DECIMALS);
+
+        let symbol = ascii::string(symbol_bytes);
+        let name = string::utf8(name_bytes);
+        let description = string::utf8(description_bytes);
+
+        let treasury_cap = TreasuryCap<T> { id: object::new(ctx), total_supply: 0 };
+        let denycap = kanari_system::deny_list::new_denycap<T>(ctx);
+        let metadata = CoinMetadata<T> { 
+            id: object::new(ctx), 
+            decimals, 
+            name, 
+            symbol, 
+            description, 
+            icon_url 
+        };
+        (treasury_cap, denycap, metadata)
     }
 
     /// Mint new coins using TreasuryCap
@@ -90,13 +118,11 @@ module kanari_system::coin {
     ): Coin<T> {
         assert!(amount > 0, EZERO_AMOUNT);
         let new_total = cap.total_supply + amount;
-        assert!(new_total >= cap.total_supply, EOVERFLOW); // Check for overflow
-        
+        assert!(new_total >= cap.total_supply, EOVERFLOW);
         cap.total_supply = new_total;
-        
         Coin {
             id: object::new(ctx),
-            balance: balance::create(amount),
+            balance: kanari_system::balance::create<T>(amount),
         }
     }
 
@@ -114,10 +140,8 @@ module kanari_system::coin {
     /// Burn coins, decreasing total supply
     public fun burn<T>(cap: &mut TreasuryCap<T>, coin: Coin<T>): u64 {
         let Coin { id: _, balance } = coin;
-        let value = balance::destroy(balance);
-        
-        assert!(cap.total_supply >= value, EUNDERFLOW); // Check for underflow
-        
+        let value = kanari_system::balance::destroy<T>(balance);
+        assert!(cap.total_supply >= value, EUNDERFLOW);
         cap.total_supply = cap.total_supply - value;
         value
     }
@@ -129,8 +153,6 @@ module kanari_system::coin {
     }
 
     /// Construct a `Coin<T>` from a `Balance<T>`.
-    /// This helper allows other modules to wrap balances into Coin objects
-    /// when they take custody of raw balances (e.g., DEX pools).
     public fun from_balance<T>(balance: Balance<T>, ctx: &mut TxContext): Coin<T> {
         Coin { 
             id: object::new(ctx),
@@ -145,32 +167,27 @@ module kanari_system::coin {
 
     /// Get coin value
     public fun value<T>(coin: &Coin<T>): u64 {
-        balance::value(&coin.balance)
+        kanari_system::balance::value(&coin.balance)
     }
 
     /// Split a coin into two. Returns the new coin with the specified amount.
     public fun split<T>(coin: &mut Coin<T>, amount: u64, ctx: &mut TxContext): Coin<T> {
-        // Assert for sufficient balance is implicitly handled by balance::split
         Coin {
             id: object::new(ctx),
-            balance: balance::split(&mut coin.balance, amount),
+            balance: kanari_system::balance::split(&mut coin.balance, amount),
         }
     }
 
     /// Join two coins together (adds the balance of 'other' into 'coin').
     public fun join<T>(coin: &mut Coin<T>, other: Coin<T>) {
         let Coin { id: _, balance } = other;
-        balance::merge(&mut coin.balance, balance);
+        kanari_system::balance::merge(&mut coin.balance, balance);
     }
     
     // --- Deprecated/Legacy functions ---
 
-    /// Deprecated: Convert a treasury (or treasury cap) into a supply handle.
-    /// In modern Kanari/Move systems, the total supply is tracked either in the TreasuryCap
-    /// or in a separate Supply object that is shared upon creation.
-    public fun treasury_into_supply<T>(cap: &mut TreasuryCap<T>): Supply<T> {
-        let _ = cap;
-        balance::new_supply<T>() // Assumes new_supply is still needed for compatibility
+    public fun treasury_into_supply<T>(_cap: &mut TreasuryCap<T>): kanari_system::balance::Supply<T> {
+        kanari_system::balance::new_supply<T>()
     }
 
 }

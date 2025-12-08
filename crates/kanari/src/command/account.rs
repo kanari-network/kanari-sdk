@@ -21,7 +21,10 @@ pub enum AccountCommand {
 impl AccountCommand {
     pub fn execute(&self) -> Result<()> {
         match self {
-            AccountCommand::Get { address, rpc_endpoint } => {
+            AccountCommand::Get {
+                address,
+                rpc_endpoint,
+            } => {
                 let client = Client::new();
                 let request = serde_json::json!({
                     "jsonrpc": "2.0",
@@ -37,7 +40,8 @@ impl AccountCommand {
                     .send()
                     .context("Failed to send RPC request")?;
 
-                let rpc_response: Value = response.json().context("Failed to parse RPC response")?;
+                let rpc_response: Value =
+                    response.json().context("Failed to parse RPC response")?;
 
                 if let Some(error) = rpc_response.get("error") {
                     println!("❌ Error: {}", error.get("message").unwrap_or(&Value::Null));
@@ -46,7 +50,11 @@ impl AccountCommand {
 
                 if let Some(result) = rpc_response.get("result") {
                     println!("Account info for {}:\n", address);
-                    println!("{}", serde_json::to_string_pretty(result).unwrap_or_else(|_| "<invalid result>".to_string()));
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(result)
+                            .unwrap_or_else(|_| "<invalid result>".to_string())
+                    );
                 } else {
                     println!("Invalid response format");
                 }

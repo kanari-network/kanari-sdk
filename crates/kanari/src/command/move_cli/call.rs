@@ -290,18 +290,33 @@ impl Call {
                         } else if self.immediate {
                             // Try to parse immediate execution response with changeset
                             if let Some(changeset_obj) = result.get("changeset") {
-                                println!("Transaction: {}", result.get("hash").and_then(|v| v.as_str()).unwrap_or("unknown"));
-                                println!("Status: {}", result.get("status").and_then(|v| v.as_str()).unwrap_or("unknown"));
-                                
+                                println!(
+                                    "Transaction: {}",
+                                    result
+                                        .get("hash")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("unknown")
+                                );
+                                println!(
+                                    "Status: {}",
+                                    result
+                                        .get("status")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("unknown")
+                                );
+
                                 // Show created objects
-                                if let Some(created_objs) = changeset_obj.get("created_objects").and_then(|v| v.as_array()) {
+                                if let Some(created_objs) = changeset_obj
+                                    .get("created_objects")
+                                    .and_then(|v| v.as_array())
+                                {
                                     if !created_objs.is_empty() {
                                         println!("\nCreated Objects:");
                                         for obj in created_objs {
                                             if let (Some(id), Some(obj_type), Some(owner)) = (
                                                 obj.get("id").and_then(|v| v.as_str()),
                                                 obj.get("type").and_then(|v| v.as_str()),
-                                                obj.get("owner").and_then(|v| v.as_str())
+                                                obj.get("owner").and_then(|v| v.as_str()),
                                             ) {
                                                 println!("  📦 Object ID: {}", id);
                                                 println!("     Type: {}", obj_type);
@@ -312,9 +327,11 @@ impl Call {
                                         println!("\nNo objects created");
                                     }
                                 }
-                                
+
                                 // Show gas used
-                                if let Some(gas_used) = changeset_obj.get("gas_used").and_then(|v| v.as_u64()) {
+                                if let Some(gas_used) =
+                                    changeset_obj.get("gas_used").and_then(|v| v.as_u64())
+                                {
                                     println!("\nGas used: {} Mist", gas_used);
                                 }
                             } else {

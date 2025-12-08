@@ -3,13 +3,13 @@ use crate::changeset::{ChangeSet, Event};
 use crate::contract::{ContractCall, ContractDeployment, ContractInfo, ContractRegistry};
 use crate::gas::{GasMeter, GasOperation};
 use crate::move_runtime::MoveRuntime;
+use crate::persistent_store::PersistentStore;
 use crate::state::StateManager;
 use anyhow::{Context, Result};
 use kanari_types::address::Address as KanariAddress;
 use move_core_types::{account_address::AccountAddress, language_storage::ModuleId};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
-use crate::persistent_store::PersistentStore;
 
 /// Complete blockchain engine with Move VM integration
 pub struct BlockchainEngine {
