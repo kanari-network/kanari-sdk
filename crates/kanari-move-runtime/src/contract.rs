@@ -392,7 +392,7 @@ mod tests {
         let mut abi = ContractABI::new();
 
         let func = FunctionSignature {
-            name: "transfer".to_string(),
+            name: kanari_types::transfer::TransferModule::function_names().public_transfer.to_string(),
             is_entry: true,
             type_params: vec![],
             parameters: vec![
@@ -412,8 +412,9 @@ mod tests {
         abi.add_function(func);
 
         assert_eq!(abi.functions.len(), 1);
-        assert!(abi.get_function("transfer").is_some());
-        assert_eq!(abi.list_functions(), vec!["transfer"]);
+        let transfer_fn = kanari_types::transfer::TransferModule::function_names().public_transfer;
+        assert!(abi.get_function(transfer_fn).is_some());
+        assert_eq!(abi.list_functions(), vec![transfer_fn.to_string()]);
     }
 
     #[test]
@@ -422,7 +423,7 @@ mod tests {
 
         let contract = ContractInfo {
             address: "0x1".to_string(),
-            module_name: "coin".to_string(),
+            module_name: kanari_types::coin::CoinModule::COIN_MODULE.to_string(),
             bytecode: vec![1, 2, 3],
             deployment_tx: vec![4, 5, 6],
             deployed_at: 100,
@@ -437,7 +438,7 @@ mod tests {
         registry.register(contract);
 
         assert_eq!(registry.count(), 1);
-        assert!(registry.get_contract("0x1", "coin").is_some());
+        assert!(registry.get_contract("0x1", kanari_types::coin::CoinModule::COIN_MODULE).is_some());
         assert_eq!(registry.get_contracts_by_address("0x1").len(), 1);
     }
 
@@ -461,14 +462,19 @@ mod tests {
 
     #[test]
     fn test_contract_call_builder() -> Result<()> {
-        let call = ContractCall::new("0x1", "coin", "transfer", "0x2")?
+        let call = ContractCall::new(
+            "0x1",
+            kanari_types::coin::CoinModule::COIN_MODULE,
+            kanari_types::transfer::TransferModule::function_names().public_transfer,
+            "0x2",
+        )?
             .with_gas_limit(200_000)
             .with_gas_price(2000);
 
-        assert_eq!(call.function, "transfer");
+        assert_eq!(call.function, kanari_types::transfer::TransferModule::function_names().public_transfer.to_string());
         assert_eq!(call.gas_limit, 200_000);
         assert_eq!(call.gas_price, 2000);
-        assert_eq!(call.module_name(), "coin");
+        assert_eq!(call.module_name(), kanari_types::coin::CoinModule::COIN_MODULE.to_string());
 
         Ok(())
     }
