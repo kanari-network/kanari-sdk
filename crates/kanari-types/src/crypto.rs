@@ -1,5 +1,5 @@
 use move_core_types::account_address::AccountAddress;
-use move_vm_runtime::native_functions::{NativeFunction, make_table_from_iter};
+use move_vm_runtime::native_functions::make_table_from_iter;
 use move_vm_types::natives::function::NativeResult;
 use move_vm_types::natives::function::PartialVMResult;
 use move_vm_types::{
@@ -7,7 +7,6 @@ use move_vm_types::{
     values::{Value, VectorRef},
 };
 use smallvec::smallvec;
-use std::{collections::VecDeque, sync::Arc};
 
 use k256::PublicKey as K256PublicKey;
 use k256::ecdsa::{
@@ -26,20 +25,7 @@ use sha3::{Digest, Keccak256};
 use ed25519_dalek::{Signature as EdSignature, VerifyingKey as EdPublicKey};
 use std::convert::TryInto;
 
-// Build a NativeFunction easily
-fn make_native<F>(f: F) -> NativeFunction
-where
-    F: Fn(
-            &mut move_vm_runtime::native_functions::NativeContext,
-            Vec<move_vm_types::loaded_data::runtime_types::Type>,
-            VecDeque<move_vm_types::values::Value>,
-        ) -> PartialVMResult<NativeResult>
-        + Send
-        + Sync
-        + 'static,
-{
-    Arc::new(f)
-}
+use crate::make_native;
 
 pub fn all_natives(
     move_addr: AccountAddress,

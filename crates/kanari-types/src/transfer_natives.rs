@@ -2,13 +2,15 @@
 /// Uses thread-local storage to track transferred objects for parse_move_changeset
 use move_core_types::account_address::AccountAddress;
 use move_core_types::gas_algebra::GasQuantity;
-use move_vm_runtime::native_functions::{NativeFunction, make_table_from_iter};
+use move_vm_runtime::native_functions::make_table_from_iter;
 use move_vm_types::natives::function::NativeResult;
 use move_vm_types::natives::function::PartialVMResult;
 use move_vm_types::pop_arg;
 use smallvec::smallvec;
 use std::cell::RefCell;
-use std::{collections::VecDeque, sync::Arc};
+use std::collections::VecDeque;
+
+use crate::make_native;
 
 // Thread-local storage for tracking transferred objects
 thread_local! {
@@ -35,21 +37,6 @@ pub fn record_transfer(obj: TransferredObject) {
 /// Get and clear all transferred objects
 pub fn take_transferred_objects() -> Vec<TransferredObject> {
     TRANSFERRED_OBJECTS.with(|objects| objects.borrow_mut().drain(..).collect())
-}
-
-/// Build a NativeFunction from closure
-fn make_native<F>(f: F) -> NativeFunction
-where
-    F: Fn(
-            &mut move_vm_runtime::native_functions::NativeContext,
-            Vec<move_vm_types::loaded_data::runtime_types::Type>,
-            VecDeque<move_vm_types::values::Value>,
-        ) -> PartialVMResult<NativeResult>
-        + Send
-        + Sync
-        + 'static,
-{
-    Arc::new(f)
 }
 
 /// Get all transfer native functions
