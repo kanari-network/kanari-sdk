@@ -53,8 +53,6 @@ aes-gcm.workspace = true
 chrono = { workspace = true }
 
 # Add common dependency
-
-kanari-types.workspace = true
 kanari-common.workspace = true
 move-vm-runtime = { workspace = true }
 move-vm-types = { workspace = true }

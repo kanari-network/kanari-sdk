@@ -17,8 +17,8 @@ use crate::gas::{GasMeter, GasOperation};
 use kanari_types::address::Address as KanariAddress;
 
 use crate::changeset::ChangeSet;
-use crate::storage::move_vm_state::MoveVMState;
 use crate::object_storage::ObjectStorage;
+use crate::storage::move_vm_state::MoveVMState;
 use kanari_types::tx_context::TxContextRecord;
 
 use std::collections::HashSet;
@@ -100,7 +100,7 @@ impl MoveRuntime {
         let crypto_natives = kanari_types::crypto::all_natives(system_addr);
 
         // Transfer natives at 0x2 (same address as kanari_system)
-        let transfer_natives = crate::transfer_natives::all_natives(system_addr);
+        let transfer_natives = kanari_types::transfer_natives::all_natives(system_addr);
 
         // Create runtime with natives
         let mut runtime =
@@ -370,22 +370,6 @@ impl MoveRuntime {
         // Parse Move VM changeset and events
         self.parse_move_changeset(&move_changeset, &mut cs);
         self.parse_move_events(&events, &mut cs);
-
-        // Auto-call init() function if it exists. Move VM won't call init() automatically,
-        // so call it here and merge its returned ChangeSet into the publish ChangeSet.
-        if self.module_has_init_function(&compiled) {
-            println!("[PUBLISH] ✓ Module has init() function - calling init() now");
-            match self.auto_call_init(&module_id, sender) {
-                Ok(init_cs) => {
-                    // Merge init() changes into publish changeset
-                    cs.merge(init_cs);
-                    println!("[PUBLISH] ✓ init() executed and merged into ChangeSet");
-                }
-                Err(e) => {
-                    eprintln!("[PUBLISH] ✗ init() call failed: {}", e);
-                }
-            }
-        }
 
         Ok(cs)
     }
@@ -753,7 +737,7 @@ impl MoveRuntime {
     /// Add transferred objects from native function tracking to changeset
     /// Also persists objects to ObjectStorage for later retrieval
     fn add_transferred_objects(&mut self, cs: &mut ChangeSet) {
-        let transferred = crate::transfer_natives::take_transferred_objects();
+        let transferred = kanari_types::transfer_natives::take_transferred_objects();
 
         let count = transferred.len();
         println!("[DEBUG] Processing {} transferred objects", count);
@@ -891,47 +875,6 @@ impl MoveRuntime {
             }
         }
         None
-    }
-
-    /// Check if compiled module has an init() function
-    fn module_has_init_function(&self, compiled: &CompiledModule) -> bool {
-        compiled.function_defs.iter().any(|func_def| {
-            let func_handle = &compiled.function_handles[func_def.function.0 as usize];
-            let func_name = &compiled.identifiers[func_handle.name.0 as usize];
-            func_name.as_str() == "init"
-        })
-    }
-
-    /// Auto-call init() function after module publish
-    fn auto_call_init(
-        &mut self,
-        module_id: &ModuleId,
-        sender: AccountAddress,
-    ) -> Result<ChangeSet> {
-        // For init() function with witness pattern:
-        // - First parameter is the witness (module's one-time-witness struct)
-        // - Last parameter is TxContext
-        //
-        // The witness struct typically:
-        // - Has the same name as module (but uppercase)
-        // - Has only `drop` ability
-        // - Has no fields (zero-size struct)
-        //
-        // We serialize an empty struct for the witness (0 bytes for struct with no fields)
-
-        let type_args = vec![];
-        let witness_bytes = vec![]; // Empty struct with no fields = 0 bytes in BCS
-        let args = vec![witness_bytes];
-
-        // Execute init function (TxContext will be auto-injected by execute_entry_function)
-        self.execute_entry_function(
-            module_id,
-            "init",
-            type_args,
-            args,
-            Some(sender),
-            None, // No gas info - will be handled by caller
-        )
     }
 
     /// Parse Move VM events and add to Kanari ChangeSet

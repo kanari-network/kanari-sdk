@@ -10,7 +10,7 @@ use std::str::FromStr;
 use thiserror::Error;
 
 use kanari_common::{load_kanari_config, save_kanari_config};
-use kanari_types::address::Address;
+use move_core_types::account_address::AccountAddress;
 use serde_yaml::{Mapping, Value};
 use toml; // Ensure toml is imported for serialization/deserialization
 
@@ -69,7 +69,7 @@ pub enum WalletError {
 /// Structure representing a wallet with private key and address
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Wallet {
-    pub address: Address,
+    pub address: AccountAddress,
     pub private_key: String,
     pub seed_phrase: String,
     pub curve_type: CurveType,
@@ -78,7 +78,7 @@ pub struct Wallet {
 impl Wallet {
     /// Create a new wallet instance
     pub fn new(
-        address: Address,
+        address: AccountAddress,
         private_key: String,
         seed_phrase: String,
         curve_type: CurveType,
@@ -146,7 +146,7 @@ impl Wallet {
 
 /// Save a wallet to the keystore
 pub fn save_wallet(
-    address: &Address,
+    address: &AccountAddress,
     private_key: &str,
     seed_phrase: &str,
     password: &str,
@@ -323,8 +323,8 @@ pub fn create_hd_wallet(
     let key_pair =
         hd_wallet::derive_keypair_from_path(&mnemonic_phrase, password, derivation_path, curve)?;
 
-    // Convert the derived address string into an Address type
-    let address = Address::from_str(&key_pair.address)
+    // Convert the derived address string into an AccountAddress type
+    let address = AccountAddress::from_str(&key_pair.address)
         .map_err(|e| WalletError::SerializationError(format!("Invalid derived address: {e}")))?;
 
     // Construct Wallet; store the derivation path in the seed_phrase field
@@ -596,7 +596,7 @@ mod tests {
         let password = "TestPassword123!";
 
         let wallet = Wallet::new(
-            Address::from_str(&keypair.address).unwrap(),
+            AccountAddress::from_str(&keypair.address).unwrap(),
             keypair.private_key,
             "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".to_string(),
             CurveType::K256,
@@ -612,7 +612,7 @@ mod tests {
     #[test]
     fn test_save_wallet_rejects_empty_password() {
         let keypair = generate_keypair(CurveType::K256).unwrap();
-        let address = Address::from_str(&keypair.address).unwrap();
+        let address = AccountAddress::from_str(&keypair.address).unwrap();
 
         let result = save_wallet(
             &address,
@@ -632,7 +632,7 @@ mod tests {
     #[test]
     fn test_save_wallet_rejects_short_password() {
         let keypair = generate_keypair(CurveType::K256).unwrap();
-        let address = Address::from_str(&keypair.address).unwrap();
+        let address = AccountAddress::from_str(&keypair.address).unwrap();
 
         let result = save_wallet(
             &address,
@@ -656,7 +656,7 @@ mod tests {
         // Note: This test may fail if keystore file system operations are not mocked
         // In a real scenario, we'd need to mock the filesystem
         let keypair = generate_keypair(CurveType::K256).unwrap();
-        let address = Address::from_str(&keypair.address).unwrap();
+        let address = AccountAddress::from_str(&keypair.address).unwrap();
 
         let password = "12345678"; // Exactly 8 characters
 
@@ -688,7 +688,7 @@ mod tests {
 
     #[test]
     fn test_save_wallet_rejects_empty_private_key() {
-        let address = Address::from_str("0x1234567890123456789012345678901234567890").unwrap();
+        let address = AccountAddress::from_str("0x1234567890123456789012345678901234567890").unwrap();
 
         let result = save_wallet(
             &address,
@@ -811,7 +811,7 @@ mod tests {
     #[test]
     fn test_private_key_formatting() {
         let keypair = generate_keypair(CurveType::Ed25519).unwrap();
-        let address = Address::from_str(&keypair.address).unwrap();
+        let address = AccountAddress::from_str(&keypair.address).unwrap();
 
         // Test with kanari prefix
         let wallet1 = Wallet::new(
@@ -848,7 +848,7 @@ mod tests {
         for curve in curves {
             let keypair = generate_keypair(curve).unwrap();
             let wallet = Wallet::new(
-                Address::from_str(&keypair.address).unwrap(),
+                AccountAddress::from_str(&keypair.address).unwrap(),
                 keypair.private_key,
                 "seed".to_string(),
                 curve,

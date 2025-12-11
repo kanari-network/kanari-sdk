@@ -181,6 +181,11 @@ impl StateManager {
             for module_name in &change.modules_added {
                 account.add_module(module_name.clone());
             }
+            // If modules were added, treat this as a transaction from the publisher
+            // and consume a sequence number (engine behavior).
+            if !change.modules_added.is_empty() {
+                account.sequence_number += 1;
+            }
         }
 
         // Update total supply if there was mint/burn (supply_delta != 0)

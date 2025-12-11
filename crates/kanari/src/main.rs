@@ -6,7 +6,7 @@ use kanari_crypto::{
 };
 use kanari_move_runtime::SignedTransaction;
 use kanari_rpc_client::RpcClient;
-use kanari_types::address::Address;
+use move_core_types::account_address::AccountAddress;
 use std::str::FromStr;
 
 pub mod command;
@@ -148,7 +148,7 @@ fn main() -> Result<()> {
                 (kp.private_key, kp.address, mnemonic)
             };
 
-            let address = Address::from_str(&address_str).context("Generated invalid address")?;
+            let address = AccountAddress::from_str(&address_str).context("Generated invalid address")?;
 
             // Save wallet
             save_wallet(&address, &private_key, &seed_phrase, &password, curve_type)

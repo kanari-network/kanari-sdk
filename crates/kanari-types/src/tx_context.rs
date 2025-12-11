@@ -120,7 +120,8 @@ mod tests {
         let tx_hash = vec![1, 2, 3, 4];
         let addr = AccountAddress::from_hex_literal("0x1").unwrap();
         let ctx = TxContextRecord::from_address(addr, tx_hash.clone(), 5, 1_600_000_000, 2);
-        assert_eq!(format!("{}", ctx.sender()), format!("{}", addr));
+        let expected_addr: crate::address::Address = addr.into();
+        assert_eq!(ctx.sender(), &expected_addr);
         assert_eq!(ctx.epoch(), 5);
         assert_eq!(ctx.tx_hash(), &tx_hash);
         assert_eq!(ctx.epoch_timestamp_ms(), 1_600_000_000);

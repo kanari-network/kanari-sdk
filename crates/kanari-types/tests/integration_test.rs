@@ -113,7 +113,9 @@ fn test_data_structures_serializable() {
     assert_eq!(balance.value, deserialized.value);
 
     // Test Coin serialization
-    let coin = coin::CoinRecord::new(500);
+    let uid = object::UIDRecord::from_hex_literal("0x2").unwrap();
+    let balance = balance::BalanceRecord::new(500);
+    let coin = coin::CoinRecord::new(uid, balance);
     let json = serde_json::to_string(&coin).unwrap();
     let deserialized: coin::CoinRecord = serde_json::from_str(&json).unwrap();
     assert_eq!(coin.value(), deserialized.value());

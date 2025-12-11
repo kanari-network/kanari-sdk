@@ -6,7 +6,6 @@ pub mod gas;
 pub mod move_runtime;
 pub mod move_runtime_extensions;
 pub mod object_storage;
-pub mod transfer_natives;
 pub mod storage;
 pub mod state;
 

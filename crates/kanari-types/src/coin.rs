@@ -1,4 +1,6 @@
 use crate::address::Address;
+use crate::balance::BalanceRecord;
+use crate::object::UIDRecord;
 use anyhow::{Context, Result};
 use move_core_types::{
     account_address::AccountAddress, identifier::Identifier, language_storage::ModuleId,
@@ -8,46 +10,46 @@ use serde::{Deserialize, Serialize};
 /// Coin wrapper (mirrors `Coin<T>` in Move)
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CoinRecord {
-    pub value: u64,
+    pub id: UIDRecord,
+    pub balance: BalanceRecord,
 }
 
 impl CoinRecord {
-    /// Create a new coin
-    pub fn new(value: u64) -> Self {
-        Self { value }
+    /// Create a new coin from a balance and UID
+    pub fn new(id: UIDRecord, balance: BalanceRecord) -> Self {
+        Self { id, balance }
     }
 
     /// Get coin value
     pub fn value(&self) -> u64 {
-        self.value
+        self.balance.value()
     }
 
     /// Burn coin and return value (consumes coin)
     pub fn burn(self) -> u64 {
-        self.value
+        self.balance.destroy()
     }
 
-    /// Convert coin into a raw balance (same as burn but kept for API parity)
-    pub fn into_balance(self) -> u64 {
-        self.value
+    /// Convert coin into its inner BalanceRecord
+    pub fn into_balance(self) -> BalanceRecord {
+        self.balance
     }
 
-    /// Construct a coin from a raw balance
-    pub fn from_balance(balance: u64) -> Self {
-        Self { value: balance }
+    /// Construct a coin from a BalanceRecord and UID
+    pub fn from_balance(id: UIDRecord, balance: BalanceRecord) -> Self {
+        Self { id, balance }
     }
 
     /// Split off `amount` from this coin, returning a new coin with that amount.
-    /// Panics if `amount` is greater than current value.
-    pub fn split(&mut self, amount: u64) -> Self {
-        assert!(amount <= self.value, "split amount exceeds coin value");
-        self.value = self.value - amount;
-        Self { value: amount }
+    /// Caller must provide the `new_id` for the created coin.
+    pub fn split(&mut self, amount: u64, new_id: UIDRecord) -> Self {
+        let new_balance = self.balance.split(amount);
+        Self::new(new_id, new_balance)
     }
 
     /// Join another coin into this one (adds value)
     pub fn join(&mut self, other: CoinRecord) {
-        self.value = self.value + other.value;
+        self.balance.merge(other.balance);
     }
 }
 
@@ -108,11 +110,11 @@ impl TreasuryCap {
     }
 
     /// Mint new coins, increasing the tracked total supply and returning a CoinRecord
-    pub fn mint(&mut self, amount: u64) -> CoinRecord {
+    pub fn mint(&mut self, amount: u64, new_id: UIDRecord) -> CoinRecord {
         assert!(amount > 0, "zero amount");
         let new_total = self.total_supply.checked_add(amount).expect("overflow");
         self.total_supply = new_total;
-        CoinRecord::new(amount)
+        CoinRecord::new(new_id, BalanceRecord::new(amount))
     }
 
     /// Burn coins and decrease tracked total supply. Returns burned value.
@@ -144,6 +146,7 @@ impl CoinModule {
     pub fn function_names() -> CoinFunctions {
         CoinFunctions {
             create_currency: "create_currency",
+            create_regulated_currency: "create_regulated_currency",
             mint: "mint",
             mint_and_transfer: "mint_and_transfer",
             from_balance: "from_balance",
@@ -161,6 +164,7 @@ impl CoinModule {
 /// Coin module function names
 pub struct CoinFunctions {
     pub create_currency: &'static str,
+    pub create_regulated_currency: &'static str,
     pub mint: &'static str,
     pub mint_and_transfer: &'static str,
     pub from_balance: &'static str,
@@ -179,13 +183,17 @@ mod tests {
 
     #[test]
     fn test_coin_creation() {
-        let coin = CoinRecord::new(1000);
+        let uid = UIDRecord::from_hex_literal("0x1").unwrap();
+        let balance = BalanceRecord::new(1000);
+        let coin = CoinRecord::new(uid, balance);
         assert_eq!(coin.value(), 1000);
     }
 
     #[test]
     fn test_coin_burn() {
-        let coin = CoinRecord::new(500);
+        let uid = UIDRecord::from_hex_literal("0x2").unwrap();
+        let balance = BalanceRecord::new(500);
+        let coin = CoinRecord::new(uid, balance);
         let value = coin.burn();
         assert_eq!(value, 500);
     }

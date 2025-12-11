@@ -44,6 +44,36 @@ impl BalanceRecord {
         self.value -= amount;
         Ok(())
     }
+
+    /// Return current value
+    pub fn value(&self) -> u64 {
+        self.value
+    }
+
+    /// Transfer amount from this balance into `to`
+    pub fn transfer(&mut self, to: &mut BalanceRecord, amount: u64) -> Result<()> {
+        self.decrease(amount)?;
+        to.increase(amount)?;
+        Ok(())
+    }
+
+    /// Merge another balance into this one (consumes other)
+    pub fn merge(&mut self, other: BalanceRecord) {
+        self.value = self.value + other.value;
+    }
+
+    /// Split off `amount` from this balance and return it as a new BalanceRecord
+    pub fn split(&mut self, amount: u64) -> BalanceRecord {
+        assert!(amount > 0, "zero amount");
+        assert!(self.value >= amount, "insufficient balance");
+        self.value = self.value - amount;
+        BalanceRecord::new(amount)
+    }
+
+    /// Consume the balance and return its numeric value
+    pub fn destroy(self) -> u64 {
+        self.value
+    }
 }
 
 /// Balance module constants and utilities
@@ -79,6 +109,8 @@ impl BalanceModule {
             new_supply: "new_supply",
             increase_supply: "increase_supply",
             destroy_supply: "destroy_supply",
+            decrease_supply: "decrease_supply",
+            supply_total: "supply_total",
         }
     }
 }
@@ -98,6 +130,8 @@ pub struct BalanceFunctions {
     pub new_supply: &'static str,
     pub increase_supply: &'static str,
     pub destroy_supply: &'static str,
+    pub decrease_supply: &'static str,
+    pub supply_total: &'static str,
 }
 
 #[cfg(test)]

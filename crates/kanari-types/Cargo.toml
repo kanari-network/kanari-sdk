@@ -26,7 +26,7 @@ secp256k1 = { workspace = true }
 p256 = { workspace = true }
 k256 = { workspace = true  }
 smallvec = { workspace = true }
-
+kanari-crypto = { workspace = true }
 # Error handling
 anyhow = { workspace = true }
 

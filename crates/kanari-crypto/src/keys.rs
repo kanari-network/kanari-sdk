@@ -6,9 +6,9 @@
 //! **Quantum-Safe**: Includes NIST-standardized post-quantum algorithms.
 
 use bip39::{Language, Mnemonic};
-use kanari_types::address::Address;
 use rand::rngs::OsRng;
 use std::fmt;
+use move_core_types::account_address::AccountAddress;
 use std::str::FromStr;
 use thiserror::Error;
 
@@ -617,9 +617,9 @@ pub fn keypair_from_private_key(
 }
 
 /// Derive an Address type from a public key
-pub fn derive_address_from_pubkey(public_key: &str) -> Result<Address, KeyError> {
+pub fn derive_address_from_pubkey(public_key: &str) -> Result<AccountAddress, KeyError> {
     let address_str = format!("0x{}", public_key);
-    Address::from_str(&address_str).map_err(|_| KeyError::InvalidPublicKey)
+    AccountAddress::from_str(&address_str).map_err(|_| KeyError::InvalidPublicKey)
 }
 
 /// Generate a mnemonic phrase with the specified word count
