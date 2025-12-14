@@ -76,10 +76,8 @@ pub fn sign_message(
     message: &[u8],
     curve_type: CurveType,
 ) -> Result<Vec<u8>, SignatureError> {
-    // Extract raw key if it has the kanari prefix
-    let raw_key = private_key_hex
-        .strip_prefix("kanari")
-        .unwrap_or(private_key_hex);
+    // Extract raw key if it has any known Kanari prefix
+    let raw_key = crate::keys::extract_raw_key(private_key_hex);
 
     match curve_type {
         CurveType::K256 => sign_message_k256(raw_key, message),
@@ -102,9 +100,7 @@ fn sign_message_dilithium2(
     private_key_hex: &str,
     message: &[u8],
 ) -> Result<Vec<u8>, SignatureError> {
-    let raw = private_key_hex
-        .strip_prefix("kanapqc")
-        .unwrap_or(private_key_hex);
+    let raw = crate::keys::extract_raw_key(private_key_hex);
     // Accept formats: "<secret_hex>" or "<secret_hex>:<public_hex>"
     let secret_hex = raw.split_once(':').map(|(s, _)| s).unwrap_or(raw);
     let sk_bytes = hex::decode(secret_hex)
@@ -121,9 +117,7 @@ fn sign_message_dilithium3(
     private_key_hex: &str,
     message: &[u8],
 ) -> Result<Vec<u8>, SignatureError> {
-    let raw = private_key_hex
-        .strip_prefix("kanapqc")
-        .unwrap_or(private_key_hex);
+    let raw = crate::keys::extract_raw_key(private_key_hex);
     // Accept formats: "<secret_hex>" or "<secret_hex>:<public_hex>"
     let secret_hex = raw.split_once(':').map(|(s, _)| s).unwrap_or(raw);
     let sk_bytes = hex::decode(secret_hex)
@@ -140,9 +134,7 @@ fn sign_message_dilithium5(
     private_key_hex: &str,
     message: &[u8],
 ) -> Result<Vec<u8>, SignatureError> {
-    let raw = private_key_hex
-        .strip_prefix("kanapqc")
-        .unwrap_or(private_key_hex);
+    let raw = crate::keys::extract_raw_key(private_key_hex);
     // Accept formats: "<secret_hex>" or "<secret_hex>:<public_hex>"
     let secret_hex = raw.split_once(':').map(|(s, _)| s).unwrap_or(raw);
     let sk_bytes = hex::decode(secret_hex)
@@ -156,9 +148,7 @@ fn sign_message_dilithium5(
 
 /// Sign a message using SPHINCS+ private key (PQC)
 fn sign_message_sphincs(private_key_hex: &str, message: &[u8]) -> Result<Vec<u8>, SignatureError> {
-    let raw = private_key_hex
-        .strip_prefix("kanapqc")
-        .unwrap_or(private_key_hex);
+    let raw = crate::keys::extract_raw_key(private_key_hex);
     // Accept formats: "<secret_hex>" or "<secret_hex>:<public_hex>"
     let secret_hex = raw.split_once(':').map(|(s, _)| s).unwrap_or(raw);
     let sk_bytes = hex::decode(secret_hex)
@@ -175,9 +165,7 @@ fn sign_message_hybrid_k256(
     hybrid_private: &str,
     message: &[u8],
 ) -> Result<Vec<u8>, SignatureError> {
-    let hybrid = hybrid_private
-        .strip_prefix("kanahybrid")
-        .unwrap_or(hybrid_private);
+    let hybrid = crate::keys::extract_raw_key(hybrid_private);
     // Expect format: "<classical_secret_hex>:<pqc_secret_hex>" (pqc part may contain ":<pub>" too)
     let parts: Vec<&str> = hybrid.splitn(2, ':').collect();
     let classical = parts.get(0).ok_or_else(|| {
@@ -196,8 +184,19 @@ fn sign_message_hybrid_k256(
     // Sign PQC part (Dilithium3)
     let pqc_sig = sign_message_dilithium3(pqc_secret, message)?;
 
+    // Validate classical signature length before encoding into u16 and combining
+    if classical_sig.len() > MAX_CLASSICAL_SIG_LEN || classical_sig.len() > u16::MAX as usize {
+        return Err(SignatureError::InvalidFormat(
+            "Classical signature too large".to_string(),
+        ));
+    }
     // Combine as: [2-byte classical_sig_len BE] || classical_sig || pqc_sig
-    let mut out = Vec::with_capacity(2 + classical_sig.len() + pqc_sig.len());
+    // Use checked_add to prevent overflow in capacity calculation
+    let total_capacity = 2usize
+        .checked_add(classical_sig.len())
+        .and_then(|sum| sum.checked_add(pqc_sig.len()))
+        .ok_or_else(|| SignatureError::InvalidFormat("Signature size overflow".to_string()))?;
+    let mut out = Vec::with_capacity(total_capacity);
     let len_be = (classical_sig.len() as u16).to_be_bytes();
     out.extend_from_slice(&len_be);
     out.extend_from_slice(&classical_sig);
@@ -210,9 +209,7 @@ fn sign_message_hybrid_ed25519(
     hybrid_private: &str,
     message: &[u8],
 ) -> Result<Vec<u8>, SignatureError> {
-    let hybrid = hybrid_private
-        .strip_prefix("kanahybrid")
-        .unwrap_or(hybrid_private);
+    let hybrid = crate::keys::extract_raw_key(hybrid_private);
     // Expect format: "<classical_secret_hex>:<pqc_secret_hex>" (pqc part may contain ":<pub>" too)
     let parts: Vec<&str> = hybrid.splitn(2, ':').collect();
     let classical = parts.get(0).ok_or_else(|| {
@@ -230,8 +227,8 @@ fn sign_message_hybrid_ed25519(
     // Sign PQC part (Dilithium3)
     let pqc_sig = sign_message_dilithium3(pqc_secret, message)?;
 
-    // Validate classical signature length fits in u16 (prevent overflow)
-    if classical_sig.len() > u16::MAX as usize {
+    // Validate classical signature length fits in u16 and within configured limits (prevent overflow / DoS)
+    if classical_sig.len() > MAX_CLASSICAL_SIG_LEN || classical_sig.len() > u16::MAX as usize {
         return Err(SignatureError::InvalidFormat(
             "Classical signature too large".to_string(),
         ));
@@ -477,9 +474,16 @@ pub fn verify_signature_with_curve(
             if pqc_pub.is_empty() || pqc_sig.is_empty() {
                 return Ok(false);
             }
-            let pub_bytes = hex::decode(pqc_pub).map_err(|_| {
-                SignatureError::InvalidPublicKey("Invalid public key hex".to_string())
-            })?;
+            // Strip known prefixes like "kanapqc" if present, then decode
+            let pqc_pub_raw = crate::keys::extract_raw_key(pqc_pub);
+            let pub_bytes = match hex::decode(pqc_pub_raw) {
+                Ok(b) => b,
+                Err(_) => {
+                    return Err(SignatureError::InvalidPublicKey(
+                        "Invalid public key hex".to_string(),
+                    ));
+                }
+            };
             let pk = dilithium3::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
                 SignatureError::InvalidPublicKey("Invalid Dilithium3 public key".to_string())
             })?;
@@ -487,7 +491,8 @@ pub fn verify_signature_with_curve(
                 SignatureError::InvalidFormat("Invalid signature bytes for Dilithium3".to_string())
             })?;
             let pqc_ok = dilithium3::verify_detached_signature(&sig_obj, message, &pk).is_ok();
-
+            // Debug prints for failing test investigation
+            // println!("HYBRID verify Ed25519: classical_ok={}, pqc_ok={}", classical_ok, pqc_ok);
             Ok(classical_ok && pqc_ok)
         }
         // For hybrid Ed25519+Dilithium3, verify using the classical Ed25519 public key part when provided
@@ -500,6 +505,7 @@ pub fn verify_signature_with_curve(
             }
 
             let addr = address_hex;
+            // println!("HYBRID Ed25519 branch start, addr='{}', sig_len={}", addr, signature.len());
             let classical = addr.split(':').next().unwrap_or("");
 
             if signature.len() < 2 {
@@ -523,9 +529,15 @@ pub fn verify_signature_with_curve(
             if pqc_pub.is_empty() || pqc_sig.is_empty() {
                 return Ok(false);
             }
-            let pub_bytes = hex::decode(pqc_pub).map_err(|_| {
-                SignatureError::InvalidPublicKey("Invalid public key hex".to_string())
-            })?;
+            let pqc_pub_raw = crate::keys::extract_raw_key(pqc_pub);
+            let pub_bytes = match hex::decode(pqc_pub_raw) {
+                Ok(b) => b,
+                Err(_) => {
+                    return Err(SignatureError::InvalidPublicKey(
+                        "Invalid public key hex".to_string(),
+                    ));
+                }
+            };
             let pk = dilithium3::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
                 SignatureError::InvalidPublicKey("Invalid Dilithium3 public key".to_string())
             })?;
@@ -538,7 +550,8 @@ pub fn verify_signature_with_curve(
         }
         // PQC verification using pqcrypto crates
         CurveType::Dilithium2 => {
-            let pub_bytes = hex::decode(address_hex).map_err(|_| {
+            let pqc_raw = crate::keys::extract_raw_key(address_hex);
+            let pub_bytes = hex::decode(pqc_raw).map_err(|_| {
                 SignatureError::InvalidPublicKey("Invalid public key hex".to_string())
             })?;
             // Validate key length (Dilithium2 public key is 1312 bytes)
@@ -561,7 +574,8 @@ pub fn verify_signature_with_curve(
             }
         }
         CurveType::Dilithium3 => {
-            let pub_bytes = hex::decode(address_hex).map_err(|_| {
+            let pqc_raw = crate::keys::extract_raw_key(address_hex);
+            let pub_bytes = hex::decode(pqc_raw).map_err(|_| {
                 SignatureError::InvalidPublicKey("Invalid public key hex".to_string())
             })?;
             // Validate key length (Dilithium3 public key is 1952 bytes)
@@ -584,7 +598,8 @@ pub fn verify_signature_with_curve(
             }
         }
         CurveType::Dilithium5 => {
-            let pub_bytes = hex::decode(address_hex).map_err(|_| {
+            let pqc_raw = crate::keys::extract_raw_key(address_hex);
+            let pub_bytes = hex::decode(pqc_raw).map_err(|_| {
                 SignatureError::InvalidPublicKey("Invalid public key hex".to_string())
             })?;
             // Validate key length (Dilithium5 public key is 2592 bytes)
@@ -607,7 +622,8 @@ pub fn verify_signature_with_curve(
             }
         }
         CurveType::SphincsPlusSha256Robust => {
-            let pub_bytes = hex::decode(address_hex).map_err(|_| {
+            let pqc_raw = crate::keys::extract_raw_key(address_hex);
+            let pub_bytes = hex::decode(pqc_raw).map_err(|_| {
                 SignatureError::InvalidPublicKey("Invalid public key hex".to_string())
             })?;
             let pk = sphincssha2256fsimple::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
@@ -658,7 +674,9 @@ fn verify_hybrid_signature_detailed(
         return Ok((classical_ok, false));
     }
 
-    let pub_bytes = hex::decode(pqc_pub)
+    // Strip known prefixes (e.g., "kanapqc") then decode
+    let pqc_pub_raw = crate::keys::extract_raw_key(pqc_pub);
+    let pub_bytes = hex::decode(pqc_pub_raw)
         .map_err(|_| SignatureError::InvalidPublicKey("Invalid public key hex".to_string()))?;
     let pk = dilithium3::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
         SignatureError::InvalidPublicKey("Invalid Dilithium3 public key".to_string())
@@ -744,7 +762,8 @@ pub fn verify_signature_with_keypair(
             let pqc_pub = keypair.get_pqc_public_key().ok_or_else(|| {
                 SignatureError::InvalidPublicKey("Missing PQC public key".to_string())
             })?;
-            let pub_bytes = hex::decode(&pqc_pub).map_err(|_| {
+            let pqc_pub_raw = crate::keys::extract_raw_key(&pqc_pub);
+            let pub_bytes = hex::decode(pqc_pub_raw).map_err(|_| {
                 SignatureError::InvalidPublicKey("Invalid public key hex".to_string())
             })?;
             // Validate key length (Dilithium2 public key is 1312 bytes)
@@ -766,7 +785,8 @@ pub fn verify_signature_with_keypair(
             let pqc_pub = keypair.get_pqc_public_key().ok_or_else(|| {
                 SignatureError::InvalidPublicKey("Missing PQC public key".to_string())
             })?;
-            let pub_bytes = hex::decode(&pqc_pub).map_err(|_| {
+            let pqc_pub_raw = crate::keys::extract_raw_key(&pqc_pub);
+            let pub_bytes = hex::decode(pqc_pub_raw).map_err(|_| {
                 SignatureError::InvalidPublicKey("Invalid public key hex".to_string())
             })?;
             // Validate key length (Dilithium3 public key is 1952 bytes)
@@ -788,7 +808,8 @@ pub fn verify_signature_with_keypair(
             let pqc_pub = keypair.get_pqc_public_key().ok_or_else(|| {
                 SignatureError::InvalidPublicKey("Missing PQC public key".to_string())
             })?;
-            let pub_bytes = hex::decode(&pqc_pub).map_err(|_| {
+            let pqc_pub_raw = crate::keys::extract_raw_key(&pqc_pub);
+            let pub_bytes = hex::decode(pqc_pub_raw).map_err(|_| {
                 SignatureError::InvalidPublicKey("Invalid public key hex".to_string())
             })?;
             // Validate key length (Dilithium5 public key is 2592 bytes)
@@ -810,7 +831,8 @@ pub fn verify_signature_with_keypair(
             let pqc_pub = keypair.get_pqc_public_key().ok_or_else(|| {
                 SignatureError::InvalidPublicKey("Missing PQC public key".to_string())
             })?;
-            let pub_bytes = hex::decode(&pqc_pub).map_err(|_| {
+            let pqc_pub_raw = crate::keys::extract_raw_key(&pqc_pub);
+            let pub_bytes = hex::decode(pqc_pub_raw).map_err(|_| {
                 SignatureError::InvalidPublicKey("Invalid public key hex".to_string())
             })?;
             // Validate key length (SPHINCS+ public key is 64 bytes)
@@ -849,23 +871,52 @@ pub fn verify_signature_k256(
     hasher.update(message);
     let message_hash = hasher.finalize();
 
-    // Decode the address hex
-    let decoded_hex = hex::decode(address_hex)
-        .map_err(|_| SignatureError::InvalidPublicKey("Invalid address format".to_string()))?;
+    // Decode the address hex (may be raw sec1 bytes or X/Y without prefix)
+    let decoded_hex = match hex::decode(address_hex) {
+        Ok(v) => v,
+        Err(_) => {
+            return Err(SignatureError::InvalidPublicKey(
+                "Invalid address format".to_string(),
+            ));
+        }
+    };
 
-    // Handle both uncompressed (64 bytes) and compressed-derived (32 bytes) public keys
-    if decoded_hex.len() != 64 && decoded_hex.len() != 32 {
-        return Err(SignatureError::InvalidPublicKey(
-            "Invalid address format".to_string(),
-        ));
+    // Accept these input shapes:
+    // - 65 bytes: full SEC1 (0x04 || X || Y)
+    // - 33 bytes: compressed SEC1 (0x02/0x03 || X)
+    // - 64 bytes: raw X||Y (add 0x04)
+    // - 32 bytes: x-only (try 0x02/0x03)
+
+    // Try full SEC1 if present
+    if decoded_hex.len() == 65 {
+        if let Ok(verifying_key) = K256VerifyingKey::from_sec1_bytes(&decoded_hex) {
+            if verifying_key.verify(&message_hash, &signature).is_ok() {
+                return Ok(true);
+            }
+        }
     }
 
-    // Try uncompressed first (0x04 || X || Y)
+    // Try compressed SEC1 if present (33 bytes)
+    if decoded_hex.len() == 33 {
+        if decoded_hex[0] == 0x02 || decoded_hex[0] == 0x03 {
+            if let Ok(verifying_key) = K256VerifyingKey::from_sec1_bytes(&decoded_hex) {
+                if verifying_key.verify(&message_hash, &signature).is_ok() {
+                    return Ok(true);
+                }
+            }
+        } else {
+            // If 33 bytes but no prefix, treat as invalid
+            return Err(SignatureError::InvalidPublicKey(
+                "Invalid address format".to_string(),
+            ));
+        }
+    }
+
+    // Try raw uncompressed (X||Y) of 64 bytes by adding 0x04 prefix
     if decoded_hex.len() == 64 {
         let mut public_key_bytes = Vec::with_capacity(65);
         public_key_bytes.push(0x04);
         public_key_bytes.extend_from_slice(&decoded_hex);
-
         if let Ok(verifying_key) = K256VerifyingKey::from_sec1_bytes(&public_key_bytes) {
             if verifying_key.verify(&message_hash, &signature).is_ok() {
                 return Ok(true);
@@ -873,7 +924,7 @@ pub fn verify_signature_k256(
         }
     }
 
-    // Try compressed-derived (address contains X only): try 0x02 and 0x03
+    // Try x-only (32 bytes) by attempting both even/odd Y prefixes
     if decoded_hex.len() == 32 {
         let mut public_key_bytes = vec![0x02];
         public_key_bytes.extend_from_slice(&decoded_hex[0..32]);
@@ -909,23 +960,49 @@ pub fn verify_signature_p256(
     hasher.update(message);
     let message_hash = hasher.finalize();
 
-    // Decode the address hex
-    let decoded_hex = hex::decode(address_hex)
-        .map_err(|_| SignatureError::InvalidPublicKey("Invalid address format".to_string()))?;
+    // Decode the address hex (may be raw sec1 bytes or X/Y without prefix)
+    let decoded_hex = match hex::decode(address_hex) {
+        Ok(v) => v,
+        Err(_) => {
+            return Err(SignatureError::InvalidPublicKey(
+                "Invalid address format".to_string(),
+            ))
+        }
+    };
 
-    // Handle both uncompressed (64 bytes) and compressed-derived (32 bytes) public keys
-    if decoded_hex.len() != 64 && decoded_hex.len() != 32 {
-        return Err(SignatureError::InvalidPublicKey(
-            "Invalid address format".to_string(),
-        ));
+    // Accept these input shapes:
+    // - 65 bytes: full SEC1 (0x04 || X || Y)
+    // - 33 bytes: compressed SEC1 (0x02/0x03 || X)
+    // - 64 bytes: raw X||Y (add 0x04)
+    // - 32 bytes: x-only (try 0x02/0x03)
+    if decoded_hex.len() == 65 {
+        if let Ok(verifying_key) = VerifyingKey::from_sec1_bytes(&decoded_hex) {
+            if verifying_key.verify(&message_hash, &signature).is_ok() {
+                return Ok(true);
+            }
+        }
     }
 
-    // Try uncompressed first
+    // Try compressed SEC1 if present (33 bytes)
+    if decoded_hex.len() == 33 {
+        if decoded_hex[0] == 0x02 || decoded_hex[0] == 0x03 {
+            if let Ok(verifying_key) = VerifyingKey::from_sec1_bytes(&decoded_hex) {
+                if verifying_key.verify(&message_hash, &signature).is_ok() {
+                    return Ok(true);
+                }
+            }
+        } else {
+            return Err(SignatureError::InvalidPublicKey(
+                "Invalid address format".to_string(),
+            ));
+        }
+    }
+
+    // Try raw uncompressed (X||Y) of 64 bytes by adding 0x04 prefix
     if decoded_hex.len() == 64 {
         let mut public_key_bytes = Vec::with_capacity(65);
         public_key_bytes.push(0x04);
         public_key_bytes.extend_from_slice(&decoded_hex);
-
         if let Ok(verifying_key) = VerifyingKey::from_sec1_bytes(&public_key_bytes) {
             if verifying_key.verify(&message_hash, &signature).is_ok() {
                 return Ok(true);
@@ -933,7 +1010,7 @@ pub fn verify_signature_p256(
         }
     }
 
-    // Try compressed-derived (address contains X only)
+    // Try x-only (32 bytes) by attempting both even/odd Y prefixes
     if decoded_hex.len() == 32 {
         let mut public_key_bytes = vec![0x02];
         public_key_bytes.extend_from_slice(&decoded_hex[0..32]);
@@ -1036,6 +1113,85 @@ mod tests {
         );
         assert!(result.is_ok());
         assert!(!result.unwrap());
+    }
+
+    #[test]
+    fn test_malformed_pqc_pubkey() {
+        let message = b"test";
+        let signature = b"\x00";
+        // invalid hex for pqc pub should return InvalidPublicKey
+        let res = verify_signature_with_curve("zz", message, signature, CurveType::Dilithium3);
+        assert!(matches!(res, Err(SignatureError::InvalidPublicKey(_))));
+    }
+
+    #[test]
+    fn test_oversized_classical_len_in_hybrid_signature() {
+        // Create a hybrid keypair and craft a signature whose classical_len > MAX_CLASSICAL_SIG_LEN
+        let keypair = generate_keypair(CurveType::K256Dilithium3).unwrap();
+        let message = b"hello";
+
+        // craft signature: 2-byte classical len set to 2000 (> MAX_CLASSICAL_SIG_LEN)
+        let mut sig = Vec::new();
+        sig.extend_from_slice(&2000u16.to_be_bytes());
+        // append some bytes to represent pqc part
+        sig.extend_from_slice(&[0u8; 16]);
+
+        let classical_pub = keypair
+            .public_key
+            .splitn(2, ':')
+            .next()
+            .unwrap_or(&keypair.public_key);
+        let addr = format!(
+            "{}:{}",
+            classical_pub,
+            keypair.get_pqc_public_key().unwrap()
+        );
+        let res =
+            verify_signature_with_curve(&addr, message, &sig, CurveType::K256Dilithium3).unwrap();
+        // should return false due to oversized classical length (defensive check)
+        assert!(!res);
+    }
+
+    #[test]
+    fn test_hybrid_roundtrip_and_malformed_parts() {
+        let keypair = generate_keypair(CurveType::Ed25519Dilithium3).unwrap();
+        let message = b"roundtrip";
+
+        // Sign and verify roundtrip
+        let signature =
+            sign_message(&keypair.private_key, message, CurveType::Ed25519Dilithium3).unwrap();
+        let classical_pub = keypair
+            .public_key
+            .splitn(2, ':')
+            .next()
+            .unwrap_or(&keypair.public_key);
+        let addr = format!(
+            "{}:{}",
+            classical_pub,
+            keypair.get_pqc_public_key().unwrap()
+        );
+        assert!(
+            verify_signature_with_curve(&addr, message, &signature, CurveType::Ed25519Dilithium3)
+                .unwrap()
+        );
+
+        // Truncated PQC part (only classical present) should fail verification
+        let classical_len = u16::from_be_bytes([signature[0], signature[1]]) as usize;
+        let truncated = signature[..2 + classical_len].to_vec();
+        assert!(
+            !verify_signature_with_curve(&addr, message, &truncated, CurveType::Ed25519Dilithium3)
+                .unwrap()
+        );
+
+        // Invalid PQC public hex should fail verification (treated as verification failure)
+        let bad_addr = format!("{}:zzzz", keypair.public_key);
+        let res = verify_signature_with_curve(
+            &bad_addr,
+            message,
+            &signature,
+            CurveType::Ed25519Dilithium3,
+        );
+        assert!(matches!(res, Err(SignatureError::InvalidPublicKey(_))));
     }
 
     // ============================================================================

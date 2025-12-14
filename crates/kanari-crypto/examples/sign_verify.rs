@@ -6,7 +6,7 @@ use kanari_crypto::{sign_message, verify_signature};
 fn main() {
     println!("🔐 Kanari Crypto v2.0 - Signing and Verification Example");
     println!("========================================================");
-    println!("\nℹ️  This example demonstrates both classical and post-quantum signatures");
+    println!("\nℹ️  This example demonstrates both classical signatures");
 
     // Example 1: K256 (secp256k1) signing and verification
     println!("\n📝 Example 1: K256 Curve (Classical - NOT Quantum-Safe)");
