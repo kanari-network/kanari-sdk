@@ -20,14 +20,15 @@ ed25519-dalek = { workspace = true, features = ["rand_core"] }
 sha3.workspace = true
 zstd.workspace = true
 sha2.workspace = true
+hmac = "0.12"
 secp256k1 = { workspace = true, features = ["recovery"] }
 
 
 # Post-Quantum Cryptography (PQC) - NIST Standards
-pqcrypto-dilithium.workspace = true   # Post-quantum signatures
-pqcrypto-kyber.workspace = true       # Post-quantum key encapsulation
-pqcrypto-sphincsplus.workspace = true # Hash-based signatures (ultra-secure)
-pqcrypto-traits.workspace = true      # Common traits for PQC
+pqcrypto-dilithium = { workspace = true, optional = true }   # Post-quantum signatures
+# pqcrypto-kyber = { workspace = true, optional = true }       # Post-quantum key encapsulation
+pqcrypto-sphincsplus = { workspace = true, optional = true } # Hash-based signatures (ultra-secure)
+pqcrypto-traits = { workspace = true, optional = true }      # Common traits for PQC
 
 # Make blake3 optional and enabled via the blake3 feature
 blake3 = { workspace = true, optional = true }
@@ -49,6 +50,10 @@ argon2.workspace = true
 base64.workspace = true
 aes-gcm.workspace = true
 
+# Memory security
+zeroize.workspace = true
+fs2 = "0.4"
+
 # Time handling for audit logging
 chrono = { workspace = true }
 
@@ -64,5 +69,11 @@ tempfile = { workspace = true }
 [features]
 # keep blake3 optional in Cargo.toml but enable it in the crate default features
 default = ["blake3", "pqc"]
-pqc = []                    # Post-quantum cryptography feature
+# Enable optional PQC crates when `pqc` feature is activated
+pqc = [
+	# "pqcrypto-kyber",
+	"pqcrypto-traits",
+	"pqcrypto-dilithium",
+	"pqcrypto-sphincsplus",
+]
 hybrid = ["pqc"]            # Hybrid classical + PQC schemes

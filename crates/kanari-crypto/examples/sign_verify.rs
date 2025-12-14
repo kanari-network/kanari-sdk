@@ -13,11 +13,17 @@ fn main() {
     println!("-------------------------------------------------------");
 
     // Generate a new K256 wallet
-    let keypair = generate_keypair(CurveType::K256).expect("Failed to generate K256 keypair");
+    let keypair = match generate_keypair(CurveType::K256) {
+        Ok(kp) => kp,
+        Err(e) => {
+            eprintln!("Failed to generate K256 keypair: {}", e);
+            return;
+        }
+    };
 
     println!("Generated new K256 wallet:");
     println!("  Address: {}", keypair.address);
-    println!("  Private Key: {}", keypair.private_key);
+    println!("  Private Key: {}", keypair.private_key.to_string());
     println!("  Public Key: {}", keypair.public_key);
 
     // Sign a message
@@ -57,11 +63,17 @@ fn main() {
     println!("---------------------");
 
     // Generate a new P256 wallet
-    let p256_keypair = generate_keypair(CurveType::P256).expect("Failed to generate P256 keypair");
+    let p256_keypair = match generate_keypair(CurveType::P256) {
+        Ok(kp) => kp,
+        Err(e) => {
+            eprintln!("Failed to generate P256 keypair: {}", e);
+            return;
+        }
+    };
 
     println!("Generated new P256 wallet:");
     println!("  Address: {}", p256_keypair.address);
-    println!("  Private Key: {}", p256_keypair.private_key);
+    println!("  Private Key: {}", p256_keypair.private_key.to_string());
     println!("  Public Key: {}", p256_keypair.public_key);
 
     // Sign a message
@@ -190,12 +202,17 @@ fn main() {
     println!("------------------------");
 
     // Generate a new Ed25519 wallet
-    let ed25519_keypair =
-        generate_keypair(CurveType::Ed25519).expect("Failed to generate Ed25519 keypair");
+    let ed25519_keypair = match generate_keypair(CurveType::Ed25519) {
+        Ok(kp) => kp,
+        Err(e) => {
+            eprintln!("Failed to generate Ed25519 keypair: {}", e);
+            return;
+        }
+    };
 
     println!("Generated new Ed25519 wallet:");
     println!("  Address: {}", ed25519_keypair.address);
-    println!("  Private Key: {}", ed25519_keypair.private_key);
+    println!("  Private Key: {}", ed25519_keypair.private_key.to_string());
     println!("  Public Key: {}", ed25519_keypair.public_key);
 
     // Sign a message
@@ -302,7 +319,10 @@ fn main() {
         // Added empty password as 3rd parameter
         Ok(mnemonic_keypair) => {
             println!("  Address: {}", mnemonic_keypair.address);
-            println!("  Private Key: {}", mnemonic_keypair.private_key);
+            println!(
+                "  Private Key: {}",
+                mnemonic_keypair.private_key.to_string()
+            );
 
             // Sign a message with the mnemonic-derived key
             let message_mnemonic = b"Hello from mnemonic!";
@@ -331,59 +351,4 @@ fn main() {
         }
         Err(e) => println!("Error importing from mnemonic: {}", e),
     }
-
-    // Example 6: Post-Quantum Cryptography Demo
-    println!("\n🚀 Example 6: Post-Quantum Signatures (Quantum-Safe)");
-    println!("----------------------------------------------------");
-
-    println!("\nℹ️  Note: PQC algorithms generate larger keys and signatures");
-    println!("   but provide protection against quantum computer attacks.\n");
-
-    // Dilithium3 (Recommended)
-    println!("1. Dilithium3 (Recommended - NIST Level 3):");
-    match generate_keypair(CurveType::Dilithium3) {
-        Ok(pqc_keypair) => {
-            println!("  ✅ Generated Dilithium3 keypair");
-            println!("  Address: {}", pqc_keypair.address);
-            println!(
-                "  Security Level: {}/5",
-                pqc_keypair.curve_type.security_level()
-            );
-            println!(
-                "  Quantum-Safe: {}",
-                pqc_keypair.curve_type.is_post_quantum()
-            );
-            println!(
-                "  Public Key Length: {} chars",
-                pqc_keypair.public_key.len()
-            );
-        }
-        Err(e) => println!("  ❌ Error generating Dilithium3 keypair: {}", e),
-    }
-
-    // Hybrid Ed25519 + Dilithium3 (Best Practice)
-    println!("\n2. Ed25519+Dilithium3 Hybrid (Best Practice):");
-    match generate_keypair(CurveType::Ed25519Dilithium3) {
-        Ok(hybrid_keypair) => {
-            println!("  ✅ Generated Hybrid keypair");
-            println!("  Address: {}", hybrid_keypair.address);
-            println!(
-                "  Security Level: {}/5",
-                hybrid_keypair.curve_type.security_level()
-            );
-            println!(
-                "  Quantum-Safe: {}",
-                hybrid_keypair.curve_type.is_post_quantum()
-            );
-            println!("  Is Hybrid: {}", hybrid_keypair.curve_type.is_hybrid());
-            println!("  Description: Combines classical Ed25519 + quantum-safe Dilithium3");
-        }
-        Err(e) => println!("  ❌ Error generating Hybrid keypair: {}", e),
-    }
-
-    println!("\n✅ Example completed successfully!");
-    println!("\n💡 Recommendation:");
-    println!("   For new applications: Use CurveType::Ed25519Dilithium3 (Hybrid)");
-    println!("   For maximum security: Use CurveType::Dilithium5");
-    println!("   For legacy systems: Use CurveType::Ed25519 or K256 (but migrate soon)");
 }
