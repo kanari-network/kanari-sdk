@@ -47,11 +47,11 @@ impl Address {
     /// Dev wallet address that receives initial token supply
     /// This matches the address in kanari.move genesis allocation
     pub const DEV_ADDRESS: &'static str =
-        "0x840512ff2c03135d82d55098f7461579cfe87f5c10c62718f818c0beeca138ea";
+        "0x72f651a238529a7f5a4416916a018cb55557091c291f050f75368afe87b272c9";
 
     /// DAO address that receives all gas fees
     pub const DAO_ADDRESS: &'static str =
-        "0xbeea29083fee79171d91c39cc257a6ba71c6f1adb7789ec2dbbd79622d9dde42";
+        "0x2f8d23736473a0360e5d292d0cb61487f3c171d6242f1c25c310b581262120a9";
 
     /// Creates a new Address from raw bytes
     pub const fn new(bytes: [u8; Self::LENGTH]) -> Self {

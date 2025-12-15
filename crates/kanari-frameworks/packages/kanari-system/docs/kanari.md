@@ -140,7 +140,7 @@ The total supply of Kanari denominated in Mist (100 Million * 10^9)
     <b>let</b> treasury_cap = treasury;
 
     // Mint the entire supply (in Mist) and <a href="transfer.md#0x2_transfer">transfer</a> <b>to</b> dev @0x9
-    <b>let</b> dev_address: <b>address</b> = @0x840512ff2c03135d82d55098f7461579cfe87f5c10c62718f818c0beeca138ea;
+    <b>let</b> dev_address: <b>address</b> = @0x72f651a238529a7f5a4416916a018cb55557091c291f050f75368afe87b272c9;
     <b>let</b> minted_coin: Coin&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt; = <a href="coin.md#0x2_coin_mint">coin::mint</a>(&<b>mut</b> treasury_cap, <a href="kanari.md#0x2_kanari_TOTAL_SUPPLY_MIST">TOTAL_SUPPLY_MIST</a>, ctx);
     <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(minted_coin, dev_address);
 
