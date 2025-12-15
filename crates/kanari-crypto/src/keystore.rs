@@ -63,10 +63,6 @@ pub struct Keystore {
     /// Mnemonic phrase information
     pub mnemonic: MnemonicStore,
 
-    /// Hashed master password for verification
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub password_hash: Option<String>,
-
     /// Whether the password is empty
     #[serde(default)]
     pub is_password_empty: bool,
@@ -116,7 +112,6 @@ impl Keystore {
         Self {
             keys: HashMap::new(),
             mnemonic: MnemonicStore::default(),
-            password_hash: None,
             is_password_empty: false,
             version: default_keystore_version(),
             last_modified: None,
@@ -684,7 +679,6 @@ mod tests {
         let keystore = Keystore::default();
         assert_eq!(keystore.keys.len(), 0);
         assert!(!keystore.is_password_empty);
-        assert!(keystore.password_hash.is_none());
     }
 
     #[test]

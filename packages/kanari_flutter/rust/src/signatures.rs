@@ -60,6 +60,14 @@ const MAX_SIGNATURE_SIZE: usize = 64 * 1024; // 64 KiB
 /// Maximum classical signature length we accept inside a hybrid combined signature
 const MAX_CLASSICAL_SIG_LEN: usize = 1024; // limit to 1 KiB to avoid DoS
 
+// Common EC public key lengths
+const SEC1_UNCOMPRESSED_LEN: usize = 65;
+const SEC1_COMPRESSED_LEN: usize = 33;
+const RAW_XY_LEN: usize = 64;
+const X_ONLY_LEN: usize = 32;
+// Ed25519 public key length (32 bytes)
+const ED25519_PUBLIC_KEY_LEN: usize = 32;
+
 /// Zero out sensitive data in memory
 /// Uses zeroize crate for secure memory clearing with compiler fence
 /// to prevent optimization that could leave sensitive data in memory
@@ -871,8 +879,9 @@ pub fn verify_signature_k256(
     hasher.update(message);
     let message_hash = hasher.finalize();
 
-    // Decode the address hex (may be raw sec1 bytes or X/Y without prefix)
-    let decoded_hex = match hex::decode(address_hex) {
+    // Normalize and decode the address hex (may be raw sec1 bytes or X/Y without prefix)
+    let raw_key = crate::keys::extract_raw_key(address_hex);
+    let decoded_hex = match hex::decode(raw_key) {
         Ok(v) => v,
         Err(_) => {
             return Err(SignatureError::InvalidPublicKey(
@@ -897,7 +906,7 @@ pub fn verify_signature_k256(
     }
 
     // Try compressed SEC1 if present (33 bytes)
-    if decoded_hex.len() == 33 {
+    if decoded_hex.len() == SEC1_COMPRESSED_LEN {
         if decoded_hex[0] == 0x02 || decoded_hex[0] == 0x03 {
             if let Ok(verifying_key) = K256VerifyingKey::from_sec1_bytes(&decoded_hex) {
                 if verifying_key.verify(&message_hash, &signature).is_ok() {
@@ -913,7 +922,7 @@ pub fn verify_signature_k256(
     }
 
     // Try raw uncompressed (X||Y) of 64 bytes by adding 0x04 prefix
-    if decoded_hex.len() == 64 {
+    if decoded_hex.len() == RAW_XY_LEN {
         let mut public_key_bytes = Vec::with_capacity(65);
         public_key_bytes.push(0x04);
         public_key_bytes.extend_from_slice(&decoded_hex);
@@ -925,9 +934,9 @@ pub fn verify_signature_k256(
     }
 
     // Try x-only (32 bytes) by attempting both even/odd Y prefixes
-    if decoded_hex.len() == 32 {
+    if decoded_hex.len() == X_ONLY_LEN {
         let mut public_key_bytes = vec![0x02];
-        public_key_bytes.extend_from_slice(&decoded_hex[0..32]);
+        public_key_bytes.extend_from_slice(&decoded_hex[0..X_ONLY_LEN]);
         if let Ok(verifying_key) = K256VerifyingKey::from_sec1_bytes(&public_key_bytes) {
             if verifying_key.verify(&message_hash, &signature).is_ok() {
                 return Ok(true);
@@ -960,8 +969,9 @@ pub fn verify_signature_p256(
     hasher.update(message);
     let message_hash = hasher.finalize();
 
-    // Decode the address hex (may be raw sec1 bytes or X/Y without prefix)
-    let decoded_hex = match hex::decode(address_hex) {
+    // Normalize and decode the address hex (may be raw sec1 bytes or X/Y without prefix)
+    let raw_key = crate::keys::extract_raw_key(address_hex);
+    let decoded_hex = match hex::decode(raw_key) {
         Ok(v) => v,
         Err(_) => {
             return Err(SignatureError::InvalidPublicKey(
@@ -975,7 +985,7 @@ pub fn verify_signature_p256(
     // - 33 bytes: compressed SEC1 (0x02/0x03 || X)
     // - 64 bytes: raw X||Y (add 0x04)
     // - 32 bytes: x-only (try 0x02/0x03)
-    if decoded_hex.len() == 65 {
+    if decoded_hex.len() == SEC1_UNCOMPRESSED_LEN {
         if let Ok(verifying_key) = VerifyingKey::from_sec1_bytes(&decoded_hex) {
             if verifying_key.verify(&message_hash, &signature).is_ok() {
                 return Ok(true);
@@ -984,7 +994,7 @@ pub fn verify_signature_p256(
     }
 
     // Try compressed SEC1 if present (33 bytes)
-    if decoded_hex.len() == 33 {
+    if decoded_hex.len() == SEC1_COMPRESSED_LEN {
         if decoded_hex[0] == 0x02 || decoded_hex[0] == 0x03 {
             if let Ok(verifying_key) = VerifyingKey::from_sec1_bytes(&decoded_hex) {
                 if verifying_key.verify(&message_hash, &signature).is_ok() {
@@ -999,7 +1009,7 @@ pub fn verify_signature_p256(
     }
 
     // Try raw uncompressed (X||Y) of 64 bytes by adding 0x04 prefix
-    if decoded_hex.len() == 64 {
+    if decoded_hex.len() == RAW_XY_LEN {
         let mut public_key_bytes = Vec::with_capacity(65);
         public_key_bytes.push(0x04);
         public_key_bytes.extend_from_slice(&decoded_hex);
@@ -1011,9 +1021,9 @@ pub fn verify_signature_p256(
     }
 
     // Try x-only (32 bytes) by attempting both even/odd Y prefixes
-    if decoded_hex.len() == 32 {
+    if decoded_hex.len() == X_ONLY_LEN {
         let mut public_key_bytes = vec![0x02];
-        public_key_bytes.extend_from_slice(&decoded_hex[0..32]);
+        public_key_bytes.extend_from_slice(&decoded_hex[0..X_ONLY_LEN]);
         if let Ok(verifying_key) = VerifyingKey::from_sec1_bytes(&public_key_bytes) {
             if verifying_key.verify(&message_hash, &signature).is_ok() {
                 return Ok(true);
@@ -1046,27 +1056,27 @@ pub fn verify_signature_ed25519(
     sig_array.copy_from_slice(signature);
     let signature = Ed25519Signature::from_bytes(&sig_array);
 
-    // Decode the address hex (which should be the public key)
-    let decoded_hex = hex::decode(address_hex)
+    // Normalize input using `extract_raw_key` (handles 0x and known prefixes)
+    let raw_key = crate::keys::extract_raw_key(address_hex);
+    let decoded_hex = hex::decode(raw_key)
         .map_err(|_| SignatureError::InvalidPublicKey("Invalid address format".to_string()))?;
 
     // For Ed25519, the address should be the 32-byte public key
-    if decoded_hex.len() != 32 {
+    if decoded_hex.len() != ED25519_PUBLIC_KEY_LEN {
         return Err(SignatureError::InvalidPublicKey(
             "Invalid address format".to_string(),
         ));
     }
 
     // Create a fixed-size array for the public key
-    let mut key_array = [0u8; 32];
+    let mut key_array = [0u8; ED25519_PUBLIC_KEY_LEN];
     key_array.copy_from_slice(&decoded_hex);
 
     // Create verifying key from public key bytes
     let verifying_key = Ed25519VerifyingKey::from_bytes(&key_array)
         .map_err(|_| SignatureError::InvalidPublicKey("Invalid address format".to_string()))?;
 
-    // Use constant time comparison when checking equality of signatures
-    // during verification for added security against timing attacks
+    // Verification result (constant-time internally)
     match verifying_key.verify(message, &signature) {
         Ok(_) => Ok(true),
         Err(_) => Ok(false),

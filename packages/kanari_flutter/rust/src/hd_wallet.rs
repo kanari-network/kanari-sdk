@@ -43,6 +43,12 @@ pub fn derive_keypair_from_path(
     derivation_path: &str,
     curve: CurveType,
 ) -> Result<KeyPair, HdError> {
+    // Early reject for post-quantum / hybrid curves: HD derivation is not supported
+    if curve.is_post_quantum() {
+        return Err(HdError::DerivationFailed(
+            "Post-quantum curves do not support HD derivation".to_string(),
+        ));
+    }
     let mnemonic = Mnemonic::parse_in(Language::English, mnemonic_phrase)
         .map_err(|e| HdError::InvalidMnemonic(e.to_string()))?;
 
@@ -82,6 +88,32 @@ pub fn derive_keypair_from_path(
     formatted.zeroize();
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_derive_rejects_post_quantum_curve() {
+        // Known BIP-39 test mnemonic (do not use in production)
+        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let password = "";
+        let path = "m/44'/60'/0'/0/0";
+
+        let res = derive_keypair_from_path(mnemonic, password, path, CurveType::Dilithium3);
+
+        match res {
+            Err(HdError::DerivationFailed(msg)) => {
+                assert!(
+                    msg.contains("Post-quantum"),
+                    "unexpected error message: {}",
+                    msg
+                );
+            }
+            other => panic!("expected DerivationFailed for PQC curve, got: {:?}", other),
+        }
+    }
 }
 
 /// Derive multiple addresses using a path template that contains `{index}`.
