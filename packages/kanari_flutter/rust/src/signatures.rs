@@ -966,7 +966,7 @@ pub fn verify_signature_p256(
         Err(_) => {
             return Err(SignatureError::InvalidPublicKey(
                 "Invalid address format".to_string(),
-            ))
+            ));
         }
     };
 
