@@ -97,12 +97,19 @@ pub struct TransferFunctions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::address::Address as KanariAddress;
 
     #[test]
     fn test_transfer_record_creation() {
-        let record = TransferRecord::from_hex_literals("0x1", "0x2", 1000).unwrap();
-        let expected_from = AccountAddress::from_hex_literal("0x1").unwrap();
-        let expected_to = AccountAddress::from_hex_literal("0x2").unwrap();
+        let record = TransferRecord::from_hex_literals(
+            KanariAddress::STD_ADDRESS,
+            KanariAddress::KANARI_SYSTEM_ADDRESS,
+            1000,
+        )
+        .unwrap();
+        let expected_from = AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS).unwrap();
+        let expected_to =
+            AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap();
         assert_eq!(record.from, expected_from);
         assert_eq!(record.to, expected_to);
         assert_eq!(record.amount, 1000);
@@ -111,8 +118,8 @@ mod tests {
 
     #[test]
     fn test_transfer_validator() {
-        let addr1 = AccountAddress::from_hex_literal("0x1").unwrap();
-        let addr2 = AccountAddress::from_hex_literal("0x2").unwrap();
+        let addr1 = AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS).unwrap();
+        let addr2 = AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap();
 
         // Valid transfer
         assert!(TransferValidator::validate_addresses(&addr1, &addr2, 500).unwrap());

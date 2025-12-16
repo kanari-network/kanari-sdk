@@ -96,6 +96,7 @@ pub struct DenyListFunctions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::address::Address as KanariAddress;
     use move_core_types::account_address::AccountAddress;
 
     #[test]
@@ -113,8 +114,8 @@ mod tests {
 
     #[test]
     fn test_record_ops() {
-        let a1 = AccountAddress::from_hex_literal("0x1").unwrap();
-        let a2 = AccountAddress::from_hex_literal("0x2").unwrap();
+        let a1 = AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS).unwrap();
+        let a2 = AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap();
         let addr1: Address = a1.into();
         let addr2: Address = a2.into();
 

@@ -71,8 +71,10 @@ mod tests {
 
     #[test]
     fn test_uid_record_from_hex() {
-        let uid = UIDRecord::from_hex_literal("0x1").unwrap();
-        let expected = AccountAddress::from_hex_literal("0x1").unwrap();
+        use crate::address::Address as KanariAddress;
+
+        let uid = UIDRecord::from_hex_literal(KanariAddress::STD_ADDRESS).unwrap();
+        let expected = AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS).unwrap();
         assert_eq!(uid.addr, expected);
     }
 

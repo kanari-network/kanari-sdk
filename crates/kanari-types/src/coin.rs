@@ -180,10 +180,11 @@ pub struct CoinFunctions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::address::Address as KanariAddress;
 
     #[test]
     fn test_coin_creation() {
-        let uid = UIDRecord::from_hex_literal("0x1").unwrap();
+        let uid = UIDRecord::from_hex_literal(KanariAddress::STD_ADDRESS).unwrap();
         let balance = BalanceRecord::new(1000);
         let coin = CoinRecord::new(uid, balance);
         assert_eq!(coin.value(), 1000);
@@ -191,7 +192,7 @@ mod tests {
 
     #[test]
     fn test_coin_burn() {
-        let uid = UIDRecord::from_hex_literal("0x2").unwrap();
+        let uid = UIDRecord::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap();
         let balance = BalanceRecord::new(500);
         let coin = CoinRecord::new(uid, balance);
         let value = coin.burn();

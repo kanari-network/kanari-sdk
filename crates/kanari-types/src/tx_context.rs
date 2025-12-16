@@ -114,11 +114,13 @@ pub struct TxContextFunctions {
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use crate::address::Address as KanariAddress;
+    
     #[test]
     fn test_tx_context_creation() {
         let tx_hash = vec![1, 2, 3, 4];
-        let addr = AccountAddress::from_hex_literal("0x1").unwrap();
+
+        let addr = AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS).unwrap();
         let ctx = TxContextRecord::from_address(addr, tx_hash.clone(), 5, 1_600_000_000, 2);
         let expected_addr: crate::address::Address = addr.into();
         assert_eq!(ctx.sender(), &expected_addr);

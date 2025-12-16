@@ -239,13 +239,15 @@ impl ChangeSet {
 
 #[cfg(test)]
 mod tests {
+    use kanari_types::address::Address as KanariAddress;
+
     use super::*;
 
     #[test]
     fn test_changeset_transfer() {
         let mut cs = ChangeSet::new();
-        let from = AccountAddress::from_hex_literal("0x1").unwrap();
-        let to = AccountAddress::from_hex_literal("0x2").unwrap();
+        let from = AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS).unwrap();
+        let to = AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap();
 
         cs.transfer(from, to, 100);
 
@@ -258,7 +260,7 @@ mod tests {
     #[test]
     fn test_changeset_mint() {
         let mut cs = ChangeSet::new();
-        let to = AccountAddress::from_hex_literal("0x1").unwrap();
+        let to = AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS).unwrap();
 
         cs.mint(to, 1000);
 
@@ -269,7 +271,7 @@ mod tests {
     #[test]
     fn test_changeset_burn() {
         let mut cs = ChangeSet::new();
-        let from = AccountAddress::from_hex_literal("0x1").unwrap();
+        let from = AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS).unwrap();
 
         cs.burn(from, 500);
 
@@ -280,7 +282,8 @@ mod tests {
     #[test]
     fn test_changeset_module_publish() {
         let mut cs = ChangeSet::new();
-        let publisher = AccountAddress::from_hex_literal("0x2").unwrap();
+        let publisher =
+            AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap();
 
         cs.publish_module(publisher, "kanari".to_string());
 

@@ -93,7 +93,7 @@ async fn main() -> Result<()> {
             let mut rt = MoveRuntime::new()?;
             let bytes = std::fs::read(&path)?;
             // use system address as sender
-            let sender = AccountAddress::from_hex_literal("0x2")?;
+            let sender = AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS)?;
             println!("Publishing {}...", path.display());
             rt.publish_module(bytes, sender, None)?;
             println!("Published.");

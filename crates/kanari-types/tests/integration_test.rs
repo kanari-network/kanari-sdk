@@ -2,6 +2,7 @@
 //!
 //! ทดสอบการเชื่อมต่อระหว่าง Rust types และ Move modules
 
+use kanari_types::address::Address as KanariAddress;
 use kanari_types::stdlib::*;
 use kanari_types::*;
 use move_core_types::account_address::AccountAddress;
@@ -28,7 +29,8 @@ fn test_all_modules_have_valid_module_ids() {
 fn test_module_addresses_are_correct() {
     // Kanari system modules should be at 0x2
     let balance_module = balance::BalanceModule::get_module_id().unwrap();
-    let expected_addr = AccountAddress::from_hex_literal("0x2").unwrap();
+    let expected_addr =
+        AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap();
     assert_eq!(balance_module.address(), &expected_addr);
 
     let coin_module = coin::CoinModule::get_module_id().unwrap();
@@ -36,7 +38,7 @@ fn test_module_addresses_are_correct() {
 
     // Stdlib modules should be at 0x1
     let ascii_module = ascii::AsciiModule::get_module_id().unwrap();
-    let std_addr = AccountAddress::from_hex_literal("0x1").unwrap();
+    let std_addr = AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS).unwrap();
     assert_eq!(ascii_module.address(), &std_addr);
 
     let string_module = string::StringModule::get_module_id().unwrap();
@@ -113,7 +115,7 @@ fn test_data_structures_serializable() {
     assert_eq!(balance.value, deserialized.value);
 
     // Test Coin serialization
-    let uid = object::UIDRecord::from_hex_literal("0x2").unwrap();
+    let uid = object::UIDRecord::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap();
     let balance = balance::BalanceRecord::new(500);
     let coin = coin::CoinRecord::new(uid, balance);
     let json = serde_json::to_string(&coin).unwrap();
@@ -133,7 +135,7 @@ fn test_move_address_conversion() {
     use kanari_types::address::Address;
 
     // Create a Move AccountAddress
-    let move_addr = AccountAddress::from_hex_literal("0x2").unwrap();
+    let move_addr = AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap();
 
     // Convert to our Address
     let our_addr: Address = move_addr.into();
@@ -155,7 +157,12 @@ fn test_complete_workflow() {
     assert_eq!(balance.value, 1500);
 
     // 3. Create a transfer record
-    let transfer = transfer::TransferRecord::from_hex_literals("0x1", "0x2", 500).unwrap();
+    let transfer = transfer::TransferRecord::from_hex_literals(
+        KanariAddress::STD_ADDRESS,
+        KanariAddress::KANARI_SYSTEM_ADDRESS,
+        500,
+    )
+    .unwrap();
 
     // 4. Decrease balance by transfer amount
     balance.decrease(transfer.amount).unwrap();
@@ -182,8 +189,8 @@ fn test_stdlib_types_work_together() {
     assert!(ascii.all_characters_printable());
 
     // Test signer
-    let signer = signer::SignerRef::new("0x1".to_string());
-    assert_eq!(signer.address(), "0x1");
+    let signer = signer::SignerRef::new(KanariAddress::STD_ADDRESS.to_string());
+    assert_eq!(signer.address(), KanariAddress::STD_ADDRESS);
 }
 
 #[test]
