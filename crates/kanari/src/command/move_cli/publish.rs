@@ -68,11 +68,10 @@ impl Publish {
         // Build the package
         let compiled_package = config.compile_package(&rerooted_path, &mut std::io::stderr())?;
 
-        println!("Package compiled successfully!");
-        println!("   Modules: {}", compiled_package.all_modules().count());
-
-        // Get compiled modules
+        // Get compiled modules (collect once to avoid double iteration)
         let modules: Vec<_> = compiled_package.all_modules().collect();
+        println!("Package compiled successfully!");
+        println!("   Modules: {}", modules.len());
 
         if modules.is_empty() {
             bail!("No modules found in package");
@@ -85,11 +84,14 @@ impl Publish {
                 .as_ref()
                 .context("Password required for signing (use --password)")?;
 
-            let w = load_wallet(&self.sender, password).context(
+            let w = load_wallet(&sender_normalized, password).context(
                 "Failed to load wallet. Make sure the wallet exists and password is correct",
             )?;
 
-            println!("Wallet loaded: {} (curve: {})", self.sender, w.curve_type);
+            println!(
+                "Wallet loaded: {} (curve: {})",
+                sender_normalized, w.curve_type
+            );
             w
         };
 

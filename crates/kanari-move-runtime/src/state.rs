@@ -2,6 +2,7 @@ use crate::changeset::{ChangeSet, CreatedObject, Event};
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
 use kanari_types::address::Address as KanariAddress;
+use kanari_types::kanari::KanariModule;
 use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -89,8 +90,8 @@ impl StateManager {
     pub fn new() -> Self {
         let mut accounts = HashMap::new();
 
-        // Total supply in Mist (100 million KANARI * 10^9)
-        const TOTAL_SUPPLY_MIST: u64 = 100_000_000_000_000_000;
+        // Total supply in Mist (from kanari-types constants)
+        let total_supply_mist: u64 = KanariModule::TOTAL_SUPPLY_MIST;
 
         // Initialize system accounts
         let genesis_addr =
@@ -105,11 +106,11 @@ impl StateManager {
         accounts.insert(std_addr, Account::new(std_addr, 0));
         accounts.insert(system_addr, Account::new(system_addr, 0));
         accounts.insert(dao_addr, Account::new(dao_addr, 0));
-        accounts.insert(dev_addr, Account::new(dev_addr, TOTAL_SUPPLY_MIST));
+        accounts.insert(dev_addr, Account::new(dev_addr, total_supply_mist));
 
         Self {
             accounts,
-            total_supply: TOTAL_SUPPLY_MIST,
+            total_supply: total_supply_mist,
             events: Vec::new(),
             token_supplies: HashMap::new(),
             token_treasuries: HashMap::new(),

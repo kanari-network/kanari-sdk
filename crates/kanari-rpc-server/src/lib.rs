@@ -22,6 +22,31 @@ impl RpcServerState {
     }
 }
 
+// Helper to safely serialize response values and avoid panics from `to_value().unwrap()`
+fn respond_with_value(id: u64, val: serde_json::Value) -> RpcResponse {
+    RpcResponse {
+        jsonrpc: "2.0".to_string(),
+        result: Some(val),
+        error: None,
+        id,
+    }
+}
+
+fn respond_with_serialize<T: serde::Serialize>(id: u64, v: T) -> RpcResponse {
+    match serde_json::to_value(v) {
+        Ok(val) => respond_with_value(id, val),
+        Err(e) => RpcResponse {
+            jsonrpc: "2.0".to_string(),
+            result: None,
+            error: Some(RpcError::internal_error(format!(
+                "Serialization failed: {}",
+                e
+            ))),
+            id,
+        },
+    }
+}
+
 /// Create RPC server router
 pub fn create_router(state: RpcServerState) -> Router {
     let cors = CorsLayer::new()
@@ -122,12 +147,7 @@ async fn handle_get_account(state: &RpcServerState, request: &RpcRequest) -> Rpc
                 token_balances: info.token_balances,
                 owned_objects,
             };
-            RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: Some(serde_json::to_value(account_info).unwrap()),
-                error: None,
-                id: request.id,
-            }
+            respond_with_serialize(request.id, account_info)
         }
         None => RpcResponse {
             jsonrpc: "2.0".to_string(),
@@ -202,15 +222,11 @@ async fn handle_get_block(state: &RpcServerState, request: &RpcRequest) -> RpcRe
                 hash: block.hash.clone(),
                 prev_hash: block.prev_hash,
                 tx_count: block.tx_count,
-                state_root: hex::encode(&block.hash), // Use block hash as state root placeholder
+                // `block.hash` is already a hex string; avoid double-encoding
+                state_root: block.hash.clone(),
                 events: rpc_events,
             };
-            RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: Some(serde_json::to_value(block_info).unwrap()),
-                error: None,
-                id: request.id,
-            }
+            respond_with_serialize(request.id, block_info)
         }
         None => RpcResponse {
             jsonrpc: "2.0".to_string(),
@@ -243,12 +259,7 @@ async fn handle_get_stats(state: &RpcServerState, request: &RpcRequest) -> RpcRe
         total_accounts: stats.total_accounts,
         total_supply: stats.total_supply,
     };
-    RpcResponse {
-        jsonrpc: "2.0".to_string(),
-        result: Some(serde_json::to_value(blockchain_stats).unwrap()),
-        error: None,
-        id: request.id,
-    }
+    respond_with_serialize(request.id, blockchain_stats)
 }
 
 /// Handle submit transaction request
@@ -325,11 +336,13 @@ async fn handle_submit_transaction(state: &RpcServerState, request: &RpcRequest)
     } else if recipient.is_none() && tx_data.amount.is_some() {
         // Burn transaction (no recipient, amount provided)
         // Restrict burns to system/admin addresses only
-        let sender_hex = sender.to_hex_literal();
-        let allowed = sender_hex == kanari_types::address::Address::KANARI_SYSTEM_ADDRESS
-            || sender_hex == kanari_types::address::Address::DEV_ADDRESS;
+        // Compare Address types directly instead of string hex to avoid formatting issues
+        let system_addr =
+            Address::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS).unwrap_or(Address::ZERO);
+        let dev_addr = Address::from_hex_literal(Address::DEV_ADDRESS).unwrap_or(Address::ZERO);
+        let allowed = sender == system_addr || sender == dev_addr;
         if !allowed {
-            error!("Unauthorized burn attempt from {}", sender_hex);
+            error!("Unauthorized burn attempt from {}", sender.to_hex_literal());
             return RpcResponse {
                 jsonrpc: "2.0".to_string(),
                 result: None,
@@ -675,12 +688,7 @@ async fn handle_health(_state: &RpcServerState, request: &RpcRequest) -> RpcResp
         sync_status: "synced".to_string(),
     };
 
-    RpcResponse {
-        jsonrpc: "2.0".to_string(),
-        result: Some(serde_json::to_value(health).unwrap()),
-        error: None,
-        id: request.id,
-    }
+    respond_with_serialize(request.id, health)
 }
 
 /// Handle upgrade module (same as publish but with upgrade flag)
@@ -792,12 +800,7 @@ async fn handle_get_module(state: &RpcServerState, request: &RpcRequest) -> RpcR
                 size: bytecode.len(),
                 dependencies: vec![], // TODO: Extract dependencies from bytecode
             };
-            RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: Some(serde_json::to_value(module_info).unwrap()),
-                error: None,
-                id: request.id,
-            }
+            respond_with_serialize(request.id, module_info)
         }
         None => RpcResponse {
             jsonrpc: "2.0".to_string(),
@@ -831,12 +834,7 @@ async fn handle_list_modules(state: &RpcServerState, request: &RpcRequest) -> Rp
         })
         .collect();
 
-    RpcResponse {
-        jsonrpc: "2.0".to_string(),
-        result: Some(serde_json::to_value(modules).unwrap()),
-        error: None,
-        id: request.id,
-    }
+    respond_with_serialize(request.id, modules)
 }
 
 /// Handle verify module

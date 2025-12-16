@@ -106,7 +106,7 @@ impl Call {
         println!("Call Details:");
         println!("   Package: {}::{}", package_normalized, module_name);
         println!("   Function: {}", self.function);
-        println!("   Sender: {}", self.sender);
+        println!("   Sender: {}", sender_normalized);
         println!("   Gas Limit: {}", self.gas_limit);
         println!("   Gas Price: {}", self.gas_price);
 
@@ -117,13 +117,13 @@ impl Call {
                 .as_ref()
                 .context("Password required for signing (use --password)")?;
 
-            let w = load_wallet(&self.sender, password).context(
+            let w = load_wallet(&sender_normalized, password).context(
                 "Failed to load wallet. Make sure the wallet exists and password is correct",
             )?;
 
             println!(
                 "   Wallet loaded: {} (curve: {})",
-                self.sender, w.curve_type
+                sender_normalized, w.curve_type
             );
             w
         };

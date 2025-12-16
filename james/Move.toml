@@ -20,7 +20,7 @@ MoveStdlib = { local = "../crates/kanari-frameworks/packages/move-stdlib" }
 # Override = { local = "../conflicting/version", override = true }
 
 [addresses]
-james = "0xcad2d7c22a59ee74ee20a26a3326bde250507704039576244ec4794f61ecf659" # This package's named address, defaults to active config address
+james = "0x80f71b073dfe476a5ab86b92e6cd32ebd5199c497e5e47764fef8d480f8e844e" # This package's named address, defaults to active config address
 std = "0x1"
 kanari_system = "0x2"
 # Named addresses will be accessible in Move as `@name`. They're also exported:
