@@ -64,9 +64,14 @@ impl MoveCommand {
                 let system_addr =
                     AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap();
                 let crypto_natives = kanari_types::crypto::all_natives(system_addr).into_iter();
+                let transfer_natives =
+                    kanari_types::transfer_natives::all_natives(system_addr).into_iter();
 
                 // Merge all natives and pass into test runner
-                let natives = std_natives.chain(crypto_natives).collect();
+                let natives = std_natives
+                    .chain(crypto_natives)
+                    .chain(transfer_natives)
+                    .collect();
                 t.execute(None, config, natives, None)
             }
             MoveCommand::Docgen(d) => {

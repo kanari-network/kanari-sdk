@@ -31,7 +31,7 @@ impl BlockchainEngine {
         };
 
         let blockchain = if let Some(store) = &persistent_store {
-            if let Ok(Some(b)) = store.load_json::<Blockchain>("blockchain") {
+            if let Ok(Some(b)) = store.load::<Blockchain>("blockchain") {
                 Arc::new(RwLock::new(b))
             } else {
                 Arc::new(RwLock::new(Blockchain::new()))
@@ -41,7 +41,7 @@ impl BlockchainEngine {
         };
 
         let state = if let Some(store) = &persistent_store {
-            if let Ok(Some(s)) = store.load_json::<StateManager>("state_manager") {
+            if let Ok(Some(s)) = store.load::<StateManager>("state_manager") {
                 Arc::new(RwLock::new(s))
             } else {
                 Arc::new(RwLock::new(StateManager::new()))
@@ -473,13 +473,13 @@ impl BlockchainEngine {
         if let Some(store) = &self.persistent_store {
             // Persist blockchain
             store
-                .save_json("blockchain", &*chain)
+                .save("blockchain", &*chain)
                 .context("Failed to persist blockchain")?;
 
             // Persist state snapshot
             let state_guard = self.state.read().unwrap();
             store
-                .save_json("state_manager", &*state_guard)
+                .save("state_manager", &*state_guard)
                 .context("Failed to persist state manager")?;
         }
 

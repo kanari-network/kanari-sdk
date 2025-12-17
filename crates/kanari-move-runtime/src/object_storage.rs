@@ -63,9 +63,9 @@ impl ObjectStorage {
         // Load object index (list of ids) if present and rebuild in-memory maps
         let mut objects_map: HashMap<String, StoredObject> = HashMap::new();
 
-        if let Ok(Some(ids)) = store.load_json::<Vec<String>>(Self::OBJECT_INDEX_KEY) {
+        if let Ok(Some(ids)) = store.load::<Vec<String>>(Self::OBJECT_INDEX_KEY) {
             for id in ids.into_iter() {
-                if let Ok(Some(obj)) = store.load_json::<StoredObject>(&format!("object:{}", id)) {
+                if let Ok(Some(obj)) = store.load::<StoredObject>(&format!("object:{}", id)) {
                     objects_map.insert(id.clone(), obj);
                 }
             }
@@ -122,18 +122,18 @@ impl ObjectStorage {
         if let Some(store) = &self.persistent {
             // save object
             store
-                .save_json(&format!("object:{}", id.clone()), &obj)
+                .save(&format!("object:{}", id.clone()), &obj)
                 .map_err(|e| format!("Failed to persist object: {}", e))?;
 
             // update object index
             let mut ids = store
-                .load_json::<Vec<String>>(Self::OBJECT_INDEX_KEY)
+                .load::<Vec<String>>(Self::OBJECT_INDEX_KEY)
                 .map_err(|e| format!("Failed to load object index: {}", e))?
                 .unwrap_or_default();
             if !ids.iter().any(|x| x == &id) {
                 ids.push(id.clone());
                 store
-                    .save_json(Self::OBJECT_INDEX_KEY, &ids)
+                    .save(Self::OBJECT_INDEX_KEY, &ids)
                     .map_err(|e| format!("Failed to persist object index: {}", e))?;
             }
         }
@@ -151,7 +151,7 @@ impl ObjectStorage {
         }
 
         if let Some(store) = &self.persistent {
-            if let Ok(Some(obj)) = store.load_json::<StoredObject>(&format!("object:{}", id)) {
+            if let Ok(Some(obj)) = store.load::<StoredObject>(&format!("object:{}", id)) {
                 // populate in-memory caches
                 let _ = self.objects.write().map(|mut o| {
                     o.insert(id.to_string(), obj.clone());
@@ -219,12 +219,12 @@ impl ObjectStorage {
 
                 // update index
                 let mut ids = store
-                    .load_json::<Vec<String>>(Self::OBJECT_INDEX_KEY)
+                    .load::<Vec<String>>(Self::OBJECT_INDEX_KEY)
                     .map_err(|e| format!("Failed to load object index: {}", e))?
                     .unwrap_or_default();
                 ids.retain(|x| x != id);
                 store
-                    .save_json(Self::OBJECT_INDEX_KEY, &ids)
+                    .save(Self::OBJECT_INDEX_KEY, &ids)
                     .map_err(|e| format!("Failed to persist object index: {}", e))?;
             }
         }
@@ -274,7 +274,7 @@ impl ObjectStorage {
             if let Ok(objects) = self.objects.read() {
                 if let Some(obj) = objects.get(id) {
                     store
-                        .save_json(&format!("object:{}", id), obj)
+                        .save(&format!("object:{}", id), obj)
                         .map_err(|e| format!("Failed to persist transferred object: {}", e))?;
                 }
             }

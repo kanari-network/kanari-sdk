@@ -42,7 +42,7 @@ impl SignedTransaction {
     }
 
     pub fn hash(&self) -> Vec<u8> {
-        let serialized = serde_json::to_vec(self).unwrap();
+        let serialized = bcs::to_bytes(self).unwrap();
         hash_data_blake3(&serialized)
     }
 }
@@ -74,7 +74,7 @@ impl BlockHeader {
     }
 
     pub fn hash(&self) -> Vec<u8> {
-        let serialized = serde_json::to_vec(self).unwrap();
+        let serialized = bcs::to_bytes(self).unwrap();
         hash_data_blake3(&serialized)
     }
 }
@@ -123,7 +123,7 @@ pub enum Transaction {
 
 impl Transaction {
     pub fn hash(&self) -> Vec<u8> {
-        let serialized = serde_json::to_vec(self).unwrap();
+        let serialized = bcs::to_bytes(self).unwrap();
         hash_data_blake3(&serialized)
     }
 

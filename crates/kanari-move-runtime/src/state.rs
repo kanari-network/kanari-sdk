@@ -280,7 +280,7 @@ impl StateManager {
     }
 
     pub fn compute_state_root(&self) -> Vec<u8> {
-        let serialized = serde_json::to_vec(&self.accounts).unwrap();
+        let serialized = bcs::to_bytes(&self.accounts).unwrap();
         hash_data_blake3(&serialized)
     }
 
