@@ -12,7 +12,7 @@ pub struct PersistentStore {
 }
 
 impl PersistentStore {
-    /// Open default DB at `~/.kari/kanari-db/state_db`.
+    /// Open default DB at `~/.kanari/kanari-db/state_db`.
     pub fn open_default() -> Result<Self> {
         // Use shared DB; allow override with KANARI_STATE_DB env var for backwards compat.
         let db_path = std::env::var("KANARI_STATE_DB").ok().map(PathBuf::from);
@@ -41,5 +41,13 @@ impl PersistentStore {
             Ok(None) => Ok(None),
             Err(e) => Err(anyhow::anyhow!(format!("RocksDB error: {}", e))),
         }
+    }
+
+    /// Delete a key from the DB
+    pub fn delete(&self, key: &str) -> Result<()> {
+        self.db
+            .delete(key.as_bytes())
+            .context("Failed to delete key from PersistentStore RocksDB")?;
+        Ok(())
     }
 }

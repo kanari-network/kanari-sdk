@@ -17,7 +17,7 @@ use crate::gas::{GasMeter, GasOperation};
 use kanari_types::address::Address as KanariAddress;
 
 use crate::changeset::ChangeSet;
-use crate::object_storage::ObjectStorage;
+use crate::object_storage::ObjectStore;
 use crate::storage::move_vm_state::MoveVMState;
 use kanari_types::tx_context::TxContextRecord;
 
@@ -34,7 +34,7 @@ pub struct MoveRuntime {
     /// Index of published modules for faster listing
     pub(crate) published_modules: HashSet<ModuleId>,
     /// Persistent object storage for transferred objects
-    pub(crate) object_storage: ObjectStorage,
+    pub(crate) object_storage: Box<dyn ObjectStore>,
 }
 
 impl MoveRuntime {
@@ -83,7 +83,7 @@ impl MoveRuntime {
             state,
             enable_gas_metering,
             published_modules: HashSet::new(),
-            object_storage: ObjectStorage::new(),
+            object_storage: crate::object_storage::ObjectStorage::boxed_inmemory(),
         })
     }
 

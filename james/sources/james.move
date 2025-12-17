@@ -13,7 +13,7 @@ module james::james {
     /// Initialize and register the JAMES currency.
     /// Returns the `TreasuryCap<JAMES>` which can be used to mint tokens.
     /// This should be invoked once (e.g., during genesis or deployment).
-    public entry fun init(witness: JAMES ,ctx: &mut TxContext): TreasuryCap<JAMES> {
+    fun init(witness: JAMES ,ctx: &mut TxContext): TreasuryCap<JAMES> {
         let (treasury, metadata) = coin::create_currency<JAMES>(
             witness,
             9,
@@ -25,6 +25,14 @@ module james::james {
         );
         transfer::public_freeze_object(metadata);
         treasury
+    }
+
+    /// Public setup entry that creates the required `JAMES` witness
+    /// and invokes `init`. Callers may use this instead of providing
+    /// a witness directly.
+    public entry fun setup(ctx: &mut TxContext) {
+        let witness = JAMES {};
+        let _treasury = init(witness, ctx);
     }
 
 
