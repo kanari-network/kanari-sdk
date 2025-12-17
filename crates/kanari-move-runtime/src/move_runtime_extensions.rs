@@ -2,10 +2,9 @@
 // Includes module verification and advanced session management
 
 use anyhow::Result;
+use kanari_types::address::Address as KanariAddress;
 use move_binary_format::file_format::CompiledModule;
 use move_core_types::account_address::AccountAddress;
-#[allow(unused_imports)]
-use kanari_types::address::Address as KanariAddress;
 use move_core_types::language_storage::{ModuleId, TypeTag};
 use move_vm_test_utils::InMemoryStorage;
 use move_vm_types::gas::UnmeteredGasMeter;
@@ -31,7 +30,9 @@ impl MoveRuntime {
                 // Allow dependencies on stdlib (0x1) and system (0x2)
                 let addr = dep.address();
                 if addr != &AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS).unwrap()
-                    && addr != &AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap()
+                    && addr
+                        != &AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS)
+                            .unwrap()
                 {
                     anyhow::bail!(
                         "Missing dependency: {}::{}",
@@ -57,7 +58,8 @@ impl MoveRuntime {
         // We check by assuming stdlib/system modules are always available
         let addr = module_id.address();
         if addr == &AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS).unwrap()
-            || addr == &AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap()
+            || addr
+                == &AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap()
         {
             return true;
         }

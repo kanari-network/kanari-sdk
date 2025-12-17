@@ -1,0 +1,27 @@
+[package]
+name = "kanari-faucet"
+edition.workspace = true
+categories.workspace = true
+keywords.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[dependencies]
+tokio = { workspace = true, features = ["full"] }
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+kanari-rpc-client = { workspace = true }
+kanari-rpc-api = { workspace = true }
+kanari-crypto = { workspace = true }
+kanari-move-runtime = { workspace = true }
+kanari-types = { workspace = true }
+kanari-common = { workspace = true }
+
+dotenvy = "0.15.7"

@@ -8,8 +8,8 @@ pub mod new;
 pub mod publish;
 pub mod test;
 
-use move_core_types::{account_address::AccountAddress, identifier::Identifier};
 use kanari_types::address::Address as KanariAddress;
+use move_core_types::{account_address::AccountAddress, identifier::Identifier};
 use move_package::source_package::layout::SourcePackageLayout;
 use move_stdlib_natives::{GasParameters, NurseryGasParameters, all_natives, nursery_natives};
 use move_vm_runtime::native_functions::NativeFunction;
@@ -50,7 +50,8 @@ impl MoveCommand {
                 let config = move_package::BuildConfig::default();
                 // Construct standard library natives so native functions used by Move
                 // packages (e.g., stdlib and unit_test helpers) are available to the VM
-                let std_addr = AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS).unwrap();
+                let std_addr =
+                    AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS).unwrap();
                 let std_natives = all_natives(std_addr, GasParameters::zeros())
                     .into_iter()
                     .chain(nursery_natives(
@@ -60,7 +61,8 @@ impl MoveCommand {
                     ));
 
                 // Construct kanari crypto/system natives (registered under package address 0x2)
-                let system_addr = AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap();
+                let system_addr =
+                    AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap();
                 let crypto_natives = kanari_types::crypto::all_natives(system_addr).into_iter();
 
                 // Merge all natives and pass into test runner

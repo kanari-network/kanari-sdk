@@ -115,7 +115,7 @@ pub struct TxContextFunctions {
 mod tests {
     use super::*;
     use crate::address::Address as KanariAddress;
-    
+
     #[test]
     fn test_tx_context_creation() {
         let tx_hash = vec![1, 2, 3, 4];

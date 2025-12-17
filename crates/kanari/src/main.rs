@@ -4,6 +4,7 @@ use kanari_crypto::{
     keys::{CurveType, generate_keypair, generate_mnemonic, keypair_from_mnemonic},
     wallet::{Wallet, list_wallet_files, load_wallet, save_wallet, set_selected_wallet},
 };
+use kanari_faucet;
 use kanari_move_runtime::SignedTransaction;
 use kanari_rpc_client::RpcClient;
 use move_core_types::account_address::AccountAddress;
@@ -72,6 +73,28 @@ enum Commands {
         /// Wallet password
         #[arg(short, long)]
         password: String,
+    },
+    /// Request tokens from the Dev faucet
+    Faucet {
+        /// Recipient address (optional). If omitted, uses configured active_address
+        #[arg(short, long)]
+        to: Option<String>,
+
+        /// Amount in Kanari
+        #[arg(short, long)]
+        amount: f64,
+
+        /// Dev wallet address override (optional)
+        #[arg(long)]
+        dev_address: Option<String>,
+
+        /// Dev wallet password (optional; falls back to KANARI_PASSWORD env)
+        #[arg(long)]
+        dev_password: Option<String>,
+
+        /// RPC endpoint (optional)
+        #[arg(long)]
+        rpc: Option<String>,
     },
     /// Burn Kanari tokens from a wallet (remove from total supply)
     Burn {
@@ -183,6 +206,37 @@ fn main() -> Result<()> {
             if !seed_phrase.is_empty() {
                 println!("Seed phrase: {}", seed_phrase);
             }
+
+            Ok(())
+        }
+
+        Commands::Faucet {
+            to,
+            amount,
+            dev_address,
+            dev_password,
+            rpc,
+        } => {
+            runtime.block_on(async {
+                let rpc_url = rpc.unwrap_or_else(|| "http://127.0.0.1:3000".to_string());
+
+                let status = kanari_faucet::request_from_dev(
+                    dev_address.as_deref(),
+                    dev_password.as_deref(),
+                    to.as_deref(),
+                    amount,
+                    &rpc_url,
+                )
+                .await
+                .context("Faucet request failed")?;
+
+                println!(
+                    "Faucet tx submitted: hash={} status={}",
+                    status.hash, status.status
+                );
+
+                Ok::<(), anyhow::Error>(())
+            })?;
 
             Ok(())
         }

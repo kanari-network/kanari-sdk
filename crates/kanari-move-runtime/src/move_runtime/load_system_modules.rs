@@ -1,6 +1,6 @@
 use anyhow::Result;
-use move_core_types::account_address::AccountAddress;
 use kanari_types::address::Address as KanariAddress;
+use move_core_types::account_address::AccountAddress;
 
 /// Load move-stdlib and kanari-system modules as methods on `MoveRuntime`
 impl super::MoveRuntime {

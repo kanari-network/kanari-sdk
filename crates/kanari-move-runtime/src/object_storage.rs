@@ -1,11 +1,11 @@
+use crate::storage::persistent_store::PersistentStore;
+use anyhow::Result;
 /// Object Storage Layer for persistent object tracking
 /// Stores transferred objects that can be queried and used as function arguments
 use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use anyhow::Result;
-use crate::storage::persistent_store::PersistentStore;
 
 /// Trait abstraction for object storage backends. Allows swapping in-memory and
 /// persistent implementations without changing the runtime.
@@ -49,7 +49,7 @@ impl ObjectStorage {
             persistent: None,
         }
     }
-    
+
     /// Return a boxed in-memory `ObjectStore` trait object.
     pub fn boxed_inmemory() -> Box<dyn ObjectStore> {
         Box::new(Self::new())
@@ -63,7 +63,7 @@ impl ObjectStorage {
         // Load object index (list of ids) if present and rebuild in-memory maps
         let mut objects_map: HashMap<String, StoredObject> = HashMap::new();
 
-            if let Ok(Some(ids)) = store.load_json::<Vec<String>>(Self::OBJECT_INDEX_KEY) {
+        if let Ok(Some(ids)) = store.load_json::<Vec<String>>(Self::OBJECT_INDEX_KEY) {
             for id in ids.into_iter() {
                 if let Ok(Some(obj)) = store.load_json::<StoredObject>(&format!("object:{}", id)) {
                     objects_map.insert(id.clone(), obj);
@@ -74,7 +74,10 @@ impl ObjectStorage {
         // Build owner index from objects
         let mut owner_map: HashMap<AccountAddress, Vec<String>> = HashMap::new();
         for (id, obj) in objects_map.iter() {
-            owner_map.entry(obj.owner).or_insert_with(Vec::new).push(id.clone());
+            owner_map
+                .entry(obj.owner)
+                .or_insert_with(Vec::new)
+                .push(id.clone());
         }
 
         Ok(Self {
@@ -83,7 +86,7 @@ impl ObjectStorage {
             persistent: Some(store),
         })
     }
-    
+
     /// Return a boxed persistent `ObjectStore` trait object.
     pub fn boxed_with_persistence() -> Result<Box<dyn ObjectStore>> {
         Ok(Box::new(Self::new_with_persistence()?))
@@ -109,7 +112,10 @@ impl ObjectStorage {
                 .owner_index
                 .write()
                 .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
-                owner_index.entry(owner).or_insert_with(Vec::new).push(id.clone());
+            owner_index
+                .entry(owner)
+                .or_insert_with(Vec::new)
+                .push(id.clone());
         }
 
         // Persist to DB if available
@@ -151,7 +157,9 @@ impl ObjectStorage {
                     o.insert(id.to_string(), obj.clone());
                 });
                 let _ = self.owner_index.write().map(|mut idx| {
-                    idx.entry(obj.owner).or_insert_with(Vec::new).push(id.to_string());
+                    idx.entry(obj.owner)
+                        .or_insert_with(Vec::new)
+                        .push(id.to_string());
                 });
                 return Some(obj);
             }
@@ -254,7 +262,10 @@ impl ObjectStorage {
             }
 
             // Add to new owner
-                owner_index.entry(new_owner).or_insert_with(Vec::new).push(id.to_string());
+            owner_index
+                .entry(new_owner)
+                .or_insert_with(Vec::new)
+                .push(id.to_string());
         }
 
         // Persist updated object if available
