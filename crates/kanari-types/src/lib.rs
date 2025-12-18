@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::{collections::VecDeque, sync::Arc};
 
 use move_vm_runtime::native_functions::NativeFunction;

@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! ASCII Module - Move stdlib ascii implementation
 //!
 //! The ASCII module defines basic string and char newtypes that verify

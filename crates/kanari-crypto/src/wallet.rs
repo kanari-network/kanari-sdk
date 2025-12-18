@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Wallet management functionality
 //!
 //! This module handles wallet operations including creation, encryption,

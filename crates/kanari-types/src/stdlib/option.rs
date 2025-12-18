@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Option Module - Move stdlib option implementation
 //!
 //! This module defines the Option type to represent and handle optional values.

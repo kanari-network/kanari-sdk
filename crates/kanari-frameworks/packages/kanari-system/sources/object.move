@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 module kanari_system::object {
     use kanari_system::tx_context;
     use kanari_system::tx_context::TxContext;

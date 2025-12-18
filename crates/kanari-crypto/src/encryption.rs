@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Secure data encryption and decryption
 //!
 //! This module provides functions for encrypting and decrypting data using

@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 module kanari_system::ed25519 {
     /// constant codes
     const ED25519_PUBKEY_LENGTH: u64 = 32;

@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /// Production-Ready Transfer Module
 /// Uses proper address types with validation
 module kanari_system::transfer {

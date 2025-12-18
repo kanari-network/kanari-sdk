@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 pub mod blockchain;
 pub mod changeset;
 pub mod contract;
@@ -5,7 +8,6 @@ pub mod engine;
 pub mod gas;
 pub mod move_runtime;
 pub mod move_runtime_extensions;
-pub mod object_storage;
 pub mod state;
 pub mod storage;
 

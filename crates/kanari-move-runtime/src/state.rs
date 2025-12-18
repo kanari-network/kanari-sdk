@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use crate::changeset::{ChangeSet, CreatedObject, Event};
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;

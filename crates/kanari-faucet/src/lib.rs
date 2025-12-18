@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Library helpers for the kanari-faucet crate.
 //!
 //! Exposes an async function `request_from_dev` that other crates (for example

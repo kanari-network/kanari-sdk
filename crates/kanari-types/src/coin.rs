@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use crate::address::Address;
 use crate::balance::BalanceRecord;
 use crate::object::UIDRecord;

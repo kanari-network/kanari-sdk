@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use move_core_types::account_address::AccountAddress;
 use move_vm_runtime::native_functions::make_table_from_iter;
 use move_vm_types::natives::function::NativeResult;

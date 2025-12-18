@@ -1,3 +1,7 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+// Main entry point for Kanari blockchain node
 use anyhow::Result;
 use kanari_crypto::wallet::list_wallet_files;
 use kanari_move_runtime::{BlockchainEngine, MoveRuntime};

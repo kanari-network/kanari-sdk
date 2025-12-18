@@ -1,6 +1,8 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 // Extended functionality for MoveRuntime
 // Includes module verification and advanced session management
-
 use anyhow::Result;
 use kanari_types::address::Address as KanariAddress;
 use move_binary_format::file_format::CompiledModule;

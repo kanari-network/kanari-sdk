@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Key rotation mechanism for enhanced security
 //!
 //! This module provides automatic and manual key rotation capabilities

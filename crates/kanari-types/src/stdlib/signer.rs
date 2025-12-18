@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Signer Module - Move stdlib signer implementation
 //!
 //! The signer module defines operations for the Move `signer` native type.

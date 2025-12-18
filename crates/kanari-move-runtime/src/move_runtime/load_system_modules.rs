@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use anyhow::Result;
 use kanari_types::address::Address as KanariAddress;
 use move_core_types::account_address::AccountAddress;

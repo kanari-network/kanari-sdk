@@ -1,4 +1,4 @@
-// Copyright (c) Kanari Network
+// Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 use kanari_types::address::Address;

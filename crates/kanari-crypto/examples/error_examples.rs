@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Example: intentionally trigger and show common errors from kanari-crypto
 use kanari_crypto::keys::{CurveType, keypair_from_mnemonic};
 use kanari_crypto::signatures::{sign_message, verify_signature, verify_signature_with_curve};

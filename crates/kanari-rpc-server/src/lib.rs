@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Kanari RPC Server
 //!
 //! JSON-RPC server for Kanari blockchain using Axum framework

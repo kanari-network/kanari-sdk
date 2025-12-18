@@ -1,3 +1,9 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+// Compiler for Move packages into .rpd files
+// This module handles compiling Move source code into bytecode
+// and packaging it into .rpd files for deployment.
 use anyhow::{Context, Result};
 use kanari_types::address::Address;
 use move_command_line_common::address::NumericalAddress;

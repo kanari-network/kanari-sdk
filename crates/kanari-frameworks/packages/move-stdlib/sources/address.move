@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /// Provides a way to get address length since it's a
 /// platform-specific parameter.
 module std::address {

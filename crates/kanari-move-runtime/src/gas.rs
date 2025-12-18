@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use serde::{Deserialize, Serialize};
 
 /// Gas configuration and pricing for the Kanari blockchain

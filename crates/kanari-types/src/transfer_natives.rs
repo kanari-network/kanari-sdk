@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /// Native functions for object transfer with proper tracking
 /// Uses thread-local storage to track transferred objects for parse_move_changeset
 use move_core_types::account_address::AccountAddress;

@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use kanari_crypto::keys::{CurveType, generate_keypair};
 use kanari_crypto::signatures::{sign_message, verify_signature_with_keypair};
 

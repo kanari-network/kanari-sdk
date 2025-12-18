@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 module kanari_system::deny_list {
     use std::vector;
     use kanari_system::object;

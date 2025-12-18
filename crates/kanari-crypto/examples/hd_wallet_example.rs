@@ -1,5 +1,7 @@
-// cargo run -p kanari-crypto --example hd_wallet_example
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
 
+// cargo run -p kanari-crypto --example hd_wallet_example
 use kanari_crypto::keys::{CurveType, generate_mnemonic};
 use kanari_crypto::wallet::{Wallet, create_hd_wallet, load_wallet, save_hd_wallet, save_mnemonic};
 use std::error::Error;

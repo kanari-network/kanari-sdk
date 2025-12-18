@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /// This module defines the Option type and its methods to represent and handle an optional value.
 module std::option {
     use std::vector;

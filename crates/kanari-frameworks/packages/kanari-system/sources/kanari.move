@@ -1,7 +1,9 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /// Coin<KANARI> is the token used to pay for gas in KANARI.
 /// It has 9 decimals, and the smallest unit (10^-9) is called "MIST".
 module kanari_system::kanari {
-
     use kanari_system::coin;
     use kanari_system::coin::{Coin, TreasuryCap};
     use kanari_system::tx_context::{Self, TxContext};

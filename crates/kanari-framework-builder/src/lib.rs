@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Minimal library target for the kanari-framework-builder crate.
 /// This crate primarily uses a build script (`build.rs`).
 /// Cargo requires at least one library or binary target, so provide a small

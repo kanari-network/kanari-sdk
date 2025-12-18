@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 // TODO: rename ecdsa_k1 to secp256k1 due to signature types change
 module kanari_system::ecdsa_k1 {
 

@@ -1,6 +1,9 @@
-// Copyright (c) Kanari Team
+// Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+// Documentation generator for Move packages
+// This module handles generating documentation
+// for Move packages using move-docgen and move-errmapgen.
 use anyhow::{Context, Result};
 use log::LevelFilter;
 use move_command_line_common::{

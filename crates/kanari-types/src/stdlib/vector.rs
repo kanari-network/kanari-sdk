@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Vector Module - Move stdlib vector implementation
 //!
 //! A variable-sized container that can hold any type.

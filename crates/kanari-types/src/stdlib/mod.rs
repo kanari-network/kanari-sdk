@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Move Standard Library Rust Bindings
 //!
 //! This module provides Rust bindings for Move's standard library modules.

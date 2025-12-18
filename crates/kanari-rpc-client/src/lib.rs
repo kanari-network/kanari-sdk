@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Kanari RPC Client
 //!
 //! HTTP client for interacting with Kanari RPC server

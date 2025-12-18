@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! String Module - Move stdlib string implementation
 //!
 //! The string module defines the String type which represents UTF8 encoded strings.

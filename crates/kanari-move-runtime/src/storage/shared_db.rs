@@ -1,3 +1,7 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+// Shared RocksDB instance for Move VM state storage
 use anyhow::{Context, Result};
 use once_cell::sync::OnceCell;
 use rocksdb::{DB, Options};

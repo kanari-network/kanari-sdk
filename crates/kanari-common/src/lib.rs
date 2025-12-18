@@ -1,3 +1,7 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+// Configuration management for Kanari SDK
 use serde_yaml::{Mapping, Value};
 use std::fs::{self, File};
 use std::io::{self, Write};

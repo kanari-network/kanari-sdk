@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Error Module - Move stdlib error implementation
 //!
 //! This module defines error codes and categories for Move.

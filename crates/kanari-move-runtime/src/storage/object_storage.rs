@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use crate::storage::persistent_store::PersistentStore;
 use anyhow::Result;
 /// Object Storage Layer for persistent object tracking

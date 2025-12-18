@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /// Functionality for converting Move types into values. Use with care!
 module std::type_name {
     use std::ascii::String;

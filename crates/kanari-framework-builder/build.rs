@@ -1,3 +1,8 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+// Build script for compiling Move packages in kanari-frameworks/packages
+// using the move-package crate.
 use std::env;
 use std::fs;
 use std::io::{self};

@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use kanari_crypto::keys::{
     CurveType, generate_keypair, generate_mnemonic, keypair_from_mnemonic, keypair_from_private_key,
 };

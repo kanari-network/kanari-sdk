@@ -1,24 +1,29 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 // This file contains the MoveRuntime wrapper implementation.
 // It utilizes MoveVM and InMemoryStorage for executing functions and publishing modules.
 // Enhanced with native function support, gas metering, and session management.
-
 use anyhow::Result;
 use move_binary_format::file_format::CompiledModule;
 use move_core_types::account_address::AccountAddress;
-use move_core_types::effects::Op as MoveOp;
 use move_core_types::identifier::IdentStr;
 use move_core_types::language_storage::{ModuleId, TypeTag};
 use move_vm_runtime::move_vm::MoveVM;
 use move_vm_runtime::native_functions::NativeFunctionTable;
 use move_vm_test_utils::InMemoryStorage;
 use move_vm_types::gas::UnmeteredGasMeter;
+mod gas_ops;
+mod helpers;
 mod load_system_modules;
-use crate::gas::{GasMeter, GasOperation};
+mod object_ops;
+mod parsers;
+use crate::gas::GasOperation;
 use kanari_types::address::Address as KanariAddress;
 
 use crate::changeset::ChangeSet;
-use crate::object_storage::ObjectStore;
 use crate::storage::move_vm_state::MoveVMState;
+use crate::storage::object_storage::{ObjectStorage, ObjectStore};
 use kanari_types::tx_context::TxContextRecord;
 
 use std::collections::HashSet;
@@ -83,7 +88,7 @@ impl MoveRuntime {
             state,
             enable_gas_metering,
             published_modules: HashSet::new(),
-            object_storage: crate::object_storage::ObjectStorage::boxed_inmemory(),
+            object_storage: ObjectStorage::boxed_inmemory(),
         })
     }
 
@@ -370,354 +375,5 @@ impl MoveRuntime {
         }
 
         Ok(cs)
-    }
-
-    /// Get object by ID from ObjectStorage
-    pub fn get_object(&self, object_id: &str) -> Option<crate::object_storage::StoredObject> {
-        self.object_storage.get_object(object_id)
-    }
-
-    /// Get all objects owned by an address
-    pub fn get_objects_by_owner(
-        &self,
-        owner: &AccountAddress,
-    ) -> Vec<crate::object_storage::StoredObject> {
-        self.object_storage.get_objects_by_owner(owner)
-    }
-
-    /// Transfer object ownership
-    pub fn transfer_object_ownership(
-        &mut self,
-        object_id: &str,
-        new_owner: AccountAddress,
-    ) -> Result<()> {
-        self.object_storage
-            .transfer_object(object_id, new_owner)
-            .map_err(|e| anyhow::anyhow!(e))
-    }
-
-    /// Delete object from storage
-    pub fn delete_object(&mut self, object_id: &str) -> Result<()> {
-        self.object_storage
-            .delete_object(object_id)
-            .map_err(|e| anyhow::anyhow!(e))
-    }
-
-    /// Get object storage statistics
-    pub fn get_object_stats(&self) -> (usize, usize) {
-        let total_objects = self.object_storage.count();
-        let total_owners = 0; // Could add owner count tracking if needed
-        (total_objects, total_owners)
-    }
-
-    /// Helper to apply gas accounting to a ChangeSet. Handles sender debit + sequence increment
-    /// and credits gas to DAO. `sender` may be `None` for system-level calls.
-    fn apply_gas_info(
-        &self,
-        cs: &mut ChangeSet,
-        sender: Option<AccountAddress>,
-        gas_limit: u64,
-        gas_price: u64,
-        gas_op: GasOperation,
-    ) -> Result<()> {
-        let mut meter = GasMeter::new(gas_limit, gas_price);
-        meter.consume(gas_op.gas_units())?;
-        let gas_cost = meter.total_cost();
-
-        if let Some(saddr) = sender {
-            let sender_change = cs.get_or_create_change(saddr);
-            sender_change.increment_sequence();
-            sender_change.debit(gas_cost);
-        }
-
-        let dao_addr = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
-        cs.collect_gas(dao_addr, gas_cost);
-        cs.set_gas_used(meter.gas_used);
-        Ok(())
-    }
-
-    /// Parse Move VM ChangeSet and extract state changes into Kanari ChangeSet
-    /// This converts Move VM's canonical state changes into our domain model
-    pub(crate) fn parse_move_changeset(
-        &self,
-        move_cs: &move_core_types::effects::ChangeSet,
-        kanari_cs: &mut ChangeSet,
-    ) {
-        for (addr, account_changes) in move_cs.accounts() {
-            // Process module changes
-            for (module_name, op) in account_changes.modules() {
-                match op {
-                    MoveOp::New(_bytes) | MoveOp::Modify(_bytes) => {
-                        // Module published or updated
-                        kanari_cs.publish_module(*addr, module_name.to_string());
-                    }
-                    MoveOp::Delete => {
-                        // Module deletion (rare, but possible)
-                        eprintln!(
-                            "Warning: Module deletion detected for {}::{}",
-                            addr, module_name
-                        );
-                    }
-                }
-            }
-
-            // Process resource changes
-            for (struct_tag, op) in account_changes.resources() {
-                match op {
-                    MoveOp::New(bytes) | MoveOp::Modify(bytes) => {
-                        // Parse resource bytes and set per-account token balances when applicable
-                        if self.is_balance_resource(struct_tag) {
-                            if let Some(amount) = self.extract_balance_from_bytes(bytes, struct_tag)
-                            {
-                                if let Some(token_type) =
-                                    self.token_type_from_struct_tag(struct_tag)
-                                {
-                                    // Record absolute token balance for this account
-                                    kanari_cs.add_token_balance_set(
-                                        *addr,
-                                        token_type.clone(),
-                                        amount,
-                                    );
-                                    eprintln!(
-                                        "Set token balance for {}: {} = {}",
-                                        addr, token_type, amount
-                                    );
-                                }
-                            }
-                        }
-
-                        // Parse TreasuryCap resources: track total_supply and owner
-                        if self.is_treasury_resource(struct_tag) {
-                            if let Some(total) = self.extract_treasury_total_from_bytes(bytes) {
-                                if let Some(token_type) =
-                                    self.token_type_from_struct_tag(struct_tag)
-                                {
-                                    kanari_cs.add_treasury(*addr, token_type.clone(), total);
-                                    eprintln!(
-                                        "TreasuryCap for {} created/updated at {} with supply {}",
-                                        token_type, addr, total
-                                    );
-                                }
-                            }
-                        }
-
-                        // Detect created objects with UID in first bytes (object::UID.addr)
-                        // For all objects that have a UID field (standard Move object pattern)
-                        // the serialized layout starts with the UID address (32 bytes).
-                        let obj_id = if bytes.len() >= 32 {
-                            // Try to extract ID from first 32 bytes (UID pattern)
-                            let id_bytes = &bytes[0..32];
-                            hex::encode(id_bytes)
-                        } else {
-                            // Generate unique ID from address + struct_tag + sequence
-                            self.generate_object_id(addr, struct_tag, bytes)
-                        };
-
-                        let obj_type = if let Some(tt) = self.token_type_from_struct_tag(struct_tag)
-                        {
-                            tt
-                        } else {
-                            format!(
-                                "0x{}::{}::{}",
-                                struct_tag.address.short_str_lossless(),
-                                struct_tag.module.as_str(),
-                                struct_tag.name.as_str()
-                            )
-                        };
-
-                        // Record created object (version 0 for new objects)
-                        kanari_cs.add_created_object(
-                            obj_id.clone(),
-                            *addr,
-                            obj_type.clone(),
-                            bytes.to_vec(),
-                            0,
-                        );
-                        eprintln!(
-                            "Created object detected: id={} owner={} type={}",
-                            obj_id, addr, obj_type
-                        );
-                    }
-                    MoveOp::Delete => {
-                        // Resource deletion: if Coin/Balance deleted, set token balance to 0
-                        if self.is_balance_resource(struct_tag) {
-                            if let Some(token_type) = self.token_type_from_struct_tag(struct_tag) {
-                                kanari_cs.add_token_balance_set(*addr, token_type.clone(), 0);
-                                eprintln!(
-                                    "Deleted token resource for {}: {} -> balance 0",
-                                    addr, token_type
-                                );
-                            }
-                        } else {
-                            eprintln!("Resource deleted for {}: {}", addr, struct_tag);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// Add transferred objects from native function tracking to changeset
-    /// Also persists objects to ObjectStorage for later retrieval
-    fn add_transferred_objects(&mut self, cs: &mut ChangeSet) {
-        let transferred = kanari_types::transfer_natives::take_transferred_objects();
-
-        let count = transferred.len();
-        println!("[DEBUG] Processing {} transferred objects", count);
-
-        for obj in transferred {
-            println!(
-                "[DEBUG] Adding transferred object: id={}, type={}, owner={}, data_len={}",
-                obj.object_id,
-                obj.object_type,
-                obj.recipient,
-                obj.data.len()
-            );
-
-            // Add to created_objects in changeset (for immediate response)
-            cs.add_created_object(
-                obj.object_id.clone(),
-                obj.recipient,
-                obj.object_type.clone(),
-                obj.data.clone(),
-                0,
-            );
-
-            // Persist to ObjectStorage if flagged
-            if obj.should_persist {
-                let stored_obj = crate::object_storage::StoredObject {
-                    id: obj.object_id.clone(),
-                    owner: obj.recipient,
-                    type_name: obj.object_type.clone(),
-                    data: obj.data,
-                    version: 0,
-                };
-
-                match self.object_storage.store_object(stored_obj) {
-                    Ok(_) => {
-                        println!(
-                            "[DEBUG] ✓ Object {} persisted to ObjectStorage",
-                            obj.object_id
-                        );
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "[DEBUG] ✗ Failed to persist object {}: {}",
-                            obj.object_id, e
-                        );
-                    }
-                }
-            }
-        }
-
-        if count > 0 {
-            println!("[DEBUG] Total {} objects added to changeset", count);
-        }
-    }
-
-    /// Generate unique object ID from address, type, and data
-    /// Uses Blake3 hash for deterministic but unique IDs
-    fn generate_object_id(
-        &self,
-        owner: &AccountAddress,
-        struct_tag: &move_core_types::language_storage::StructTag,
-        data: &[u8],
-    ) -> String {
-        use kanari_crypto::hash_data_blake3;
-
-        // Create unique input: owner + module_id + struct_name + data
-        let mut input = Vec::new();
-        input.extend_from_slice(owner.as_ref());
-        input.extend_from_slice(struct_tag.address.as_ref());
-        input.extend_from_slice(struct_tag.module.as_str().as_bytes());
-        input.extend_from_slice(struct_tag.name.as_str().as_bytes());
-        input.extend_from_slice(data);
-
-        // Hash to get unique ID
-        let hash = hash_data_blake3(&input);
-        hex::encode(&hash[0..32]) // Use first 32 bytes for object ID
-    }
-
-    /// Check if struct tag represents a balance/coin resource
-    fn is_balance_resource(
-        &self,
-        struct_tag: &move_core_types::language_storage::StructTag,
-    ) -> bool {
-        // Common patterns: Coin<T>, Balance<T>, Account<T>
-        let name = struct_tag.name.as_str();
-        name == "Coin" || name == "Balance" || name == "Account"
-    }
-
-    fn is_treasury_resource(
-        &self,
-        struct_tag: &move_core_types::language_storage::StructTag,
-    ) -> bool {
-        struct_tag.name.as_str() == "TreasuryCap"
-    }
-
-    /// Extract balance value from bytes for resources that may include UID + Balance
-    fn extract_balance_from_bytes(
-        &self,
-        bytes: &[u8],
-        _struct_tag: &move_core_types::language_storage::StructTag,
-    ) -> Option<u64> {
-        // For `Balance<T>` serialized alone, the bytes are just u64 little-endian.
-        // For `Coin<T>` or `TreasuryCap<T>`, the layout is typically: UID (address) followed by u64.
-        // We'll try both: if length >= 8, prefer the last 8 bytes as the u64 value.
-        if bytes.len() >= 8 {
-            let start = bytes.len() - 8;
-            let balance_bytes: [u8; 8] = bytes[start..].try_into().ok()?;
-            Some(u64::from_le_bytes(balance_bytes))
-        } else {
-            None
-        }
-    }
-
-    fn extract_treasury_total_from_bytes(&self, bytes: &[u8]) -> Option<u64> {
-        // TreasuryCap layout: UID (address) + total_supply: u64
-        if bytes.len() >= 8 {
-            let start = bytes.len() - 8;
-            let supply_bytes: [u8; 8] = bytes[start..].try_into().ok()?;
-            Some(u64::from_le_bytes(supply_bytes))
-        } else {
-            None
-        }
-    }
-
-    fn token_type_from_struct_tag(
-        &self,
-        struct_tag: &move_core_types::language_storage::StructTag,
-    ) -> Option<String> {
-        use move_core_types::language_storage::TypeTag;
-        if let Some(first) = struct_tag.type_params.get(0) {
-            if let TypeTag::Struct(st) = first {
-                let addr = st.address.short_str_lossless();
-                let module = st.module.as_str().to_string();
-                let name = st.name.as_str().to_string();
-                return Some(format!("0x{}::{}::{}", addr, module, name));
-            }
-        }
-        None
-    }
-
-    /// Parse Move VM events and add to Kanari ChangeSet
-    /// Events provide an audit trail of all state changes
-    pub(crate) fn parse_move_events(
-        &self,
-        events: &[move_core_types::effects::Event],
-        kanari_cs: &mut ChangeSet,
-    ) {
-        use crate::changeset::Event;
-
-        for event in events.iter() {
-            let (key, sequence_number, type_tag, event_data) = event;
-            let kanari_event = Event {
-                key: key.clone(),
-                sequence_number: *sequence_number,
-                type_tag: format!("{}", type_tag),
-                event_data: event_data.clone(),
-            };
-            kanari_cs.add_event(kanari_event);
-        }
     }
 }

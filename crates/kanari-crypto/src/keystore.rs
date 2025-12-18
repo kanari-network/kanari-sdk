@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Keystore management functionality
 //!
 //! This module handles the kanari.keystore format for secure storage of wallet information.
