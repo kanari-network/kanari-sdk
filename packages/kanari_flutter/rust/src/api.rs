@@ -1,10 +1,11 @@
-// rust/src/api.rs
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
 
 use crate::keys::{CurveType, generate_keypair, keypair_from_mnemonic, keypair_from_private_key};
 use crate::signatures::{sign_message, verify_signature_with_curve};
 use serde::{Deserialize, Serialize};
 
-/// แสดงชื่อ curve อย่างปลอดภัยสำหรับ Dart
+/// Expose curve names safely for Dart
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CurveInfo {
     pub name: String,
@@ -13,17 +14,17 @@ pub struct CurveInfo {
     pub security_level: u8,
 }
 
-/// โครงสร้างข้อมูล keypair ที่ปลอดภัยสำหรับส่งผ่าน FFI
+/// KeyPair data structure safe for FFI transfer
 #[derive(Serialize, Deserialize, Debug)]
 pub struct KeyPairData {
-    pub private_key: String, // รูปแบบ "kanari...", "kanapqc...", "kanahybrid..."
+    pub private_key: String, // format "kanari...", "kanapqc...", "kanahybrid..."
     pub public_key: String,  // hex
     pub address: String,     // 0x...
     pub raw_public_key: Vec<u8>, // raw bytes of public key (for PQC verification)
-    pub curve_type: String,  // เช่น "K256", "Ed25519Dilithium3"
+    pub curve_type: String,  // e.g., "K256", "Ed25519Dilithium3"
 }
 
-/// สร้าง keypair ตามประเภท curve
+/// Generate a keypair for the specified curve type
 pub fn generate_keypair_api(curve_name: String) -> Result<KeyPairData, String> {
     let curve = parse_curve_type(&curve_name)
         .ok_or_else(|| format!("Unsupported curve type: {}", curve_name))?;
@@ -46,7 +47,7 @@ pub fn generate_keypair_api(curve_name: String) -> Result<KeyPairData, String> {
     })
 }
 
-/// สร้าง keypair จาก mnemonic (BIP39)
+/// Derive a keypair from a mnemonic (BIP39)
 pub fn derive_keypair_from_mnemonic(
     mnemonic: String,
     curve_name: String,
@@ -77,7 +78,7 @@ pub fn derive_keypair_from_mnemonic(
     })
 }
 
-/// สร้าง keypair จาก private key ที่ให้มา
+/// Import a keypair from a provided private key
 pub fn import_keypair_from_private_key(
     private_key: String,
     curve_name: String,
@@ -103,7 +104,7 @@ pub fn import_keypair_from_private_key(
     })
 }
 
-/// ลงนามข้อความ
+/// Sign a message
 pub fn sign_message_api(
     private_key: String,
     message: Vec<u8>,
@@ -115,7 +116,7 @@ pub fn sign_message_api(
     sign_message(&private_key, &message, curve).map_err(|e| format!("Signing failed: {}", e))
 }
 
-/// ตรวจสอบลายเซ็น
+/// Verify a signature
 pub fn verify_signature_api(
     address: String,
     message: Vec<u8>,
@@ -129,7 +130,7 @@ pub fn verify_signature_api(
         .map_err(|e| format!("Verification failed: {}", e))
 }
 
-/// สร้าง mnemonic แบบสุ่ม
+/// Generate a random mnemonic
 pub fn generate_mnemonic_api(word_count: usize) -> Result<String, String> {
     if word_count != 12 && word_count != 24 {
         return Err("Only 12 or 24-word mnemonics are supported".to_string());
@@ -139,7 +140,7 @@ pub fn generate_mnemonic_api(word_count: usize) -> Result<String, String> {
         .map_err(|e| format!("Mnemonic generation failed: {}", e))
 }
 
-/// ดึงข้อมูล curve ทั้งหมดที่รองรับ
+/// List all supported curves
 pub fn list_supported_curves() -> Vec<CurveInfo> {
     use CurveType::*;
     let curves = [

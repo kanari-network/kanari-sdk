@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 // Interactive example for kanari_crypto
 import 'dart:convert';
 import 'dart:io';

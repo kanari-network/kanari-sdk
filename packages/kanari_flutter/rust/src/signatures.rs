@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Digital signature creation and verification
 //!
 //! This module handles digital signatures across multiple curves, with unified

@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Secure cryptographic primitives for the Kanari blockchain platform
 //!
 //! This crate provides cryptographic operations including:

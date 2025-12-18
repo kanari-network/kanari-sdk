@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Hierarchical Deterministic (HD) Wallet utilities (BIP-32 / BIP-44 helpers)
 //!
 //! Small helpers to derive child private keys and produce KeyPairs compatible

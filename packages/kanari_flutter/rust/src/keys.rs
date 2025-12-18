@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Cryptographic key generation and management
 //!
 //! This module handles key generation for multiple curve types (K256/secp256k1,

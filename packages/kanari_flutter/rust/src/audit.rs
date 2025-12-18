@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Security audit logging for sensitive operations
 //!
 //! This module provides comprehensive audit logging for all cryptographic

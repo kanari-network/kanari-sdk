@@ -1,7 +1,6 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-
 //! Kanari RPC API Definitions
 //!
 //! Defines request/response types and RPC methods for Kanari blockchain

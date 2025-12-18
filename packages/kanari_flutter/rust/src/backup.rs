@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Backup and restore functionality for keystore
 //!
 //! This module provides secure backup and restore capabilities for the keystore,
