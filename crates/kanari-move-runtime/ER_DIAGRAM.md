@@ -34,8 +34,7 @@ erDiagram
 
 ```
 
-```markdown
-# ER Diagram — kanari-move-runtime (aligned to `src/` types)
+## ER Diagram — kanari-move-runtime (aligned to `src/` types)
 
 This document presents an ER-style view of the main runtime components and their relationships, using the actual public types from `crates/kanari-move-runtime/src/`.
 
