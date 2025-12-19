@@ -79,8 +79,22 @@ impl MoveRuntime {
             .collect();
 
         // Initialize VM with custom natives
+        // Before creating VM, log what natives we are about to register for visibility.
+        eprintln!(
+            "[RUNTIME] registering {} native functions for MoveVM",
+            all_natives.len()
+        );
+        for (addr, module_id, func_id, _nf) in all_natives.iter() {
+            eprintln!(
+                "[RUNTIME] native -> module: {}  function: {}  address: {:?}",
+                module_id, func_id, addr
+            );
+        }
+
         let vm = MoveVM::new(all_natives)
             .map_err(|e| anyhow::anyhow!(format!("VM init error: {:?}", e)))?;
+
+        eprintln!("[RUNTIME] MoveVM initialized (custom natives registered)");
 
         Ok(MoveRuntime {
             vm,
@@ -155,6 +169,29 @@ impl MoveRuntime {
         let (res, new_storage) = session.finish();
         let (move_changeset, events) =
             res.map_err(|e| anyhow::anyhow!(format!("finish error: {:?}", e)))?;
+
+        // Diagnostic: summarize Move VM changeset and events for debugging
+        {
+            let mut acct_count = 0usize;
+            let mut res_count = 0usize;
+            for (_addr, acct) in move_changeset.accounts() {
+                acct_count += 1;
+                res_count += acct.resources().len();
+            }
+            eprintln!(
+                "[RUNTIME] execute_entry_function: move_changeset accounts={}, total_resources={} events={}",
+                acct_count,
+                res_count,
+                events.len()
+            );
+
+            // Print event type summary
+            for event in events.iter() {
+                // event is a tuple: (key, sequence_number, type_tag, event_data)
+                let (_key, _seq, type_tag, _data) = event;
+                eprintln!("[RUNTIME] event: type={}", type_tag);
+            }
+        }
 
         // Apply changeset - if module exists, this will fail with "already exists"
         // In that case, we'll handle it as an upgrade

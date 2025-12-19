@@ -600,7 +600,51 @@ async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) -> R
             Ok((tx_hash, changeset)) => {
                 let tx_hash_hex = hex::encode(&tx_hash);
                 info!("Function executed immediately: {}", tx_hash_hex);
-                let cs_value = serde_json::to_value(&changeset).unwrap_or(serde_json::json!(null));
+                // Serialize the ChangeSet first
+                let mut cs_value =
+                    serde_json::to_value(&changeset).unwrap_or(serde_json::json!(null));
+
+                // If Move ChangeSet reported no created objects, try to fetch persisted
+                // objects from engine state (StateManager) for the sender address to
+                // provide better CLI feedback.
+                if let Some(obj_arr) = cs_value.get("created_objects").and_then(|v| v.as_array()) {
+                    if obj_arr.is_empty() {
+                        // attempt to look up owned objects from state using sender in request params
+                        if let Ok(call_req) = serde_json::from_value::<
+                            kanari_rpc_api::CallFunctionRequest,
+                        >(request.params.clone())
+                        {
+                            if let Ok(addr) =
+                                kanari_types::address::Address::from_hex_literal(&call_req.sender)
+                            {
+                                if let Ok(a) = move_core_types::account_address::AccountAddress::from_hex_literal(&addr.to_string()) {
+                                    let state_guard = state.engine.state.read().unwrap();
+                                    if let Some(ids) = state_guard.owned_objects.get(&a) {
+                                        // Build array of created objects from state.objects
+                                        let mut objs = Vec::new();
+                                        for id in ids.iter().rev().take(10) {
+                                            if let Some(co) = state_guard.objects.get(id) {
+                                                let o = serde_json::json!({
+                                                    "id": co.id,
+                                                    "type": co.type_.clone(),
+                                                    "owner": format!("0x{}", hex::encode(co.owner.as_ref())),
+                                                });
+                                                objs.push(o);
+                                            }
+                                        }
+                                        if !objs.is_empty() {
+                                            // replace created_objects field
+                                            if let Some(map) = cs_value.as_object_mut() {
+                                                map.insert("created_objects".to_string(), serde_json::Value::Array(objs));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 return RpcResponse {
                     jsonrpc: "2.0".to_string(),
                     result: Some(serde_json::json!({

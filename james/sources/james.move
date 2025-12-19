@@ -13,7 +13,7 @@ module james::james {
     /// Initialize and register the JAMES currency.
     /// Returns the `TreasuryCap<JAMES>` which can be used to mint tokens.
     /// This should be invoked once (e.g., during genesis or deployment).
-    fun init(witness: JAMES ,ctx: &mut TxContext): TreasuryCap<JAMES> {
+    fun init(witness: JAMES ,ctx: &mut TxContext): (TreasuryCap<JAMES>, coin::CoinMetadata<JAMES>) {
         let (treasury, metadata) = coin::create_currency<JAMES>(
             witness,
             9,
@@ -23,16 +23,19 @@ module james::james {
             option::none<kanari_system::url::Url>(),
             ctx,
         );
-        transfer::public_freeze_object(metadata);
-        treasury
+        // Return both TreasuryCap and Metadata so callers can persist them.
+        (treasury, metadata)
     }
 
-    /// Public setup entry that creates the required `JAMES` witness
-    /// and invokes `init`. Callers may use this instead of providing
-    /// a witness directly.
+    /// Public setup entry that creates the required `JAMES` witness,
+    /// invokes `init`, and transfers the created objects to the
+    /// transaction sender so they are persisted in the caller's account.
     public entry fun setup(ctx: &mut TxContext) {
         let witness = JAMES {};
-        let _treasury = init(witness, ctx);
+        let (treasury, metadata) = init(witness, ctx);
+        let sender = kanari_system::tx_context::sender(ctx);
+        transfer::public_transfer(treasury, sender);
+        transfer::public_transfer(metadata, sender);
     }
 
 
@@ -45,8 +48,9 @@ module james::james {
         recipient: address,
         ctx: &mut TxContext
     ) {
-        let coin = coin::mint(treasury_cap, amount, ctx);
-        transfer::public_transfer(coin, recipient);
+        // Use `mint_and_transfer` to mint and credit the recipient in one
+        // operation. This updates the runtime token balances as expected.
+        coin::mint_and_transfer<JAMES>(treasury_cap, amount, recipient, ctx);
     }
 
 

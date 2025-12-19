@@ -115,7 +115,7 @@ fn native_transfer_with_uid(
         hex::encode(&hash[0..32])
     };
 
-    println!(
+    eprintln!(
         "[NATIVE] transfer_with_uid: object_id={}, type={}, recipient={}, data_len={}",
         obj_id,
         type_str,
@@ -123,14 +123,26 @@ fn native_transfer_with_uid(
         obj_data.len()
     );
 
+    // Diagnostic: log before recording transfer
+    eprintln!(
+        "[NATIVE] record_transfer: before recording object_id={}",
+        obj_id
+    );
+
     // Record the transfer in thread-local storage
     record_transfer(TransferredObject {
-        object_id: obj_id,
-        object_type: type_str,
+        object_id: obj_id.clone(),
+        object_type: type_str.clone(),
         recipient,
         data: obj_data,
         should_persist: true, // Mark for persistent storage
     });
+
+    // Diagnostic: log after recording transfer
+    eprintln!(
+        "[NATIVE] record_transfer: after recording object_id={}",
+        obj_id
+    );
 
     // Consume the object (it's been transferred)
     drop(obj_val);

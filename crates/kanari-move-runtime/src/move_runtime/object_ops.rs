@@ -48,10 +48,10 @@ impl super::MoveRuntime {
         let transferred = kanari_types::transfer_natives::take_transferred_objects();
 
         let count = transferred.len();
-        println!("[DEBUG] Processing {} transferred objects", count);
+        eprintln!("[DEBUG] Processing {} transferred objects", count);
 
         for obj in transferred {
-            println!(
+            eprintln!(
                 "[DEBUG] Adding transferred object: id={}, type={}, owner={}, data_len={}",
                 obj.object_id,
                 obj.object_type,
@@ -80,7 +80,7 @@ impl super::MoveRuntime {
 
                 match self.object_storage.store_object(stored_obj) {
                     Ok(_) => {
-                        println!(
+                        eprintln!(
                             "[DEBUG] ✓ Object {} persisted to ObjectStorage",
                             obj.object_id
                         );
@@ -96,7 +96,7 @@ impl super::MoveRuntime {
         }
 
         if count > 0 {
-            println!("[DEBUG] Total {} objects added to changeset", count);
+            eprintln!("[DEBUG] Total {} objects added to changeset", count);
         }
     }
 }

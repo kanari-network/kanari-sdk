@@ -97,6 +97,52 @@ impl Balances {
                     }
                 }
                 println!("\nTotal tokens: {}", balances.len());
+                // If only the native KANARI balance is present, attempt a best-effort
+                // fallback: inspect account `owned_objects` for token metadata (e.g., TreasuryCap/CoinMetadata)
+                if balances.len() == 1 {
+                    if let Some(first) = balances.get(0) {
+                        if first.get("token_type").and_then(|t| t.as_str()) == Some("KANARI") {
+                            // Fetch full account info and look for token objects
+                            let acct_req = serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "method": "kanari_getAccount",
+                                "params": { "address": self.address },
+                                "id": 1
+                            });
+
+                            if let Ok(resp) = Client::new()
+                                .post(&self.rpc_endpoint)
+                                .json(&acct_req)
+                                .send()
+                            {
+                                if let Ok(val) = resp.json::<serde_json::Value>() {
+                                    if let Some(result_acc) = val.get("result") {
+                                        if let Some(owned) = result_acc
+                                            .get("owned_objects")
+                                            .and_then(|v| v.as_array())
+                                        {
+                                            println!("\nDetected owned objects (possible tokens):");
+                                            for obj in owned.iter() {
+                                                let id = obj
+                                                    .get("id")
+                                                    .and_then(|v| v.as_str())
+                                                    .unwrap_or("?");
+                                                let ty = obj
+                                                    .get("type_")
+                                                    .and_then(|v| v.as_str())
+                                                    .unwrap_or("?");
+                                                println!("  {}  ({})", id, ty);
+                                            }
+                                            println!(
+                                                "\nTip: use `kanari account get --address <addr>` to inspect object data and determine token types."
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             } else {
                 println!("No balances found");
             }

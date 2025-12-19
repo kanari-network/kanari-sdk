@@ -13,6 +13,16 @@ impl super::MoveRuntime {
         move_cs: &move_core_types::effects::ChangeSet,
         kanari_cs: &mut ChangeSet,
     ) {
+        // Diagnostic: print top-level summary of incoming Move changeset
+        let acct_len = move_cs.accounts().len();
+        let mut total_resources = 0usize;
+        for (_addr, acct) in move_cs.accounts() {
+            total_resources += acct.resources().len();
+        }
+        eprintln!(
+            "[PARSER] parse_move_changeset: accounts={}, total_resources={}",
+            acct_len, total_resources
+        );
         for (addr, account_changes) in move_cs.accounts() {
             // Process module changes
             for (module_name, op) in account_changes.modules() {
