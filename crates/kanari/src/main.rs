@@ -4,12 +4,14 @@
 //! Main CLI binary for Kanari - A Move-based money transfer system
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use kanari_core::{SignedTransaction, Transaction};
 use kanari_crypto::{
     keys::{CurveType, generate_keypair, generate_mnemonic, keypair_from_mnemonic},
     wallet::{Wallet, list_wallet_files, load_wallet, save_wallet, set_selected_wallet},
 };
 use kanari_faucet;
-use kanari_move_runtime::SignedTransaction;
+
+use kanari_rpc_api::SignedTransactionData;
 use kanari_rpc_client::RpcClient;
 use move_core_types::account_address::AccountAddress;
 use std::str::FromStr;
@@ -450,7 +452,7 @@ fn main() -> Result<()> {
                     .context("Failed to get sender account")?;
 
                 // Create and sign transaction (include sequence number so signature matches server verification)
-                let tx = kanari_move_runtime::Transaction::Transfer {
+                let tx = Transaction::Transfer {
                     from: from_addr.clone(),
                     to: to.clone(),
                     amount: amount_mist,
@@ -472,7 +474,6 @@ fn main() -> Result<()> {
                 println!("  Submitting transaction to node...");
 
                 // Convert SignedTransaction to RPC format
-                use kanari_rpc_api::SignedTransactionData;
                 let tx_data = SignedTransactionData {
                     sender: from_addr.clone(),
                     recipient: Some(to.clone()),
@@ -550,7 +551,7 @@ fn main() -> Result<()> {
                     .context("Failed to get sender account")?;
 
                 // Create burn transaction
-                let tx = kanari_move_runtime::Transaction::Burn {
+                let tx = Transaction::Burn {
                     from: from_addr.clone(),
                     amount: amount_mist,
                     gas_limit: 100_000,
@@ -570,7 +571,6 @@ fn main() -> Result<()> {
 
                 println!("  Submitting burn transaction to node...");
 
-                use kanari_rpc_api::SignedTransactionData;
                 let tx_data = SignedTransactionData {
                     sender: from_addr.clone(),
                     recipient: None,

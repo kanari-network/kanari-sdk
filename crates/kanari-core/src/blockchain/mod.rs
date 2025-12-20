@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Blockchain data structures and operations
-use crate::changeset::Event;
+use kanari_move_runtime::changeset::Event;
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
 use kanari_crypto::keys::CurveType;

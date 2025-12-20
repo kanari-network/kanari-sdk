@@ -40,6 +40,7 @@ hex = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 
 # Local dependencies
+kanari-core = { workspace = true }
 kanari-crypto = { workspace = true }
 kanari-types = { workspace = true }
 kanari-move-runtime = { workspace = true }

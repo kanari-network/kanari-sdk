@@ -4,6 +4,7 @@
 use super::reroot_path;
 use anyhow::{Context, Result, bail};
 use clap::*;
+use kanari_core::Transaction;
 use kanari_crypto::wallet::load_wallet;
 use kanari_types::address::Address;
 use move_package::BuildConfig;
@@ -193,7 +194,6 @@ impl Publish {
 
             // Sign transaction using the loaded wallet
             let signature = {
-                use kanari_move_runtime::Transaction;
                 let transaction = Transaction::PublishModule {
                     sender: sender_normalized.clone(),
                     module_bytes: module_bytecode.clone(),

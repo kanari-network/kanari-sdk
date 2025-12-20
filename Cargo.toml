@@ -27,7 +27,7 @@ members = [
       "crates/kanari-rpc-server",
       "crates/kanari-faucet",
       "packages/kanari_flutter/rust"
-]
+, "crates/kanari-core"]
 
 # Workspace Package Configuration: Metadata for the entire workspace as a package.
 # This information is used when publishing the SDK as a crate.
@@ -131,6 +131,7 @@ kanari-rpc-api = { path = "crates/kanari-rpc-api" }
 kanari-rpc-client = { path = "crates/kanari-rpc-client" }
 kanari-rpc-server = { path = "crates/kanari-rpc-server" }
 kanari-faucet = { path = "crates/kanari-faucet" }
+kanari-core = { path = "crates/kanari-core" }
 
 # Move dependencies
 move-binary-format = { path = "third_party/move/crates/move-binary-format" }

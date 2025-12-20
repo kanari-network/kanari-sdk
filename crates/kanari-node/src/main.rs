@@ -3,8 +3,9 @@
 
 // Main entry point for Kanari blockchain node
 use anyhow::Result;
+use kanari_core::BlockchainEngine;
 use kanari_crypto::wallet::list_wallet_files;
-use kanari_move_runtime::{BlockchainEngine, MoveRuntime};
+use kanari_move_runtime::MoveRuntime;
 use kanari_rpc_server::start_server;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::kanari::KanariModule;

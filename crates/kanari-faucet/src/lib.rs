@@ -9,6 +9,7 @@
 use anyhow::Context;
 use dotenvy;
 use kanari_common::get_main_wallet;
+use kanari_core::{SignedTransaction, Transaction};
 use kanari_rpc_api::SignedTransactionData;
 use kanari_rpc_client::RpcClient;
 use kanari_types::address::Address;
@@ -81,7 +82,7 @@ pub async fn request_from_dev(
     const MIST_PER_KANARI: f64 = 1_000_000_000.0;
     let amount_mist = (amount * MIST_PER_KANARI).round() as u64;
 
-    let tx = kanari_move_runtime::Transaction::Transfer {
+    let tx = Transaction::Transfer {
         from: dev_address.clone(),
         to: recipient.clone(),
         amount: amount_mist,
@@ -90,7 +91,7 @@ pub async fn request_from_dev(
         sequence_number: account.sequence_number,
     };
 
-    let mut signed_tx = kanari_move_runtime::SignedTransaction::new(tx);
+    let mut signed_tx = SignedTransaction::new(tx);
     signed_tx
         .sign(&wallet.private_key, wallet.curve_type)
         .context("Failed to sign transaction with Dev wallet")?;

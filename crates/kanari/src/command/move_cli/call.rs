@@ -3,6 +3,7 @@
 
 use anyhow::{Context, Result};
 use clap::*;
+use kanari_core::Transaction;
 use kanari_crypto::wallet::load_wallet;
 use kanari_types::address::Address;
 use move_core_types::{account_address::AccountAddress, language_storage::TypeTag, parser};
@@ -210,7 +211,6 @@ impl Call {
             let module_full = format!("{}::{}", package_normalized, module_name);
 
             // Create proper Transaction to match server's expectation
-            use kanari_move_runtime::Transaction;
             let transaction = Transaction::ExecuteFunction {
                 sender: sender_normalized.clone(),
                 module: module_full.clone(),

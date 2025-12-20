@@ -20,8 +20,7 @@ serde_json = { workspace = true }
 kanari-rpc-client = { workspace = true }
 kanari-rpc-api = { workspace = true }
 kanari-crypto = { workspace = true }
-kanari-move-runtime = { workspace = true }
 kanari-types = { workspace = true }
 kanari-common = { workspace = true }
-
+kanari-core = { workspace = true }
 dotenvy = "0.15.7"

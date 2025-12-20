@@ -15,6 +15,7 @@ description.workspace = true
 kanari-rpc-api.workspace = true
 kanari-move-runtime.workspace = true
 kanari-types.workspace = true
+kanari-core.workspace = true
 tokio = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }

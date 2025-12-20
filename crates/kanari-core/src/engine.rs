@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::blockchain::{Block, Blockchain, SignedTransaction, Transaction};
-use crate::changeset::{ChangeSet, Event};
-use crate::contract::{ContractCall, ContractDeployment, ContractInfo, ContractRegistry};
-use crate::gas::{GasMeter, GasOperation};
-use crate::move_runtime::MoveRuntime;
-use crate::state::StateManager;
-use crate::storage::persistent_store::PersistentStore;
+use kanari_move_runtime::ContractABI;
+use kanari_move_runtime::changeset::{ChangeSet, Event};
+use kanari_move_runtime::contract::{ContractCall, ContractDeployment, ContractInfo, ContractRegistry};
+use kanari_move_runtime::gas::{GasMeter, GasOperation};
+use kanari_move_runtime::move_runtime::MoveRuntime;
+use kanari_move_runtime::state::StateManager;
+use kanari_move_runtime::storage::persistent_store::PersistentStore;
 use anyhow::{Context, Result};
 use kanari_types::address::Address as KanariAddress;
 use move_core_types::{account_address::AccountAddress, language_storage::ModuleId};
@@ -588,7 +589,7 @@ impl BlockchainEngine {
             bytecode: deployment.bytecode,
             deployment_tx: tx_hash.clone(),
             deployed_at: block_height,
-            abi: crate::contract::ContractABI::new(),
+            abi: ContractABI::new(),
             metadata: deployment.metadata,
         };
 
