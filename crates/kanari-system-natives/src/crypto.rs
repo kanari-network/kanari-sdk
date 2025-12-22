@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use move_core_types::account_address::AccountAddress;
+use move_vm_runtime::native_charge_gas_early_exit;
 use move_vm_runtime::native_functions::make_table_from_iter;
 use move_vm_types::natives::function::NativeResult;
 use move_vm_types::natives::function::PartialVMResult;
@@ -26,9 +27,22 @@ use sha2::Sha256;
 use sha3::{Digest, Keccak256};
 
 use ed25519_dalek::{Signature as EdSignature, VerifyingKey as EdPublicKey};
+use move_core_types::gas_algebra::InternalGas;
 use std::convert::TryInto;
 
 use crate::make_native;
+
+// Error codes for native crypto functions
+const E_INVALID_RECOVERY: u64 = 1;
+const E_INVALID_SIGNATURE: u64 = 2;
+const E_INVALID_PUBKEY: u64 = 3;
+const E_UNSUPPORTED_HASH_FOR_P256: u64 = 4;
+const E_INVALID_XONLY_PUBKEY: u64 = 5;
+const E_INVALID_MESSAGE: u64 = 6;
+const E_INVALID_SCHNORR_SIGNATURE: u64 = 7;
+
+// Maximum message length accepted by natives (prevent large-memory DoS)
+const MAX_MSG_BYTES: usize = 1_000_000; // 1 MB
 
 pub fn all_natives(
     move_addr: AccountAddress,
@@ -40,6 +54,8 @@ pub fn all_natives(
         move |context, _ty_args, mut arguments| -> PartialVMResult<NativeResult> {
             use move_vm_types::natives::function::NativeResult as NR;
 
+            native_charge_gas_early_exit!(context, InternalGas::new(5000));
+
             // pop in reverse order: hash, msg, signature
             let hash_type: u8 = pop_arg!(arguments, u8);
             let msg_ref: VectorRef = pop_arg!(arguments, VectorRef);
@@ -50,7 +66,12 @@ pub fn all_natives(
             // simple gas cost = 0
             // Validate signature length
             if signature.len() != 65 {
-                return Ok(NR::err(context.gas_used(), 2)); // ErrorInvalidSignature
+                return Ok(NR::err(context.gas_used(), E_INVALID_SIGNATURE));
+            }
+
+            // Prevent overly large messages
+            if msg.len() > MAX_MSG_BYTES {
+                return Ok(NR::err(context.gas_used(), E_INVALID_MESSAGE));
             }
 
             // hash
@@ -64,35 +85,39 @@ pub fn all_natives(
             };
 
             // Recover: use secp256k1 to recover public key from (r,s,v)
-            if signature.len() != 65 {
-                return Ok(NR::err(context.gas_used(), 1));
-            }
             let mut sig64 = [0u8; 64];
             sig64.copy_from_slice(&signature[0..64]);
             let v = signature[64];
-            // RecoveryId implements TryFrom<i32> in this secp256k1 version
-            let rec_id = match SecpRecoveryId::try_from((v % 4) as i32) {
+            // RecoveryId: accept 0..=3 or legacy 27/28 values; reject others
+            let rec_id = if v <= 3 {
+                SecpRecoveryId::try_from(v as i32)
+            } else if v == 27 || v == 28 {
+                SecpRecoveryId::try_from((v - 27) as i32)
+            } else {
+                Err(secp256k1::Error::InvalidSignature)
+            };
+            let rec_id = match rec_id {
                 Ok(r) => r,
-                Err(_) => return Ok(NR::err(context.gas_used(), 1)),
+                Err(_) => return Ok(NR::err(context.gas_used(), E_INVALID_RECOVERY)),
             };
             let secp_sig = match SecpRecoverableSignature::from_compact(&sig64, rec_id) {
                 Ok(s) => s,
-                Err(_) => return Ok(NR::err(context.gas_used(), 1)),
+                Err(_) => return Ok(NR::err(context.gas_used(), E_INVALID_RECOVERY)),
             };
             let secp = Secp256k1::new();
-            // Message expects 32-byte hash
-            let msg32: [u8; 32] = if msg_hash.len() == 32 {
-                msg_hash.clone().try_into().unwrap()
-            } else {
-                let mut a = [0u8; 32];
-                a.copy_from_slice(&msg_hash[0..32]);
-                a
+            // Message expects a 32-byte hash. Enforce exact length rather than truncating/padding.
+            if msg_hash.len() != 32 {
+                return Ok(NR::err(context.gas_used(), E_INVALID_MESSAGE));
+            }
+            let msg32: [u8; 32] = match msg_hash.try_into() {
+                Ok(arr) => arr,
+                Err(_) => return Ok(NR::err(context.gas_used(), E_INVALID_MESSAGE)),
             };
             // Use `from_digest` to construct a Message from a 32-byte digest (avoids deprecated API)
             let message = SecpMessage::from_digest(msg32);
             let pubkey = match secp.recover_ecdsa(message, &secp_sig) {
                 Ok(pk) => pk,
-                Err(_) => return Ok(NR::err(context.gas_used(), 1)),
+                Err(_) => return Ok(NR::err(context.gas_used(), E_INVALID_RECOVERY)),
             };
             // Convert secp public key to compressed bytes (33) and return
             let out = SecpPublicKey::from(pubkey).serialize().to_vec();
@@ -104,15 +129,15 @@ pub fn all_natives(
     let decompress_native = make_native(
         move |context, _ty_args, mut arguments| -> PartialVMResult<NativeResult> {
             use move_vm_types::natives::function::NativeResult as NR;
+            native_charge_gas_early_exit!(context, InternalGas::new(1000));
             let pubkey_ref: VectorRef = pop_arg!(arguments, VectorRef);
             let pubkey: Vec<u8> = pubkey_ref.as_bytes_ref().to_vec();
 
             // Accept compressed (33) or uncompressed (65) and return uncompressed 65
-            let pk_res = K256PublicKey::from_sec1_bytes(&pubkey);
-            if pk_res.is_err() {
-                return Ok(NR::err(context.gas_used(), 3)); // ErrorInvalidPubKey
-            }
-            let pk = pk_res.unwrap();
+            let pk = match K256PublicKey::from_sec1_bytes(&pubkey) {
+                Ok(p) => p,
+                Err(_) => return Ok(NR::err(context.gas_used(), E_INVALID_PUBKEY)),
+            };
             let ep = pk.to_encoded_point(false);
             let out = ep.as_bytes().to_vec();
             Ok(NR::ok(context.gas_used(), smallvec![Value::vector_u8(out)]))
@@ -123,6 +148,7 @@ pub fn all_natives(
     let verify_k1 = make_native(
         move |context, _ty_args, mut arguments| -> PartialVMResult<NativeResult> {
             use move_vm_types::natives::function::NativeResult as NR;
+            native_charge_gas_early_exit!(context, InternalGas::new(2000));
             let hash_type: u8 = pop_arg!(arguments, u8);
             let msg_ref: VectorRef = pop_arg!(arguments, VectorRef);
             let public_key_ref: VectorRef = pop_arg!(arguments, VectorRef);
@@ -131,8 +157,18 @@ pub fn all_natives(
             let public_key: Vec<u8> = public_key_ref.as_bytes_ref().to_vec();
             let signature: Vec<u8> = signature_ref.as_bytes_ref().to_vec();
 
+            // Prevent overly large messages
+            if msg.len() > MAX_MSG_BYTES {
+                return Ok(NR::err(context.gas_used(), E_INVALID_MESSAGE));
+            }
+
             if signature.is_empty() {
-                return Ok(NR::err(context.gas_used(), 2)); // ErrorInvalidSignature
+                return Ok(NR::err(context.gas_used(), E_INVALID_SIGNATURE)); // ErrorInvalidSignature
+            }
+
+            // Prevent overly large messages
+            if msg.len() > MAX_MSG_BYTES {
+                return Ok(NR::err(context.gas_used(), E_INVALID_MESSAGE));
             }
 
             // If signature is 64 bytes it may be Schnorr (x-only public key) or non-recoverable ECDSA.
@@ -141,12 +177,12 @@ pub fn all_natives(
                 if public_key.len() == 32 {
                     // Schnorr requires the message to be exactly 32 bytes in these tests.
                     if msg.len() != 32 {
-                        return Ok(NR::err(context.gas_used(), 6)); // ErrorInvalidMessage
+                        return Ok(NR::err(context.gas_used(), E_INVALID_MESSAGE)); // ErrorInvalidMessage
                     }
 
                     let msg32: [u8; 32] = match msg.as_slice().try_into() {
                         Ok(a) => a,
-                        Err(_) => return Ok(NR::err(context.gas_used(), 6)),
+                        Err(_) => return Ok(NR::err(context.gas_used(), E_INVALID_MESSAGE)),
                     };
 
                     // parse x-only pubkey and schnorr signature via secp256k1
@@ -156,17 +192,19 @@ pub fn all_natives(
                     // Convert to fixed-size array for from_byte_array
                     let pub_array: [u8; 32] = match public_key.try_into() {
                         Ok(arr) => arr,
-                        Err(_) => return Ok(NR::err(context.gas_used(), 5)), // ErrorInvalidXOnlyPubKey (wrong size)
+                        Err(_) => return Ok(NR::err(context.gas_used(), E_INVALID_XONLY_PUBKEY)), // ErrorInvalidXOnlyPubKey (wrong size)
                     };
                     let xpk = match XOnlyPub::from_byte_array(pub_array) {
                         Ok(x) => x,
-                        Err(_) => return Ok(NR::err(context.gas_used(), 5)), // ErrorInvalidXOnlyPubKey
+                        Err(_) => return Ok(NR::err(context.gas_used(), E_INVALID_XONLY_PUBKEY)), // ErrorInvalidXOnlyPubKey
                     };
 
                     // Convert to fixed-size array for from_byte_array
                     let sig_array: [u8; 64] = match signature.try_into() {
                         Ok(arr) => arr,
-                        Err(_) => return Ok(NR::err(context.gas_used(), 7)), // ErrorInvalidSchnorrSignature (wrong size)
+                        Err(_) => {
+                            return Ok(NR::err(context.gas_used(), E_INVALID_SCHNORR_SIGNATURE));
+                        } // ErrorInvalidSchnorrSignature (wrong size)
                     };
                     let sch_sig = SchnorrSig::from_byte_array(sig_array);
 
@@ -179,19 +217,19 @@ pub fn all_natives(
                 // If signature is 64 but public key is neither 32 nor a valid compressed/uncompressed length,
                 // treat short public keys as invalid x-only pubkeys for schnorr-specific tests.
                 if public_key.len() < 33 {
-                    return Ok(NR::err(context.gas_used(), 5)); // ErrorInvalidXOnlyPubKey
+                    return Ok(NR::err(context.gas_used(), E_INVALID_XONLY_PUBKEY)); // ErrorInvalidXOnlyPubKey
                 }
             } else {
                 // If signature is not 64 but public_key looks like an x-only key, it's an invalid schnorr signature
                 if public_key.len() == 32 {
-                    return Ok(NR::err(context.gas_used(), 7)); // ErrorInvalidSchnorrSignature
+                    return Ok(NR::err(context.gas_used(), E_INVALID_SCHNORR_SIGNATURE)); // ErrorInvalidSchnorrSignature
                 }
             }
 
             // parse pubkey (allow compressed/uncompressed) for ECDSA
             let vk = match K256VerifyingKey::from_sec1_bytes(&public_key) {
                 Ok(v) => v,
-                Err(_) => return Ok(NR::err(context.gas_used(), 3)),
+                Err(_) => return Ok(NR::err(context.gas_used(), E_INVALID_PUBKEY)),
             };
 
             // parse signature: try DER then raw 64
@@ -232,6 +270,7 @@ pub fn all_natives(
     let verify_r1 = make_native(
         move |context, _ty_args, mut arguments| -> PartialVMResult<NativeResult> {
             use move_vm_types::natives::function::NativeResult as NR;
+            native_charge_gas_early_exit!(context, InternalGas::new(2000));
             let hash_type: u8 = pop_arg!(arguments, u8);
             let msg_ref: VectorRef = pop_arg!(arguments, VectorRef);
             let public_key_ref: VectorRef = pop_arg!(arguments, VectorRef);
@@ -241,14 +280,24 @@ pub fn all_natives(
             let signature: Vec<u8> = signature_ref.as_bytes_ref().to_vec();
 
             if signature.is_empty() {
-                return Ok(NR::err(context.gas_used(), 2)); // ErrorInvalidSignature
+                return Ok(NR::err(context.gas_used(), E_INVALID_SIGNATURE)); // ErrorInvalidSignature
+            }
+
+            // Prevent overly large messages
+            if msg.len() > MAX_MSG_BYTES {
+                return Ok(NR::err(context.gas_used(), E_INVALID_MESSAGE));
             }
 
             // Only SHA256 is supported for P-256 in Move wrapper, but accept hash_type selection defensively
             let vk = match P256VerifyingKey::from_sec1_bytes(&public_key) {
                 Ok(v) => v,
-                Err(_) => return Ok(NR::err(context.gas_used(), 3)),
+                Err(_) => return Ok(NR::err(context.gas_used(), E_INVALID_PUBKEY)),
             };
+
+            // Disallow Keccak for P-256 usage by default (non-standard).
+            if hash_type == 0u8 {
+                return Ok(NR::err(context.gas_used(), E_UNSUPPORTED_HASH_FOR_P256)); // ErrorUnsupportedHashForP256
+            }
 
             let sig = if let Ok(s) = P256Signature::from_der(&signature) {
                 s
@@ -261,19 +310,11 @@ pub fn all_natives(
                 return Ok(NR::ok(context.gas_used(), smallvec![Value::bool(false)]));
             };
 
-            // Hash then verify via digest-aware API
-            let verified = if hash_type == 0u8 {
-                // Keccak (not typical for P-256) – still allow
-                let mut hasher = Keccak256::new();
-                hasher.update(&msg);
-                use p256::ecdsa::signature::DigestVerifier;
-                vk.verify_digest(hasher, &sig).is_ok()
-            } else {
-                let mut hasher = Sha256::new();
-                hasher.update(&msg);
-                use p256::ecdsa::signature::DigestVerifier;
-                vk.verify_digest(hasher, &sig).is_ok()
-            };
+            // Hash then verify via digest-aware API (SHA256 only for P-256)
+            let mut hasher = Sha256::new();
+            hasher.update(&msg);
+            use p256::ecdsa::signature::DigestVerifier;
+            let verified = vk.verify_digest(hasher, &sig).is_ok();
 
             Ok(NR::ok(context.gas_used(), smallvec![Value::bool(verified)]))
         },
@@ -283,6 +324,7 @@ pub fn all_natives(
     let ed25519_verify = make_native(
         move |context, _ty_args, mut arguments| -> PartialVMResult<NativeResult> {
             use move_vm_types::natives::function::NativeResult as NR;
+            native_charge_gas_early_exit!(context, InternalGas::new(2000));
             // Pop arguments (may return PartialVMError via the macro)
             let msg_ref: VectorRef = pop_arg!(arguments, VectorRef);
             let public_key_ref: VectorRef = pop_arg!(arguments, VectorRef);

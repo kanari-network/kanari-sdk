@@ -19,13 +19,12 @@ p256 = { workspace = true, features = ["ecdsa", "std"] }
 ed25519-dalek = { workspace = true, features = ["rand_core"] }
 sha3.workspace = true
 zstd.workspace = true
-sha2.workspace = true
 hmac = "0.12"
 secp256k1 = { workspace = true, features = ["recovery"] }
 
 
 # Post-Quantum Cryptography (PQC) - NIST Standards
-pqcrypto-dilithium = { workspace = true, optional = true }   # Post-quantum signatures
+pqcrypto-dilithium = { workspace = true, optional = true } # Post-quantum signatures
 # pqcrypto-kyber = { workspace = true, optional = true }       # Post-quantum key encapsulation
 pqcrypto-sphincsplus = { workspace = true, optional = true } # Hash-based signatures (ultra-secure)
 pqcrypto-traits = { workspace = true, optional = true }      # Common traits for PQC
@@ -76,4 +75,4 @@ pqc = [
 	"pqcrypto-dilithium",
 	"pqcrypto-sphincsplus",
 ]
-hybrid = ["pqc"]            # Hybrid classical + PQC schemes
+hybrid = ["pqc"] # Hybrid classical + PQC schemes

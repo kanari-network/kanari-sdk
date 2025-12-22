@@ -2,16 +2,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::blockchain::{Block, Blockchain, SignedTransaction, Transaction};
+use anyhow::{Context, Result};
+use crossbeam_channel as cbchan;
 use kanari_move_runtime::ContractABI;
 use kanari_move_runtime::changeset::{ChangeSet, Event};
-use kanari_move_runtime::contract::{ContractCall, ContractDeployment, ContractInfo, ContractRegistry};
+use kanari_move_runtime::contract::{
+    ContractCall, ContractDeployment, ContractInfo, ContractRegistry,
+};
 use kanari_move_runtime::gas::{GasMeter, GasOperation};
 use kanari_move_runtime::move_runtime::MoveRuntime;
 use kanari_move_runtime::state::StateManager;
 use kanari_move_runtime::storage::persistent_store::PersistentStore;
-use anyhow::{Context, Result};
 use kanari_types::address::Address as KanariAddress;
-use move_core_types::{account_address::AccountAddress, language_storage::ModuleId};
+use move_core_types::{
+    account_address::AccountAddress,
+    identifier::Identifier,
+    language_storage::{ModuleId, StructTag, TypeTag},
+};
+use num_cpus;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 
@@ -23,6 +31,97 @@ pub struct BlockchainEngine {
     pub pending_txs: Arc<RwLock<Vec<Transaction>>>,
     pub contract_registry: Arc<RwLock<ContractRegistry>>,
     pub persistent_store: Option<Arc<PersistentStore>>,
+    // Optional reusable pool of MoveRuntime instances for parallel execution
+    pub runtime_pool:
+        Option<Vec<Arc<std::sync::Mutex<kanari_move_runtime::move_runtime::MoveRuntime>>>>,
+}
+
+// Basic recursive parser for simple type-argument strings used by RPC/tests.
+// Supports: bool, u8, u64, u128, address, vector<T>, and struct tags like
+// "0x1::Module::Name" or "0x1::Module::Name<address, u64, vector<u8>>".
+fn parse_type_tag(s: &str) -> Option<TypeTag> {
+    fn split_top_level_commas(s: &str) -> Vec<&str> {
+        let mut parts = Vec::new();
+        let mut depth: usize = 0;
+        let mut start = 0usize;
+        for (i, ch) in s.char_indices() {
+            match ch {
+                '<' => depth += 1,
+                '>' => {
+                    if depth > 0 {
+                        depth -= 1;
+                    }
+                }
+                ',' if depth == 0 => {
+                    parts.push(s[start..i].trim());
+                    start = i + 1;
+                }
+                _ => {}
+            }
+        }
+        parts.push(s[start..].trim());
+        parts
+    }
+
+    let s = s.trim();
+    match s {
+        "bool" => return Some(TypeTag::Bool),
+        "u8" => return Some(TypeTag::U8),
+        "u64" => return Some(TypeTag::U64),
+        "u128" => return Some(TypeTag::U128),
+        "address" => return Some(TypeTag::Address),
+        _ => {}
+    }
+
+    if let Some(inner) = s.strip_prefix("vector<") {
+        if inner.ends_with('>') {
+            let inner = &inner[..inner.len() - 1];
+            return parse_type_tag(inner).map(|t| TypeTag::Vector(Box::new(t)));
+        }
+    }
+
+    // Attempt to parse struct: address::Module::Name or address::Module::Name<...>
+    if s.contains("::") {
+        let parts = s.split("::").collect::<Vec<_>>();
+        if parts.len() >= 3 {
+            let addr_str = parts[0].trim();
+            let module_str = parts[1].trim();
+            let name_and_generics = parts[2..].join("::").trim().to_string();
+
+            let (name_str, generics_opt) = if let Some(idx) = name_and_generics.find('<') {
+                let name = &name_and_generics[..idx];
+                let generics = &name_and_generics[idx + 1..name_and_generics.len() - 1];
+                (name.trim(), Some(generics))
+            } else {
+                (name_and_generics.as_str(), None)
+            };
+
+            let addr = AccountAddress::from_hex_literal(addr_str).ok()?;
+            let module_id = Identifier::new(module_str).ok()?;
+            let name_id = Identifier::new(name_str).ok()?;
+
+            let mut type_params = Vec::new();
+            if let Some(r#gen) = generics_opt {
+                for g in split_top_level_commas(r#gen) {
+                    if g.is_empty() {
+                        continue;
+                    }
+                    let parsed = parse_type_tag(g)?;
+                    type_params.push(parsed);
+                }
+            }
+
+            let st = StructTag {
+                address: addr,
+                module: module_id,
+                name: name_id,
+                type_params,
+            };
+            return Some(TypeTag::Struct(Box::new(st)));
+        }
+    }
+
+    None
 }
 
 impl BlockchainEngine {
@@ -53,10 +152,31 @@ impl BlockchainEngine {
         } else {
             Arc::new(RwLock::new(StateManager::new()))
         };
+
         // Use enhanced runtime with Kanari natives
         let move_runtime = Arc::new(RwLock::new(MoveRuntime::new_with_kanari_natives()?));
         let pending_txs = Arc::new(RwLock::new(Vec::new()));
         let contract_registry = Arc::new(RwLock::new(ContractRegistry::new()));
+
+        // Initialize runtime pool (attempt to create one runtime per CPU)
+        let mut runtime_pool: Option<
+            Vec<Arc<std::sync::Mutex<kanari_move_runtime::move_runtime::MoveRuntime>>>,
+        > = None;
+        let workers = num_cpus::get().max(1);
+        let mut pool_vec = Vec::new();
+        for _ in 0..workers {
+            match MoveRuntime::new_with_kanari_natives() {
+                Ok(rt) => pool_vec.push(Arc::new(std::sync::Mutex::new(rt))),
+                Err(e) => {
+                    eprintln!("Failed to initialize runtime pool: {}", e);
+                    pool_vec.clear();
+                    break;
+                }
+            }
+        }
+        if !pool_vec.is_empty() {
+            runtime_pool = Some(pool_vec);
+        }
 
         Ok(Self {
             blockchain,
@@ -65,13 +185,12 @@ impl BlockchainEngine {
             pending_txs,
             contract_registry,
             persistent_store,
+            runtime_pool,
         })
     }
 
-    /// Helper to apply gas deduction and sequence increment consistently.
-    /// Used for both failed and successful transactions to avoid duplication.
+    /// Apply gas deduction and increment sequence on a ChangeSet (static helper).
     fn apply_gas_and_sequence(
-        &self,
         changeset: &mut ChangeSet,
         sender: AccountAddress,
         gas_cost: u64,
@@ -86,6 +205,8 @@ impl BlockchainEngine {
         changeset.set_gas_used(gas_used);
         Ok(())
     }
+
+    // gas/sequence helper removed — logic inlined in worker/helper paths to avoid borrow issues
 
     /// Add signed transaction to pending pool after verifying signature
     pub fn submit_transaction(&self, signed_tx: SignedTransaction) -> Result<Vec<u8>> {
@@ -128,11 +249,17 @@ impl BlockchainEngine {
 
     /// Execute a single transaction and return ChangeSet
     /// This is the correct way: Move VM produces ChangeSet, StateManager applies it
-    fn execute_transaction(&self, tx: &Transaction) -> Result<ChangeSet> {
+    /// Execute a transaction using a provided `runtime` and `state_arc`.
+    /// This is a static helper so worker threads can call it without borrowing `self`.
+    fn execute_transaction_with_runtime(
+        tx: &Transaction,
+        runtime: &mut kanari_move_runtime::move_runtime::MoveRuntime,
+        state_arc: &Arc<RwLock<StateManager>>,
+    ) -> Result<ChangeSet> {
         // 1. Pre-flight validation: Check sequence number
         let sender_addr = AccountAddress::from_hex_literal(tx.sender_address())?;
         {
-            let state = self.state.read().unwrap();
+            let state = state_arc.read().unwrap();
             state
                 .validate_sequence(&sender_addr, tx.sequence_number())
                 .context("Sequence number validation failed")?;
@@ -146,30 +273,26 @@ impl BlockchainEngine {
             Transaction::PublishModule {
                 sender,
                 module_bytes,
-                module_name: _,
                 ..
             } => {
-                // Calculate gas for publishing
                 let gas_op = GasOperation::PublishModule {
                     module_size: module_bytes.len(),
                 };
                 gas_meter.consume(gas_op.gas_units())?;
 
                 let addr = AccountAddress::from_hex_literal(sender)?;
-
-                // Check if sender has enough balance for gas
                 let gas_cost = gas_meter.total_cost();
+
+                // balance check
                 {
-                    let state = self.state.read().unwrap();
+                    let state = state_arc.read().unwrap();
                     let balance = state.get_account(&addr).map(|acc| acc.balance).unwrap_or(0);
                     if balance < gas_cost {
                         changeset.mark_failed(format!(
                             "Insufficient balance for gas: need {}, have {}",
                             gas_cost, balance
                         ));
-
-                        // CRITICAL: Even pre-flight failures must deduct gas and increment sequence
-                        self.apply_gas_and_sequence(
+                        Self::apply_gas_and_sequence(
                             &mut changeset,
                             addr,
                             gas_cost,
@@ -179,32 +302,20 @@ impl BlockchainEngine {
                     }
                 }
 
-                // Execute Move VM
-                let mut runtime = self.move_runtime.write().unwrap();
-                let move_changeset = match runtime.publish_module(module_bytes.clone(), addr, None)
-                {
-                    Ok(cs) => cs,
-                    Err(e) => {
-                        let error_msg = format!("Module publish failed: {}", e);
-                        eprintln!("❌ {}", error_msg);
-                        changeset.mark_failed(error_msg);
+                let move_cs = runtime.publish_module(
+                    module_bytes.clone(),
+                    AccountAddress::from_hex_literal(sender)?,
+                    None,
+                )?;
+                changeset.merge(move_cs);
 
-                        // CRITICAL: Even for failed transactions, deduct gas and increment sequence
-                        self.apply_gas_and_sequence(
-                            &mut changeset,
-                            addr,
-                            gas_cost,
-                            gas_meter.gas_used,
-                        )?;
-                        return Ok(changeset);
-                    }
-                };
-
-                // Merge Move VM ChangeSet with gas/sequence changes
-                changeset.merge(move_changeset);
-
-                // CRITICAL: Increment sequence and deduct gas for successful transaction
-                self.apply_gas_and_sequence(&mut changeset, addr, gas_cost, gas_meter.gas_used)?;
+                let sender_addr2 = AccountAddress::from_hex_literal(sender)?;
+                Self::apply_gas_and_sequence(
+                    &mut changeset,
+                    sender_addr2,
+                    gas_cost,
+                    gas_meter.gas_used,
+                )?;
             }
 
             Transaction::ExecuteFunction {
@@ -215,16 +326,13 @@ impl BlockchainEngine {
                 args,
                 ..
             } => {
-                // Calculate gas for function execution
                 let gas_op = GasOperation::ExecuteFunction { complexity: 1 };
                 gas_meter.consume(gas_op.gas_units())?;
-
                 let sender_addr = AccountAddress::from_hex_literal(sender)?;
                 let gas_cost = gas_meter.total_cost();
 
-                // Check balance
                 {
-                    let state = self.state.read().unwrap();
+                    let state = state_arc.read().unwrap();
                     let balance = state
                         .get_account(&sender_addr)
                         .map(|acc| acc.balance)
@@ -234,9 +342,7 @@ impl BlockchainEngine {
                             "Insufficient balance for gas: need {}, have {}",
                             gas_cost, balance
                         ));
-
-                        // CRITICAL: Even pre-flight failures must deduct gas and increment sequence
-                        self.apply_gas_and_sequence(
+                        Self::apply_gas_and_sequence(
                             &mut changeset,
                             sender_addr,
                             gas_cost,
@@ -246,7 +352,6 @@ impl BlockchainEngine {
                     }
                 }
 
-                // Parse module ID
                 let parts: Vec<&str> = module.split("::").collect();
                 if parts.len() != 2 {
                     changeset.mark_failed(
@@ -262,48 +367,22 @@ impl BlockchainEngine {
                     move_core_types::identifier::Identifier::new(parts[1])?,
                 );
 
-                // Parse type args
                 let type_tags: Vec<move_core_types::language_storage::TypeTag> = type_args
                     .iter()
-                    .filter_map(|s| {
-                        if s == "u64" {
-                            Some(move_core_types::language_storage::TypeTag::U64)
-                        } else {
-                            None
-                        }
-                    })
+                    .filter_map(|s| parse_type_tag(s.as_str()))
                     .collect();
 
-                // Execute Move VM
-                let mut runtime = self.move_runtime.write().unwrap();
-                let move_changeset = match runtime.execute_entry_function(
+                let move_cs = runtime.execute_entry_function(
                     &module_id,
                     function,
                     type_tags,
                     args.clone(),
-                    Some(sender_addr), // Pass sender for TxContext
-                    None,              // Gas handled by engine, not runtime
-                ) {
-                    Ok(cs) => cs,
-                    Err(e) => {
-                        changeset.mark_failed(format!("Function execution failed: {}", e));
+                    Some(sender_addr),
+                    None,
+                )?;
+                changeset.merge(move_cs);
 
-                        // CRITICAL: Even for failed transactions, deduct gas and increment sequence
-                        self.apply_gas_and_sequence(
-                            &mut changeset,
-                            sender_addr,
-                            gas_cost,
-                            gas_meter.gas_used,
-                        )?;
-                        return Ok(changeset);
-                    }
-                };
-
-                // Merge Move VM ChangeSet with gas/sequence changes
-                changeset.merge(move_changeset);
-
-                // Build ChangeSet: increment sequence
-                self.apply_gas_and_sequence(
+                Self::apply_gas_and_sequence(
                     &mut changeset,
                     sender_addr,
                     gas_cost,
@@ -314,18 +393,15 @@ impl BlockchainEngine {
             Transaction::Transfer {
                 from, to, amount, ..
             } => {
-                // Calculate gas for transfer
                 let gas_op = GasOperation::Transfer;
                 gas_meter.consume(gas_op.gas_units())?;
-
                 let from_addr = AccountAddress::from_hex_literal(from)?;
                 let to_addr = AccountAddress::from_hex_literal(to)?;
                 let gas_cost = gas_meter.total_cost();
                 let total_required = amount.saturating_add(gas_cost);
 
-                // Check balance
                 {
-                    let state = self.state.read().unwrap();
+                    let state = state_arc.read().unwrap();
                     let balance = state
                         .get_account(&from_addr)
                         .map(|acc| acc.balance)
@@ -335,9 +411,7 @@ impl BlockchainEngine {
                             "Insufficient balance: need {} (amount: {}, gas: {}) but have {}",
                             total_required, amount, gas_cost, balance
                         ));
-
-                        // CRITICAL: Even if balance check fails, deduct gas and increment sequence
-                        self.apply_gas_and_sequence(
+                        Self::apply_gas_and_sequence(
                             &mut changeset,
                             from_addr,
                             gas_cost,
@@ -347,29 +421,24 @@ impl BlockchainEngine {
                     }
                 }
 
-                // Build ChangeSet: transfer
                 changeset.transfer(from_addr, to_addr, *amount);
-
-                // CRITICAL: Increment sequence and deduct gas for successful transfer
-                self.apply_gas_and_sequence(
+                Self::apply_gas_and_sequence(
                     &mut changeset,
                     from_addr,
                     gas_cost,
                     gas_meter.gas_used,
                 )?;
             }
-            Transaction::Burn { from, amount, .. } => {
-                // Calculate gas for burn
-                let gas_op = GasOperation::Transfer; // reuse transfer gas cost for now
-                gas_meter.consume(gas_op.gas_units())?;
 
+            Transaction::Burn { from, amount, .. } => {
+                let gas_op = GasOperation::Transfer;
+                gas_meter.consume(gas_op.gas_units())?;
                 let from_addr = AccountAddress::from_hex_literal(from)?;
                 let gas_cost = gas_meter.total_cost();
                 let total_required = amount.saturating_add(gas_cost);
 
-                // Check balance for amount + gas
                 {
-                    let state = self.state.read().unwrap();
+                    let state = state_arc.read().unwrap();
                     let balance = state
                         .get_account(&from_addr)
                         .map(|acc| acc.balance)
@@ -379,9 +448,7 @@ impl BlockchainEngine {
                             "Insufficient balance: need {} (burn: {}, gas: {}) but have {}",
                             total_required, amount, gas_cost, balance
                         ));
-
-                        // Deduct gas and increment sequence even on failure
-                        self.apply_gas_and_sequence(
+                        Self::apply_gas_and_sequence(
                             &mut changeset,
                             from_addr,
                             gas_cost,
@@ -391,11 +458,8 @@ impl BlockchainEngine {
                     }
                 }
 
-                // Apply burn: remove amount from sender and reduce total supply
                 changeset.burn(from_addr, *amount);
-
-                // Increment sequence and deduct gas for successful burn
-                self.apply_gas_and_sequence(
+                Self::apply_gas_and_sequence(
                     &mut changeset,
                     from_addr,
                     gas_cost,
@@ -405,6 +469,12 @@ impl BlockchainEngine {
         }
 
         Ok(changeset)
+    }
+
+    /// Original single-threaded entry that uses the engine's shared runtime.
+    fn execute_transaction(&self, tx: &Transaction) -> Result<ChangeSet> {
+        let mut runtime = self.move_runtime.write().unwrap();
+        Self::execute_transaction_with_runtime(tx, &mut *runtime, &self.state)
     }
 
     /// Mine/produce a new block with pending transactions
@@ -422,30 +492,197 @@ impl BlockchainEngine {
         let transactions = pending.drain(..).collect::<Vec<_>>();
         let tx_count = transactions.len();
 
-        // Execute all transactions and collect ALL ChangeSets (success + failed)
-        let mut all_changesets = Vec::new();
-        let mut executed = 0;
-        let mut failed = 0;
+        // Parallel execution: create a small pool of MoveRuntime instances and
+        // execute transactions in parallel to produce ChangeSets. We still apply
+        // all ChangeSets atomically on the main thread to ensure deterministic
+        // state updates.
+        let mut all_changesets: Vec<ChangeSet> = Vec::with_capacity(tx_count);
+        let mut executed = 0usize;
+        let mut failed = 0usize;
         let mut _total_gas_used = 0u64;
 
-        for tx in &transactions {
-            match self.execute_transaction(tx) {
-                Ok(changeset) => {
-                    if changeset.success {
-                        executed += 1;
+        // Parallel execution using worker threads and runtime pool when available.
+        if tx_count > 1 {
+            let workers = std::cmp::min(num_cpus::get().max(1), tx_count);
+            let (job_tx, job_rx) = cbchan::unbounded::<(usize, Transaction)>();
+            let (res_tx, res_rx) = cbchan::unbounded::<(usize, Result<ChangeSet>)>();
+            let mut handles = Vec::new();
+
+            if let Some(pool) = &self.runtime_pool {
+                for i in 0..workers {
+                    let job_rx = job_rx.clone();
+                    let res_tx = res_tx.clone();
+                    let pool_entry = pool[i % pool.len()].clone();
+                    let state_arc = self.state.clone();
+
+                    let handle = std::thread::spawn(move || {
+                        while let Ok((idx, tx)) = job_rx.recv() {
+                            let mut guard = pool_entry.lock().unwrap();
+                            let res = BlockchainEngine::execute_transaction_with_runtime(
+                                &tx,
+                                &mut *guard,
+                                &state_arc,
+                            );
+                            let _ = res_tx.send((idx, res));
+                        }
+                    });
+                    handles.push(handle);
+                }
+            } else {
+                // create local runtimes for workers
+                let mut created = true;
+                for _ in 0..workers {
+                    match kanari_move_runtime::move_runtime::MoveRuntime::new_with_kanari_natives()
+                    {
+                        Ok(mut runtime) => {
+                            let job_rx = job_rx.clone();
+                            let res_tx = res_tx.clone();
+                            let state_arc = self.state.clone();
+                            let handle = std::thread::spawn(move || {
+                                while let Ok((idx, tx)) = job_rx.recv() {
+                                    let res = BlockchainEngine::execute_transaction_with_runtime(
+                                        &tx,
+                                        &mut runtime,
+                                        &state_arc,
+                                    );
+                                    let _ = res_tx.send((idx, res));
+                                }
+                            });
+                            handles.push(handle);
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "Failed to create runtime for worker: {}. Falling back to sequential.",
+                                e
+                            );
+                            created = false;
+                            break;
+                        }
+                    }
+                }
+
+                if !created {
+                    // fallback to sequential if worker creation failed
+                    for tx in &transactions {
+                        match self.execute_transaction(tx) {
+                            Ok(changeset) => {
+                                if changeset.success {
+                                    executed += 1;
+                                } else {
+                                    failed += 1;
+                                }
+                                _total_gas_used += changeset.gas_used;
+                                all_changesets.push(changeset);
+                            }
+                            Err(e) => {
+                                eprintln!("Transaction execution error: {:?}", e);
+                                failed += 1;
+                            }
+                        }
+                    }
+                    // skip job dispatch below
+                    // ensure we don't try to collect from channels we didn't use
+                    // (note: handles may be empty)
+                }
+            }
+
+            // If we have worker handles, dispatch jobs and collect results
+            if !handles.is_empty() {
+                // Serialize execution per-sender to avoid races where multiple
+                // transactions from the same sender validate the same sequence
+                // concurrently. We build per-sender queues, dispatch the first
+                // tx for every sender, and when a result arrives we dispatch
+                // the next tx for that sender.
+                use std::collections::{HashMap, VecDeque};
+
+                // Build per-sender queues preserving original indices
+                let mut per_sender: HashMap<String, VecDeque<(usize, Transaction)>> =
+                    HashMap::new();
+                for (i, tx) in transactions.iter().cloned().enumerate() {
+                    per_sender
+                        .entry(tx.sender().to_string())
+                        .or_insert_with(VecDeque::new)
+                        .push_back((i, tx));
+                }
+
+                let mut results: Vec<Option<ChangeSet>> = vec![None; tx_count];
+                let mut idx_to_sender: HashMap<usize, String> = HashMap::new();
+
+                // Initially dispatch one tx per sender
+                for (sender, queue) in per_sender.iter_mut() {
+                    if let Some((idx, tx)) = queue.pop_front() {
+                        job_tx.send((idx, tx)).unwrap();
+                        idx_to_sender.insert(idx, sender.clone());
+                    }
+                }
+
+                // Track how many results we've collected
+                let mut collected = 0usize;
+
+                while collected < tx_count {
+                    if let Ok((idx, res)) = res_rx.recv() {
+                        match res {
+                            Ok(cs) => {
+                                results[idx] = Some(cs);
+                            }
+                            Err(e) => {
+                                eprintln!("Transaction execution error in worker: {:?}", e);
+                                results[idx] = None;
+                            }
+                        }
+
+                        // Determine sender for this finished tx and dispatch next
+                        if let Some(sender) = idx_to_sender.remove(&idx) {
+                            if let Some(queue) = per_sender.get_mut(&sender) {
+                                if let Some((next_idx, next_tx)) = queue.pop_front() {
+                                    job_tx.send((next_idx, next_tx)).unwrap();
+                                    idx_to_sender.insert(next_idx, sender.clone());
+                                }
+                            }
+                        }
+
+                        collected += 1;
+                    }
+                }
+
+                drop(job_tx);
+                drop(res_tx);
+                for h in handles {
+                    let _ = h.join();
+                }
+
+                for opt in results.into_iter() {
+                    if let Some(cs) = opt {
+                        if cs.success {
+                            executed += 1;
+                        } else {
+                            failed += 1;
+                        }
+                        _total_gas_used += cs.gas_used;
+                        all_changesets.push(cs);
                     } else {
-                        eprintln!("Transaction failed: {:?}", changeset.error_message);
                         failed += 1;
                     }
-                    // CRITICAL: Collect ALL ChangeSets regardless of success status
-                    // Failed transactions contain gas deduction and sequence increment
-                    _total_gas_used += changeset.gas_used;
-                    all_changesets.push(changeset);
                 }
-                Err(e) => {
-                    eprintln!("Transaction execution error: {:?}", e);
-                    failed += 1;
-                    // No ChangeSet to apply if execute_transaction failed before creating one
+            }
+        } else {
+            // Single transaction -> sequential path
+            for tx in &transactions {
+                match self.execute_transaction(tx) {
+                    Ok(changeset) => {
+                        if changeset.success {
+                            executed += 1;
+                        } else {
+                            eprintln!("Transaction failed: {:?}", changeset.error_message);
+                            failed += 1;
+                        }
+                        _total_gas_used += changeset.gas_used;
+                        all_changesets.push(changeset);
+                    }
+                    Err(e) => {
+                        eprintln!("Transaction execution error: {:?}", e);
+                        failed += 1;
+                    }
                 }
             }
         }
@@ -468,7 +705,18 @@ impl BlockchainEngine {
         let prev_hash = chain.latest_block().hash();
         let height = chain.height() + 1;
 
-        let block = Block::new(height, prev_hash, transactions, block_events.clone());
+        let state_root = {
+            let state_guard = self.state.read().unwrap();
+            state_guard.compute_state_root()
+        };
+
+        let block = Block::new(
+            height,
+            prev_hash,
+            state_root,
+            transactions,
+            block_events.clone(),
+        );
         let block_hash = block.hash();
 
         chain.add_block(block)?;
@@ -485,6 +733,15 @@ impl BlockchainEngine {
             store
                 .save("state_manager", &*state_guard)
                 .context("Failed to persist state manager")?;
+
+            // Also snapshot SMT backing store for historical proofs when available
+            let block_height = height;
+            if let Err(e) = store.save_smt_snapshot(block_height) {
+                eprintln!(
+                    "Failed to save SMT snapshot for height {}: {}",
+                    block_height, e
+                );
+            }
         }
 
         Ok(BlockInfo {
@@ -568,16 +825,25 @@ impl BlockchainEngine {
 
     /// Deploy a contract (publish Move module)
     pub fn deploy_contract(&self, deployment: ContractDeployment) -> Result<Vec<u8>> {
+        // Determine current sequence number for the publisher from state
+        let sequence_number = {
+            let state = self.state.read().unwrap();
+            state
+                .get_account_by_hex(&deployment.publisher_address())
+                .map(|acc| acc.sequence_number)
+                .unwrap_or(0)
+        };
+
         let tx = Transaction::PublishModule {
             sender: deployment.publisher_address(),
             module_bytes: deployment.bytecode.clone(),
             module_name: deployment.module_name.clone(),
             gas_limit: deployment.gas_limit,
             gas_price: deployment.gas_price,
-            sequence_number: 0,
+            sequence_number,
         };
 
-        // Create unsigned transaction for now (in production, should be signed)
+        // Submit transaction
         let signed_tx = SignedTransaction::new(tx.clone());
         let tx_hash = self.submit_transaction(signed_tx)?;
 
@@ -603,17 +869,29 @@ impl BlockchainEngine {
 
     /// Call a contract function
     pub fn call_contract(&self, call: ContractCall) -> Result<Vec<u8>> {
+        let sender_hex = format!("0x{}", hex::encode(call.sender.to_vec()));
+
+        // Read current sequence number from state (fallback to 0 if account not found)
+        let sequence_number = {
+            let state = self.state.read().unwrap();
+            state
+                .get_account_by_hex(&sender_hex)
+                .map(|acc| acc.sequence_number)
+                .unwrap_or(0)
+        };
+
         let tx = Transaction::ExecuteFunction {
-            sender: format!("0x{}", hex::encode(call.sender.to_vec())),
+            sender: sender_hex,
             module: call.module_address(),
             function: call.function.clone(),
             type_args: call.type_args.iter().map(|t| format!("{}", t)).collect(),
             args: call.args.clone(),
             gas_limit: call.gas_limit,
             gas_price: call.gas_price,
-            sequence_number: 0,
+            sequence_number,
         };
 
+        // Submit transaction
         let signed_tx = SignedTransaction::new(tx);
         self.submit_transaction(signed_tx)
     }
@@ -662,9 +940,124 @@ impl BlockchainEngine {
             timestamp: block.header.timestamp,
             hash: hex::encode(&block.hash()),
             prev_hash: hex::encode(&block.header.prev_hash),
+            state_root: hex::encode(&block.header.state_root),
             tx_count: block.transactions.len(),
             events: block.events.clone(),
         })
+    }
+
+    /// Get state root for a specific block height or latest if None.
+    pub fn get_state_root(&self, height: Option<u64>) -> Option<String> {
+        let chain = self.blockchain.read().unwrap();
+        match height {
+            Some(h) => chain
+                .get_block(h)
+                .map(|b| hex::encode(&b.header.state_root)),
+            None => {
+                // latest state root
+                Some(hex::encode(&chain.latest_block().header.state_root))
+            }
+        }
+    }
+
+    /// Produce an SMT proof for the given account key (hex or address string).
+    /// Returns Ok(None) if no persistent SMT is configured or the key wasn't found.
+    pub fn get_account_proof(&self, key: &str) -> Result<Option<(bool, Vec<u8>, Vec<Vec<u8>>)>> {
+        if let Some(store) = &self.persistent_store {
+            if let Some((is_member, leaf, siblings)) = store.proof(key)? {
+                let leaf_v = leaf.to_vec();
+                let sibs_v = siblings.into_iter().map(|s| s.to_vec()).collect();
+                return Ok(Some((is_member, leaf_v, sibs_v)));
+            }
+            Ok(None)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Produce an account proof at a historical block height using the SMT
+    /// snapshot persisted at that height. Returns Ok(None) if snapshot
+    /// unavailable.
+    pub fn get_account_proof_at_height(
+        &self,
+        height: u64,
+        key: &str,
+    ) -> Result<Option<(bool, Vec<u8>, Vec<Vec<u8>>)>> {
+        if let Some(store) = &self.persistent_store {
+            if let Some(pairs) = store.load_smt_snapshot(height)? {
+                use std::collections::HashMap;
+
+                // Build map for lookup
+                let mut map: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
+                for (k, v) in pairs.into_iter() {
+                    map.insert(k, v);
+                }
+
+                // helper closures matching SMT key format
+                let data_key = |kh: &[u8; 32]| -> Vec<u8> {
+                    let mut out = b"smt:data:".to_vec();
+                    out.extend(kh);
+                    out
+                };
+
+                let node_key = |depth: usize, prefix: &[u8]| -> Vec<u8> {
+                    let mut out = b"smt:node:".to_vec();
+                    let d = (depth as u16).to_be_bytes();
+                    out.extend(&d);
+                    out.extend(prefix);
+                    out
+                };
+
+                // compute key hash
+                let kh = smt::digest(key.as_bytes());
+
+                // default hashes
+                let default_hashes = smt::default_hashes();
+
+                // membership
+                let is_member = map.contains_key(&data_key(&kh));
+
+                // leaf hash
+                let leaf_hash = if is_member {
+                    let val = map.get(&data_key(&kh)).unwrap();
+                    smt::hash_leaf(&kh, val.as_slice()).to_vec()
+                } else {
+                    default_hashes[256].to_vec()
+                };
+
+                let mut siblings: Vec<Vec<u8>> = Vec::new();
+                for depth in (1..=256).rev() {
+                    let prefix_bits = depth;
+                    let prefix_bytes = (prefix_bits + 7) / 8;
+                    let mut prefix = vec![0u8; prefix_bytes as usize];
+                    prefix.copy_from_slice(&kh[..prefix_bytes as usize]);
+                    let excess = (prefix_bytes * 8) - prefix_bits as usize;
+                    if excess > 0 {
+                        let mask = 0xFF << excess;
+                        let last = prefix_bytes as usize - 1;
+                        prefix[last] &= mask as u8;
+                    }
+
+                    let last_bit_index = prefix_bits - 1;
+                    let byte_idx = (last_bit_index / 8) as usize;
+                    let bit_in_byte = 7 - (last_bit_index % 8);
+
+                    let mut sibling_prefix = prefix.clone();
+                    sibling_prefix[byte_idx] ^= 1u8 << bit_in_byte;
+                    let nk = node_key(depth, &sibling_prefix);
+                    if let Some(v) = map.get(&nk) {
+                        siblings.push(v.clone());
+                    } else {
+                        siblings.push(default_hashes[depth].to_vec());
+                    }
+                }
+
+                return Ok(Some((is_member, leaf_hash, siblings)));
+            }
+            Ok(None)
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -704,6 +1097,7 @@ pub struct BlockData {
     pub timestamp: u64,
     pub hash: String,
     pub prev_hash: String,
+    pub state_root: String,
     pub tx_count: usize,
     pub events: Vec<Event>,
 }

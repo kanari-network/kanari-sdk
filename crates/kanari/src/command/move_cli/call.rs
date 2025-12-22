@@ -405,48 +405,32 @@ impl Call {
                     // If it looks exactly like a 32-byte object id (64 hex chars),
                     // try to fetch the object's serialized `data` from the node via RPC.
                     if hex_str.len() == 64 {
-                        // Attempt RPC lookup on caller's account for the object id
-                        let acct_req = serde_json::json!({
+                        // Try global object lookup via RPC method kanari_getObject
+                        let get_obj_req = serde_json::json!({
                             "jsonrpc": "2.0",
-                            "method": "kanari_getAccount",
-                            "params": self.sender.clone(),
+                            "method": "kanari_getObject",
+                            "params": { "object_id": format!("0x{}", hex_str) },
                             "id": 1
                         });
 
                         if let Ok(resp) = HttpClient::new()
                             .post(&self.rpc_endpoint)
-                            .json(&acct_req)
+                            .json(&get_obj_req)
                             .send()
                         {
                             if let Ok(val) = resp.json::<serde_json::Value>() {
-                                if let Some(result_acc) = val.get("result") {
-                                    if let Some(owned) =
-                                        result_acc.get("owned_objects").and_then(|v| v.as_array())
+                                if let Some(result_obj) = val.get("result") {
+                                    if let Some(data_arr) =
+                                        result_obj.get("data").and_then(|d| d.as_array())
                                     {
-                                        for obj in owned.iter() {
-                                            if let Some(id) = obj.get("id").and_then(|v| v.as_str())
-                                            {
-                                                // strip optional 0x prefix when comparing
-                                                let normalized = id.trim_start_matches("0x");
-                                                if normalized.eq_ignore_ascii_case(hex_str) {
-                                                    if let Some(data_arr) =
-                                                        obj.get("data").and_then(|d| d.as_array())
-                                                    {
-                                                        // convert JSON array of numbers to bytes
-                                                        let mut bytes =
-                                                            Vec::with_capacity(data_arr.len());
-                                                        for v in data_arr.iter() {
-                                                            if let Some(n) = v.as_u64() {
-                                                                bytes.push(n as u8);
-                                                            }
-                                                        }
-                                                        // Use the object's raw serialized bytes as argument
-                                                        result.push(bytes);
-                                                        continue;
-                                                    }
-                                                }
+                                        let mut bytes = Vec::with_capacity(data_arr.len());
+                                        for v in data_arr.iter() {
+                                            if let Some(n) = v.as_u64() {
+                                                bytes.push(n as u8);
                                             }
                                         }
+                                        result.push(bytes);
+                                        continue;
                                     }
                                 }
                             }

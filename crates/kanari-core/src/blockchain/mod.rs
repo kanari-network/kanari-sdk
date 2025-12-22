@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Blockchain data structures and operations
-use kanari_move_runtime::changeset::Event;
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
 use kanari_crypto::keys::CurveType;
+use kanari_move_runtime::changeset::Event;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -215,10 +215,10 @@ impl Block {
     pub fn new(
         height: u64,
         prev_hash: Vec<u8>,
+        state_root: Vec<u8>,
         transactions: Vec<Transaction>,
         events: Vec<Event>,
     ) -> Self {
-        let state_root = vec![0u8; 32]; // Placeholder, compute from state
         let tx_count = transactions.len();
         let header = BlockHeader::new(height, prev_hash, state_root, tx_count);
 
@@ -230,7 +230,7 @@ impl Block {
     }
 
     pub fn genesis() -> Self {
-        Self::new(0, vec![0u8; 32], vec![], vec![])
+        Self::new(0, vec![0u8; 32], vec![0u8; 32], vec![], vec![])
     }
 
     pub fn hash(&self) -> Vec<u8> {
@@ -318,7 +318,7 @@ mod tests {
         let mut chain = Blockchain::new();
         let prev_hash = chain.latest_block().hash();
 
-        let block = Block::new(1, prev_hash, vec![], vec![]);
+        let block = Block::new(1, prev_hash, vec![0u8; 32], vec![], vec![]);
         chain.add_block(block).unwrap();
 
         assert_eq!(chain.height(), 1);
@@ -330,10 +330,9 @@ mod tests {
         let chain = Blockchain::new();
         let prev_block = chain.latest_block();
 
-        let valid_block = Block::new(1, prev_block.hash(), vec![], vec![]);
+        let valid_block = Block::new(1, prev_block.hash(), vec![0u8; 32], vec![], vec![]);
         assert!(valid_block.verify(prev_block).is_ok());
-
-        let invalid_block = Block::new(2, prev_block.hash(), vec![], vec![]);
+        let invalid_block = Block::new(2, prev_block.hash(), vec![0u8; 32], vec![], vec![]);
         assert!(invalid_block.verify(prev_block).is_err());
     }
 

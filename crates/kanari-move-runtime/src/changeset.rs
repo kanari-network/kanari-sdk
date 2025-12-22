@@ -3,7 +3,7 @@
 
 use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Created object information captured from Move VM write-sets
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,7 +31,7 @@ pub struct AccountChange {
     pub address: AccountAddress,
     pub balance_delta: i64, // Positive = credit, Negative = debit
     pub sequence_increment: u64,
-    pub modules_added: Vec<String>,
+    pub modules_added: HashSet<String>,
 }
 
 impl AccountChange {
@@ -40,7 +40,7 @@ impl AccountChange {
             address,
             balance_delta: 0,
             sequence_increment: 0,
-            modules_added: vec![],
+            modules_added: HashSet::new(),
         }
     }
 
@@ -57,7 +57,7 @@ impl AccountChange {
     }
 
     pub fn add_module(&mut self, module_name: String) {
-        self.modules_added.push(module_name);
+        self.modules_added.insert(module_name);
     }
 }
 
@@ -186,9 +186,7 @@ impl ChangeSet {
 
             // Merge modules_added without duplicates
             for module in other_change.modules_added {
-                if !existing.modules_added.contains(&module) {
-                    existing.modules_added.push(module);
-                }
+                existing.modules_added.insert(module);
             }
         }
         self.events.extend(other.events);
@@ -222,6 +220,8 @@ impl ChangeSet {
     }
 
     /// Record a created object discovered in Move write-sets
+    /// Uses O(n) linear search - acceptable for small object counts per transaction
+    /// For high-frequency object creation, consider using HashMap-based storage
     pub fn add_created_object(
         &mut self,
         id: String,
@@ -230,13 +230,40 @@ impl ChangeSet {
         data: Vec<u8>,
         version: u64,
     ) {
-        self.created_objects.push(CreatedObject {
-            id,
-            owner,
-            type_,
-            data,
-            version,
-        });
+        // Check if object with same ID already exists (O(n) but typically small n per tx)
+        if let Some(existing) = self.created_objects.iter_mut().find(|obj| obj.id == id) {
+            // SAFETY CHECK: Type must match for same object ID
+            // Different types for same ID indicates a serious bug or attack
+            if existing.type_ != type_ {
+                log::error!(
+                    "Type mismatch for object {}: expected {}, got {}. Keeping existing object.",
+                    id,
+                    existing.type_,
+                    type_
+                );
+                // Keep existing type and data, don't overwrite with mismatched type
+                return;
+            }
+
+            // Update existing object (same type, different version/data)
+            log::debug!(
+                "Updating existing object {}: version {} -> {}",
+                id,
+                existing.version,
+                version
+            );
+            existing.owner = owner;
+            existing.data = data;
+            existing.version = version;
+        } else {
+            self.created_objects.push(CreatedObject {
+                id,
+                owner,
+                type_,
+                data,
+                version,
+            });
+        }
     }
 }
 
@@ -292,7 +319,7 @@ mod tests {
 
         let change = cs.account_changes.get(&publisher).unwrap();
         assert_eq!(change.modules_added.len(), 1);
-        assert_eq!(change.modules_added[0], "kanari");
+        assert!(change.modules_added.contains("kanari"));
         // Note: sequence_increment is NOT set by publish_module - it's handled by engine
         assert_eq!(change.sequence_increment, 0);
     }

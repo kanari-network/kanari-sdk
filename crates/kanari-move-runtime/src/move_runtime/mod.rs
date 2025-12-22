@@ -5,6 +5,7 @@
 // It utilizes MoveVM and InMemoryStorage for executing functions and publishing modules.
 // Enhanced with native function support, gas metering, and session management.
 use anyhow::Result;
+use log::debug;
 use move_binary_format::file_format::CompiledModule;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::IdentStr;
@@ -20,7 +21,7 @@ mod object_ops;
 mod parsers;
 use crate::gas::GasOperation;
 use kanari_types::address::Address as KanariAddress;
-
+pub mod move_runtime_extensions;
 use crate::changeset::ChangeSet;
 use crate::storage::move_vm_state::MoveVMState;
 use crate::storage::object_storage::{ObjectStorage, ObjectStore};
@@ -80,12 +81,12 @@ impl MoveRuntime {
 
         // Initialize VM with custom natives
         // Before creating VM, log what natives we are about to register for visibility.
-        eprintln!(
+        debug!(
             "[RUNTIME] registering {} native functions for MoveVM",
             all_natives.len()
         );
         for (addr, module_id, func_id, _nf) in all_natives.iter() {
-            eprintln!(
+            debug!(
                 "[RUNTIME] native -> module: {}  function: {}  address: {:?}",
                 module_id, func_id, addr
             );
@@ -94,7 +95,7 @@ impl MoveRuntime {
         let vm = MoveVM::new(all_natives)
             .map_err(|e| anyhow::anyhow!(format!("VM init error: {:?}", e)))?;
 
-        eprintln!("[RUNTIME] MoveVM initialized (custom natives registered)");
+        debug!("[RUNTIME] MoveVM initialized (custom natives registered)");
 
         Ok(MoveRuntime {
             vm,
@@ -110,16 +111,16 @@ impl MoveRuntime {
     /// Also loads pre-compiled Kanari system modules (0x2::*)
     pub fn new_with_kanari_natives() -> Result<Self> {
         // Standard library natives at 0x1
-        let std_addr = AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS)?;
+        let std_addr = KanariAddress::std_account_address();
         let std_natives =
             move_stdlib_natives::all_natives(std_addr, move_stdlib_natives::GasParameters::zeros());
 
         // Kanari crypto natives at 0x2
-        let system_addr = AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS)?;
-        let crypto_natives = kanari_types::crypto::all_natives(system_addr);
+        let system_addr = KanariAddress::kanari_system_account_address();
+        let crypto_natives = kanari_system_natives::crypto::all_natives(system_addr);
 
         // Transfer natives at 0x2 (same address as kanari_system)
-        let transfer_natives = kanari_types::transfer_natives::all_natives(system_addr);
+        let transfer_natives = kanari_system_natives::transfer_natives::all_natives(system_addr);
 
         // Create runtime with natives
         let mut runtime =
@@ -178,7 +179,7 @@ impl MoveRuntime {
                 acct_count += 1;
                 res_count += acct.resources().len();
             }
-            eprintln!(
+            debug!(
                 "[RUNTIME] execute_entry_function: move_changeset accounts={}, total_resources={} events={}",
                 acct_count,
                 res_count,
@@ -189,7 +190,7 @@ impl MoveRuntime {
             for event in events.iter() {
                 // event is a tuple: (key, sequence_number, type_tag, event_data)
                 let (_key, _seq, type_tag, _data) = event;
-                eprintln!("[RUNTIME] event: type={}", type_tag);
+                debug!("[RUNTIME] event: type={}", type_tag);
             }
         }
 
@@ -237,91 +238,6 @@ impl MoveRuntime {
         self.parse_move_events(&events, &mut cs);
 
         Ok(cs)
-    }
-
-    /// Publish a bundle of modules atomically. This helps resolving inter-module dependencies.
-    pub fn publish_module_bundle(
-        &mut self,
-        modules: Vec<Vec<u8>>,
-        sender: AccountAddress,
-    ) -> Result<()> {
-        let storage_clone = self.storage.clone();
-        let mut session = self.vm.new_session(storage_clone);
-        let mut gas = UnmeteredGasMeter;
-
-        session
-            .publish_module_bundle(modules.clone(), sender, &mut gas)
-            .map_err(|e| anyhow::anyhow!(format!("publish bundle error: {:?}", e)))?;
-
-        let (res, new_storage) = session.finish();
-        let (changeset, _events) =
-            res.map_err(|e| anyhow::anyhow!(format!("finish error: {:?}", e)))?;
-
-        let mut storage = new_storage;
-        storage
-            .apply(changeset)
-            .map_err(|e| anyhow::anyhow!(format!("apply error: {:?}", e)))?;
-
-        // update runtime storage
-        self.storage = storage.clone();
-
-        // persist each compiled module to DB
-        for module_bytes in modules.into_iter() {
-            let compiled = CompiledModule::deserialize_with_defaults(&module_bytes)
-                .map_err(|e| anyhow::anyhow!(format!("deserialize error: {:?}", e)))?;
-            let module_id = compiled.self_id();
-            self.state.save_module(&module_id, &module_bytes)?;
-        }
-
-        Ok(())
-    }
-
-    /// Attempt to publish modules in an order that satisfies dependencies by retrying
-    /// individual publishes. Each module is published with its declared `self_id().address()` as sender.
-    pub fn publish_modules_ordered(&mut self, modules: Vec<Vec<u8>>) -> Result<()> {
-        use std::collections::VecDeque;
-        let mut queue: VecDeque<Vec<u8>> = VecDeque::from(modules);
-        let mut made_progress = true;
-        let mut last_err: Option<anyhow::Error> = None;
-
-        while !queue.is_empty() && made_progress {
-            made_progress = false;
-            let len = queue.len();
-            for _ in 0..len {
-                let bytes = queue.pop_front().unwrap();
-                // try to deserialize to get module address
-                match CompiledModule::deserialize_with_defaults(&bytes) {
-                    Ok(compiled) => {
-                        let mod_id = compiled.self_id();
-                        let sender = AccountAddress::from_hex_literal(&format!(
-                            "0x{}",
-                            mod_id.address().short_str_lossless()
-                        ))
-                        .unwrap_or(mod_id.address().clone());
-                        let res = self.publish_module(bytes.clone(), sender, None);
-                        match res {
-                            Ok(_changeset) => made_progress = true,
-                            Err(e) => {
-                                last_err = Some(e);
-                                // push back for another attempt later
-                                queue.push_back(bytes);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        last_err = Some(anyhow::anyhow!(format!("deserialize error: {:?}", e)));
-                        // cannot determine sender, give up on this module
-                    }
-                }
-            }
-        }
-
-        if !queue.is_empty() {
-            return Err(last_err.unwrap_or_else(|| {
-                anyhow::anyhow!("failed to publish modules due to unresolved dependencies")
-            }));
-        }
-        Ok(())
     }
 
     /// Execute an entry function. `type_args` are Move `TypeTag`s and `args` are serialized
@@ -377,12 +293,56 @@ impl MoveRuntime {
 
         let tx_context_bytes = bcs::to_bytes(&tx_ctx)?;
 
-        // Add TxContext as last argument
-        final_args.push(tx_context_bytes);
+        // Conditionally add TxContext as last argument if the function expects one.
+        // We load the function signature and verify:
+        // 1. Parameter count matches args + 1
+        // 2. Last parameter type is EXACTLY TxContext (0x2::tx_context::TxContext)
+        if let Ok(func) = session.load_function(module_id, ident, &ty_args_loaded) {
+            let param_count = func.parameters.len();
+            if param_count == final_args.len() + 1 {
+                // Check if last parameter is TxContext type
+                if let Some(last_param_type) = func.parameters.last() {
+                    let type_str = format!("{:?}", last_param_type);
+                    // Strict matching: must contain both module path and struct name
+                    // Format is typically: Struct(StructTag { address: 0x2, module: tx_context, name: TxContext, ... })
+                    let is_tx_context = type_str.contains("0x2")
+                        && type_str.contains("module: tx_context")
+                        && type_str.contains("name: TxContext");
+
+                    if is_tx_context {
+                        final_args.push(tx_context_bytes);
+                        debug!(
+                            "[RUNTIME] Auto-injected TxContext for {}::{}",
+                            module_id, function_name
+                        );
+                    } else {
+                        debug!(
+                            "[RUNTIME] Skipped TxContext injection for {}::{} - last param type: {}",
+                            module_id, function_name, type_str
+                        );
+                    }
+                }
+            }
+        }
+
+        // Register the transferred-object extension at the session's
+        // native-extensions container so native functions can record into it.
+        // The Move VM will pass this extension to NativeContext.extensions_mut()
+        // during native function execution.
+        use kanari_system_natives::transfer_natives::TransferredObjectsExt;
+        let exts = session.get_native_extensions();
+        exts.add(TransferredObjectsExt::default());
 
         session
             .execute_entry_function(module_id, ident, ty_args_loaded, final_args, &mut gas)
             .map_err(|e| anyhow::anyhow!(format!("exec error: {:?}", e)))?;
+
+        // After execution, collect transferred objects from the native-extensions
+        // container before consuming the session with `finish()`.
+        let transferred = {
+            let exts_after = session.get_native_extensions();
+            exts_after.get_mut::<TransferredObjectsExt>().take_all()
+        };
 
         let (res, new_storage) = session.finish();
         let (move_changeset, events) =
@@ -402,8 +362,8 @@ impl MoveRuntime {
         self.parse_move_changeset(&move_changeset, &mut cs);
         self.parse_move_events(&events, &mut cs);
 
-        // Add transferred objects from native function tracking
-        self.add_transferred_objects(&mut cs);
+        // Add transferred objects collected from the native extension
+        self.add_transferred_objects_to_changeset(&mut cs, transferred);
 
         // If gas accounting requested, include gas debit/credit in ChangeSet.
         if let Some((gas_limit, gas_price)) = gas_info {

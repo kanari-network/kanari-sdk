@@ -11,6 +11,7 @@
 use bip39::{Language, Mnemonic};
 use move_core_types::account_address::AccountAddress;
 use rand::rngs::OsRng;
+use sha3::{Digest, Sha3_256};
 use std::fmt;
 use std::str::FromStr;
 use thiserror::Error;
@@ -397,8 +398,6 @@ fn generate_dilithium2_keypair() -> Result<KeyPair, KeyError> {
     let secret_key_bytes = secret_key.as_bytes();
 
     let hex_encoded = hex::encode(public_key_bytes);
-    // Derive address as SHA3-256(public_key) for better entropy and uniformity
-    use sha3::{Digest, Sha3_256};
     let mut hasher = Sha3_256::new();
     hasher.update(public_key_bytes);
     let hash_result = hasher.finalize();
@@ -424,7 +423,6 @@ fn generate_dilithium3_keypair() -> Result<KeyPair, KeyError> {
     let secret_key_bytes = secret_key.as_bytes();
 
     let hex_encoded = hex::encode(public_key_bytes);
-    use sha3::{Digest, Sha3_256};
     let mut hasher = Sha3_256::new();
     hasher.update(public_key_bytes);
     let hash_result = hasher.finalize();
@@ -450,7 +448,6 @@ fn generate_dilithium5_keypair() -> Result<KeyPair, KeyError> {
     let secret_key_bytes = secret_key.as_bytes();
 
     let hex_encoded = hex::encode(public_key_bytes);
-    use sha3::{Digest, Sha3_256};
     let mut hasher = Sha3_256::new();
     hasher.update(public_key_bytes);
     let hash_result = hasher.finalize();
@@ -476,7 +473,6 @@ fn generate_sphincs_keypair() -> Result<KeyPair, KeyError> {
     let secret_key_bytes = secret_key.as_bytes();
 
     let hex_encoded = hex::encode(public_key_bytes);
-    use sha3::{Digest, Sha3_256};
     let mut hasher = Sha3_256::new();
     hasher.update(public_key_bytes);
     let hash_result = hasher.finalize();
@@ -517,7 +513,6 @@ fn generate_hybrid_ed25519_dilithium3_keypair() -> Result<KeyPair, KeyError> {
     let combined_private = format!("kanahybrid{}:{}", ed25519_raw, dilithium3_raw);
 
     // Generate hybrid address using SHA3-256 hash of combined public key
-    use sha3::{Digest, Sha3_256};
     let mut hasher = Sha3_256::new();
     hasher.update(combined_public.as_bytes());
     let hash_result = hasher.finalize();
@@ -552,7 +547,6 @@ fn generate_hybrid_k256_dilithium3_keypair() -> Result<KeyPair, KeyError> {
     let combined_private = format!("kanahybrid{}:{}", k256_raw, dilithium3_raw);
 
     // Generate hybrid address using SHA3-256 hash of combined public key
-    use sha3::{Digest, Sha3_256};
     let mut hasher = Sha3_256::new();
     hasher.update(combined_public.as_bytes());
     let hash_result = hasher.finalize();
@@ -817,7 +811,6 @@ pub fn keypair_from_private_key(
                 let pqc_hex = pub_hex.to_string();
 
                 // Derive address from hash of the PQC public key for uniformity
-                use sha3::{Digest, Sha3_256};
                 let mut hasher = Sha3_256::new();
                 hasher.update(&pub_bytes);
                 let hash_result = hasher.finalize();
@@ -932,7 +925,6 @@ pub fn keypair_from_private_key(
 
             // Combine public parts and compute hybrid address (SHA3-256 of combined_public)
             let combined_public = format!("{}:{}", classical_pub_hex, pqc_hex);
-            use sha3::{Digest, Sha3_256};
             let mut hasher = Sha3_256::new();
             hasher.update(combined_public.as_bytes());
             let hash_result = hasher.finalize();
@@ -1594,7 +1586,6 @@ mod tests {
         // Test that Ed25519Dilithium3 address is SHA3-256 of combined public key
         let keypair = generate_keypair(CurveType::Ed25519Dilithium3).unwrap();
 
-        use sha3::{Digest, Sha3_256};
         let mut hasher = Sha3_256::new();
         hasher.update(keypair.public_key.as_bytes());
         let expected_hash = hasher.finalize();

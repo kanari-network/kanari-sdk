@@ -19,9 +19,9 @@ dirs = { workspace = true }
 rocksdb = { workspace = true }
 hex = { workspace = true }
 smallvec = { workspace = true }
-sha2 = { workspace = true }
 lazy_static = { workspace = true }
 once_cell = { workspace = true }
+zstd = { workspace = true }
 
 # Move VM dependencies (use workspace/local paths similar to other crates)
 move-core-types = { workspace = true }
@@ -31,6 +31,10 @@ move-vm-types = { workspace = true }
 move-vm-test-utils = { workspace = true }
 move-stdlib = { workspace = true }
 move-stdlib-natives = { workspace = true }
+move-vm-profiler = { workspace = true }
 
+kanari-system-natives = { workspace = true }
 kanari-types = { workspace = true }
 kanari-crypto = { workspace = true }
+smt = { path = "../smt" }
+log = { workspace = true }

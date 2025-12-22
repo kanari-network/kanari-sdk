@@ -4,12 +4,15 @@
 // Extended functionality for MoveRuntime
 // Includes module verification and advanced session management
 use anyhow::Result;
+use bcs;
 use kanari_types::address::Address as KanariAddress;
+use kanari_types::tx_context::TxContextRecord;
 use move_binary_format::file_format::CompiledModule;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::{ModuleId, TypeTag};
 use move_vm_test_utils::InMemoryStorage;
 use move_vm_types::gas::UnmeteredGasMeter;
+use std::time::SystemTime;
 
 use crate::changeset::ChangeSet;
 use crate::move_runtime::MoveRuntime;
@@ -45,10 +48,11 @@ impl MoveRuntime {
             }
         }
 
-        // 3. Check module doesn't exceed size limits
-        let module_size = module.self_id().name().as_str().len();
-        if module_size > 10_000 {
-            anyhow::bail!("Module name too large: {} bytes", module_size);
+        // 3. Check module doesn't exceed size limits (use serialized bytecode size)
+        let mut module_bytes: Vec<u8> = vec![];
+        move_binary_format::file_format::CompiledModule::serialize(module, &mut module_bytes)?;
+        if module_bytes.len() > 1_000_000 {
+            anyhow::bail!("Module too large: {} bytes", module_bytes.len());
         }
 
         Ok(())
@@ -65,9 +69,8 @@ impl MoveRuntime {
         {
             return true;
         }
-        // For other modules, we'd need to query storage differently
-        // This is a simplified check
-        false
+        // For other modules, check the runtime's published_modules index
+        self.published_modules.contains(module_id)
     }
 
     /// Get the current storage state (for debugging/inspection)
@@ -117,8 +120,36 @@ impl MoveRuntime {
         let ident = move_core_types::identifier::IdentStr::new(function_name)
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
+        // Inject TxContext for simulation when the target function expects it
+        let mut final_args = args.clone();
+
+        let sender_addr = AccountAddress::ZERO; // use ZERO for simulation
+        let tx_hash = vec![0u8; 32];
+        let epoch = 0u64;
+        let epoch_timestamp_ms = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let ids_created = 0u64;
+
+        let tx_ctx = TxContextRecord::from_address(
+            sender_addr,
+            tx_hash,
+            epoch,
+            epoch_timestamp_ms,
+            ids_created,
+        );
+        let tx_context_bytes = bcs::to_bytes(&tx_ctx)?;
+
+        if let Ok(func) = session.load_function(module_id, ident, &ty_args_loaded) {
+            let param_count = func.parameters.len();
+            if param_count == final_args.len() + 1 {
+                final_args.push(tx_context_bytes);
+            }
+        }
+
         session
-            .execute_entry_function(module_id, ident, ty_args_loaded, args, &mut gas)
+            .execute_entry_function(module_id, ident, ty_args_loaded, final_args, &mut gas)
             .map_err(|e| anyhow::anyhow!(format!("exec error: {:?}", e)))?;
 
         let (res, _new_storage) = session.finish();
@@ -131,39 +162,6 @@ impl MoveRuntime {
         self.parse_move_events(&events, &mut cs);
 
         Ok(cs)
-    }
-
-    /// Estimate gas cost for executing a function
-    pub fn estimate_gas(
-        &self,
-        module_id: &ModuleId,
-        function_name: &str,
-        type_args: Vec<TypeTag>,
-        args: Vec<Vec<u8>>,
-    ) -> Result<u64> {
-        // Simulate execution and estimate based on complexity
-        let _cs = self.simulate_entry_function(module_id, function_name, type_args, args)?;
-
-        // Simple gas estimation based on function complexity
-        // In production, this would analyze the actual gas consumption
-        let base_gas = 1000u64;
-        let complexity_gas = function_name.len() as u64 * 10;
-
-        Ok(base_gas + complexity_gas)
-    }
-
-    /// Reset storage to a clean state (for testing)
-    #[cfg(test)]
-    pub fn reset_storage(&mut self) {
-        self.storage = InMemoryStorage::new();
-    }
-
-    /// Get runtime statistics
-    pub fn get_stats(&self) -> RuntimeStats {
-        RuntimeStats {
-            gas_metering_enabled: self.enable_gas_metering,
-            // Add more stats as needed
-        }
     }
 }
 

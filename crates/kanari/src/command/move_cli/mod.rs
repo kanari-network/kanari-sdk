@@ -8,6 +8,7 @@ pub mod new;
 pub mod publish;
 pub mod test;
 
+use kanari_system_natives::{crypto, transfer_natives};
 use kanari_types::address::Address as KanariAddress;
 use move_core_types::{account_address::AccountAddress, identifier::Identifier};
 use move_package::source_package::layout::SourcePackageLayout;
@@ -63,9 +64,8 @@ impl MoveCommand {
                 // Construct kanari crypto/system natives (registered under package address 0x2)
                 let system_addr =
                     AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap();
-                let crypto_natives = kanari_types::crypto::all_natives(system_addr).into_iter();
-                let transfer_natives =
-                    kanari_types::transfer_natives::all_natives(system_addr).into_iter();
+                let crypto_natives = crypto::all_natives(system_addr).into_iter();
+                let transfer_natives = transfer_natives::all_natives(system_addr).into_iter();
 
                 // Merge all natives and pass into test runner
                 let natives = std_natives

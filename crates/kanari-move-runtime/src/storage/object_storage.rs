@@ -10,16 +10,79 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+/// Error types that can occur during `ObjectStorage` operations.
+#[derive(Debug)]
+pub enum ObjectStorageError {
+    /// Failed to acquire or interact with an in-memory lock.
+    ///
+    /// We store a short diagnostic `String` here; consider storing the
+    /// underlying `PoisonError` if you need richer error chaining.
+    LockError(String),
+
+    /// Failure writing to or reading from the persistent backend.
+    PersistenceError(String),
+
+    /// The requested object was not found in the store.
+    NotFound,
+}
+
+impl ObjectStorageError {
+    /// Returns true when this is a lock-related error.
+    pub fn is_lock_error(&self) -> bool {
+        matches!(self, ObjectStorageError::LockError(_))
+    }
+
+    /// Returns true when this is a persistence backend error.
+    pub fn is_persistence_error(&self) -> bool {
+        matches!(self, ObjectStorageError::PersistenceError(_))
+    }
+
+    /// Returns true when the object was not found.
+    pub fn is_not_found(&self) -> bool {
+        matches!(self, ObjectStorageError::NotFound)
+    }
+}
+
+impl std::fmt::Display for ObjectStorageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ObjectStorageError::LockError(s) => write!(f, "LockError: {}", s),
+            ObjectStorageError::PersistenceError(s) => write!(f, "PersistenceError: {}", s),
+            ObjectStorageError::NotFound => write!(f, "NotFound"),
+        }
+    }
+}
+
+impl std::error::Error for ObjectStorageError {
+    /// We don't currently store underlying error types, so return `None`.
+    /// If you switch the enum to hold concrete error types (e.g. `anyhow::Error`
+    /// or `PoisonError<...>`), return `Some(&underlying_error)` here to enable
+    /// proper error chaining.
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
+    }
+}
+
+impl From<anyhow::Error> for ObjectStorageError {
+    fn from(e: anyhow::Error) -> Self {
+        ObjectStorageError::PersistenceError(format!("{}", e))
+    }
+}
+
 /// Trait abstraction for object storage backends. Allows swapping in-memory and
 /// persistent implementations without changing the runtime.
 pub trait ObjectStore: Send + Sync {
-    fn store_object(&self, obj: StoredObject) -> Result<(), String>;
+    fn store_object(&self, obj: StoredObject) -> Result<(), ObjectStorageError>;
     fn get_object(&self, id: &str) -> Option<StoredObject>;
     fn get_objects_by_owner(&self, owner: &AccountAddress) -> Vec<StoredObject>;
-    fn delete_object(&self, id: &str) -> Result<(), String>;
-    fn transfer_object(&self, id: &str, new_owner: AccountAddress) -> Result<(), String>;
+    fn delete_object(&self, id: &str) -> Result<(), ObjectStorageError>;
+    fn transfer_object(
+        &self,
+        id: &str,
+        new_owner: AccountAddress,
+    ) -> Result<(), ObjectStorageError>;
     fn count(&self) -> usize;
-    fn clear(&self) -> Result<(), String>;
+    fn clear(&self) -> Result<(), ObjectStorageError>;
 }
 
 /// Stored object with metadata
@@ -96,25 +159,23 @@ impl ObjectStorage {
     }
 
     /// Store an object
-    pub fn store_object(&self, obj: StoredObject) -> Result<(), String> {
+    pub fn store_object(&self, obj: StoredObject) -> Result<(), ObjectStorageError> {
         let id = obj.id.clone();
         let owner = obj.owner;
 
         // Store object
         {
-            let mut objects = self
-                .objects
-                .write()
-                .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
+            let mut objects = self.objects.write().map_err(|e| {
+                ObjectStorageError::LockError(format!("Failed to acquire write lock: {}", e))
+            })?;
             objects.insert(id.clone(), obj.clone());
         }
 
         // Update owner index
         {
-            let mut owner_index = self
-                .owner_index
-                .write()
-                .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
+            let mut owner_index = self.owner_index.write().map_err(|e| {
+                ObjectStorageError::LockError(format!("Failed to acquire write lock: {}", e))
+            })?;
             owner_index
                 .entry(owner)
                 .or_insert_with(Vec::new)
@@ -126,18 +187,28 @@ impl ObjectStorage {
             // save object
             store
                 .save(&format!("object:{}", id.clone()), &obj)
-                .map_err(|e| format!("Failed to persist object: {}", e))?;
+                .map_err(|e| {
+                    ObjectStorageError::PersistenceError(format!("Failed to persist object: {}", e))
+                })?;
 
             // update object index
             let mut ids = store
                 .load::<Vec<String>>(Self::OBJECT_INDEX_KEY)
-                .map_err(|e| format!("Failed to load object index: {}", e))?
+                .map_err(|e| {
+                    ObjectStorageError::PersistenceError(format!(
+                        "Failed to load object index: {}",
+                        e
+                    ))
+                })?
                 .unwrap_or_default();
             if !ids.iter().any(|x| x == &id) {
                 ids.push(id.clone());
-                store
-                    .save(Self::OBJECT_INDEX_KEY, &ids)
-                    .map_err(|e| format!("Failed to persist object index: {}", e))?;
+                store.save(Self::OBJECT_INDEX_KEY, &ids).map_err(|e| {
+                    ObjectStorageError::PersistenceError(format!(
+                        "Failed to persist object index: {}",
+                        e
+                    ))
+                })?;
             }
         }
 
@@ -194,21 +265,19 @@ impl ObjectStorage {
     }
 
     /// Delete object by ID
-    pub fn delete_object(&self, id: &str) -> Result<(), String> {
+    pub fn delete_object(&self, id: &str) -> Result<(), ObjectStorageError> {
         let removed = {
-            let mut objects = self
-                .objects
-                .write()
-                .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
+            let mut objects = self.objects.write().map_err(|e| {
+                ObjectStorageError::LockError(format!("Failed to acquire write lock: {}", e))
+            })?;
             objects.remove(id)
         };
 
         if let Some(obj) = removed {
             // Remove from owner index
-            let mut owner_index = self
-                .owner_index
-                .write()
-                .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
+            let mut owner_index = self.owner_index.write().map_err(|e| {
+                ObjectStorageError::LockError(format!("Failed to acquire write lock: {}", e))
+            })?;
             if let Some(ids) = owner_index.get_mut(&obj.owner) {
                 ids.retain(|oid| oid != id);
             }
@@ -216,19 +285,30 @@ impl ObjectStorage {
             // Remove from persistent store if enabled
             if let Some(store) = &self.persistent {
                 // delete object key
-                store
-                    .delete(&format!("object:{}", id))
-                    .map_err(|e| format!("Failed to delete persisted object: {}", e))?;
+                store.delete(&format!("object:{}", id)).map_err(|e| {
+                    ObjectStorageError::PersistenceError(format!(
+                        "Failed to delete persisted object: {}",
+                        e
+                    ))
+                })?;
 
                 // update index
                 let mut ids = store
                     .load::<Vec<String>>(Self::OBJECT_INDEX_KEY)
-                    .map_err(|e| format!("Failed to load object index: {}", e))?
+                    .map_err(|e| {
+                        ObjectStorageError::PersistenceError(format!(
+                            "Failed to load object index: {}",
+                            e
+                        ))
+                    })?
                     .unwrap_or_default();
                 ids.retain(|x| x != id);
-                store
-                    .save(Self::OBJECT_INDEX_KEY, &ids)
-                    .map_err(|e| format!("Failed to persist object index: {}", e))?;
+                store.save(Self::OBJECT_INDEX_KEY, &ids).map_err(|e| {
+                    ObjectStorageError::PersistenceError(format!(
+                        "Failed to persist object index: {}",
+                        e
+                    ))
+                })?;
             }
         }
 
@@ -236,16 +316,19 @@ impl ObjectStorage {
     }
 
     /// Update object ownership
-    pub fn transfer_object(&self, id: &str, new_owner: AccountAddress) -> Result<(), String> {
+    pub fn transfer_object(
+        &self,
+        id: &str,
+        new_owner: AccountAddress,
+    ) -> Result<(), ObjectStorageError> {
         let old_owner = {
-            let mut objects = self
-                .objects
-                .write()
-                .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
+            let mut objects = self.objects.write().map_err(|e| {
+                ObjectStorageError::LockError(format!("Failed to acquire write lock: {}", e))
+            })?;
 
             let obj = objects
                 .get_mut(id)
-                .ok_or_else(|| format!("Object {} not found", id))?;
+                .ok_or_else(|| ObjectStorageError::NotFound)?;
 
             let old_owner = obj.owner;
             obj.owner = new_owner;
@@ -254,10 +337,9 @@ impl ObjectStorage {
 
         // Update owner indices
         {
-            let mut owner_index = self
-                .owner_index
-                .write()
-                .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
+            let mut owner_index = self.owner_index.write().map_err(|e| {
+                ObjectStorageError::LockError(format!("Failed to acquire write lock: {}", e))
+            })?;
 
             // Remove from old owner
             if let Some(ids) = owner_index.get_mut(&old_owner) {
@@ -276,9 +358,12 @@ impl ObjectStorage {
             // fetch the updated object from memory
             if let Ok(objects) = self.objects.read() {
                 if let Some(obj) = objects.get(id) {
-                    store
-                        .save(&format!("object:{}", id), obj)
-                        .map_err(|e| format!("Failed to persist transferred object: {}", e))?;
+                    store.save(&format!("object:{}", id), obj).map_err(|e| {
+                        ObjectStorageError::PersistenceError(format!(
+                            "Failed to persist transferred object: {}",
+                            e
+                        ))
+                    })?;
                 }
             }
         }
@@ -292,19 +377,17 @@ impl ObjectStorage {
     }
 
     /// Clear all objects
-    pub fn clear(&self) -> Result<(), String> {
+    pub fn clear(&self) -> Result<(), ObjectStorageError> {
         {
-            let mut objects = self
-                .objects
-                .write()
-                .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
+            let mut objects = self.objects.write().map_err(|e| {
+                ObjectStorageError::LockError(format!("Failed to acquire write lock: {}", e))
+            })?;
             objects.clear();
         }
         {
-            let mut owner_index = self
-                .owner_index
-                .write()
-                .map_err(|e| format!("Failed to acquire write lock: {}", e))?;
+            let mut owner_index = self.owner_index.write().map_err(|e| {
+                ObjectStorageError::LockError(format!("Failed to acquire write lock: {}", e))
+            })?;
             owner_index.clear();
         }
         Ok(())
@@ -314,7 +397,7 @@ impl ObjectStorage {
 // Implement the ObjectStore trait for the in-memory ObjectStorage so it can
 // be used as a boxed trait object by the runtime.
 impl ObjectStore for ObjectStorage {
-    fn store_object(&self, obj: StoredObject) -> Result<(), String> {
+    fn store_object(&self, obj: StoredObject) -> Result<(), ObjectStorageError> {
         // Call the inherent implementation
         ObjectStorage::store_object(self, obj)
     }
@@ -327,11 +410,15 @@ impl ObjectStore for ObjectStorage {
         ObjectStorage::get_objects_by_owner(self, owner)
     }
 
-    fn delete_object(&self, id: &str) -> Result<(), String> {
+    fn delete_object(&self, id: &str) -> Result<(), ObjectStorageError> {
         ObjectStorage::delete_object(self, id)
     }
 
-    fn transfer_object(&self, id: &str, new_owner: AccountAddress) -> Result<(), String> {
+    fn transfer_object(
+        &self,
+        id: &str,
+        new_owner: AccountAddress,
+    ) -> Result<(), ObjectStorageError> {
         ObjectStorage::transfer_object(self, id, new_owner)
     }
 
@@ -339,7 +426,7 @@ impl ObjectStore for ObjectStorage {
         ObjectStorage::count(self)
     }
 
-    fn clear(&self) -> Result<(), String> {
+    fn clear(&self) -> Result<(), ObjectStorageError> {
         ObjectStorage::clear(self)
     }
 }

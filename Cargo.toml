@@ -26,8 +26,11 @@ members = [
       "crates/kanari-rpc-client", 
       "crates/kanari-rpc-server",
       "crates/kanari-faucet",
-      "packages/kanari_flutter/rust"
-, "crates/kanari-core"]
+      "packages/kanari_flutter/rust",
+      "crates/kanari-core",
+      "crates/smt",
+      "crates/tps-harness", 
+      "crates/kanari-system-natives"]
 
 # Workspace Package Configuration: Metadata for the entire workspace as a package.
 # This information is used when publishing the SDK as a crate.
@@ -112,6 +115,7 @@ once_cell = "1.20.0"
 rand = "0.8.5"
 anyhow = "1.0.100"
 thiserror = { version = "2.0.17", default-features = true }
+better_any = "0.1.1"
 
 # Logging & tracing
 log = { version = "0.4.28", default-features = true }
@@ -132,6 +136,10 @@ kanari-rpc-client = { path = "crates/kanari-rpc-client" }
 kanari-rpc-server = { path = "crates/kanari-rpc-server" }
 kanari-faucet = { path = "crates/kanari-faucet" }
 kanari-core = { path = "crates/kanari-core" }
+kanari-system-natives = { path = "crates/kanari-system-natives" }
+
+# SMT Support
+smt = { path = "crates/smt" }
 
 # Move dependencies
 move-binary-format = { path = "third_party/move/crates/move-binary-format" }

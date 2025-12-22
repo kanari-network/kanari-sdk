@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use hex::FromHex;
+use lazy_static::lazy_static;
 use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
@@ -9,6 +10,35 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize}; // Import Serialize and Deserialize
 // Add this at the top with other imports
 use move_core_types::account_address::AccountAddress;
+
+// Lazy-initialized account addresses for system constants
+// These are created once and cached, avoiding runtime parsing overhead
+lazy_static! {
+    /// Standard library address (0x1)
+    static ref STD_ACCOUNT_ADDRESS: AccountAddress =
+        AccountAddress::from_hex_literal(Address::STD_ADDRESS)
+            .expect("STD_ADDRESS constant is invalid");
+
+    /// Kanari System address (0x2)
+    static ref KANARI_SYSTEM_ACCOUNT_ADDRESS: AccountAddress =
+        AccountAddress::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS)
+            .expect("KANARI_SYSTEM_ADDRESS constant is invalid");
+
+    /// Genesis/System address (0x0)
+    static ref GENESIS_ACCOUNT_ADDRESS: AccountAddress =
+        AccountAddress::from_hex_literal(Address::GENESIS_ADDRESS)
+            .expect("GENESIS_ADDRESS constant is invalid");
+
+    /// DAO address
+    static ref DAO_ACCOUNT_ADDRESS: AccountAddress =
+        AccountAddress::from_hex_literal(Address::DAO_ADDRESS)
+            .expect("DAO_ADDRESS constant is invalid");
+
+    /// Dev wallet address
+    static ref DEV_ACCOUNT_ADDRESS: AccountAddress =
+        AccountAddress::from_hex_literal(Address::DEV_ADDRESS)
+            .expect("DEV_ADDRESS constant is invalid");
+}
 
 // Add this implementation at the end of the file, right before or after the std::error::Error impl
 impl From<AccountAddress> for Address {
@@ -55,6 +85,36 @@ impl Address {
     /// DAO address that receives all gas fees
     pub const DAO_ADDRESS: &'static str =
         "0x2f8d23736473a0360e5d292d0cb61487f3c171d6242f1c25c310b581262120a9";
+
+    /// Helper to get AccountAddress for STD (0x1) - cached at first use
+    /// Uses lazy_static for zero-cost after initialization
+    pub fn std_account_address() -> AccountAddress {
+        *STD_ACCOUNT_ADDRESS
+    }
+
+    /// Helper to get AccountAddress for Kanari System (0x2) - cached at first use
+    /// Uses lazy_static for zero-cost after initialization
+    pub fn kanari_system_account_address() -> AccountAddress {
+        *KANARI_SYSTEM_ACCOUNT_ADDRESS
+    }
+
+    /// Helper to get AccountAddress for Genesis (0x0) - cached at first use
+    /// Uses lazy_static for zero-cost after initialization
+    pub fn genesis_account_address() -> AccountAddress {
+        *GENESIS_ACCOUNT_ADDRESS
+    }
+
+    /// Helper to get AccountAddress for DAO - cached at first use
+    /// Uses lazy_static for zero-cost after initialization
+    pub fn dao_account_address() -> AccountAddress {
+        *DAO_ACCOUNT_ADDRESS
+    }
+
+    /// Helper to get AccountAddress for Dev wallet - cached at first use
+    /// Uses lazy_static for zero-cost after initialization
+    pub fn dev_account_address() -> AccountAddress {
+        *DEV_ACCOUNT_ADDRESS
+    }
 
     /// Creates a new Address from raw bytes
     pub const fn new(bytes: [u8; Self::LENGTH]) -> Self {

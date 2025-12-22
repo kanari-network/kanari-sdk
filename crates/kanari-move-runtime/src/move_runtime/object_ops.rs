@@ -4,6 +4,8 @@
 // Object storage operations
 use crate::{changeset::ChangeSet, storage::object_storage::StoredObject};
 use anyhow::Result;
+use kanari_system_natives::transfer_natives::TransferredObject;
+use log::debug;
 use move_core_types::account_address::AccountAddress;
 
 impl super::MoveRuntime {
@@ -35,68 +37,68 @@ impl super::MoveRuntime {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
-    /// Get object storage statistics
-    pub fn get_object_stats(&self) -> (usize, usize) {
-        let total_objects = self.object_storage.count();
-        let total_owners = 0; // Could add owner count tracking if needed
-        (total_objects, total_owners)
+    /// Get object storage count
+    pub fn get_object_count(&self) -> usize {
+        self.object_storage.count()
     }
 
     /// Add transferred objects from native function tracking to changeset
     /// Also persists objects to ObjectStorage for later retrieval
-    pub(crate) fn add_transferred_objects(&mut self, cs: &mut ChangeSet) {
-        let transferred = kanari_types::transfer_natives::take_transferred_objects();
-
+    pub(crate) fn add_transferred_objects_to_changeset(
+        &mut self,
+        cs: &mut ChangeSet,
+        transferred: Vec<TransferredObject>,
+    ) {
         let count = transferred.len();
-        eprintln!("[DEBUG] Processing {} transferred objects", count);
+        debug!("Processing {} transferred objects", count);
 
         for obj in transferred {
-            eprintln!(
-                "[DEBUG] Adding transferred object: id={}, type={}, owner={}, data_len={}",
-                obj.object_id,
-                obj.object_type,
-                obj.recipient,
-                obj.data.len()
+            // take ownership of fields to avoid unnecessary clones where possible
+            let id = obj.object_id;
+            let obj_type = obj.object_type;
+            let owner = obj.recipient;
+            let data = obj.data;
+            let should_persist = obj.should_persist;
+
+            debug!(
+                "Adding transferred object: id={} type={} owner={} data_len={}",
+                id,
+                obj_type,
+                owner,
+                data.len()
             );
 
-            // Add to created_objects in changeset (for immediate response)
-            cs.add_created_object(
-                obj.object_id.clone(),
-                obj.recipient,
-                obj.object_type.clone(),
-                obj.data.clone(),
-                0,
-            );
-
-            // Persist to ObjectStorage if flagged
-            if obj.should_persist {
+            // Persist to ObjectStorage first if flagged (before changeset)
+            // This way we can move data instead of cloning
+            if should_persist {
                 let stored_obj = StoredObject {
-                    id: obj.object_id.clone(),
-                    owner: obj.recipient,
-                    type_name: obj.object_type.clone(),
-                    data: obj.data,
+                    id: id.clone(),
+                    owner,
+                    type_name: obj_type.clone(),
+                    data: data.clone(), // Clone for storage
                     version: 0,
                 };
 
                 match self.object_storage.store_object(stored_obj) {
-                    Ok(_) => {
-                        eprintln!(
-                            "[DEBUG] ✓ Object {} persisted to ObjectStorage",
-                            obj.object_id
-                        );
-                    }
+                    Ok(_) => debug!("Object {} persisted to ObjectStorage", id),
                     Err(e) => {
-                        eprintln!(
-                            "[DEBUG] ✗ Failed to persist object {}: {}",
-                            obj.object_id, e
+                        // Log warning but don't fail transaction - object is still in changeset
+                        // This allows graceful degradation if storage layer has issues
+                        debug!(
+                            "WARNING: Failed to persist object {} to storage: {}. Object remains in changeset.",
+                            id, e
                         );
                     }
                 }
             }
+
+            // Add to created_objects in changeset (after storage to avoid double clone)
+            // Now we can move the data since storage is done
+            cs.add_created_object(id, owner, obj_type, data, 0);
         }
 
         if count > 0 {
-            eprintln!("[DEBUG] Total {} objects added to changeset", count);
+            debug!("Total {} objects added to changeset", count);
         }
     }
 }

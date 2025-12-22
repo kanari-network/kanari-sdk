@@ -3,6 +3,7 @@
 
 // Parser functions for Move VM changesets and events
 use crate::changeset::ChangeSet;
+use log::debug;
 use move_core_types::effects::Op as MoveOp;
 
 impl super::MoveRuntime {
@@ -19,7 +20,7 @@ impl super::MoveRuntime {
         for (_addr, acct) in move_cs.accounts() {
             total_resources += acct.resources().len();
         }
-        eprintln!(
+        debug!(
             "[PARSER] parse_move_changeset: accounts={}, total_resources={}",
             acct_len, total_resources
         );
@@ -33,8 +34,8 @@ impl super::MoveRuntime {
                     }
                     MoveOp::Delete => {
                         // Module deletion (rare, but possible)
-                        eprintln!(
-                            "Warning: Module deletion detected for {}::{}",
+                        debug!(
+                            "[PARSER] Module deletion detected for {}::{}",
                             addr, module_name
                         );
                     }
@@ -58,8 +59,8 @@ impl super::MoveRuntime {
                                         token_type.clone(),
                                         amount,
                                     );
-                                    eprintln!(
-                                        "Set token balance for {}: {} = {}",
+                                    debug!(
+                                        "[PARSER] Set token balance for {}: {} = {}",
                                         addr, token_type, amount
                                     );
                                 }
@@ -73,8 +74,8 @@ impl super::MoveRuntime {
                                     self.token_type_from_struct_tag(struct_tag)
                                 {
                                     kanari_cs.add_treasury(*addr, token_type.clone(), total);
-                                    eprintln!(
-                                        "TreasuryCap for {} created/updated at {} with supply {}",
+                                    debug!(
+                                        "[PARSER] TreasuryCap for {} owner={} supply={}",
                                         token_type, addr, total
                                     );
                                 }
@@ -84,52 +85,57 @@ impl super::MoveRuntime {
                         // Detect created objects with UID in first bytes (object::UID.addr)
                         // For all objects that have a UID field (standard Move object pattern)
                         // the serialized layout starts with the UID address (32 bytes).
-                        let obj_id = if bytes.len() >= 32 {
-                            // Try to extract ID from first 32 bytes (UID pattern)
-                            let id_bytes = &bytes[0..32];
-                            hex::encode(id_bytes)
-                        } else {
-                            // Generate unique ID from address + struct_tag + sequence
-                            self.generate_object_id(addr, struct_tag, bytes)
-                        };
-
-                        let obj_type = if let Some(tt) = self.token_type_from_struct_tag(struct_tag)
+                        // Only treat as a created object if it's NOT a balance/treasury resource
+                        if !(self.is_balance_resource(struct_tag)
+                            || self.is_treasury_resource(struct_tag))
                         {
-                            tt
-                        } else {
-                            format!(
-                                "0x{}::{}::{}",
-                                struct_tag.address.short_str_lossless(),
-                                struct_tag.module.as_str(),
-                                struct_tag.name.as_str()
-                            )
-                        };
+                            let obj_id = if bytes.len() >= 32 {
+                                // Try to extract ID from first 32 bytes (UID pattern)
+                                let id_bytes = &bytes[0..32];
+                                hex::encode(id_bytes)
+                            } else {
+                                // Generate unique ID from address + struct_tag
+                                self.generate_object_id(addr, struct_tag, bytes)
+                            };
 
-                        // Record created object (version 0 for new objects)
-                        kanari_cs.add_created_object(
-                            obj_id.clone(),
-                            *addr,
-                            obj_type.clone(),
-                            bytes.to_vec(),
-                            0,
-                        );
-                        eprintln!(
-                            "Created object detected: id={} owner={} type={}",
-                            obj_id, addr, obj_type
-                        );
+                            let obj_type =
+                                if let Some(tt) = self.token_type_from_struct_tag(struct_tag) {
+                                    tt
+                                } else {
+                                    format!(
+                                        "0x{}::{}::{}",
+                                        struct_tag.address.short_str_lossless(),
+                                        struct_tag.module.as_str(),
+                                        struct_tag.name.as_str()
+                                    )
+                                };
+
+                            // Record created object (version 0 for new objects)
+                            kanari_cs.add_created_object(
+                                obj_id.clone(),
+                                *addr,
+                                obj_type.clone(),
+                                bytes.to_vec(),
+                                0,
+                            );
+                            debug!(
+                                "[PARSER] Created object detected: id={} owner={} type= {}",
+                                obj_id, addr, obj_type
+                            );
+                        }
                     }
                     MoveOp::Delete => {
                         // Resource deletion: if Coin/Balance deleted, set token balance to 0
                         if self.is_balance_resource(struct_tag) {
                             if let Some(token_type) = self.token_type_from_struct_tag(struct_tag) {
                                 kanari_cs.add_token_balance_set(*addr, token_type.clone(), 0);
-                                eprintln!(
-                                    "Deleted token resource for {}: {} -> balance 0",
+                                debug!(
+                                    "[PARSER] Deleted token resource for {}: {} -> balance 0",
                                     addr, token_type
                                 );
                             }
                         } else {
-                            eprintln!("Resource deleted for {}: {}", addr, struct_tag);
+                            debug!("[PARSER] Resource deleted for {}: {}", addr, struct_tag);
                         }
                     }
                 }

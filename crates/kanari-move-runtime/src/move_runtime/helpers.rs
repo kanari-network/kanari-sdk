@@ -12,28 +12,28 @@ impl super::MoveRuntime {
         &self,
         owner: &AccountAddress,
         struct_tag: &StructTag,
-        data: &[u8],
+        _data: &[u8],
     ) -> String {
         use kanari_crypto::hash_data_blake3;
-
-        // Create unique input: owner + module_id + struct_name + data
+        // Create unique input: owner + module address + module name + struct name
+        // NOTE: do NOT include resource data here to ensure stable object IDs
         let mut input = Vec::new();
         input.extend_from_slice(owner.as_ref());
         input.extend_from_slice(struct_tag.address.as_ref());
         input.extend_from_slice(struct_tag.module.as_str().as_bytes());
         input.extend_from_slice(struct_tag.name.as_str().as_bytes());
-        input.extend_from_slice(data);
 
-        // Hash to get unique ID
         let hash = hash_data_blake3(&input);
-        hex::encode(&hash[0..32]) // Use first 32 bytes for object ID
+        hex::encode(&hash[0..32])
     }
 
     /// Check if struct tag represents a balance/coin resource
     pub(crate) fn is_balance_resource(&self, struct_tag: &StructTag) -> bool {
-        // Common patterns: Coin<T>, Balance<T>, Account<T>
-        let name = struct_tag.name.as_str();
-        name == "Coin" || name == "Balance" || name == "Account"
+        let module_name = struct_tag.module.as_str();
+        let struct_name = struct_tag.name.as_str();
+
+        (module_name == "coin" && struct_name == "Coin")
+            || (module_name == "balance" && struct_name == "Balance")
     }
 
     /// Check if struct tag represents a treasury resource
@@ -45,26 +45,35 @@ impl super::MoveRuntime {
     pub(crate) fn extract_balance_from_bytes(
         &self,
         bytes: &[u8],
-        _struct_tag: &StructTag,
+        struct_tag: &StructTag,
     ) -> Option<u64> {
-        // For `Balance<T>` serialized alone, the bytes are just u64 little-endian.
-        // For `Coin<T>` or `TreasuryCap<T>`, the layout is typically: UID (address) followed by u64.
-        // We'll try both: if length >= 8, prefer the last 8 bytes as the u64 value.
-        if bytes.len() >= 8 {
-            let start = bytes.len() - 8;
-            let balance_bytes: [u8; 8] = bytes[start..].try_into().ok()?;
-            Some(u64::from_le_bytes(balance_bytes))
-        } else {
-            None
+        let module_name = struct_tag.module.as_str();
+        let struct_name = struct_tag.name.as_str();
+
+        // Balance<T> (no UID): just 8 bytes
+        if module_name == "balance" && struct_name == "Balance" {
+            if bytes.len() == 8 {
+                let balance_bytes: [u8; 8] = bytes.try_into().ok()?;
+                return Some(u64::from_le_bytes(balance_bytes));
+            }
         }
+
+        // Coin<T> (with UID): [32-byte address][8-byte id][8-byte balance]
+        if module_name == "coin" && struct_name == "Coin" {
+            if bytes.len() >= 48 {
+                let balance_bytes: [u8; 8] = bytes[40..48].try_into().ok()?;
+                return Some(u64::from_le_bytes(balance_bytes));
+            }
+        }
+
+        None
     }
 
     /// Extract total supply from TreasuryCap bytes
     pub(crate) fn extract_treasury_total_from_bytes(&self, bytes: &[u8]) -> Option<u64> {
-        // TreasuryCap layout: UID (address) + total_supply: u64
-        if bytes.len() >= 8 {
-            let start = bytes.len() - 8;
-            let supply_bytes: [u8; 8] = bytes[start..].try_into().ok()?;
+        // TreasuryCap: [32-byte address][8-byte id][8-byte total_supply]
+        if bytes.len() >= 48 {
+            let supply_bytes: [u8; 8] = bytes[40..48].try_into().ok()?;
             Some(u64::from_le_bytes(supply_bytes))
         } else {
             None

@@ -1,0 +1,22 @@
+[package]
+name = "tps-harness"
+edition.workspace = true
+categories.workspace = true
+keywords.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[dependencies]
+kanari-core = { workspace = true }
+kanari-move-runtime = { workspace = true }
+move-core-types = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+
+[profile.dev]
+opt-level = 0

@@ -134,8 +134,9 @@ impl super::MoveRuntime {
             );
             eprintln!();
             eprintln!("To fix this:");
-            eprintln!("  cd crates/kanari-frameworks");
-            eprintln!("  sui move build -p packages/kanari-system");
+            eprintln!("  cd crates/kanari-frameworks/packages/move-stdlib");
+            eprintln!("  cd crates/kanari-frameworks/packages/kanari-system");
+            eprintln!("  kanari move build");
             return Ok(());
         }
 

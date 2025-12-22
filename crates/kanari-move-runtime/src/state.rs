@@ -96,14 +96,12 @@ impl StateManager {
         // Total supply in Mist (from kanari-types constants)
         let total_supply_mist: u64 = KanariModule::TOTAL_SUPPLY_MIST;
 
-        // Initialize system accounts
-        let genesis_addr =
-            AccountAddress::from_hex_literal(KanariAddress::GENESIS_ADDRESS).unwrap();
-        let std_addr = AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS).unwrap();
-        let system_addr =
-            AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap();
-        let dao_addr = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS).unwrap();
-        let dev_addr = AccountAddress::from_hex_literal(KanariAddress::DEV_ADDRESS).unwrap();
+        // Initialize system accounts using safe helper functions
+        let genesis_addr = KanariAddress::genesis_account_address();
+        let std_addr = KanariAddress::std_account_address();
+        let system_addr = KanariAddress::kanari_system_account_address();
+        let dao_addr = KanariAddress::dao_account_address();
+        let dev_addr = KanariAddress::dev_account_address();
 
         accounts.insert(genesis_addr, Account::new(genesis_addr, 0));
         accounts.insert(std_addr, Account::new(std_addr, 0));
@@ -226,14 +224,15 @@ impl StateManager {
         // Persist created objects from ChangeSet into the object registry and
         // register ownership mapping so RPC/account queries can list owned objects.
         for created in &changeset.created_objects {
-            // store the object by id
-            self.objects.insert(created.id.clone(), created.clone());
+            // Clone only the ID for the ownership mapping (needed in 2 places)
+            let obj_id = created.id.clone();
 
-            // add to owner's owned_objects list
+            // Store the object (only need to clone once per object)
+            self.objects.insert(obj_id.clone(), created.clone());
             self.owned_objects
                 .entry(created.owner)
                 .or_insert_with(Vec::new)
-                .push(created.id.clone());
+                .push(obj_id);
         }
 
         // Persist events emitted by Move VM into state event store
@@ -283,7 +282,8 @@ impl StateManager {
     }
 
     pub fn compute_state_root(&self) -> Vec<u8> {
-        let serialized = bcs::to_bytes(&self.accounts).unwrap();
+        let serialized =
+            bcs::to_bytes(&self.accounts).expect("BCS serialization of accounts should never fail");
         hash_data_blake3(&serialized)
     }
 

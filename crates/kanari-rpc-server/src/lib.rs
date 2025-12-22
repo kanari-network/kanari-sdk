@@ -82,6 +82,8 @@ async fn handle_rpc(
 
         // Blocks & Transactions
         methods::GET_BLOCK => handle_get_block(&state, &request).await,
+        methods::GET_STATE_ROOT => handle_get_state_root(&state, &request).await,
+        methods::GET_ACCOUNT_PROOF => handle_get_account_proof(&state, &request).await,
         methods::GET_BLOCK_HEIGHT => handle_get_block_height(&state, &request).await,
         methods::GET_STATS => handle_get_stats(&state, &request).await,
         methods::SUBMIT_TRANSACTION => handle_submit_transaction(&state, &request).await,
@@ -98,6 +100,7 @@ async fn handle_rpc(
 
         // Function calls
         methods::CALL_FUNCTION => handle_call_function(&state, &request).await,
+        methods::GET_OBJECT => handle_get_object(&state, &request).await,
         methods::SIMULATE_FUNCTION => handle_simulate_function(&state, &request).await,
 
         _ => RpcResponse {
@@ -228,7 +231,7 @@ async fn handle_get_block(state: &RpcServerState, request: &RpcRequest) -> RpcRe
                 prev_hash: block.prev_hash,
                 tx_count: block.tx_count,
                 // `block.hash` is already a hex string; avoid double-encoding
-                state_root: block.hash.clone(),
+                state_root: block.state_root.clone(),
                 events: rpc_events,
             };
             respond_with_serialize(request.id, block_info)
@@ -237,6 +240,116 @@ async fn handle_get_block(state: &RpcServerState, request: &RpcRequest) -> RpcRe
             jsonrpc: "2.0".to_string(),
             result: None,
             error: Some(RpcError::internal_error("Block not found")),
+            id: request.id,
+        },
+    }
+}
+
+/// Handle get state root request
+async fn handle_get_state_root(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    let req: kanari_rpc_api::GetStateRootRequest =
+        match serde_json::from_value(request.params.clone()) {
+            Ok(r) => r,
+            Err(e) => {
+                return RpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: None,
+                    error: Some(RpcError::invalid_params(e.to_string())),
+                    id: request.id,
+                };
+            }
+        };
+
+    let root = state.engine.get_state_root(req.height);
+    match root {
+        Some(r) => respond_with_serialize(request.id, serde_json::json!(r)),
+        None => RpcResponse {
+            jsonrpc: "2.0".to_string(),
+            result: None,
+            error: Some(RpcError::internal_error("State root not available")),
+            id: request.id,
+        },
+    }
+}
+
+/// Handle account proof request
+async fn handle_get_account_proof(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    let req: kanari_rpc_api::GetAccountProofRequest =
+        match serde_json::from_value(request.params.clone()) {
+            Ok(r) => r,
+            Err(e) => {
+                return RpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: None,
+                    error: Some(RpcError::invalid_params(e.to_string())),
+                    id: request.id,
+                };
+            }
+        };
+    // If a height is provided, attempt historical proof using snapshot
+    if let Some(h) = req.height {
+        match state.engine.get_account_proof_at_height(h, &req.address) {
+            Ok(Some((is_member, leaf, siblings))) => {
+                let state_root = state.engine.get_state_root(Some(h)).unwrap_or_default();
+                let proof = kanari_rpc_api::AccountProof {
+                    state_root,
+                    is_member,
+                    leaf_hash: leaf,
+                    siblings,
+                };
+                return respond_with_serialize(request.id, proof);
+            }
+            Ok(None) => {
+                return RpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: None,
+                    error: Some(RpcError::internal_error(
+                        "Historical proof not available (no snapshot)",
+                    )),
+                    id: request.id,
+                };
+            }
+            Err(e) => {
+                return RpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: None,
+                    error: Some(RpcError::internal_error(format!(
+                        "Proof generation failed: {}",
+                        e
+                    ))),
+                    id: request.id,
+                };
+            }
+        }
+    }
+
+    // Latest proof
+    match state.engine.get_account_proof(&req.address) {
+        Ok(Some((is_member, leaf, siblings))) => {
+            let state_root = state.engine.get_state_root(None).unwrap_or_default();
+            let proof = kanari_rpc_api::AccountProof {
+                state_root,
+                is_member,
+                leaf_hash: leaf,
+                siblings,
+            };
+            respond_with_serialize(request.id, proof)
+        }
+        Ok(None) => RpcResponse {
+            jsonrpc: "2.0".to_string(),
+            result: None,
+            error: Some(RpcError::internal_error(
+                "Proof not available (SMT not configured or key missing)",
+            )),
+            id: request.id,
+        },
+        Err(e) => RpcResponse {
+            jsonrpc: "2.0".to_string(),
+            result: None,
+            error: Some(RpcError::internal_error(format!(
+                "Proof generation failed: {}",
+                e
+            ))),
             id: request.id,
         },
     }
@@ -596,6 +709,59 @@ async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) -> R
                 let mut cs_value =
                     serde_json::to_value(&changeset).unwrap_or(serde_json::json!(null));
 
+                // Normalize created object `type` fields: replace Move-VM debug strings
+                // like `StructInstantiation((CachedStructIndex...)` with a nicer stored
+                // type string when possible (look up persisted object info in state).
+                {
+                    let state_guard = state.engine.state.read().unwrap();
+                    if let Some(map) = cs_value.as_object_mut() {
+                        if let Some(created_val) = map.get_mut("created_objects") {
+                            if let Some(arr) = created_val.as_array_mut() {
+                                for obj in arr.iter_mut() {
+                                    if let Some(obj_map) = obj.as_object_mut() {
+                                        if let Some(type_val) =
+                                            obj_map.get("type").and_then(|v| v.as_str())
+                                        {
+                                            let is_noisy = type_val.contains("StructInstantiation")
+                                                || type_val.contains("CachedStructIndex");
+                                            if is_noisy {
+                                                if let Some(id) =
+                                                    obj_map.get("id").and_then(|v| v.as_str())
+                                                {
+                                                    // try direct lookup in persisted objects
+                                                    if let Some(stored) =
+                                                        state_guard.objects.get(id)
+                                                    {
+                                                        obj_map.insert(
+                                                            "type".to_string(),
+                                                            serde_json::Value::String(
+                                                                stored.type_.clone(),
+                                                            ),
+                                                        );
+                                                    } else {
+                                                        // try without 0x prefix
+                                                        let id_norm = id.trim_start_matches("0x");
+                                                        if let Some(stored2) =
+                                                            state_guard.objects.get(id_norm)
+                                                        {
+                                                            obj_map.insert(
+                                                                "type".to_string(),
+                                                                serde_json::Value::String(
+                                                                    stored2.type_.clone(),
+                                                                ),
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // If Move ChangeSet reported no created objects, try to fetch persisted
                 // objects from engine state (StateManager) for the sender address to
                 // provide better CLI feedback.
@@ -700,6 +866,46 @@ async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) -> R
                 ))),
                 id: request.id,
             }
+        }
+    }
+}
+
+/// Handle get object request by object id
+async fn handle_get_object(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    let req: kanari_rpc_api::GetObjectRequest = match serde_json::from_value(request.params.clone())
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".to_string(),
+                result: None,
+                error: Some(RpcError::invalid_params(e.to_string())),
+                id: request.id,
+            };
+        }
+    };
+
+    let id = req.object_id.trim_start_matches("0x").to_lowercase();
+
+    let state_guard = state.engine.state.read().unwrap();
+    if let Some(obj) = state_guard.objects.get(&id) {
+        let info = kanari_rpc_api::ObjectInfo {
+            id: obj.id.clone(),
+            owner: format!("{:#x}", obj.owner),
+            type_: obj.type_.clone(),
+            data: obj.data.clone(),
+            version: obj.version,
+        };
+        respond_with_serialize(request.id, info)
+    } else {
+        RpcResponse {
+            jsonrpc: "2.0".to_string(),
+            result: None,
+            error: Some(RpcError::internal_error(format!(
+                "Object not found: {}",
+                req.object_id
+            ))),
+            id: request.id,
         }
     }
 }

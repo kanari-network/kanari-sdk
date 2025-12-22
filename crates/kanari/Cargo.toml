@@ -66,6 +66,7 @@ move-unit-test = { workspace = true }
 
 bcs = { workspace = true }
 move-stdlib-natives = { workspace = true }
+kanari-system-natives = { workspace = true }
 
 [features]
 default = []

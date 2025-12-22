@@ -128,6 +128,27 @@ pub struct BlockInfo {
     pub events: Vec<RpcEvent>,
 }
 
+/// Request for state root (optional height). If `height` is None, latest root is returned.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetStateRootRequest {
+    pub height: Option<u64>,
+}
+
+/// Account state proof returned to light clients
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountProof {
+    pub state_root: String,
+    pub is_member: bool,
+    pub leaf_hash: Vec<u8>,
+    pub siblings: Vec<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetAccountProofRequest {
+    pub address: String,
+    pub height: Option<u64>,
+}
+
 /// Event emitted by Move runtime (RPC representation)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcEvent {
@@ -290,6 +311,7 @@ pub struct GetAllBalancesRequest {
 
 /// RPC Methods
 pub mod methods {
+    pub const GET_OBJECT: &str = "kanari_getObject";
     // Account & Balance
     pub const GET_ACCOUNT: &str = "kanari_getAccount";
     pub const GET_BALANCE: &str = "kanari_getBalance";
@@ -301,6 +323,8 @@ pub mod methods {
     pub const GET_BLOCK_HEIGHT: &str = "kanari_getBlockHeight";
     pub const GET_TRANSACTION: &str = "kanari_getTransaction";
     pub const SUBMIT_TRANSACTION: &str = "kanari_submitTransaction";
+    pub const GET_STATE_ROOT: &str = "kanari_getStateRoot";
+    pub const GET_ACCOUNT_PROOF: &str = "kanari_getAccountProof";
 
     // Stats & Info
     pub const GET_STATS: &str = "kanari_getStats";
