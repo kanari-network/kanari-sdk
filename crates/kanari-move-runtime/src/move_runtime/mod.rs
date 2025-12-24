@@ -10,6 +10,7 @@ use move_binary_format::file_format::CompiledModule;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::IdentStr;
 use move_core_types::language_storage::{ModuleId, TypeTag};
+use move_core_types::resolver::ResourceResolver;
 use move_vm_runtime::move_vm::MoveVM;
 use move_vm_runtime::native_functions::NativeFunctionTable;
 use move_vm_test_utils::InMemoryStorage;
@@ -21,11 +22,14 @@ mod object_ops;
 mod parsers;
 use crate::gas::GasOperation;
 use kanari_types::address::Address as KanariAddress;
+use kanari_types::coin::CoinModule;
+use kanari_types::tx_context::TxContextModule;
 pub mod move_runtime_extensions;
 use crate::changeset::ChangeSet;
 use crate::storage::move_vm_state::MoveVMState;
 use crate::storage::object_storage::{ObjectStorage, ObjectStore};
 use kanari_types::tx_context::TxContextRecord;
+use move_vm_types::loaded_data::runtime_types::Type as RuntimeType;
 
 use std::collections::HashSet;
 
@@ -273,6 +277,45 @@ impl MoveRuntime {
         // Auto-inject TxContext if function expects it as last parameter
         let mut final_args = args.clone();
 
+        // Preprocess human-friendly argument encodings from callers (CLI/RPC):
+        // - hex addresses like `0x...` or 64-hex-digit strings -> decode to 32 raw bytes
+        // - decimal integers (ASCII) -> serialize as u64 via BCS
+        // Leave other binary inputs untouched.
+        final_args = final_args
+            .into_iter()
+            .map(|arg| {
+                if let Ok(s) = std::str::from_utf8(&arg) {
+                    let s_trim = s.trim();
+                    // hex with 0x
+                    if s_trim.starts_with("0x") {
+                        let hex_part = &s_trim[2..];
+                        if let Ok(bytes) = hex::decode(hex_part) {
+                            if bytes.len() == 32 {
+                                return bytes;
+                            }
+                        }
+                    }
+
+                    // pure hex without 0x
+                    if s_trim.len() == 64 {
+                        if let Ok(bytes) = hex::decode(s_trim) {
+                            if bytes.len() == 32 {
+                                return bytes;
+                            }
+                        }
+                    }
+
+                    // decimal integer -> serialize as u64 (common for amounts)
+                    if let Ok(n) = s_trim.parse::<u64>() {
+                        if let Ok(b) = bcs::to_bytes(&n) {
+                            return b;
+                        }
+                    }
+                }
+                arg
+            })
+            .collect();
+
         // Create TxContext struct using canonical Kanari type and serialize with BCS
         let sender_addr = sender.unwrap_or(AccountAddress::ZERO);
         let tx_hash = vec![0u8; 32]; // Placeholder
@@ -285,7 +328,7 @@ impl MoveRuntime {
 
         let tx_ctx = TxContextRecord::from_address(
             sender_addr,
-            tx_hash.clone(),
+            tx_hash,
             epoch,
             epoch_timestamp_ms,
             ids_created,
@@ -302,24 +345,54 @@ impl MoveRuntime {
             if param_count == final_args.len() + 1 {
                 // Check if last parameter is TxContext type
                 if let Some(last_param_type) = func.parameters.last() {
-                    let type_str = format!("{:?}", last_param_type);
-                    // Strict matching: must contain both module path and struct name
-                    // Format is typically: Struct(StructTag { address: 0x2, module: tx_context, name: TxContext, ... })
-                    let is_tx_context = type_str.contains("0x2")
-                        && type_str.contains("module: tx_context")
-                        && type_str.contains("name: TxContext");
+                    // Use the session loader to convert the runtime `Type` into a `TypeTag` and
+                    // check whether the last parameter is the canonical `0x2::tx_context::TxContext`.
+                    // Try to get a TypeTag for the last parameter. If the parameter is a
+                    // reference, extract the inner type and convert that to a TypeTag.
+                    let type_tag_opt =
+                        session.get_type_tag(last_param_type).ok().or_else(
+                            || match last_param_type {
+                                RuntimeType::Reference(inner)
+                                | RuntimeType::MutableReference(inner) => {
+                                    session.get_type_tag(inner).ok()
+                                }
+                                _ => None,
+                            },
+                        );
 
-                    if is_tx_context {
-                        final_args.push(tx_context_bytes);
-                        debug!(
-                            "[RUNTIME] Auto-injected TxContext for {}::{}",
+                    match type_tag_opt {
+                        Some(type_tag) => match &type_tag {
+                            TypeTag::Struct(struct_tag) => {
+                                let system_addr = KanariAddress::kanari_system_account_address();
+                                if struct_tag.address == system_addr
+                                    && struct_tag.module.as_str()
+                                        == TxContextModule::TX_CONTEXT_MODULE
+                                    && struct_tag.name.as_str()
+                                        == TxContextModule::TX_CONTEXT_STRUCT
+                                {
+                                    final_args.push(tx_context_bytes);
+                                    debug!(
+                                        "[RUNTIME] Auto-injected TxContext for {}::{}",
+                                        module_id, function_name
+                                    );
+                                } else {
+                                    debug!(
+                                        "[RUNTIME] Skipped TxContext injection for {}::{} - last param type: {:?}",
+                                        module_id, function_name, type_tag
+                                    );
+                                }
+                            }
+                            other => {
+                                debug!(
+                                    "[RUNTIME] Skipped TxContext injection for {}::{} - last param not a struct: {:?}",
+                                    module_id, function_name, other
+                                );
+                            }
+                        },
+                        None => debug!(
+                            "[RUNTIME] Failed to convert last param type to TypeTag for {}::{}",
                             module_id, function_name
-                        );
-                    } else {
-                        debug!(
-                            "[RUNTIME] Skipped TxContext injection for {}::{} - last param type: {}",
-                            module_id, function_name, type_str
-                        );
+                        ),
                     }
                 }
             }

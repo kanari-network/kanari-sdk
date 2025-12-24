@@ -134,6 +134,8 @@ pub struct CoinModule;
 
 impl CoinModule {
     pub const COIN_MODULE: &'static str = "coin";
+    /// Name of the TreasuryCap struct in Move
+    pub const TREASURY_CAP_STRUCT: &'static str = "TreasuryCap";
 
     /// Get the module ID for kanari_system::coin
     pub fn get_module_id() -> Result<ModuleId> {

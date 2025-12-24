@@ -79,6 +79,8 @@ pub struct TxContextModule;
 
 impl TxContextModule {
     pub const TX_CONTEXT_MODULE: &'static str = "tx_context";
+    /// Name of the TxContext struct in Move
+    pub const TX_CONTEXT_STRUCT: &'static str = "TxContext";
 
     /// Get the module ID for kanari_system::tx_context
     pub fn get_module_id() -> Result<ModuleId> {

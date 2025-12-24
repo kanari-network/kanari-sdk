@@ -311,7 +311,6 @@ pub struct GetAllBalancesRequest {
 
 /// RPC Methods
 pub mod methods {
-    pub const GET_OBJECT: &str = "kanari_getObject";
     // Account & Balance
     pub const GET_ACCOUNT: &str = "kanari_getAccount";
     pub const GET_BALANCE: &str = "kanari_getBalance";

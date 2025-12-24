@@ -100,7 +100,6 @@ async fn handle_rpc(
 
         // Function calls
         methods::CALL_FUNCTION => handle_call_function(&state, &request).await,
-        methods::GET_OBJECT => handle_get_object(&state, &request).await,
         methods::SIMULATE_FUNCTION => handle_simulate_function(&state, &request).await,
 
         _ => RpcResponse {
@@ -866,46 +865,6 @@ async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) -> R
                 ))),
                 id: request.id,
             }
-        }
-    }
-}
-
-/// Handle get object request by object id
-async fn handle_get_object(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let req: kanari_rpc_api::GetObjectRequest = match serde_json::from_value(request.params.clone())
-    {
-        Ok(r) => r,
-        Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: None,
-                error: Some(RpcError::invalid_params(e.to_string())),
-                id: request.id,
-            };
-        }
-    };
-
-    let id = req.object_id.trim_start_matches("0x").to_lowercase();
-
-    let state_guard = state.engine.state.read().unwrap();
-    if let Some(obj) = state_guard.objects.get(&id) {
-        let info = kanari_rpc_api::ObjectInfo {
-            id: obj.id.clone(),
-            owner: format!("{:#x}", obj.owner),
-            type_: obj.type_.clone(),
-            data: obj.data.clone(),
-            version: obj.version,
-        };
-        respond_with_serialize(request.id, info)
-    } else {
-        RpcResponse {
-            jsonrpc: "2.0".to_string(),
-            result: None,
-            error: Some(RpcError::internal_error(format!(
-                "Object not found: {}",
-                req.object_id
-            ))),
-            id: request.id,
         }
     }
 }
