@@ -4,6 +4,7 @@ use bcs;
 use kanari_move_runtime::changeset::ChangeSet;
 use kanari_move_runtime::move_runtime::MoveRuntime;
 use kanari_move_runtime::state::StateManager;
+use kanari_types::coin::CoinModule;
 use kanari_types::object::UIDRecord;
 use kanari_types::tx_context::TxContextRecord;
 use move_binary_format::file_format::CompiledModule;
@@ -265,10 +266,10 @@ fn main() {
             }
         }
 
-        if obj.type_.contains("TreasuryCap")
+        if obj.type_.contains(CoinModule::TREASURY_CAP_STRUCT)
             || decoded_type
                 .as_ref()
-                .map(|s| s.contains("TreasuryCap"))
+                .map(|s| s.contains(CoinModule::TREASURY_CAP_STRUCT))
                 .unwrap_or(false)
         {
             println!(
@@ -298,7 +299,7 @@ fn main() {
             .iter()
             .chain(call_cs.created_objects.iter())
         {
-            if obj.id == tid && obj.type_.contains("TreasuryCap") {
+            if obj.id == tid && obj.type_.contains(CoinModule::TREASURY_CAP_STRUCT) {
                 if let Some(start) = obj.type_.find('<') {
                     if let Some(end) = obj.type_.rfind('>') {
                         let inner = &obj.type_[start + 1..end];

@@ -101,6 +101,7 @@ async fn handle_rpc(
         // Function calls
         methods::CALL_FUNCTION => handle_call_function(&state, &request).await,
         methods::SIMULATE_FUNCTION => handle_simulate_function(&state, &request).await,
+        methods::GET_OBJECT => handle_get_object(&state, &request).await,
 
         _ => RpcResponse {
             jsonrpc: "2.0".to_string(),
@@ -162,6 +163,48 @@ async fn handle_get_account(state: &RpcServerState, request: &RpcRequest) -> Rpc
             error: Some(RpcError::internal_error("Account not found")),
             id: request.id,
         },
+    }
+}
+
+/// Handle get object request
+async fn handle_get_object(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    let req: kanari_rpc_api::GetObjectRequest = match serde_json::from_value(request.params.clone())
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".to_string(),
+                result: None,
+                error: Some(RpcError::invalid_params(e.to_string())),
+                id: request.id,
+            };
+        }
+    };
+
+    // Try to look up object in engine state
+    let id = req.object_id;
+    let state_guard = state.engine.state.read().unwrap();
+
+    // Try both with and without 0x prefix
+    let candidates = vec![id.clone(), id.trim_start_matches("0x").to_string()];
+    for cid in candidates {
+        if let Some(obj) = state_guard.objects.get(&cid) {
+            let info = kanari_rpc_api::ObjectInfo {
+                id: obj.id.clone(),
+                owner: format!("{:#x}", obj.owner),
+                type_: obj.type_.clone(),
+                data: obj.data.clone(),
+                version: obj.version,
+            };
+            return respond_with_serialize(request.id, info);
+        }
+    }
+
+    RpcResponse {
+        jsonrpc: "2.0".to_string(),
+        result: None,
+        error: Some(RpcError::internal_error("Object not found")),
+        id: request.id,
     }
 }
 

@@ -84,6 +84,8 @@ pub struct BalanceModule;
 
 impl BalanceModule {
     pub const BALANCE_MODULE: &'static str = "balance";
+    /// Name of the Balance struct in Move
+    pub const BALANCE_STRUCT: &'static str = "Balance";
 
     /// Get the module ID for kanari_system::balance
     pub fn get_module_id() -> Result<ModuleId> {

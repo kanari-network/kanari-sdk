@@ -340,4 +340,6 @@ pub mod methods {
     // Function calls
     pub const CALL_FUNCTION: &str = "kanari_callFunction";
     pub const SIMULATE_FUNCTION: &str = "kanari_simulateFunction";
+    // Object queries
+    pub const GET_OBJECT: &str = "kanari_getObject";
 }

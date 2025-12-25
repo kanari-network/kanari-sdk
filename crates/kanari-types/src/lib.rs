@@ -11,6 +11,9 @@ pub mod tx_context;
 
 // Move Standard Library bindings
 pub mod stdlib;
+// Re-export Move stdlib bindings at crate root for easier access and
+// to align Rust API names with Move module names.
+pub use stdlib::*;
 
 pub mod deny_list;
 pub mod object;

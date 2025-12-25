@@ -134,6 +134,8 @@ pub struct CoinModule;
 
 impl CoinModule {
     pub const COIN_MODULE: &'static str = "coin";
+    /// Name of the Coin struct in Move
+    pub const COIN_STRUCT: &'static str = "Coin";
     /// Name of the TreasuryCap struct in Move
     pub const TREASURY_CAP_STRUCT: &'static str = "TreasuryCap";
 

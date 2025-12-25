@@ -36,6 +36,8 @@ pub struct ObjectModule;
 
 impl ObjectModule {
     pub const OBJECT_MODULE: &'static str = "object";
+    /// Name of the UID struct in Move
+    pub const UID_STRUCT: &'static str = "UID";
 
     /// Get the module ID for kanari_system::object
     pub fn get_module_id() -> Result<ModuleId> {

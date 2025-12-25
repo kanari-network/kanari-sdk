@@ -106,10 +106,33 @@ fn native_transfer_with_uid(
     // Instead we record a deterministic identifier per-execution and leave full
     // object data to be retrieved from the VM changeset / write-set by external systems.
 
-    // Build minimal placeholder data (recipient + type) for indexing only
-    let mut obj_data = Vec::new();
-    obj_data.extend_from_slice(recipient.as_ref());
-    obj_data.extend_from_slice(type_str.as_bytes());
+    // Attempt to serialize the transferred object value into BCS so external
+    // callers (CLI/RPC) can fetch the object's bytes and use them as function
+    // arguments. If serialization fails, fall back to a minimal placeholder
+    // (recipient + type) to preserve existing behavior.
+    let mut obj_data: Vec<u8> = Vec::new();
+
+    // Try to obtain the layout for the type and serialize the value.
+    if let Ok(layout_opt) = context.type_to_type_layout(&ty_args[0]) {
+        if let Some(layout) = layout_opt {
+            // `obj_val` is the moved Value; attempt simple_serialize
+            if let Some(serialized) = obj_val.simple_serialize(&layout) {
+                obj_data = serialized;
+            } else {
+                // serialization failed - fall back to minimal placeholder
+                obj_data.extend_from_slice(recipient.as_ref());
+                obj_data.extend_from_slice(type_str.as_bytes());
+            }
+        } else {
+            // No layout available -> fallback to placeholder
+            obj_data.extend_from_slice(recipient.as_ref());
+            obj_data.extend_from_slice(type_str.as_bytes());
+        }
+    } else {
+        // Failed to query layout -> fallback to placeholder
+        obj_data.extend_from_slice(recipient.as_ref());
+        obj_data.extend_from_slice(type_str.as_bytes());
+    }
 
     // Store transfer in the transaction-local native context extension
     // Limit the mutable borrow of the extensions to a small scope to avoid

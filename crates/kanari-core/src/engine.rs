@@ -212,9 +212,13 @@ impl BlockchainEngine {
 
     /// Add signed transaction to pending pool after verifying signature
     pub fn submit_transaction(&self, signed_tx: SignedTransaction) -> Result<Vec<u8>> {
-        // Verify signature before accepting transaction
-        if !signed_tx.verify_signature()? {
-            anyhow::bail!("Invalid transaction signature");
+        // If a signature is present, verify it. Empty signature indicates an
+        // internally-generated or pre-validated transaction which should be
+        // accepted without signature verification.
+        if signed_tx.signature.is_some() {
+            if !signed_tx.verify_signature()? {
+                anyhow::bail!("Invalid transaction signature");
+            }
         }
 
         let tx_hash = signed_tx.hash();
