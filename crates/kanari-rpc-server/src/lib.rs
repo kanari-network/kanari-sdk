@@ -1201,9 +1201,53 @@ async fn handle_get_all_balances(state: &RpcServerState, request: &RpcRequest) -
                 "symbol": "KANARI"
             })];
 
+            // Start with recorded token_balances (from state.account.token_balances)
             for (token_type, amount) in info.token_balances.iter() {
                 let symbol = token_type.split("::").last().unwrap_or(token_type);
 
+                balances.push(serde_json::json!({
+                    "token_type": token_type,
+                    "balance": amount,
+                    "decimals": 9,
+                    "symbol": symbol
+                }));
+            }
+
+            // Best-effort: inspect owned objects for coin objects and sum their values.
+            // Many Move coin implementations store the coin value as a u64 in the last 8 bytes.
+            use std::collections::HashMap;
+            let mut coin_sums: HashMap<String, u128> = HashMap::new();
+            for obj in info.owned_objects.iter() {
+                if obj.type_.contains("::coin::Coin<") {
+                    // Try to parse last 8 bytes from obj.data (which is Vec<u8> in RPC types)
+                    if obj.data.len() >= 8 {
+                        let n = obj.data.len();
+                        let mut bytes = [0u8; 8];
+                        let mut ok = true;
+                        for i in 0..8 {
+                            bytes[i] = obj.data[n - 8 + i];
+                        }
+                        if ok {
+                            let amount = u64::from_le_bytes(bytes) as u128;
+                            // token_type = the generic type inside Coin<...>
+                            // We'll use the full object type as token_type for uniqueness
+                            let token_type = obj.type_.clone();
+                            *coin_sums.entry(token_type).or_insert(0) += amount;
+                        }
+                    }
+                }
+            }
+
+            for (token_type, amount128) in coin_sums.into_iter() {
+                // convert to u64 if safe, else cap
+                let amount = if amount128 > (u128::from(u64::MAX)) {
+                    u64::MAX
+                } else {
+                    amount128 as u64
+                };
+                let mut symbol = token_type.split("::").last().unwrap_or(&token_type).to_string();
+                // Trim possible generic angle-brackets from the last segment (e.g. "JAMES>")
+                symbol = symbol.trim_start_matches('<').trim_end_matches('>').to_string();
                 balances.push(serde_json::json!({
                     "token_type": token_type,
                     "balance": amount,
