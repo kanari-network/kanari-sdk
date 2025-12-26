@@ -142,37 +142,53 @@ impl Balances {
                                                         "id": 1
                                                     });
 
-                                                    match Client::new().post(&self.rpc_endpoint).json(&obj_req).send() {
-                                                        Ok(resp) => match resp.json::<serde_json::Value>() {
-                                                            Ok(val) => {
-                                                                if let Some(res) = val.get("result") {
-                                                                    if let Some(data_arr) = res.get("data").and_then(|d| d.as_array()) {
-                                                                        if data_arr.len() >= 8 {
-                                                                            let n = data_arr.len();
-                                                                            let mut bytes = [0u8; 8];
-                                                                            let mut ok = true;
-                                                                            for i in 0..8 {
-                                                                                match data_arr[n - 8 + i].as_u64() {
+                                                    match Client::new()
+                                                        .post(&self.rpc_endpoint)
+                                                        .json(&obj_req)
+                                                        .send()
+                                                    {
+                                                        Ok(resp) => {
+                                                            match resp.json::<serde_json::Value>() {
+                                                                Ok(val) => {
+                                                                    if let Some(res) =
+                                                                        val.get("result")
+                                                                    {
+                                                                        if let Some(data_arr) = res
+                                                                            .get("data")
+                                                                            .and_then(|d| {
+                                                                                d.as_array()
+                                                                            })
+                                                                        {
+                                                                            if data_arr.len() >= 8 {
+                                                                                let n =
+                                                                                    data_arr.len();
+                                                                                let mut bytes =
+                                                                                    [0u8; 8];
+                                                                                let mut ok = true;
+                                                                                for i in 0..8 {
+                                                                                    match data_arr[n - 8 + i].as_u64() {
                                                                                     Some(b) if b <= 0xff => bytes[i] = b as u8,
                                                                                     _ => { ok = false; break; }
                                                                                 }
-                                                                            }
-                                                                            if ok {
-                                                                                let amount = u64::from_le_bytes(bytes);
-                                                                                // Display using same formatting as other balances (9 decimals default)
-                                                                                let decimals = 9u32;
-                                                                                let divisor = 10u64.pow(decimals);
-                                                                                let whole = amount / divisor;
-                                                                                let fraction = amount % divisor;
-                                                                                println!("  {}  ({}) -> {} {}.{:0width$}", id, ty, "TOKEN", whole, fraction, width = decimals as usize);
-                                                                                continue;
+                                                                                }
+                                                                                if ok {
+                                                                                    let amount = u64::from_le_bytes(bytes);
+                                                                                    // Display using same formatting as other balances (9 decimals default)
+                                                                                    let decimals =
+                                                                                        9u32;
+                                                                                    let divisor = 10u64.pow(decimals);
+                                                                                    let whole = amount / divisor;
+                                                                                    let fraction = amount % divisor;
+                                                                                    println!("  {}  ({}) -> {} {}.{:0width$}", id, ty, "TOKEN", whole, fraction, width = decimals as usize);
+                                                                                    continue;
+                                                                                }
                                                                             }
                                                                         }
                                                                     }
                                                                 }
+                                                                Err(_) => {}
                                                             }
-                                                            Err(_) => {}
-                                                        },
+                                                        }
                                                         Err(_) => {}
                                                     }
                                                 }

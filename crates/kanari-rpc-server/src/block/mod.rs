@@ -1,0 +1,187 @@
+use super::{RpcError, RpcRequest, RpcResponse, RpcServerState, respond_with_serialize};
+use kanari_rpc_api::{BlockInfo, RpcEvent};
+use serde_json;
+
+/// Handle get block request
+pub async fn handle_get_block(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    let height: u64 = match serde_json::from_value(request.params.clone()) {
+        Ok(h) => h,
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".to_string(),
+                result: None,
+                error: Some(RpcError::invalid_params(e.to_string())),
+                id: request.id,
+            };
+        }
+    };
+
+    match state.engine.get_block(height) {
+        Some(block) => {
+            // Map runtime events to RPC events
+            let rpc_events: Vec<RpcEvent> = block
+                .events
+                .into_iter()
+                .map(|e| RpcEvent {
+                    key: e.key,
+                    sequence_number: e.sequence_number,
+                    type_tag: e.type_tag,
+                    event_data: e.event_data,
+                })
+                .collect();
+
+            let block_info = BlockInfo {
+                height: block.height,
+                timestamp: block.timestamp,
+                hash: block.hash.clone(),
+                prev_hash: block.prev_hash,
+                tx_count: block.tx_count,
+                // `block.hash` is already a hex string; avoid double-encoding
+                state_root: block.state_root.clone(),
+                events: rpc_events,
+            };
+            respond_with_serialize(request.id, block_info)
+        }
+        None => RpcResponse {
+            jsonrpc: "2.0".to_string(),
+            result: None,
+            error: Some(RpcError::internal_error("Block not found")),
+            id: request.id,
+        },
+    }
+}
+
+/// Handle get state root request
+pub async fn handle_get_state_root(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    let req: kanari_rpc_api::GetStateRootRequest =
+        match serde_json::from_value(request.params.clone()) {
+            Ok(r) => r,
+            Err(e) => {
+                return RpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: None,
+                    error: Some(RpcError::invalid_params(e.to_string())),
+                    id: request.id,
+                };
+            }
+        };
+
+    let root = state.engine.get_state_root(req.height);
+    match root {
+        Some(r) => respond_with_serialize(request.id, serde_json::json!(r)),
+        None => RpcResponse {
+            jsonrpc: "2.0".to_string(),
+            result: None,
+            error: Some(RpcError::internal_error("State root not available")),
+            id: request.id,
+        },
+    }
+}
+
+/// Handle account proof request
+pub async fn handle_get_account_proof(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    let req: kanari_rpc_api::GetAccountProofRequest =
+        match serde_json::from_value(request.params.clone()) {
+            Ok(r) => r,
+            Err(e) => {
+                return RpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: None,
+                    error: Some(RpcError::invalid_params(e.to_string())),
+                    id: request.id,
+                };
+            }
+        };
+    // If a height is provided, attempt historical proof using snapshot
+    if let Some(h) = req.height {
+        match state.engine.get_account_proof_at_height(h, &req.address) {
+            Ok(Some((is_member, leaf, siblings))) => {
+                let state_root = state.engine.get_state_root(Some(h)).unwrap_or_default();
+                let proof = kanari_rpc_api::AccountProof {
+                    state_root,
+                    is_member,
+                    leaf_hash: leaf,
+                    siblings,
+                };
+                return respond_with_serialize(request.id, proof);
+            }
+            Ok(None) => {
+                return RpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: None,
+                    error: Some(RpcError::internal_error(
+                        "Historical proof not available (no snapshot)",
+                    )),
+                    id: request.id,
+                };
+            }
+            Err(e) => {
+                return RpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: None,
+                    error: Some(RpcError::internal_error(format!(
+                        "Proof generation failed: {}",
+                        e
+                    ))),
+                    id: request.id,
+                };
+            }
+        }
+    }
+
+    // Latest proof
+    match state.engine.get_account_proof(&req.address) {
+        Ok(Some((is_member, leaf, siblings))) => {
+            let state_root = state.engine.get_state_root(None).unwrap_or_default();
+            let proof = kanari_rpc_api::AccountProof {
+                state_root,
+                is_member,
+                leaf_hash: leaf,
+                siblings,
+            };
+            respond_with_serialize(request.id, proof)
+        }
+        Ok(None) => RpcResponse {
+            jsonrpc: "2.0".to_string(),
+            result: None,
+            error: Some(RpcError::internal_error(
+                "Proof not available (SMT not configured or key missing)",
+            )),
+            id: request.id,
+        },
+        Err(e) => RpcResponse {
+            jsonrpc: "2.0".to_string(),
+            result: None,
+            error: Some(RpcError::internal_error(format!(
+                "Proof generation failed: {}",
+                e
+            ))),
+            id: request.id,
+        },
+    }
+}
+
+/// Handle get block height request
+pub async fn handle_get_block_height(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    let stats = state.engine.get_stats();
+    RpcResponse {
+        jsonrpc: "2.0".to_string(),
+        result: Some(serde_json::json!(stats.height)),
+        error: None,
+        id: request.id,
+    }
+}
+
+/// Handle get stats request
+pub async fn handle_get_stats(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    let stats = state.engine.get_stats();
+    let blockchain_stats = kanari_rpc_api::BlockchainStats {
+        height: stats.height,
+        total_blocks: stats.total_blocks as u64,
+        total_transactions: stats.total_transactions as u64,
+        pending_transactions: stats.pending_transactions,
+        total_accounts: stats.total_accounts,
+        total_supply: stats.total_supply,
+    };
+    respond_with_serialize(request.id, blockchain_stats)
+}
