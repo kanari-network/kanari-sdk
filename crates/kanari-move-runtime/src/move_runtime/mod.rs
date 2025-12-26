@@ -99,13 +99,25 @@ impl MoveRuntime {
 
         debug!("[RUNTIME] MoveVM initialized (custom natives registered)");
 
+        // Try to initialize persistent object storage; fall back to in-memory if it fails.
+        let object_storage: Box<dyn ObjectStore> = match ObjectStorage::boxed_with_persistence() {
+            Ok(store) => store,
+            Err(e) => {
+                log::warn!(
+                    "[RUNTIME] failed to initialize persistent ObjectStorage: {}. Falling back to in-memory.",
+                    e
+                );
+                ObjectStorage::boxed_inmemory()
+            }
+        };
+
         Ok(MoveRuntime {
             vm,
             storage,
             state,
             enable_gas_metering,
             published_modules: HashSet::new(),
-            object_storage: ObjectStorage::boxed_inmemory(),
+            object_storage,
         })
     }
 

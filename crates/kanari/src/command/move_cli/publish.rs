@@ -1,12 +1,14 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use super::reroot_path;
+use super::{
+    common::{build_blocking_client, get_account_sequence, load_wallet_for, normalize_addr},
+    reroot_path,
+};
 use anyhow::{Context, Result, bail};
 use clap::*;
 use kanari_core::Transaction;
-use kanari_crypto::wallet::load_wallet;
-use kanari_types::address::Address;
+use kanari_move_runtime::gas::{GasEstimate, GasOperation};
 use move_package::BuildConfig;
 use std::path::PathBuf;
 
@@ -41,27 +43,17 @@ pub struct Publish {
     /// Execute the publish immediately on the node (return changeset)
     #[clap(long = "immediate")]
     pub immediate: bool,
+    /// Skip refusing publish when estimated gas exceeds gas limit
+    #[clap(long = "skip-gas-check")]
+    pub skip_gas_check: bool,
 }
 
 impl Publish {
     pub fn execute(self, path: Option<PathBuf>, config: BuildConfig) -> Result<()> {
         let rerooted_path = reroot_path(path.or(self.package_path.clone()))?;
 
-        // Validate sender address: normalize to 0x-prefixed format
-        let sender_normalized = {
-            let s = self.sender.trim();
-            let hex = if s.starts_with("0x") || s.starts_with("0X") {
-                &s[2..]
-            } else {
-                s
-            };
-            if hex.len() > 64 {
-                bail!("Sender address too long: {}", self.sender);
-            }
-            format!("0x{:0>64}", hex)
-        };
-
-        let _sender_addr = Address::from_hex_literal(&sender_normalized)
+        // Normalize and validate sender address
+        let sender_normalized = normalize_addr(&self.sender)
             .with_context(|| format!("Invalid sender address: {}", self.sender))?;
 
         println!("Building Move package...");
@@ -74,23 +66,51 @@ impl Publish {
         println!("Package compiled successfully!");
         println!("   Modules: {}", modules.len());
 
+        // Build a blocking HTTP client with a timeout to avoid hanging RPC calls
+        let client = build_blocking_client(30)?;
+
+        // Precompute modules that actually belong to the sender (will be published)
+        let modules_to_publish: Vec<_> = modules
+            .iter()
+            .filter(|module_unit| {
+                let module_address = module_unit.unit.module.self_id().address().to_string();
+                let hex = if module_address.starts_with("0x") || module_address.starts_with("0X") {
+                    &module_address[2..]
+                } else {
+                    &module_address
+                };
+                let module_addr_normalized = format!("0x{:0>64}", hex);
+                module_addr_normalized.to_lowercase() == sender_normalized.to_lowercase()
+            })
+            .collect();
+
+        // Optionally show total estimated gas for all modules that will be published
+        let mut total_estimated_gas: u64 = 0;
+        for mu in &modules_to_publish {
+            let mut bytes = vec![];
+            mu.unit.module.serialize(&mut bytes)?;
+            let op = GasOperation::PublishModule {
+                module_size: bytes.len(),
+            };
+            let est = kanari_move_runtime::gas::GasEstimate::from_operation(op, self.gas_price);
+            total_estimated_gas = total_estimated_gas.saturating_add(est.gas_units);
+        }
+        if modules_to_publish.len() > 1 {
+            println!(
+                "Total estimated gas for all modules: {}",
+                total_estimated_gas
+            );
+        }
+
         if modules.is_empty() {
             bail!("No modules found in package");
         }
 
-        // Load wallet (signing is required)
+        // Load wallet (signing is required). If password not provided via CLI, prompt.
         let wallet = {
-            let password = self
-                .password
-                .as_ref()
-                .context("Password required for signing (use --password)")?;
-
-            let w = load_wallet(&sender_normalized, password).context(
-                "Failed to load wallet. Make sure the wallet exists and password is correct",
-            )?;
-
+            let w = load_wallet_for(&sender_normalized, self.password.clone())?;
             println!(
-                "Wallet loaded: {} (curve: {})",
+                "   Wallet loaded: {} (curve: {})",
                 sender_normalized, w.curve_type
             );
             w
@@ -102,6 +122,12 @@ impl Publish {
 
         let mut published_count = 0;
         let mut skipped_count = 0;
+
+        // === Fetch base sequence number once to avoid race conditions ===
+        let base_seq: u64 = get_account_sequence(&client, &self.rpc_endpoint, &sender_normalized)?;
+
+        // Next sequence to use for publishing modules (increment only when a module is actually published)
+        let mut next_seq = base_seq;
 
         for module_unit in &modules {
             let module = &module_unit.unit.module;
@@ -136,63 +162,25 @@ impl Publish {
             println!("     Address: {}", module.self_id().address());
             println!("     Functions: {}", module.function_defs.len());
 
-            // Estimate gas
-            let estimated_gas = 60_000 + (module_bytecode.len() as u64 * 10);
-            let estimated_cost = estimated_gas * self.gas_price;
-            println!("     Estimated Gas: {} units", estimated_gas);
+            // Estimate gas using runtime GasOperation::PublishModule and GasEstimate
+            let operation = GasOperation::PublishModule {
+                module_size: module_bytecode.len(),
+            };
+            let estimate = GasEstimate::from_operation(operation, self.gas_price);
+            println!("   Estimated: {} units", estimate.gas_units);
+            println!("   Limit: {} units", self.gas_limit);
             println!(
-                "     Estimated Cost: {} Mist ({:.6} KANARI)",
-                estimated_cost,
-                estimated_cost as f64 / 1_000_000_000.0
+                "   Total Cost: {} Mist ({:.9} KANARI)",
+                estimate.total_cost_mist, estimate.total_cost_kanari
             );
-
-            if estimated_gas > self.gas_limit {
-                eprintln!(
-                    "     Warning: Estimated gas ({}) exceeds limit ({})",
-                    estimated_gas, self.gas_limit
-                );
-            }
 
             // Create PublishModuleRequest and submit to RPC endpoint
             use kanari_rpc_api::{PublishModuleRequest, RpcRequest, RpcResponse, methods};
-            use reqwest::blocking::Client;
 
-            // Get current sequence number for sender from RPC (so signature includes it)
-            let mut seq_num: u64 = 0;
-            {
-                use kanari_rpc_api::{RpcRequest, RpcResponse, methods};
-                let acct_req = RpcRequest {
-                    jsonrpc: "2.0".to_string(),
-                    method: methods::GET_ACCOUNT.to_string(),
-                    params: serde_json::to_value(sender_normalized.clone())
-                        .unwrap_or(serde_json::json!(null)),
-                    id: 1,
-                };
+            // Use a monotonic sequence number reserved from base_seq for this publish
+            let seq_num = next_seq;
 
-                let client = Client::new();
-                match client.post(&self.rpc_endpoint).json(&acct_req).send() {
-                    Ok(resp) => match resp.json::<RpcResponse>() {
-                        Ok(rpc_resp) => {
-                            if let Some(result) = rpc_resp.result {
-                                if let Ok(account_value) =
-                                    serde_json::from_value::<serde_json::Value>(result)
-                                {
-                                    if let Some(sn) = account_value
-                                        .get("sequence_number")
-                                        .and_then(|v| v.as_u64())
-                                    {
-                                        seq_num = sn;
-                                    }
-                                }
-                            }
-                        }
-                        Err(e) => eprintln!("     Failed to parse account RPC response: {}", e),
-                    },
-                    Err(e) => eprintln!("     Failed to query account sequence: {}", e),
-                }
-            }
-
-            // Sign transaction using the loaded wallet
+            // Sign transaction using the loaded wallet (fatal on failure)
             let signature = {
                 let transaction = Transaction::PublishModule {
                     sender: sender_normalized.clone(),
@@ -206,18 +194,9 @@ impl Publish {
                 // Get transaction hash (same way server does it)
                 let tx_hash = transaction.hash();
 
-                // Sign with wallet
-                match kanari_crypto::sign_message(&wallet.private_key, &tx_hash, wallet.curve_type)
-                {
-                    Ok(sig) => {
-                        println!("     Transaction signed (curve: {})", wallet.curve_type);
-                        Some(sig)
-                    }
-                    Err(e) => {
-                        eprintln!("     Failed to sign transaction: {}", e);
-                        None
-                    }
-                }
+                // Sign with wallet; signing failure is fatal
+                kanari_crypto::sign_message(&wallet.private_key, &tx_hash, wallet.curve_type)
+                    .map_err(|e| anyhow::anyhow!("Failed to sign module {}: {}", module_name, e))?
             };
 
             let pub_req = PublishModuleRequest {
@@ -227,7 +206,7 @@ impl Publish {
                 gas_limit: self.gas_limit,
                 gas_price: self.gas_price,
                 sequence_number: seq_num,
-                signature,
+                signature: Some(signature),
                 execute_immediate: if self.immediate { Some(true) } else { None },
             };
 
@@ -239,41 +218,51 @@ impl Publish {
             };
 
             println!("     Sending publish RPC to {}...", self.rpc_endpoint);
-            let client = Client::new();
             match client.post(&self.rpc_endpoint).json(&rpc_request).send() {
                 Ok(resp) => match resp.json::<RpcResponse>() {
                     Ok(rpc_resp) => {
                         if let Some(err) = rpc_resp.error {
                             eprintln!("     RPC error: {} (code {})", err.message, err.code);
-                        } else if let Some(result) = rpc_resp.result {
-                            // Try to parse as TransactionResult
-                            if let Ok(tx_result) = serde_json::from_value::<
-                                kanari_rpc_api::TransactionResult,
-                            >(result.clone())
-                            {
-                                println!("     Transaction: {}", tx_result.hash);
-                                println!("     Status: {}", tx_result.status);
-                                println!("     Gas used: {} Mist", tx_result.gas_used);
-
-                                // Show error message if transaction failed
-                                if let Some(ref error_msg) = tx_result.error_message {
-                                    eprintln!("     Transaction failed: {}", error_msg);
-                                } // Note: TransactionResult does not provide created_objects.
-                            // Created-objects printing removed to match current API.
-                            } else {
-                                // Fallback to old format
-                                println!("     RPC result: {}", result);
-                            }
                         } else {
-                            println!("     RPC response has no result and no error");
+                            // No RPC error -> consider request accepted by node
+                            if let Some(result) = rpc_resp.result {
+                                // Try to parse as TransactionResult
+                                if let Ok(tx_result) =
+                                    serde_json::from_value::<kanari_rpc_api::TransactionResult>(
+                                        result.clone(),
+                                    )
+                                {
+                                    println!("     Transaction: {}", tx_result.hash);
+                                    println!("     Status: {}", tx_result.status);
+                                    println!("     Gas used: {} Mist", tx_result.gas_used);
+
+                                    // Show error message if transaction failed
+                                    if let Some(ref error_msg) = tx_result.error_message {
+                                        eprintln!("     Transaction failed: {}", error_msg);
+                                    }
+                                } else {
+                                    // Fallback to old format
+                                    println!("     RPC result: {}", result);
+                                }
+                            } else {
+                                println!("     RPC response has no result and no error");
+                            }
+
+                            // RPC accepted request: advance sequence and published count
+                            published_count += 1;
+                            next_seq = next_seq.wrapping_add(1);
                         }
                     }
                     Err(e) => eprintln!("     Failed to parse RPC response: {}", e),
                 },
                 Err(e) => eprintln!("     Failed to send RPC request: {}", e),
             }
+        }
 
-            published_count += 1;
+        if published_count == 0 {
+            eprintln!(
+                "⚠️  Warning: No modules were published. All modules were skipped (likely dependencies)."
+            );
         }
 
         println!("Package build and validation complete!");

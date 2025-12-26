@@ -1,0 +1,90 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+use anyhow::{Context, Result, bail};
+use kanari_crypto::wallet::load_wallet;
+use kanari_types::address::Address;
+use reqwest::blocking::Client;
+use rpassword;
+use std::time::Duration;
+
+/// Normalize and validate an address string to a 0x-prefixed 64-hex format
+pub fn normalize_addr(a: &str) -> Result<String> {
+    let s = a.trim();
+    let hex = if s.starts_with("0x") || s.starts_with("0X") {
+        &s[2..]
+    } else {
+        s
+    };
+    if hex.len() > 64 {
+        bail!("Address too long: {}", a);
+    }
+    let normalized = format!("0x{:0>64}", hex);
+    // Validate as Address
+    let _ = Address::from_hex_literal(&normalized)
+        .with_context(|| format!("Invalid address: {}", a))?;
+    Ok(normalized)
+}
+
+/// Load a wallet for the given normalized address, prompting for a password if not provided.
+pub fn load_wallet_for(
+    address_normalized: &str,
+    password_opt: Option<String>,
+) -> Result<kanari_crypto::wallet::Wallet> {
+    let password = match password_opt {
+        Some(p) => p,
+        None => rpassword::prompt_password("Wallet password: ")
+            .context("Password required for signing")?,
+    };
+
+    let w = load_wallet(address_normalized, &password)
+        .context("Failed to load wallet. Make sure the wallet exists and password is correct")?;
+
+    Ok(w)
+}
+
+/// Build a blocking HTTP client with optional timeout (seconds)
+pub fn build_blocking_client(timeout_secs: u64) -> Result<Client> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(timeout_secs))
+        .build()
+        .context("Failed to build HTTP client")?;
+    Ok(client)
+}
+
+/// Query account sequence number from RPC for a sender address (normalized)
+pub fn get_account_sequence(
+    client: &Client,
+    rpc_endpoint: &str,
+    sender_normalized: &str,
+) -> Result<u64> {
+    use kanari_rpc_api::{RpcRequest, RpcResponse, methods};
+
+    let acct_req = RpcRequest {
+        jsonrpc: "2.0".to_string(),
+        method: methods::GET_ACCOUNT.to_string(),
+        params: serde_json::to_value(sender_normalized)
+            .context("Failed to serialize sender for RPC")?,
+        id: 1,
+    };
+
+    let resp = client
+        .post(rpc_endpoint)
+        .json(&acct_req)
+        .send()
+        .context("Failed to query account sequence number from RPC")?;
+
+    let rpc_resp: RpcResponse = resp
+        .json()
+        .context("Failed to parse account RPC response")?;
+
+    if let Some(result) = rpc_resp.result {
+        if let Some(sn) = result.get("sequence_number").and_then(|v| v.as_u64()) {
+            Ok(sn)
+        } else {
+            bail!("Account RPC result missing 'sequence_number'");
+        }
+    } else {
+        bail!("RPC did not return account info for sender");
+    }
+}
