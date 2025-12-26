@@ -115,19 +115,19 @@ fn main() {
 
     // Determine function to call (default "setup") and optional mint params from CLI
     let mut function_name = "setup".to_string();
-    let mut cli_mint_amount: Option<u64> = None;
-    let mut cli_recipient: Option<MoveAccountAddress> = None;
+    let mut _cli_mint_amount: Option<u64> = None;
+    let mut _cli_recipient: Option<MoveAccountAddress> = None;
     if args.len() > 2 {
         function_name = args[2].clone();
     }
     if args.len() > 3 {
         if let Ok(v) = args[3].parse::<u64>() {
-            cli_mint_amount = Some(v);
+            _cli_mint_amount = Some(v);
         }
     }
     if args.len() > 4 {
         if let Ok(addr) = MoveAccountAddress::from_hex_literal(&args[4]) {
-            cli_recipient = Some(addr);
+            _cli_recipient = Some(addr);
         }
     }
 
