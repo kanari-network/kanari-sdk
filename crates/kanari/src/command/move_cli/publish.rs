@@ -21,11 +21,11 @@ pub struct Publish {
     pub package_path: Option<PathBuf>,
 
     /// Gas limit for the transaction
-    #[clap(long = "gas-limit", default_value = "1000000")]
+    #[clap(long = "gas-limit", default_value = "100000")]
     pub gas_limit: u64,
 
     /// Gas price in Mist
-    #[clap(long = "gas-price", default_value = "1000")]
+    #[clap(long = "gas-price", default_value = "100")]
     pub gas_price: u64,
 
     /// Account address publishing the module (from wallet)
@@ -43,9 +43,6 @@ pub struct Publish {
     /// Execute the publish immediately on the node (return changeset)
     #[clap(long = "immediate")]
     pub immediate: bool,
-    /// Skip refusing publish when estimated gas exceeds gas limit
-    #[clap(long = "skip-gas-check")]
-    pub skip_gas_check: bool,
 }
 
 impl Publish {

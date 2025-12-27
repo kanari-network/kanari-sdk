@@ -22,10 +22,10 @@ pub struct GasConfig {
 impl Default for GasConfig {
     fn default() -> Self {
         Self {
-            base_price: 1000,              // 1,000 Mist per gas unit
-            max_gas_per_tx: 1_000_000,     // 1M gas per transaction
-            max_gas_per_block: 10_000_000, // 10M gas per block
-            min_gas_price: 100,            // 100 Mist minimum
+            base_price: 100,              // 100 Mist per gas unit
+            max_gas_per_tx: 100_000,      // 100K gas per transaction
+            max_gas_per_block: 1_000_000, // 1M gas per block
+            min_gas_price: 10,            // 10 Mist minimum
         }
     }
 }
