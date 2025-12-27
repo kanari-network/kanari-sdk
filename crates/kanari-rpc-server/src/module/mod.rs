@@ -138,10 +138,10 @@ pub async fn handle_get_object(state: &RpcServerState, request: &RpcRequest) -> 
 
     // Try both with and without 0x prefix
     let candidates = vec![id.clone(), id.trim_start_matches("0x").to_string()];
-    for cid in candidates {
-        if let Some(obj) = state_guard.objects.get(&cid) {
+    for uid in candidates {
+        if let Some(obj) = state_guard.objects.get(&uid) {
             let info = kanari_rpc_api::ObjectInfo {
-                id: obj.id.clone(),
+                id: uid.clone(),
                 owner: format!("{:#x}", obj.owner),
                 type_: obj.type_.clone(),
                 data: obj.data.clone(),

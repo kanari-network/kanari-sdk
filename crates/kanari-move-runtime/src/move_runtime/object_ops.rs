@@ -68,33 +68,35 @@ impl super::MoveRuntime {
                 data.len()
             );
 
+            // Compute canonical id used by ChangeSet so persisted object id
+            // matches the id stored in the ChangeSet. This prevents lookup
+            // mismatches between persisted Store and state.objects.
+            let canonical_id = ChangeSet::compute_canonical_id(&owner, &obj_type, &data, &None);
+
             // Persist to ObjectStorage first if flagged (before changeset)
-            // This way we can move data instead of cloning
             if should_persist {
                 let stored_obj = StoredObject {
-                    id: id.clone(),
+                    id: canonical_id.clone(),
                     owner,
                     type_name: obj_type.clone(),
-                    data: data.clone(), // Clone for storage
-                    version: 0,
+                    data: data.clone(),
+                    version: 1,
                 };
 
                 match self.object_storage.store_object(stored_obj) {
-                    Ok(_) => debug!("Object {} persisted to ObjectStorage", id),
+                    Ok(_) => debug!("Object {} persisted to ObjectStorage", canonical_id),
                     Err(e) => {
-                        // Log warning but don't fail transaction - object is still in changeset
-                        // This allows graceful degradation if storage layer has issues
                         debug!(
                             "WARNING: Failed to persist object {} to storage: {}. Object remains in changeset.",
-                            id, e
+                            canonical_id, e
                         );
                     }
                 }
             }
 
             // Add to created_objects in changeset (after storage to avoid double clone)
-            // Now we can move the data since storage is done
-            cs.add_created_object(id, owner, obj_type, data, 0);
+            // Use `None` for UID for transferred/native objects.
+            cs.add_created_object(owner, obj_type, data, 1, None);
         }
 
         if count > 0 {

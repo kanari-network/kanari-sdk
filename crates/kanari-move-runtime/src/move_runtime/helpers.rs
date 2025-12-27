@@ -5,33 +5,9 @@
 use kanari_types::address::Address;
 use kanari_types::balance::BalanceModule;
 use kanari_types::coin::CoinModule;
-use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::{StructTag, TypeTag};
 
 impl super::MoveRuntime {
-    /// Generate unique object ID from address, type, and data
-    /// Uses Blake3 hash for deterministic but unique IDs
-    pub(crate) fn generate_object_id(
-        &self,
-        owner: &AccountAddress,
-        struct_tag: &StructTag,
-        _data: &[u8],
-    ) -> String {
-        use kanari_crypto::hash_data_blake3;
-        // Create unique input: owner + module address + module name + struct name
-        // NOTE: do NOT include resource data here to ensure stable object IDs
-        let mut input = Vec::new();
-        // Convert Move AccountAddress into kanari_types::Address for consistent internal usage
-        let owner_addr = Address::from(owner.clone());
-        input.extend_from_slice(owner_addr.as_ref());
-        input.extend_from_slice(struct_tag.address.as_ref());
-        input.extend_from_slice(struct_tag.module.as_str().as_bytes());
-        input.extend_from_slice(struct_tag.name.as_str().as_bytes());
-
-        let hash = hash_data_blake3(&input);
-        hex::encode(&hash[0..32])
-    }
-
     /// Check if struct tag represents a balance/coin resource
     pub(crate) fn is_balance_resource(&self, struct_tag: &StructTag) -> bool {
         let module_name = struct_tag.module.as_str();

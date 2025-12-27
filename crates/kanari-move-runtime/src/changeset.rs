@@ -1,15 +1,22 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use hex;
+use kanari_crypto::hash_data_blake3;
+use kanari_types::balance::BalanceRecord;
+use kanari_types::coin::TreasuryCap;
+use kanari_types::object::UIDRecord;
 use move_core_types::account_address::AccountAddress;
+use serde::ser::{SerializeStruct, Serializer};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 /// Created object information captured from Move VM write-sets
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreatedObject {
-    pub id: String,
     pub owner: AccountAddress,
+    /// Optional UIDRecord when object follows UID pattern
+    pub uid: Option<UIDRecord>,
     #[serde(rename = "type")]
     pub type_: String,
     pub data: Vec<u8>,
@@ -63,19 +70,66 @@ impl AccountChange {
 
 /// ChangeSet represents all state changes from Move VM execution
 /// This is the canonical output from Move VM that StateManager will apply
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct ChangeSet {
     pub account_changes: HashMap<AccountAddress, AccountChange>,
     pub events: Vec<Event>,
-    /// Treasury creations or updates: (owner, token_type, total_supply)
-    pub treasuries: Vec<(AccountAddress, String, u64)>,
-    /// Per-account token balances (absolute set): (owner, token_type, amount)
-    pub token_balance_sets: Vec<(AccountAddress, String, u64)>,
-    /// Objects created during execution
-    pub created_objects: Vec<CreatedObject>,
+    /// Treasury creations or updates: (owner, token_type, TreasuryCap)
+    pub treasuries: Vec<(AccountAddress, String, TreasuryCap)>,
+    /// Per-account token balances (absolute set): (owner, token_type, BalanceRecord)
+    pub token_balance_sets: Vec<(AccountAddress, String, BalanceRecord)>,
+    /// Objects created during execution. Each entry is (object_id, CreatedObject)
+    pub created_objects: Vec<(String, CreatedObject)>,
     pub gas_used: u64,
     pub success: bool,
     pub error_message: Option<String>,
+}
+
+// Provide a custom Serialize impl so RPC consumers receive a friendly
+// representation for `created_objects` as an array of objects with an
+// explicit `id` field instead of an array of tuples.
+impl Serialize for ChangeSet {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // Count of top-level fields serialized
+        let mut s = serializer.serialize_struct("ChangeSet", 8)?;
+        s.serialize_field("account_changes", &self.account_changes)?;
+        s.serialize_field("events", &self.events)?;
+        s.serialize_field("treasuries", &self.treasuries)?;
+        s.serialize_field("token_balance_sets", &self.token_balance_sets)?;
+
+        // Build RPC-friendly created_objects list
+        #[derive(Serialize)]
+        struct RpcCreatedObject<'a> {
+            id: &'a str,
+            owner: String,
+            #[serde(rename = "type")]
+            type_: &'a str,
+            data: &'a Vec<u8>,
+            version: u64,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            uid: Option<String>,
+        }
+
+        let rpc_objs: Vec<RpcCreatedObject> = self
+            .created_objects
+            .iter()
+            .map(|(id, obj)| RpcCreatedObject {
+                id: id.as_str(),
+                owner: format!("0x{}", hex::encode(obj.owner.as_ref())),
+                type_: &obj.type_,
+                data: &obj.data,
+                version: obj.version,
+                uid: obj.uid.as_ref().map(|u| format!("{:#x}", u.address())),
+            })
+            .collect();
+
+        s.serialize_field("created_objects", &rpc_objs)?;
+
+        s.serialize_field("gas_used", &self.gas_used)?;
+        s.serialize_field("success", &self.success)?;
+        s.serialize_field("error_message", &self.error_message)?;
+        s.end()
+    }
 }
 
 impl ChangeSet {
@@ -206,7 +260,8 @@ impl ChangeSet {
 
     /// Record a treasury (TreasuryCap) creation/update for a given token type
     pub fn add_treasury(&mut self, owner: AccountAddress, token_type: String, total_supply: u64) {
-        self.treasuries.push((owner, token_type, total_supply));
+        let cap = TreasuryCap { total_supply };
+        self.treasuries.push((owner, token_type, cap));
     }
 
     /// Record an absolute token balance for an account (after execution)
@@ -216,7 +271,8 @@ impl ChangeSet {
         token_type: String,
         amount: u64,
     ) {
-        self.token_balance_sets.push((owner, token_type, amount));
+        let bal = BalanceRecord::new(amount);
+        self.token_balance_sets.push((owner, token_type, bal));
     }
 
     /// Record a created object discovered in Move write-sets
@@ -224,45 +280,82 @@ impl ChangeSet {
     /// For high-frequency object creation, consider using HashMap-based storage
     pub fn add_created_object(
         &mut self,
-        id: String,
         owner: AccountAddress,
         type_: String,
         data: Vec<u8>,
         version: u64,
+        uid: Option<UIDRecord>,
     ) {
-        // Check if object with same ID already exists (O(n) but typically small n per tx)
-        if let Some(existing) = self.created_objects.iter_mut().find(|obj| obj.id == id) {
-            // SAFETY CHECK: Type must match for same object ID
-            // Different types for same ID indicates a serious bug or attack
-            if existing.type_ != type_ {
+        // Compute canonical id first: prefer UID address when present, otherwise
+        // derive deterministic id from owner+type+data via blake3.
+        let canonical_id = if let Some(ref u) = uid {
+            format!("{:#x}", u.address())
+        } else {
+            let mut input = Vec::new();
+            input.extend_from_slice(owner.as_ref());
+            input.extend_from_slice(type_.as_bytes());
+            input.extend_from_slice(&data);
+            let hash = hash_data_blake3(&input);
+            format!("0x{}", hex::encode(&hash[0..32]))
+        };
+
+        // If an entry with the same canonical id already exists, update it.
+        if let Some((existing_id, existing_obj)) = self
+            .created_objects
+            .iter_mut()
+            .find(|(id, _)| id == &canonical_id)
+        {
+            // If existing entry found, ensure type matches (safety)
+            if existing_obj.type_ != type_ {
                 log::error!(
                     "Type mismatch for object {}: expected {}, got {}. Keeping existing object.",
-                    id,
-                    existing.type_,
+                    existing_id,
+                    existing_obj.type_,
                     type_
                 );
-                // Keep existing type and data, don't overwrite with mismatched type
                 return;
             }
 
-            // Update existing object (same type, different version/data)
+            // Update existing object data/version and keep canonical id
             log::debug!(
                 "Updating existing object {}: version {} -> {}",
-                id,
-                existing.version,
+                existing_id,
+                existing_obj.version,
                 version
             );
-            existing.owner = owner;
-            existing.data = data;
-            existing.version = version;
+            existing_obj.owner = owner;
+            existing_obj.data = data;
+            existing_obj.version = version;
         } else {
-            self.created_objects.push(CreatedObject {
-                id,
+            let created = CreatedObject {
                 owner,
+                uid,
                 type_,
                 data,
                 version,
-            });
+            };
+            self.created_objects.push((canonical_id, created));
+        }
+    }
+
+    /// Compute the canonical id for an object using the same logic as
+    /// `add_created_object`. Exposed so external callers can persist objects
+    /// under the identical id before or after calling into the ChangeSet.
+    pub fn compute_canonical_id(
+        owner: &AccountAddress,
+        type_: &str,
+        data: &[u8],
+        uid: &Option<UIDRecord>,
+    ) -> String {
+        if let Some(u) = uid {
+            format!("{:#x}", u.address())
+        } else {
+            let mut input = Vec::new();
+            input.extend_from_slice(owner.as_ref());
+            input.extend_from_slice(type_.as_bytes());
+            input.extend_from_slice(data);
+            let hash = hash_data_blake3(&input);
+            format!("0x{}", hex::encode(&hash[0..32]))
         }
     }
 }

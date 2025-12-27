@@ -149,7 +149,21 @@ impl BlockchainEngine {
             if let Ok(Some(s)) = store.load::<StateManager>("state_manager") {
                 Arc::new(RwLock::new(s))
             } else {
-                Arc::new(RwLock::new(StateManager::new()))
+                // No persisted StateManager found — create fresh and populate
+                // token supplies from any persisted MoveVM treasuries so token
+                // state survives restarts.
+                let mut sm = StateManager::new();
+                if let Ok(mvs) =
+                    kanari_move_runtime::storage::move_vm_state::MoveVMState::open_default()
+                {
+                    if let Ok(treas) = mvs.load_treasuries() {
+                        for (owner, token_type, cap) in treas.into_iter() {
+                            sm.token_supplies.insert(token_type.clone(), cap.clone());
+                            sm.token_treasuries.insert(token_type, owner);
+                        }
+                    }
+                }
+                Arc::new(RwLock::new(sm))
             }
         } else {
             Arc::new(RwLock::new(StateManager::new()))
@@ -157,6 +171,8 @@ impl BlockchainEngine {
 
         // Use enhanced runtime with Kanari natives
         let move_runtime = Arc::new(RwLock::new(MoveRuntime::new_with_kanari_natives()?));
+
+        // Note: treasuries are loaded above when StateManager is initialized
         let pending_txs = Arc::new(RwLock::new(Vec::new()));
         let contract_registry = Arc::new(RwLock::new(ContractRegistry::new()));
 
@@ -248,6 +264,17 @@ impl BlockchainEngine {
         {
             let mut state = self.state.write().unwrap();
             state.apply_changeset(&changeset)?;
+        }
+
+        // If a persistent store is configured, persist the updated StateManager
+        // so "immediate" RPC calls are durable across node restarts.
+        if let Some(store) = &self.persistent_store {
+            let state_guard = self.state.read().unwrap();
+            if let Err(e) = store.save("state_manager", &*state_guard) {
+                eprintln!("execute_transaction_immediate: failed to persist state_manager: {}", e);
+            }
+        } else {
+            eprintln!("execute_transaction_immediate: no persistent_store configured; changes are in-memory only");
         }
 
         Ok((tx_hash, changeset))
@@ -523,7 +550,7 @@ impl BlockchainEngine {
             for id in owned_ids {
                 if let Some(obj) = state.objects.get(&id) {
                     owned_objs.push(ObjectInfo {
-                        id: obj.id.clone(),
+                        id: id.clone(),
                         owner: format!("{:#x}", obj.owner),
                         type_: obj.type_.clone(),
                         data: obj.data.clone(),
@@ -537,7 +564,11 @@ impl BlockchainEngine {
                 balance: acc.balance,
                 sequence_number: acc.sequence_number,
                 modules: acc.modules.iter().cloned().collect(),
-                token_balances: acc.token_balances.clone(),
+                token_balances: acc
+                    .token_balances
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.value()))
+                    .collect(),
                 owned_objects: owned_objs,
             }
         })
@@ -557,7 +588,12 @@ impl BlockchainEngine {
         let state = self.state.read().unwrap();
         state
             .get_account_by_hex(address)
-            .map(|acc| acc.token_balances.clone())
+            .map(|acc| {
+                acc.token_balances
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.value()))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 

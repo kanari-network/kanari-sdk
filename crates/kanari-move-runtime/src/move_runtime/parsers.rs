@@ -3,7 +3,9 @@
 
 // Parser functions for Move VM changesets and events
 use crate::changeset::ChangeSet;
+use kanari_types::object::UIDRecord;
 use log::debug;
+use move_core_types::account_address::AccountAddress;
 use move_core_types::effects::Op as MoveOp;
 
 impl super::MoveRuntime {
@@ -78,6 +80,18 @@ impl super::MoveRuntime {
                                         "[PARSER] TreasuryCap for {} owner={} supply={}",
                                         token_type, addr, total
                                     );
+
+                                    // Persist treasury record so supply/owner survive restarts
+                                    if let Err(e) =
+                                        self.state.save_treasury(&token_type, addr, total)
+                                    {
+                                        log::warn!(
+                                            "Failed to persist treasury {} -> {}: {}",
+                                            token_type,
+                                            addr,
+                                            e
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -89,13 +103,15 @@ impl super::MoveRuntime {
                         if !(self.is_balance_resource(struct_tag)
                             || self.is_treasury_resource(struct_tag))
                         {
-                            let obj_id = if bytes.len() >= 32 {
-                                // Try to extract ID from first 32 bytes (UID pattern)
-                                let id_bytes = &bytes[0..32];
-                                hex::encode(id_bytes)
+                            // Try to extract a UID address from the first 32 bytes
+                            // of the serialized object value. If present, convert
+                            // to `UIDRecord` and let ChangeSet compute canonical id.
+                            let uid_opt = if bytes.len() >= 32 {
+                                let mut arr = [0u8; 32];
+                                arr.copy_from_slice(&bytes[0..32]);
+                                Some(UIDRecord::new(AccountAddress::new(arr)))
                             } else {
-                                // Generate unique ID from address + struct_tag
-                                self.generate_object_id(addr, struct_tag, bytes)
+                                None
                             };
 
                             let obj_type =
@@ -112,15 +128,15 @@ impl super::MoveRuntime {
 
                             // Record created object (version 0 for new objects)
                             kanari_cs.add_created_object(
-                                obj_id.clone(),
                                 *addr,
                                 obj_type.clone(),
                                 bytes.to_vec(),
                                 0,
+                                uid_opt,
                             );
                             debug!(
-                                "[PARSER] Created object detected: id={} owner={} type= {}",
-                                obj_id, addr, obj_type
+                                "[PARSER] Created object detected: owner={} type={}",
+                                addr, obj_type
                             );
                         }
                     }

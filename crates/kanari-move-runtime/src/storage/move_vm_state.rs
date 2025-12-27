@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Result;
+use kanari_types::coin::TreasuryCap;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::Identifier;
 use move_core_types::language_storage::ModuleId;
@@ -110,5 +111,51 @@ impl MoveVMState {
             module_id.name().as_str()
         );
         self.store.load::<Vec<u8>>(&key).ok().flatten()
+    }
+
+    /// Persist a treasury record (owner + total_supply) for a token type so it
+    /// survives node restarts. Uses `treasury_index` to track persisted keys.
+    pub fn save_treasury(
+        &self,
+        token_type: &str,
+        owner: &AccountAddress,
+        total: u64,
+    ) -> Result<()> {
+        // Use kanari-types `TreasuryCap` to store the total supply
+        let key = format!("treasury:{}", token_type);
+        let cap = TreasuryCap {
+            total_supply: total,
+        };
+
+        // Save tuple (owner, cap)
+        self.store.save(&key, &(owner, cap))?;
+
+        // Update index
+        let mut index = self
+            .store
+            .load::<Vec<String>>("treasury_index")?
+            .unwrap_or_default();
+        if !index.iter().any(|x| x == &key) {
+            index.push(key);
+            self.store.save("treasury_index", &index)?;
+        }
+
+        Ok(())
+    }
+
+    /// Load persisted treasuries as a vector of tuples (owner, token_type, TreasuryCap)
+    pub fn load_treasuries(&self) -> Result<Vec<(AccountAddress, String, TreasuryCap)>> {
+        let mut out = Vec::new();
+        if let Ok(Some(keys)) = self.store.load::<Vec<String>>("treasury_index") {
+            for key in keys.into_iter() {
+                if let Ok(Some((owner_addr, cap))) =
+                    self.store.load::<(AccountAddress, TreasuryCap)>(&key)
+                {
+                    let token_type = key.strip_prefix("treasury:").unwrap_or(&key).to_string();
+                    out.push((owner_addr, token_type, cap));
+                }
+            }
+        }
+        Ok(out)
     }
 }

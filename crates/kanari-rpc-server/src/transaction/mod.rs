@@ -479,13 +479,13 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                                     if let Some(ids) = state_guard.owned_objects.get(&a) {
                                         // Build array of created objects from state.objects
                                         let mut objs = Vec::new();
-                                        for id in ids.iter().rev().take(10) {
-                                            if let Some(co) = state_guard.objects.get(id) {
-                                                let o = serde_json::json!({
-                                                    "id": co.id,
-                                                    "type": co.type_.clone(),
-                                                    "owner": format!("0x{}", hex::encode(co.owner.as_ref())),
-                                                });
+                                        for uid in ids.iter().rev().take(10) {
+                                            if let Some(co) = state_guard.objects.get(uid) {
+                                                        let o = serde_json::json!({
+                                                            "id": uid.clone(),
+                                                            "type": co.type_.clone(),
+                                                            "owner": format!("0x{}", hex::encode(co.owner.as_ref())),
+                                                        });
                                                 objs.push(o);
                                             }
                                         }

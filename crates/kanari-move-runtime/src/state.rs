@@ -5,6 +5,8 @@ use crate::changeset::{ChangeSet, CreatedObject, Event};
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
 use kanari_types::address::Address as KanariAddress;
+use kanari_types::balance::BalanceRecord;
+use kanari_types::coin::TreasuryCap;
 use kanari_types::kanari::KanariModule;
 use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
@@ -17,9 +19,9 @@ pub struct Account {
     pub balance: u64, // Native KANARI balance in Mist
     pub sequence_number: u64,
     pub modules: HashSet<String>,
-    /// Token balances: token_type -> amount
-    /// Example: "0x840512ff...::james::JAMES" -> 1000000000
-    pub token_balances: HashMap<String, u64>,
+    /// Token balances: token_type -> BalanceRecord
+    /// Example: "0x840512ff...::james::JAMES" -> BalanceRecord(1000000000)
+    pub token_balances: HashMap<String, BalanceRecord>,
 }
 
 impl Account {
@@ -37,27 +39,32 @@ impl Account {
         self.modules.insert(module_name);
     }
 
-    pub fn set_token_balance(&mut self, token_type: String, amount: u64) {
+    pub fn set_token_balance(&mut self, token_type: String, amount: BalanceRecord) {
         self.token_balances.insert(token_type, amount);
     }
 
     pub fn get_token_balance(&self, token_type: &str) -> u64 {
-        self.token_balances.get(token_type).copied().unwrap_or(0)
+        self.token_balances
+            .get(token_type)
+            .map(|b| b.value())
+            .unwrap_or(0)
     }
 
     pub fn add_token(&mut self, token_type: String, amount: u64) {
-        let current = self.get_token_balance(&token_type);
-        self.token_balances.insert(token_type, current + amount);
+        let entry = self
+            .token_balances
+            .entry(token_type)
+            .or_insert_with(|| BalanceRecord::zero());
+        entry.increase(amount).unwrap();
     }
 
     pub fn sub_token(&mut self, token_type: &str, amount: u64) -> Result<()> {
-        let current = self.get_token_balance(token_type);
-        if current < amount {
+        if let Some(bal) = self.token_balances.get_mut(token_type) {
+            bal.decrease(amount)?;
+            Ok(())
+        } else {
             anyhow::bail!("Insufficient token balance");
         }
-        self.token_balances
-            .insert(token_type.to_string(), current - amount);
-        Ok(())
     }
 
     pub fn to_hex_string(&self) -> String {
@@ -77,7 +84,7 @@ pub struct StateManager {
     pub total_supply: u64,
     pub events: Vec<Event>,
     /// Per-token total supplies tracked via TreasuryCap (token_type -> total_supply)
-    pub token_supplies: HashMap<String, u64>,
+    pub token_supplies: HashMap<String, TreasuryCap>,
     /// Owner of TreasuryCap for a token type (token_type -> owner address)
     pub token_treasuries: HashMap<String, AccountAddress>,
     /// Map of object id -> CreatedObject for objects created by Move executions
@@ -210,7 +217,7 @@ impl StateManager {
         for (owner, token_type, total_supply) in &changeset.treasuries {
             // set or update total supply for this token
             self.token_supplies
-                .insert(token_type.clone(), *total_supply);
+                .insert(token_type.clone(), total_supply.clone());
             // record treasury owner
             self.token_treasuries.insert(token_type.clone(), *owner);
         }
@@ -218,16 +225,16 @@ impl StateManager {
         // Apply per-account token balance sets from ChangeSet (absolute values)
         for (owner, token_type, amount) in &changeset.token_balance_sets {
             let account = self.get_or_create_account(*owner);
-            account.set_token_balance(token_type.clone(), *amount);
+            account.set_token_balance(token_type.clone(), amount.clone());
         }
 
         // Persist created objects from ChangeSet into the object registry and
         // register ownership mapping so RPC/account queries can list owned objects.
-        for created in &changeset.created_objects {
+        for (obj_id, created) in &changeset.created_objects {
             // Clone only the ID for the ownership mapping (needed in 2 places)
-            let obj_id = created.id.clone();
+            let obj_id = obj_id.clone();
 
-            // Store the object (only need to clone once per object)
+            // Store the object (clone the CreatedObject into the registry)
             self.objects.insert(obj_id.clone(), created.clone());
             self.owned_objects
                 .entry(created.owner)

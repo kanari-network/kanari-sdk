@@ -53,20 +53,9 @@ fn main() {
         return;
     }
 
-    // Initialize runtime with Kanari natives and preloaded system modules
-    // Construct the standard/native tables and create a runtime without gas metering
-    use kanari_types::address::Address as KanariAddress;
-    let std_addr = KanariAddress::std_account_address();
-    let std_natives =
-        move_stdlib_natives::all_natives(std_addr, move_stdlib_natives::GasParameters::zeros());
-    let system_addr = KanariAddress::kanari_system_account_address();
-    let crypto_natives = kanari_system_natives::crypto::all_natives(system_addr);
-    let transfer_natives = kanari_system_natives::transfer_natives::all_natives(system_addr);
-
-    let mut runtime = match MoveRuntime::new_with_natives(
-        vec![std_natives, crypto_natives, transfer_natives],
-        false,
-    ) {
+    // Initialize runtime with Kanari natives and preload system modules (stdlib + kanari-system).
+    // This ensures modules like `0x1::string` are available for linking/verifier.
+    let mut runtime = match MoveRuntime::new_with_kanari_natives() {
         Ok(r) => r,
         Err(e) => {
             eprintln!("Failed to init MoveRuntime: {:?}", e);
@@ -179,8 +168,8 @@ fn main() {
 
     // Verbose: print created objects, treasuries, token sets from publish and call
     println!("Publish created objects:");
-    for obj in publish_cs.created_objects.iter() {
-        println!(" id={} owner={:#x} type={}", obj.id, obj.owner, obj.type_);
+    for (id, obj) in publish_cs.created_objects.iter() {
+        println!(" id={} owner={:#x} type={}", id, obj.owner, obj.type_);
     }
     println!("Publish treasuries: {:?}", publish_cs.treasuries);
     println!(
@@ -189,8 +178,8 @@ fn main() {
     );
 
     println!("Call created objects:");
-    for obj in call_cs.created_objects.iter() {
-        println!(" id={} owner={:#x} type={}", obj.id, obj.owner, obj.type_);
+    for (id, obj) in call_cs.created_objects.iter() {
+        println!(" id={} owner={:#x} type={}", id, obj.owner, obj.type_);
     }
     println!("Call treasuries: {:?}", call_cs.treasuries);
     println!("Call token_balance_sets: {:?}", call_cs.token_balance_sets);
@@ -242,7 +231,7 @@ fn main() {
     }
 
     // Try robust treasury detection by inspecting both `type_` and decoded native data
-    for obj in publish_cs
+    for (id, obj) in publish_cs
         .created_objects
         .iter()
         .chain(call_cs.created_objects.iter())
@@ -274,9 +263,9 @@ fn main() {
         {
             println!(
                 "Treasury-like object detected: id={} type={} decoded={:?}",
-                obj.id, obj.type_, decoded_type
+                id, obj.type_, decoded_type
             );
-            found_treasury_id = Some(obj.id.clone());
+            found_treasury_id = Some(id.clone());
             break;
         }
     }
@@ -294,12 +283,12 @@ fn main() {
         // It demonstrates how StateManager will record supplies and balances.
         // Try to extract the token type from the TreasuryCap object's type string.
         let mut token_type: Option<String> = None;
-        for obj in publish_cs
+        for (id, obj) in publish_cs
             .created_objects
             .iter()
             .chain(call_cs.created_objects.iter())
         {
-            if obj.id == tid && obj.type_.contains(CoinModule::TREASURY_CAP_STRUCT) {
+            if id == &tid && obj.type_.contains(CoinModule::TREASURY_CAP_STRUCT) {
                 if let Some(start) = obj.type_.find('<') {
                     if let Some(end) = obj.type_.rfind('>') {
                         let inner = &obj.type_[start + 1..end];

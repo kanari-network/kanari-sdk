@@ -34,14 +34,12 @@ pub struct TransferredObject {
 #[derive(Tid)]
 pub struct TransferredObjectsExt {
     pub objects: Vec<TransferredObject>,
-    pub counter: u64,
 }
 
 impl Default for TransferredObjectsExt {
     fn default() -> Self {
         Self {
             objects: Vec::new(),
-            counter: 0,
         }
     }
 }
@@ -144,13 +142,12 @@ fn native_transfer_with_uid(
         let exts = context.extensions_mut();
         let ext = exts.get_mut::<TransferredObjectsExt>();
 
-        // deterministic id: blake3(recipient || type || counter)
+        // Compute canonical id consistent with runtime: blake3(recipient || type || data)
         use kanari_crypto::hash_data_blake3;
-        ext.counter = ext.counter.wrapping_add(1);
         let mut input = Vec::new();
         input.extend_from_slice(recipient.as_ref());
         input.extend_from_slice(type_str.as_bytes());
-        input.extend_from_slice(&ext.counter.to_le_bytes());
+        input.extend_from_slice(&obj_data);
         let hash = hash_data_blake3(&input);
         // canonical object id: 0x-prefixed 32-byte hex
         let obj_id = format!("0x{}", hex::encode(&hash[0..32]));
