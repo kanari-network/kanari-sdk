@@ -102,6 +102,9 @@ async fn handle_rpc(
         // Blocks & Transactions
         methods::GET_BLOCK => handle_get_block(&state, &request).await,
         methods::GET_TRANSACTION => handle_get_transaction(&state, &request).await,
+        methods::GET_ALL_TRANSACTIONS => {
+            transaction::handle_get_all_transactions(&state, &request).await
+        }
         methods::PRODUCE_BLOCK => handle_produce_block(&state, &request).await,
         methods::GET_STATE_ROOT => handle_get_state_root(&state, &request).await,
         methods::GET_ACCOUNT_PROOF => handle_get_account_proof(&state, &request).await,

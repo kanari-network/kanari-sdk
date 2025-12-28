@@ -6,8 +6,57 @@ use kanari_rpc_api::{
     CallFunctionRequest, PublishModuleRequest, SignedTransactionData, UpgradeModuleRequest,
 };
 use kanari_types::address::Address;
+use move_binary_format::CompiledModule;
 use serde_json;
 use tracing::{error, info};
+
+// Extract function names from module bytecode (returns None on error)
+fn extract_functions_from_bytes(bytes: &[u8]) -> Option<Vec<String>> {
+    match CompiledModule::deserialize_with_defaults(bytes) {
+        Ok(module) => {
+            let mut names = Vec::new();
+            for func_def in module.function_defs() {
+                let fh = module.function_handle_at(func_def.function);
+                let ident = module.identifier_at(fh.name);
+                names.push(ident.as_str().to_string());
+            }
+            Some(names)
+        }
+        Err(_) => None,
+    }
+}
+
+// Best-effort lookup of module functions using the engine registry
+fn lookup_module_functions(state: &RpcServerState, module_str: &str) -> Option<Vec<String>> {
+    // If given as "address::Name" try direct lookup
+    if let Some(idx) = module_str.find("::") {
+        let addr = &module_str[..idx];
+        let name = &module_str[idx + 2..];
+        if let Some(bytes) = state.engine.get_module_bytecode(addr, name) {
+            return extract_functions_from_bytes(&bytes);
+        }
+    }
+
+    // Search published modules by name or address
+    let mut results: Vec<String> = Vec::new();
+    let modules = state.engine.list_all_modules();
+    for (addr, name) in modules.iter() {
+        if name == module_str || addr == module_str {
+            if let Some(bytes) = state.engine.get_module_bytecode(addr, name) {
+                if let Some(fns) = extract_functions_from_bytes(&bytes) {
+                    for f in fns.into_iter() {
+                        results.push(format!("{}::{}::{}", addr, name, f));
+                    }
+                }
+            }
+        }
+    }
+    if results.is_empty() {
+        None
+    } else {
+        Some(results)
+    }
+}
 
 /// Handle submit transaction request
 pub async fn handle_submit_transaction(
@@ -207,15 +256,203 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
             let st = SignedTransaction::new(tx.clone());
             let tx_hash = hex::encode(&st.hash());
             if tx_hash.to_lowercase() == normalized {
-                // Found - return TransactionStatus with committed info
-                let status = kanari_rpc_api::TransactionStatus {
-                    hash: format!("0x{}", tx_hash),
-                    status: "committed".to_string(),
-                    block_height: Some(block.header.height),
-                    gas_used: None,
+                // Build detailed transaction info from the Transaction
+                let details = match tx {
+                    Transaction::PublishModule {
+                        sender,
+                        sequence_number,
+                        gas_limit,
+                        gas_price,
+                        ..
+                    } => kanari_rpc_api::TransactionDetails {
+                        hash: format!("0x{}", tx_hash),
+                        status: "committed".to_string(),
+                        block_height: Some(block.header.height),
+                        gas_used: None,
+                        tx_type: "publish_module".to_string(),
+                        sender: sender.clone(),
+                        sequence_number: *sequence_number,
+                        gas_limit: *gas_limit,
+                        gas_price: *gas_price,
+                        module: None,
+                        function: None,
+                        module_functions: None,
+                    },
+                    Transaction::ExecuteFunction {
+                        sender,
+                        module,
+                        function,
+                        sequence_number,
+                        gas_limit,
+                        gas_price,
+                        ..
+                    } => kanari_rpc_api::TransactionDetails {
+                        hash: format!("0x{}", tx_hash),
+                        status: "committed".to_string(),
+                        block_height: Some(block.header.height),
+                        gas_used: None,
+                        tx_type: "call".to_string(),
+                        sender: sender.clone(),
+                        sequence_number: *sequence_number,
+                        gas_limit: *gas_limit,
+                        gas_price: *gas_price,
+                        module: Some(module.clone()),
+                        function: Some(function.clone()),
+                        module_functions: lookup_module_functions(state, module).map(|v| v),
+                    },
+                    Transaction::Transfer {
+                        from,
+                        to: _,
+                        amount: _,
+                        sequence_number,
+                        gas_limit,
+                        gas_price,
+                        ..
+                    } => kanari_rpc_api::TransactionDetails {
+                        hash: format!("0x{}", tx_hash),
+                        status: "committed".to_string(),
+                        block_height: Some(block.header.height),
+                        gas_used: None,
+                        tx_type: "transfer".to_string(),
+                        sender: from.clone(),
+                        sequence_number: *sequence_number,
+                        gas_limit: *gas_limit,
+                        gas_price: *gas_price,
+                        module: None,
+                        function: None,
+                        module_functions: None,
+                    },
+                    Transaction::Burn {
+                        from,
+                        amount: _,
+                        sequence_number,
+                        gas_limit,
+                        gas_price,
+                        ..
+                    } => kanari_rpc_api::TransactionDetails {
+                        hash: format!("0x{}", tx_hash),
+                        status: "committed".to_string(),
+                        block_height: Some(block.header.height),
+                        gas_used: None,
+                        tx_type: "burn".to_string(),
+                        sender: from.clone(),
+                        sequence_number: *sequence_number,
+                        gas_limit: *gas_limit,
+                        gas_price: *gas_price,
+                        module: None,
+                        function: None,
+                        module_functions: None,
+                    },
                 };
-                return respond_with_serialize(request.id, status);
+                return respond_with_serialize(request.id, details);
             }
+        }
+    }
+
+    // Not found in committed blocks — check pending transactions pool
+    let pending = state.engine.pending_txs.read().unwrap();
+    for tx in pending.iter() {
+        let st = SignedTransaction::new(tx.clone());
+        let tx_hash = hex::encode(&st.hash());
+        if tx_hash.to_lowercase() == normalized {
+            // Build details for pending tx
+            let details = match tx {
+                Transaction::PublishModule {
+                    sender,
+                    module_bytes,
+                    module_name,
+                    sequence_number,
+                    gas_limit,
+                    gas_price,
+                    ..
+                } => {
+                    let module_funcs = extract_functions_from_bytes(module_bytes).map(|fns| {
+                        fns.into_iter()
+                            .map(|f| format!("{}::{}::{}", "pending", module_name, f))
+                            .collect()
+                    });
+                    kanari_rpc_api::TransactionDetails {
+                        hash: format!("0x{}", tx_hash),
+                        status: "pending".to_string(),
+                        block_height: None,
+                        gas_used: None,
+                        tx_type: "publish_module".to_string(),
+                        sender: sender.clone(),
+                        sequence_number: *sequence_number,
+                        gas_limit: *gas_limit,
+                        gas_price: *gas_price,
+                        module: Some(module_name.clone()),
+                        function: None,
+                        module_functions: module_funcs,
+                    }
+                }
+                Transaction::ExecuteFunction {
+                    sender,
+                    module,
+                    function,
+                    sequence_number,
+                    gas_limit,
+                    gas_price,
+                    ..
+                } => kanari_rpc_api::TransactionDetails {
+                    hash: format!("0x{}", tx_hash),
+                    status: "pending".to_string(),
+                    block_height: None,
+                    gas_used: None,
+                    tx_type: "call".to_string(),
+                    sender: sender.clone(),
+                    sequence_number: *sequence_number,
+                    gas_limit: *gas_limit,
+                    gas_price: *gas_price,
+                    module: Some(module.clone()),
+                    function: Some(function.clone()),
+                    module_functions: lookup_module_functions(state, module).map(|v| v),
+                },
+                Transaction::Transfer {
+                    from,
+                    to: _,
+                    amount: _,
+                    sequence_number,
+                    gas_limit,
+                    gas_price,
+                    ..
+                } => kanari_rpc_api::TransactionDetails {
+                    hash: format!("0x{}", tx_hash),
+                    status: "pending".to_string(),
+                    block_height: None,
+                    gas_used: None,
+                    tx_type: "transfer".to_string(),
+                    sender: from.clone(),
+                    sequence_number: *sequence_number,
+                    gas_limit: *gas_limit,
+                    gas_price: *gas_price,
+                    module: None,
+                    function: None,
+                    module_functions: None,
+                },
+                Transaction::Burn {
+                    from,
+                    amount: _,
+                    sequence_number,
+                    gas_limit,
+                    gas_price,
+                    ..
+                } => kanari_rpc_api::TransactionDetails {
+                    hash: format!("0x{}", tx_hash),
+                    status: "pending".to_string(),
+                    block_height: None,
+                    gas_used: None,
+                    tx_type: "burn".to_string(),
+                    sender: from.clone(),
+                    sequence_number: *sequence_number,
+                    gas_limit: *gas_limit,
+                    gas_price: *gas_price,
+                    module: None,
+                    function: None,
+                    module_functions: None,
+                },
+            };
+            return respond_with_serialize(request.id, details);
         }
     }
 
@@ -226,6 +463,228 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
         error: Some(RpcError::internal_error("Transaction not found")),
         id: request.id,
     }
+}
+
+/// Handle request to list all transactions (committed + pending)
+pub async fn handle_get_all_transactions(
+    state: &RpcServerState,
+    request: &RpcRequest,
+) -> RpcResponse {
+    // Collect committed transactions from blockchain
+    let mut results: Vec<kanari_rpc_api::TransactionDetails> = Vec::new();
+
+    let chain = state.engine.blockchain.read().unwrap();
+    for block in chain.blocks.iter() {
+        for tx in block.transactions.iter() {
+            let st = SignedTransaction::new(tx.clone());
+            let tx_hash = hex::encode(&st.hash());
+            // build details
+            let details = match tx {
+                Transaction::PublishModule {
+                    sender,
+                    module_bytes,
+                    module_name,
+                    sequence_number,
+                    gas_limit,
+                    gas_price,
+                    ..
+                } => kanari_rpc_api::TransactionDetails {
+                    hash: format!("0x{}", tx_hash),
+                    status: "committed".to_string(),
+                    block_height: Some(block.header.height),
+                    gas_used: None,
+                    tx_type: "publish_module".to_string(),
+                    sender: sender.clone(),
+                    sequence_number: *sequence_number,
+                    gas_limit: *gas_limit,
+                    gas_price: *gas_price,
+                    module: Some(module_name.clone()),
+                    function: None,
+                    module_functions: extract_functions_from_bytes(module_bytes).map(|fns| {
+                        fns.into_iter()
+                            .map(|f| {
+                                format!(
+                                    "{}::{}::{}",
+                                    format!("0x{}", hex::encode(&block.header.state_root)),
+                                    module_name,
+                                    f
+                                )
+                            })
+                            .collect()
+                    }),
+                },
+                Transaction::ExecuteFunction {
+                    sender,
+                    module,
+                    function,
+                    sequence_number,
+                    gas_limit,
+                    gas_price,
+                    ..
+                } => kanari_rpc_api::TransactionDetails {
+                    hash: format!("0x{}", tx_hash),
+                    status: "committed".to_string(),
+                    block_height: Some(block.header.height),
+                    gas_used: None,
+                    tx_type: "call".to_string(),
+                    sender: sender.clone(),
+                    sequence_number: *sequence_number,
+                    gas_limit: *gas_limit,
+                    gas_price: *gas_price,
+                    module: Some(module.clone()),
+                    function: Some(function.clone()),
+                    module_functions: lookup_module_functions(state, module).map(|v| v),
+                },
+                Transaction::Transfer {
+                    from,
+                    to: _,
+                    amount: _,
+                    sequence_number,
+                    gas_limit,
+                    gas_price,
+                    ..
+                } => kanari_rpc_api::TransactionDetails {
+                    hash: format!("0x{}", tx_hash),
+                    status: "committed".to_string(),
+                    block_height: Some(block.header.height),
+                    gas_used: None,
+                    tx_type: "transfer".to_string(),
+                    sender: from.clone(),
+                    sequence_number: *sequence_number,
+                    gas_limit: *gas_limit,
+                    gas_price: *gas_price,
+                    module: None,
+                    function: None,
+                    module_functions: None,
+                },
+                Transaction::Burn {
+                    from,
+                    amount: _,
+                    sequence_number,
+                    gas_limit,
+                    gas_price,
+                    ..
+                } => kanari_rpc_api::TransactionDetails {
+                    hash: format!("0x{}", tx_hash),
+                    status: "committed".to_string(),
+                    block_height: Some(block.header.height),
+                    gas_used: None,
+                    tx_type: "burn".to_string(),
+                    sender: from.clone(),
+                    sequence_number: *sequence_number,
+                    gas_limit: *gas_limit,
+                    gas_price: *gas_price,
+                    module: None,
+                    function: None,
+                    module_functions: None,
+                },
+            };
+            results.push(details);
+        }
+    }
+
+    // Append pending transactions
+    let pending = state.engine.pending_txs.read().unwrap();
+    for tx in pending.iter() {
+        let st = SignedTransaction::new(tx.clone());
+        let tx_hash = hex::encode(&st.hash());
+        let details = match tx {
+            Transaction::PublishModule {
+                sender,
+                module_bytes,
+                module_name,
+                sequence_number,
+                gas_limit,
+                gas_price,
+                ..
+            } => kanari_rpc_api::TransactionDetails {
+                hash: format!("0x{}", tx_hash),
+                status: "pending".to_string(),
+                block_height: None,
+                gas_used: None,
+                tx_type: "publish_module".to_string(),
+                sender: sender.clone(),
+                sequence_number: *sequence_number,
+                gas_limit: *gas_limit,
+                gas_price: *gas_price,
+                module: Some(module_name.clone()),
+                function: None,
+                module_functions: extract_functions_from_bytes(module_bytes).map(|fns| {
+                    fns.into_iter()
+                        .map(|f| format!("pending::{}::{}", module_name, f))
+                        .collect()
+                }),
+            },
+            Transaction::ExecuteFunction {
+                sender,
+                module,
+                function,
+                sequence_number,
+                gas_limit,
+                gas_price,
+                ..
+            } => kanari_rpc_api::TransactionDetails {
+                hash: format!("0x{}", tx_hash),
+                status: "pending".to_string(),
+                block_height: None,
+                gas_used: None,
+                tx_type: "call".to_string(),
+                sender: sender.clone(),
+                sequence_number: *sequence_number,
+                gas_limit: *gas_limit,
+                gas_price: *gas_price,
+                module: Some(module.clone()),
+                function: Some(function.clone()),
+                module_functions: lookup_module_functions(state, module).map(|v| v),
+            },
+            Transaction::Transfer {
+                from,
+                to: _,
+                amount: _,
+                sequence_number,
+                gas_limit,
+                gas_price,
+                ..
+            } => kanari_rpc_api::TransactionDetails {
+                hash: format!("0x{}", tx_hash),
+                status: "pending".to_string(),
+                block_height: None,
+                gas_used: None,
+                tx_type: "transfer".to_string(),
+                sender: from.clone(),
+                sequence_number: *sequence_number,
+                gas_limit: *gas_limit,
+                gas_price: *gas_price,
+                module: None,
+                function: None,
+                module_functions: None,
+            },
+            Transaction::Burn {
+                from,
+                amount: _,
+                sequence_number,
+                gas_limit,
+                gas_price,
+                ..
+            } => kanari_rpc_api::TransactionDetails {
+                hash: format!("0x{}", tx_hash),
+                status: "pending".to_string(),
+                block_height: None,
+                gas_used: None,
+                tx_type: "burn".to_string(),
+                sender: from.clone(),
+                sequence_number: *sequence_number,
+                gas_limit: *gas_limit,
+                gas_price: *gas_price,
+                module: None,
+                function: None,
+                module_functions: None,
+            },
+        };
+        results.push(details);
+    }
+
+    respond_with_serialize(request.id, results)
 }
 
 /// Handle publish module request

@@ -167,6 +167,26 @@ pub struct TransactionStatus {
     pub gas_used: Option<u64>,
 }
 
+/// Detailed transaction information returned by `getTransaction` and `getAllTransactions`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionDetails {
+    pub hash: String,
+    pub status: String,
+    pub block_height: Option<u64>,
+    pub gas_used: Option<u64>,
+    pub tx_type: String,
+    pub sender: String,
+    pub sequence_number: u64,
+    pub gas_limit: u64,
+    pub gas_price: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub module: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub function: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub module_functions: Option<Vec<String>>,
+}
+
 /// Transaction result with created objects
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionResult {
@@ -321,6 +341,7 @@ pub mod methods {
     pub const GET_BLOCK: &str = "kanari_getBlock";
     pub const GET_BLOCK_HEIGHT: &str = "kanari_getBlockHeight";
     pub const GET_TRANSACTION: &str = "kanari_getTransaction";
+    pub const GET_ALL_TRANSACTIONS: &str = "kanari_getAllTransactions";
     pub const PRODUCE_BLOCK: &str = "kanari_produceBlock";
     pub const SUBMIT_TRANSACTION: &str = "kanari_submitTransaction";
     pub const GET_STATE_ROOT: &str = "kanari_getStateRoot";
