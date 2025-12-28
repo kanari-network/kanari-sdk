@@ -58,6 +58,11 @@ fn lookup_module_functions(state: &RpcServerState, module_str: &str) -> Option<V
     }
 }
 
+// Normalize address strings for comparison (trim optional 0x and lowercase)
+fn normalize_addr(s: &str) -> String {
+    s.trim_start_matches("0x").to_lowercase()
+}
+
 /// Handle submit transaction request
 pub async fn handle_submit_transaction(
     state: &RpcServerState,
@@ -470,12 +475,42 @@ pub async fn handle_get_all_transactions(
     state: &RpcServerState,
     request: &RpcRequest,
 ) -> RpcResponse {
+    // Parse optional `account` filter from params (either string or object { account: "0x..." })
+    let account_opt: Option<String> = if request.params.is_null() {
+        None
+    } else if let Some(s) = request.params.as_str() {
+        Some(s.to_string())
+    } else if let Some(obj) = request.params.as_object() {
+        obj.get("account")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    } else {
+        None
+    };
+    let account_norm = account_opt
+        .as_ref()
+        .map(|a| a.trim_start_matches("0x").to_lowercase());
+
     // Collect committed transactions from blockchain
     let mut results: Vec<kanari_rpc_api::TransactionDetails> = Vec::new();
 
     let chain = state.engine.blockchain.read().unwrap();
     for block in chain.blocks.iter() {
         for tx in block.transactions.iter() {
+            // If account filter provided, skip txs that don't involve the account
+            if let Some(ref acct) = account_norm {
+                let matches = match tx {
+                    Transaction::PublishModule { sender, .. } => normalize_addr(sender) == *acct,
+                    Transaction::ExecuteFunction { sender, .. } => normalize_addr(sender) == *acct,
+                    Transaction::Transfer { from, to, .. } => {
+                        normalize_addr(from) == *acct || normalize_addr(to) == *acct
+                    }
+                    Transaction::Burn { from, .. } => normalize_addr(from) == *acct,
+                };
+                if !matches {
+                    continue;
+                }
+            }
             let st = SignedTransaction::new(tx.clone());
             let tx_hash = hex::encode(&st.hash());
             // build details
@@ -586,6 +621,20 @@ pub async fn handle_get_all_transactions(
     // Append pending transactions
     let pending = state.engine.pending_txs.read().unwrap();
     for tx in pending.iter() {
+        // If account filter provided, skip txs that don't involve the account
+        if let Some(ref acct) = account_norm {
+            let matches = match tx {
+                Transaction::PublishModule { sender, .. } => normalize_addr(sender) == *acct,
+                Transaction::ExecuteFunction { sender, .. } => normalize_addr(sender) == *acct,
+                Transaction::Transfer { from, to, .. } => {
+                    normalize_addr(from) == *acct || normalize_addr(to) == *acct
+                }
+                Transaction::Burn { from, .. } => normalize_addr(from) == *acct,
+            };
+            if !matches {
+                continue;
+            }
+        }
         let st = SignedTransaction::new(tx.clone());
         let tx_hash = hex::encode(&st.hash());
         let details = match tx {
