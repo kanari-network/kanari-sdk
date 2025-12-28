@@ -271,10 +271,15 @@ impl BlockchainEngine {
         if let Some(store) = &self.persistent_store {
             let state_guard = self.state.read().unwrap();
             if let Err(e) = store.save("state_manager", &*state_guard) {
-                eprintln!("execute_transaction_immediate: failed to persist state_manager: {}", e);
+                eprintln!(
+                    "execute_transaction_immediate: failed to persist state_manager: {}",
+                    e
+                );
             }
         } else {
-            eprintln!("execute_transaction_immediate: no persistent_store configured; changes are in-memory only");
+            eprintln!(
+                "execute_transaction_immediate: no persistent_store configured; changes are in-memory only"
+            );
         }
 
         Ok((tx_hash, changeset))

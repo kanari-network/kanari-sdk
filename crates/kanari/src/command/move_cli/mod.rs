@@ -7,6 +7,7 @@ pub mod common;
 pub mod docgen;
 pub mod new;
 pub mod publish;
+pub mod verify;
 pub mod test;
 
 use kanari_system_natives::{crypto, transfer_natives};
@@ -34,6 +35,8 @@ pub enum MoveCommand {
     Docgen(docgen::Docgen),
     /// Publish Move module to blockchain
     Publish(publish::Publish),
+    /// Verify Move module bytecode locally (RPC)
+    Verify(verify::Verify),
     /// Call Move function on blockchain
     Call(call::Call),
 }
@@ -83,6 +86,7 @@ impl MoveCommand {
                 let config = move_package::BuildConfig::default();
                 p.execute(None, config)
             }
+            MoveCommand::Verify(v) => v.execute(),
             MoveCommand::Call(c) => c.execute(),
         }
     }

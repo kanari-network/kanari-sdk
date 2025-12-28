@@ -7,7 +7,6 @@ use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::TreasuryCap;
 use kanari_types::object::UIDRecord;
 use move_core_types::account_address::AccountAddress;
-use serde::ser::{SerializeStruct, Serializer};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -70,7 +69,7 @@ impl AccountChange {
 
 /// ChangeSet represents all state changes from Move VM execution
 /// This is the canonical output from Move VM that StateManager will apply
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ChangeSet {
     pub account_changes: HashMap<AccountAddress, AccountChange>,
     pub events: Vec<Event>,
@@ -83,53 +82,6 @@ pub struct ChangeSet {
     pub gas_used: u64,
     pub success: bool,
     pub error_message: Option<String>,
-}
-
-// Provide a custom Serialize impl so RPC consumers receive a friendly
-// representation for `created_objects` as an array of objects with an
-// explicit `id` field instead of an array of tuples.
-impl Serialize for ChangeSet {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        // Count of top-level fields serialized
-        let mut s = serializer.serialize_struct("ChangeSet", 8)?;
-        s.serialize_field("account_changes", &self.account_changes)?;
-        s.serialize_field("events", &self.events)?;
-        s.serialize_field("treasuries", &self.treasuries)?;
-        s.serialize_field("token_balance_sets", &self.token_balance_sets)?;
-
-        // Build RPC-friendly created_objects list
-        #[derive(Serialize)]
-        struct RpcCreatedObject<'a> {
-            id: &'a str,
-            owner: String,
-            #[serde(rename = "type")]
-            type_: &'a str,
-            data: &'a Vec<u8>,
-            version: u64,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            uid: Option<String>,
-        }
-
-        let rpc_objs: Vec<RpcCreatedObject> = self
-            .created_objects
-            .iter()
-            .map(|(id, obj)| RpcCreatedObject {
-                id: id.as_str(),
-                owner: format!("0x{}", hex::encode(obj.owner.as_ref())),
-                type_: &obj.type_,
-                data: &obj.data,
-                version: obj.version,
-                uid: obj.uid.as_ref().map(|u| format!("{:#x}", u.address())),
-            })
-            .collect();
-
-        s.serialize_field("created_objects", &rpc_objs)?;
-
-        s.serialize_field("gas_used", &self.gas_used)?;
-        s.serialize_field("success", &self.success)?;
-        s.serialize_field("error_message", &self.error_message)?;
-        s.end()
-    }
 }
 
 impl ChangeSet {
@@ -224,6 +176,13 @@ impl ChangeSet {
 
     pub fn is_empty(&self) -> bool {
         self.account_changes.is_empty()
+            && self.events.is_empty()
+            && self.treasuries.is_empty()
+            && self.token_balance_sets.is_empty()
+            && self.created_objects.is_empty()
+            && self.gas_used == 0
+            && self.success
+            && self.error_message.is_none()
     }
 
     pub fn account_count(&self) -> usize {

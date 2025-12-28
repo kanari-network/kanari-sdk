@@ -568,33 +568,3 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
         }
     }
 }
-
-/// Handle simulate function call
-pub async fn handle_simulate_function(
-    _state: &RpcServerState,
-    request: &RpcRequest,
-) -> RpcResponse {
-    let _call_data: CallFunctionRequest = match serde_json::from_value(request.params.clone()) {
-        Ok(data) => data,
-        Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: None,
-                error: Some(RpcError::invalid_params(e.to_string())),
-                id: request.id,
-            };
-        }
-    };
-
-    // TODO: Implement actual simulation using MoveRuntime
-    RpcResponse {
-        jsonrpc: "2.0".to_string(),
-        result: Some(serde_json::json!({
-            "success": true,
-            "gas_used": 1000,
-            "return_values": []
-        })),
-        error: None,
-        id: request.id,
-    }
-}

@@ -24,8 +24,8 @@ use crate::{
     },
     module::{handle_get_module, handle_get_object, handle_list_modules, handle_verify_module},
     transaction::{
-        handle_call_function, handle_publish_module, handle_simulate_function,
-        handle_submit_transaction, handle_upgrade_module,
+        handle_call_function, handle_publish_module, handle_submit_transaction,
+        handle_upgrade_module,
     },
 };
 
@@ -119,7 +119,8 @@ async fn handle_rpc(
 
         // Function calls
         methods::CALL_FUNCTION => handle_call_function(&state, &request).await,
-        methods::SIMULATE_FUNCTION => handle_simulate_function(&state, &request).await,
+
+        // Object queries
         methods::GET_OBJECT => handle_get_object(&state, &request).await,
 
         _ => RpcResponse {
