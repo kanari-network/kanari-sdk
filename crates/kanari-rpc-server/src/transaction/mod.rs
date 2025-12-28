@@ -1,3 +1,5 @@
+use crate::respond_with_serialize;
+
 use super::{RpcError, RpcRequest, RpcResponse, RpcServerState};
 use kanari_core::{SignedTransaction, Transaction};
 use kanari_rpc_api::{
@@ -155,6 +157,77 @@ pub async fn handle_submit_transaction(
     }
 }
 
+/// Handle get transaction by hash request
+pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    // Accept either a plain string param (hash) or an object like { "hash": "..." }
+    let hash_param: String = match serde_json::from_value(request.params.clone()) {
+        Ok(h) => h,
+        Err(_) => {
+            // try parsing object
+            match serde_json::from_value::<serde_json::Value>(request.params.clone()) {
+                Ok(v) => match v.get("hash") {
+                    Some(hv) => match hv.as_str() {
+                        Some(s) => s.to_string(),
+                        None => {
+                            return RpcResponse {
+                                jsonrpc: "2.0".to_string(),
+                                result: None,
+                                error: Some(RpcError::invalid_params("Invalid hash parameter")),
+                                id: request.id,
+                            };
+                        }
+                    },
+                    None => {
+                        return RpcResponse {
+                            jsonrpc: "2.0".to_string(),
+                            result: None,
+                            error: Some(RpcError::invalid_params("Missing 'hash' parameter")),
+                            id: request.id,
+                        };
+                    }
+                },
+                Err(e) => {
+                    return RpcResponse {
+                        jsonrpc: "2.0".to_string(),
+                        result: None,
+                        error: Some(RpcError::invalid_params(format!("Invalid params: {}", e))),
+                        id: request.id,
+                    };
+                }
+            }
+        }
+    };
+
+    let normalized = hash_param.trim_start_matches("0x").to_lowercase();
+
+    // Search blockchain for the transaction
+    let chain = state.engine.blockchain.read().unwrap();
+    for block in chain.blocks.iter() {
+        for tx in block.transactions.iter() {
+            let st = SignedTransaction::new(tx.clone());
+            let tx_hash = hex::encode(&st.hash());
+            if tx_hash.to_lowercase() == normalized {
+                // Found - return TransactionStatus with committed info
+                let status = kanari_rpc_api::TransactionStatus {
+                    hash: format!("0x{}", tx_hash),
+                    status: "committed".to_string(),
+                    block_height: Some(block.header.height),
+                    gas_used: None,
+                };
+                return respond_with_serialize(request.id, status);
+            }
+        }
+    }
+
+    // Not found
+    RpcResponse {
+        jsonrpc: "2.0".to_string(),
+        result: None,
+        error: Some(RpcError::internal_error("Transaction not found")),
+        id: request.id,
+    }
+}
+
 /// Handle publish module request
 pub async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let module_data: PublishModuleRequest = match serde_json::from_value(request.params.clone()) {
@@ -202,12 +275,29 @@ pub async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest)
         signed_tx.signature = Some(sig);
     }
 
-    // If caller requested immediate execution, execute and return the changeset
-    if module_data.execute_immediate.unwrap_or(false) {
-        match state.engine.execute_transaction_immediate(signed_tx) {
+    // If caller requested immediate execution (or omitted it), execute and return the changeset
+    // If caller explicitly sets `execute_immediate: false`, submit the transaction to the
+    // pending pool instead (do not execute immediately) and return a pending response.
+    if module_data.execute_immediate.unwrap_or(true) {
+        // Execute immediately but also submit a copy so it gets committed later.
+        let exec_tx = signed_tx.clone();
+        let submit_tx = signed_tx.clone();
+
+        match state.engine.execute_transaction_immediate(exec_tx) {
             Ok((tx_hash, changeset)) => {
                 let tx_hash_hex = hex::encode(&tx_hash);
                 info!("Module publish executed immediately: {}", tx_hash_hex);
+
+                // Try to submit for eventual commitment; log any failure but
+                // still return the execution result to the caller.
+                match state.engine.submit_transaction(submit_tx) {
+                    Ok(sub_hash) => info!(
+                        "Also submitted transaction for commitment: {}",
+                        hex::encode(&sub_hash)
+                    ),
+                    Err(e) => error!("Failed to submit executed transaction: {}", e),
+                }
+
                 let cs_value = serde_json::to_value(&changeset).unwrap_or(serde_json::json!(null));
                 return RpcResponse {
                     jsonrpc: "2.0".to_string(),
@@ -398,9 +488,15 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
         signed_tx.signature = Some(sig);
     }
 
-    // If caller requested immediate execution, execute and return the changeset
-    if call_data.execute_immediate.unwrap_or(false) {
-        match state.engine.execute_transaction_immediate(signed_tx) {
+    // If caller requested immediate execution (or omitted it), execute and return the changeset
+    // If caller explicitly sets `execute_immediate: false`, submit the transaction to the
+    // pending pool instead (do not execute immediately) and return a pending response.
+    if call_data.execute_immediate.unwrap_or(true) {
+        // Execute immediately but also submit a copy so it gets included in a block later.
+        let exec_tx = signed_tx.clone();
+        let submit_tx = signed_tx.clone();
+
+        match state.engine.execute_transaction_immediate(exec_tx) {
             Ok((tx_hash, changeset)) => {
                 let tx_hash_hex = hex::encode(&tx_hash);
                 info!("Function executed immediately: {}", tx_hash_hex);
@@ -502,6 +598,15 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                     }
                 }
 
+                // Attempt to submit executed transaction for commitment as well.
+                match state.engine.submit_transaction(submit_tx) {
+                    Ok(sub_hash) => info!(
+                        "Also submitted executed transaction for commitment: {}",
+                        hex::encode(&sub_hash)
+                    ),
+                    Err(e) => error!("Failed to submit executed transaction: {}", e),
+                }
+
                 return RpcResponse {
                     jsonrpc: "2.0".to_string(),
                     result: Some(serde_json::json!({
@@ -527,43 +632,34 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                 };
             }
         }
-    }
-
-    // Otherwise, execute transaction immediately to get changeset (default behavior)
-    match state.engine.execute_transaction_immediate(signed_tx) {
-        Ok((tx_hash, changeset)) => {
-            let tx_hash_hex = hex::encode(&tx_hash);
-            info!("Function called successfully: {}", tx_hash_hex);
-
-            use kanari_rpc_api::TransactionResult;
-            let result = TransactionResult {
-                hash: tx_hash_hex,
-                status: if changeset.success {
-                    "success".to_string()
-                } else {
-                    "failed".to_string()
-                },
-                gas_used: changeset.gas_used,
-                error_message: changeset.error_message.clone(),
-            };
-
-            RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: Some(serde_json::to_value(result).unwrap()),
-                error: None,
-                id: request.id,
+    } else {
+        // Submit transaction to pending pool (do not execute immediately)
+        match state.engine.submit_transaction(signed_tx) {
+            Ok(tx_hash) => {
+                let tx_hash_hex = hex::encode(&tx_hash);
+                info!("Function call transaction submitted: {}", tx_hash_hex);
+                return RpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: Some(serde_json::json!({
+                        "hash": tx_hash_hex,
+                        "status": "pending",
+                        "action": "call"
+                    })),
+                    error: None,
+                    id: request.id,
+                };
             }
-        }
-        Err(e) => {
-            error!("Failed to call function: {}", e);
-            RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: None,
-                error: Some(RpcError::internal_error(format!(
-                    "Function call failed: {}",
-                    e
-                ))),
-                id: request.id,
+            Err(e) => {
+                error!("Failed to submit call transaction: {}", e);
+                return RpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: None,
+                    error: Some(RpcError::transaction_error(format!(
+                        "Call submission failed: {}",
+                        e
+                    ))),
+                    id: request.id,
+                };
             }
         }
     }

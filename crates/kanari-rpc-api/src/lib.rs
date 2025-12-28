@@ -321,6 +321,7 @@ pub mod methods {
     pub const GET_BLOCK: &str = "kanari_getBlock";
     pub const GET_BLOCK_HEIGHT: &str = "kanari_getBlockHeight";
     pub const GET_TRANSACTION: &str = "kanari_getTransaction";
+    pub const PRODUCE_BLOCK: &str = "kanari_produceBlock";
     pub const SUBMIT_TRANSACTION: &str = "kanari_submitTransaction";
     pub const GET_STATE_ROOT: &str = "kanari_getStateRoot";
     pub const GET_ACCOUNT_PROOF: &str = "kanari_getAccountProof";

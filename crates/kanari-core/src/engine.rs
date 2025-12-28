@@ -258,29 +258,21 @@ impl BlockchainEngine {
         let tx = signed_tx.transaction;
 
         // Execute transaction to get changeset
-        let changeset = self.execute_transaction(&tx)?;
+        // For immediate (RPC) execution we run the Move execution against a
+        // cloned snapshot of the current StateManager so the call is a
+        // read-only/simulated run: it returns the ChangeSet that would be
+        // applied, but it does NOT mutate the engine's canonical `state`.
+        // This prevents sequence number / balance drift when the same signed
+        // transaction is later submitted for inclusion in a block.
+        let changeset = {
+            // Clone the current state for a safe simulation
+            let state_snapshot = { self.state.read().unwrap().clone() };
+            let state_arc = Arc::new(RwLock::new(state_snapshot));
 
-        // Apply changeset to state immediately
-        {
-            let mut state = self.state.write().unwrap();
-            state.apply_changeset(&changeset)?;
-        }
-
-        // If a persistent store is configured, persist the updated StateManager
-        // so "immediate" RPC calls are durable across node restarts.
-        if let Some(store) = &self.persistent_store {
-            let state_guard = self.state.read().unwrap();
-            if let Err(e) = store.save("state_manager", &*state_guard) {
-                eprintln!(
-                    "execute_transaction_immediate: failed to persist state_manager: {}",
-                    e
-                );
-            }
-        } else {
-            eprintln!(
-                "execute_transaction_immediate: no persistent_store configured; changes are in-memory only"
-            );
-        }
+            // Use the engine's runtime to execute against the cloned state.
+            let mut runtime = self.move_runtime.write().unwrap();
+            Self::execute_transaction_with_runtime(&tx, &mut *runtime, &state_arc)?
+        };
 
         Ok((tx_hash, changeset))
     }

@@ -7,8 +7,8 @@ pub mod common;
 pub mod docgen;
 pub mod new;
 pub mod publish;
-pub mod verify;
 pub mod test;
+pub mod verify;
 
 use kanari_system_natives::{crypto, transfer_natives};
 use kanari_types::address::Address as KanariAddress;

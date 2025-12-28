@@ -39,10 +39,7 @@ pub struct Publish {
     /// RPC endpoint
     #[clap(long = "rpc", default_value = "http://127.0.0.1:3000")]
     pub rpc_endpoint: String,
-
-    /// Execute the publish immediately on the node (return changeset)
-    #[clap(long = "immediate")]
-    pub immediate: bool,
+    // `immediate` execution option removed — always submit normally.
 }
 
 impl Publish {
@@ -204,7 +201,7 @@ impl Publish {
                 gas_price: self.gas_price,
                 sequence_number: seq_num,
                 signature: Some(signature),
-                execute_immediate: if self.immediate { Some(true) } else { None },
+                execute_immediate: Some(true),
             };
 
             let rpc_request = RpcRequest {
@@ -238,8 +235,11 @@ impl Publish {
                                         eprintln!("     Transaction failed: {}", error_msg);
                                     }
                                 } else {
-                                    // Fallback to old format
-                                    println!("     RPC result: {}", result);
+                                    // Fallback to pretty-print JSON
+                                    match serde_json::to_string_pretty(&result) {
+                                        Ok(s) => println!("     RPC result:\n{}", s),
+                                        Err(_) => println!("     RPC result: {}", result),
+                                    }
                                 }
                             } else {
                                 println!("     RPC response has no result and no error");

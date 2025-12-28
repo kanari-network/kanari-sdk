@@ -20,12 +20,12 @@ use crate::{
     },
     block::{
         handle_get_account_proof, handle_get_block, handle_get_block_height, handle_get_state_root,
-        handle_get_stats,
+        handle_get_stats, handle_produce_block,
     },
     module::{handle_get_module, handle_get_object, handle_list_modules, handle_verify_module},
     transaction::{
-        handle_call_function, handle_publish_module, handle_submit_transaction,
-        handle_upgrade_module,
+        handle_call_function, handle_get_transaction, handle_publish_module,
+        handle_submit_transaction, handle_upgrade_module,
     },
 };
 
@@ -101,6 +101,8 @@ async fn handle_rpc(
 
         // Blocks & Transactions
         methods::GET_BLOCK => handle_get_block(&state, &request).await,
+        methods::GET_TRANSACTION => handle_get_transaction(&state, &request).await,
+        methods::PRODUCE_BLOCK => handle_produce_block(&state, &request).await,
         methods::GET_STATE_ROOT => handle_get_state_root(&state, &request).await,
         methods::GET_ACCOUNT_PROOF => handle_get_account_proof(&state, &request).await,
         methods::GET_BLOCK_HEIGHT => handle_get_block_height(&state, &request).await,
