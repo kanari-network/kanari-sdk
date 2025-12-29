@@ -115,7 +115,7 @@ Response (invalid):
 Publish (submit pending tx):
 
 ```bash
-curl -X POST http://localhost:3000/rpc \
+curl -X POST http://127.0.0.1:19001rpc \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"kanari_publishModule","params":{"sender":"0x1","module_bytes":[1,2,3],"module_name":"M","gas_limit":1000000,"gas_price":1,"sequence_number":0},"id":1}'
 ```
@@ -123,7 +123,7 @@ curl -X POST http://localhost:3000/rpc \
 Get module:
 
 ```bash
-curl -X POST http://localhost:3000/rpc \
+curl -X POST http://127.0.0.1:19001rpc \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"kanari_getModule","params":{"address":"0x1","name":"M"},"id":2}'
 ```
@@ -131,7 +131,7 @@ curl -X POST http://localhost:3000/rpc \
 Verify module:
 
 ```bash
-curl -X POST http://localhost:3000/rpc \
+curl -X POST http://127.0.0.1:19001rpc \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"kanari_verifyModule","params":{"module_bytes":[1,2,3]},"id":3}'
 ```

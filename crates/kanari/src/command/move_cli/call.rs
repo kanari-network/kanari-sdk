@@ -58,7 +58,7 @@ pub struct Call {
     pub gas_price: u64,
 
     /// RPC endpoint
-    #[clap(long = "rpc", default_value = "http://localhost:3000")]
+    #[clap(long = "rpc", default_value = "http://localhost:19001")]
     pub rpc_endpoint: String,
     // `immediate` execution option removed — always submit normally.
 }

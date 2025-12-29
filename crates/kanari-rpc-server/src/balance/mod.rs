@@ -218,3 +218,26 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
         },
     }
 }
+
+/// Handle list tokens request
+pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    // No params expected; ignore request.params
+    let tokens = state.engine.list_tokens();
+
+    // Map into serializable objects { token_type, total_supply, symbol }
+    let vals: Vec<serde_json::Value> = tokens
+        .into_iter()
+        .map(|(token_type, supply)| {
+            let mut symbol = token_type.split("::").last().unwrap_or(&token_type).to_string();
+            // strip generics if present
+            symbol = symbol.trim_start_matches('<').trim_end_matches('>').to_string();
+            serde_json::json!({
+                "token_type": token_type,
+                "total_supply": supply,
+                "symbol": symbol,
+            })
+        })
+        .collect();
+
+    respond_with_serialize(request.id, vals)
+}

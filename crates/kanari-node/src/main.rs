@@ -190,7 +190,7 @@ async fn main() -> Result<()> {
     tracing::info!("kanari_sequencer::actor::sequencer: Load latest sequencer order 0");
 
     // Start RPC server in background with cloned Arc
-    let rpc_addr = "127.0.0.1:3000";
+    let rpc_addr = "127.0.0.1:19001";
     tracing::info!("Starting RPC server on http://{}", rpc_addr);
 
     let engine_for_rpc = engine.clone();

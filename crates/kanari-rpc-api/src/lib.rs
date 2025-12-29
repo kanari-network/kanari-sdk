@@ -336,6 +336,7 @@ pub mod methods {
     pub const GET_BALANCE: &str = "kanari_getBalance";
     pub const GET_TOKEN_BALANCE: &str = "kanari_getTokenBalance";
     pub const GET_ALL_BALANCES: &str = "kanari_getAllBalances";
+    pub const LIST_TOKENS: &str = "kanari_listTokens";
 
     // Blocks & Transactions
     pub const GET_BLOCK: &str = "kanari_getBlock";

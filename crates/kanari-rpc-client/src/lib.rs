@@ -170,7 +170,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_client_creation() {
-        let client = RpcClient::new("http://localhost:3000");
-        assert_eq!(client.url, "http://localhost:3000");
+        let client = RpcClient::new("http://localhost:19001");
+        assert_eq!(client.url, "http://localhost:19001");
     }
 }

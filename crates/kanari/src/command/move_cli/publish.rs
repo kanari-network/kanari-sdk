@@ -37,7 +37,7 @@ pub struct Publish {
     pub password: Option<String>,
 
     /// RPC endpoint
-    #[clap(long = "rpc", default_value = "http://127.0.0.1:3000")]
+    #[clap(long = "rpc", default_value = "http://127.0.0.1:19001")]
     pub rpc_endpoint: String,
     // `immediate` execution option removed — always submit normally.
 }

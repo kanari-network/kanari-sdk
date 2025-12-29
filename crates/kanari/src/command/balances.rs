@@ -15,7 +15,7 @@ pub struct Balances {
     pub address: String,
 
     /// RPC endpoint URL
-    #[clap(long = "rpc", default_value = "http://localhost:3000")]
+    #[clap(long = "rpc", default_value = "http://localhost:19001")]
     pub rpc_endpoint: String,
 
     /// Show detailed information

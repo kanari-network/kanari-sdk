@@ -731,6 +731,76 @@ impl BlockchainEngine {
         }
     }
 
+    /// Return list of registered token types and their total supplies
+    pub fn list_tokens(&self) -> Vec<(String, u64)> {
+        use std::collections::HashSet;
+
+        let state = self.state.read().unwrap();
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut out: Vec<(String, u64)> = Vec::new();
+
+        // Include native KANARI token (total supply tracked in state)
+        seen.insert("KANARI".to_string());
+        out.push(("KANARI".to_string(), state.total_supply));
+
+        // Include registered treasuries (known supplies)
+        for (k, v) in state.token_supplies.iter() {
+            if seen.insert(k.clone()) {
+                out.push((k.clone(), v.total_supply()));
+            }
+        }
+
+        // Best-effort: scan stored objects for coin/treasury/metadata types
+        for (_id, obj) in state.objects.iter() {
+            let t = &obj.type_;
+            // Look for generics like ::coin::Coin<...> or ::coin::TreasuryCap<...>
+            if t.contains("::coin::") && t.contains('<') && t.contains('>') {
+                if let Some(start) = t.find('<') {
+                    if let Some(end) = t.rfind('>') {
+                        if end > start + 1 {
+                            let inner = t[start + 1..end].trim().to_string();
+                            if !inner.is_empty() && seen.insert(inner.clone()) {
+                                // supply if known, else attempt to compute by summing coin objects
+                                let mut supply = state
+                                    .token_supplies
+                                    .get(&inner)
+                                    .map(|cap| cap.total_supply())
+                                    .unwrap_or(0u64);
+
+                                if supply == 0 {
+                                    // Sum all Coin<inner> object values in state.objects
+                                    let mut sum_u128: u128 = 0;
+                                    for (_oid, o2) in state.objects.iter() {
+                                        if o2.type_.contains("::coin::Coin<") && o2.type_.contains(&inner) {
+                                            if o2.data.len() >= 8 {
+                                                let n = o2.data.len();
+                                                let mut bytes = [0u8; 8];
+                                                for i in 0..8 {
+                                                    bytes[i] = o2.data[n - 8 + i];
+                                                }
+                                                let v = u64::from_le_bytes(bytes) as u128;
+                                                sum_u128 = sum_u128.saturating_add(v);
+                                            }
+                                        }
+                                    }
+                                    if sum_u128 > u128::from(u64::MAX) {
+                                        supply = u64::MAX;
+                                    } else {
+                                        supply = sum_u128 as u64;
+                                    }
+                                }
+
+                                out.push((inner, supply));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        out
+    }
+
     /// Produce an SMT proof for the given account key (hex or address string).
     /// Returns Ok(None) if no persistent SMT is configured or the key wasn't found.
     pub fn get_account_proof(&self, key: &str) -> Result<Option<(bool, Vec<u8>, Vec<Vec<u8>>)>> {

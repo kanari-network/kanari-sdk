@@ -224,7 +224,7 @@ fn main() -> Result<()> {
             rpc,
         } => {
             runtime.block_on(async {
-                let rpc_url = rpc.unwrap_or_else(|| "http://127.0.0.1:3000".to_string());
+                let rpc_url = rpc.unwrap_or_else(|| "http://127.0.0.1:19001".to_string());
 
                 let status = kanari_faucet::request_from_dev(
                     dev_address.as_deref(),
@@ -433,13 +433,13 @@ fn main() -> Result<()> {
                 println!("  Amount (Mist): {}", amount_mist);
 
                 // Connect to RPC server instead of creating engine
-                let client = RpcClient::new("http://127.0.0.1:3000");
+                let client = RpcClient::new("http://127.0.0.1:19001");
 
                 // Get current block height to verify connection
                 match client.get_block_height().await {
                     Ok(height) => println!("  Connected to node (height: {})", height),
                     Err(_) => {
-                        eprintln!("  Cannot connect to RPC server at http://127.0.0.1:3000");
+                        eprintln!("  Cannot connect to RPC server at http://127.0.0.1:19001");
                         eprintln!("  Please start the node first: cargo run --bin kanari-node");
                         return Err(anyhow::anyhow!("RPC server not available"));
                     }
@@ -533,12 +533,12 @@ fn main() -> Result<()> {
                 println!("  Amount (Mist): {}", amount_mist);
 
                 // Connect to RPC server
-                let client = RpcClient::new("http://127.0.0.1:3000");
+                let client = RpcClient::new("http://127.0.0.1:19001");
 
                 match client.get_block_height().await {
                     Ok(height) => println!("  Connected to node (height: {})", height),
                     Err(_) => {
-                        eprintln!("  Cannot connect to RPC server at http://127.0.0.1:3000");
+                        eprintln!("  Cannot connect to RPC server at http://127.0.0.1:19001");
                         eprintln!("  Please start the node first: cargo run --bin kanari-node");
                         return Err(anyhow::anyhow!("RPC server not available"));
                     }
@@ -602,7 +602,7 @@ fn main() -> Result<()> {
 
         Commands::Balance { address } => {
             runtime.block_on(async {
-                let client = RpcClient::new("http://127.0.0.1:3000");
+                let client = RpcClient::new("http://127.0.0.1:19001");
 
                 match client.get_account(&address).await {
                     Ok(account) => {
@@ -637,7 +637,7 @@ fn main() -> Result<()> {
 
         Commands::Stats => {
             runtime.block_on(async {
-                let client = RpcClient::new("http://127.0.0.1:3000");
+                let client = RpcClient::new("http://127.0.0.1:19001");
 
                 match client.get_stats().await {
                     Ok(stats) => {
@@ -655,7 +655,7 @@ fn main() -> Result<()> {
                         println!("─────────────────────────────────");
                     }
                     Err(_) => {
-                        eprintln!("  Cannot connect to RPC server at http://127.0.0.1:3000");
+                        eprintln!("  Cannot connect to RPC server at http://127.0.0.1:19001");
                         eprintln!("  Please start the node first: cargo run --bin kanari-node");
                         return Err(anyhow::anyhow!("RPC server not available"));
                     }
