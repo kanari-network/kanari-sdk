@@ -266,18 +266,6 @@ pub struct ModuleInfo {
     pub dependencies: Vec<String>,
 }
 
-/// Module upgrade request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpgradeModuleRequest {
-    pub sender: String,
-    pub module_bytes: Vec<u8>,
-    pub module_name: String,
-    pub gas_limit: u64,
-    pub gas_price: u64,
-    pub sequence_number: u64,
-    pub signature: Option<Vec<u8>>,
-}
-
 /// Health check response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthStatus {
@@ -355,7 +343,6 @@ pub mod methods {
 
     // Module operations
     pub const PUBLISH_MODULE: &str = "kanari_publishModule";
-    pub const UPGRADE_MODULE: &str = "kanari_upgradeModule";
     pub const GET_MODULE: &str = "kanari_getModule";
     pub const LIST_MODULES: &str = "kanari_listModules";
     pub const VERIFY_MODULE: &str = "kanari_verifyModule";

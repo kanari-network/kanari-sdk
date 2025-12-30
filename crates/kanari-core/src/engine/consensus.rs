@@ -36,7 +36,8 @@ pub(super) fn produce_block(engine: &super::BlockchainEngine) -> Result<BlockInf
 
     if tx_count > 1 {
         let workers = std::cmp::min(num_cpus::get().max(1), tx_count);
-        let (job_tx, job_rx) = cbchan::unbounded::<(usize, Transaction)>();
+        let (job_tx, job_rx) =
+            cbchan::unbounded::<(usize, Transaction, Arc<RwLock<StateManager>>)>();
         let (res_tx, res_rx) = cbchan::unbounded::<(usize, Result<ChangeSet>)>();
         let mut handles = Vec::new();
 
@@ -45,10 +46,9 @@ pub(super) fn produce_block(engine: &super::BlockchainEngine) -> Result<BlockInf
                 let job_rx = job_rx.clone();
                 let res_tx = res_tx.clone();
                 let pool_entry = pool[i % pool.len()].clone();
-                let state_arc = engine.state.clone();
 
                 let handle = std::thread::spawn(move || {
-                    while let Ok((idx, tx)) = job_rx.recv() {
+                    while let Ok((idx, tx, state_arc)) = job_rx.recv() {
                         let mut guard = pool_entry.lock().unwrap();
                         let res = BlockchainEngine::execute_transaction_with_runtime(
                             &tx,
@@ -67,9 +67,8 @@ pub(super) fn produce_block(engine: &super::BlockchainEngine) -> Result<BlockInf
                     Ok(mut runtime) => {
                         let job_rx = job_rx.clone();
                         let res_tx = res_tx.clone();
-                        let state_arc = engine.state.clone();
                         let handle = std::thread::spawn(move || {
-                            while let Ok((idx, tx)) = job_rx.recv() {
+                            while let Ok((idx, tx, state_arc)) = job_rx.recv() {
                                 let res = BlockchainEngine::execute_transaction_with_runtime(
                                     &tx,
                                     &mut runtime,
@@ -126,7 +125,10 @@ pub(super) fn produce_block(engine: &super::BlockchainEngine) -> Result<BlockInf
 
             for (sender, queue) in per_sender.iter_mut() {
                 if let Some((idx, tx)) = queue.pop_front() {
-                    job_tx.send((idx, tx)).unwrap();
+                    // create a snapshot of state for this job (no prior per-sender txs executed yet)
+                    let state_snapshot = engine.state.read().unwrap().clone();
+                    let state_arc = Arc::new(RwLock::new(state_snapshot));
+                    job_tx.send((idx, tx, state_arc)).unwrap();
                     idx_to_sender.insert(idx, sender.clone());
                 }
             }
@@ -148,7 +150,15 @@ pub(super) fn produce_block(engine: &super::BlockchainEngine) -> Result<BlockInf
                     if let Some(sender) = idx_to_sender.remove(&idx) {
                         if let Some(queue) = per_sender.get_mut(&sender) {
                             if let Some((next_idx, next_tx)) = queue.pop_front() {
-                                job_tx.send((next_idx, next_tx)).unwrap();
+                                // Create a state snapshot and increment sequence for this sender
+                                // to reflect that the previous tx for this sender has been executed
+                                let mut snapshot = engine.state.read().unwrap().clone();
+                                if let Ok(addr) = AccountAddress::from_hex_literal(&sender) {
+                                    let acct = snapshot.get_or_create_account(addr);
+                                    acct.increment_sequence();
+                                }
+                                let state_arc = Arc::new(RwLock::new(snapshot));
+                                job_tx.send((next_idx, next_tx, state_arc)).unwrap();
                                 idx_to_sender.insert(next_idx, sender.clone());
                             }
                         }

@@ -266,7 +266,24 @@ impl BlockchainEngine {
         // transaction is later submitted for inclusion in a block.
         let changeset = {
             // Clone the current state for a safe simulation
-            let state_snapshot = { self.state.read().unwrap().clone() };
+            let mut state_snapshot = { self.state.read().unwrap().clone() };
+
+            // Adjust the cloned snapshot to account for any pending transactions
+            // from the same sender so that sequence validation during the
+            // simulated execution reflects the expected sequence number once
+            // pending transactions are included. This prevents immediate
+            // execution from rejecting a transaction whose sequence has been
+            // advanced by earlier pending submissions.
+            if let Ok(pending) = self.pending_txs.read() {
+                for ptx in pending.iter() {
+                    if ptx.sender_address() == tx.sender_address() {
+                        if let Ok(addr) = AccountAddress::from_hex_literal(ptx.sender_address()) {
+                            let acct = state_snapshot.get_or_create_account(addr);
+                            acct.increment_sequence();
+                        }
+                    }
+                }
+            }
             let state_arc = Arc::new(RwLock::new(state_snapshot));
 
             // Use the engine's runtime to execute against the cloned state.
@@ -771,7 +788,9 @@ impl BlockchainEngine {
                                     // Sum all Coin<inner> object values in state.objects
                                     let mut sum_u128: u128 = 0;
                                     for (_oid, o2) in state.objects.iter() {
-                                        if o2.type_.contains("::coin::Coin<") && o2.type_.contains(&inner) {
+                                        if o2.type_.contains("::coin::Coin<")
+                                            && o2.type_.contains(&inner)
+                                        {
                                             if o2.data.len() >= 8 {
                                                 let n = o2.data.len();
                                                 let mut bytes = [0u8; 8];

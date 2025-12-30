@@ -26,7 +26,7 @@ use crate::{
     module::{handle_get_module, handle_get_object, handle_list_modules, handle_verify_module},
     transaction::{
         handle_call_function, handle_get_transaction, handle_publish_module,
-        handle_submit_transaction, handle_upgrade_module,
+        handle_submit_transaction,
     },
 };
 
@@ -119,7 +119,6 @@ async fn handle_rpc(
 
         // Module operations
         methods::PUBLISH_MODULE => handle_publish_module(&state, &request).await,
-        methods::UPGRADE_MODULE => handle_upgrade_module(&state, &request).await,
         methods::GET_MODULE => handle_get_module(&state, &request).await,
         methods::LIST_MODULES => handle_list_modules(&state, &request).await,
         methods::VERIFY_MODULE => handle_verify_module(&state, &request).await,

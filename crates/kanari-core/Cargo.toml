@@ -25,3 +25,4 @@ dirs = { workspace = true }
 crossbeam-channel = "0.5.15"
 num_cpus = "1.17.0"
 smt = { workspace = true }
+tracing = { workspace = true }

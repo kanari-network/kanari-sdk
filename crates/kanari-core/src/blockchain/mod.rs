@@ -8,6 +8,7 @@ use kanari_crypto::keys::CurveType;
 use kanari_move_runtime::changeset::Event;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::error;
 
 /// Signed transaction wrapper
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,7 +47,13 @@ impl SignedTransaction {
     }
 
     pub fn hash(&self) -> Vec<u8> {
-        let serialized = bcs::to_bytes(self).unwrap();
+        let serialized = match bcs::to_bytes(self) {
+            Ok(b) => b,
+            Err(e) => {
+                error!("Failed to serialize SignedTransaction for hashing: {}", e);
+                Vec::new()
+            }
+        };
         hash_data_blake3(&serialized)
     }
 }
@@ -65,8 +72,8 @@ impl BlockHeader {
     pub fn new(height: u64, prev_hash: Vec<u8>, state_root: Vec<u8>, tx_count: usize) -> Self {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
 
         Self {
             height,
@@ -78,7 +85,13 @@ impl BlockHeader {
     }
 
     pub fn hash(&self) -> Vec<u8> {
-        let serialized = bcs::to_bytes(self).unwrap();
+        let serialized = match bcs::to_bytes(self) {
+            Ok(b) => b,
+            Err(e) => {
+                error!("Failed to serialize BlockHeader for hashing: {}", e);
+                Vec::new()
+            }
+        };
         hash_data_blake3(&serialized)
     }
 }
@@ -127,7 +140,13 @@ pub enum Transaction {
 
 impl Transaction {
     pub fn hash(&self) -> Vec<u8> {
-        let serialized = bcs::to_bytes(self).unwrap();
+        let serialized = match bcs::to_bytes(self) {
+            Ok(b) => b,
+            Err(e) => {
+                error!("Failed to serialize Transaction for hashing: {}", e);
+                Vec::new()
+            }
+        };
         hash_data_blake3(&serialized)
     }
 
@@ -272,7 +291,9 @@ impl Blockchain {
     }
 
     pub fn latest_block(&self) -> &Block {
-        self.blocks.last().unwrap()
+        self.blocks
+            .last()
+            .expect("blockchain must contain at least the genesis block")
     }
 
     pub fn height(&self) -> u64 {

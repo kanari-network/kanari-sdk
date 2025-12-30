@@ -228,9 +228,16 @@ pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) ->
     let vals: Vec<serde_json::Value> = tokens
         .into_iter()
         .map(|(token_type, supply)| {
-            let mut symbol = token_type.split("::").last().unwrap_or(&token_type).to_string();
+            let mut symbol = token_type
+                .split("::")
+                .last()
+                .unwrap_or(&token_type)
+                .to_string();
             // strip generics if present
-            symbol = symbol.trim_start_matches('<').trim_end_matches('>').to_string();
+            symbol = symbol
+                .trim_start_matches('<')
+                .trim_end_matches('>')
+                .to_string();
             serde_json::json!({
                 "token_type": token_type,
                 "total_supply": supply,

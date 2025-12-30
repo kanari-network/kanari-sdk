@@ -2,9 +2,7 @@ use crate::respond_with_serialize;
 
 use super::{RpcError, RpcRequest, RpcResponse, RpcServerState};
 use kanari_core::{SignedTransaction, Transaction};
-use kanari_rpc_api::{
-    CallFunctionRequest, PublishModuleRequest, SignedTransactionData, UpgradeModuleRequest,
-};
+use kanari_rpc_api::{CallFunctionRequest, PublishModuleRequest, SignedTransactionData};
 use kanari_types::address::Address;
 use move_binary_format::CompiledModule;
 use serde_json;
@@ -255,7 +253,13 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
     let normalized = hash_param.trim_start_matches("0x").to_lowercase();
 
     // Search blockchain for the transaction
-    let chain = state.engine.blockchain.read().unwrap();
+    let chain = match state.engine.blockchain.read() {
+        Ok(g) => g,
+        Err(poison) => {
+            error!("blockchain lock poisoned; recovering");
+            poison.into_inner()
+        }
+    };
     for block in chain.blocks.iter() {
         for tx in block.transactions.iter() {
             let st = SignedTransaction::new(tx.clone());
@@ -355,7 +359,13 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
     }
 
     // Not found in committed blocks — check pending transactions pool
-    let pending = state.engine.pending_txs.read().unwrap();
+    let pending = match state.engine.pending_txs.read() {
+        Ok(g) => g,
+        Err(poison) => {
+            error!("pending_txs lock poisoned; recovering");
+            poison.into_inner()
+        }
+    };
     for tx in pending.iter() {
         let st = SignedTransaction::new(tx.clone());
         let tx_hash = hex::encode(&st.hash());
@@ -494,7 +504,13 @@ pub async fn handle_get_all_transactions(
     // Collect committed transactions from blockchain
     let mut results: Vec<kanari_rpc_api::TransactionDetails> = Vec::new();
 
-    let chain = state.engine.blockchain.read().unwrap();
+    let chain = match state.engine.blockchain.read() {
+        Ok(g) => g,
+        Err(poison) => {
+            error!("blockchain lock poisoned while listing transactions; recovering");
+            poison.into_inner()
+        }
+    };
     for block in chain.blocks.iter() {
         for tx in block.transactions.iter() {
             // If account filter provided, skip txs that don't involve the account
@@ -619,7 +635,13 @@ pub async fn handle_get_all_transactions(
     }
 
     // Append pending transactions
-    let pending = state.engine.pending_txs.read().unwrap();
+    let pending = match state.engine.pending_txs.read() {
+        Ok(g) => g,
+        Err(poison) => {
+            error!("pending_txs lock poisoned while listing transactions; recovering");
+            poison.into_inner()
+        }
+    };
     for tx in pending.iter() {
         // If account filter provided, skip txs that don't involve the account
         if let Some(ref acct) = account_norm {
@@ -864,75 +886,6 @@ pub async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest)
         }
     }
 }
-/// Handle upgrade module (same as publish but with upgrade flag)
-pub async fn handle_upgrade_module(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let module_data: UpgradeModuleRequest = match serde_json::from_value(request.params.clone()) {
-        Ok(data) => data,
-        Err(e) => {
-            error!("Failed to parse module upgrade data: {}", e);
-            return RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: None,
-                error: Some(RpcError::module_error(format!(
-                    "Invalid module data: {}",
-                    e
-                ))),
-                id: request.id,
-            };
-        }
-    };
-
-    // Validate sender
-    if let Err(e) = Address::from_hex_literal(&module_data.sender) {
-        return RpcResponse {
-            jsonrpc: "2.0".to_string(),
-            result: None,
-            error: Some(RpcError::invalid_params(format!("Invalid sender: {}", e))),
-            id: request.id,
-        };
-    }
-
-    // Create transaction (same as publish - runtime handles upgrade)
-    let transaction = Transaction::PublishModule {
-        sender: module_data.sender.clone(),
-        module_bytes: module_data.module_bytes,
-        module_name: module_data.module_name,
-        gas_limit: module_data.gas_limit,
-        gas_price: module_data.gas_price,
-        sequence_number: module_data.sequence_number,
-    };
-
-    let mut signed_tx = SignedTransaction::new(transaction);
-    if let Some(sig) = module_data.signature {
-        signed_tx.signature = Some(sig);
-    }
-
-    match state.engine.submit_transaction(signed_tx) {
-        Ok(tx_hash) => {
-            let tx_hash_hex = hex::encode(&tx_hash);
-            info!("Module upgraded successfully: {}", tx_hash_hex);
-            RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: Some(serde_json::json!({
-                    "hash": tx_hash_hex,
-                    "status": "pending",
-                    "action": "upgrade"
-                })),
-                error: None,
-                id: request.id,
-            }
-        }
-        Err(e) => {
-            error!("Module upgrade failed: {}", e);
-            RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: None,
-                error: Some(RpcError::module_error(e.to_string())),
-                id: request.id,
-            }
-        }
-    }
-}
 
 /// Handle call function request
 pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
@@ -1016,7 +969,15 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                 // like `StructInstantiation((CachedStructIndex...)` with a nicer stored
                 // type string when possible (look up persisted object info in state).
                 {
-                    let state_guard = state.engine.state.read().unwrap();
+                    let state_guard = match state.engine.state.read() {
+                        Ok(g) => g,
+                        Err(poison) => {
+                            error!(
+                                "state lock poisoned while normalizing created object types; recovering"
+                            );
+                            poison.into_inner()
+                        }
+                    };
                     if let Some(map) = cs_value.as_object_mut() {
                         if let Some(created_val) = map.get_mut("created_objects") {
                             if let Some(arr) = created_val.as_array_mut() {
@@ -1079,7 +1040,13 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                                 kanari_types::address::Address::from_hex_literal(&call_req.sender)
                             {
                                 if let Ok(a) = move_core_types::account_address::AccountAddress::from_hex_literal(&addr.to_string()) {
-                                    let state_guard = state.engine.state.read().unwrap();
+                                    let state_guard = match state.engine.state.read() {
+                                        Ok(g) => g,
+                                        Err(poison) => {
+                                            error!("state lock poisoned while fetching owned objects; recovering");
+                                            poison.into_inner()
+                                        }
+                                    };
                                     if let Some(ids) = state_guard.owned_objects.get(&a) {
                                         // Build array of created objects from state.objects
                                         let mut objs = Vec::new();
