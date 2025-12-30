@@ -33,6 +33,12 @@ export async function getTokenBalance(address: string, token_type: string) {
 
 export async function getAllBalances(address: string) {
   const resp = await callRpc("kanari_getAllBalances", { address });
+  // server returns { address, balances: [...] }
+  return resp?.result?.balances ?? resp?.result ?? resp;
+}
+
+export async function getAccount(address: string) {
+  const resp = await callRpc("kanari_getAccount", address);
   return resp?.result ?? resp;
 }
 

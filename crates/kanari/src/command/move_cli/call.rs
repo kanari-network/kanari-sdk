@@ -260,9 +260,65 @@ impl Call {
                                 eprintln!("Transaction failed: {}", error_msg);
                             }
                         } else {
-                            match serde_json::to_string_pretty(&result) {
+                            // Post-process result: if it contains a changeset with created_objects,
+                            // try to populate a uid field when it's null by deriving from the
+                            // canonical id (many canonical ids are just the UID address hex).
+                            let mut pretty_print = result.clone();
+                            if let serde_json::Value::Object(ref mut root_map) = pretty_print {
+                                if let Some(changeset_val) = root_map.get_mut("changeset") {
+                                    if let serde_json::Value::Object(cs_map) = changeset_val {
+                                        if let Some(created_val) = cs_map.get_mut("created_objects")
+                                        {
+                                            if let serde_json::Value::Array(arr) = created_val {
+                                                for entry in arr.iter_mut() {
+                                                    // Expect entry to be [id, obj]
+                                                    if let serde_json::Value::Array(pair) = entry {
+                                                        if pair.len() == 2 {
+                                                            // Clone the id value so we can take a mutable
+                                                            // reference to the object element without
+                                                            // violating the borrow checker.
+                                                            let id_clone = pair[0].clone();
+                                                            let obj_val = &mut pair[1];
+                                                            if let serde_json::Value::Object(
+                                                                obj_map,
+                                                            ) = obj_val
+                                                            {
+                                                                let need_uid =
+                                                                    match obj_map.get("uid") {
+                                                                        Some(
+                                                                            serde_json::Value::Null,
+                                                                        )
+                                                                        | None => true,
+                                                                        _ => false,
+                                                                    };
+                                                                if need_uid {
+                                                                    if let Some(id_s) =
+                                                                        id_clone.as_str()
+                                                                    {
+                                                                        // If id looks like a hex account (0x...), use it
+                                                                        if id_s.starts_with("0x")
+                                                                            && id_s.len() >= 4
+                                                                        {
+                                                                            obj_map.insert(
+                                                                                "uid".to_string(),
+                                                                                serde_json::json!({ "Object ID": id_s }),
+                                                                            );
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            match serde_json::to_string_pretty(&pretty_print) {
                                 Ok(s) => println!("RPC result:\n{}", s),
-                                Err(_) => println!("RPC result: {}", result),
+                                Err(_) => println!("RPC result: {}", pretty_print),
                             }
                         }
                     } else {

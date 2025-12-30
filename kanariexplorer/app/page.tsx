@@ -100,6 +100,7 @@ export default function Home() {
             <nav className="hidden md:flex space-x-4">
               <Link href="/" className="text-zinc-300 hover:text-white">Home</Link>
               <Link href="/coins" className="text-zinc-300 hover:text-white">Coins</Link>
+              <Link href="/account" className="text-zinc-300 hover:text-white">Accounts</Link>
             </nav>
           </div>
           <div className="text-sm text-zinc-300">Testnet</div>
