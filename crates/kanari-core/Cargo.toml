@@ -20,7 +20,7 @@ kanari-types = { workspace = true }
 kanari-crypto = { workspace = true }
 anyhow = { workspace = true }
 bcs = { workspace = true }
-crossbeam-channel = "0.5.15"
-num_cpus = "1.17.0"
+crossbeam-channel = { workspace = true }
+num_cpus = { workspace = true }
 smt = { workspace = true }
 tracing = { workspace = true }
