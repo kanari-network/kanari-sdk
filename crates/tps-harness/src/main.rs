@@ -12,7 +12,7 @@ fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let n: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(1000);
 
-    println!("TPS harness: creating engine and preparing {} txs", n);
+    eprintln!("TPS harness: creating engine and preparing {} txs", n);
     let engine = BlockchainEngine::new()?;
 
     // Pre-fund accounts
@@ -38,17 +38,17 @@ fn main() -> Result<()> {
         }
     }
 
-    println!("Starting produce_block() for {} txs...", n);
+    eprintln!("Starting produce_block() for {} txs...", n);
     let start = Instant::now();
     let info = engine.produce_block()?;
     let dur = start.elapsed();
     let tps = (info.tx_count as f64) / dur.as_secs_f64();
 
-    println!(
+    eprintln!(
         "Done: executed={} failed={} tx_count={}",
         info.executed, info.failed, info.tx_count
     );
-    println!("Duration: {:.3}s — TPS: {:.2}", dur.as_secs_f64(), tps);
+    eprintln!("Duration: {:.3}s — TPS: {:.2}", dur.as_secs_f64(), tps);
 
     Ok(())
 }

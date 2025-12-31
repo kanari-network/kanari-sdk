@@ -9,6 +9,7 @@ use anyhow::{Context, Result, bail};
 use clap::*;
 use kanari_core::Transaction;
 use kanari_move_runtime::gas::{GasEstimate, GasOperation};
+use log::error;
 use move_package::BuildConfig;
 use std::path::PathBuf;
 
@@ -50,15 +51,15 @@ impl Publish {
         let sender_normalized = normalize_addr(&self.sender)
             .with_context(|| format!("Invalid sender address: {}", self.sender))?;
 
-        tracing::info!("Building Move package...");
+        eprintln!("Building Move package...");
 
         // Build the package
         let compiled_package = config.compile_package(&rerooted_path, &mut std::io::stderr())?;
 
         // Get compiled modules (collect once to avoid double iteration)
         let modules: Vec<_> = compiled_package.all_modules().collect();
-        tracing::info!("Package compiled successfully!");
-        tracing::info!("   Modules: {}", modules.len());
+        eprintln!("Package compiled successfully!");
+        eprintln!("   Modules: {}", modules.len());
 
         // Build a blocking HTTP client with a timeout to avoid hanging RPC calls
         let client = build_blocking_client(30)?;
@@ -90,7 +91,7 @@ impl Publish {
             total_estimated_gas = total_estimated_gas.saturating_add(est.gas_units);
         }
         if modules_to_publish.len() > 1 {
-            tracing::info!(
+            eprintln!(
                 "Total estimated gas for all modules: {}",
                 total_estimated_gas
             );
@@ -103,17 +104,16 @@ impl Publish {
         // Load wallet (signing is required). If password not provided via CLI, prompt.
         let wallet = {
             let w = load_wallet_for(&sender_normalized, self.password.clone())?;
-            tracing::info!(
+            eprintln!(
                 "   Wallet loaded: {} (curve: {})",
-                sender_normalized,
-                w.curve_type
+                sender_normalized, w.curve_type
             );
             w
         };
 
-        tracing::info!("Publishing modules to blockchain...");
-        tracing::info!("   RPC: {}", self.rpc_endpoint);
-        tracing::info!("   Sender: {}", sender_normalized);
+        eprintln!("Publishing modules to blockchain...");
+        eprintln!("   RPC: {}", self.rpc_endpoint);
+        eprintln!("   Sender: {}", sender_normalized);
 
         let mut published_count = 0;
         let mut skipped_count = 0;
@@ -152,22 +152,21 @@ impl Publish {
                 bytes
             };
 
-            tracing::info!("   Module: {}", module_name);
-            tracing::info!("     Size: {} bytes", module_bytecode.len());
-            tracing::info!("     Address: {}", module.self_id().address());
-            tracing::info!("     Functions: {}", module.function_defs.len());
+            eprintln!("   Module: {}", module_name);
+            eprintln!("     Size: {} bytes", module_bytecode.len());
+            eprintln!("     Address: {}", module.self_id().address());
+            eprintln!("     Functions: {}", module.function_defs.len());
 
             // Estimate gas using runtime GasOperation::PublishModule and GasEstimate
             let operation = GasOperation::PublishModule {
                 module_size: module_bytecode.len(),
             };
             let estimate = GasEstimate::from_operation(operation, self.gas_price);
-            tracing::info!("   Estimated: {} units", estimate.gas_units);
-            tracing::info!("   Limit: {} units", self.gas_limit);
-            tracing::info!(
+            eprintln!("   Estimated: {} units", estimate.gas_units);
+            eprintln!("   Limit: {} units", self.gas_limit);
+            eprintln!(
                 "   Total Cost: {} Mist ({:.9} KANARI)",
-                estimate.total_cost_mist,
-                estimate.total_cost_kanari
+                estimate.total_cost_mist, estimate.total_cost_kanari
             );
 
             // Create PublishModuleRequest and submit to RPC endpoint
@@ -213,12 +212,12 @@ impl Publish {
                 id: 1,
             };
 
-            tracing::info!("     Sending publish RPC to {}...", self.rpc_endpoint);
+            eprintln!("     Sending publish RPC to {}...", self.rpc_endpoint);
             match client.post(&self.rpc_endpoint).json(&rpc_request).send() {
                 Ok(resp) => match resp.json::<RpcResponse>() {
                     Ok(rpc_resp) => {
                         if let Some(err) = rpc_resp.error {
-                            tracing::error!("     RPC error: {} (code {})", err.message, err.code);
+                            error!("     RPC error: {} (code {})", err.message, err.code);
                         } else {
                             // No RPC error -> consider request accepted by node
                             if let Some(result) = rpc_resp.result {
@@ -228,23 +227,23 @@ impl Publish {
                                         result.clone(),
                                     )
                                 {
-                                    tracing::info!("     Transaction: {}", tx_result.hash);
-                                    tracing::info!("     Status: {}", tx_result.status);
-                                    tracing::info!("     Gas used: {} Mist", tx_result.gas_used);
+                                    eprintln!("     Transaction: {}", tx_result.hash);
+                                    eprintln!("     Status: {}", tx_result.status);
+                                    eprintln!("     Gas used: {} Mist", tx_result.gas_used);
 
                                     // Show error message if transaction failed
                                     if let Some(ref error_msg) = tx_result.error_message {
-                                        tracing::error!("     Transaction failed: {}", error_msg);
+                                        error!("     Transaction failed: {}", error_msg);
                                     }
                                 } else {
                                     // Fallback to pretty-print JSON
                                     match serde_json::to_string_pretty(&result) {
-                                        Ok(s) => tracing::info!("     RPC result:\n{}", s),
-                                        Err(_) => tracing::info!("     RPC result: {}", result),
+                                        Ok(s) => eprintln!("     RPC result:\n{}", s),
+                                        Err(_) => eprintln!("     RPC result: {}", result),
                                     }
                                 }
                             } else {
-                                tracing::info!("     RPC response has no result and no error");
+                                eprintln!("     RPC response has no result and no error");
                             }
 
                             // RPC accepted request: advance sequence and published count
@@ -252,21 +251,21 @@ impl Publish {
                             next_seq = next_seq.wrapping_add(1);
                         }
                     }
-                    Err(e) => tracing::error!("     Failed to parse RPC response: {}", e),
+                    Err(e) => error!("     Failed to parse RPC response: {}", e),
                 },
-                Err(e) => tracing::error!("     Failed to send RPC request: {}", e),
+                Err(e) => error!("     Failed to send RPC request: {}", e),
             }
         }
 
         if published_count == 0 {
-            tracing::error!(
+            error!(
                 "⚠️  Warning: No modules were published. All modules were skipped (likely dependencies)."
             );
         }
 
-        tracing::info!("Package build and validation complete!");
-        tracing::info!("   Published: {} modules", published_count);
-        tracing::info!("   Skipped: {} dependency modules", skipped_count);
+        eprintln!("Package build and validation complete!");
+        eprintln!("   Published: {} modules", published_count);
+        eprintln!("   Skipped: {} dependency modules", skipped_count);
 
         Ok(())
     }

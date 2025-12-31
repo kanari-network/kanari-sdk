@@ -59,7 +59,7 @@ impl Verify {
             id: 1,
         };
 
-        tracing::info!("Sending verify request to {}...", self.rpc_endpoint);
+        eprintln!("Sending verify request to {}...", self.rpc_endpoint);
         let resp = client
             .post(&self.rpc_endpoint)
             .json(&req)
@@ -72,9 +72,9 @@ impl Verify {
         }
 
         if let Some(result) = rpc_resp.result {
-            tracing::info!("Verify result: {}", result);
+            eprintln!("Verify result: {}", result);
         } else {
-            tracing::info!("No result returned from verifier");
+            eprintln!("No result returned from verifier");
         }
 
         Ok(())

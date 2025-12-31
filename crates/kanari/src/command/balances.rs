@@ -25,9 +25,9 @@ pub struct Balances {
 
 impl Balances {
     pub fn execute(&self) -> Result<()> {
-        tracing::info!("Querying token balances...");
-        tracing::info!("   Address: {}", self.address);
-        tracing::info!("   RPC: {}\n", self.rpc_endpoint);
+        eprintln!("Querying token balances...");
+        eprintln!("   Address: {}", self.address);
+        eprintln!("   RPC: {}\n", self.rpc_endpoint);
 
         let client = Client::new();
         let request = serde_json::json!({
@@ -48,7 +48,7 @@ impl Balances {
         let rpc_response: Value = response.json().context("Failed to parse RPC response")?;
 
         if let Some(error) = rpc_response.get("error") {
-            tracing::info!(
+            eprintln!(
                 "Error: {}",
                 error.get("message").unwrap_or(&serde_json::Value::Null)
             );
@@ -57,8 +57,8 @@ impl Balances {
 
         if let Some(result) = rpc_response.get("result") {
             if let Some(balances) = result.get("balances").and_then(|b| b.as_array()) {
-                tracing::info!("TOKEN BALANCES");
-                tracing::info!("------------------------------");
+                eprintln!("TOKEN BALANCES");
+                eprintln!("------------------------------");
 
                 for balance in balances {
                     let token_type = balance
@@ -84,22 +84,22 @@ impl Balances {
                     let fraction = amount % divisor;
 
                     if self.detailed {
-                        tracing::info!("Token: {}", symbol);
-                        tracing::info!(
+                        eprintln!("Token: {}", symbol);
+                        eprintln!(
                             "  Balance: {}.{:0width$} {}",
                             whole,
                             fraction,
                             symbol,
                             width = decimals as usize
                         );
-                        tracing::info!("  Type: {}", token_type);
-                        tracing::info!("  Raw Amount: {}", amount);
-                        tracing::info!("------------------------------");
+                        eprintln!("  Type: {}", token_type);
+                        eprintln!("  Raw Amount: {}", amount);
+                        eprintln!("------------------------------");
                     } else {
-                        tracing::info!("  {} {}.{:0<9}", symbol, whole, fraction);
+                        eprintln!("  {} {}.{:0<9}", symbol, whole, fraction);
                     }
                 }
-                tracing::info!("\nTotal tokens: {}", balances.len());
+                eprintln!("\nTotal tokens: {}", balances.len());
                 // If only the native KANARI balance is present, attempt a best-effort
                 // fallback: inspect account `owned_objects` for token metadata (e.g., TreasuryCap/CoinMetadata)
                 if balances.len() == 1
@@ -123,7 +123,7 @@ impl Balances {
                         && let Some(owned) =
                             result_acc.get("owned_objects").and_then(|v| v.as_array())
                     {
-                        tracing::info!("\nDetected owned objects (possible tokens):");
+                        eprintln!("\nDetected owned objects (possible tokens):");
                         for obj in owned.iter() {
                             let id = obj.get("id").and_then(|v| v.as_str()).unwrap_or("?");
                             let ty = obj.get("type_").and_then(|v| v.as_str()).unwrap_or("?");
@@ -165,11 +165,10 @@ impl Balances {
                                         let divisor = 10u64.pow(decimals);
                                         let whole = amount / divisor;
                                         let fraction = amount % divisor;
-                                        tracing::info!(
-                                            "  {}  ({}) -> {} {}.{:0width$}",
+                                        eprintln!(
+                                            "  {}  ({}) -> TOKEN {}.{:0width$}",
                                             id,
                                             ty,
-                                            "TOKEN",
                                             whole,
                                             fraction,
                                             width = decimals as usize
@@ -180,18 +179,18 @@ impl Balances {
                             }
 
                             // Fallback: just print id and type
-                            tracing::info!("  {}  ({})", id, ty);
+                            eprintln!("  {}  ({})", id, ty);
                         }
-                        tracing::info!(
+                        eprintln!(
                             "\nTip: use `kanari account get --address <addr>` to inspect object data and determine token types."
                         );
                     }
                 }
             } else {
-                tracing::info!("No balances found");
+                eprintln!("No balances found");
             }
         } else {
-            tracing::info!("Invalid response format");
+            eprintln!("Invalid response format");
         }
 
         Ok(())

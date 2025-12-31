@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use clap::*;
 use kanari_core::Transaction;
 use kanari_move_runtime::gas::{GasEstimate, GasOperation};
+use log::error;
 use move_core_types::{account_address::AccountAddress, language_storage::TypeTag, parser};
 
 /// Call a Move function on the blockchain
@@ -65,7 +66,7 @@ pub struct Call {
 
 impl Call {
     pub fn execute(self) -> Result<()> {
-        tracing::info!("Preparing function call...");
+        eprintln!("Preparing function call...");
 
         // Normalize and validate addresses
 
@@ -84,20 +85,19 @@ impl Call {
         let package_normalized = normalize_addr(package_str)
             .with_context(|| format!("Invalid package address: {}", package_str))?;
 
-        tracing::info!("Call Details:");
-        tracing::info!("   Package: {}::{}", package_normalized, module_name);
-        tracing::info!("   Function: {}", self.function);
-        tracing::info!("   Sender: {}", sender_normalized);
-        tracing::info!("   Gas Limit: {}", self.gas_limit);
-        tracing::info!("   Gas Price: {}", self.gas_price);
+        eprintln!("Call Details:");
+        eprintln!("   Package: {}::{}", package_normalized, module_name);
+        eprintln!("   Function: {}", self.function);
+        eprintln!("   Sender: {}", sender_normalized);
+        eprintln!("   Gas Limit: {}", self.gas_limit);
+        eprintln!("   Gas Price: {}", self.gas_price);
 
         // Load wallet (signing is required). If password not provided via CLI, prompt.
         let wallet = {
             let w = load_wallet_for(&sender_normalized, self.password.clone())?;
-            tracing::info!(
+            eprintln!(
                 "   Wallet loaded: {} (curve: {})",
-                sender_normalized,
-                w.curve_type
+                sender_normalized, w.curve_type
             );
             w
         };
@@ -112,7 +112,7 @@ impl Call {
                     .with_context(|| format!("Invalid type argument: {}", type_arg))?;
                 validated.push(type_arg.clone());
             }
-            tracing::info!("   Type Args: {}", self.type_args.join(", "));
+            eprintln!("   Type Args: {}", self.type_args.join(", "));
             validated
         } else {
             vec![]
@@ -159,7 +159,7 @@ impl Call {
                 i += 1;
             }
 
-            tracing::info!("   Arguments: {} args provided", parsed.len());
+            eprintln!("   Arguments: {} args provided", parsed.len());
             parsed
         } else {
             vec![]
@@ -170,17 +170,16 @@ impl Call {
             function_name_len: self.function.len(),
         };
         let estimate = GasEstimate::from_operation(operation, self.gas_price);
-        tracing::info!("Gas estimation:");
-        tracing::info!("   Estimated: {} units", estimate.gas_units);
-        tracing::info!("   Limit: {} units", self.gas_limit);
-        tracing::info!(
+        eprintln!("Gas estimation:");
+        eprintln!("   Estimated: {} units", estimate.gas_units);
+        eprintln!("   Limit: {} units", self.gas_limit);
+        eprintln!(
             "   Total Cost: {} Mist ({:.9} KANARI)",
-            estimate.total_cost_mist,
-            estimate.total_cost_kanari
+            estimate.total_cost_mist, estimate.total_cost_kanari
         );
 
         // Create transaction
-        tracing::info!("Creating transaction...");
+        eprintln!("Creating transaction...");
 
         // Query account sequence number so signature and RPC include it (fail-fast)
         let client = build_blocking_client(30)?;
@@ -209,7 +208,7 @@ impl Call {
             // Sign with wallet; signing failure is fatal
             let sig = kanari_crypto::sign_message(&wallet.private_key, &tx_hash, wallet.curve_type)
                 .map_err(|e| anyhow::anyhow!("Failed to sign transaction: {}", e))?;
-            tracing::info!("   Transaction signed (curve: {})", wallet.curve_type);
+            eprintln!("   Transaction signed (curve: {})", wallet.curve_type);
             Some(sig)
         };
 
@@ -240,26 +239,26 @@ impl Call {
             id: 1,
         };
 
-        tracing::info!("Sending RPC request to {}...", self.rpc_endpoint);
+        eprintln!("Sending RPC request to {}...", self.rpc_endpoint);
 
         let client = build_blocking_client(30)?;
         match client.post(&self.rpc_endpoint).json(&rpc_request).send() {
             Ok(resp) => match resp.json::<RpcResponse>() {
                 Ok(rpc_resp) => {
                     if let Some(err) = rpc_resp.error {
-                        tracing::error!("RPC error: {} (code {})", err.message, err.code);
+                        error!("RPC error: {} (code {})", err.message, err.code);
                     } else if let Some(result) = rpc_resp.result {
                         // Parse result as `TransactionResult` if possible, otherwise print raw JSON
                         if let Ok(tx_result) = serde_json::from_value::<
                             kanari_rpc_api::TransactionResult,
                         >(result.clone())
                         {
-                            tracing::info!("Transaction: {}", tx_result.hash);
-                            tracing::info!("Status: {}", tx_result.status);
-                            tracing::info!("Gas used: {} Mist", tx_result.gas_used);
+                            eprintln!("Transaction: {}", tx_result.hash);
+                            eprintln!("Status: {}", tx_result.status);
+                            eprintln!("Gas used: {} Mist", tx_result.gas_used);
 
                             if let Some(ref error_msg) = tx_result.error_message {
-                                tracing::error!("Transaction failed: {}", error_msg);
+                                error!("Transaction failed: {}", error_msg);
                             }
                         } else {
                             // Post-process result: if it contains a changeset with created_objects,
@@ -301,23 +300,23 @@ impl Call {
                             }
 
                             match serde_json::to_string_pretty(&pretty_print) {
-                                Ok(s) => tracing::info!("RPC result:\n{}", s),
-                                Err(_) => tracing::info!("RPC result: {}", pretty_print),
+                                Ok(s) => eprintln!("RPC result:\n{}", s),
+                                Err(_) => eprintln!("RPC result: {}", pretty_print),
                             }
                         }
                     } else {
-                        tracing::info!("RPC response has no result and no error");
+                        eprintln!("RPC response has no result and no error");
                     }
                 }
-                Err(e) => tracing::error!("Failed to parse RPC response: {}", e),
+                Err(e) => error!("Failed to parse RPC response: {}", e),
             },
-            Err(e) => tracing::error!("Failed to send RPC request: {}", e),
+            Err(e) => error!("Failed to send RPC request: {}", e),
         }
 
-        tracing::info!("Function call prepared and RPC sent.");
-        tracing::info!("Next steps:");
-        tracing::info!(" - Check transaction status");
-        tracing::info!(" - View execution results on explorer");
+        eprintln!("Function call prepared and RPC sent.");
+        eprintln!("Next steps:");
+        eprintln!(" - Check transaction status");
+        eprintln!(" - View execution results on explorer");
 
         Ok(())
     }

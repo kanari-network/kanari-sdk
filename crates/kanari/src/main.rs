@@ -12,6 +12,7 @@ use kanari_crypto::{
 
 use kanari_rpc_api::SignedTransactionData;
 use kanari_rpc_client::RpcClient;
+use log::error;
 use move_core_types::account_address::AccountAddress;
 use std::str::FromStr;
 
@@ -156,9 +157,6 @@ fn main() -> Result<()> {
     // Use tokio runtime for async RPC calls
     let runtime = tokio::runtime::Runtime::new()?;
 
-    // Initialize tracing for CLI output
-    tracing_subscriber::fmt::init();
-
     match cli.command {
         Commands::CreateWallet {
             password,
@@ -176,7 +174,7 @@ fn main() -> Result<()> {
                 "ed25519+dilithium3" | "ed25519_dilithium3" => CurveType::Ed25519Dilithium3,
                 "k256+dilithium3" | "k256_dilithium3" => CurveType::K256Dilithium3,
                 other => {
-                    tracing::info!("Unknown curve '{}', falling back to Ed25519", other);
+                    eprintln!("Unknown curve '{}', falling back to Ed25519", other);
                     CurveType::Ed25519
                 }
             };
@@ -210,9 +208,9 @@ fn main() -> Result<()> {
             )
             .context("Failed to save wallet")?;
 
-            tracing::info!("Created wallet: {}", address_str);
+            eprintln!("Created wallet: {}", address_str);
             if !seed_phrase.is_empty() {
-                tracing::info!("Seed phrase: {}", seed_phrase);
+                eprintln!("Seed phrase: {}", seed_phrase);
             }
 
             Ok(())
@@ -238,10 +236,9 @@ fn main() -> Result<()> {
                 .await
                 .context("Faucet request failed")?;
 
-                tracing::info!(
+                eprintln!(
                     "Faucet tx submitted: hash={} status={}",
-                    status.hash,
-                    status.status
+                    status.hash, status.status
                 );
 
                 Ok::<(), anyhow::Error>(())
@@ -267,7 +264,7 @@ fn main() -> Result<()> {
                 "ed25519+dilithium3" | "ed25519_dilithium3" => CurveType::Ed25519Dilithium3,
                 "k256+dilithium3" | "k256_dilithium3" => CurveType::K256Dilithium3,
                 other => {
-                    tracing::info!("Unknown curve '{}', falling back to Ed25519", other);
+                    eprintln!("Unknown curve '{}', falling back to Ed25519", other);
                     CurveType::Ed25519
                 }
             };
@@ -289,7 +286,7 @@ fn main() -> Result<()> {
                 save_wallet(&address, &privk, "", None, &password, curve_type)
                     .context("Failed to save imported private-key wallet")?;
 
-                tracing::info!("Imported wallet from private key: {}", address_str);
+                eprintln!("Imported wallet from private key: {}", address_str);
             } else if let Some(seed_phrase) = seed {
                 // Importing from BIP39 seed phrases only works for classical curves.
                 if curve_type.is_post_quantum() || curve_type.is_hybrid() {
@@ -307,7 +304,7 @@ fn main() -> Result<()> {
                 save_wallet(&address, &privk, &seed_phrase, None, &password, curve_type)
                     .context("Failed to save imported seed wallet")?;
 
-                tracing::info!("Imported wallet from seed phrase: {}", address_str);
+                eprintln!("Imported wallet from seed phrase: {}", address_str);
             }
 
             Ok(())
@@ -316,27 +313,27 @@ fn main() -> Result<()> {
         Commands::LoadWallet { address, password } => {
             let wallet: Wallet =
                 load_wallet(&address, &password).context("Failed to load wallet")?;
-            tracing::info!("Wallet loaded: {} (curve: {})", address, wallet.curve_type);
+            eprintln!("Wallet loaded: {} (curve: {})", address, wallet.curve_type);
 
             // Mark this wallet as selected in the kanari config so `list-wallets`
             // shows the expected selected address.
             set_selected_wallet(&address).context("Failed to set selected wallet")?;
-            tracing::info!("Selected wallet: {}", address);
+            eprintln!("Selected wallet: {}", address);
 
             Ok(())
         }
 
         Commands::ListWallets => {
             let wallets = list_wallet_files().context("Failed to list wallets")?;
-            tracing::info!("Found {} wallets", wallets.len());
+            eprintln!("Found {} wallets", wallets.len());
             if wallets.is_empty() {
-                tracing::info!("No wallets found.");
+                eprintln!("No wallets found.");
             } else {
                 for (addr, selected) in wallets {
                     if selected {
-                        tracing::info!("- {}  (selected)", addr);
+                        eprintln!("- {}  (selected)", addr);
                     } else {
-                        tracing::info!("- {}", addr);
+                        eprintln!("- {}", addr);
                     }
                 }
             }
@@ -350,58 +347,58 @@ fn main() -> Result<()> {
         } => {
             let wallet = load_wallet(&address, &password).context("Failed to load wallet")?;
 
-            tracing::info!("\n╔════════════════════════════════════════════════════════════════╗");
-            tracing::info!("║              KANARI WALLET INFORMATION                         ║");
-            tracing::info!("╚════════════════════════════════════════════════════════════════╝\n");
+            eprintln!("\n╔════════════════════════════════════════════════════════════════╗");
+            eprintln!("║              KANARI WALLET INFORMATION                         ║");
+            eprintln!("╚════════════════════════════════════════════════════════════════╝\n");
 
-            tracing::info!("Address:");
-            tracing::info!("   0x{}\n", hex::encode(wallet.address.to_vec()));
+            eprintln!("Address:");
+            eprintln!("   0x{}\n", hex::encode(wallet.address.to_vec()));
 
-            tracing::info!("Cryptography:");
-            tracing::info!("   Algorithm: {}", wallet.curve_type);
-            tracing::info!(
+            eprintln!("Cryptography:");
+            eprintln!("   Algorithm: {}", wallet.curve_type);
+            eprintln!(
                 "   Security Level: {}/5",
                 wallet.curve_type.security_level()
             );
 
             if wallet.curve_type.is_post_quantum() {
                 if wallet.curve_type.is_hybrid() {
-                    tracing::info!("   Type: Hybrid (Classical + Post-Quantum)");
-                    tracing::info!("   Protection: Quantum-Safe + Classical Compatible");
+                    eprintln!("   Type: Hybrid (Classical + Post-Quantum)");
+                    eprintln!("   Protection: Quantum-Safe + Classical Compatible");
                 } else {
-                    tracing::info!("   Type: Pure Post-Quantum Cryptography");
-                    tracing::info!("   Protection: Quantum Computer Resistant");
+                    eprintln!("   Type: Pure Post-Quantum Cryptography");
+                    eprintln!("   Protection: Quantum Computer Resistant");
                 }
             } else {
-                tracing::info!("   Type: Classical Elliptic Curve Cryptography");
-                tracing::info!("   Protection: Vulnerable to future Quantum Computers");
+                eprintln!("   Type: Classical Elliptic Curve Cryptography");
+                eprintln!("   Protection: Vulnerable to future Quantum Computers");
             }
 
             if show_secrets {
-                tracing::info!("\nSENSITIVE INFORMATION (Keep Secret!):");
-                tracing::info!("─────────────────────────────────────────────────────────────────");
-                tracing::info!("Private Key:");
-                tracing::info!("   {}\n", wallet.private_key.as_str());
+                eprintln!("\nSENSITIVE INFORMATION (Keep Secret!):");
+                eprintln!("─────────────────────────────────────────────────────────────────");
+                eprintln!("Private Key:");
+                eprintln!("   {}\n", wallet.private_key.as_str());
 
                 if !wallet.seed_phrase.is_empty() {
-                    tracing::info!("Seed Phrase (BIP39 Mnemonic):");
-                    tracing::info!("   {}\n", wallet.seed_phrase.as_str());
+                    eprintln!("Seed Phrase (BIP39 Mnemonic):");
+                    eprintln!("   {}\n", wallet.seed_phrase.as_str());
                 } else {
-                    tracing::info!("Seed Phrase:");
-                    tracing::info!("   Not available - Post-Quantum keys use direct generation");
-                    tracing::info!("   PQC algorithms don't support BIP39/BIP32 derivation\n");
+                    eprintln!("Seed Phrase:");
+                    eprintln!("   Not available - Post-Quantum keys use direct generation");
+                    eprintln!("   PQC algorithms don't support BIP39/BIP32 derivation\n");
                 }
 
-                tracing::info!("CRITICAL WARNING:");
-                tracing::info!("   NEVER share your private key or seed phrase with anyone!");
-                tracing::info!("   Anyone with this information can steal ALL your funds");
-                tracing::info!("   No legitimate service will ever ask for this information");
+                eprintln!("CRITICAL WARNING:");
+                eprintln!("   NEVER share your private key or seed phrase with anyone!");
+                eprintln!("   Anyone with this information can steal ALL your funds");
+                eprintln!("   No legitimate service will ever ask for this information");
             } else {
-                tracing::info!("\nTip: Use --show-secrets to view private key and seed phrase");
-                tracing::info!("   Warning: Only use this in a secure, private environment");
+                eprintln!("\nTip: Use --show-secrets to view private key and seed phrase");
+                eprintln!("   Warning: Only use this in a secure, private environment");
             }
 
-            tracing::info!("\n════════════════════════════════════════════════════════════════\n");
+            eprintln!("\n════════════════════════════════════════════════════════════════\n");
 
             Ok(())
         }
@@ -423,27 +420,27 @@ fn main() -> Result<()> {
                         let wallet =
                             load_wallet(&from_addr, &password).context("Failed to load sender wallet")?;
 
-                tracing::info!("Transferring Kanari tokens...");
-                tracing::info!("  From: {}", from_addr);
-                tracing::info!("  To: {}", to);
-                tracing::info!("  Amount: {} KANARI", amount);
+                eprintln!("Transferring Kanari tokens...");
+                eprintln!("  From: {}", from_addr);
+                eprintln!("  To: {}", to);
+                eprintln!("  Amount: {} KANARI", amount);
 
                 // Convert Kanari to Mist (1 KANARI = 10^9 Mist)
                 // Use rounding to avoid floating-point truncation artifacts
                 const MIST_PER_KANARI: f64 = 1_000_000_000.0;
                 let amount_mist_f = amount * MIST_PER_KANARI;
                 let amount_mist = amount_mist_f.round() as u64;
-                tracing::info!("  Amount (Mist): {}", amount_mist);
+                eprintln!("  Amount (Mist): {}", amount_mist);
 
                 // Connect to RPC server instead of creating engine
                 let client = RpcClient::new("http://127.0.0.1:19001");
 
                 // Get current block height to verify connection
                 match client.get_block_height().await {
-                    Ok(height) => tracing::info!("  Connected to node (height: {})", height),
+                    Ok(height) => eprintln!("  Connected to node (height: {})", height),
                     Err(_) => {
-                        tracing::error!("  Cannot connect to RPC server at http://127.0.0.1:19001");
-                        tracing::error!("  Please start the node first: cargo run --bin kanari-node");
+                        error!("  Cannot connect to RPC server at http://127.0.0.1:19001");
+                        error!("  Please start the node first: cargo run --bin kanari-node");
                         return Err(anyhow::anyhow!("RPC server not available"));
                     }
                 }
@@ -464,17 +461,17 @@ fn main() -> Result<()> {
                     sequence_number: account.sequence_number,
                 };
 
-                tracing::info!("  Gas Limit: {}", tx.gas_limit());
-                tracing::info!("  Gas Price: {} Mist/gas", tx.gas_price());
+                eprintln!("  Gas Limit: {}", tx.gas_limit());
+                eprintln!("  Gas Price: {} Mist/gas", tx.gas_price());
 
                 // Sign transaction with wallet private key
                 let mut signed_tx = SignedTransaction::new(tx);
                 signed_tx
                     .sign(&wallet.private_key, wallet.curve_type)
                     .context("Failed to sign transaction")?;
-                tracing::info!("  Transaction signed");
+                eprintln!("  Transaction signed");
 
-                tracing::info!("  Submitting transaction to node...");
+                eprintln!("  Submitting transaction to node...");
 
                 // Convert SignedTransaction to RPC format
                 let tx_data = SignedTransactionData {
@@ -490,17 +487,17 @@ fn main() -> Result<()> {
                 // Submit transaction via RPC
                 match client.submit_transaction(tx_data).await {
                     Ok(status) => {
-                        tracing::info!("  Transaction submitted successfully");
-                        tracing::info!("  Transaction hash: {}", status.hash);
-                        tracing::info!("  Status: {}", status.status);
-                        tracing::info!("  Waiting for block confirmation...");
-                        tracing::info!(
+                        eprintln!("  Transaction submitted successfully");
+                        eprintln!("  Transaction hash: {}", status.hash);
+                        eprintln!("  Status: {}", status.status);
+                        eprintln!("  Waiting for block confirmation...");
+                        eprintln!(
                             "  Check balance with: cargo run --bin kanari balance --address {}",
                             to
                         );
                     }
                     Err(e) => {
-                        tracing::error!("  Failed to submit transaction: {}", e);
+                        error!("  Failed to submit transaction: {}", e);
                         return Err(e);
                     }
                 }
@@ -525,24 +522,24 @@ fn main() -> Result<()> {
 
                 let wallet = load_wallet(&from_addr, &password).context("Failed to load sender wallet")?;
 
-                tracing::info!("Burning Kanari tokens...");
-                tracing::info!("  From: {}", from_addr);
-                tracing::info!("  Amount: {} KANARI", amount);
+                eprintln!("Burning Kanari tokens...");
+                eprintln!("  From: {}", from_addr);
+                eprintln!("  Amount: {} KANARI", amount);
 
                 // Convert Kanari to Mist (1 KANARI = 10^9 Mist)
                 const MIST_PER_KANARI: f64 = 1_000_000_000.0;
                 let amount_mist_f = amount * MIST_PER_KANARI;
                 let amount_mist = amount_mist_f.round() as u64;
-                tracing::info!("  Amount (Mist): {}", amount_mist);
+                eprintln!("  Amount (Mist): {}", amount_mist);
 
                 // Connect to RPC server
                 let client = RpcClient::new("http://127.0.0.1:19001");
 
                 match client.get_block_height().await {
-                    Ok(height) => tracing::info!("  Connected to node (height: {})", height),
+                    Ok(height) => eprintln!("  Connected to node (height: {})", height),
                     Err(_) => {
-                        tracing::error!("  Cannot connect to RPC server at http://127.0.0.1:19001");
-                        tracing::error!("  Please start the node first: cargo run --bin kanari-node");
+                        error!("  Cannot connect to RPC server at http://127.0.0.1:19001");
+                        error!("  Please start the node first: cargo run --bin kanari-node");
                         return Err(anyhow::anyhow!("RPC server not available"));
                     }
                 }
@@ -562,17 +559,17 @@ fn main() -> Result<()> {
                     sequence_number: account.sequence_number,
                 };
 
-                tracing::info!("  Gas Limit: {}", tx.gas_limit());
-                tracing::info!("  Gas Price: {} Mist/gas", tx.gas_price());
+                eprintln!("  Gas Limit: {}", tx.gas_limit());
+                eprintln!("  Gas Price: {} Mist/gas", tx.gas_price());
 
                 // Sign transaction
                 let mut signed_tx = SignedTransaction::new(tx);
                 signed_tx
                     .sign(&wallet.private_key, wallet.curve_type)
                     .context("Failed to sign transaction")?;
-                tracing::info!("  Transaction signed");
+                eprintln!("  Transaction signed");
 
-                tracing::info!("  Submitting burn transaction to node...");
+                eprintln!("  Submitting burn transaction to node...");
 
                 let tx_data = SignedTransactionData {
                     sender: from_addr.clone(),
@@ -586,13 +583,13 @@ fn main() -> Result<()> {
 
                 match client.submit_transaction(tx_data).await {
                     Ok(status) => {
-                        tracing::info!("  Burn transaction submitted successfully");
-                        tracing::info!("  Transaction hash: {}", status.hash);
-                        tracing::info!("  Status: {}", status.status);
-                        tracing::info!("  Waiting for block confirmation...");
+                        eprintln!("  Burn transaction submitted successfully");
+                        eprintln!("  Transaction hash: {}", status.hash);
+                        eprintln!("  Status: {}", status.status);
+                        eprintln!("  Waiting for block confirmation...");
                     }
                     Err(e) => {
-                        tracing::error!("  Failed to submit burn transaction: {}", e);
+                        error!("  Failed to submit burn transaction: {}", e);
                         return Err(e);
                     }
                 }
@@ -612,23 +609,21 @@ fn main() -> Result<()> {
                         const MIST_PER_KANARI: f64 = 1_000_000_000.0;
                         let balance_kanari = account.balance as f64 / MIST_PER_KANARI;
 
-                        tracing::info!("Balance for {}", address);
-                        tracing::info!("  Kanari: {:.9} KANARI", balance_kanari);
-                        tracing::info!("  Mist: {} Mist", account.balance);
-                        tracing::info!("  Sequence: {}", account.sequence_number);
+                        eprintln!("Balance for {}", address);
+                        eprintln!("  Kanari: {:.9} KANARI", balance_kanari);
+                        eprintln!("  Mist: {} Mist", account.balance);
+                        eprintln!("  Sequence: {}", account.sequence_number);
                         if !account.modules.is_empty() {
-                            tracing::info!("  Modules deployed: {}", account.modules.len());
+                            eprintln!("  Modules deployed: {}", account.modules.len());
                         }
                     }
                     Err(e) => {
                         if e.to_string().contains("Account not found") {
-                            tracing::info!("Account not found: {}", address);
-                            tracing::info!("   This address has no transactions yet.");
+                            eprintln!("Account not found: {}", address);
+                            eprintln!("   This address has no transactions yet.");
                         } else {
-                            tracing::error!("  Cannot connect to RPC server");
-                            tracing::error!(
-                                "  Please start the node first: cargo run --bin kanari-node"
-                            );
+                            error!("  Cannot connect to RPC server");
+                            error!("  Please start the node first: cargo run --bin kanari-node");
                             return Err(e);
                         }
                     }
@@ -649,21 +644,19 @@ fn main() -> Result<()> {
                         const MIST_PER_KANARI: f64 = 1_000_000_000.0;
                         let total_supply_kanari = stats.total_supply as f64 / MIST_PER_KANARI;
 
-                        tracing::info!("Kanari Blockchain Statistics");
-                        tracing::info!("------------------------------");
-                        tracing::info!("  Block Height: {}", stats.height);
-                        tracing::info!("  Total Blocks: {}", stats.total_blocks);
-                        tracing::info!("  Total Transactions: {}", stats.total_transactions);
-                        tracing::info!("  Pending Transactions: {}", stats.pending_transactions);
-                        tracing::info!("  Total Accounts: {}", stats.total_accounts);
-                        tracing::info!("  Total Supply: {:.0} KANARI", total_supply_kanari);
-                        tracing::info!("─────────────────────────────────");
+                        eprintln!("Kanari Blockchain Statistics");
+                        eprintln!("------------------------------");
+                        eprintln!("  Block Height: {}", stats.height);
+                        eprintln!("  Total Blocks: {}", stats.total_blocks);
+                        eprintln!("  Total Transactions: {}", stats.total_transactions);
+                        eprintln!("  Pending Transactions: {}", stats.pending_transactions);
+                        eprintln!("  Total Accounts: {}", stats.total_accounts);
+                        eprintln!("  Total Supply: {:.0} KANARI", total_supply_kanari);
+                        eprintln!("─────────────────────────────────");
                     }
                     Err(_) => {
-                        tracing::error!("  Cannot connect to RPC server at http://127.0.0.1:19001");
-                        tracing::error!(
-                            "  Please start the node first: cargo run --bin kanari-node"
-                        );
+                        error!("  Cannot connect to RPC server at http://127.0.0.1:19001");
+                        error!("  Please start the node first: cargo run --bin kanari-node");
                         return Err(anyhow::anyhow!("RPC server not available"));
                     }
                 }

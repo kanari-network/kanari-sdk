@@ -47,22 +47,22 @@ impl AccountCommand {
                     response.json().context("Failed to parse RPC response")?;
 
                 if let Some(error) = rpc_response.get("error") {
-                    tracing::info!(
-                        "❌ Error: {}",
+                    eprintln!(
+                        " Error: {}",
                         error.get("message").unwrap_or(&serde_json::Value::Null)
                     );
                     return Ok(());
                 }
 
                 if let Some(result) = rpc_response.get("result") {
-                    tracing::info!("Account info for {}:\n", address);
-                    tracing::info!(
+                    eprintln!("Account info for {}:\n", address);
+                    eprintln!(
                         "{}",
                         serde_json::to_string_pretty(result)
                             .unwrap_or_else(|_| "<invalid result>".to_string())
                     );
                 } else {
-                    tracing::info!("Invalid response format");
+                    eprintln!("Invalid response format");
                 }
 
                 Ok(())

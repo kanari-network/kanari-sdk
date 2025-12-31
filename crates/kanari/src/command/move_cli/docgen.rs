@@ -111,7 +111,7 @@ impl Docgen {
             let path = PathBuf::from(&file);
             fs::create_dir_all(path.parent().unwrap())?;
             fs::write(path.as_path(), content)?;
-            tracing::info!("Generated {:?}", path);
+            eprintln!("Generated {:?}", path);
         }
 
         anyhow::ensure!(
@@ -119,7 +119,7 @@ impl Docgen {
             "Errors encountered while generating documentation!"
         );
 
-        tracing::info!("\nDocumentation generation successful!");
+        eprintln!("\nDocumentation generation successful!");
         Ok(())
     }
 }
