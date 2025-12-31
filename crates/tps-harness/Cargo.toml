@@ -13,10 +13,8 @@ description.workspace = true
 
 [dependencies]
 kanari-core = { workspace = true }
-kanari-move-runtime = { workspace = true }
 move-core-types = { workspace = true }
 anyhow = { workspace = true }
-chrono = { workspace = true }
 
 [profile.dev]
 opt-level = 0

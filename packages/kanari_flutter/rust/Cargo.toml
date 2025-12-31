@@ -25,7 +25,6 @@ ed25519-dalek = { workspace = true, features = ["rand_core"] }
 sha3.workspace = true
 zstd.workspace = true
 hmac = "0.12"
-secp256k1 = { workspace = true, features = ["recovery"] }
 
 
 # Post-Quantum Cryptography (PQC) - NIST Standards
@@ -36,7 +35,6 @@ pqcrypto-traits = { workspace = true, optional = true }      # Common traits for
 
 # Make blake3 optional and enabled via the blake3 feature
 blake3 = { workspace = true, optional = true }
-bincode.workspace = true
 
 # BIP32/BIP44 HD wallet support
 bip32.workspace = true
@@ -63,8 +61,6 @@ chrono = { workspace = true }
 
 # Add common dependency
 kanari-common.workspace = true
-move-vm-runtime = { workspace = true }
-move-vm-types = { workspace = true }
 move-core-types = { workspace = true }
 
 [dev-dependencies]

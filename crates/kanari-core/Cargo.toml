@@ -14,14 +14,12 @@ description.workspace = true
 [dependencies]
 move-core-types = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
 hex = { workspace = true }
 kanari-move-runtime = { workspace = true }
 kanari-types = { workspace = true }
 kanari-crypto = { workspace = true }
 anyhow = { workspace = true }
 bcs = { workspace = true }
-dirs = { workspace = true }
 crossbeam-channel = "0.5.15"
 num_cpus = "1.17.0"
 smt = { workspace = true }

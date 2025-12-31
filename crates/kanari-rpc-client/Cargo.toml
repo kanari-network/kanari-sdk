@@ -14,7 +14,6 @@ description.workspace = true
 [dependencies]
 kanari-rpc-api = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
-serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }

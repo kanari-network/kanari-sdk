@@ -14,15 +14,10 @@ description.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 rocksdb = { workspace = true }
-hex = { workspace = true }
 once_cell = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
 dirs = { workspace = true }
 blake3 = { workspace = true }
-lru = "0.16.2"
-rayon = "1.11.0"
 
 [features]
 default = []
 blake3 = []
-

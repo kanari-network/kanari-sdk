@@ -24,12 +24,8 @@ kanari-types.workspace = true
 move-compiler.workspace = true
 move-command-line-common.workspace = true 
 move-symbol-pool.workspace = true
-move-core-types.workspace = true
-move-binary-format.workspace = true
 move-docgen.workspace = true
 move-errmapgen.workspace = true
 move-prover.workspace = true
-move-vm-types.workspace = true
 log.workspace = true
-walkdir.workspace = true
 bincode = { workspace = true }

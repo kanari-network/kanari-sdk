@@ -179,7 +179,7 @@ fn sign_message_hybrid_k256(
     let hybrid = crate::keys::extract_raw_key(hybrid_private);
     // Expect format: "<classical_secret_hex>:<pqc_secret_hex>" (pqc part may contain ":<pub>" too)
     let parts: Vec<&str> = hybrid.splitn(2, ':').collect();
-    let classical = parts.get(0).ok_or_else(|| {
+    let classical = parts.first().ok_or_else(|| {
         SignatureError::InvalidPrivateKey("Invalid hybrid private key format".to_string())
     })?;
     let pqc_part = parts.get(1).ok_or_else(|| {
@@ -223,7 +223,7 @@ fn sign_message_hybrid_ed25519(
     let hybrid = crate::keys::extract_raw_key(hybrid_private);
     // Expect format: "<classical_secret_hex>:<pqc_secret_hex>" (pqc part may contain ":<pub>" too)
     let parts: Vec<&str> = hybrid.splitn(2, ':').collect();
-    let classical = parts.get(0).ok_or_else(|| {
+    let classical = parts.first().ok_or_else(|| {
         SignatureError::InvalidPrivateKey("Invalid hybrid private key format".to_string())
     })?;
     let pqc_part = parts.get(1).ok_or_else(|| {
@@ -481,7 +481,7 @@ pub fn verify_signature_with_curve(
                 verify_signature_k256(classical, message, classical_sig).unwrap_or(false);
 
             // Verify PQC part (must succeed)
-            let pqc_pub = addr.splitn(2, ':').nth(1).unwrap_or("");
+            let pqc_pub = addr.split_once(':').map(|x| x.1).unwrap_or("");
             if pqc_pub.is_empty() || pqc_sig.is_empty() {
                 return Ok(false);
             }
@@ -536,7 +536,7 @@ pub fn verify_signature_with_curve(
             let classical_ok =
                 verify_signature_ed25519(classical, message, classical_sig).unwrap_or(false);
 
-            let pqc_pub = addr.splitn(2, ':').nth(1).unwrap_or("");
+            let pqc_pub = addr.split_once(':').map(|x| x.1).unwrap_or("");
             if pqc_pub.is_empty() || pqc_sig.is_empty() {
                 return Ok(false);
             }
@@ -715,7 +715,7 @@ pub fn verify_signature_with_keypair(
     // `public_key` may be stored as "classical" or "classical:pqc" for legacy reasons.
     // Use the explicit `pqc_public_key` field when present.
     let pub_combined = keypair.public_key.as_str();
-    let classical_pub = pub_combined.splitn(2, ':').next().unwrap_or(pub_combined);
+    let classical_pub = pub_combined.split(':').next().unwrap_or(pub_combined);
 
     match curve_type {
         CurveType::K256 => verify_signature_k256(classical_pub, message, signature),
@@ -900,21 +900,20 @@ pub fn verify_signature_k256(
     // - 32 bytes: x-only (try 0x02/0x03)
 
     // Try full SEC1 if present
-    if decoded_hex.len() == 65 {
-        if let Ok(verifying_key) = K256VerifyingKey::from_sec1_bytes(&decoded_hex) {
-            if verifying_key.verify(&message_hash, &signature).is_ok() {
-                return Ok(true);
-            }
-        }
+    if decoded_hex.len() == 65
+        && let Ok(verifying_key) = K256VerifyingKey::from_sec1_bytes(&decoded_hex)
+        && verifying_key.verify(&message_hash, &signature).is_ok()
+    {
+        return Ok(true);
     }
 
     // Try compressed SEC1 if present (33 bytes)
     if decoded_hex.len() == SEC1_COMPRESSED_LEN {
         if decoded_hex[0] == 0x02 || decoded_hex[0] == 0x03 {
-            if let Ok(verifying_key) = K256VerifyingKey::from_sec1_bytes(&decoded_hex) {
-                if verifying_key.verify(&message_hash, &signature).is_ok() {
-                    return Ok(true);
-                }
+            if let Ok(verifying_key) = K256VerifyingKey::from_sec1_bytes(&decoded_hex)
+                && verifying_key.verify(&message_hash, &signature).is_ok()
+            {
+                return Ok(true);
             }
         } else {
             // If 33 bytes but no prefix, treat as invalid
@@ -929,10 +928,10 @@ pub fn verify_signature_k256(
         let mut public_key_bytes = Vec::with_capacity(65);
         public_key_bytes.push(0x04);
         public_key_bytes.extend_from_slice(&decoded_hex);
-        if let Ok(verifying_key) = K256VerifyingKey::from_sec1_bytes(&public_key_bytes) {
-            if verifying_key.verify(&message_hash, &signature).is_ok() {
-                return Ok(true);
-            }
+        if let Ok(verifying_key) = K256VerifyingKey::from_sec1_bytes(&public_key_bytes)
+            && verifying_key.verify(&message_hash, &signature).is_ok()
+        {
+            return Ok(true);
         }
     }
 
@@ -940,16 +939,16 @@ pub fn verify_signature_k256(
     if decoded_hex.len() == X_ONLY_LEN {
         let mut public_key_bytes = vec![0x02];
         public_key_bytes.extend_from_slice(&decoded_hex[0..X_ONLY_LEN]);
-        if let Ok(verifying_key) = K256VerifyingKey::from_sec1_bytes(&public_key_bytes) {
-            if verifying_key.verify(&message_hash, &signature).is_ok() {
-                return Ok(true);
-            }
+        if let Ok(verifying_key) = K256VerifyingKey::from_sec1_bytes(&public_key_bytes)
+            && verifying_key.verify(&message_hash, &signature).is_ok()
+        {
+            return Ok(true);
         }
         public_key_bytes[0] = 0x03;
-        if let Ok(verifying_key) = K256VerifyingKey::from_sec1_bytes(&public_key_bytes) {
-            if verifying_key.verify(&message_hash, &signature).is_ok() {
-                return Ok(true);
-            }
+        if let Ok(verifying_key) = K256VerifyingKey::from_sec1_bytes(&public_key_bytes)
+            && verifying_key.verify(&message_hash, &signature).is_ok()
+        {
+            return Ok(true);
         }
     }
 
@@ -988,21 +987,20 @@ pub fn verify_signature_p256(
     // - 33 bytes: compressed SEC1 (0x02/0x03 || X)
     // - 64 bytes: raw X||Y (add 0x04)
     // - 32 bytes: x-only (try 0x02/0x03)
-    if decoded_hex.len() == SEC1_UNCOMPRESSED_LEN {
-        if let Ok(verifying_key) = VerifyingKey::from_sec1_bytes(&decoded_hex) {
-            if verifying_key.verify(&message_hash, &signature).is_ok() {
-                return Ok(true);
-            }
-        }
+    if decoded_hex.len() == SEC1_UNCOMPRESSED_LEN
+        && let Ok(verifying_key) = VerifyingKey::from_sec1_bytes(&decoded_hex)
+        && verifying_key.verify(&message_hash, &signature).is_ok()
+    {
+        return Ok(true);
     }
 
     // Try compressed SEC1 if present (33 bytes)
     if decoded_hex.len() == SEC1_COMPRESSED_LEN {
         if decoded_hex[0] == 0x02 || decoded_hex[0] == 0x03 {
-            if let Ok(verifying_key) = VerifyingKey::from_sec1_bytes(&decoded_hex) {
-                if verifying_key.verify(&message_hash, &signature).is_ok() {
-                    return Ok(true);
-                }
+            if let Ok(verifying_key) = VerifyingKey::from_sec1_bytes(&decoded_hex)
+                && verifying_key.verify(&message_hash, &signature).is_ok()
+            {
+                return Ok(true);
             }
         } else {
             return Err(SignatureError::InvalidPublicKey(
@@ -1016,10 +1014,10 @@ pub fn verify_signature_p256(
         let mut public_key_bytes = Vec::with_capacity(65);
         public_key_bytes.push(0x04);
         public_key_bytes.extend_from_slice(&decoded_hex);
-        if let Ok(verifying_key) = VerifyingKey::from_sec1_bytes(&public_key_bytes) {
-            if verifying_key.verify(&message_hash, &signature).is_ok() {
-                return Ok(true);
-            }
+        if let Ok(verifying_key) = VerifyingKey::from_sec1_bytes(&public_key_bytes)
+            && verifying_key.verify(&message_hash, &signature).is_ok()
+        {
+            return Ok(true);
         }
     }
 
@@ -1027,16 +1025,16 @@ pub fn verify_signature_p256(
     if decoded_hex.len() == X_ONLY_LEN {
         let mut public_key_bytes = vec![0x02];
         public_key_bytes.extend_from_slice(&decoded_hex[0..X_ONLY_LEN]);
-        if let Ok(verifying_key) = VerifyingKey::from_sec1_bytes(&public_key_bytes) {
-            if verifying_key.verify(&message_hash, &signature).is_ok() {
-                return Ok(true);
-            }
+        if let Ok(verifying_key) = VerifyingKey::from_sec1_bytes(&public_key_bytes)
+            && verifying_key.verify(&message_hash, &signature).is_ok()
+        {
+            return Ok(true);
         }
         public_key_bytes[0] = 0x03;
-        if let Ok(verifying_key) = VerifyingKey::from_sec1_bytes(&public_key_bytes) {
-            if verifying_key.verify(&message_hash, &signature).is_ok() {
-                return Ok(true);
-            }
+        if let Ok(verifying_key) = VerifyingKey::from_sec1_bytes(&public_key_bytes)
+            && verifying_key.verify(&message_hash, &signature).is_ok()
+        {
+            return Ok(true);
         }
     }
 

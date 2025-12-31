@@ -13,17 +13,13 @@ description.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
-hex = { workspace = true }
 kanari-core = { workspace = true }
 kanari-move-runtime = { workspace = true }
 kanari-rpc-server = { workspace = true }
 kanari-types = { workspace = true }
 kanari-crypto = { workspace = true }
-serde = { workspace = true }
-bcs = { workspace = true }
 move-core-types = { workspace = true }
 move-binary-format = { workspace = true }
-chrono = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

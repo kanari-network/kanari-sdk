@@ -378,10 +378,10 @@ impl AuditLogger {
             });
         }
 
-        if let Some(&last_time) = last_times.get(&entry_key) {
-            if now.saturating_sub(last_time) < self.rate_limit_secs {
-                return Ok(()); // Skip duplicate within rate limit window
-            }
+        if let Some(&last_time) = last_times.get(&entry_key)
+            && now.saturating_sub(last_time) < self.rate_limit_secs
+        {
+            return Ok(()); // Skip duplicate within rate limit window
         }
         last_times.insert(entry_key, now);
         drop(last_times); // Explicitly drop lock before file operations
@@ -406,7 +406,7 @@ impl AuditLogger {
 
         // Console output if enabled
         if self.console_output {
-            println!("{}", entry.to_string_formatted());
+            log::info!("{}", entry.to_string_formatted());
         }
 
         Ok(())
@@ -429,6 +429,7 @@ impl AuditLogger {
         let lock_file = std::fs::OpenOptions::new()
             .create(true)
             .write(true)
+            .truncate(false)
             .open(&lock_path)?;
 
         // Try to acquire exclusive lock - if another process is rotating, skip

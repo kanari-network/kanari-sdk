@@ -135,8 +135,9 @@ impl Keystore {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(&lock_path)
-            .map_err(|e| KeystoreError::IoError(e))?;
+            .map_err(KeystoreError::IoError)?;
 
         // Try to acquire shared lock for reading with timeout
         // Use try_lock_shared with retry logic to prevent indefinite blocking
@@ -210,8 +211,9 @@ impl Keystore {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(&lock_path)
-            .map_err(|e| KeystoreError::IoError(e))?;
+            .map_err(KeystoreError::IoError)?;
 
         // Try to acquire exclusive lock with timeout
         let max_retries = 50; // 5 seconds total (50 * 100ms)

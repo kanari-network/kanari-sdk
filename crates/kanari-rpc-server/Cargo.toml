@@ -13,12 +13,10 @@ description.workspace = true
 
 [dependencies]
 kanari-rpc-api.workspace = true
-kanari-move-runtime.workspace = true
 kanari-types.workspace = true
 kanari-core.workspace = true
 tokio = { workspace = true }
 axum = { workspace = true }
-tower = { workspace = true }
 tower-http = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -26,6 +24,5 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 blake3 = { workspace = true }
 hex = { workspace = true }
-tracing-subscriber = { workspace = true }
 move-binary-format = { workspace = true }
 move-core-types = { workspace = true }

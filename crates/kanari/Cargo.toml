@@ -16,20 +16,13 @@ description.workspace = true
 tokio = { workspace = true, features = ["full"] }
 
 # Serialization
-serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
-thiserror = { workspace = true }
 
 # Logging
 log = { workspace = true }
-env_logger = { workspace = true }
-
-# Web framework (optional - for API)
-axum = { workspace = true, optional = true }
-tower = { workspace = true, optional = true }
 
 reqwest = { workspace = true, features = ["blocking", "json"] }
 
@@ -52,11 +45,7 @@ kanari-faucet = { path = "../kanari-faucet" }
 # Move dependencies
 move-core-types = { workspace = true }
 move-vm-runtime = { workspace = true }
-move-binary-format = { workspace = true }
-move-bytecode-verifier = { workspace = true }
-move-vm-types = { workspace = true }
 move-compiler = { workspace = true }
-move-symbol-pool = { workspace = true }
 move-command-line-common = { workspace = true }
 move-docgen = { workspace = true }
 move-package = { workspace = true }
@@ -71,7 +60,6 @@ rpassword = "7.4.0"
 
 [features]
 default = []
-api = ["axum", "tower"]
 
 [[bin]]
 name = "kanari"

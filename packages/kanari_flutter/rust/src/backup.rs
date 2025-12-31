@@ -332,7 +332,7 @@ impl BackupManager {
         let canonical_backup_dir = self
             .backup_dir
             .canonicalize()
-            .map_err(|e| BackupError::IoError(e))?;
+            .map_err(BackupError::IoError)?;
 
         for entry in fs::read_dir(&self.backup_dir)? {
             let entry = entry?;
