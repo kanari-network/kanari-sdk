@@ -758,7 +758,7 @@ pub fn keypair_from_private_key(
                 hex::decode(raw_private_key).map_err(|_| KeyError::InvalidPrivateKey)?;
             if private_key_bytes.len() != 32 {
                 private_key_bytes.zeroize();
-                return Err(KeyError::InvalidPrivateKey);
+                Err(KeyError::InvalidPrivateKey)?
             }
 
             let mut key_array = [0u8; 32];
@@ -832,7 +832,7 @@ pub fn keypair_from_private_key(
             }
 
             // No explicit public key supplied — reject to avoid fragile recovery
-            return Err(KeyError::InvalidPrivateKey);
+            Err(KeyError::InvalidPrivateKey)
         }
         // Hybrid imports: expect format "kanahybrid<classical_hex>:<pqc_hex>" (may be prefixed with `kanari`)
         CurveType::Ed25519Dilithium3 | CurveType::K256Dilithium3 => {
@@ -847,7 +847,7 @@ pub fn keypair_from_private_key(
             if !(private_key.starts_with(KANAHYBRID_PREFIX)
                 || raw_private_key.starts_with(KANAHYBRID_PREFIX))
             {
-                return Err(KeyError::InvalidPrivateKey);
+                Err(KeyError::InvalidPrivateKey)?
             }
 
             // raw_private_key currently has had one known prefix removed by
@@ -859,7 +859,7 @@ pub fn keypair_from_private_key(
             // split into two parts at the first ':' so pqc part may itself contain ':'
             let parts: Vec<&str> = hybrid.splitn(2, ':').collect();
             if parts.len() != 2 {
-                return Err(KeyError::InvalidPrivateKey);
+                Err(KeyError::InvalidPrivateKey)?
             }
 
             let classical_raw = parts[0];
@@ -872,7 +872,7 @@ pub fn keypair_from_private_key(
             let classical_pub_hex = match curve_type {
                 CurveType::Ed25519Dilithium3 => {
                     if classical_bytes.len() != 32 {
-                        return Err(KeyError::InvalidPrivateKey);
+                        Err(KeyError::InvalidPrivateKey)?
                     }
                     let mut key_array = [0u8; 32];
                     key_array.copy_from_slice(&classical_bytes);
@@ -887,11 +887,10 @@ pub fn keypair_from_private_key(
                     let verifying_key = K256VerifyingKey::from(&signing_key);
                     let public_key = K256PublicKey::from(verifying_key);
                     let encoded_point = public_key.to_encoded_point(false);
-                    let full_pub_hex = hex::encode(&encoded_point.as_bytes()[1..]);
                     // Keep full public key for storage, use truncated prefix for address elsewhere
-                    full_pub_hex
+                    hex::encode(&encoded_point.as_bytes()[1..])
                 }
-                _ => return Err(KeyError::InvalidPrivateKey),
+                _ => Err(KeyError::InvalidPrivateKey)?,
             };
 
             // PQC raw part may be one of:

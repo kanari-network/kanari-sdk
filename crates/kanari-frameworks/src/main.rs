@@ -9,6 +9,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use doc_generator::{PackageDocConfig, generate_documentation};
 use kanari_types::address::Address;
+use log::{error, info, warn};
 use packages_config::get_package_configs;
 use std::{
     env,
@@ -83,17 +84,17 @@ fn get_packages_dir() -> Result<PathBuf> {
 
 /// Print summary of operations
 fn print_summary(operation: &str, success: usize, failed: usize) {
-    println!("\n✨ {} Summary:", operation);
-    println!("   ✅ Successful: {}", success);
+    info!("\n{} Summary:", operation);
+    info!("   Successful: {}", success);
     if failed > 0 {
-        println!("   ❌ Failed: {}", failed);
+        info!("   Failed: {}", failed);
     }
 }
 
 fn build_packages(packages_dir: &Path, version: String) -> Result<()> {
-    println!("🚀 Kanari Package Compiler");
-    println!("==========================\n");
-    println!("📌 Version: {}\n", version);
+    info!("Kanari Package Compiler");
+    info!("==========================\n");
+    info!("Version: {}\n", version);
 
     // Place released artifacts in the `kanari-frameworks` crate root (not inside `packages/`).
     // Find nearest ancestor folder named `kanari-frameworks` starting from `packages_dir`.
@@ -101,11 +102,11 @@ fn build_packages(packages_dir: &Path, version: String) -> Result<()> {
     let mut ancestor: &Path = packages_dir;
     let mut framework_dir: Option<PathBuf> = None;
     loop {
-        if let Some(name) = ancestor.file_name() {
-            if name == "kanari-frameworks" {
-                framework_dir = Some(ancestor.to_path_buf());
-                break;
-            }
+        if let Some(name) = ancestor.file_name()
+            && name == "kanari-frameworks"
+        {
+            framework_dir = Some(ancestor.to_path_buf());
+            break;
         }
         if let Some(p) = ancestor.parent() {
             ancestor = p;
@@ -123,20 +124,20 @@ fn build_packages(packages_dir: &Path, version: String) -> Result<()> {
     });
 
     let output_dir = framework_dir.join("released");
-    println!("📁 Packages: {:?}", packages_dir);
-    println!("📁 Output: {:?}\n", output_dir);
+    info!("Packages: {:?}", packages_dir);
+    info!("Output: {:?}\n", output_dir);
 
     let (success, failed) = process_packages(|config| {
         let package_dir = packages_dir.join(config.directory);
         if !package_dir.exists() {
-            eprintln!("⚠️  Not found: {:?}\n", package_dir);
+            warn!("Not found: {:?}\n", package_dir);
             return Err(anyhow::anyhow!("Directory not found"));
         }
 
-        println!("Compiling {} ({})...", config.name, config.address);
+        info!("Compiling {} ({})...", config.name, config.address);
         compiler::compile_package(&package_dir, &output_dir, &version, config.address).map(|file| {
-            println!("✅ {}", config.name);
-            println!("   {:?}\n", file);
+            info!("{}", config.name);
+            info!("   {:?}\n", file);
         })
     });
 
@@ -146,25 +147,25 @@ fn build_packages(packages_dir: &Path, version: String) -> Result<()> {
 }
 
 fn generate_docs(packages_dir: &Path, specific_package: Option<String>) -> Result<()> {
-    println!("📚 Kanari Documentation Generator");
-    println!("==================================\n");
+    info!("Kanari Documentation Generator");
+    info!("==================================\n");
 
     let mut doc_configs = get_doc_configs(packages_dir)?;
 
     if let Some(pkg_name) = &specific_package {
         doc_configs.retain(|cfg| cfg.name == *pkg_name);
         if doc_configs.is_empty() {
-            eprintln!("❌ Package not found: {}", pkg_name);
+            warn!("Package not found: {}", pkg_name);
             return Ok(());
         }
     }
 
     if doc_configs.is_empty() {
-        eprintln!("❌ No packages configured");
+        warn!("No packages configured");
         return Ok(());
     }
 
-    println!("📦 Generating docs for {} package(s)\n", doc_configs.len());
+    info!("Generating docs for {} package(s)\n", doc_configs.len());
 
     let (success, failed) = process_doc_configs(doc_configs);
     print_summary("Documentation", success, failed);
@@ -184,7 +185,7 @@ where
         match process_fn(&config) {
             Ok(_) => success += 1,
             Err(e) => {
-                eprintln!("❌ {}: {}\n", config.name, e);
+                error!("{}: {}\n", config.name, e);
                 failed += 1;
             }
         }
@@ -202,7 +203,7 @@ fn process_doc_configs(configs: Vec<PackageDocConfig>) -> (usize, usize) {
         match generate_documentation(&config) {
             Ok(_) => success += 1,
             Err(e) => {
-                eprintln!("❌ {}: {}", config.name, e);
+                error!("{}: {}", config.name, e);
                 failed += 1;
             }
         }

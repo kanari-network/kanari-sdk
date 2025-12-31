@@ -51,9 +51,7 @@ pub(super) fn produce_block(engine: &super::BlockchainEngine) -> Result<BlockInf
                     while let Ok((idx, tx, state_arc)) = job_rx.recv() {
                         let mut guard = pool_entry.lock().unwrap();
                         let res = BlockchainEngine::execute_transaction_with_runtime(
-                            &tx,
-                            &mut *guard,
-                            &state_arc,
+                            &tx, &mut guard, &state_arc,
                         );
                         let _ = res_tx.send((idx, res));
                     }
@@ -116,7 +114,7 @@ pub(super) fn produce_block(engine: &super::BlockchainEngine) -> Result<BlockInf
             for (i, tx) in transactions.iter().cloned().enumerate() {
                 per_sender
                     .entry(tx.sender().to_string())
-                    .or_insert_with(VecDeque::new)
+                    .or_default()
                     .push_back((i, tx));
             }
 
@@ -147,21 +145,20 @@ pub(super) fn produce_block(engine: &super::BlockchainEngine) -> Result<BlockInf
                         }
                     }
 
-                    if let Some(sender) = idx_to_sender.remove(&idx) {
-                        if let Some(queue) = per_sender.get_mut(&sender) {
-                            if let Some((next_idx, next_tx)) = queue.pop_front() {
-                                // Create a state snapshot and increment sequence for this sender
-                                // to reflect that the previous tx for this sender has been executed
-                                let mut snapshot = engine.state.read().unwrap().clone();
-                                if let Ok(addr) = AccountAddress::from_hex_literal(&sender) {
-                                    let acct = snapshot.get_or_create_account(addr);
-                                    acct.increment_sequence();
-                                }
-                                let state_arc = Arc::new(RwLock::new(snapshot));
-                                job_tx.send((next_idx, next_tx, state_arc)).unwrap();
-                                idx_to_sender.insert(next_idx, sender.clone());
-                            }
+                    if let Some(sender) = idx_to_sender.remove(&idx)
+                        && let Some(queue) = per_sender.get_mut(&sender)
+                        && let Some((next_idx, next_tx)) = queue.pop_front()
+                    {
+                        // Create a state snapshot and increment sequence for this sender
+                        // to reflect that the previous tx for this sender has been executed
+                        let mut snapshot = engine.state.read().unwrap().clone();
+                        if let Ok(addr) = AccountAddress::from_hex_literal(&sender) {
+                            let acct = snapshot.get_or_create_account(addr);
+                            acct.increment_sequence();
                         }
+                        let state_arc = Arc::new(RwLock::new(snapshot));
+                        job_tx.send((next_idx, next_tx, state_arc)).unwrap();
+                        idx_to_sender.insert(next_idx, sender.clone());
                     }
 
                     collected += 1;

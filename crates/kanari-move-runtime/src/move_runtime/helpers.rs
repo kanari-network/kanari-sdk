@@ -35,19 +35,19 @@ impl super::MoveRuntime {
         // Balance<T> (no UID): just 8 bytes
         if module_name == BalanceModule::BALANCE_MODULE
             && struct_name == BalanceModule::BALANCE_STRUCT
+            && bytes.len() == 8
         {
-            if bytes.len() == 8 {
-                let balance_bytes: [u8; 8] = bytes.try_into().ok()?;
-                return Some(u64::from_le_bytes(balance_bytes));
-            }
+            let balance_bytes: [u8; 8] = bytes.try_into().ok()?;
+            return Some(u64::from_le_bytes(balance_bytes));
         }
 
         // Coin<T> (with UID): [32-byte address][8-byte id][8-byte balance]
-        if module_name == CoinModule::COIN_MODULE && struct_name == CoinModule::COIN_STRUCT {
-            if bytes.len() >= 48 {
-                let balance_bytes: [u8; 8] = bytes[40..48].try_into().ok()?;
-                return Some(u64::from_le_bytes(balance_bytes));
-            }
+        if module_name == CoinModule::COIN_MODULE
+            && struct_name == CoinModule::COIN_STRUCT
+            && bytes.len() >= 48
+        {
+            let balance_bytes: [u8; 8] = bytes[40..48].try_into().ok()?;
+            return Some(u64::from_le_bytes(balance_bytes));
         }
 
         None
@@ -66,14 +66,12 @@ impl super::MoveRuntime {
 
     /// Extract token type string from struct tag's type parameters
     pub(crate) fn token_type_from_struct_tag(&self, struct_tag: &StructTag) -> Option<String> {
-        if let Some(first) = struct_tag.type_params.get(0) {
-            if let TypeTag::Struct(st) = first {
-                // Use kanari_types::Address to format the address consistently
-                let addr = Address::from(st.address).to_hex();
-                let module = st.module.as_str().to_string();
-                let name = st.name.as_str().to_string();
-                return Some(format!("0x{}::{}::{}", addr, module, name));
-            }
+        if let Some(TypeTag::Struct(st)) = struct_tag.type_params.first() {
+            // Use kanari_types::Address to format the address consistently
+            let addr = Address::from(st.address).to_hex();
+            let module = st.module.as_str().to_string();
+            let name = st.name.as_str().to_string();
+            return Some(format!("0x{}::{}::{}", addr, module, name));
         }
         None
     }

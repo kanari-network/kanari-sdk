@@ -62,14 +62,14 @@ impl BalanceRecord {
 
     /// Merge another balance into this one (consumes other)
     pub fn merge(&mut self, other: BalanceRecord) {
-        self.value = self.value + other.value;
+        self.value += other.value;
     }
 
     /// Split off `amount` from this balance and return it as a new BalanceRecord
     pub fn split(&mut self, amount: u64) -> BalanceRecord {
         assert!(amount > 0, "zero amount");
         assert!(self.value >= amount, "insufficient balance");
-        self.value = self.value - amount;
+        self.value -= amount;
         BalanceRecord::new(amount)
     }
 

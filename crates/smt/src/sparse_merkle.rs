@@ -11,7 +11,7 @@ use std::path::PathBuf;
 /// Sparse Merkle Tree implementation (256-bit keyspace using SHA-256).
 /// - Leaf hash: H(0x00 || key_hash || value)
 /// - Node hash: H(0x01 || left || right)
-/// Stores only non-default nodes in RocksDB under keys `smt:node:<depth>:<prefix_bytes>`.
+///   Stores only non-default nodes in RocksDB under keys `smt:node:<depth>:<prefix_bytes>`.
 pub struct SparseMerkleTree {
     db: std::sync::Arc<rocksdb::DB>,
     default_hashes: Vec<[u8; 32]>,
@@ -102,19 +102,19 @@ impl SparseMerkleTree {
 
         // traverse from leaf depth down to 1 and collect sibling at each level
         for depth in (1..=256).rev() {
-            let prefix_bits = depth;
-            let prefix_bytes = (prefix_bits + 7) / 8;
-            let mut prefix = vec![0u8; prefix_bytes as usize];
-            prefix.copy_from_slice(&kh[..prefix_bytes as usize]);
-            let excess = (prefix_bytes * 8) - prefix_bits as usize;
+            let prefix_bits: usize = depth;
+            let prefix_bytes = prefix_bits.div_ceil(8_usize);
+            let mut prefix = vec![0u8; prefix_bytes];
+            prefix.copy_from_slice(&kh[..prefix_bytes]);
+            let excess = (prefix_bytes * 8) - prefix_bits;
             if excess > 0 {
                 let mask = 0xFF << excess;
-                let last = prefix_bytes as usize - 1;
+                let last = prefix_bytes - 1;
                 prefix[last] &= mask as u8;
             }
 
             let last_bit_index = prefix_bits - 1;
-            let byte_idx = (last_bit_index / 8) as usize;
+            let byte_idx = last_bit_index / 8;
             let bit_in_byte = 7 - (last_bit_index % 8);
 
             let mut sibling_prefix = prefix.clone();
@@ -159,19 +159,19 @@ impl SparseMerkleTree {
             let mut cur = leaf_hash;
 
             for depth in (1..=256).rev() {
-                let prefix_bits = depth;
-                let prefix_bytes = (prefix_bits + 7) / 8;
-                let mut prefix = vec![0u8; prefix_bytes as usize];
-                prefix.copy_from_slice(&kh[..prefix_bytes as usize]);
-                let excess = (prefix_bytes * 8) - prefix_bits as usize;
+                let prefix_bits: usize = depth;
+                let prefix_bytes = prefix_bits.div_ceil(8_usize);
+                let mut prefix = vec![0u8; prefix_bytes];
+                prefix.copy_from_slice(&kh[..prefix_bytes]);
+                let excess = (prefix_bytes * 8) - prefix_bits;
                 if excess > 0 {
                     let mask = 0xFF << excess;
-                    let last = prefix_bytes as usize - 1;
+                    let last = prefix_bytes - 1;
                     prefix[last] &= mask as u8;
                 }
 
                 let last_bit_index = prefix_bits - 1;
-                let byte_idx = (last_bit_index / 8) as usize;
+                let byte_idx = last_bit_index / 8;
                 let bit_in_byte = 7 - (last_bit_index % 8);
 
                 let mut sibling_prefix = prefix.clone();
@@ -200,14 +200,14 @@ impl SparseMerkleTree {
                 let parent_arr = parent;
 
                 let node_k = node_key(depth, &prefix);
-                batch.put(node_k.clone(), &cur);
+                batch.put(node_k.clone(), cur);
                 node_cache.insert(node_k, cur);
 
                 cur = parent_arr;
             }
 
             // root
-            batch.put(node_key(0, &[]), &cur);
+            batch.put(node_key(0, &[]), cur);
         }
 
         self.db.write(batch)?;
@@ -249,19 +249,19 @@ impl SparseMerkleTree {
             let mut cur = self.default_hashes[256];
 
             for depth in (1..=256).rev() {
-                let prefix_bits = depth;
-                let prefix_bytes = (prefix_bits + 7) / 8;
-                let mut prefix = vec![0u8; prefix_bytes as usize];
-                prefix.copy_from_slice(&kh[..prefix_bytes as usize]);
-                let excess = (prefix_bytes * 8) - prefix_bits as usize;
+                let prefix_bits: usize = depth;
+                let prefix_bytes = prefix_bits.div_ceil(8_usize);
+                let mut prefix = vec![0u8; prefix_bytes];
+                prefix.copy_from_slice(&kh[..prefix_bytes]);
+                let excess = (prefix_bytes * 8) - prefix_bits;
                 if excess > 0 {
                     let mask = 0xFF << excess;
-                    let last = prefix_bytes as usize - 1;
+                    let last = prefix_bytes - 1;
                     prefix[last] &= mask as u8;
                 }
 
                 let last_bit_index = prefix_bits - 1;
-                let byte_idx = (last_bit_index / 8) as usize;
+                let byte_idx = last_bit_index / 8;
                 let bit_in_byte = 7 - (last_bit_index % 8);
 
                 let mut sibling_prefix = prefix.clone();
@@ -294,7 +294,7 @@ impl SparseMerkleTree {
                     batch.delete(node_k.clone());
                     node_cache.insert(node_k, self.default_hashes[depth]);
                 } else {
-                    batch.put(node_k.clone(), &cur);
+                    batch.put(node_k.clone(), cur);
                     node_cache.insert(node_k, cur);
                 }
 
@@ -305,7 +305,7 @@ impl SparseMerkleTree {
             if cur == self.default_hashes[0] {
                 batch.delete(node_key(0, &[]));
             } else {
-                batch.put(node_key(0, &[]), &cur);
+                batch.put(node_key(0, &[]), cur);
             }
         }
 
@@ -328,6 +328,7 @@ pub fn default_hashes() -> Vec<[u8; 32]> {
 
 /// Verify a proof (membership or non-membership) against a given root.
 /// `proof` is the tuple returned by `proof()`: `(is_member, leaf_hash, siblings)`.
+#[allow(dead_code)]
 pub fn verify_proof(root: &[u8; 32], key: &[u8], proof: (bool, [u8; 32], Vec<[u8; 32]>)) -> bool {
     let (_is_member, leaf, siblings) = proof;
     let kh = digest(key);
@@ -337,7 +338,7 @@ pub fn verify_proof(root: &[u8; 32], key: &[u8], proof: (bool, [u8; 32], Vec<[u8
         // siblings vector is bottom-up from leaf (depth=256) upwards
         let depth = 256 - i;
         let bit_index = depth - 1;
-        let byte_idx = (bit_index / 8) as usize;
+        let byte_idx = bit_index / 8;
         let bit_in_byte = 7 - (bit_index % 8);
         let bit = ((kh[byte_idx] >> bit_in_byte) & 1u8) == 0;
 

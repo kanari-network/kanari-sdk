@@ -27,6 +27,7 @@ impl Utf8String {
     }
 
     /// Create from string slice
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         Self {
             bytes: s.as_bytes().to_vec(),
@@ -59,6 +60,13 @@ impl Utf8String {
             anyhow::bail!("Index out of range");
         }
         Self::new(self.bytes[start..end].to_vec())
+    }
+}
+
+impl std::str::FromStr for Utf8String {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::from_str(s))
     }
 }
 

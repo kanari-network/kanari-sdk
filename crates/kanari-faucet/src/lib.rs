@@ -7,7 +7,6 @@
 //! the `kanari` binary) can call to request tokens from the Dev wallet.
 
 use anyhow::Context;
-use dotenvy;
 use kanari_common::get_main_wallet;
 use kanari_core::{SignedTransaction, Transaction};
 use kanari_rpc_api::SignedTransactionData;

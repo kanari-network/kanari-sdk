@@ -20,8 +20,8 @@ use k256::ecdsa::{
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use p256::ecdsa::{Signature as P256Signature, VerifyingKey as P256VerifyingKey};
 use secp256k1::{
-    Message as SecpMessage, PublicKey as SecpPublicKey, Secp256k1,
-    ecdsa::RecoverableSignature as SecpRecoverableSignature, ecdsa::RecoveryId as SecpRecoveryId,
+    Message as SecpMessage, Secp256k1, ecdsa::RecoverableSignature as SecpRecoverableSignature,
+    ecdsa::RecoveryId as SecpRecoveryId,
 };
 use sha2::Sha256;
 use sha3::{Digest, Keccak256};
@@ -120,7 +120,7 @@ pub fn all_natives(
                 Err(_) => return Ok(NR::err(context.gas_used(), E_INVALID_RECOVERY)),
             };
             // Convert secp public key to compressed bytes (33) and return
-            let out = SecpPublicKey::from(pubkey).serialize().to_vec();
+            let out = pubkey.serialize().to_vec();
             Ok(NR::ok(context.gas_used(), smallvec![Value::vector_u8(out)]))
         },
     );
@@ -357,10 +357,7 @@ pub fn all_natives(
                 pk.verify(&msg, &sig).is_ok()
             });
 
-            let verified = match result {
-                Ok(b) => b,
-                Err(_) => false,
-            };
+            let verified: bool = result.unwrap_or_default();
 
             Ok(NR::ok(context.gas_used(), smallvec![Value::bool(verified)]))
         },

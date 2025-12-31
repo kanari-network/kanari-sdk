@@ -30,6 +30,7 @@ impl AsciiString {
     }
 
     /// Create from string slice
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Result<Self> {
         Self::new(s.as_bytes().to_vec())
     }
@@ -52,6 +53,13 @@ impl AsciiString {
     /// Check if all characters are printable
     pub fn all_characters_printable(&self) -> bool {
         self.bytes.iter().all(|&b| (32..=126).contains(&b))
+    }
+}
+
+impl std::str::FromStr for AsciiString {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::new(s.as_bytes().to_vec())
     }
 }
 

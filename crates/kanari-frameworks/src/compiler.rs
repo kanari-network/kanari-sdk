@@ -6,6 +6,7 @@
 // and packaging it into .rpd files for deployment.
 use anyhow::{Context, Result};
 use kanari_types::address::Address;
+use log::info;
 use move_command_line_common::address::NumericalAddress;
 use move_compiler::{Compiler, Flags};
 use move_symbol_pool::Symbol;
@@ -61,7 +62,7 @@ pub fn compile_package(
     version: &str,
     address: &str,
 ) -> Result<PathBuf> {
-    println!("📦 Compiling: {:?}", package_dir);
+    info!("Compiling: {:?}", package_dir);
 
     // Validate address format first
     NumericalAddress::parse_str(address)
@@ -80,7 +81,7 @@ pub fn compile_package(
         load_stdlib_dependencies(package_dir)?
     };
 
-    println!(
+    info!(
         "  Package: {} | Sources: {} | Deps: {}",
         package_name,
         source_files.len(),
@@ -90,7 +91,7 @@ pub fn compile_package(
     // Compile Move sources
     let compiled_modules = compile_move_source(source_files, dependencies, get_named_addresses())?;
 
-    println!("  ✓ Compiled {} modules", compiled_modules.len());
+    info!("Compiled {} modules", compiled_modules.len());
 
     // Create package data
     let package = KanariPackage {
@@ -115,7 +116,7 @@ pub fn compile_package(
         .context("Failed to serialize package to binary")?;
     fs::write(&output_file, bin_data)?;
 
-    println!("  ✓ Created: {:?}", output_file);
+    info!("Created: {:?}", output_file);
 
     Ok(output_file)
 }
@@ -229,15 +230,15 @@ fn get_named_addresses() -> BTreeMap<Symbol, NumericalAddress> {
 fn parse_package_name(content: &str) -> Option<String> {
     for line in content.lines() {
         let line = line.split('#').next()?.trim();
-        if line.starts_with("name") {
-            if let Some(name_part) = line.split('=').nth(1) {
-                return Some(
-                    name_part
-                        .trim()
-                        .trim_matches(|c| c == '"' || c == '\'')
-                        .to_string(),
-                );
-            }
+        if line.starts_with("name")
+            && let Some(name_part) = line.split('=').nth(1)
+        {
+            return Some(
+                name_part
+                    .trim()
+                    .trim_matches(|c| c == '"' || c == '\'')
+                    .to_string(),
+            );
         }
     }
     None

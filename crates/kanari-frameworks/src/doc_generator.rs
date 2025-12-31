@@ -5,7 +5,7 @@
 // This module handles generating documentation
 // for Move packages using move-docgen and move-errmapgen.
 use anyhow::{Context, Result};
-use log::LevelFilter;
+use log::{LevelFilter, info, warn};
 use move_command_line_common::{
     address::NumericalAddress,
     files::{MOVE_EXTENSION, extension_equals, find_filenames},
@@ -72,25 +72,25 @@ where
     F: FnOnce() -> R,
 {
     let now = Instant::now();
-    println!("⏳ {}...", label);
+    info!("{}...", label);
     let result = f();
     let elapsed = now.elapsed();
-    println!("✓ {} (took {:.2}s)", label, elapsed.as_secs_f64());
+    info!("{} (took {:.2}s)", label, elapsed.as_secs_f64());
     result
 }
 
 /// Generate documentation for a Move package
 pub fn generate_documentation(config: &PackageDocConfig) -> Result<()> {
-    println!("\n📚 Generating documentation for: {}", config.name);
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    info!("\nGenerating documentation for: {}", config.name);
+    info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     let source_files = config.get_source_files()?;
     if source_files.is_empty() {
-        println!("⚠️  No Move source files found in {}", config.sources_dir);
+        warn!("No Move source files found in {}", config.sources_dir);
         return Ok(());
     }
 
-    println!("📝 Found {} Move source file(s)", source_files.len());
+    info!("Found {} Move source file(s)", source_files.len());
 
     time_it(&format!("Generating {} documentation", config.name), || {
         std::fs::remove_dir_all(&config.docs_dir).ok();
@@ -102,9 +102,9 @@ pub fn generate_documentation(config: &PackageDocConfig) -> Result<()> {
         run_prover(make_errmap_options(config, &source_files))
     });
 
-    println!("✅ Documentation generated successfully!");
-    println!("  📁 Docs: {}", config.docs_dir);
-    println!("  📋 Error map: {}", config.errmap_file);
+    info!("Documentation generated successfully!");
+    info!("Docs: {}", config.docs_dir);
+    info!("Error map: {}", config.errmap_file);
 
     Ok(())
 }

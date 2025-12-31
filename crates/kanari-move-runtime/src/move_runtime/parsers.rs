@@ -19,7 +19,7 @@ impl super::MoveRuntime {
         // Diagnostic: print top-level summary of incoming Move changeset
         let acct_len = move_cs.accounts().len();
         let mut total_resources = 0usize;
-        for (_addr, acct) in move_cs.accounts() {
+        for acct in move_cs.accounts().values() {
             total_resources += acct.resources().len();
         }
         debug!(
@@ -49,50 +49,37 @@ impl super::MoveRuntime {
                 match op {
                     MoveOp::New(bytes) | MoveOp::Modify(bytes) => {
                         // Parse resource bytes and set per-account token balances when applicable
-                        if self.is_balance_resource(struct_tag) {
-                            if let Some(amount) = self.extract_balance_from_bytes(bytes, struct_tag)
-                            {
-                                if let Some(token_type) =
-                                    self.token_type_from_struct_tag(struct_tag)
-                                {
-                                    // Record absolute token balance for this account
-                                    kanari_cs.add_token_balance_set(
-                                        *addr,
-                                        token_type.clone(),
-                                        amount,
-                                    );
-                                    debug!(
-                                        "[PARSER] Set token balance for {}: {} = {}",
-                                        addr, token_type, amount
-                                    );
-                                }
-                            }
+                        if self.is_balance_resource(struct_tag)
+                            && let Some(amount) = self.extract_balance_from_bytes(bytes, struct_tag)
+                            && let Some(token_type) = self.token_type_from_struct_tag(struct_tag)
+                        {
+                            // Record absolute token balance for this account
+                            kanari_cs.add_token_balance_set(*addr, token_type.clone(), amount);
+                            debug!(
+                                "[PARSER] Set token balance for {}: {} = {}",
+                                addr, token_type, amount
+                            );
                         }
 
                         // Parse TreasuryCap resources: track total_supply and owner
-                        if self.is_treasury_resource(struct_tag) {
-                            if let Some(total) = self.extract_treasury_total_from_bytes(bytes) {
-                                if let Some(token_type) =
-                                    self.token_type_from_struct_tag(struct_tag)
-                                {
-                                    kanari_cs.add_treasury(*addr, token_type.clone(), total);
-                                    debug!(
-                                        "[PARSER] TreasuryCap for {} owner={} supply={}",
-                                        token_type, addr, total
-                                    );
+                        if self.is_treasury_resource(struct_tag)
+                            && let Some(total) = self.extract_treasury_total_from_bytes(bytes)
+                            && let Some(token_type) = self.token_type_from_struct_tag(struct_tag)
+                        {
+                            kanari_cs.add_treasury(*addr, token_type.clone(), total);
+                            debug!(
+                                "[PARSER] TreasuryCap for {} owner={} supply={}",
+                                token_type, addr, total
+                            );
 
-                                    // Persist treasury record so supply/owner survive restarts
-                                    if let Err(e) =
-                                        self.state.save_treasury(&token_type, addr, total)
-                                    {
-                                        log::warn!(
-                                            "Failed to persist treasury {} -> {}: {}",
-                                            token_type,
-                                            addr,
-                                            e
-                                        );
-                                    }
-                                }
+                            // Persist treasury record so supply/owner survive restarts
+                            if let Err(e) = self.state.save_treasury(&token_type, addr, total) {
+                                log::warn!(
+                                    "Failed to persist treasury {} -> {}: {}",
+                                    token_type,
+                                    addr,
+                                    e
+                                );
                             }
                         }
 
@@ -142,14 +129,14 @@ impl super::MoveRuntime {
                     }
                     MoveOp::Delete => {
                         // Resource deletion: if Coin/Balance deleted, set token balance to 0
-                        if self.is_balance_resource(struct_tag) {
-                            if let Some(token_type) = self.token_type_from_struct_tag(struct_tag) {
-                                kanari_cs.add_token_balance_set(*addr, token_type.clone(), 0);
-                                debug!(
-                                    "[PARSER] Deleted token resource for {}: {} -> balance 0",
-                                    addr, token_type
-                                );
-                            }
+                        if self.is_balance_resource(struct_tag)
+                            && let Some(token_type) = self.token_type_from_struct_tag(struct_tag)
+                        {
+                            kanari_cs.add_token_balance_set(*addr, token_type.clone(), 0);
+                            debug!(
+                                "[PARSER] Deleted token resource for {}: {} -> balance 0",
+                                addr, token_type
+                            );
                         } else {
                             debug!("[PARSER] Resource deleted for {}: {}", addr, struct_tag);
                         }

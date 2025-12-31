@@ -124,8 +124,14 @@ impl TreasuryCap {
     pub fn burn(&mut self, coin: CoinRecord) -> u64 {
         let value = coin.burn();
         assert!(self.total_supply >= value, "underflow");
-        self.total_supply = self.total_supply - value;
+        self.total_supply -= value;
         value
+    }
+}
+
+impl Default for TreasuryCap {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

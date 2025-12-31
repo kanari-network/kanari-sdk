@@ -54,7 +54,7 @@ impl Account {
         let entry = self
             .token_balances
             .entry(token_type)
-            .or_insert_with(|| BalanceRecord::zero());
+            .or_insert_with(BalanceRecord::zero);
         entry.increase(amount).unwrap();
     }
 
@@ -238,7 +238,7 @@ impl StateManager {
             self.objects.insert(obj_id.clone(), created.clone());
             self.owned_objects
                 .entry(created.owner)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(obj_id);
         }
 

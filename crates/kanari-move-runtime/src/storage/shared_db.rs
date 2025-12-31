@@ -17,12 +17,10 @@ static GLOBAL_DB_PATH: OnceCell<PathBuf> = OnceCell::new();
 pub fn get_or_open_db(path_opt: Option<PathBuf>) -> Result<Arc<DB>> {
     if let Some(db) = GLOBAL_DB.get() {
         // Already opened. If a path was provided, ensure it matches the existing one.
-        if let Some(p) = path_opt {
-            if let Some(existing) = GLOBAL_DB_PATH.get() {
-                if existing != &p {
-                    anyhow::bail!("RocksDB already opened with a different path");
-                }
-            }
+        if let (Some(p), Some(existing)) = (path_opt.as_ref(), GLOBAL_DB_PATH.get())
+            && existing != p
+        {
+            anyhow::bail!("RocksDB already opened with a different path");
         }
         return Ok(db.clone());
     }

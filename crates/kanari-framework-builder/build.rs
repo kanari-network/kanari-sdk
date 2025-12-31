@@ -50,8 +50,10 @@ fn main() {
 
         // Use move-package crate programmatically
         // install_dir points to the package dir, compiler will create build/ inside it
-        let mut config = move_package::BuildConfig::default();
-        config.install_dir = Some(path.clone());
+        let config = move_package::BuildConfig {
+            install_dir: Some(path.clone()),
+            ..Default::default()
+        };
 
         // compile_package consumes the config
         match config.compile_package(&path, &mut io::stdout()) {

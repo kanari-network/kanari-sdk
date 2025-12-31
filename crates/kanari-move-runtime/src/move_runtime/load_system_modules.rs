@@ -3,6 +3,7 @@
 
 use anyhow::Result;
 use kanari_types::address::Address as KanariAddress;
+use log::{info, warn};
 use move_core_types::account_address::AccountAddress;
 
 /// Load move-stdlib and kanari-system modules as methods on `MoveRuntime`
@@ -27,28 +28,27 @@ impl super::MoveRuntime {
             if candidate1.exists() {
                 candidate1
             } else if let Some(parent) = cwd.parent() {
-                let candidate2 = parent
+                parent
                     .join("crates")
                     .join("kanari-frameworks")
                     .join("packages")
                     .join("move-stdlib")
                     .join("build")
                     .join("MoveStdlib")
-                    .join("bytecode_modules");
-                candidate2
+                    .join("bytecode_modules")
             } else {
                 candidate1
             }
         };
 
-        println!("✓ Looking for Move stdlib modules at: {:?}", modules_dir);
+        info!("✓ Looking for Move stdlib modules at: {:?}", modules_dir);
 
         if !modules_dir.exists() {
-            eprintln!(
+            warn!(
                 "Warning: Move stdlib modules not found at {:?}",
                 modules_dir
             );
-            eprintln!("Standard library will not be pre-loaded.");
+            warn!("Standard library will not be pre-loaded.");
             return Ok(());
         }
 
@@ -85,7 +85,7 @@ impl super::MoveRuntime {
             }
         }
 
-        println!("✓ Loaded {} move-stdlib modules (0x1::*)", count);
+        info!("✓ Loaded {} move-stdlib modules (0x1::*)", count);
         Ok(())
     }
 
@@ -122,21 +122,18 @@ impl super::MoveRuntime {
             }
         };
 
-        println!("✓ Looking for Kanari system modules at: {:?}", modules_dir);
+        info!("✓ Looking for Kanari system modules at: {:?}", modules_dir);
 
         if !modules_dir.exists() {
-            eprintln!(
+            warn!(
                 "Warning: Kanari system modules not found at {:?}",
                 modules_dir
             );
-            eprintln!(
-                "System modules will not be pre-loaded. You may need to publish them manually."
-            );
-            eprintln!();
-            eprintln!("To fix this:");
-            eprintln!("  cd crates/kanari-frameworks/packages/move-stdlib");
-            eprintln!("  cd crates/kanari-frameworks/packages/kanari-system");
-            eprintln!("  kanari move build");
+            warn!("System modules will not be pre-loaded. You may need to publish them manually.");
+            warn!("To fix this:");
+            warn!("  cd crates/kanari-frameworks/packages/move-stdlib");
+            warn!("  cd crates/kanari-frameworks/packages/kanari-system");
+            warn!("  kanari move build");
             return Ok(());
         }
 
@@ -181,7 +178,7 @@ impl super::MoveRuntime {
             }
         }
 
-        println!("✓ Loaded {} kanari-system modules (0x2::*)", count);
+        info!("✓ Loaded {} kanari-system modules (0x2::*)", count);
         Ok(())
     }
 }

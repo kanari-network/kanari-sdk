@@ -31,17 +31,9 @@ pub struct TransferredObject {
 }
 
 /// Extension stored in the Move VM native context for this execution
-#[derive(Tid)]
+#[derive(Tid, Default)]
 pub struct TransferredObjectsExt {
     pub objects: Vec<TransferredObject>,
-}
-
-impl Default for TransferredObjectsExt {
-    fn default() -> Self {
-        Self {
-            objects: Vec::new(),
-        }
-    }
 }
 
 impl TransferredObjectsExt {

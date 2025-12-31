@@ -17,7 +17,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::{env, time::Duration};
 use tokio::time::sleep;
-use tracing_subscriber;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -32,20 +31,20 @@ async fn main() -> Result<()> {
         "list-wallets" => {
             let wallets = list_wallet_files()?;
             for (addr, selected) in wallets {
-                println!("{}{}", addr, if selected { " (selected)" } else { "" });
+                tracing::info!("{}{}", addr, if selected { " (selected)" } else { "" });
             }
             return Ok(());
         }
 
         "stats" => {
             let stats = engine.get_stats();
-            println!("Blockchain Statistics:");
-            println!("  Height: {}", stats.height);
-            println!("  Total Blocks: {}", stats.total_blocks);
-            println!("  Total Transactions: {}", stats.total_transactions);
-            println!("  Pending Transactions: {}", stats.pending_transactions);
-            println!("  Total Accounts: {}", stats.total_accounts);
-            println!("  Total Supply: {} Kanari", stats.total_supply);
+            tracing::info!("Blockchain Statistics:");
+            tracing::info!("  Height: {}", stats.height);
+            tracing::info!("  Total Blocks: {}", stats.total_blocks);
+            tracing::info!("  Total Transactions: {}", stats.total_transactions);
+            tracing::info!("  Pending Transactions: {}", stats.pending_transactions);
+            tracing::info!("  Total Accounts: {}", stats.total_accounts);
+            tracing::info!("  Total Supply: {} Kanari", stats.total_supply);
             return Ok(());
         }
 
@@ -55,15 +54,15 @@ async fn main() -> Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("Usage: account <address>"))?;
             match engine.get_account_info(address) {
                 Some(info) => {
-                    println!("  Account: {}", info.address);
-                    println!("  Balance: {}", info.balance);
-                    println!("  Sequence: {}", info.sequence_number);
-                    println!("  Modules: {}", info.modules.len());
+                    tracing::info!("  Account: {}", info.address);
+                    tracing::info!("  Balance: {}", info.balance);
+                    tracing::info!("  Sequence: {}", info.sequence_number);
+                    tracing::info!("  Modules: {}", info.modules.len());
                     for module in &info.modules {
-                        println!("    - {}", module);
+                        tracing::info!("    - {}", module);
                     }
                 }
-                None => println!("Account not found: {}", address),
+                None => tracing::info!("Account not found: {}", address),
             }
             return Ok(());
         }
@@ -75,13 +74,13 @@ async fn main() -> Result<()> {
                 .parse()?;
             match engine.get_block(height) {
                 Some(block) => {
-                    println!("  Block #{}", block.height);
-                    println!("  Timestamp: {}", block.timestamp);
-                    println!("  Hash: {}", block.hash);
-                    println!("  Prev Hash: {}", block.prev_hash);
-                    println!("  Transactions: {}", block.tx_count);
+                    tracing::info!("  Block #{}", block.height);
+                    tracing::info!("  Timestamp: {}", block.timestamp);
+                    tracing::info!("  Hash: {}", block.hash);
+                    tracing::info!("  Prev Hash: {}", block.prev_hash);
+                    tracing::info!("  Transactions: {}", block.tx_count);
                 }
-                None => println!("Block not found: {}", height),
+                None => tracing::info!("Block not found: {}", height),
             }
             return Ok(());
         }
@@ -99,9 +98,9 @@ async fn main() -> Result<()> {
             let bytes = std::fs::read(&path)?;
             // use system address as sender
             let sender = AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS)?;
-            println!("Publishing {}...", path.display());
+            tracing::info!("Publishing {}...", path.display());
             rt.publish_module(bytes, sender, None)?;
-            println!("Published.");
+            tracing::info!("Published.");
             return Ok(());
         }
 
@@ -117,8 +116,8 @@ async fn main() -> Result<()> {
             match move_binary_format::file_format::CompiledModule::deserialize_with_defaults(&bytes)
             {
                 Ok(compiled) => {
-                    println!("ModuleId address: {}", compiled.self_id().address());
-                    println!("ModuleId name: {}", compiled.self_id().name());
+                    tracing::info!("ModuleId address: {}", compiled.self_id().address());
+                    tracing::info!("ModuleId name: {}", compiled.self_id().name());
                 }
                 Err(e) => eprintln!("Failed to deserialize module: {:?}", e),
             }

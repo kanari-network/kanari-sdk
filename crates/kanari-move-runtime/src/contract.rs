@@ -203,7 +203,7 @@ impl ContractRegistry {
         // Add to address_modules index
         self.address_modules
             .entry(contract.address.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(contract.module_name.clone());
 
         // Add to contracts

@@ -25,9 +25,9 @@ pub struct Balances {
 
 impl Balances {
     pub fn execute(&self) -> Result<()> {
-        println!("Querying token balances...");
-        println!("   Address: {}", self.address);
-        println!("   RPC: {}\n", self.rpc_endpoint);
+        tracing::info!("Querying token balances...");
+        tracing::info!("   Address: {}", self.address);
+        tracing::info!("   RPC: {}\n", self.rpc_endpoint);
 
         let client = Client::new();
         let request = serde_json::json!({
@@ -48,14 +48,17 @@ impl Balances {
         let rpc_response: Value = response.json().context("Failed to parse RPC response")?;
 
         if let Some(error) = rpc_response.get("error") {
-            println!("❌ Error: {}", error.get("message").unwrap_or(&Value::Null));
+            tracing::info!(
+                "Error: {}",
+                error.get("message").unwrap_or(&serde_json::Value::Null)
+            );
             return Ok(());
         }
 
         if let Some(result) = rpc_response.get("result") {
             if let Some(balances) = result.get("balances").and_then(|b| b.as_array()) {
-                println!("TOKEN BALANCES");
-                println!("------------------------------");
+                tracing::info!("TOKEN BALANCES");
+                tracing::info!("------------------------------");
 
                 for balance in balances {
                     let token_type = balance
@@ -81,136 +84,114 @@ impl Balances {
                     let fraction = amount % divisor;
 
                     if self.detailed {
-                        println!("Token: {}", symbol);
-                        println!(
+                        tracing::info!("Token: {}", symbol);
+                        tracing::info!(
                             "  Balance: {}.{:0width$} {}",
                             whole,
                             fraction,
                             symbol,
                             width = decimals as usize
                         );
-                        println!("  Type: {}", token_type);
-                        println!("  Raw Amount: {}", amount);
-                        println!("------------------------------");
+                        tracing::info!("  Type: {}", token_type);
+                        tracing::info!("  Raw Amount: {}", amount);
+                        tracing::info!("------------------------------");
                     } else {
-                        println!("  {} {}.{:0<9}", symbol, whole, fraction);
+                        tracing::info!("  {} {}.{:0<9}", symbol, whole, fraction);
                     }
                 }
-                println!("\nTotal tokens: {}", balances.len());
+                tracing::info!("\nTotal tokens: {}", balances.len());
                 // If only the native KANARI balance is present, attempt a best-effort
                 // fallback: inspect account `owned_objects` for token metadata (e.g., TreasuryCap/CoinMetadata)
-                if balances.len() == 1 {
-                    if let Some(first) = balances.get(0) {
-                        if first.get("token_type").and_then(|t| t.as_str()) == Some("KANARI") {
-                            // Fetch full account info and look for token objects
-                            let acct_req = serde_json::json!({
-                                "jsonrpc": "2.0",
-                                "method": "kanari_getAccount",
-                                "params": { "address": self.address },
-                                "id": 1
-                            });
+                if balances.len() == 1
+                    && let Some(first) = balances.first()
+                    && first.get("token_type").and_then(|t| t.as_str()) == Some("KANARI")
+                {
+                    // Fetch full account info and look for token objects
+                    let acct_req = serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "method": "kanari_getAccount",
+                        "params": { "address": self.address },
+                        "id": 1
+                    });
 
-                            if let Ok(resp) = Client::new()
-                                .post(&self.rpc_endpoint)
-                                .json(&acct_req)
-                                .send()
-                            {
-                                if let Ok(val) = resp.json::<serde_json::Value>() {
-                                    if let Some(result_acc) = val.get("result") {
-                                        if let Some(owned) = result_acc
-                                            .get("owned_objects")
-                                            .and_then(|v| v.as_array())
-                                        {
-                                            println!("\nDetected owned objects (possible tokens):");
-                                            for obj in owned.iter() {
-                                                let id = obj
-                                                    .get("id")
-                                                    .and_then(|v| v.as_str())
-                                                    .unwrap_or("?");
-                                                let ty = obj
-                                                    .get("type_")
-                                                    .and_then(|v| v.as_str())
-                                                    .unwrap_or("?");
+                    if let Ok(resp) = Client::new()
+                        .post(&self.rpc_endpoint)
+                        .json(&acct_req)
+                        .send()
+                        && let Ok(val) = resp.json::<serde_json::Value>()
+                        && let Some(result_acc) = val.get("result")
+                        && let Some(owned) =
+                            result_acc.get("owned_objects").and_then(|v| v.as_array())
+                    {
+                        tracing::info!("\nDetected owned objects (possible tokens):");
+                        for obj in owned.iter() {
+                            let id = obj.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                            let ty = obj.get("type_").and_then(|v| v.as_str()).unwrap_or("?");
 
-                                                // If this looks like a coin object, try fetching the object
-                                                // and parsing the last 8 bytes as a little-endian u64 amount.
-                                                if ty.contains("::coin::Coin<") {
-                                                    let obj_req = serde_json::json!({
-                                                        "jsonrpc": "2.0",
-                                                        "method": "kanari_getObject",
-                                                        "params": { "object_id": id },
-                                                        "id": 1
-                                                    });
+                            // If this looks like a coin object, try fetching the object
+                            // and parsing the last 8 bytes as a little-endian u64 amount.
+                            if ty.contains("::coin::Coin<") {
+                                let obj_req = serde_json::json!({
+                                    "jsonrpc": "2.0",
+                                    "method": "kanari_getObject",
+                                    "params": { "object_id": id },
+                                    "id": 1
+                                });
 
-                                                    match Client::new()
-                                                        .post(&self.rpc_endpoint)
-                                                        .json(&obj_req)
-                                                        .send()
-                                                    {
-                                                        Ok(resp) => {
-                                                            match resp.json::<serde_json::Value>() {
-                                                                Ok(val) => {
-                                                                    if let Some(res) =
-                                                                        val.get("result")
-                                                                    {
-                                                                        if let Some(data_arr) = res
-                                                                            .get("data")
-                                                                            .and_then(|d| {
-                                                                                d.as_array()
-                                                                            })
-                                                                        {
-                                                                            if data_arr.len() >= 8 {
-                                                                                let n =
-                                                                                    data_arr.len();
-                                                                                let mut bytes =
-                                                                                    [0u8; 8];
-                                                                                let mut ok = true;
-                                                                                for i in 0..8 {
-                                                                                    match data_arr[n - 8 + i].as_u64() {
-                                                                                    Some(b) if b <= 0xff => bytes[i] = b as u8,
-                                                                                    _ => { ok = false; break; }
-                                                                                }
-                                                                                }
-                                                                                if ok {
-                                                                                    let amount = u64::from_le_bytes(bytes);
-                                                                                    // Display using same formatting as other balances (9 decimals default)
-                                                                                    let decimals =
-                                                                                        9u32;
-                                                                                    let divisor = 10u64.pow(decimals);
-                                                                                    let whole = amount / divisor;
-                                                                                    let fraction = amount % divisor;
-                                                                                    println!("  {}  ({}) -> {} {}.{:0width$}", id, ty, "TOKEN", whole, fraction, width = decimals as usize);
-                                                                                    continue;
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
-                                                                Err(_) => {}
-                                                            }
-                                                        }
-                                                        Err(_) => {}
-                                                    }
-                                                }
-
-                                                // Fallback: just print id and type
-                                                println!("  {}  ({})", id, ty);
+                                if let Ok(resp) =
+                                    Client::new().post(&self.rpc_endpoint).json(&obj_req).send()
+                                    && let Ok(val) = resp.json::<serde_json::Value>()
+                                    && let Some(res) = val.get("result")
+                                    && let Some(data_arr) =
+                                        res.get("data").and_then(|d| d.as_array())
+                                    && data_arr.len() >= 8
+                                {
+                                    let n = data_arr.len();
+                                    let mut bytes = [0u8; 8];
+                                    let mut ok = true;
+                                    for i in 0..8 {
+                                        match data_arr[n - 8 + i].as_u64() {
+                                            Some(b) if b <= 0xff => bytes[i] = b as u8,
+                                            _ => {
+                                                ok = false;
+                                                break;
                                             }
-                                            println!(
-                                                "\nTip: use `kanari account get --address <addr>` to inspect object data and determine token types."
-                                            );
                                         }
+                                    }
+                                    if ok {
+                                        let amount = u64::from_le_bytes(bytes);
+                                        // Display using same formatting as other balances (9 decimals default)
+                                        let decimals = 9u32;
+                                        let divisor = 10u64.pow(decimals);
+                                        let whole = amount / divisor;
+                                        let fraction = amount % divisor;
+                                        tracing::info!(
+                                            "  {}  ({}) -> {} {}.{:0width$}",
+                                            id,
+                                            ty,
+                                            "TOKEN",
+                                            whole,
+                                            fraction,
+                                            width = decimals as usize
+                                        );
+                                        continue;
                                     }
                                 }
                             }
+
+                            // Fallback: just print id and type
+                            tracing::info!("  {}  ({})", id, ty);
                         }
+                        tracing::info!(
+                            "\nTip: use `kanari account get --address <addr>` to inspect object data and determine token types."
+                        );
                     }
                 }
             } else {
-                println!("No balances found");
+                tracing::info!("No balances found");
             }
         } else {
-            println!("Invalid response format");
+            tracing::info!("Invalid response format");
         }
 
         Ok(())

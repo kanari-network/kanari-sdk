@@ -40,11 +40,10 @@ impl Verify {
             let config = BuildConfig::default();
             let compiled = config.compile_package(&rooted, &mut std::io::stderr())?;
             let mut found = None;
-            for mu in compiled.all_modules() {
+            if let Some(mu) = compiled.all_modules().next() {
                 let mut b = vec![];
                 mu.unit.module.serialize(&mut b)?;
                 found = Some(b);
-                break;
             }
             found.ok_or_else(|| anyhow::anyhow!("No modules found in package"))?
         } else {
@@ -60,7 +59,7 @@ impl Verify {
             id: 1,
         };
 
-        println!("Sending verify request to {}...", self.rpc_endpoint);
+        tracing::info!("Sending verify request to {}...", self.rpc_endpoint);
         let resp = client
             .post(&self.rpc_endpoint)
             .json(&req)
@@ -73,9 +72,9 @@ impl Verify {
         }
 
         if let Some(result) = rpc_resp.result {
-            println!("Verify result: {}", result);
+            tracing::info!("Verify result: {}", result);
         } else {
-            println!("No result returned from verifier");
+            tracing::info!("No result returned from verifier");
         }
 
         Ok(())

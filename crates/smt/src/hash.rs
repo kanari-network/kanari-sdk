@@ -1,5 +1,4 @@
 // Small hash abstraction layer using BLAKE3 (fast software hash).
-use blake3;
 
 /// Compute a 32-byte digest of `data` using BLAKE3.
 pub fn digest(data: &[u8]) -> [u8; 32] {

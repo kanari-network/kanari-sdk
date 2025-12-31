@@ -38,6 +38,7 @@ pub struct MoveRuntime {
     pub(crate) storage: InMemoryStorage,
     pub(crate) state: MoveVMState,
     /// Whether to use gas metering in VM sessions
+    #[allow(dead_code)]
     pub(crate) enable_gas_metering: bool,
     /// Index of published modules for faster listing
     pub(crate) published_modules: HashSet<ModuleId>,
@@ -189,7 +190,7 @@ impl MoveRuntime {
         {
             let mut acct_count = 0usize;
             let mut res_count = 0usize;
-            for (_addr, acct) in move_changeset.accounts() {
+            for acct in move_changeset.accounts().values() {
                 acct_count += 1;
                 res_count += acct.resources().len();
             }
@@ -297,29 +298,26 @@ impl MoveRuntime {
                 if let Ok(s) = std::str::from_utf8(&arg) {
                     let s_trim = s.trim();
                     // hex with 0x
-                    if s_trim.starts_with("0x") {
-                        let hex_part = &s_trim[2..];
-                        if let Ok(bytes) = hex::decode(hex_part) {
-                            if bytes.len() == 32 {
-                                return bytes;
-                            }
-                        }
+                    if let Some(hex_part) = s_trim.strip_prefix("0x")
+                        && let Ok(bytes) = hex::decode(hex_part)
+                        && bytes.len() == 32
+                    {
+                        return bytes;
                     }
 
                     // pure hex without 0x
-                    if s_trim.len() == 64 {
-                        if let Ok(bytes) = hex::decode(s_trim) {
-                            if bytes.len() == 32 {
-                                return bytes;
-                            }
-                        }
+                    if s_trim.len() == 64
+                        && let Ok(bytes) = hex::decode(s_trim)
+                        && bytes.len() == 32
+                    {
+                        return bytes;
                     }
 
                     // decimal integer -> serialize as u64 (common for amounts)
-                    if let Ok(n) = s_trim.parse::<u64>() {
-                        if let Ok(b) = bcs::to_bytes(&n) {
-                            return b;
-                        }
+                    if let Ok(n) = s_trim.parse::<u64>()
+                        && let Ok(b) = bcs::to_bytes(&n)
+                    {
+                        return b;
                     }
                 }
                 arg

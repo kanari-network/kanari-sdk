@@ -159,12 +159,7 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
                     // Try to parse last 8 bytes from obj.data (which is Vec<u8> in RPC types)
                     if obj.data.len() >= 8 {
                         let n = obj.data.len();
-                        let mut bytes = [0u8; 8];
-                        let ok = true;
-                        for i in 0..8 {
-                            bytes[i] = obj.data[n - 8 + i];
-                        }
-                        if ok {
+                        if let Ok(bytes) = obj.data[n - 8..].try_into() {
                             let amount = u64::from_le_bytes(bytes) as u128;
                             // token_type = the generic type inside Coin<...>
                             // We'll use the full object type as token_type for uniqueness

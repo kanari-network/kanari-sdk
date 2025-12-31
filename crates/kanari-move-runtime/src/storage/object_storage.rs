@@ -140,10 +140,7 @@ impl ObjectStorage {
         // Build owner index from objects
         let mut owner_map: HashMap<AccountAddress, Vec<String>> = HashMap::new();
         for (id, obj) in objects_map.iter() {
-            owner_map
-                .entry(obj.owner)
-                .or_insert_with(Vec::new)
-                .push(id.clone());
+            owner_map.entry(obj.owner).or_default().push(id.clone());
         }
 
         Ok(Self {
@@ -176,10 +173,7 @@ impl ObjectStorage {
             let mut owner_index = self.owner_index.write().map_err(|e| {
                 ObjectStorageError::LockError(format!("Failed to acquire write lock: {}", e))
             })?;
-            owner_index
-                .entry(owner)
-                .or_insert_with(Vec::new)
-                .push(id.clone());
+            owner_index.entry(owner).or_default().push(id.clone());
         }
 
         // Persist to DB if available
@@ -218,25 +212,23 @@ impl ObjectStorage {
     /// Get object by ID
     pub fn get_object(&self, id: &str) -> Option<StoredObject> {
         // Prefer in-memory; if not present and persistent enabled, try loading from DB
-        if let Ok(objects) = self.objects.read() {
-            if let Some(obj) = objects.get(id).cloned() {
-                return Some(obj);
-            }
+        if let Ok(objects) = self.objects.read()
+            && let Some(obj) = objects.get(id).cloned()
+        {
+            return Some(obj);
         }
 
-        if let Some(store) = &self.persistent {
-            if let Ok(Some(obj)) = store.load::<StoredObject>(&format!("object:{}", id)) {
-                // populate in-memory caches
-                let _ = self.objects.write().map(|mut o| {
-                    o.insert(id.to_string(), obj.clone());
-                });
-                let _ = self.owner_index.write().map(|mut idx| {
-                    idx.entry(obj.owner)
-                        .or_insert_with(Vec::new)
-                        .push(id.to_string());
-                });
-                return Some(obj);
-            }
+        if let Some(store) = &self.persistent
+            && let Ok(Some(obj)) = store.load::<StoredObject>(&format!("object:{}", id))
+        {
+            // populate in-memory caches
+            let _ = self.objects.write().map(|mut o| {
+                o.insert(id.to_string(), obj.clone());
+            });
+            let _ = self.owner_index.write().map(|mut idx| {
+                idx.entry(obj.owner).or_default().push(id.to_string());
+            });
+            return Some(obj);
         }
         None
     }
@@ -326,9 +318,7 @@ impl ObjectStorage {
                 ObjectStorageError::LockError(format!("Failed to acquire write lock: {}", e))
             })?;
 
-            let obj = objects
-                .get_mut(id)
-                .ok_or_else(|| ObjectStorageError::NotFound)?;
+            let obj = objects.get_mut(id).ok_or(ObjectStorageError::NotFound)?;
 
             let old_owner = obj.owner;
             obj.owner = new_owner;
@@ -349,23 +339,21 @@ impl ObjectStorage {
             // Add to new owner
             owner_index
                 .entry(new_owner)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(id.to_string());
         }
 
         // Persist updated object if available
-        if let Some(store) = &self.persistent {
-            // fetch the updated object from memory
-            if let Ok(objects) = self.objects.read() {
-                if let Some(obj) = objects.get(id) {
-                    store.save(&format!("object:{}", id), obj).map_err(|e| {
-                        ObjectStorageError::PersistenceError(format!(
-                            "Failed to persist transferred object: {}",
-                            e
-                        ))
-                    })?;
-                }
-            }
+        if let Some(store) = &self.persistent
+            && let Ok(objects) = self.objects.read()
+            && let Some(obj) = objects.get(id)
+        {
+            store.save(&format!("object:{}", id), obj).map_err(|e| {
+                ObjectStorageError::PersistenceError(format!(
+                    "Failed to persist transferred object: {}",
+                    e
+                ))
+            })?;
         }
 
         Ok(())

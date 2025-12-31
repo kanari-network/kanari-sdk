@@ -48,6 +48,12 @@ impl DenyListRecord {
     }
 }
 
+impl Default for DenyListRecord {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// DenyCap wrapper (mirrors `DenyCap<T>` which contains an `object::UID`)
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DenyCapRecord {

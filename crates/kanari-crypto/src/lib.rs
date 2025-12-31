@@ -347,10 +347,10 @@ impl RateLimiter {
     pub fn get_lockout_remaining(&self, identifier: &str) -> Option<u64> {
         let now = get_current_timestamp();
 
-        if let Some((_, locked_until)) = self.attempts.get(identifier) {
-            if now < *locked_until {
-                return Some(*locked_until - now);
-            }
+        if let Some((_, locked_until)) = self.attempts.get(identifier)
+            && now < *locked_until
+        {
+            return Some(*locked_until - now);
         }
 
         None

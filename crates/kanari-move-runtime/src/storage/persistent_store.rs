@@ -13,6 +13,10 @@ use rocksdb::DB;
 use smt::SparseMerkleTree;
 use zstd;
 
+/// Aliases to simplify complex SMT-related return types
+pub type SmtProof = (bool, [u8; 32], Vec<[u8; 32]>);
+pub type SmtSnapshot = Vec<(Vec<u8>, Vec<u8>)>;
+
 /// Background write operation for batched persistence.
 enum WriteOp {
     Put(Vec<u8>, Vec<u8>),
@@ -126,7 +130,7 @@ impl PersistentStore {
 
         if sync {
             if let Some(smt_store) = &self.smt {
-                smt_store.insert(&vec![(key.as_bytes().to_vec(), bytes)])?;
+                smt_store.insert(&[(key.as_bytes().to_vec(), bytes)])?;
                 return Ok(());
             }
 
@@ -157,12 +161,12 @@ impl PersistentStore {
     /// Load a value encoded with BCS from `key` if it exists.
     pub fn load<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
         // Try SMT first
-        if let Some(smt_store) = &self.smt {
-            if let Ok(Some(b)) = smt_store.get(key.as_bytes()) {
-                let obj = bcs::from_bytes(&b)
-                    .context("Failed to deserialize value from PersistentStore (SMT)")?;
-                return Ok(Some(obj));
-            }
+        if let Some(smt_store) = &self.smt
+            && let Ok(Some(b)) = smt_store.get(key.as_bytes())
+        {
+            let obj = bcs::from_bytes(&b)
+                .context("Failed to deserialize value from PersistentStore (SMT)")?;
+            return Ok(Some(obj));
         }
 
         // Fallback to RocksDB
@@ -183,7 +187,7 @@ impl PersistentStore {
 
     /// Produce an SMT membership proof for a `key` if SMT backend is available.
     /// Returns Ok(None) when SMT isn't configured; otherwise Some((is_member, leaf_hash, siblings)).
-    pub fn proof(&self, key: &str) -> Result<Option<(bool, [u8; 32], Vec<[u8; 32]>)>> {
+    pub fn proof(&self, key: &str) -> Result<Option<SmtProof>> {
         if let Some(smt_store) = &self.smt {
             let p = smt_store.proof(key.as_bytes())?;
             Ok(Some(p))
@@ -241,13 +245,9 @@ impl PersistentStore {
                 idx.push(height);
 
                 while idx.len() > retention {
-                    if let Some(old) = idx.get(0).cloned() {
-                        let old_key = format!("smt_snapshot:{}", old);
-                        let _ = db.delete(old_key.as_bytes());
-                        idx.remove(0);
-                    } else {
-                        break;
-                    }
+                    let old = idx.remove(0);
+                    let old_key = format!("smt_snapshot:{}", old);
+                    let _ = db.delete(old_key.as_bytes());
                 }
 
                 let _ = db.put(b"smt_snapshots_index", bcs::to_bytes(&idx)?);
@@ -261,7 +261,7 @@ impl PersistentStore {
     }
 
     /// Load an SMT snapshot saved for a block height.
-    pub fn load_smt_snapshot(&self, height: u64) -> Result<Option<Vec<(Vec<u8>, Vec<u8>)>>> {
+    pub fn load_smt_snapshot(&self, height: u64) -> Result<Option<SmtSnapshot>> {
         let key = format!("smt_snapshot:{}", height);
         // Read raw compressed bytes directly from RocksDB
         if let Some(db) = &self.db {
@@ -270,7 +270,7 @@ impl PersistentStore {
                     // decompress then deserialize
                     let decompressed = zstd::bulk::decompress(&v, 0)
                         .context("Failed to decompress SMT snapshot")?;
-                    let pairs: Vec<(Vec<u8>, Vec<u8>)> = bcs::from_bytes(&decompressed)
+                    let pairs: SmtSnapshot = bcs::from_bytes(&decompressed)
                         .context("Failed to deserialize SMT snapshot")?;
                     Ok(Some(pairs))
                 }
@@ -284,20 +284,16 @@ impl PersistentStore {
 
     /// Prune snapshots to keep only the latest `retention` entries.
     pub fn prune_smt_snapshots(&self, retention: usize) -> Result<()> {
-        if let Some(db) = &self.db {
-            if let Ok(Some(v)) = db.get(b"smt_snapshots_index") {
-                let mut idx: Vec<u64> = bcs::from_bytes(&v).unwrap_or_default();
-                while idx.len() > retention {
-                    if let Some(old) = idx.get(0).cloned() {
-                        let old_key = format!("smt_snapshot:{}", old);
-                        let _ = db.delete(old_key.as_bytes());
-                        idx.remove(0);
-                    } else {
-                        break;
-                    }
-                }
-                let _ = db.put(b"smt_snapshots_index", bcs::to_bytes(&idx)?);
+        if let Some(db) = &self.db
+            && let Ok(Some(v)) = db.get(b"smt_snapshots_index")
+        {
+            let mut idx: Vec<u64> = bcs::from_bytes(&v).unwrap_or_default();
+            while idx.len() > retention {
+                let old = idx.remove(0);
+                let old_key = format!("smt_snapshot:{}", old);
+                let _ = db.delete(old_key.as_bytes());
             }
+            let _ = db.put(b"smt_snapshots_index", bcs::to_bytes(&idx)?);
         }
         Ok(())
     }

@@ -65,7 +65,7 @@ pub struct Call {
 
 impl Call {
     pub fn execute(self) -> Result<()> {
-        println!("Preparing function call...");
+        tracing::info!("Preparing function call...");
 
         // Normalize and validate addresses
 
@@ -84,19 +84,20 @@ impl Call {
         let package_normalized = normalize_addr(package_str)
             .with_context(|| format!("Invalid package address: {}", package_str))?;
 
-        println!("Call Details:");
-        println!("   Package: {}::{}", package_normalized, module_name);
-        println!("   Function: {}", self.function);
-        println!("   Sender: {}", sender_normalized);
-        println!("   Gas Limit: {}", self.gas_limit);
-        println!("   Gas Price: {}", self.gas_price);
+        tracing::info!("Call Details:");
+        tracing::info!("   Package: {}::{}", package_normalized, module_name);
+        tracing::info!("   Function: {}", self.function);
+        tracing::info!("   Sender: {}", sender_normalized);
+        tracing::info!("   Gas Limit: {}", self.gas_limit);
+        tracing::info!("   Gas Price: {}", self.gas_price);
 
         // Load wallet (signing is required). If password not provided via CLI, prompt.
         let wallet = {
             let w = load_wallet_for(&sender_normalized, self.password.clone())?;
-            println!(
+            tracing::info!(
                 "   Wallet loaded: {} (curve: {})",
-                sender_normalized, w.curve_type
+                sender_normalized,
+                w.curve_type
             );
             w
         };
@@ -111,7 +112,7 @@ impl Call {
                     .with_context(|| format!("Invalid type argument: {}", type_arg))?;
                 validated.push(type_arg.clone());
             }
-            println!("   Type Args: {}", self.type_args.join(", "));
+            tracing::info!("   Type Args: {}", self.type_args.join(", "));
             validated
         } else {
             vec![]
@@ -158,7 +159,7 @@ impl Call {
                 i += 1;
             }
 
-            println!("   Arguments: {} args provided", parsed.len());
+            tracing::info!("   Arguments: {} args provided", parsed.len());
             parsed
         } else {
             vec![]
@@ -169,16 +170,17 @@ impl Call {
             function_name_len: self.function.len(),
         };
         let estimate = GasEstimate::from_operation(operation, self.gas_price);
-        println!("Gas estimation:");
-        println!("   Estimated: {} units", estimate.gas_units);
-        println!("   Limit: {} units", self.gas_limit);
-        println!(
+        tracing::info!("Gas estimation:");
+        tracing::info!("   Estimated: {} units", estimate.gas_units);
+        tracing::info!("   Limit: {} units", self.gas_limit);
+        tracing::info!(
             "   Total Cost: {} Mist ({:.9} KANARI)",
-            estimate.total_cost_mist, estimate.total_cost_kanari
+            estimate.total_cost_mist,
+            estimate.total_cost_kanari
         );
 
         // Create transaction
-        println!("Creating transaction...");
+        tracing::info!("Creating transaction...");
 
         // Query account sequence number so signature and RPC include it (fail-fast)
         let client = build_blocking_client(30)?;
@@ -207,7 +209,7 @@ impl Call {
             // Sign with wallet; signing failure is fatal
             let sig = kanari_crypto::sign_message(&wallet.private_key, &tx_hash, wallet.curve_type)
                 .map_err(|e| anyhow::anyhow!("Failed to sign transaction: {}", e))?;
-            println!("   Transaction signed (curve: {})", wallet.curve_type);
+            tracing::info!("   Transaction signed (curve: {})", wallet.curve_type);
             Some(sig)
         };
 
@@ -238,77 +240,59 @@ impl Call {
             id: 1,
         };
 
-        println!("Sending RPC request to {}...", self.rpc_endpoint);
+        tracing::info!("Sending RPC request to {}...", self.rpc_endpoint);
 
         let client = build_blocking_client(30)?;
         match client.post(&self.rpc_endpoint).json(&rpc_request).send() {
             Ok(resp) => match resp.json::<RpcResponse>() {
                 Ok(rpc_resp) => {
                     if let Some(err) = rpc_resp.error {
-                        eprintln!("RPC error: {} (code {})", err.message, err.code);
+                        tracing::error!("RPC error: {} (code {})", err.message, err.code);
                     } else if let Some(result) = rpc_resp.result {
                         // Parse result as `TransactionResult` if possible, otherwise print raw JSON
                         if let Ok(tx_result) = serde_json::from_value::<
                             kanari_rpc_api::TransactionResult,
                         >(result.clone())
                         {
-                            println!("Transaction: {}", tx_result.hash);
-                            println!("Status: {}", tx_result.status);
-                            println!("Gas used: {} Mist", tx_result.gas_used);
+                            tracing::info!("Transaction: {}", tx_result.hash);
+                            tracing::info!("Status: {}", tx_result.status);
+                            tracing::info!("Gas used: {} Mist", tx_result.gas_used);
 
                             if let Some(ref error_msg) = tx_result.error_message {
-                                eprintln!("Transaction failed: {}", error_msg);
+                                tracing::error!("Transaction failed: {}", error_msg);
                             }
                         } else {
                             // Post-process result: if it contains a changeset with created_objects,
                             // try to populate a uid field when it's null by deriving from the
                             // canonical id (many canonical ids are just the UID address hex).
                             let mut pretty_print = result.clone();
-                            if let serde_json::Value::Object(ref mut root_map) = pretty_print {
-                                if let Some(changeset_val) = root_map.get_mut("changeset") {
-                                    if let serde_json::Value::Object(cs_map) = changeset_val {
-                                        if let Some(created_val) = cs_map.get_mut("created_objects")
-                                        {
-                                            if let serde_json::Value::Array(arr) = created_val {
-                                                for entry in arr.iter_mut() {
-                                                    // Expect entry to be [id, obj]
-                                                    if let serde_json::Value::Array(pair) = entry {
-                                                        if pair.len() == 2 {
-                                                            // Clone the id value so we can take a mutable
-                                                            // reference to the object element without
-                                                            // violating the borrow checker.
-                                                            let id_clone = pair[0].clone();
-                                                            let obj_val = &mut pair[1];
-                                                            if let serde_json::Value::Object(
-                                                                obj_map,
-                                                            ) = obj_val
-                                                            {
-                                                                let need_uid =
-                                                                    match obj_map.get("uid") {
-                                                                        Some(
-                                                                            serde_json::Value::Null,
-                                                                        )
-                                                                        | None => true,
-                                                                        _ => false,
-                                                                    };
-                                                                if need_uid {
-                                                                    if let Some(id_s) =
-                                                                        id_clone.as_str()
-                                                                    {
-                                                                        // If id looks like a hex account (0x...), use it
-                                                                        if id_s.starts_with("0x")
-                                                                            && id_s.len() >= 4
-                                                                        {
-                                                                            obj_map.insert(
-                                                                                "uid".to_string(),
-                                                                                serde_json::json!({ "Object ID": id_s }),
-                                                                            );
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
+                            if let serde_json::Value::Object(ref mut root_map) = pretty_print
+                                && let Some(changeset_val) = root_map.get_mut("changeset")
+                                && let serde_json::Value::Object(cs_map) = changeset_val
+                                && let Some(created_val) = cs_map.get_mut("created_objects")
+                                && let serde_json::Value::Array(arr) = created_val
+                            {
+                                for entry in arr.iter_mut() {
+                                    // Expect entry to be [id, obj]
+                                    if let serde_json::Value::Array(pair) = entry
+                                        && pair.len() == 2
+                                    {
+                                        // Clone the id value so we can take a mutable
+                                        // reference to the object element without
+                                        // violating the borrow checker.
+                                        let id_clone = pair[0].clone();
+                                        if let serde_json::Value::Object(obj_map) = &mut pair[1] {
+                                            let need_uid = matches!(
+                                                obj_map.get("uid"),
+                                                Some(serde_json::Value::Null) | None
+                                            );
+                                            if need_uid && let Some(id_s) = id_clone.as_str() {
+                                                // If id looks like a hex account (0x...), use it
+                                                if id_s.starts_with("0x") && id_s.len() >= 4 {
+                                                    obj_map.insert(
+                                                        "uid".to_string(),
+                                                        serde_json::json!({ "Object ID": id_s }),
+                                                    );
                                                 }
                                             }
                                         }
@@ -317,23 +301,23 @@ impl Call {
                             }
 
                             match serde_json::to_string_pretty(&pretty_print) {
-                                Ok(s) => println!("RPC result:\n{}", s),
-                                Err(_) => println!("RPC result: {}", pretty_print),
+                                Ok(s) => tracing::info!("RPC result:\n{}", s),
+                                Err(_) => tracing::info!("RPC result: {}", pretty_print),
                             }
                         }
                     } else {
-                        println!("RPC response has no result and no error");
+                        tracing::info!("RPC response has no result and no error");
                     }
                 }
-                Err(e) => eprintln!("Failed to parse RPC response: {}", e),
+                Err(e) => tracing::error!("Failed to parse RPC response: {}", e),
             },
-            Err(e) => eprintln!("Failed to send RPC request: {}", e),
+            Err(e) => tracing::error!("Failed to send RPC request: {}", e),
         }
 
-        println!("Function call prepared and RPC sent.");
-        println!("Next steps:");
-        println!(" - Check transaction status");
-        println!(" - View execution results on explorer");
+        tracing::info!("Function call prepared and RPC sent.");
+        tracing::info!("Next steps:");
+        tracing::info!(" - Check transaction status");
+        tracing::info!(" - View execution results on explorer");
 
         Ok(())
     }
@@ -462,9 +446,8 @@ impl Call {
                     } else {
                         val
                     };
-                    return Ok(
-                        hex::decode(hv).with_context(|| format!("Failed to parse hex: {}", val))?
-                    );
+                    return hex::decode(hv)
+                        .with_context(|| format!("Failed to parse hex: {}", val));
                 }
                 _ => {
                     // fallthrough to auto-detect
@@ -474,19 +457,17 @@ impl Call {
 
         // Auto-detect (legacy): hex addresses/bytes, numbers, bools, string
         let arg = s;
-        if arg.starts_with("0x") {
-            let hex_str = &arg[2..];
+        if let Some(hex_str) = arg.strip_prefix("0x") {
             if hex_str.len() <= 64 && hex_str.chars().all(|c| c.is_ascii_hexdigit()) {
                 // Treat as address (pad to 32 bytes)
                 let padded = format!("{:0>64}", hex_str);
                 let addr = AccountAddress::from_hex_literal(&format!(r"0x{}", padded))
                     .with_context(|| format!("Failed to parse address: {}", arg))?;
-                return Ok(bcs::to_bytes(&addr)?);
+                return bcs::to_bytes(&addr)
+                    .with_context(|| format!("Failed to encode address: {}", arg));
             }
             // raw hex bytes
-            return Ok(
-                hex::decode(hex_str).with_context(|| format!("Failed to parse hex: {}", arg))?
-            );
+            return hex::decode(hex_str).with_context(|| format!("Failed to parse hex: {}", arg));
         }
 
         if let Ok(num) = arg.parse::<u64>() {

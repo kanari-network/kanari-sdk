@@ -39,13 +39,12 @@ fn lookup_module_functions(state: &RpcServerState, module_str: &str) -> Option<V
     let mut results: Vec<String> = Vec::new();
     let modules = state.engine.list_all_modules();
     for (addr, name) in modules.iter() {
-        if name == module_str || addr == module_str {
-            if let Some(bytes) = state.engine.get_module_bytecode(addr, name) {
-                if let Some(fns) = extract_functions_from_bytes(&bytes) {
-                    for f in fns.into_iter() {
-                        results.push(format!("{}::{}::{}", addr, name, f));
-                    }
-                }
+        if (name == module_str || addr == module_str)
+            && let Some(bytes) = state.engine.get_module_bytecode(addr, name)
+            && let Some(fns) = extract_functions_from_bytes(&bytes)
+        {
+            for f in fns.into_iter() {
+                results.push(format!("{}::{}::{}", addr, name, f));
             }
         }
     }
@@ -263,7 +262,7 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
     for block in chain.blocks.iter() {
         for tx in block.transactions.iter() {
             let st = SignedTransaction::new(tx.clone());
-            let tx_hash = hex::encode(&st.hash());
+            let tx_hash = hex::encode(st.hash());
             if tx_hash.to_lowercase() == normalized {
                 // Build detailed transaction info from the Transaction
                 let details = match tx {
@@ -307,7 +306,7 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
                         gas_price: *gas_price,
                         module: Some(module.clone()),
                         function: Some(function.clone()),
-                        module_functions: lookup_module_functions(state, module).map(|v| v),
+                        module_functions: lookup_module_functions(state, module),
                     },
                     Transaction::Transfer {
                         from,
@@ -368,7 +367,7 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
     };
     for tx in pending.iter() {
         let st = SignedTransaction::new(tx.clone());
-        let tx_hash = hex::encode(&st.hash());
+        let tx_hash = hex::encode(st.hash());
         if tx_hash.to_lowercase() == normalized {
             // Build details for pending tx
             let details = match tx {
@@ -421,7 +420,7 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
                     gas_price: *gas_price,
                     module: Some(module.clone()),
                     function: Some(function.clone()),
-                    module_functions: lookup_module_functions(state, module).map(|v| v),
+                    module_functions: lookup_module_functions(state, module),
                 },
                 Transaction::Transfer {
                     from,
@@ -528,7 +527,7 @@ pub async fn handle_get_all_transactions(
                 }
             }
             let st = SignedTransaction::new(tx.clone());
-            let tx_hash = hex::encode(&st.hash());
+            let tx_hash = hex::encode(st.hash());
             // build details
             let details = match tx {
                 Transaction::PublishModule {
@@ -556,7 +555,7 @@ pub async fn handle_get_all_transactions(
                             .map(|f| {
                                 format!(
                                     "{}::{}::{}",
-                                    format!("0x{}", hex::encode(&block.header.state_root)),
+                                    format_args!("0x{}", hex::encode(&block.header.state_root)),
                                     module_name,
                                     f
                                 )
@@ -584,7 +583,7 @@ pub async fn handle_get_all_transactions(
                     gas_price: *gas_price,
                     module: Some(module.clone()),
                     function: Some(function.clone()),
-                    module_functions: lookup_module_functions(state, module).map(|v| v),
+                    module_functions: lookup_module_functions(state, module),
                 },
                 Transaction::Transfer {
                     from,
@@ -658,7 +657,7 @@ pub async fn handle_get_all_transactions(
             }
         }
         let st = SignedTransaction::new(tx.clone());
-        let tx_hash = hex::encode(&st.hash());
+        let tx_hash = hex::encode(st.hash());
         let details = match tx {
             Transaction::PublishModule {
                 sender,
@@ -706,7 +705,7 @@ pub async fn handle_get_all_transactions(
                 gas_price: *gas_price,
                 module: Some(module.clone()),
                 function: Some(function.clone()),
-                module_functions: lookup_module_functions(state, module).map(|v| v),
+                module_functions: lookup_module_functions(state, module),
             },
             Transaction::Transfer {
                 from,
@@ -978,46 +977,33 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                             poison.into_inner()
                         }
                     };
-                    if let Some(map) = cs_value.as_object_mut() {
-                        if let Some(created_val) = map.get_mut("created_objects") {
-                            if let Some(arr) = created_val.as_array_mut() {
-                                for obj in arr.iter_mut() {
-                                    if let Some(obj_map) = obj.as_object_mut() {
-                                        if let Some(type_val) =
-                                            obj_map.get("type").and_then(|v| v.as_str())
-                                        {
-                                            let is_noisy = type_val.contains("StructInstantiation")
-                                                || type_val.contains("CachedStructIndex");
-                                            if is_noisy {
-                                                if let Some(id) =
-                                                    obj_map.get("id").and_then(|v| v.as_str())
-                                                {
-                                                    // try direct lookup in persisted objects
-                                                    if let Some(stored) =
-                                                        state_guard.objects.get(id)
-                                                    {
-                                                        obj_map.insert(
-                                                            "type".to_string(),
-                                                            serde_json::Value::String(
-                                                                stored.type_.clone(),
-                                                            ),
-                                                        );
-                                                    } else {
-                                                        // try without 0x prefix
-                                                        let id_norm = id.trim_start_matches("0x");
-                                                        if let Some(stored2) =
-                                                            state_guard.objects.get(id_norm)
-                                                        {
-                                                            obj_map.insert(
-                                                                "type".to_string(),
-                                                                serde_json::Value::String(
-                                                                    stored2.type_.clone(),
-                                                                ),
-                                                            );
-                                                        }
-                                                    }
-                                                }
-                                            }
+                    if let Some(map) = cs_value.as_object_mut()
+                        && let Some(created_val) = map.get_mut("created_objects")
+                        && let Some(arr) = created_val.as_array_mut()
+                    {
+                        for obj in arr.iter_mut() {
+                            if let Some(obj_map) = obj.as_object_mut()
+                                && let Some(type_val) = obj_map.get("type").and_then(|v| v.as_str())
+                            {
+                                let is_noisy = type_val.contains("StructInstantiation")
+                                    || type_val.contains("CachedStructIndex");
+                                if is_noisy
+                                    && let Some(id) = obj_map.get("id").and_then(|v| v.as_str())
+                                {
+                                    // try direct lookup in persisted objects
+                                    if let Some(stored) = state_guard.objects.get(id) {
+                                        obj_map.insert(
+                                            "type".to_string(),
+                                            serde_json::Value::String(stored.type_.clone()),
+                                        );
+                                    } else {
+                                        // try without 0x prefix
+                                        let id_norm = id.trim_start_matches("0x");
+                                        if let Some(stored2) = state_guard.objects.get(id_norm) {
+                                            obj_map.insert(
+                                                "type".to_string(),
+                                                serde_json::Value::String(stored2.type_.clone()),
+                                            );
                                         }
                                     }
                                 }
@@ -1029,45 +1015,45 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                 // If Move ChangeSet reported no created objects, try to fetch persisted
                 // objects from engine state (StateManager) for the sender address to
                 // provide better CLI feedback.
-                if let Some(obj_arr) = cs_value.get("created_objects").and_then(|v| v.as_array()) {
-                    if obj_arr.is_empty() {
-                        // attempt to look up owned objects from state using sender in request params
-                        if let Ok(call_req) = serde_json::from_value::<
-                            kanari_rpc_api::CallFunctionRequest,
-                        >(request.params.clone())
-                        {
-                            if let Ok(addr) =
-                                kanari_types::address::Address::from_hex_literal(&call_req.sender)
-                            {
-                                if let Ok(a) = move_core_types::account_address::AccountAddress::from_hex_literal(&addr.to_string()) {
-                                    let state_guard = match state.engine.state.read() {
-                                        Ok(g) => g,
-                                        Err(poison) => {
-                                            error!("state lock poisoned while fetching owned objects; recovering");
-                                            poison.into_inner()
-                                        }
-                                    };
-                                    if let Some(ids) = state_guard.owned_objects.get(&a) {
-                                        // Build array of created objects from state.objects
-                                        let mut objs = Vec::new();
-                                        for uid in ids.iter().rev().take(10) {
-                                            if let Some(co) = state_guard.objects.get(uid) {
-                                                        let o = serde_json::json!({
-                                                            "id": uid.clone(),
-                                                            "type": co.type_.clone(),
-                                                            "owner": format!("0x{}", hex::encode(co.owner.as_ref())),
-                                                        });
-                                                objs.push(o);
-                                            }
-                                        }
-                                        if !objs.is_empty() {
-                                            // replace created_objects field
-                                            if let Some(map) = cs_value.as_object_mut() {
-                                                map.insert("created_objects".to_string(), serde_json::Value::Array(objs));
-                                            }
-                                        }
-                                    }
-                                }
+                if let Some(obj_arr) = cs_value.get("created_objects").and_then(|v| v.as_array())
+                    && obj_arr.is_empty()
+                    && let Ok(call_req) = serde_json::from_value::<
+                        kanari_rpc_api::CallFunctionRequest,
+                    >(request.params.clone())
+                    && let Ok(addr) =
+                        kanari_types::address::Address::from_hex_literal(&call_req.sender)
+                    && let Ok(a) =
+                        move_core_types::account_address::AccountAddress::from_hex_literal(
+                            &addr.to_string(),
+                        )
+                {
+                    let state_guard = match state.engine.state.read() {
+                        Ok(g) => g,
+                        Err(poison) => {
+                            error!("state lock poisoned while fetching owned objects; recovering");
+                            poison.into_inner()
+                        }
+                    };
+                    if let Some(ids) = state_guard.owned_objects.get(&a) {
+                        // Build array of created objects from state.objects
+                        let mut objs = Vec::new();
+                        for uid in ids.iter().rev().take(10) {
+                            if let Some(co) = state_guard.objects.get(uid) {
+                                let o = serde_json::json!({
+                                    "id": uid.clone(),
+                                    "type": co.type_.clone(),
+                                    "owner": format!("0x{}", hex::encode(co.owner.as_ref())),
+                                });
+                                objs.push(o);
+                            }
+                        }
+                        if !objs.is_empty() {
+                            // replace created_objects field
+                            if let Some(map) = cs_value.as_object_mut() {
+                                map.insert(
+                                    "created_objects".to_string(),
+                                    serde_json::Value::Array(objs),
+                                );
                             }
                         }
                     }
@@ -1082,7 +1068,7 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                     Err(e) => error!("Failed to submit executed transaction: {}", e),
                 }
 
-                return RpcResponse {
+                RpcResponse {
                     jsonrpc: "2.0".to_string(),
                     result: Some(serde_json::json!({
                         "hash": tx_hash_hex,
@@ -1092,11 +1078,11 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                     })),
                     error: None,
                     id: request.id,
-                };
+                }
             }
             Err(e) => {
                 error!("Failed to execute function immediately: {}", e);
-                return RpcResponse {
+                RpcResponse {
                     jsonrpc: "2.0".to_string(),
                     result: None,
                     error: Some(RpcError::internal_error(format!(
@@ -1104,7 +1090,7 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                         e
                     ))),
                     id: request.id,
-                };
+                }
             }
         }
     } else {
@@ -1113,7 +1099,7 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
             Ok(tx_hash) => {
                 let tx_hash_hex = hex::encode(&tx_hash);
                 info!("Function call transaction submitted: {}", tx_hash_hex);
-                return RpcResponse {
+                RpcResponse {
                     jsonrpc: "2.0".to_string(),
                     result: Some(serde_json::json!({
                         "hash": tx_hash_hex,
@@ -1122,11 +1108,11 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                     })),
                     error: None,
                     id: request.id,
-                };
+                }
             }
             Err(e) => {
                 error!("Failed to submit call transaction: {}", e);
-                return RpcResponse {
+                RpcResponse {
                     jsonrpc: "2.0".to_string(),
                     result: None,
                     error: Some(RpcError::transaction_error(format!(
@@ -1134,7 +1120,7 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                         e
                     ))),
                     id: request.id,
-                };
+                }
             }
         }
     }

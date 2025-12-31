@@ -50,9 +50,7 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
             match ch {
                 '<' => depth += 1,
                 '>' => {
-                    if depth > 0 {
-                        depth -= 1;
-                    }
+                    depth = depth.saturating_sub(1);
                 }
                 ',' if depth == 0 => {
                     parts.push(s[start..i].trim());
@@ -75,11 +73,10 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
         _ => {}
     }
 
-    if let Some(inner) = s.strip_prefix("vector<") {
-        if inner.ends_with('>') {
-            let inner = &inner[..inner.len() - 1];
-            return parse_type_tag(inner).map(|t| TypeTag::Vector(Box::new(t)));
-        }
+    if let Some(inner) = s.strip_prefix("vector<")
+        && let Some(inner) = inner.strip_suffix('>')
+    {
+        return parse_type_tag(inner).map(|t| TypeTag::Vector(Box::new(t)));
     }
 
     // Attempt to parse struct: address::Module::Name or address::Module::Name<...>
@@ -126,6 +123,8 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
     None
 }
 
+type AccountProof = Option<(bool, Vec<u8>, Vec<Vec<u8>>)>;
+
 impl BlockchainEngine {
     pub fn new() -> Result<Self> {
         // Try to open a persistent store for state + blockchain. If unavailable,
@@ -155,12 +154,11 @@ impl BlockchainEngine {
                 let mut sm = StateManager::new();
                 if let Ok(mvs) =
                     kanari_move_runtime::storage::move_vm_state::MoveVMState::open_default()
+                    && let Ok(treas) = mvs.load_treasuries()
                 {
-                    if let Ok(treas) = mvs.load_treasuries() {
-                        for (owner, token_type, cap) in treas.into_iter() {
-                            sm.token_supplies.insert(token_type.clone(), cap.clone());
-                            sm.token_treasuries.insert(token_type, owner);
-                        }
+                    for (owner, token_type, cap) in treas.into_iter() {
+                        sm.token_supplies.insert(token_type.clone(), cap.clone());
+                        sm.token_treasuries.insert(token_type, owner);
                     }
                 }
                 Arc::new(RwLock::new(sm))
@@ -231,10 +229,8 @@ impl BlockchainEngine {
         // If a signature is present, verify it. Empty signature indicates an
         // internally-generated or pre-validated transaction which should be
         // accepted without signature verification.
-        if signed_tx.signature.is_some() {
-            if !signed_tx.verify_signature()? {
-                anyhow::bail!("Invalid transaction signature");
-            }
+        if signed_tx.signature.is_some() && !signed_tx.verify_signature()? {
+            anyhow::bail!("Invalid transaction signature");
         }
 
         let tx_hash = signed_tx.hash();
@@ -276,11 +272,11 @@ impl BlockchainEngine {
             // advanced by earlier pending submissions.
             if let Ok(pending) = self.pending_txs.read() {
                 for ptx in pending.iter() {
-                    if ptx.sender_address() == tx.sender_address() {
-                        if let Ok(addr) = AccountAddress::from_hex_literal(ptx.sender_address()) {
-                            let acct = state_snapshot.get_or_create_account(addr);
-                            acct.increment_sequence();
-                        }
+                    if ptx.sender_address() == tx.sender_address()
+                        && let Ok(addr) = AccountAddress::from_hex_literal(ptx.sender_address())
+                    {
+                        let acct = state_snapshot.get_or_create_account(addr);
+                        acct.increment_sequence();
                     }
                 }
             }
@@ -288,7 +284,7 @@ impl BlockchainEngine {
 
             // Use the engine's runtime to execute against the cloned state.
             let mut runtime = self.move_runtime.write().unwrap();
-            Self::execute_transaction_with_runtime(&tx, &mut *runtime, &state_arc)?
+            Self::execute_transaction_with_runtime(&tx, &mut runtime, &state_arc)?
         };
 
         Ok((tx_hash, changeset))
@@ -521,7 +517,7 @@ impl BlockchainEngine {
     /// Original single-threaded entry that uses the engine's shared runtime.
     fn execute_transaction(&self, tx: &Transaction) -> Result<ChangeSet> {
         let mut runtime = self.move_runtime.write().unwrap();
-        Self::execute_transaction_with_runtime(tx, &mut *runtime, &self.state)
+        Self::execute_transaction_with_runtime(tx, &mut runtime, &self.state)
     }
 
     /// Mine/produce a new block with pending transactions
@@ -726,7 +722,7 @@ impl BlockchainEngine {
         chain.get_block(height).map(|block| BlockData {
             height: block.header.height,
             timestamp: block.header.timestamp,
-            hash: hex::encode(&block.hash()),
+            hash: hex::encode(block.hash()),
             prev_hash: hex::encode(&block.header.prev_hash),
             state_root: hex::encode(&block.header.state_root),
             tx_count: block.transactions.len(),
@@ -771,48 +767,43 @@ impl BlockchainEngine {
         for (_id, obj) in state.objects.iter() {
             let t = &obj.type_;
             // Look for generics like ::coin::Coin<...> or ::coin::TreasuryCap<...>
-            if t.contains("::coin::") && t.contains('<') && t.contains('>') {
-                if let Some(start) = t.find('<') {
-                    if let Some(end) = t.rfind('>') {
-                        if end > start + 1 {
-                            let inner = t[start + 1..end].trim().to_string();
-                            if !inner.is_empty() && seen.insert(inner.clone()) {
-                                // supply if known, else attempt to compute by summing coin objects
-                                let mut supply = state
-                                    .token_supplies
-                                    .get(&inner)
-                                    .map(|cap| cap.total_supply())
-                                    .unwrap_or(0u64);
+            if t.contains("::coin::")
+                && t.contains('<')
+                && t.contains('>')
+                && let Some(start) = t.find('<')
+                && let Some(end) = t.rfind('>')
+                && end > start + 1
+            {
+                let inner = t[start + 1..end].trim().to_string();
+                if !inner.is_empty() && seen.insert(inner.clone()) {
+                    // supply if known, else attempt to compute by summing coin objects
+                    let mut supply = state
+                        .token_supplies
+                        .get(&inner)
+                        .map(|cap| cap.total_supply())
+                        .unwrap_or(0u64);
 
-                                if supply == 0 {
-                                    // Sum all Coin<inner> object values in state.objects
-                                    let mut sum_u128: u128 = 0;
-                                    for (_oid, o2) in state.objects.iter() {
-                                        if o2.type_.contains("::coin::Coin<")
-                                            && o2.type_.contains(&inner)
-                                        {
-                                            if o2.data.len() >= 8 {
-                                                let n = o2.data.len();
-                                                let mut bytes = [0u8; 8];
-                                                for i in 0..8 {
-                                                    bytes[i] = o2.data[n - 8 + i];
-                                                }
-                                                let v = u64::from_le_bytes(bytes) as u128;
-                                                sum_u128 = sum_u128.saturating_add(v);
-                                            }
-                                        }
-                                    }
-                                    if sum_u128 > u128::from(u64::MAX) {
-                                        supply = u64::MAX;
-                                    } else {
-                                        supply = sum_u128 as u64;
-                                    }
-                                }
-
-                                out.push((inner, supply));
+                    if supply == 0 {
+                        // Sum all Coin<inner> object values in state.objects
+                        let mut sum_u128: u128 = 0;
+                        for (_oid, o2) in state.objects.iter() {
+                            if o2.type_.contains("::coin::Coin<")
+                                && o2.type_.contains(&inner)
+                                && o2.data.len() >= 8
+                                && let Ok(bytes) = o2.data[o2.data.len() - 8..].try_into()
+                            {
+                                let v = u64::from_le_bytes(bytes) as u128;
+                                sum_u128 = sum_u128.saturating_add(v);
                             }
                         }
+                        if sum_u128 > u128::from(u64::MAX) {
+                            supply = u64::MAX;
+                        } else {
+                            supply = sum_u128 as u64;
+                        }
                     }
+
+                    out.push((inner, supply));
                 }
             }
         }
@@ -822,7 +813,7 @@ impl BlockchainEngine {
 
     /// Produce an SMT proof for the given account key (hex or address string).
     /// Returns Ok(None) if no persistent SMT is configured or the key wasn't found.
-    pub fn get_account_proof(&self, key: &str) -> Result<Option<(bool, Vec<u8>, Vec<Vec<u8>>)>> {
+    pub fn get_account_proof(&self, key: &str) -> Result<AccountProof> {
         if let Some(store) = &self.persistent_store {
             if let Some((is_member, leaf, siblings)) = store.proof(key)? {
                 let leaf_v = leaf.to_vec();
@@ -838,11 +829,7 @@ impl BlockchainEngine {
     /// Produce an account proof at a historical block height using the SMT
     /// snapshot persisted at that height. Returns Ok(None) if snapshot
     /// unavailable.
-    pub fn get_account_proof_at_height(
-        &self,
-        height: u64,
-        key: &str,
-    ) -> Result<Option<(bool, Vec<u8>, Vec<Vec<u8>>)>> {
+    pub fn get_account_proof_at_height(&self, height: u64, key: &str) -> Result<AccountProof> {
         if let Some(store) = &self.persistent_store {
             if let Some(pairs) = store.load_smt_snapshot(height)? {
                 use std::collections::HashMap;
@@ -887,19 +874,19 @@ impl BlockchainEngine {
 
                 let mut siblings: Vec<Vec<u8>> = Vec::new();
                 for depth in (1..=256).rev() {
-                    let prefix_bits = depth;
-                    let prefix_bytes = (prefix_bits + 7) / 8;
-                    let mut prefix = vec![0u8; prefix_bytes as usize];
-                    prefix.copy_from_slice(&kh[..prefix_bytes as usize]);
-                    let excess = (prefix_bytes * 8) - prefix_bits as usize;
+                    let prefix_bits: usize = depth;
+                    let prefix_bytes = prefix_bits.div_ceil(8usize);
+                    let mut prefix = vec![0u8; prefix_bytes];
+                    prefix.copy_from_slice(&kh[..prefix_bytes]);
+                    let excess = (prefix_bytes * 8) - prefix_bits;
                     if excess > 0 {
                         let mask = 0xFF << excess;
-                        let last = prefix_bytes as usize - 1;
+                        let last = prefix_bytes - 1;
                         prefix[last] &= mask as u8;
                     }
 
                     let last_bit_index = prefix_bits - 1;
-                    let byte_idx = (last_bit_index / 8) as usize;
+                    let byte_idx = last_bit_index / 8;
                     let bit_in_byte = 7 - (last_bit_index % 8);
 
                     let mut sibling_prefix = prefix.clone();
