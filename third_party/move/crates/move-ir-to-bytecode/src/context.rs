@@ -710,7 +710,7 @@ impl<'a> Context<'a> {
     // Dependency Resolution
     //**********************************************************************************************
 
-    fn dependency(&self, m: &ModuleIdent) -> Result<&CompiledDependencyView> {
+    fn dependency(&'_ self, m: &ModuleIdent) -> Result<&'_ CompiledDependencyView<'_>> {
         let dep = self
             .dependencies
             .get(m)

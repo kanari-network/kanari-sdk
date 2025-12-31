@@ -102,7 +102,7 @@ impl TestPlan {
 }
 
 impl ExpectedMoveError {
-    pub fn verbiage(&self, is_past_tense: bool) -> ExpectedMoveErrorDisplay {
+    pub fn verbiage(&'_ self, is_past_tense: bool) -> ExpectedMoveErrorDisplay<'_> {
         ExpectedMoveErrorDisplay {
             error: self,
             is_past_tense,

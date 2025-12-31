@@ -153,7 +153,7 @@ impl BuildPlan {
         })
     }
 
-    pub fn compute_dependencies(&self) -> CompilationDependencies {
+    pub fn compute_dependencies(&'_ self) -> CompilationDependencies<'_> {
         let root_package = &self.resolution_graph.package_table[&self.root];
         let project_root = match &self.resolution_graph.build_options.install_dir {
             Some(under_path) => under_path.clone(),

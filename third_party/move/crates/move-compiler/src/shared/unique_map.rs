@@ -183,7 +183,7 @@ impl<K: TName, V> UniqueMap<K, V> {
         joined
     }
 
-    pub fn iter(&self) -> Iter<K, V> {
+    pub fn iter(&'_ self) -> Iter<'_, K, V> {
         self.into_iter()
     }
 
@@ -192,7 +192,7 @@ impl<K: TName, V> UniqueMap<K, V> {
             .map(|(loc, k_, v)| (K::add_loc(loc, k_.clone()), v))
     }
 
-    pub fn iter_mut(&mut self) -> IterMut<K, V> {
+    pub fn iter_mut(&'_ mut self) -> IterMut<'_, K, V> {
         self.into_iter()
     }
 

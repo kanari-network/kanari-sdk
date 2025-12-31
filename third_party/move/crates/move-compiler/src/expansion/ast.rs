@@ -731,7 +731,7 @@ impl AbilitySet {
         self.0.is_subset(&other.0)
     }
 
-    pub fn iter(&self) -> AbilitySetIter {
+    pub fn iter(&'_ self) -> AbilitySetIter<'_> {
         self.into_iter()
     }
 

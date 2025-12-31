@@ -59,6 +59,7 @@ pub enum NameSpace {
     ModuleMembers,
 }
 
+#[allow(dead_code)]
 pub struct AliasMap {
     unused: BTreeSet<AliasEntry>,
     // the start of an access path, excludes functions

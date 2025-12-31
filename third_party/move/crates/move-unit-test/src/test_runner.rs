@@ -250,13 +250,13 @@ impl<'a, 'b, W: Write> TestOutput<'a, 'b, W> {
 
 impl SharedTestingConfig {
     fn execute_via_move_vm(
-        &self,
+        &'_ self,
         test_plan: &ModuleTestPlan,
         function_name: &str,
         test_info: &TestCase,
     ) -> (
         VMResult<ChangeSet>,
-        VMResult<NativeContextExtensions>,
+        VMResult<NativeContextExtensions<'_>>,
         VMResult<Vec<Vec<u8>>>,
         TestRunInfo,
     ) {
