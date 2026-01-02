@@ -3,7 +3,7 @@
 
 use anyhow::Result;
 use kanari_types::address::Address as KanariAddress;
-use log::{info, warn};
+use log::warn;
 use move_core_types::account_address::AccountAddress;
 
 /// Load move-stdlib and kanari-system modules as methods on `MoveRuntime`
@@ -41,7 +41,7 @@ impl super::MoveRuntime {
             }
         };
 
-        info!("✓ Looking for Move stdlib modules at: {:?}", modules_dir);
+        eprintln!("✓ Looking for Move stdlib modules at: {:?}", modules_dir);
 
         if !modules_dir.exists() {
             warn!(
@@ -85,7 +85,7 @@ impl super::MoveRuntime {
             }
         }
 
-        info!("✓ Loaded {} move-stdlib modules (0x1::*)", count);
+        eprintln!("✓ Loaded {} move-stdlib modules (0x1::*)", count);
         Ok(())
     }
 
@@ -122,7 +122,7 @@ impl super::MoveRuntime {
             }
         };
 
-        info!("✓ Looking for Kanari system modules at: {:?}", modules_dir);
+        eprintln!("✓ Looking for Kanari system modules at: {:?}", modules_dir);
 
         if !modules_dir.exists() {
             warn!(
@@ -150,6 +150,8 @@ impl super::MoveRuntime {
             "deny_list.mv",
             "coin.mv",
             "kanari.mv",
+            // Event module provides native `event::emit` wrapper
+            "event.mv",
             // Crypto modules (these are wrappers for native functions)
             "ecdsa_k1.mv",
             "ecdsa_r1.mv",
@@ -178,7 +180,7 @@ impl super::MoveRuntime {
             }
         }
 
-        info!("✓ Loaded {} kanari-system modules (0x2::*)", count);
+        eprintln!("✓ Loaded {} kanari-system modules (0x2::*)", count);
         Ok(())
     }
 }

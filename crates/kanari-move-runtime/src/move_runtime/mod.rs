@@ -137,9 +137,14 @@ impl MoveRuntime {
         // Transfer natives at 0x2 (same address as kanari_system)
         let transfer_natives = kanari_system_natives::transfer_natives::all_natives(system_addr);
 
+        // Event natives at 0x2 (provides `event::emit` native)
+        let event_natives = kanari_system_natives::event::all_natives(system_addr);
+
         // Create runtime with natives
-        let mut runtime =
-            Self::new_with_natives(vec![std_natives, crypto_natives, transfer_natives], true)?;
+        let mut runtime = Self::new_with_natives(
+            vec![std_natives, crypto_natives, transfer_natives, event_natives],
+            true,
+        )?;
 
         // Load pre-compiled Kanari system modules
         runtime.load_system_modules()?;
@@ -406,23 +411,28 @@ impl MoveRuntime {
             }
         }
 
-        // Register the transferred-object extension at the session's
-        // native-extensions container so native functions can record into it.
-        // The Move VM will pass this extension to NativeContext.extensions_mut()
-        // during native function execution.
+        // Register native-extensions at the session so native functions can
+        // record data (transferred objects, emitted events, etc.). The Move
+        // VM will pass this extension container to `NativeContext` during
+        // native function execution.
+        use kanari_system_natives::event::EventsExt;
         use kanari_system_natives::transfer_natives::TransferredObjectsExt;
         let exts = session.get_native_extensions();
         exts.add(TransferredObjectsExt::default());
+        exts.add(EventsExt::default());
 
         session
             .execute_entry_function(module_id, ident, ty_args_loaded, final_args, &mut gas)
             .map_err(|e| anyhow::anyhow!(format!("exec error: {:?}", e)))?;
 
-        // After execution, collect transferred objects from the native-extensions
-        // container before consuming the session with `finish()`.
-        let transferred = {
+        // After execution, collect transferred objects and captured events
+        // from the native-extensions container before consuming the session
+        // with `finish()`.
+        let (transferred, captured_events) = {
             let exts_after = session.get_native_extensions();
-            exts_after.get_mut::<TransferredObjectsExt>().take_all()
+            let trans = exts_after.get_mut::<TransferredObjectsExt>().take_all();
+            let evs = exts_after.get_mut::<EventsExt>().take_all();
+            (trans, evs)
         };
 
         let (res, new_storage) = session.finish();
@@ -445,6 +455,17 @@ impl MoveRuntime {
 
         // Add transferred objects collected from the native extension
         self.add_transferred_objects_to_changeset(&mut cs, transferred);
+
+        // Add captured events recorded by event native functions
+        for ev in captured_events.into_iter() {
+            let ev_rec = crate::changeset::Event {
+                key: ev.key,
+                sequence_number: ev.sequence_number,
+                type_tag: ev.type_tag,
+                event_data: ev.event_data,
+            };
+            cs.add_event(ev_rec);
+        }
 
         // If gas accounting requested, include gas debit/credit in ChangeSet.
         if let Some((gas_limit, gas_price)) = gas_info {

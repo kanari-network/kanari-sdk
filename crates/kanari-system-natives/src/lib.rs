@@ -7,6 +7,7 @@ use move_vm_runtime::native_functions::NativeFunction;
 use move_vm_types::natives::function::{NativeResult, PartialVMResult};
 
 pub mod crypto;
+pub mod event;
 pub mod transfer_natives;
 
 // Build a NativeFunction easily

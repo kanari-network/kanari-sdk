@@ -1,9 +1,6 @@
 //Kanari Laps NFT Module
 module james::nft {
     /// Import the necessary modules
-    use std::string;
-    /// Import the necessary modules
-    /// Import the necessary modules
     use std::string::{String, utf8};
     use kanari_system::tx_context::TxContext;
     use kanari_system::tx_context;
