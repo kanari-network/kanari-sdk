@@ -10,11 +10,14 @@ pub mod publish;
 pub mod test;
 pub mod verify;
 
+use kanari_system_natives::event::EventsExt;
+use kanari_system_natives::transfer_natives::TransferredObjectsExt;
 use kanari_system_natives::{crypto, event, transfer_natives};
 use kanari_types::address::Address as KanariAddress;
 use move_core_types::{account_address::AccountAddress, identifier::Identifier};
 use move_package::source_package::layout::SourcePackageLayout;
 use move_stdlib_natives::{GasParameters, NurseryGasParameters, all_natives, nursery_natives};
+use move_unit_test::extensions::set_extension_hook;
 use move_vm_runtime::native_functions::NativeFunction;
 use std::path::PathBuf;
 
@@ -71,6 +74,13 @@ impl MoveCommand {
                 let crypto_natives = crypto::all_natives(system_addr).into_iter();
                 let transfer_natives = transfer_natives::all_natives(system_addr).into_iter();
                 let event_natives = event::all_natives(system_addr).into_iter();
+                // Register native-context extensions for the unit-test runner so
+                // extensions like event capture and transfer tracking are available.
+                set_extension_hook(Box::new(|exts| {
+                    exts.add(EventsExt::default());
+                    exts.add(TransferredObjectsExt::default());
+                }));
+
                 // Merge all natives and pass into test runner
                 let natives = std_natives
                     .chain(crypto_natives)
@@ -92,6 +102,9 @@ impl MoveCommand {
         }
     }
 }
+
+/// Reroot the current working directory to the root of the Move package
+/// containing the given path (or the current directory if None).
 pub fn reroot_path(path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     let path = path.unwrap_or_else(|| PathBuf::from("."));
     // Always root ourselves to the package root, and then compile relative to that.

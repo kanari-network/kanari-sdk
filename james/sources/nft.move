@@ -49,20 +49,17 @@ module james::nft {
         issued_counter: u64,
     }
 
-    /// Admin capability for minting control
-    struct AdminCap has key, store, drop {
-        id: UID,
-    }
+    // Admin capability removed: minting no longer requires an AdminCap
 
     /// The MAX_SUPPLY constant represents the maximum supply of the NFT.
     const MAX_SUPPLY: u64 = 2000;
 
-    /// The ETooManyNums constant represents the error code for too many NFTs.
-    const ETooManyNums: u64 = 0;
+    /// Error codes
+    const ETooManyNums: u64 = 1;
 
     /// The init function creates and returns an `NftCap` for a collection.
     /// The returned capability has `supply = MAX_SUPPLY` (per-collection limit).
-    public fun init(_otw: NFT, ctx: &mut TxContext): (NftCap, AdminCap) {
+    public fun init(_otw: NFT, ctx: &mut TxContext): NftCap {
 
         let issuer = NftCap {
             id: object::new(ctx),
@@ -70,7 +67,6 @@ module james::nft {
             issued_counter: 0,
         };
 
-        let admin = AdminCap { id: object::new(ctx) };
 
         // Keys for the properties of the NFT
         let _keys = vector[
@@ -104,17 +100,16 @@ module james::nft {
             utf8(b"{creator}"),
         ];
 
-        // Return the created capability and admin cap so callers can persist them.
-        (issuer, admin)
+        // Return the created capability so callers can persist it.
+        issuer
 
     }
 
     public entry fun setup(ctx: &mut TxContext) {
         let witness = NFT {};
-        let (issuer, admin) = init(witness, ctx);
+        let issuer = init(witness, ctx);
         let sender = tx_context::sender(ctx);
         transfer::public_transfer(issuer, sender);
-        transfer::public_transfer(admin, sender);
     }
 
     /// The MintEvent struct represents an event that occurs when an NFT is minted.
@@ -124,10 +119,10 @@ module james::nft {
         number: String,
         crestor: address,
     }
+    
     /// The mint function mints a new KariKid NFT with the given properties.
     public fun mint(
         cap: &mut NftCap,
-        _: &mut AdminCap,
         name: vector<u8>,
         description: vector<u8>,
         number: vector<u8>,
@@ -138,11 +133,11 @@ module james::nft {
         defense: vector<String>,
         ctx: &mut TxContext
     ) {
+        // Ensure there is remaining supply, then consume one and increment counter
+        assert!(cap.supply > 0, ETooManyNums);
         let n = cap.issued_counter;
         cap.issued_counter = n + 1;
-
-        cap.supply = cap.supply + 1;
-        assert!(cap.supply <= MAX_SUPPLY, ETooManyNums);
+        cap.supply = cap.supply - 1;
 
         let sender = tx_context::sender(ctx);
 
@@ -181,7 +176,8 @@ module james::nft {
         nft: KariKid,
         _: &mut TxContext
     ) {
-        cap.supply = cap.supply - 1;
+        // Return supply when an NFT is burned
+        cap.supply = cap.supply + 1;
         let KariKid { id, name: _, description: _, number: _, image_url: _, crestor: _, attributes: _ } = nft;
         // consuming `id` (UID) here drops the resource
         let _ = id;
