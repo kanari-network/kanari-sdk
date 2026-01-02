@@ -34,7 +34,7 @@ module james::nft {
         /// The number of the NFT
         number: String,
         /// The address of the creator of the NFT
-        crestor: address,
+        creator: address,
         /// The attributes of the NFT
         attributes: Attributes
     }
@@ -81,7 +81,7 @@ module james::nft {
             // The URL of the project
             utf8(b"project_url"),
             // The address of the creator of the NFT
-            utf8(b"crestor"),
+            utf8(b"creator"),
         ];
 
         // Values for the properties of the NFT
@@ -117,7 +117,7 @@ module james::nft {
         object_id: address,
         name: String,
         number: String,
-        crestor: address,
+        creator: address,
     }
     
     /// The mint function mints a new KariKid NFT with the given properties.
@@ -154,7 +154,7 @@ module james::nft {
             description: utf8(description),
             number: utf8(number),
             image_url: url::new_unsafe_from_bytes(url_bytes),
-            crestor: sender,
+            creator: sender,
             attributes,
         };
 
@@ -164,7 +164,7 @@ module james::nft {
             object_id: object::uid_address(&nft.id),
             name: nft.name,
             number: nft.number,
-            crestor: sender,
+            creator: sender,
         };
 
         transfer::public_transfer(nft, sender);
@@ -178,7 +178,7 @@ module james::nft {
     ) {
         // Return supply when an NFT is burned
         cap.supply = cap.supply + 1;
-        let KariKid { id, name: _, description: _, number: _, image_url: _, crestor: _, attributes: _ } = nft;
+        let KariKid { id, name: _, description: _, number: _, image_url: _, creator: _, attributes: _ } = nft;
         // consuming `id` (UID) here drops the resource
         let _ = id;
     }

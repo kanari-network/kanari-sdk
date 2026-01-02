@@ -132,7 +132,6 @@ fn main() {
 
     // Look for NftCap and AdminCap created objects
     let mut found_nftcap: Option<String> = None;
-    let mut found_admincap: Option<String> = None;
     for (id, obj) in publish_cs
         .created_objects
         .iter()
@@ -142,39 +141,27 @@ fn main() {
             println!("Found NftCap: id={} type={}", id, obj.type_);
             found_nftcap = Some(id.clone());
         }
-        if obj.type_.contains("::AdminCap") {
-            println!("Found AdminCap: id={} type={}", id, obj.type_);
-            found_admincap = Some(id.clone());
-        }
     }
 
-    if found_nftcap.is_some() && found_admincap.is_some() {
+    if let Some(nft_id) = found_nftcap {
         println!("Suggested CLI mint command:");
         println!(
-            "kanari move call --package {} --module james --function mint --sender 0x... --args <NftCap_id> <AdminCap_id> <name_bytes> <description_bytes> <number_bytes> <url_bytes> <level_vec> <rarity_vec> <attack_vec> <defense_vec>",
+            "kanari move call --package {} --module james --function mint --sender 0x... --args <NftCap_id> <name_bytes> <description_bytes> <number_bytes> <url_bytes> <level_vec> <rarity_vec> <attack_vec> <defense_vec>",
             module_id.address(),
         );
 
-        // Attempt an automatic mint call with default/demo values.
-        let nft_id = found_nftcap.unwrap();
-        let admin_id = found_admincap.unwrap();
+        // Attempt an automatic mint call with default/demo values using only the NftCap.
 
-        // Parse object ids into addresses for UID.addr fields
-        if let (Ok(naddr), Ok(aaddr)) = (
-            MoveAccountAddress::from_hex_literal(&nft_id),
-            MoveAccountAddress::from_hex_literal(&admin_id),
-        ) {
+        // Parse object id into address for UID.addr field
+        if let Ok(naddr) = MoveAccountAddress::from_hex_literal(&nft_id) {
             // Build NftCap Move value: struct NftCap { id: UID{addr}, supply: u64, issued_counter: u64 }
             let uid_n = MoveValue::Struct(MoveStruct::new(vec![MoveValue::Address(naddr)]));
             let cap_mv = MoveValue::Struct(MoveStruct::new(vec![
                 uid_n,
-                MoveValue::U64(0),
+                // supply: set to MAX_SUPPLY (2000) so mint can proceed in this demo
+                MoveValue::U64(2000),
                 MoveValue::U64(0),
             ]));
-
-            // Build AdminCap Move value: struct AdminCap { id: UID{addr} }
-            let uid_a = MoveValue::Struct(MoveStruct::new(vec![MoveValue::Address(aaddr)]));
-            let admin_mv = MoveValue::Struct(MoveStruct::new(vec![uid_a]));
 
             // Demo string fields (as vector<u8>) — richer example values
             let name_bytes = b"Kari#42".to_vec();
@@ -188,7 +175,6 @@ fn main() {
             };
 
             let arg0 = cap_mv.simple_serialize().expect("serialize cap");
-            let arg1 = admin_mv.simple_serialize().expect("serialize admin cap");
             let arg2 = vec_u8_to_mv(name_bytes)
                 .simple_serialize()
                 .expect("serialize name");
@@ -228,7 +214,8 @@ fn main() {
                 .simple_serialize()
                 .expect("serialize defense");
 
-            let mut mint_args = vec![arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9];
+            // Build args: cap, name, desc, number, url, level, rarity, attack, defense, tx_ctx
+            let mut mint_args = vec![arg0, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9];
             // push tx context
             mint_args.push(tx_context_bytes.clone());
 
@@ -342,10 +329,10 @@ fn main() {
                 }
             }
         } else {
-            println!("Failed to parse NftCap/AdminCap ids as addresses; skipping auto-mint.");
+            println!("Failed to parse NftCap id as address; skipping auto-mint.");
         }
     } else {
-        println!("Could not find both NftCap and AdminCap in created objects.");
+        println!("Could not find NftCap in created objects.");
     }
 
     println!("E2E NFT example finished");
