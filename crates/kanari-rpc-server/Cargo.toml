@@ -26,3 +26,4 @@ blake3 = { workspace = true }
 hex = { workspace = true }
 move-binary-format = { workspace = true }
 move-core-types = { workspace = true }
+bcs = { workspace = true }

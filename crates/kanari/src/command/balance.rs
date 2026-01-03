@@ -9,7 +9,7 @@ use serde_json::Value;
 /// Show token balances for an address
 #[derive(Parser)]
 #[clap(name = "balances")]
-pub struct Balances {
+pub struct Balance {
     /// Address to query
     #[clap(long = "address")]
     pub address: String,
@@ -23,7 +23,7 @@ pub struct Balances {
     pub detailed: bool,
 }
 
-impl Balances {
+impl Balance {
     pub fn execute(&self) -> Result<()> {
         eprintln!("Querying token balances...");
         eprintln!("   Address: {}", self.address);
@@ -96,7 +96,13 @@ impl Balances {
                         eprintln!("  Raw Amount: {}", amount);
                         eprintln!("------------------------------");
                     } else {
-                        eprintln!("  {} {}.{:0<9}", symbol, whole, fraction);
+                        eprintln!(
+                            "  {} {}.{:0width$}",
+                            symbol,
+                            whole,
+                            fraction,
+                            width = decimals as usize
+                        );
                     }
                 }
                 eprintln!("\nTotal tokens: {}", balances.len());

@@ -114,16 +114,10 @@ enum Commands {
         #[arg(short, long)]
         password: String,
     },
-    /// Check wallet balance
-    Balance {
-        /// Wallet address
-        #[arg(short, long)]
-        address: String,
-    },
     /// Show blockchain statistics
     Stats,
-    /// Show token balances for an address
-    Balances(command::balances::Balances),
+    /// Show token balance for an address
+    Balance(command::balance::Balance),
     /// Account operations (get account info)
     Account {
         #[command(subcommand)]
@@ -600,41 +594,6 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Commands::Balance { address } => {
-            runtime.block_on(async {
-                let client = RpcClient::new("http://127.0.0.1:19001");
-
-                match client.get_account(&address).await {
-                    Ok(account) => {
-                        const MIST_PER_KANARI: f64 = 1_000_000_000.0;
-                        let balance_kanari = account.balance as f64 / MIST_PER_KANARI;
-
-                        eprintln!("Balance for {}", address);
-                        eprintln!("  Kanari: {:.9} KANARI", balance_kanari);
-                        eprintln!("  Mist: {} Mist", account.balance);
-                        eprintln!("  Sequence: {}", account.sequence_number);
-                        if !account.modules.is_empty() {
-                            eprintln!("  Modules deployed: {}", account.modules.len());
-                        }
-                    }
-                    Err(e) => {
-                        if e.to_string().contains("Account not found") {
-                            eprintln!("Account not found: {}", address);
-                            eprintln!("   This address has no transactions yet.");
-                        } else {
-                            error!("  Cannot connect to RPC server");
-                            error!("  Please start the node first: cargo run --bin kanari-node");
-                            return Err(e);
-                        }
-                    }
-                }
-
-                Ok::<(), anyhow::Error>(())
-            })?;
-
-            Ok(())
-        }
-
         Commands::Stats => {
             runtime.block_on(async {
                 let client = RpcClient::new("http://127.0.0.1:19001");
@@ -667,8 +626,8 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Commands::Balances(balances) => {
-            balances.execute().context("Failed to query balances")?;
+        Commands::Balance(balance) => {
+            balance.execute().context("Failed to query balance")?;
             Ok(())
         }
 
