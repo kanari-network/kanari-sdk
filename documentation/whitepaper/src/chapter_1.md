@@ -3,25 +3,33 @@
 ## Kanari Network: A Decentralized Metadata Management Protocol
 #### Technical Whitepaper
 
-https://kanari.network  
+https://kanari.network
 
 Version 1.0.0 (February 2025)
 </div>
 
 ### Abstract
 
-A decentralized metadata management protocol would enable secure and verifiable digital asset information to be managed without relying on centralized storage providers. While existing solutions handle file storage, they lack robust metadata management capabilities necessary for enterprise-grade applications. Digital signatures and blockchain technology provide part of the solution, but the main benefits are lost if metadata integrity and ownership verification cannot be guaranteed.
+Kanari Network is a decentralized protocol for managing metadata about digital assets with cryptographic guarantees for integrity, provenance, access control, and versioning. Existing decentralized storage solutions address content availability but do not provide a unified, auditable system for metadata lifecycle management. Kanari combines the Move VM's safety model with on-chain records to create tamper-evident metadata entries, verifiable ownership, and fine-grained permissioning without relying on centralized intermediaries.
 
-We propose a metadata management protocol using Move VM technology that ensures data integrity, ownership verification, and access control through a decentralized network. The protocol maintains cryptographically secured metadata records that cannot be altered without proper authorization, forming an immutable chain of ownership and version history. This system enables transparent yet secure metadata management while eliminating single points of failure.
+The protocol captures metadata as immutable, signed records linked into an append-only history. Access controls and delegation are expressed as verifiable capabilities, while efficient indexing and compact proofs enable external verifiers to confirm state without trusting any single operator. Kanari targets applications that require enterprise-grade metadata guarantees: provenance tracking, digital rights management, institutional registries, and composable Web3 services.
 
 ### 1. Introduction
 
-Digital asset management in Web3 has come to rely heavily on centralized metadata storage solutions, creating security vulnerabilities and trust dependencies. While decentralized storage protocols like IPFS handle raw file data effectively, they lack sophisticated metadata management capabilities required for enterprise adoption. The current approach suffers from several inherent weaknesses:
+Digital assets increasingly depend on metadata: descriptive attributes, provenance, licensing, and version history. When metadata is centralized, it becomes a single point of failure and a vector for tampering. Decentralized storage systems (e.g., IPFS) solve content addressing and distribution, but they leave the metadata layer under-specified: ownership claims, structured permissions, and authoritative updates remain brittle or off-chain.
 
-- Metadata tampering risks
-- Centralized points of failure
-- Limited ownership verification
-- Insufficient access controls
-- Poor version management
+Key limitations of current approaches:
 
-What is needed is a protocol that provides cryptographically secure metadata management without requiring trust in centralized parties. This would allow any participant to verify file authenticity, prove ownership, and manage access permissions in a fully decentralized manner. In this paper, we present Kanari Network - a protocol leveraging Move VM to enable secure, transparent and efficient metadata management in the Web3 ecosystem.
+- Lack of authoritative metadata records that are both tamper-evident and efficiently verifiable.
+- Weak or absent mechanisms for delegating and enforcing access and update rights.
+- Fragmented provenance models that hinder composability and auditability.
+- Poorly defined version semantics across storage and registry layers.
+
+Kanari addresses these gaps by providing:
+
+- Cryptographically anchored metadata records managed by Move-based smart contracts.
+- Clear ownership semantics with transfer, delegation, and revocation primitives.
+- Versioning and immutable change history for each metadata object.
+- Compact proofs and APIs for off-chain verifiers and indexing services.
+
+In the sections that follow, we describe Kanari's data model, Move contracts and native extensions used to enforce policy, the protocol's primitives for ownership and delegation, and how clients and indexers interact to achieve scalable, auditable metadata management.
