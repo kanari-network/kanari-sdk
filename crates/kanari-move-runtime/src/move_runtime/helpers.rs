@@ -4,7 +4,9 @@
 // Helper functions for MoveRuntime resource parsing and object ID generation
 use kanari_types::address::Address;
 use kanari_types::balance::BalanceModule;
+use kanari_types::collection::CollectionModule;
 use kanari_types::coin::CoinModule;
+use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::{StructTag, TypeTag};
 
 impl super::MoveRuntime {
@@ -62,6 +64,34 @@ impl super::MoveRuntime {
         } else {
             None
         }
+    }
+
+    /// Check if struct tag represents an NftCap resource
+    pub(crate) fn is_nftcap_resource(&self, struct_tag: &StructTag) -> bool {
+        let module_name = struct_tag.module.as_str();
+        let struct_name = struct_tag.name.as_str();
+
+        module_name == CollectionModule::COLLECTION_MODULE && struct_name == CollectionModule::NFTCAP_STRUCT
+    }
+
+    /// Extract NftCap fields from bytes: expects layout
+    /// [32-byte UID][8-byte remaining][8-byte issued_counter][32-byte collection_id]
+    pub(crate) fn extract_nftcap_from_bytes(
+        &self,
+        bytes: &[u8],
+    ) -> Option<(u64, u64, AccountAddress)> {
+        if bytes.len() >= 80 {
+            let remaining_bytes: [u8; 8] = bytes[32..40].try_into().ok()?;
+            let issued_bytes: [u8; 8] = bytes[40..48].try_into().ok()?;
+            let mut addr_arr = [0u8; 32];
+            addr_arr.copy_from_slice(&bytes[48..80]);
+
+            let remaining = u64::from_le_bytes(remaining_bytes);
+            let issued = u64::from_le_bytes(issued_bytes);
+            let collection_addr = AccountAddress::new(addr_arr);
+            return Some((remaining, issued, collection_addr));
+        }
+        None
     }
 
     /// Extract token type string from struct tag's type parameters

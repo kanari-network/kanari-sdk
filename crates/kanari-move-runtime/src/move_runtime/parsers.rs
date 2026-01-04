@@ -83,6 +83,29 @@ impl super::MoveRuntime {
                             }
                         }
 
+                        // Parse NftCap resources: track remaining/issued and collection id
+                        if self.is_nftcap_resource(struct_tag)
+                            && let Some((remaining, issued, collection_id)) = self.extract_nftcap_from_bytes(bytes)
+                            && let Some(token_type) = self.token_type_from_struct_tag(struct_tag)
+                        {
+                            use kanari_types::collection::NftCapRecord;
+
+                            let mut cap = NftCapRecord::new(
+                                // UID for cap is present in bytes; use placeholder UIDRecord via UIDRecord::new
+                                UIDRecord::new(collection_id),
+                                remaining,
+                                issued,
+                                collection_id,
+                            );
+
+                            // Record nft cap for this owner and token type
+                            kanari_cs.add_nftcap(*addr, token_type.clone(), cap);
+                            debug!(
+                                "[PARSER] NftCap for {} owner={} remaining={} issued={}",
+                                token_type, addr, remaining, issued
+                            );
+                        }
+
                         // Detect created objects with UID in first bytes (object::UID.addr)
                         // For all objects that have a UID field (standard Move object pattern)
                         // the serialized layout starts with the UID address (32 bytes).

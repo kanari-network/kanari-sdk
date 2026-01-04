@@ -75,6 +75,8 @@ pub struct ChangeSet {
     pub events: Vec<Event>,
     /// Treasury creations or updates: (owner, token_type, TreasuryCap)
     pub treasuries: Vec<(AccountAddress, String, TreasuryCap)>,
+    /// NFT capability creations or updates: (owner, token_type, NftCapRecord)
+    pub nft_caps: Vec<(AccountAddress, String, kanari_types::collection::NftCapRecord)>,
     /// Per-account token balances (absolute set): (owner, token_type, BalanceRecord)
     pub token_balance_sets: Vec<(AccountAddress, String, BalanceRecord)>,
     /// Objects created during execution. Each entry is (object_id, CreatedObject)
@@ -90,6 +92,7 @@ impl ChangeSet {
             account_changes: HashMap::new(),
             events: Vec::new(),
             treasuries: Vec::new(),
+            nft_caps: Vec::new(),
             token_balance_sets: Vec::new(),
             created_objects: Vec::new(),
             gas_used: 0,
@@ -103,6 +106,7 @@ impl ChangeSet {
             account_changes: HashMap::new(),
             events: Vec::new(),
             treasuries: Vec::new(),
+            nft_caps: Vec::new(),
             token_balance_sets: Vec::new(),
             created_objects: Vec::new(),
             gas_used,
@@ -116,6 +120,7 @@ impl ChangeSet {
             account_changes: HashMap::new(),
             events: Vec::new(),
             treasuries: Vec::new(),
+            nft_caps: Vec::new(),
             token_balance_sets: Vec::new(),
             created_objects: Vec::new(),
             gas_used,
@@ -204,6 +209,7 @@ impl ChangeSet {
         }
         self.events.extend(other.events);
         self.treasuries.extend(other.treasuries);
+        self.nft_caps.extend(other.nft_caps);
         self.token_balance_sets.extend(other.token_balance_sets);
         self.created_objects.extend(other.created_objects);
         self.gas_used += other.gas_used;
@@ -215,6 +221,16 @@ impl ChangeSet {
 
     pub fn add_event(&mut self, event: Event) {
         self.events.push(event);
+    }
+
+    /// Record an NftCap creation/update for a given token type
+    pub fn add_nftcap(
+        &mut self,
+        owner: AccountAddress,
+        token_type: String,
+        cap: kanari_types::collection::NftCapRecord,
+    ) {
+        self.nft_caps.push((owner, token_type, cap));
     }
 
     /// Record a treasury (TreasuryCap) creation/update for a given token type

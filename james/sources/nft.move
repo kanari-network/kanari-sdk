@@ -8,6 +8,8 @@ module james::nft {
     use kanari_system::url as url;
     use kanari_system::object;
     use kanari_system::object::UID;
+    use kanari_system::collection;
+    use kanari_system::event;
 
     /// The KARIKID struct is an empty struct used for some kind of initialization.
     struct NFT has drop {
@@ -33,21 +35,16 @@ module james::nft {
         description: String,
         /// The number of the NFT
         number: String,
+        /// The collection this NFT belongs to
+        collection_id: address,
         /// The address of the creator of the NFT
         creator: address,
         /// The attributes of the NFT
         attributes: Attributes
     }
 
-    /// The NftCap struct represents the capabilities of the NFT.
-    struct NftCap has key, store, drop {
-        /// The ID of the NFT
-        id: UID,
-        /// The supply of the NFT
-        supply: u64,
-        /// The number of NFTs issued
-        issued_counter: u64,
-    }
+    // The NftCap struct represents the capabilities of the NFT.
+    // NftCap is provided by `kanari_system::collection::NftCap`.
 
     // Admin capability removed: minting no longer requires an AdminCap
 
@@ -55,17 +52,11 @@ module james::nft {
     const MAX_SUPPLY: u64 = 2000;
 
     /// Error codes
-    const ETooManyNums: u64 = 1;
 
-    /// The init function creates and returns an `NftCap` for a collection.
-    /// The returned capability has `supply = MAX_SUPPLY` (per-collection limit).
-    public fun init(_otw: NFT, ctx: &mut TxContext): NftCap {
+    /// The init function creates and returns a `(Collection, NftCap)`.
+    public fun init(_otw: NFT, ctx: &mut TxContext): (collection::Collection, collection::NftCap) {
 
-        let issuer = NftCap {
-            id: object::new(ctx),
-            supply: MAX_SUPPLY,
-            issued_counter: 0,
-        };
+        let (coll, issuer) = collection::create_collection(ctx, b"default", b"", MAX_SUPPLY);
 
 
         // Keys for the properties of the NFT
@@ -100,29 +91,29 @@ module james::nft {
             utf8(b"{creator}"),
         ];
 
-        // Return the created capability so callers can persist it.
-        issuer
+        // Return the created collection and capability so callers can persist them.
+        (coll, issuer)
 
     }
 
     public entry fun setup(ctx: &mut TxContext) {
         let witness = NFT {};
-        let issuer = init(witness, ctx);
+        let (coll, issuer) = init(witness, ctx);
         let sender = tx_context::sender(ctx);
         transfer::public_transfer(issuer, sender);
+        transfer::public_transfer(coll, sender);
     }
 
-    /// The MintEvent struct represents an event that occurs when an NFT is minted.
-    struct MintEvent has store, drop {
+    /// Lightweight mint log for off-chain indexing (copyable)
+    struct MintLog has copy, drop {
         object_id: address,
-        name: String,
-        number: String,
         creator: address,
+        collection_id: address,
     }
     
     /// The mint function mints a new KariKid NFT with the given properties.
     public fun mint(
-        cap: &mut NftCap,
+        cap: &mut collection::NftCap,
         name: vector<u8>,
         description: vector<u8>,
         number: vector<u8>,
@@ -133,11 +124,8 @@ module james::nft {
         defense: vector<String>,
         ctx: &mut TxContext
     ) {
-        // Ensure there is remaining supply, then consume one and increment counter
-        assert!(cap.supply > 0, ETooManyNums);
-        let n = cap.issued_counter;
-        cap.issued_counter = n + 1;
-        cap.supply = cap.supply - 1;
+        // Use system collection API to consume supply
+        collection::consume_for_mint(cap);
 
         let sender = tx_context::sender(ctx);
 
@@ -154,31 +142,29 @@ module james::nft {
             description: utf8(description),
             number: utf8(number),
             image_url: url::new_unsafe_from_bytes(url_bytes),
+            collection_id: collection::cap_collection_id(cap),
             creator: sender,
             attributes,
         };
 
-        // (Optional) create a MintEvent object to allow off-chain indexing. We don't have
-        // a global event system here, so we simply create and drop it.
-        let _evt = MintEvent {
+        event::emit(MintLog {
             object_id: object::uid_address(&nft.id),
-            name: nft.name,
-            number: nft.number,
             creator: sender,
-        };
+            collection_id: collection::cap_collection_id(cap),
+        });
 
         transfer::public_transfer(nft, sender);
     }
 
     /// Burn NFT
     public entry fun burn(
-        cap: &mut NftCap,
+        cap: &mut collection::NftCap,
         nft: KariKid,
         _: &mut TxContext
     ) {
-        // Return supply when an NFT is burned
-        cap.supply = cap.supply + 1;
-        let KariKid { id, name: _, description: _, number: _, image_url: _, creator: _, attributes: _ } = nft;
+        // Return supply when an NFT is burned via system API
+        collection::return_from_burn(cap);
+        let KariKid { id, name: _, description: _, number: _, image_url: _, collection_id: _, creator: _, attributes: _ } = nft;
         // consuming `id` (UID) here drops the resource
         let _ = id;
     }

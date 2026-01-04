@@ -59,6 +59,9 @@ impl super::MoveRuntime {
             "error.mv",
             "address.mv",
             "signer.mv",
+            // Unit test helpers sometimes appear in compiled modules used for testing
+            // Add `unit_test.mv` so modules compiled with test helper deps can be published.
+            "unit_test.mv",
             "option.mv",
             "fixed_point32.mv",
             "ascii.mv",
@@ -146,12 +149,14 @@ impl super::MoveRuntime {
             "url.mv",
             "balance.mv",
             "transfer.mv",
+            // Event must be loaded before collection (collection emits events)
+            "event.mv",
+            // Collection depends on tx_context, object, transfer, and event
+            "collection.mv",
             // Deny-list must be published before coin which references it
             "deny_list.mv",
             "coin.mv",
             "kanari.mv",
-            // Event module provides native `event::emit` wrapper
-            "event.mv",
             // Crypto modules (these are wrappers for native functions)
             "ecdsa_k1.mv",
             "ecdsa_r1.mv",
