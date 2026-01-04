@@ -76,7 +76,11 @@ pub struct ChangeSet {
     /// Treasury creations or updates: (owner, token_type, TreasuryCap)
     pub treasuries: Vec<(AccountAddress, String, TreasuryCap)>,
     /// NFT capability creations or updates: (owner, token_type, NftCapRecord)
-    pub nft_caps: Vec<(AccountAddress, String, kanari_types::collection::NftCapRecord)>,
+    pub nft_caps: Vec<(
+        AccountAddress,
+        String,
+        kanari_types::collection::NftCapRecord,
+    )>,
     /// Per-account token balances (absolute set): (owner, token_type, BalanceRecord)
     pub token_balance_sets: Vec<(AccountAddress, String, BalanceRecord)>,
     /// Objects created during execution. Each entry is (object_id, CreatedObject)

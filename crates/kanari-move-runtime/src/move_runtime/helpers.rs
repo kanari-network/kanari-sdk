@@ -4,8 +4,8 @@
 // Helper functions for MoveRuntime resource parsing and object ID generation
 use kanari_types::address::Address;
 use kanari_types::balance::BalanceModule;
-use kanari_types::collection::CollectionModule;
 use kanari_types::coin::CoinModule;
+use kanari_types::collection::CollectionModule;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::{StructTag, TypeTag};
 
@@ -71,7 +71,8 @@ impl super::MoveRuntime {
         let module_name = struct_tag.module.as_str();
         let struct_name = struct_tag.name.as_str();
 
-        module_name == CollectionModule::COLLECTION_MODULE && struct_name == CollectionModule::NFTCAP_STRUCT
+        module_name == CollectionModule::COLLECTION_MODULE
+            && struct_name == CollectionModule::NFTCAP_STRUCT
     }
 
     /// Extract NftCap fields from bytes: expects layout

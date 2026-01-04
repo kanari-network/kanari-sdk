@@ -15,6 +15,6 @@ pub mod stdlib;
 // to align Rust API names with Move module names.
 pub use stdlib::*;
 
+pub mod collection;
 pub mod deny_list;
 pub mod object;
-pub mod collection;

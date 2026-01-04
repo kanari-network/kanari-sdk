@@ -85,12 +85,13 @@ impl super::MoveRuntime {
 
                         // Parse NftCap resources: track remaining/issued and collection id
                         if self.is_nftcap_resource(struct_tag)
-                            && let Some((remaining, issued, collection_id)) = self.extract_nftcap_from_bytes(bytes)
+                            && let Some((remaining, issued, collection_id)) =
+                                self.extract_nftcap_from_bytes(bytes)
                             && let Some(token_type) = self.token_type_from_struct_tag(struct_tag)
                         {
                             use kanari_types::collection::NftCapRecord;
 
-                            let mut cap = NftCapRecord::new(
+                            let cap = NftCapRecord::new(
                                 // UID for cap is present in bytes; use placeholder UIDRecord via UIDRecord::new
                                 UIDRecord::new(collection_id),
                                 remaining,

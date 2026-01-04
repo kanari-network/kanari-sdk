@@ -10,7 +10,7 @@ use std::env;
 use std::path::Path;
 use std::path::PathBuf;
 
-fn find_james_module() -> Option<std::path::PathBuf> {
+fn find_nft_module() -> Option<std::path::PathBuf> {
     let candidates = [
         "james/build/james/bytecode_modules/nft.mv",
         "../james/build/james/bytecode_modules/nft.mv",
@@ -29,7 +29,7 @@ fn main() {
     println!("kanari-move-runtime E2E NFT example: publish + setup");
 
     let args: Vec<String> = env::args().collect();
-    let mut path = match find_james_module() {
+    let mut path = match find_nft_module() {
         Some(p) => p,
         None => PathBuf::new(),
     };
@@ -43,7 +43,7 @@ fn main() {
 
     if path.as_os_str().is_empty() {
         eprintln!(
-            "Compiled james.mv not found in expected paths; build James first or pass path as first arg."
+            "Compiled nft.mv not found in expected paths; build James first or pass path as first arg."
         );
         return;
     }
@@ -130,8 +130,9 @@ fn main() {
         call_cs.events.len()
     );
 
-    // Look for NftCap and AdminCap created objects
+    // Look for NftCap and Collection created objects
     let mut found_nftcap: Option<String> = None;
+    let mut found_collection: Option<String> = None;
     for (id, obj) in publish_cs
         .created_objects
         .iter()
@@ -140,13 +141,16 @@ fn main() {
         if obj.type_.contains("::NftCap") {
             println!("Found NftCap: id={} type={}", id, obj.type_);
             found_nftcap = Some(id.clone());
+        } else if obj.type_.contains("::Collection") {
+            println!("Found Collection: id={} type={}", id, obj.type_);
+            found_collection = Some(id.clone());
         }
     }
 
     if let Some(nft_id) = found_nftcap {
         println!("Suggested CLI mint command:");
         println!(
-            "kanari move call --package {} --module james --function mint --sender 0x... --args <NftCap_id> <name_bytes> <description_bytes> <number_bytes> <url_bytes> <level_vec> <rarity_vec> <attack_vec> <defense_vec>",
+            "kanari move call --package {} --module nft --function mint --sender 0x... --args <NftCap_id> <name_bytes> <description_bytes> <number_bytes> <url_bytes> <level_vec> <rarity_vec> <attack_vec> <defense_vec>",
             module_id.address(),
         );
 
@@ -154,13 +158,25 @@ fn main() {
 
         // Parse object id into address for UID.addr field
         if let Ok(naddr) = MoveAccountAddress::from_hex_literal(&nft_id) {
-            // Build NftCap Move value: struct NftCap { id: UID{addr}, supply: u64, issued_counter: u64 }
+            // Build NftCap Move value: struct NftCap { id: UID{addr}, remaining: u64, issued_counter: u64, collection_id: address }
             let uid_n = MoveValue::Struct(MoveStruct::new(vec![MoveValue::Address(naddr)]));
+            // Determine collection_id from discovered created objects (fallback to sender address)
+            let collection_addr = if let Some(coll_id) = found_collection.clone() {
+                if let Ok(caddr) = MoveAccountAddress::from_hex_literal(&coll_id) {
+                    caddr
+                } else {
+                    publish_sender
+                }
+            } else {
+                publish_sender
+            };
+
             let cap_mv = MoveValue::Struct(MoveStruct::new(vec![
                 uid_n,
-                // supply: set to MAX_SUPPLY (2000) so mint can proceed in this demo
+                // remaining: set to MAX_SUPPLY (2000) so mint can proceed in this demo
                 MoveValue::U64(2000),
                 MoveValue::U64(0),
+                MoveValue::Address(collection_addr),
             ]));
 
             // Demo string fields (as vector<u8>) — richer example values
@@ -174,17 +190,18 @@ fn main() {
                 MoveValue::Vector(v.into_iter().map(|b| MoveValue::U8(b)).collect())
             };
 
+            // Serialize the NftCap struct as the first argument (expected for `&mut NftCap`).
             let arg0 = cap_mv.simple_serialize().expect("serialize cap");
-            let arg2 = vec_u8_to_mv(name_bytes)
+            let arg1 = vec_u8_to_mv(name_bytes)
                 .simple_serialize()
                 .expect("serialize name");
-            let arg3 = vec_u8_to_mv(desc_bytes)
+            let arg2 = vec_u8_to_mv(desc_bytes)
                 .simple_serialize()
                 .expect("serialize desc");
-            let arg4 = vec_u8_to_mv(number_bytes)
+            let arg3 = vec_u8_to_mv(number_bytes)
                 .simple_serialize()
                 .expect("serialize number");
-            let arg5 = vec_u8_to_mv(url_bytes)
+            let arg4 = vec_u8_to_mv(url_bytes)
                 .simple_serialize()
                 .expect("serialize url");
 
@@ -201,25 +218,30 @@ fn main() {
                 MoveValue::Vector(elems)
             };
 
-            let arg6 = make_vec_string(&["1"])
+            let arg5 = make_vec_string(&["1"])
                 .simple_serialize()
                 .expect("serialize level");
-            let arg7 = make_vec_string(&["common"])
+            let arg6 = make_vec_string(&["common"])
                 .simple_serialize()
                 .expect("serialize rarity");
-            let arg8 = make_vec_string(&["10"])
+            let arg7 = make_vec_string(&["10"])
                 .simple_serialize()
                 .expect("serialize attack");
-            let arg9 = make_vec_string(&["5"])
+            let arg8 = make_vec_string(&["5"])
                 .simple_serialize()
                 .expect("serialize defense");
 
             // Build args: cap, name, desc, number, url, level, rarity, attack, defense, tx_ctx
-            let mut mint_args = vec![arg0, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9];
+            let mut mint_args = vec![arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8];
             // push tx context
             mint_args.push(tx_context_bytes.clone());
 
             println!("Calling Move mint entry with demo args...");
+            // Debug: print arg lengths and hex to help diagnose deserialization failures
+            for (i, a) in mint_args.iter().enumerate() {
+                println!(" mint arg[{}] len={} hex={} ", i, a.len(), hex::encode(a));
+            }
+
             match runtime.execute_entry_function(
                 &module_id,
                 "mint",
