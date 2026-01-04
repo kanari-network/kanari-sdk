@@ -1149,7 +1149,7 @@ mod tests {
 
         let classical_pub = keypair
             .public_key
-            .splitn(2, ':')
+            .split(':')
             .next()
             .unwrap_or(&keypair.public_key);
         let addr = format!(
@@ -1173,7 +1173,7 @@ mod tests {
             sign_message(&keypair.private_key, message, CurveType::Ed25519Dilithium3).unwrap();
         let classical_pub = keypair
             .public_key
-            .splitn(2, ':')
+            .split(':')
             .next()
             .unwrap_or(&keypair.public_key);
         let addr = format!(
@@ -1329,7 +1329,7 @@ mod tests {
         let bad_signature = vec![0u8; 32]; // Wrong length
 
         let result = verify_signature_ed25519(
-            &keypair.address.trim_start_matches("0x"),
+            keypair.address.trim_start_matches("0x"),
             message,
             &bad_signature,
         );

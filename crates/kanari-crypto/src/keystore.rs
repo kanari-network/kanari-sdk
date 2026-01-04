@@ -470,7 +470,7 @@ mod tests {
         // fs::write(&temp_path, &keystore_data)?;
         // fs::rename(temp_path, keystore_path)?;
         // This pattern is atomic on most filesystems
-        assert!(true, "Atomic write pattern is implemented");
+        // (no-op assertion removed to satisfy Clippy)
     }
 
     #[test]

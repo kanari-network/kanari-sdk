@@ -1,3 +1,4 @@
+#![allow(clippy::print_stdout)]
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -26,7 +27,7 @@ fn main() {
 
     println!("Generated new K256 wallet:");
     println!("  Address: {}", keypair.address);
-    println!("  Private Key: {}", keypair.private_key.to_string());
+    println!("  Private Key: {}", &*keypair.private_key);
     println!("  Public Key: {}", keypair.public_key);
 
     // Sign a message
@@ -76,7 +77,7 @@ fn main() {
 
     println!("Generated new P256 wallet:");
     println!("  Address: {}", p256_keypair.address);
-    println!("  Private Key: {}", p256_keypair.private_key.to_string());
+    println!("  Private Key: {}", &*p256_keypair.private_key);
     println!("  Public Key: {}", p256_keypair.public_key);
 
     // Sign a message
@@ -215,7 +216,7 @@ fn main() {
 
     println!("Generated new Ed25519 wallet:");
     println!("  Address: {}", ed25519_keypair.address);
-    println!("  Private Key: {}", ed25519_keypair.private_key.to_string());
+    println!("  Private Key: {}", &*ed25519_keypair.private_key);
     println!("  Public Key: {}", ed25519_keypair.public_key);
 
     // Sign a message
@@ -322,10 +323,7 @@ fn main() {
         // Added empty password as 3rd parameter
         Ok(mnemonic_keypair) => {
             println!("  Address: {}", mnemonic_keypair.address);
-            println!(
-                "  Private Key: {}",
-                mnemonic_keypair.private_key.to_string()
-            );
+            println!("  Private Key: {}", &*mnemonic_keypair.private_key);
 
             // Sign a message with the mnemonic-derived key
             let message_mnemonic = b"Hello from mnemonic!";

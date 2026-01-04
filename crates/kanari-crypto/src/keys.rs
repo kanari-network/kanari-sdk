@@ -1206,7 +1206,7 @@ mod tests {
         assert!(
             dil3.private_key.starts_with("kanapqc"),
             "PQC keys should have kanapqc prefix, got: {}",
-            dil3.private_key.to_string()
+            &*dil3.private_key
         );
         assert!(
             dil3.address.starts_with("0x"),
@@ -1326,7 +1326,7 @@ mod tests {
 
             // Should parse back correctly
             let (parsed_curve, parsed_address) = KeyPair::parse_tagged_address(&tagged)
-                .expect(&format!("Failed to parse tagged address for {:?}", curve));
+                .unwrap_or_else(|| panic!("Failed to parse tagged address for {:?}", curve));
 
             assert_eq!(parsed_curve, curve);
             assert_eq!(parsed_address, keypair.address);

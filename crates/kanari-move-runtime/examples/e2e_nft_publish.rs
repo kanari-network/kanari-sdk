@@ -1,3 +1,6 @@
+#![allow(clippy::print_stdout)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::redundant_closure)]
 // E2E example: publish James NFT module, call `setup`, and report created caps
 use kanari_move_runtime::changeset::ChangeSet;
 use kanari_move_runtime::move_runtime::MoveRuntime;
@@ -187,7 +190,7 @@ fn main() {
 
             // Helper to convert Vec<u8> -> MoveValue::Vector of U8
             let vec_u8_to_mv = |v: Vec<u8>| -> MoveValue {
-                MoveValue::Vector(v.into_iter().map(|b| MoveValue::U8(b)).collect())
+                MoveValue::Vector(v.into_iter().map(MoveValue::U8).collect())
             };
 
             // Serialize the NftCap struct as the first argument (expected for `&mut NftCap`).

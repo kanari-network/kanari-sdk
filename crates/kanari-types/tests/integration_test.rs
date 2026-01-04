@@ -141,7 +141,7 @@ fn test_move_address_conversion() {
     let our_addr: Address = move_addr.into();
 
     // Verify it works
-    assert!(our_addr.to_hex().len() > 0);
+    assert!(!our_addr.to_hex().is_empty());
 }
 
 #[test]

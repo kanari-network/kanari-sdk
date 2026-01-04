@@ -1,6 +1,7 @@
+#![allow(clippy::print_stdout)]
+#![allow(clippy::collapsible_if)]
 // Example CLI: publish a compiled Move module (james.mv), call an entry function,
 // and apply the resulting ChangeSets to `StateManager` to demonstrate E2E flow.
-use bcs;
 use kanari_move_runtime::changeset::ChangeSet;
 use kanari_move_runtime::move_runtime::MoveRuntime;
 use kanari_move_runtime::state::StateManager;
@@ -109,15 +110,15 @@ fn main() {
     if args.len() > 2 {
         function_name = args[2].clone();
     }
-    if args.len() > 3 {
-        if let Ok(v) = args[3].parse::<u64>() {
-            _cli_mint_amount = Some(v);
-        }
+    if args.len() > 3
+        && let Ok(v) = args[3].parse::<u64>()
+    {
+        _cli_mint_amount = Some(v);
     }
-    if args.len() > 4 {
-        if let Ok(addr) = MoveAccountAddress::from_hex_literal(&args[4]) {
-            _cli_recipient = Some(addr);
-        }
+    if args.len() > 4
+        && let Ok(addr) = MoveAccountAddress::from_hex_literal(&args[4])
+    {
+        _cli_recipient = Some(addr);
     }
 
     println!(
