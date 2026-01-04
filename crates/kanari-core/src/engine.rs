@@ -22,8 +22,8 @@ use num_cpus;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 
-mod consensus;
-pub use consensus::BlockInfo;
+mod produce_block;
+pub use produce_block::BlockInfo;
 
 /// Complete blockchain engine with Move VM integration
 pub struct BlockchainEngine {
@@ -526,7 +526,7 @@ impl BlockchainEngine {
     /// CRITICAL: ALL ChangeSets (both successful and failed) are applied to state.
     /// Failed transactions still deduct gas and increment sequence to prevent spam and replay attacks.
     pub fn produce_block(&self) -> Result<BlockInfo> {
-        consensus::produce_block(self)
+        produce_block::produce_block(self)
     }
 
     /// Get blockchain stats

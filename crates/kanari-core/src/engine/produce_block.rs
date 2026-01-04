@@ -1,6 +1,8 @@
-// Consensus-related logic extracted from engine.rs
-// This module implements block production (produce_block) and the
-// `BlockInfo` type returned to callers.
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+// Block production logic for Kanari blockchain engine
+// including parallel transaction execution using Move runtimes
 
 use anyhow::Result;
 use crossbeam_channel as cbchan;
