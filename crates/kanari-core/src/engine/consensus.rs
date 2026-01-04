@@ -118,13 +118,41 @@ pub(super) fn produce_block(engine: &super::BlockchainEngine) -> Result<BlockInf
                     .push_back((i, tx));
             }
 
+            // Reserve per-sender next-sequence numbers from the current global state
+            // so that snapshots dispatched to workers contain the expected sequence
+            // even if other threads update `engine.state` concurrently.
+            let mut per_sender_next_seq: HashMap<String, u64> = HashMap::new();
+            {
+                let state_guard = engine.state.read().unwrap();
+                for sender in per_sender.keys() {
+                    if let Ok(addr) = AccountAddress::from_hex_literal(sender) {
+                        if let Some(acct) = state_guard.get_account(&addr) {
+                            per_sender_next_seq.insert(sender.clone(), acct.sequence_number);
+                        } else {
+                            per_sender_next_seq.insert(sender.clone(), 0u64);
+                        }
+                    } else {
+                        per_sender_next_seq.insert(sender.clone(), 0u64);
+                    }
+                }
+            }
+
             let mut results: Vec<Option<ChangeSet>> = vec![None; tx_count];
             let mut idx_to_sender: HashMap<usize, String> = HashMap::new();
 
             for (sender, queue) in per_sender.iter_mut() {
                 if let Some((idx, tx)) = queue.pop_front() {
                     // create a snapshot of state for this job (no prior per-sender txs executed yet)
-                    let state_snapshot = engine.state.read().unwrap().clone();
+                    let mut state_snapshot = engine.state.read().unwrap().clone();
+                    // Ensure the snapshot's account sequence matches the reserved sequence
+                    if let Ok(addr) = AccountAddress::from_hex_literal(sender) {
+                        let acct = state_snapshot.get_or_create_account(addr);
+                        if let Some(next_seq) = per_sender_next_seq.get_mut(sender) {
+                            acct.sequence_number = *next_seq;
+                            // reserve the next sequence for subsequent txs for this sender
+                            *next_seq = next_seq.wrapping_add(1);
+                        }
+                    }
                     let state_arc = Arc::new(RwLock::new(state_snapshot));
                     job_tx.send((idx, tx, state_arc)).unwrap();
                     idx_to_sender.insert(idx, sender.clone());
@@ -149,12 +177,17 @@ pub(super) fn produce_block(engine: &super::BlockchainEngine) -> Result<BlockInf
                         && let Some(queue) = per_sender.get_mut(&sender)
                         && let Some((next_idx, next_tx)) = queue.pop_front()
                     {
-                        // Create a state snapshot and increment sequence for this sender
-                        // to reflect that the previous tx for this sender has been executed
+                        // Create a state snapshot for the next tx of this sender.
+                        // Use the pre-reserved per-sender sequence number so the
+                        // dispatched snapshot's account.sequence_number equals the
+                        // expected sequence for the transaction.
                         let mut snapshot = engine.state.read().unwrap().clone();
                         if let Ok(addr) = AccountAddress::from_hex_literal(&sender) {
                             let acct = snapshot.get_or_create_account(addr);
-                            acct.increment_sequence();
+                            if let Some(next_seq) = per_sender_next_seq.get_mut(&sender) {
+                                acct.sequence_number = *next_seq;
+                                *next_seq = next_seq.wrapping_add(1);
+                            }
                         }
                         let state_arc = Arc::new(RwLock::new(snapshot));
                         job_tx.send((next_idx, next_tx, state_arc)).unwrap();
