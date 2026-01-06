@@ -5,4 +5,6 @@ pub mod blockchain;
 pub mod engine;
 
 pub use blockchain::{Block, BlockHeader, Blockchain, SignedTransaction, Transaction};
-pub use engine::{AccountInfo, BlockData, BlockInfo, BlockchainEngine, BlockchainStats};
+pub use engine::{
+    AccountInfo, BlockData, BlockInfo, BlockchainEngine, BlockchainStats, FullBlockData,
+};

@@ -301,8 +301,14 @@ impl Blockchain {
     }
 
     pub fn add_block(&mut self, block: Block) -> Result<()> {
-        let prev_block = self.latest_block();
-        block.verify(prev_block)?;
+        self.add_block_with_validation(block, true)
+    }
+
+    pub fn add_block_with_validation(&mut self, block: Block, validate: bool) -> Result<()> {
+        if validate {
+            let prev_block = self.latest_block();
+            block.verify(prev_block)?;
+        }
         self.blocks.push(block);
         Ok(())
     }

@@ -9,9 +9,16 @@ use kanari_crypto::wallet::list_wallet_files;
 use kanari_rpc_server::start_server;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::kanari::KanariModule;
+use libp2p::identity::Keypair;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
+
+mod p2p;
+mod sync;
+
+use p2p::{P2PEventHandler, P2PMessage, P2PNetwork};
+use sync::SyncManager;
 
 /// Kanari node command-line interface
 #[derive(Parser)]
@@ -25,7 +32,23 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// start the node
-    Start,
+    Start {
+        /// P2P listen port
+        #[arg(long, default_value = "19000")]
+        p2p_port: u16,
+
+        /// RPC listen port
+        #[arg(long, default_value = "19001")]
+        rpc_port: u16,
+
+        /// Data directory for blockchain and state storage
+        #[arg(long)]
+        data_dir: Option<std::path::PathBuf>,
+
+        /// Bootstrap peer multiaddress (can be specified multiple times)
+        #[arg(long)]
+        bootstrap: Vec<String>,
+    },
     /// List wallet files
     ListWallets,
     /// Show blockchain statistics
@@ -100,20 +123,35 @@ async fn main() -> Result<()> {
             return Ok(());
         }
 
-        Commands::Start => {
+        Commands::Start {
+            p2p_port,
+            rpc_port,
+            data_dir,
+            bootstrap,
+        } => {
+            if let Some(ref d) = data_dir {
+                unsafe {
+                    std::env::set_var("KANARI_STATE_DB", d);
+                }
+                tracing::info!("Using data directory: {}", d.display());
+            }
+
             let engine = BlockchainEngine::new()?;
             let engine_arc = Arc::new(engine);
-            run_node(engine_arc).await?;
+            run_node(engine_arc, p2p_port, rpc_port, bootstrap).await?;
             return Ok(());
         }
     }
 }
 
-async fn run_node(engine: Arc<BlockchainEngine>) -> Result<()> {
+async fn run_node(
+    engine: Arc<BlockchainEngine>,
+    p2p_port: u16,
+    rpc_port: u16,
+    _bootstrap_peers: Vec<String>,
+) -> Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
-
-    // Wrap engine in Arc for sharing between tasks
 
     let stats = engine.get_stats();
 
@@ -152,13 +190,57 @@ async fn run_node(engine: Arc<BlockchainEngine>) -> Result<()> {
     tracing::info!("kanari_sequencer::actor::sequencer: Load latest sequencer order 0");
     tracing::info!("kanari_sequencer::actor::sequencer: Load latest sequencer order 0");
 
+    // Initialize P2P network
+    let keypair = Keypair::generate_ed25519();
+    let peer_id = keypair.public().to_peer_id().to_string();
+    tracing::info!("Node Peer ID: {}", peer_id);
+
+    let p2p_network = P2PNetwork::new(keypair, p2p_port)?;
+    tracing::info!("P2P network initialized on port {}", p2p_port);
+
+    // Create channels for P2P message handling
+    let (p2p_msg_tx, mut p2p_msg_rx) = tokio::sync::mpsc::unbounded_channel::<P2PMessage>();
+    let (network_tx, network_rx) = tokio::sync::mpsc::unbounded_channel::<P2PMessage>();
+
+    // Create sync manager
+    let sync_manager = Arc::new(SyncManager::new(engine.clone(), network_tx.clone()));
+
+    // Start P2P event handler with both incoming and outgoing message channels
+    let mut event_handler = P2PEventHandler::new(p2p_network, p2p_msg_tx).with_outgoing(network_rx);
+    tokio::spawn(async move {
+        event_handler.run().await;
+    });
+
+    // Handle P2P messages from network
+    let sync_for_messages = sync_manager.clone();
+    tokio::spawn(async move {
+        while let Some(msg) = p2p_msg_rx.recv().await {
+            sync_for_messages.handle_message(msg).await;
+        }
+    });
+
+    // Broadcast peer info periodically
+    let sync_for_broadcast = sync_manager.clone();
+    let peer_id_clone = peer_id.clone();
+    tokio::spawn(async move {
+        // Wait a bit for peer discovery to complete before first broadcast
+        sleep(Duration::from_secs(3)).await;
+        loop {
+            sync_for_broadcast
+                .broadcast_peer_info(peer_id_clone.clone())
+                .await;
+            sleep(Duration::from_secs(30)).await;
+        }
+    });
+
     // Start RPC server in background with cloned Arc
-    let rpc_addr = "127.0.0.1:19001";
+    let rpc_addr = format!("127.0.0.1:{}", rpc_port);
     tracing::info!("Starting RPC server on http://{}", rpc_addr);
 
     let engine_for_rpc = engine.clone();
+    let rpc_addr_clone = rpc_addr.clone();
     tokio::spawn(async move {
-        if let Err(e) = start_server(engine_for_rpc, rpc_addr).await {
+        if let Err(e) = start_server(engine_for_rpc, &rpc_addr_clone).await {
             tracing::error!("RPC server error: {}", e);
         }
     });
@@ -192,6 +274,16 @@ async fn run_node(engine: Arc<BlockchainEngine>) -> Result<()> {
                         block_info.executed,
                         block_info.failed
                     );
+
+                    // Broadcast the new block with full transaction data to the network
+                    if let Some(full_block_data) = engine.get_full_block(block_info.height)
+                        && let Ok(block_str) = serde_json::to_string(&full_block_data)
+                    {
+                        let msg = P2PMessage::NewBlock(block_str);
+                        if let Err(e) = network_tx.send(msg) {
+                            tracing::warn!("Failed to queue block broadcast: {}", e);
+                        }
+                    }
                 }
                 Err(e) => {
                     tracing::error!("Block production failed: {}", e);

@@ -299,9 +299,29 @@ impl BlockchainEngine {
         runtime: &mut kanari_move_runtime::move_runtime::MoveRuntime,
         state_arc: &Arc<RwLock<StateManager>>,
     ) -> Result<ChangeSet> {
-        // 1. Pre-flight validation: Check sequence number
+        Self::execute_transaction_with_runtime_internal(tx, runtime, state_arc, true)
+    }
+
+    /// Execute a transaction with option to skip sequence validation
+    /// Used for syncing blocks where sequence is already validated by the original node
+    fn execute_transaction_with_runtime_skip_seq(
+        tx: &Transaction,
+        runtime: &mut kanari_move_runtime::move_runtime::MoveRuntime,
+        state_arc: &Arc<RwLock<StateManager>>,
+    ) -> Result<ChangeSet> {
+        Self::execute_transaction_with_runtime_internal(tx, runtime, state_arc, false)
+    }
+
+    /// Internal transaction execution with optional sequence validation
+    fn execute_transaction_with_runtime_internal(
+        tx: &Transaction,
+        runtime: &mut kanari_move_runtime::move_runtime::MoveRuntime,
+        state_arc: &Arc<RwLock<StateManager>>,
+        validate_sequence: bool,
+    ) -> Result<ChangeSet> {
+        // 1. Pre-flight validation: Check sequence number (skip for synced transactions)
         let sender_addr = AccountAddress::from_hex_literal(tx.sender_address())?;
-        {
+        if validate_sequence {
             let state = state_arc.read().unwrap();
             state
                 .validate_sequence(&sender_addr, tx.sequence_number())
@@ -520,6 +540,16 @@ impl BlockchainEngine {
         Self::execute_transaction_with_runtime(tx, &mut runtime, &self.state)
     }
 
+    /// Execute transaction for sync (without affecting pending pool)
+    /// Used when syncing blocks from network - executes transactions to rebuild state
+    /// Skips sequence validation since transactions are already validated by the original node
+    /// IMPORTANT: Uses main runtime (not pool) to ensure module bytecode is persisted correctly
+    fn execute_transaction_sync(&self, tx: &Transaction) -> Result<ChangeSet> {
+        // Always use main runtime for synced transactions to ensure modules are persisted
+        let mut runtime = self.move_runtime.write().unwrap();
+        Self::execute_transaction_with_runtime_skip_seq(tx, &mut runtime, &self.state)
+    }
+
     /// Mine/produce a new block with pending transactions
     /// Now uses ChangeSet pattern: execute -> collect ChangeSets -> apply atomically
     ///
@@ -728,6 +758,198 @@ impl BlockchainEngine {
             tx_count: block.transactions.len(),
             events: block.events.clone(),
         })
+    }
+
+    /// Get full block with transactions by height
+    pub fn get_full_block(&self, height: u64) -> Option<FullBlockData> {
+        let chain = self.blockchain.read().unwrap();
+        chain.get_block(height).map(|block| FullBlockData {
+            height: block.header.height,
+            timestamp: block.header.timestamp,
+            hash: hex::encode(block.hash()),
+            prev_hash: hex::encode(&block.header.prev_hash),
+            state_root: hex::encode(&block.header.state_root),
+            tx_count: block.transactions.len(),
+            events: block.events.clone(),
+            transactions: block.transactions.clone(),
+        })
+    }
+
+    /// Sync block from network data (simplified sync without full transaction re-execution)
+    pub fn sync_block_from_data(&self, block_data: &BlockData) -> Result<()> {
+        let mut chain = self.blockchain.write().unwrap();
+
+        // Check if we already have this block
+        if chain.get_block(block_data.height).is_some() {
+            return Ok(()); // Already have it
+        }
+
+        // Verify this is the next block
+        let current_height = chain.height();
+        if block_data.height != current_height + 1 {
+            anyhow::bail!(
+                "Cannot sync block #{}: current height is {}",
+                block_data.height,
+                current_height
+            );
+        }
+
+        // Create a placeholder block with the data we have
+        // Note: This is simplified sync - we don't have the actual transactions
+        let prev_hash = hex::decode(&block_data.prev_hash).context("Failed to decode prev_hash")?;
+        let state_root =
+            hex::decode(&block_data.state_root).context("Failed to decode state_root")?;
+
+        let block = Block::new(
+            block_data.height,
+            prev_hash,
+            state_root,
+            vec![], // No transactions in simplified sync
+            block_data.events.clone(),
+        );
+
+        // Add to blockchain without validation (trusted sync from peer)
+        chain.add_block_with_validation(block, false)?;
+
+        // Persist if we have a store
+        if let Some(store) = &self.persistent_store {
+            let _ = store.save("blockchain", &*chain);
+        }
+
+        Ok(())
+    }
+
+    /// Sync full block with transactions from network data
+    /// This method executes all transactions to rebuild the state
+    pub fn sync_full_block_from_data(&self, block_data: &FullBlockData) -> Result<()> {
+        let chain = self.blockchain.write().unwrap();
+
+        // Check if we already have this block
+        if chain.get_block(block_data.height).is_some() {
+            return Ok(()); // Already have it
+        }
+
+        // Verify this is the next block
+        let current_height = chain.height();
+        if block_data.height != current_height + 1 {
+            anyhow::bail!(
+                "Cannot sync block #{}: current height is {}",
+                block_data.height,
+                current_height
+            );
+        }
+
+        // Release chain lock before executing transactions
+        drop(chain);
+
+        // Execute all transactions in the block to rebuild state
+        eprintln!(
+            "[SYNC] Executing {} transactions from block #{}",
+            block_data.transactions.len(),
+            block_data.height
+        );
+        let mut executed = 0;
+        let mut _failed = 0;
+        let mut all_changesets: Vec<ChangeSet> = Vec::new();
+
+        for (i, tx) in block_data.transactions.iter().enumerate() {
+            eprintln!(
+                "[SYNC] Executing transaction {}/{} from block #{}",
+                i + 1,
+                block_data.transactions.len(),
+                block_data.height
+            );
+            match self.execute_transaction_sync(tx) {
+                Ok(changeset) => {
+                    eprintln!(
+                        "[SYNC] Transaction {} executed, success={}",
+                        i + 1,
+                        changeset.success
+                    );
+                    if changeset.success {
+                        executed += 1;
+                    } else {
+                        _failed += 1;
+                    }
+                    all_changesets.push(changeset);
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[SYNC] Failed to execute synced transaction {}: {}",
+                        i + 1,
+                        e
+                    );
+                    _failed += 1;
+                }
+            }
+        }
+
+        // Apply all changesets to state
+        eprintln!(
+            "[SYNC] Applying {} changesets to state",
+            all_changesets.len()
+        );
+        let mut state = self.state.write().unwrap();
+        for (i, cs) in all_changesets.iter().enumerate() {
+            eprintln!(
+                "[SYNC] Applying changeset {}/{}",
+                i + 1,
+                all_changesets.len()
+            );
+            state.apply_changeset(cs)?;
+        }
+
+        // Compute new state root after applying all changes
+        let state_root = state.compute_state_root();
+        eprintln!("[SYNC] New state root: {}", hex::encode(&state_root));
+        drop(state);
+
+        // Create block with full transaction data
+        let prev_hash = hex::decode(&block_data.prev_hash).context("Failed to decode prev_hash")?;
+
+        let block = Block::new(
+            block_data.height,
+            prev_hash,
+            state_root.clone(),
+            block_data.transactions.clone(),
+            block_data.events.clone(),
+        );
+
+        // Add to blockchain
+        let mut chain = self.blockchain.write().unwrap();
+        chain.add_block_with_validation(block, false)?;
+        drop(chain);
+
+        // Persist blockchain and state
+        if let Some(store) = &self.persistent_store {
+            let chain = self.blockchain.read().unwrap();
+            store
+                .save("blockchain", &*chain)
+                .context("Failed to persist blockchain")?;
+            drop(chain);
+
+            let state_guard = self.state.read().unwrap();
+            store
+                .save("state_manager", &*state_guard)
+                .context("Failed to persist state manager")?;
+            drop(state_guard);
+
+            if let Err(e) = store.save_smt_snapshot(block_data.height) {
+                eprintln!(
+                    "Failed to save SMT snapshot for synced block {}: {}",
+                    block_data.height, e
+                );
+            }
+        }
+
+        eprintln!(
+            "Synced block #{} with {}/{} successful transactions",
+            block_data.height,
+            executed,
+            block_data.transactions.len()
+        );
+
+        Ok(())
     }
 
     /// Get state root for a specific block height or latest if None.
@@ -947,4 +1169,16 @@ pub struct BlockData {
     pub state_root: String,
     pub tx_count: usize,
     pub events: Vec<Event>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FullBlockData {
+    pub height: u64,
+    pub timestamp: u64,
+    pub hash: String,
+    pub prev_hash: String,
+    pub state_root: String,
+    pub tx_count: usize,
+    pub events: Vec<Event>,
+    pub transactions: Vec<Transaction>,
 }

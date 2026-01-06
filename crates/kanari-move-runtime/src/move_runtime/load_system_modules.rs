@@ -14,31 +14,43 @@ impl super::MoveRuntime {
         let modules_dir = if let Ok(path_str) = std::env::var("MOVE_STDLIB_PATH") {
             std::path::PathBuf::from(path_str)
         } else {
-            // Try two candidate locations to avoid duplicated `crates/crates` when cwd is already the `crates` folder.
+            // Try a set of ancestor-based candidates to be robust across cwd choices.
             let cwd = std::env::current_dir().unwrap_or_default();
-            let candidate1 = cwd
-                .join("crates")
-                .join("kanari-frameworks")
-                .join("packages")
-                .join("move-stdlib")
-                .join("build")
-                .join("MoveStdlib")
-                .join("bytecode_modules");
+            // Helper to search ancestors for a candidate path
+            let find_in_ancestors = |segments: &[&str]| -> Option<std::path::PathBuf> {
+                let mut dir = Some(cwd.as_path());
+                while let Some(d) = dir {
+                    let mut p = std::path::PathBuf::from(d);
+                    for seg in segments.iter() {
+                        p.push(seg);
+                    }
+                    if p.exists() {
+                        return Some(p);
+                    }
+                    dir = d.parent();
+                }
+                None
+            };
 
-            if candidate1.exists() {
-                candidate1
-            } else if let Some(parent) = cwd.parent() {
-                parent
-                    .join("crates")
+            // Preferred relative path from repository root
+            let segments = [
+                "crates",
+                "kanari-frameworks",
+                "packages",
+                "move-stdlib",
+                "build",
+                "MoveStdlib",
+                "bytecode_modules",
+            ];
+            find_in_ancestors(&segments).unwrap_or_else(|| {
+                cwd.join("crates")
                     .join("kanari-frameworks")
                     .join("packages")
                     .join("move-stdlib")
                     .join("build")
                     .join("MoveStdlib")
                     .join("bytecode_modules")
-            } else {
-                candidate1
-            }
+            })
         };
 
         eprintln!("✓ Looking for Move stdlib modules at: {:?}", modules_dir);
@@ -100,29 +112,39 @@ impl super::MoveRuntime {
             std::path::PathBuf::from(path_str)
         } else {
             let cwd = std::env::current_dir().unwrap_or_default();
-            let candidate1 = cwd
-                .join("crates")
-                .join("kanari-frameworks")
-                .join("packages")
-                .join("kanari-system")
-                .join("build")
-                .join("KanariSystem")
-                .join("bytecode_modules");
+            let find_in_ancestors = |segments: &[&str]| -> Option<std::path::PathBuf> {
+                let mut dir = Some(cwd.as_path());
+                while let Some(d) = dir {
+                    let mut p = std::path::PathBuf::from(d);
+                    for seg in segments.iter() {
+                        p.push(seg);
+                    }
+                    if p.exists() {
+                        return Some(p);
+                    }
+                    dir = d.parent();
+                }
+                None
+            };
 
-            if candidate1.exists() {
-                candidate1
-            } else if let Some(parent) = cwd.parent() {
-                parent
-                    .join("crates")
+            let segments = [
+                "crates",
+                "kanari-frameworks",
+                "packages",
+                "kanari-system",
+                "build",
+                "KanariSystem",
+                "bytecode_modules",
+            ];
+            find_in_ancestors(&segments).unwrap_or_else(|| {
+                cwd.join("crates")
                     .join("kanari-frameworks")
                     .join("packages")
                     .join("kanari-system")
                     .join("build")
                     .join("KanariSystem")
                     .join("bytecode_modules")
-            } else {
-                candidate1
-            }
+            })
         };
 
         eprintln!("✓ Looking for Kanari system modules at: {:?}", modules_dir);
