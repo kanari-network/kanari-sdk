@@ -1,10 +1,6 @@
 [package]
-name = "smt"
+name = "kanari-db-common"
 edition.workspace = true
-categories.workspace = true
-keywords.workspace = true
-homepage.workspace = true
-documentation.workspace = true
 version.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -16,9 +12,6 @@ anyhow = { workspace = true }
 rocksdb = { workspace = true }
 once_cell = { workspace = true }
 dirs = { workspace = true }
-blake3 = { workspace = true }
-kanari-db-common = { workspace = true }
 
 [features]
 default = []
-blake3 = []

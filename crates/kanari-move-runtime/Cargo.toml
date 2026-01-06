@@ -29,8 +29,9 @@ move-vm-types = { workspace = true }
 move-vm-test-utils = { workspace = true }
 move-stdlib-natives = { workspace = true }
 
+kanari-db-common = { workspace = true }
 kanari-system-natives = { workspace = true }
 kanari-types = { workspace = true }
 kanari-crypto = { workspace = true }
-smt = { path = "../smt" }
+smt = { workspace = true }
 log = { workspace = true }

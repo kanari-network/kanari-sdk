@@ -3,32 +3,51 @@
 
 // Main entry point for Kanari blockchain node
 use anyhow::Result;
+use clap::{Parser, Subcommand};
 use kanari_core::BlockchainEngine;
 use kanari_crypto::wallet::list_wallet_files;
-use kanari_move_runtime::MoveRuntime;
 use kanari_rpc_server::start_server;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::kanari::KanariModule;
-
-use move_core_types::account_address::AccountAddress;
-
-// chrono::Local removed — tracing provides timestamps
-use std::path::PathBuf;
 use std::sync::Arc;
-use std::{env, time::Duration};
+use std::time::Duration;
 use tokio::time::sleep;
+
+/// Kanari node command-line interface
+#[derive(Parser)]
+#[command(name = "kanari-node")]
+#[command(about = "Kanari blockchain node", long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// start the node
+    Start,
+    /// List wallet files
+    ListWallets,
+    /// Show blockchain statistics
+    Stats,
+    /// Get account info
+    Account {
+        /// Account address
+        address: String,
+    },
+    /// Get block information by height
+    Block {
+        /// Block height
+        height: u64,
+    },
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // CLI: subcommands: run | publish-all | list-wallets | publish-file <path> | stats | account <addr> | block <height> | modules
-    let args: Vec<String> = env::args().collect();
-    let cmd = args.get(1).map(|s| s.as_str()).unwrap_or("run");
+    let cli = Cli::parse();
 
-    // Initialize blockchain engine
-    let engine = BlockchainEngine::new()?;
-
-    match cmd {
-        "list-wallets" => {
+    match cli.command {
+        Commands::ListWallets => {
             let wallets = list_wallet_files()?;
             for (addr, selected) in wallets {
                 tracing::info!("{}{}", addr, if selected { " (selected)" } else { "" });
@@ -36,7 +55,8 @@ async fn main() -> Result<()> {
             return Ok(());
         }
 
-        "stats" => {
+        Commands::Stats => {
+            let engine = BlockchainEngine::new()?;
             let stats = engine.get_stats();
             tracing::info!("Blockchain Statistics:");
             tracing::info!("  Height: {}", stats.height);
@@ -48,11 +68,9 @@ async fn main() -> Result<()> {
             return Ok(());
         }
 
-        "account" => {
-            let address = args
-                .get(2)
-                .ok_or_else(|| anyhow::anyhow!("Usage: account <address>"))?;
-            match engine.get_account_info(address) {
+        Commands::Account { address } => {
+            let engine = BlockchainEngine::new()?;
+            match engine.get_account_info(&address) {
                 Some(info) => {
                     tracing::info!("  Account: {}", info.address);
                     tracing::info!("  Balance: {}", info.balance);
@@ -67,11 +85,8 @@ async fn main() -> Result<()> {
             return Ok(());
         }
 
-        "block" => {
-            let height: u64 = args
-                .get(2)
-                .ok_or_else(|| anyhow::anyhow!("Usage: block <height>"))?
-                .parse()?;
+        Commands::Block { height } => {
+            let engine = BlockchainEngine::new()?;
             match engine.get_block(height) {
                 Some(block) => {
                     tracing::info!("  Block #{}", block.height);
@@ -85,72 +100,21 @@ async fn main() -> Result<()> {
             return Ok(());
         }
 
-        "publish-file" => {
-            let path = match args.get(2) {
-                Some(p) => PathBuf::from(p),
-                None => {
-                    eprintln!("Usage: publish-file <path-to-bytecode.mv>");
-                    std::process::exit(2);
-                }
-            };
-
-            let mut rt = MoveRuntime::new()?;
-            let bytes = std::fs::read(&path)?;
-            // use system address as sender
-            let sender = AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS)?;
-            tracing::info!("Publishing {}...", path.display());
-            rt.publish_module(bytes, sender, None)?;
-            tracing::info!("Published.");
+        Commands::Start => {
+            let engine = BlockchainEngine::new()?;
+            let engine_arc = Arc::new(engine);
+            run_node(engine_arc).await?;
             return Ok(());
-        }
-
-        "inspect" => {
-            let path = match args.get(2) {
-                Some(p) => PathBuf::from(p),
-                None => {
-                    eprintln!("Usage: inspect <path-to-bytecode.mv>");
-                    std::process::exit(2);
-                }
-            };
-            let bytes = std::fs::read(&path)?;
-            match move_binary_format::file_format::CompiledModule::deserialize_with_defaults(&bytes)
-            {
-                Ok(compiled) => {
-                    tracing::info!("ModuleId address: {}", compiled.self_id().address());
-                    tracing::info!("ModuleId name: {}", compiled.self_id().name());
-                }
-                Err(e) => eprintln!("Failed to deserialize module: {:?}", e),
-            }
-            return Ok(());
-        }
-
-        "run" => {
-            // fallthrough to blockchain node run
-        }
-        "start" => {
-            // alias for "run"
-        }
-        _ => {
-            eprintln!("Unknown command: {}.", cmd);
-            eprintln!("Available commands:");
-            eprintln!("  run | start              - Start blockchain node");
-            eprintln!("  stats                    - Show blockchain statistics");
-            eprintln!("  account <address>        - Get account information");
-            eprintln!("  block <height>           - Get block information");
-            eprintln!("  modules                  - List available Move modules");
-            eprintln!("  publish-all              - Publish framework modules");
-            eprintln!("  publish-file <path>      - Publish specific module");
-            eprintln!("  inspect <path>           - Inspect module bytecode");
-            eprintln!("  list-wallets             - List available wallets");
-            std::process::exit(2);
         }
     }
+}
 
+async fn run_node(engine: Arc<BlockchainEngine>) -> Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
     // Wrap engine in Arc for sharing between tasks
-    let engine = Arc::new(engine);
+
     let stats = engine.get_stats();
 
     tracing::info!("Kanari blockchain node starting");

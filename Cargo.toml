@@ -30,7 +30,9 @@ members = [
       "crates/kanari-core",
       "crates/smt",
       "crates/tps-harness", 
-      "crates/kanari-system-natives"]
+      "crates/kanari-system-natives",
+      "crates/kanari-db-common",
+]
 
 # Workspace Package Configuration: Metadata for the entire workspace as a package.
 # This information is used when publishing the SDK as a crate.
@@ -51,7 +53,7 @@ description = "Kanari Network SDK"                                              
 [workspace.dependencies]
 
 # Runtime & async
-tokio = { version = "1.48.0", features = ["full"] }
+tokio = { version = "1.49.0", features = ["full"] }
 
 # Networking / HTTP / Web
 reqwest = { version = "0.13.1", features = ["json"] }
@@ -140,6 +142,7 @@ kanari-rpc-server = { path = "crates/kanari-rpc-server" }
 kanari-faucet = { path = "crates/kanari-faucet" }
 kanari-core = { path = "crates/kanari-core" }
 kanari-system-natives = { path = "crates/kanari-system-natives" }
+kanari-db-common = { path = "crates/kanari-db-common" }
 
 # SMT Support
 smt = { path = "crates/smt" }
