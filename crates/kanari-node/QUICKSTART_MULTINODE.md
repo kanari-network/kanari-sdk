@@ -53,13 +53,13 @@ INFO kanari_node: Connection established with 12D3KooW...
 
 ```powershell
 # Terminal 1
-kanari-node start --p2p-port 19000 --rpc-port 19001 --data-dir C:\Users\Pukpuy\.kanari\kanari-db\node1
+kanari-node start --p2p-port 19000 --rpc-port 19001 --rpc-host 0.0.0.0 --data-dir C:\Users\Pukpuy\.kanari\kanari-db\node1
 
 # Terminal 2  
-kanari-node start --p2p-port 19010 --rpc-port 19011 --data-dir C:\Users\Pukpuy\.kanari\kanari-db\node2
+kanari-node start --p2p-port 19010 --rpc-port 19011 --rpc-host 0.0.0.0 --data-dir C:\Users\Pukpuy\.kanari\kanari-db\node2
 
 # Terminal 3
-kanari-node start --p2p-port 19020 --rpc-port 19021 --data-dir C:\Users\Pukpuy\.kanari\kanari-db\node3
+kanari-node start --p2p-port 19020 --rpc-port 19021 --rpc-host 0.0.0.0 --data-dir C:\Users\Pukpuy\.kanari\kanari-db\node3
 ```
 
 ## ตรวจสอบสถานะ Blockchain
@@ -79,9 +79,23 @@ kanari-node block 0
 
 ## RPC Endpoints
 
-- Node 1: `http://127.0.0.1:19001`
-- Node 2: `http://127.0.0.1:19011`
-- Node 3: `http://127.0.0.1:19021`
+- Local (loopback):
+  - Node 1: `http://127.0.0.1:19001`
+  - Node 2: `http://127.0.0.1:19011`
+  - Node 3: `http://127.0.0.1:19021`
+
+- LAN (reachable from other machines on your network):
+  - Node 1: `http://<machine_ip>:19001`
+  - Node 2: `http://<machine_ip>:19011`
+  - Node 3: `http://<machine_ip>:19021`
+
+To expose RPC to the LAN, start each node with either `--rpc-host 0.0.0.0` (bind all interfaces) or `--rpc-host <machine_ip>` (bind a single interface). Example:
+
+```powershell
+kanari-node start --p2p-port 19000 --rpc-port 19001 --rpc-host 0.0.0.0 --data-dir C:\Users\Pukpuy\.kanari\kanari-db\node1
+```
+
+Security note: binding RPC to all interfaces exposes the API to your local network — ensure your firewall and network policies allow or block access as intended.
 
 ## การทดสอบ P2P Network
 

@@ -19,10 +19,26 @@ for ($i = 1; $i -le $NodeCount; $i++) {
         Write-Host "  Created: $dataDir" -ForegroundColor Gray
     }
 }
-
 Write-Host ""
 Write-Host "Node Configuration:" -ForegroundColor Cyan
 Write-Host "==================" -ForegroundColor Cyan
+
+# Detect LAN IPv4 address by preferring physical, Up interfaces (skip virtual/loopback)
+$localIp = $null
+$adapters = Get-NetAdapter -ErrorAction SilentlyContinue |
+    Where-Object { $_.Status -eq 'Up' -and $_.InterfaceDescription -notmatch 'Virtual|vEthernet|Hyper-V|Docker|VMware|Loopback' }
+foreach ($a in $adapters) {
+    $ip = Get-NetIPAddress -InterfaceIndex $a.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.IPAddress -notmatch '^127\.' -and $_.IPAddress -notmatch '^169\.254\.' } |
+        Select-Object -First 1
+    if ($ip) { $localIp = $ip.IPAddress; break }
+}
+# If not found, try any non-loopback/non-APIPA IPv4
+if (-not $localIp) {
+    $localIp = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.IPAddress -notmatch '^127\.' -and $_.IPAddress -notmatch '^169\.254\.' } |
+        Select-Object -First 1).IPAddress
+}
 
 for ($i = 1; $i -le $NodeCount; $i++) {
     $p2pPort = $BasePeerPort + (($i - 1) * 10)
@@ -34,7 +50,11 @@ for ($i = 1; $i -le $NodeCount; $i++) {
     Write-Host "  P2P Port: $p2pPort" -ForegroundColor Gray
     Write-Host "  RPC Port: $rpcPort" -ForegroundColor Gray
     Write-Host "  Data Dir: $dataDir" -ForegroundColor Gray
-    Write-Host "  RPC URL:  http://127.0.0.1:$rpcPort" -ForegroundColor Gray
+    if ($localIp) {
+        Write-Host ("  RPC URL:  http://{0}:{1}" -f $localIp, $rpcPort) -ForegroundColor Gray
+    } else {
+        Write-Host '  RPC URL:  (no LAN IP detected)' -ForegroundColor DarkYellow
+    }
 }
 
 Write-Host ""
@@ -47,15 +67,33 @@ for ($i = 1; $i -le $NodeCount; $i++) {
     $dataDir = "$BaseDataDir\node$i"
     
     Write-Host "# Terminal ${i} (Node ${i}):" -ForegroundColor Cyan
-    Write-Host "kanari-node start --p2p-port $p2pPort --rpc-port $rpcPort --data-dir `"$dataDir`"" -ForegroundColor White
+    # Recommend binding RPC to all interfaces so the node is reachable via the machine IP
+    Write-Host "kanari-node start --p2p-port $p2pPort --rpc-port $rpcPort --rpc-host 0.0.0.0 --data-dir `"$dataDir`"" -ForegroundColor White
     Write-Host ""
 }
 
 Write-Host ""
-Write-Host "Or use the start-node.ps1 script to start individual nodes:" -ForegroundColor Yellow
+Write-Host "Or use the start-node.ps1 script to start individual nodes (it will detect and display the machine IP):" -ForegroundColor Yellow
 Write-Host "  .\start-node.ps1 -NodeId 1" -ForegroundColor White
 Write-Host "  .\start-node.ps1 -NodeId 2" -ForegroundColor White
 Write-Host "  .\start-node.ps1 -NodeId 3" -ForegroundColor White
 Write-Host ""
-Write-Host "Press any key to exit..." -ForegroundColor Gray
-$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+Write-Host "" -ForegroundColor Gray
+# Prompt to start nodes in separate terminals
+$startNow = Read-Host "Start all nodes now in separate terminals? (Y/N)"
+if ($startNow -match '^[Yy]') {
+    $scriptPath = Join-Path $PSScriptRoot 'start-node.ps1'
+    for ($i = 1; $i -le $NodeCount; $i++) {
+        $p2pPort = $BasePeerPort + (($i - 1) * 10)
+        $rpcPort = $BaseRpcPort + (($i - 1) * 10)
+        $dataDir = "$BaseDataDir\node$i"
+
+        # Launch new PowerShell window running the start-node script for this node
+        $argString = "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`" -NodeId $i"
+        Start-Process -FilePath "powershell.exe" -ArgumentList $argString -WindowStyle Normal
+        Start-Sleep -Milliseconds 500
+    }
+    Write-Host "Launched $NodeCount terminals." -ForegroundColor Green
+} else {
+    Write-Host "Skipped launching terminals. Run start-node.ps1 manually to start nodes." -ForegroundColor Yellow
+}
