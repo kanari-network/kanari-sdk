@@ -13,6 +13,7 @@ use kanari_move_runtime::move_runtime::MoveRuntime;
 use kanari_move_runtime::state::StateManager;
 use kanari_move_runtime::storage::persistent_store::PersistentStore;
 use kanari_types::address::Address as KanariAddress;
+use lru::LruCache;
 use move_core_types::{
     account_address::AccountAddress,
     identifier::Identifier,
@@ -20,7 +21,10 @@ use move_core_types::{
 };
 use num_cpus;
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
+
+type ProofCache = LruCache<(u64, usize), (String, Vec<Vec<u8>>)>;
 
 mod produce_block;
 pub use produce_block::BlockInfo;
@@ -30,12 +34,15 @@ pub struct BlockchainEngine {
     pub blockchain: Arc<RwLock<Blockchain>>,
     pub state: Arc<RwLock<StateManager>>,
     pub move_runtime: Arc<RwLock<MoveRuntime>>,
-    pub pending_txs: Arc<RwLock<Vec<Transaction>>>,
+    pub pending_txs: Arc<RwLock<Vec<SignedTransaction>>>,
     pub contract_registry: Arc<RwLock<ContractRegistry>>,
     pub persistent_store: Option<Arc<PersistentStore>>,
     // Optional reusable pool of MoveRuntime instances for parallel execution
     pub runtime_pool:
         Option<Vec<Arc<std::sync::Mutex<kanari_move_runtime::move_runtime::MoveRuntime>>>>,
+    // LRU cache for frequently requested merkle proofs
+    // Cache key: (block_height, tx_index), Value: (tx_hash, proof)
+    pub proof_cache: Arc<RwLock<ProofCache>>,
 }
 
 // Basic recursive parser for simple type-argument strings used by RPC/tests.
@@ -135,7 +142,9 @@ impl BlockchainEngine {
         };
 
         let blockchain = if let Some(store) = &persistent_store {
-            if let Ok(Some(b)) = store.load::<Blockchain>("blockchain") {
+            if let Ok(Some(mut b)) = store.load::<Blockchain>("blockchain") {
+                // Rebuild transaction hash index after loading from disk
+                b.rebuild_tx_hash_index();
                 Arc::new(RwLock::new(b))
             } else {
                 Arc::new(RwLock::new(Blockchain::new()))
@@ -194,6 +203,9 @@ impl BlockchainEngine {
             runtime_pool = Some(pool_vec);
         }
 
+        // Initialize LRU cache for merkle proofs (cache up to 1000 proofs)
+        let proof_cache = Arc::new(RwLock::new(LruCache::new(NonZeroUsize::new(1000).unwrap())));
+
         Ok(Self {
             blockchain,
             state,
@@ -202,6 +214,7 @@ impl BlockchainEngine {
             contract_registry,
             persistent_store,
             runtime_pool,
+            proof_cache,
         })
     }
 
@@ -235,7 +248,7 @@ impl BlockchainEngine {
 
         let tx_hash = signed_tx.hash();
         let mut pending = self.pending_txs.write().unwrap();
-        pending.push(signed_tx.transaction);
+        pending.push(signed_tx);
         Ok(tx_hash)
     }
 
@@ -272,8 +285,9 @@ impl BlockchainEngine {
             // advanced by earlier pending submissions.
             if let Ok(pending) = self.pending_txs.read() {
                 for ptx in pending.iter() {
-                    if ptx.sender_address() == tx.sender_address()
-                        && let Ok(addr) = AccountAddress::from_hex_literal(ptx.sender_address())
+                    if ptx.transaction.sender_address() == tx.sender_address()
+                        && let Ok(addr) =
+                            AccountAddress::from_hex_literal(ptx.transaction.sender_address())
                     {
                         let acct = state_snapshot.get_or_create_account(addr);
                         acct.increment_sequence();
@@ -842,6 +856,27 @@ impl BlockchainEngine {
         // Release chain lock before executing transactions
         drop(chain);
 
+        // Verify all transaction signatures before executing
+        eprintln!(
+            "[SYNC] Verifying {} transaction signatures from block #{}",
+            block_data.transactions.len(),
+            block_data.height
+        );
+        for (i, signed_tx) in block_data.transactions.iter().enumerate() {
+            // Skip signature verification for transactions without signatures (system/internal txs)
+            if signed_tx.signature.is_some()
+                && let Err(e) = signed_tx.verify_signature()
+            {
+                anyhow::bail!(
+                    "Invalid signature for transaction {} in block #{}: {}",
+                    i + 1,
+                    block_data.height,
+                    e
+                );
+            }
+        }
+        eprintln!("[SYNC] All transaction signatures verified");
+
         // Execute all transactions in the block to rebuild state
         eprintln!(
             "[SYNC] Executing {} transactions from block #{}",
@@ -852,14 +887,14 @@ impl BlockchainEngine {
         let mut _failed = 0;
         let mut all_changesets: Vec<ChangeSet> = Vec::new();
 
-        for (i, tx) in block_data.transactions.iter().enumerate() {
+        for (i, signed_tx) in block_data.transactions.iter().enumerate() {
             eprintln!(
                 "[SYNC] Executing transaction {}/{} from block #{}",
                 i + 1,
                 block_data.transactions.len(),
                 block_data.height
             );
-            match self.execute_transaction_sync(tx) {
+            match self.execute_transaction_sync(&signed_tx.transaction) {
                 Ok(changeset) => {
                     eprintln!(
                         "[SYNC] Transaction {} executed, success={}",
@@ -1128,6 +1163,57 @@ impl BlockchainEngine {
             Ok(None)
         }
     }
+
+    /// Generate merkle proof for a transaction at given index in a block
+    /// Uses LRU cache for frequently requested proofs
+    pub fn get_transaction_merkle_proof(
+        &self,
+        block_height: u64,
+        tx_index: usize,
+    ) -> Result<Option<(String, Vec<Vec<u8>>)>> {
+        use crate::blockchain::generate_merkle_proof;
+
+        let cache_key = (block_height, tx_index);
+
+        // Check cache first
+        {
+            let mut cache = self.proof_cache.write().unwrap();
+            if let Some(cached_proof) = cache.get(&cache_key) {
+                return Ok(Some(cached_proof.clone()));
+            }
+        }
+
+        // Not in cache, compute proof
+        let chain = self.blockchain.read().unwrap();
+        let block = chain
+            .get_block(block_height)
+            .ok_or_else(|| anyhow::anyhow!("Block not found at height {}", block_height))?;
+
+        if tx_index >= block.transactions.len() {
+            anyhow::bail!(
+                "Transaction index {} out of bounds (block has {} transactions)",
+                tx_index,
+                block.transactions.len()
+            );
+        }
+
+        // Collect transaction hashes
+        let tx_hashes: Vec<Vec<u8>> = block.transactions.iter().map(|tx| tx.hash()).collect();
+
+        // Generate proof
+        let proof = generate_merkle_proof(&tx_hashes, tx_index);
+        let tx_hash = hex::encode(&tx_hashes[tx_index]);
+
+        let result = (tx_hash, proof);
+
+        // Store in cache
+        {
+            let mut cache = self.proof_cache.write().unwrap();
+            cache.put(cache_key, result.clone());
+        }
+
+        Ok(Some(result))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1180,5 +1266,5 @@ pub struct FullBlockData {
     pub state_root: String,
     pub tx_count: usize,
     pub events: Vec<Event>,
-    pub transactions: Vec<Transaction>,
+    pub transactions: Vec<SignedTransaction>,
 }

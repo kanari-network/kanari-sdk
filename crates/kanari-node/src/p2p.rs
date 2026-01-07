@@ -175,6 +175,7 @@ pub struct P2PEventHandler {
     pub network: P2PNetwork,
     pub message_tx: mpsc::UnboundedSender<P2PMessage>,
     pub outgoing_rx: Option<mpsc::UnboundedReceiver<P2PMessage>>,
+    pub peer_store: Option<std::sync::Arc<tokio::sync::Mutex<crate::peer_store::PeerStore>>>,
 }
 
 impl P2PEventHandler {
@@ -183,11 +184,20 @@ impl P2PEventHandler {
             network,
             message_tx,
             outgoing_rx: None,
+            peer_store: None,
         }
     }
 
     pub fn with_outgoing(mut self, outgoing_rx: mpsc::UnboundedReceiver<P2PMessage>) -> Self {
         self.outgoing_rx = Some(outgoing_rx);
+        self
+    }
+
+    pub fn with_peer_store(
+        mut self,
+        peer_store: std::sync::Arc<tokio::sync::Mutex<crate::peer_store::PeerStore>>,
+    ) -> Self {
+        self.peer_store = Some(peer_store);
         self
     }
 
@@ -269,6 +279,18 @@ impl P2PEventHandler {
                     endpoint.get_remote_address(),
                     num_established
                 );
+
+                // Save peer to persistent store
+                if let Some(peer_store) = &self.peer_store {
+                    let mut store = peer_store.lock().await;
+                    let addresses = vec![endpoint.get_remote_address().clone()];
+                    store.add_peer(peer_id, addresses);
+
+                    // Save to disk (async, ignore errors)
+                    if let Err(e) = store.save() {
+                        warn!("Failed to save peer store: {}", e);
+                    }
+                }
             }
             SwarmEvent::ConnectionClosed {
                 peer_id,

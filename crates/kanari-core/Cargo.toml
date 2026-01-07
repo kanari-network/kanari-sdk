@@ -24,3 +24,4 @@ crossbeam-channel = { workspace = true }
 num_cpus = { workspace = true }
 smt = { workspace = true }
 tracing = { workspace = true }
+lru = "0.16.2"

@@ -15,9 +15,11 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 mod p2p;
+mod peer_store;
 mod sync;
 
 use p2p::{P2PEventHandler, P2PMessage, P2PNetwork};
+use peer_store::PeerStore;
 use sync::SyncManager;
 
 /// Kanari node command-line interface
@@ -129,6 +131,15 @@ async fn main() -> Result<()> {
             data_dir,
             bootstrap,
         } => {
+            let data_dir_path = data_dir.clone().unwrap_or_else(|| {
+                let home = std::env::var("HOME")
+                    .or_else(|_| std::env::var("USERPROFILE"))
+                    .unwrap_or_else(|_| ".".to_string());
+                std::path::PathBuf::from(home)
+                    .join(".kanari")
+                    .join("kanari-db")
+            });
+
             if let Some(ref d) = data_dir {
                 unsafe {
                     std::env::set_var("KANARI_STATE_DB", d);
@@ -138,7 +149,7 @@ async fn main() -> Result<()> {
 
             let engine = BlockchainEngine::new()?;
             let engine_arc = Arc::new(engine);
-            run_node(engine_arc, p2p_port, rpc_port, bootstrap).await?;
+            run_node(engine_arc, p2p_port, rpc_port, bootstrap, data_dir_path).await?;
             return Ok(());
         }
     }
@@ -149,6 +160,7 @@ async fn run_node(
     p2p_port: u16,
     rpc_port: u16,
     _bootstrap_peers: Vec<String>,
+    data_dir: std::path::PathBuf,
 ) -> Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
@@ -190,6 +202,16 @@ async fn run_node(
     tracing::info!("kanari_sequencer::actor::sequencer: Load latest sequencer order 0");
     tracing::info!("kanari_sequencer::actor::sequencer: Load latest sequencer order 0");
 
+    // Load or create peer store
+    let peer_store_path = PeerStore::default_path(&data_dir.display().to_string());
+    let mut peer_store = PeerStore::load(peer_store_path.clone()).unwrap_or_else(|e| {
+        tracing::warn!("Failed to load peer store: {}, creating new one", e);
+        PeerStore::new(peer_store_path)
+    });
+
+    // Clean up old peers (older than 7 days)
+    peer_store.cleanup_old_peers(7 * 24 * 60 * 60);
+
     // Initialize P2P network
     let keypair = Keypair::generate_ed25519();
     let peer_id = keypair.public().to_peer_id().to_string();
@@ -205,8 +227,13 @@ async fn run_node(
     // Create sync manager
     let sync_manager = Arc::new(SyncManager::new(engine.clone(), network_tx.clone()));
 
-    // Start P2P event handler with both incoming and outgoing message channels
-    let mut event_handler = P2PEventHandler::new(p2p_network, p2p_msg_tx).with_outgoing(network_rx);
+    // Wrap peer store in Arc<Mutex> for sharing
+    let peer_store_arc = Arc::new(tokio::sync::Mutex::new(peer_store));
+
+    // Start P2P event handler with both incoming and outgoing message channels + peer store
+    let mut event_handler = P2PEventHandler::new(p2p_network, p2p_msg_tx)
+        .with_outgoing(network_rx)
+        .with_peer_store(peer_store_arc.clone());
     tokio::spawn(async move {
         event_handler.run().await;
     });

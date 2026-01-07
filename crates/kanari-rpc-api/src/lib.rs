@@ -149,6 +149,54 @@ pub struct GetAccountProofRequest {
     pub height: Option<u64>,
 }
 
+/// Transaction merkle proof for light client verification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionMerkleProof {
+    pub tx_hash: String,
+    pub tx_index: usize,
+    pub merkle_root: String,
+    pub proof: Vec<String>, // Sibling hashes as hex strings
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetTransactionMerkleProofRequest {
+    pub block_height: u64,
+    pub tx_index: usize,
+}
+
+/// Batch merkle proof request for multiple transactions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchMerkleProofRequest {
+    pub block_height: u64,
+    pub tx_indices: Vec<usize>,
+}
+
+/// Batch merkle proof response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchMerkleProofResponse {
+    pub block_height: u64,
+    pub merkle_root: String,
+    pub proofs: Vec<TransactionMerkleProof>,
+}
+
+/// Compressed merkle proof request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompressedMerkleProofRequest {
+    pub block_height: u64,
+    pub tx_index: usize,
+}
+
+/// Compressed merkle proof response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompressedMerkleProofResponse {
+    pub tx_hash: String,
+    pub tx_index: usize,
+    pub merkle_root: String,
+    pub compressed_proof: String, // Base64-encoded compressed proof
+    pub original_size: usize,     // Original proof size in bytes
+    pub compressed_size: usize,   // Compressed proof size in bytes
+}
+
 /// Event emitted by Move runtime (RPC representation)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcEvent {
@@ -335,6 +383,9 @@ pub mod methods {
     pub const SUBMIT_TRANSACTION: &str = "kanari_submitTransaction";
     pub const GET_STATE_ROOT: &str = "kanari_getStateRoot";
     pub const GET_ACCOUNT_PROOF: &str = "kanari_getAccountProof";
+    pub const GET_TRANSACTION_MERKLE_PROOF: &str = "kanari_getTransactionMerkleProof";
+    pub const GET_BATCH_MERKLE_PROOFS: &str = "kanari_getBatchMerkleProofs";
+    pub const GET_COMPRESSED_MERKLE_PROOF: &str = "kanari_getCompressedMerkleProof";
 
     // Stats & Info
     pub const GET_STATS: &str = "kanari_getStats";

@@ -261,11 +261,10 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
     };
     for block in chain.blocks.iter() {
         for tx in block.transactions.iter() {
-            let st = SignedTransaction::new(tx.clone());
-            let tx_hash = hex::encode(st.hash());
+            let tx_hash = hex::encode(tx.hash());
             if tx_hash.to_lowercase() == normalized {
                 // Build detailed transaction info from the Transaction
-                let details = match tx {
+                let details = match &tx.transaction {
                     Transaction::PublishModule {
                         sender,
                         sequence_number,
@@ -366,11 +365,10 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
         }
     };
     for tx in pending.iter() {
-        let st = SignedTransaction::new(tx.clone());
-        let tx_hash = hex::encode(st.hash());
+        let tx_hash = hex::encode(tx.hash());
         if tx_hash.to_lowercase() == normalized {
             // Build details for pending tx
-            let details = match tx {
+            let details = match &tx.transaction {
                 Transaction::PublishModule {
                     sender,
                     module_bytes,
@@ -514,7 +512,7 @@ pub async fn handle_get_all_transactions(
         for tx in block.transactions.iter() {
             // If account filter provided, skip txs that don't involve the account
             if let Some(ref acct) = account_norm {
-                let matches = match tx {
+                let matches = match &tx.transaction {
                     Transaction::PublishModule { sender, .. } => normalize_addr(sender) == *acct,
                     Transaction::ExecuteFunction { sender, .. } => normalize_addr(sender) == *acct,
                     Transaction::Transfer { from, to, .. } => {
@@ -526,10 +524,9 @@ pub async fn handle_get_all_transactions(
                     continue;
                 }
             }
-            let st = SignedTransaction::new(tx.clone());
-            let tx_hash = hex::encode(st.hash());
+            let tx_hash = hex::encode(tx.hash());
             // build details
-            let details = match tx {
+            let details = match &tx.transaction {
                 Transaction::PublishModule {
                     sender,
                     module_bytes,
@@ -644,7 +641,7 @@ pub async fn handle_get_all_transactions(
     for tx in pending.iter() {
         // If account filter provided, skip txs that don't involve the account
         if let Some(ref acct) = account_norm {
-            let matches = match tx {
+            let matches = match &tx.transaction {
                 Transaction::PublishModule { sender, .. } => normalize_addr(sender) == *acct,
                 Transaction::ExecuteFunction { sender, .. } => normalize_addr(sender) == *acct,
                 Transaction::Transfer { from, to, .. } => {
@@ -656,9 +653,8 @@ pub async fn handle_get_all_transactions(
                 continue;
             }
         }
-        let st = SignedTransaction::new(tx.clone());
-        let tx_hash = hex::encode(st.hash());
-        let details = match tx {
+        let tx_hash = hex::encode(tx.hash());
+        let details = match &tx.transaction {
             Transaction::PublishModule {
                 sender,
                 module_bytes,

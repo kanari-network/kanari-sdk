@@ -292,16 +292,56 @@ INFO kanari_node: Received new block #123 from network
 
 ## การพัฒนาต่อ
 
-TODO items ที่สามารถพัฒนาต่อได้:
+### ✅ คุณสมบัติที่ทำงานแล้ว
 
-- [ ] Block validation logic
-- [ ] Consensus mechanism (PoS, PoW, etc.)
-- [ ] Persistent peer storage
-- [ ] NAT traversal สำหรับ WAN
-- [ ] Transaction pool management
-- [ ] Fork resolution
-- [ ] State sync optimization
-- [ ] Metrics และ monitoring dashboard
+- [x] **Block synchronization** - Nodes สามารถ sync blocks จากกันได้ผ่าน P2P
+- [x] **State sync optimization** - Execute transactions จาก synced blocks เพื่อ rebuild state
+  - Skip sequence validation สำหรับ synced transactions
+  - ใช้ main Move runtime เพื่อให้ module bytecode persist ถูกต้อง
+  - Apply changesets เพื่อ update accounts, balances, modules, objects
+- [x] **Transaction pool management** - Pending transaction pool พร้อม broadcast ผ่าน P2P
+- [x] **P2P message propagation** - Gossipsub protocol สำหรับ broadcast blocks/transactions
+- [x] **Peer discovery** - mDNS (local) และ Kademlia DHT
+- [x] **Block validation logic** - ตรวจสอบ block hash, prev_hash chain, timestamp, transaction integrity
+- [x] **Transaction deduplication** - ป้องกัน double spending และ replay attacks ด้วย transaction hash tracking
+- [x] **Persistent peer storage** - บันทึกและโหลด peer list จาก disk เพื่อ reconnect อัตโนมัติ
+- [x] **Transaction signature verification** - Verify signatures สำหรับ synced และ committed transactions
+  - Block เก็บ `SignedTransaction` แทน `Transaction`
+  - Verify signatures ใน `Block::verify()` และ `sync_full_block_from_data()`
+  - ป้องกัน malicious blocks จาก compromised nodes
+- [x] **Merkle tree for transactions** - Transaction merkle root ใน block header สำหรับ light client verification
+  - ใช้ SMT's Blake3 hash function เพื่อความสอดคล้องกับ state tree
+  - ทุก block มี merkle root ที่คำนวณจาก transaction hashes
+  - Block validation ตรวจสอบ merkle root integrity
+  - RPC endpoint `kanari_getTransactionMerkleProof` สำหรับ proof generation
+  - Support proof verification สำหรับ light clients
+
+## Merkle Tree Architecture
+
+Kanari ใช้ **2 ประเภท** ของ Merkle trees:
+
+### 1. Sparse Merkle Tree (SMT) - State Storage
+
+- **ตำแหน่ง**: `crates/smt/`
+- **จุดประสงค์**: Account state verification และ proofs
+- **ใช้สำหรับ**: Account balances, modules, objects, state root
+- **Storage**: Persistent ใน RocksDB
+
+### 2. Transaction Merkle Tree - Block Verification  
+
+- **ตำแหน่ง**: `crates/kanari-core/src/blockchain/merkle.rs`
+- **จุดประสงค์**: Light client transaction verification
+- **ใช้สำหรับ**: Block header merkle root, transaction inclusion proofs
+- **Storage**: In-memory, คำนวณใหม่ต่อ block
+
+ดู [DOCS/MERKLE_TREES.md](../../../DOCS/MERKLE_TREES.md) สำหรับรายละเอียดเพิ่มเติม
+
+### 🚧 TODO items ที่สามารถพัฒนาต่อได้
+
+- [ ] **Consensus mechanism** - PoS, PoW, หรือ BFT consensus
+- [ ] **Fork resolution** - Logic สำหรับจัดการ chain forks และเลือก canonical chain
+- [ ] **NAT traversal** - รองรับการเชื่อมต่อข้าม WAN (relay, hole punching)
+- [ ] **Metrics และ monitoring dashboard** - Real-time network statistics
 
 ## License
 

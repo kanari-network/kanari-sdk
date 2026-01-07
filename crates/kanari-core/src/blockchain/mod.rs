@@ -10,6 +10,12 @@ use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::error;
 
+mod merkle;
+pub use merkle::{
+    CompressedMerkleProof, batch_verify_merkle_proofs, compute_merkle_root,
+    generate_merkle_multiproof, generate_merkle_proof, verify_merkle_proof,
+};
+
 /// Signed transaction wrapper
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedTransaction {
@@ -65,11 +71,18 @@ pub struct BlockHeader {
     pub timestamp: u64,
     pub prev_hash: Vec<u8>,
     pub state_root: Vec<u8>,
+    pub merkle_root: Vec<u8>,
     pub tx_count: usize,
 }
 
 impl BlockHeader {
-    pub fn new(height: u64, prev_hash: Vec<u8>, state_root: Vec<u8>, tx_count: usize) -> Self {
+    pub fn new(
+        height: u64,
+        prev_hash: Vec<u8>,
+        state_root: Vec<u8>,
+        merkle_root: Vec<u8>,
+        tx_count: usize,
+    ) -> Self {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -80,6 +93,7 @@ impl BlockHeader {
             timestamp,
             prev_hash,
             state_root,
+            merkle_root,
             tx_count,
         }
     }
@@ -226,7 +240,7 @@ impl Transaction {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Block {
     pub header: BlockHeader,
-    pub transactions: Vec<Transaction>,
+    pub transactions: Vec<SignedTransaction>,
     pub events: Vec<Event>,
 }
 
@@ -235,11 +249,16 @@ impl Block {
         height: u64,
         prev_hash: Vec<u8>,
         state_root: Vec<u8>,
-        transactions: Vec<Transaction>,
+        transactions: Vec<SignedTransaction>,
         events: Vec<Event>,
     ) -> Self {
         let tx_count = transactions.len();
-        let header = BlockHeader::new(height, prev_hash, state_root, tx_count);
+
+        // Compute merkle root from transaction hashes
+        let tx_hashes: Vec<Vec<u8>> = transactions.iter().map(|tx| tx.hash()).collect();
+        let merkle_root = compute_merkle_root(&tx_hashes);
+
+        let header = BlockHeader::new(height, prev_hash, state_root, merkle_root, tx_count);
 
         Self {
             header,
@@ -259,17 +278,83 @@ impl Block {
     pub fn verify(&self, prev_block: &Block) -> Result<()> {
         // Verify height
         if self.header.height != prev_block.header.height + 1 {
-            anyhow::bail!("Invalid block height");
+            anyhow::bail!(
+                "Invalid block height: expected {}, got {}",
+                prev_block.header.height + 1,
+                self.header.height
+            );
         }
 
         // Verify prev_hash
-        if self.header.prev_hash != prev_block.hash() {
-            anyhow::bail!("Invalid previous hash");
+        let expected_prev_hash = prev_block.hash();
+        if self.header.prev_hash != expected_prev_hash {
+            anyhow::bail!(
+                "Invalid previous hash: expected {}, got {}",
+                hex::encode(&expected_prev_hash),
+                hex::encode(&self.header.prev_hash)
+            );
         }
 
-        // Verify timestamp (allow some leeway for genesis)
+        // Verify block hash integrity (recompute and compare)
+        let computed_hash = self.hash();
+        let header_hash = self.header.hash();
+        if computed_hash != header_hash {
+            anyhow::bail!(
+                "Block hash mismatch: computed {}, header {}",
+                hex::encode(&computed_hash),
+                hex::encode(&header_hash)
+            );
+        }
+
+        // Verify timestamp (must be >= previous block's timestamp)
         if self.header.height > 1 && self.header.timestamp < prev_block.header.timestamp {
-            anyhow::bail!("Invalid timestamp");
+            anyhow::bail!(
+                "Invalid timestamp: {} < {}",
+                self.header.timestamp,
+                prev_block.header.timestamp
+            );
+        }
+
+        // Verify transaction count matches header
+        if self.transactions.len() != self.header.tx_count {
+            anyhow::bail!(
+                "Transaction count mismatch: header says {}, actual {}",
+                self.header.tx_count,
+                self.transactions.len()
+            );
+        }
+
+        // Verify merkle root
+        let tx_hashes: Vec<Vec<u8>> = self.transactions.iter().map(|tx| tx.hash()).collect();
+        let computed_merkle_root = compute_merkle_root(&tx_hashes);
+        if self.header.merkle_root != computed_merkle_root {
+            anyhow::bail!(
+                "Merkle root mismatch: header {}, computed {}",
+                hex::encode(&self.header.merkle_root),
+                hex::encode(&computed_merkle_root)
+            );
+        }
+
+        // Verify each transaction has valid structure
+        for (i, signed_tx) in self.transactions.iter().enumerate() {
+            // Verify transaction hash is valid
+            let tx_hash = signed_tx.transaction.hash();
+            if tx_hash.is_empty() {
+                anyhow::bail!("Transaction {} has empty hash", i);
+            }
+
+            // Verify sender address format
+            let sender = signed_tx.transaction.sender_address();
+            if sender.is_empty() {
+                anyhow::bail!("Transaction {} has empty sender address", i);
+            }
+
+            // Verify signature if present
+            if signed_tx.signature.is_some() {
+                signed_tx.verify_signature().map_err(|e| {
+                    anyhow::anyhow!("Invalid signature for transaction {}: {}", i, e)
+                })?;
+            }
         }
 
         Ok(())
@@ -280,6 +365,8 @@ impl Block {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Blockchain {
     pub blocks: Vec<Block>,
+    #[serde(skip)]
+    executed_tx_hashes: std::collections::HashSet<String>,
 }
 
 impl Blockchain {
@@ -287,6 +374,7 @@ impl Blockchain {
         let genesis = Block::genesis();
         Self {
             blocks: vec![genesis],
+            executed_tx_hashes: std::collections::HashSet::new(),
         }
     }
 
@@ -300,6 +388,28 @@ impl Blockchain {
         self.latest_block().header.height
     }
 
+    /// Check if transaction hash has been executed before (deduplication)
+    pub fn is_transaction_executed(&self, tx_hash: &str) -> bool {
+        self.executed_tx_hashes.contains(tx_hash)
+    }
+
+    /// Mark transaction as executed (for deduplication tracking)
+    pub fn mark_transaction_executed(&mut self, tx_hash: String) {
+        self.executed_tx_hashes.insert(tx_hash);
+    }
+
+    /// Rebuild executed transaction hash set from blockchain history
+    /// Call this after loading blockchain from disk
+    pub fn rebuild_tx_hash_index(&mut self) {
+        self.executed_tx_hashes.clear();
+        for block in &self.blocks {
+            for signed_tx in &block.transactions {
+                let tx_hash = hex::encode(signed_tx.hash());
+                self.executed_tx_hashes.insert(tx_hash);
+            }
+        }
+    }
+
     pub fn add_block(&mut self, block: Block) -> Result<()> {
         self.add_block_with_validation(block, true)
     }
@@ -308,7 +418,22 @@ impl Blockchain {
         if validate {
             let prev_block = self.latest_block();
             block.verify(prev_block)?;
+
+            // Check for duplicate transactions in this block
+            for signed_tx in &block.transactions {
+                let tx_hash = hex::encode(signed_tx.hash());
+                if self.is_transaction_executed(&tx_hash) {
+                    anyhow::bail!("Duplicate transaction detected: {}", tx_hash);
+                }
+            }
         }
+
+        // Add transaction hashes to executed set
+        for signed_tx in &block.transactions {
+            let tx_hash = hex::encode(signed_tx.hash());
+            self.mark_transaction_executed(tx_hash);
+        }
+
         self.blocks.push(block);
         Ok(())
     }

@@ -91,8 +91,8 @@ pub(super) fn produce_block(engine: &super::BlockchainEngine) -> Result<BlockInf
             }
 
             if !created {
-                for tx in &transactions {
-                    match engine.execute_transaction(tx) {
+                for signed_tx in &transactions {
+                    match engine.execute_transaction(&signed_tx.transaction) {
                         Ok(changeset) => {
                             if changeset.success {
                                 executed += 1;
@@ -113,11 +113,11 @@ pub(super) fn produce_block(engine: &super::BlockchainEngine) -> Result<BlockInf
 
         if !handles.is_empty() {
             let mut per_sender: HashMap<String, VecDeque<(usize, Transaction)>> = HashMap::new();
-            for (i, tx) in transactions.iter().cloned().enumerate() {
+            for (i, signed_tx) in transactions.iter().enumerate() {
                 per_sender
-                    .entry(tx.sender().to_string())
+                    .entry(signed_tx.transaction.sender().to_string())
                     .or_default()
-                    .push_back((i, tx));
+                    .push_back((i, signed_tx.transaction.clone()));
             }
 
             // Reserve per-sender next-sequence numbers from the current global state
@@ -221,8 +221,8 @@ pub(super) fn produce_block(engine: &super::BlockchainEngine) -> Result<BlockInf
             }
         }
     } else {
-        for tx in &transactions {
-            match engine.execute_transaction(tx) {
+        for signed_tx in &transactions {
+            match engine.execute_transaction(&signed_tx.transaction) {
                 Ok(changeset) => {
                     if changeset.success {
                         executed += 1;
