@@ -50,6 +50,10 @@ enum Commands {
         /// Data directory for blockchain and state storage
         #[arg(long)]
         data_dir: Option<std::path::PathBuf>,
+
+        /// Run as relay server to help other nodes behind NAT
+        #[arg(long, default_value = "false")]
+        relay_server: bool,
     },
     /// Run a local-only node
     Local {},
@@ -69,6 +73,9 @@ enum Commands {
     },
 }
 
+// Main entry point
+// Initializes and runs the Kanari blockchain node
+// Sets up P2P networking, RPC server, and blockchain engine
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -132,6 +139,7 @@ async fn main() -> Result<()> {
             rpc_port,
             rpc_host,
             data_dir,
+            relay_server,
             // bootstrap,
         } => {
             let data_dir_path = data_dir.clone().unwrap_or_else(|| {
@@ -159,7 +167,7 @@ async fn main() -> Result<()> {
                 rpc_port,
                 rpc_host,
                 data_dir_path,
-                false,
+                relay_server,
             )
             .await?;
             return Ok(());
@@ -186,7 +194,7 @@ async fn main() -> Result<()> {
                 rpc_port,
                 rpc_host,
                 data_dir_path,
-                true,
+                false,
             )
             .await?;
             return Ok(());
@@ -213,7 +221,7 @@ async fn run_node(
     rpc_port: u16,
     rpc_host: String,
     data_dir: std::path::PathBuf,
-    disable_p2p: bool,
+    relay_server: bool,
 ) -> Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
@@ -262,7 +270,7 @@ async fn run_node(
     // Create sync manager
     let sync_manager = Arc::new(SyncManager::new(engine.clone(), network_tx.clone()));
 
-    if !disable_p2p {
+    if p2p_port > 0 {
         // Load or create peer store
         let peer_store_path = PeerStore::default_path(&data_dir.display().to_string());
         let mut peer_store = PeerStore::load(peer_store_path.clone()).unwrap_or_else(|e| {
@@ -278,8 +286,13 @@ async fn run_node(
         let peer_id = keypair.public().to_peer_id().to_string();
         tracing::info!("Node Peer ID: {}", peer_id);
 
-        let p2p_network = P2PNetwork::new(keypair, p2p_port)?;
+        let p2p_network = P2PNetwork::new(keypair, p2p_port, relay_server)?;
         tracing::info!("P2P network initialized on port {}", p2p_port);
+        if relay_server {
+            tracing::info!(
+                "Relay server mode: ENABLED - This node will help relay traffic for NAT'd peers"
+            );
+        }
 
         // Wrap peer store in Arc<Mutex> for sharing
         let peer_store_arc = Arc::new(tokio::sync::Mutex::new(peer_store));

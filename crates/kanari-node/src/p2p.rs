@@ -5,11 +5,13 @@ use anyhow::Result;
 use libp2p::{
     PeerId, Swarm, Transport,
     core::upgrade,
+    dcutr,
     futures::StreamExt,
     gossipsub::{self, IdentTopic, MessageAuthenticity, ValidationMode},
+    identify,
     identity::Keypair,
     kad::{self, store::MemoryStore},
-    mdns, noise,
+    mdns, noise, ping, relay,
     swarm::{NetworkBehaviour, SwarmEvent},
     tcp, yamux,
 };
@@ -43,6 +45,10 @@ pub struct KanariBehaviour {
     pub gossipsub: gossipsub::Behaviour,
     pub mdns: mdns::tokio::Behaviour,
     pub kademlia: kad::Behaviour<MemoryStore>,
+    pub dcutr: dcutr::Behaviour,
+    pub identify: identify::Behaviour,
+    pub ping: ping::Behaviour,
+    pub relay: relay::Behaviour,
 }
 
 pub struct P2PNetwork {
@@ -57,7 +63,7 @@ pub struct P2PTopics {
 }
 
 impl P2PNetwork {
-    pub fn new(keypair: Keypair, listen_port: u16) -> Result<Self> {
+    pub fn new(keypair: Keypair, listen_port: u16, enable_relay_server: bool) -> Result<Self> {
         let local_peer_id = PeerId::from(keypair.public());
         info!("Local peer id: {}", local_peer_id);
 
@@ -107,11 +113,40 @@ impl P2PNetwork {
         // Bootstrap Kademlia
         kademlia.set_mode(Some(kad::Mode::Server));
 
+        // Create DCUtR for hole punching (works without relay client for direct connections)
+        let dcutr = dcutr::Behaviour::new(local_peer_id);
+
+        // Create Identify protocol for peer information exchange
+        let identify = identify::Behaviour::new(identify::Config::new(
+            "/kanari/1.0.0".to_string(),
+            keypair.public(),
+        ));
+
+        // Create Ping for connection keep-alive
+        let ping = ping::Behaviour::new(ping::Config::new());
+
+        // Create relay server (will only accept relay requests if configured properly)
+        let relay_config = if enable_relay_server {
+            relay::Config::default()
+        } else {
+            // Limit relay to essentially disable it without Option<T>
+            relay::Config {
+                max_reservations: 0,
+                max_circuits: 0,
+                ..Default::default()
+            }
+        };
+        let relay = relay::Behaviour::new(local_peer_id, relay_config);
+
         // Create behavior
         let behaviour = KanariBehaviour {
             gossipsub,
             mdns,
             kademlia,
+            dcutr,
+            identify,
+            ping,
+            relay,
         };
 
         // Create swarm
@@ -301,6 +336,64 @@ impl P2PEventHandler {
                 info!(
                     "Connection closed with {} (remaining: {}) - {:?}",
                     peer_id, num_established, cause
+                );
+            }
+            SwarmEvent::Behaviour(KanariBehaviourEvent::Dcutr(dcutr::Event {
+                remote_peer_id,
+                result,
+            })) => match result {
+                Ok(_) => {
+                    info!("DCUtR hole punching succeeded with {}", remote_peer_id);
+                }
+                Err(e) => {
+                    warn!(
+                        "DCUtR hole punching failed with {}: {:?}",
+                        remote_peer_id, e
+                    );
+                }
+            },
+            SwarmEvent::Behaviour(KanariBehaviourEvent::Identify(identify::Event::Received {
+                peer_id,
+                info,
+                ..
+            })) => {
+                info!(
+                    "Identified peer {}: protocol {}, agent {}",
+                    peer_id, info.protocol_version, info.agent_version
+                );
+                // Add identified addresses to Kademlia
+                for addr in info.listen_addrs {
+                    self.network
+                        .swarm
+                        .behaviour_mut()
+                        .kademlia
+                        .add_address(&peer_id, addr);
+                }
+            }
+            SwarmEvent::Behaviour(KanariBehaviourEvent::Relay(
+                relay::Event::ReservationReqAccepted { src_peer_id, .. },
+            )) => {
+                info!("Relay: Accepted reservation request from {}", src_peer_id);
+            }
+            SwarmEvent::Behaviour(KanariBehaviourEvent::Relay(
+                relay::Event::CircuitReqAccepted {
+                    src_peer_id,
+                    dst_peer_id,
+                },
+            )) => {
+                info!(
+                    "Relay: Accepted circuit from {} to {}",
+                    src_peer_id, dst_peer_id
+                );
+            }
+            SwarmEvent::Behaviour(KanariBehaviourEvent::Relay(relay::Event::CircuitClosed {
+                src_peer_id,
+                dst_peer_id,
+                ..
+            })) => {
+                info!(
+                    "Relay: Circuit closed between {} and {}",
+                    src_peer_id, dst_peer_id
                 );
             }
             _ => {}

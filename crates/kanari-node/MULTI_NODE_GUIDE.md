@@ -87,7 +87,9 @@ kanari-node start --help
 
 - `--p2p-port <PORT>` - กำหนด port สำหรับ P2P networking (default: 19000)
 - `--rpc-port <PORT>` - กำหนด port สำหรับ RPC server (default: 19001)
+- `--rpc-host <HOST>` - กำหนด host/IP สำหรับ RPC (default: 0.0.0.0)
 - `--data-dir <PATH>` - กำหนดตำแหน่งเก็บข้อมูล blockchain และ state
+- `--relay-server` - เปิดใช้งาน relay server mode เพื่อช่วย nodes ที่อยู่หลัง NAT
 - `--bootstrap <MULTIADDR>` - เชื่อมต่อกับ bootstrap peer (สามารถระบุหลายครั้ง)
 
 ## โครงสร้าง P2P Network
@@ -119,6 +121,14 @@ kanari-node start --help
 
 5. **Yamux** - Stream multiplexing
 
+6. **DCUtR** - Direct Connection Upgrade through Relay สำหรับ NAT traversal
+
+7. **Identify** - Peer information exchange (protocol version, addresses)
+
+8. **Ping** - Connection keep-alive และ latency measurement
+
+9. **Relay** - Circuit relay protocol สำหรับ nodes ที่อยู่หลัง strict NAT
+
 ## P2P Message Types
 
 ```rust
@@ -139,6 +149,40 @@ pub enum P2PMessage {
 2. เปรียบเทียบ height กับ local blockchain
 3. ถ้าต่ำกว่า จะส่ง `BlockRequest` เพื่อขอ blocks ที่ขาดหายไป
 4. รับ `BlockResponse` และ apply blocks ไปยัง local chain
+
+## NAT Traversal และ Hole Punching
+
+Kanari รองรับการเชื่อมต่อระหว่าง nodes ที่อยู่หลัง NAT/firewall ผ่าน:
+
+### DCUtR (Direct Connection Upgrade through Relay)
+
+- **Hole punching** - สร้างการเชื่อมต่อโดยตรงระหว่าง nodes ที่อยู่หลัง NAT
+- **Identify protocol** - แลกเปลี่ยนข้อมูล peer (protocol version, listen addresses)
+- **Ping protocol** - Keep-alive connections และตรวจสอบ latency
+
+### การทำงาน
+
+1. Nodes ใช้ **Identify protocol** เพื่อแลกเปลี่ยนข้อมูลและ addresses
+2. **Kademlia DHT** ช่วยในการ discover peers across networks
+3. **DCUtR** พยายามสร้างการเชื่อมต่อโดยตรง (hole punching)
+4. ถ้าสำเร็จ, nodes จะสื่อสารกันโดยตรงโดยไม่ต้องผ่าน relay
+
+**หมายเหตุ:** สำหรับ strict NAT/symmetric NAT อาจต้องใช้ relay server เพิ่มเติม (ดูข้อมูลด้านล่าง)
+
+### Relay Server Mode
+
+สำหรับ nodes ที่อยู่หลัง strict NAT หรือ symmetric NAT ที่ hole punching ไม่สามารถทำงานได้ สามารถใช้ relay server mode:
+
+```bash
+kanari-node start --p2p-port 19000 --rpc-port 19001 --relay-server
+```
+
+**คุณสมบัติ:**
+- รับ reservation requests จาก nodes ที่ต้องการใช้ relay
+- สร้าง circuit relay ระหว่าง nodes
+- ช่วยให้ nodes ที่อยู่หลัง NAT สื่อสารกันได้แม้ว่า hole punching จะล้มเหลว
+
+**แนะนำ:** รัน relay server บน node ที่มี public IP หรืออยู่บน network ที่ accessible จากภายนอก
 
 ## Port Configuration
 
@@ -323,6 +367,15 @@ INFO kanari_node: Received new block #123 from network
   - Block validation ตรวจสอบ merkle root integrity
   - RPC endpoint `kanari_getTransactionMerkleProof` สำหรับ proof generation
   - Support proof verification สำหรับ light clients
+- [x] **NAT traversal** - DCUtR (Direct Connection Upgrade through Relay) protocol สำหรับ hole punching
+  - Identify protocol สำหรับ peer information exchange
+  - Ping protocol สำหรับ connection keep-alive
+  - รองรับการเชื่อมต่อโดยตรงระหว่าง nodes ที่อยู่หลัง NAT
+  - ใช้ร่วมกับ Kademlia DHT สำหรับ peer discovery
+- [x] **Relay server mode** - รัน node เป็น relay server สำหรับ nodes ที่อยู่หลัง strict NAT
+  - ใช้ `--relay-server` flag เพื่อเปิดใช้งาน relay server mode
+  - รองรับ circuit relay และ reservation requests
+  - ช่วย nodes ที่อยู่หลัง symmetric NAT ให้สื่อสารกันได้
 
 ## Merkle Tree Architecture
 
@@ -348,7 +401,6 @@ Kanari ใช้ **2 ประเภท** ของ Merkle trees:
 
 - [ ] **Consensus mechanism** - PoS, PoW, หรือ BFT consensus
 - [ ] **Fork resolution** - Logic สำหรับจัดการ chain forks และเลือก canonical chain
-- [ ] **NAT traversal** - รองรับการเชื่อมต่อข้าม WAN (relay, hole punching)
 - [ ] **Metrics และ monitoring dashboard** - Real-time network statistics
 
 ## License
