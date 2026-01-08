@@ -24,6 +24,15 @@ pub use dag_consensus::{
 mod vrf_leader;
 pub use vrf_leader::{VrfLeaderElection, VrfOutput};
 
+mod ecvrf;
+pub use ecvrf::{VrfOutput as EcvrfOutput, VrfProof, VrfPublicKey, VrfSecretKey};
+
+mod metrics;
+pub use metrics::{DagMetrics, Histogram};
+
+mod cache;
+pub use cache::{CacheStats, DagCacheStats, DagCaches, LruCache};
+
 mod byzantine_detector;
 pub use byzantine_detector::{
     ByzantineDetector, ByzantineEvidence, ByzantineFault, SlashingPenalty,

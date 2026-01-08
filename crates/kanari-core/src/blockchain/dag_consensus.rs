@@ -19,6 +19,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::SignedTransaction;
+use super::Transaction;
 use super::byzantine_detector::ByzantineDetector;
 use super::vrf_leader::{VrfLeaderElection, VrfOutput};
 use kanari_crypto::hash_data_blake3;
@@ -231,6 +232,69 @@ impl Checkpoint {
     }
 }
 
+/// Checkpoint configuration
+#[derive(Debug, Clone)]
+pub struct CheckpointConfig {
+    /// Minimum rounds between checkpoints
+    pub min_rounds: u64,
+
+    /// Maximum rounds between checkpoints (force checkpoint after this)
+    pub max_rounds: u64,
+
+    /// Minimum vertices to justify creating a checkpoint
+    pub min_vertices: usize,
+
+    /// Maximum pending vertices before forcing a checkpoint
+    pub max_vertices: usize,
+}
+
+impl Default for CheckpointConfig {
+    fn default() -> Self {
+        Self {
+            min_rounds: 10,      // At least 10 rounds between checkpoints
+            max_rounds: 100,     // Force checkpoint after 100 rounds
+            min_vertices: 100,   // Need at least 100 vertices
+            max_vertices: 10000, // Force checkpoint if 10k pending vertices
+        }
+    }
+}
+
+impl CheckpointConfig {
+    /// Create conservative config (frequent checkpoints, low latency)
+    pub fn conservative() -> Self {
+        Self {
+            min_rounds: 5,
+            max_rounds: 50,
+            min_vertices: 50,
+            max_vertices: 5000,
+        }
+    }
+
+    /// Create aggressive config (infrequent checkpoints, high throughput)
+    pub fn aggressive() -> Self {
+        Self {
+            min_rounds: 20,
+            max_rounds: 200,
+            min_vertices: 500,
+            max_vertices: 50000,
+        }
+    }
+
+    /// Validate configuration
+    pub fn validate(&self) -> Result<()> {
+        if self.min_rounds >= self.max_rounds {
+            anyhow::bail!("min_rounds must be less than max_rounds");
+        }
+        if self.min_vertices >= self.max_vertices {
+            anyhow::bail!("min_vertices must be less than max_vertices");
+        }
+        if self.max_rounds == 0 {
+            anyhow::bail!("max_rounds must be greater than 0");
+        }
+        Ok(())
+    }
+}
+
 /// DAG Storage - maintains the DAG structure
 #[derive(Debug, Clone)]
 pub struct DagStore {
@@ -254,10 +318,20 @@ pub struct DagStore {
 
     /// Set of authority IDs
     authorities: HashSet<AuthorityId>,
+
+    /// Checkpoint configuration
+    checkpoint_config: CheckpointConfig,
+
+    /// Round of last checkpoint
+    last_checkpoint_round: Round,
 }
 
 impl DagStore {
     pub fn new(authorities: Vec<AuthorityId>) -> Self {
+        Self::with_config(authorities, CheckpointConfig::default())
+    }
+
+    pub fn with_config(authorities: Vec<AuthorityId>, config: CheckpointConfig) -> Self {
         let genesis_checkpoint = Checkpoint::genesis();
 
         Self {
@@ -268,7 +342,47 @@ impl DagStore {
             pending_vertices: VecDeque::new(),
             current_round: 0,
             authorities: authorities.into_iter().collect(),
+            checkpoint_config: config,
+            last_checkpoint_round: 0,
         }
+    }
+
+    /// Check if a checkpoint should be created based on configuration
+    pub fn should_create_checkpoint(&self) -> bool {
+        let rounds_since_last = self
+            .current_round
+            .saturating_sub(self.last_checkpoint_round);
+        let pending_count = self.pending_vertices.len();
+
+        // Force checkpoint if max rounds reached
+        if rounds_since_last >= self.checkpoint_config.max_rounds {
+            return true;
+        }
+
+        // Too soon for checkpoint
+        if rounds_since_last < self.checkpoint_config.min_rounds {
+            return false;
+        }
+
+        // Force checkpoint if too many pending vertices
+        if pending_count >= self.checkpoint_config.max_vertices {
+            return true;
+        }
+
+        // Create checkpoint if enough vertices accumulated
+        pending_count >= self.checkpoint_config.min_vertices
+    }
+
+    /// Get checkpoint configuration
+    pub fn get_checkpoint_config(&self) -> &CheckpointConfig {
+        &self.checkpoint_config
+    }
+
+    /// Update checkpoint configuration
+    pub fn set_checkpoint_config(&mut self, config: CheckpointConfig) -> Result<()> {
+        config.validate()?;
+        self.checkpoint_config = config;
+        Ok(())
     }
 
     /// Add a new vertex to the DAG
@@ -391,8 +505,23 @@ impl DagStore {
         self.pending_vertices
             .retain(|id| !checkpoint.vertices.contains(id));
 
+        // Update last checkpoint round
+        self.last_checkpoint_round = self.current_round;
+
         self.checkpoints.push(checkpoint);
         Ok(())
+    }
+
+    /// Get statistics about pending vertices
+    pub fn get_checkpoint_stats(&self) -> CheckpointStats {
+        CheckpointStats {
+            pending_vertices: self.pending_vertices.len(),
+            rounds_since_last: self
+                .current_round
+                .saturating_sub(self.last_checkpoint_round),
+            total_checkpoints: self.checkpoints.len(),
+            should_checkpoint: self.should_create_checkpoint(),
+        }
     }
 
     /// Current round
@@ -404,6 +533,15 @@ impl DagStore {
     pub fn num_authorities(&self) -> usize {
         self.authorities.len()
     }
+}
+
+/// Statistics for checkpoint creation
+#[derive(Debug, Clone)]
+pub struct CheckpointStats {
+    pub pending_vertices: usize,
+    pub rounds_since_last: u64,
+    pub total_checkpoints: usize,
+    pub should_checkpoint: bool,
 }
 
 /// DAG Consensus Protocol (Bullshark-style with VRF leader election)
@@ -707,5 +845,251 @@ mod tests {
         let checkpoint = Checkpoint::genesis();
         assert_eq!(checkpoint.sequence, 0);
         assert!(checkpoint.transactions.is_empty());
+    }
+
+    #[test]
+    fn test_checkpoint_config_default() {
+        let config = CheckpointConfig::default();
+        assert_eq!(config.min_rounds, 10);
+        assert_eq!(config.max_rounds, 100);
+        assert_eq!(config.min_vertices, 100);
+        assert_eq!(config.max_vertices, 10000);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_checkpoint_config_conservative() {
+        let config = CheckpointConfig::conservative();
+        assert!(config.min_rounds < CheckpointConfig::default().min_rounds);
+        assert!(config.max_rounds < CheckpointConfig::default().max_rounds);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_checkpoint_config_aggressive() {
+        let config = CheckpointConfig::aggressive();
+        assert!(config.min_rounds > CheckpointConfig::default().min_rounds);
+        assert!(config.max_rounds > CheckpointConfig::default().max_rounds);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_checkpoint_config_validation() {
+        let mut config = CheckpointConfig::default();
+
+        // Invalid: min >= max rounds
+        config.min_rounds = 100;
+        config.max_rounds = 50;
+        assert!(config.validate().is_err());
+
+        // Invalid: min >= max vertices
+        config.min_rounds = 10;
+        config.max_rounds = 100;
+        config.min_vertices = 5000;
+        config.max_vertices = 1000;
+        assert!(config.validate().is_err());
+
+        // Invalid: max_rounds = 0
+        config.min_vertices = 100;
+        config.max_vertices = 1000;
+        config.max_rounds = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_should_create_checkpoint_min_rounds() {
+        let config = CheckpointConfig {
+            min_rounds: 10,
+            max_rounds: 100,
+            min_vertices: 100,
+            max_vertices: 1000,
+        };
+
+        let store = DagStore::with_config(vec!["auth1".to_string()], config);
+
+        // Too early - should not checkpoint
+        assert!(!store.should_create_checkpoint());
+    }
+
+    #[test]
+    fn test_should_create_checkpoint_max_rounds() {
+        let config = CheckpointConfig {
+            min_rounds: 5,
+            max_rounds: 10,
+            min_vertices: 100,
+            max_vertices: 1000,
+        };
+
+        let mut store = DagStore::with_config(vec!["auth1".to_string()], config);
+
+        // Add enough rounds to trigger max_rounds  
+        // Note: Using round 0 for all vertices to avoid quorum requirements
+        store.current_round = 10; // Simulate 10 rounds passing
+        for i in 0..11 {
+            // Create unique transaction to ensure unique vertex ID
+            let transaction = Transaction::Transfer {
+                from: format!("sender{}", i),
+                to: "receiver".to_string(),
+                amount: i,
+                gas_limit: 1000,
+                gas_price: 1,
+                sequence_number: i,
+            };
+            let tx = SignedTransaction::new(transaction);
+            
+            let vertex = DagVertex::new(
+                0, // Round 0
+                "auth1".to_string(),
+                vec![],
+                vec![tx],
+                vec![i as u8; 32],
+            );
+            if let Err(e) = store.add_vertex(vertex) {
+                eprintln!("Failed to add vertex {}: {}", i, e);
+            }
+        }
+
+        // Should force checkpoint due to max_rounds
+        assert!(store.should_create_checkpoint());
+    }
+
+    #[test]
+    fn test_should_create_checkpoint_min_vertices() {
+        let config = CheckpointConfig {
+            min_rounds: 1,
+            max_rounds: 100,
+            min_vertices: 5,
+            max_vertices: 1000,
+        };
+
+        let mut store = DagStore::with_config(vec!["auth1".to_string()], config);
+
+        // Add vertices at round 0 to avoid quorum requirements
+        store.current_round = 1; // Simulate passing minimum rounds
+        for i in 0..10 {
+            // Create unique transaction for each vertex
+            let transaction = Transaction::Transfer {
+                from: format!("sender{}", i),
+                to: "receiver".to_string(),
+                amount: i,
+                gas_limit: 1000,
+                gas_price: 1,
+                sequence_number: i,
+            };
+            let tx = SignedTransaction::new(transaction);
+            
+            let vertex = DagVertex::new(
+                0, // Round 0
+                "auth1".to_string(),
+                vec![],
+                vec![tx],
+                vec![i as u8; 32],
+            );
+            store.add_vertex(vertex).ok();
+        }
+
+        // Should checkpoint due to min_vertices reached
+        assert!(store.should_create_checkpoint());
+    }
+
+    #[test]
+    fn test_should_create_checkpoint_max_vertices() {
+        let config = CheckpointConfig {
+            min_rounds: 1,
+            max_rounds: 100,
+            min_vertices: 100,
+            max_vertices: 10, // Force at 10 vertices
+        };
+
+        let mut store = DagStore::with_config(vec!["auth1".to_string()], config);
+
+        // Add many vertices at round 0
+        store.current_round = 1; // Simulate passing minimum rounds
+        for i in 0..15 {
+            // Create unique transaction for each vertex
+            let transaction = Transaction::Transfer {
+                from: format!("sender{}", i),
+                to: "receiver".to_string(),
+                amount: i,
+                gas_limit: 1000,
+                gas_price: 1,
+                sequence_number: i,
+            };
+            let tx = SignedTransaction::new(transaction);
+            
+            let vertex = DagVertex::new(
+                0, // Round 0
+                "auth1".to_string(),
+                vec![],
+                vec![tx],
+                vec![i as u8; 32],
+            );
+            store.add_vertex(vertex).ok();
+        }
+
+        // Should force checkpoint due to max_vertices
+        assert!(store.should_create_checkpoint());
+    }
+
+    #[test]
+    fn test_checkpoint_stats() {
+        let config = CheckpointConfig::default();
+        let mut store = DagStore::with_config(vec!["auth1".to_string()], config);
+
+        // Get initial stats
+        let initial_stats = store.get_checkpoint_stats();
+        assert_eq!(initial_stats.total_checkpoints, 1); // Genesis
+        assert_eq!(initial_stats.pending_vertices, 0);
+
+        // Add some vertices at round 0
+        store.current_round = 1; // Simulate at least 1 round
+        for i in 0..5 {
+            // Create unique transaction for each vertex
+            let transaction = Transaction::Transfer {
+                from: format!("sender{}", i),
+                to: "receiver".to_string(),
+                amount: i,
+                gas_limit: 1000,
+                gas_price: 1,
+                sequence_number: i,
+            };
+            let tx = SignedTransaction::new(transaction);
+            
+            let vertex = DagVertex::new(
+                0, // Round 0
+                "auth1".to_string(),
+                vec![],
+                vec![tx],
+                vec![i as u8; 32],
+            );
+            store.add_vertex(vertex).ok();
+        }
+
+        let stats = store.get_checkpoint_stats();
+        assert!(stats.pending_vertices > 0);
+        assert_eq!(stats.total_checkpoints, 1); // Still just genesis
+        assert!(stats.rounds_since_last > 0);
+    }
+
+    #[test]
+    fn test_set_checkpoint_config() {
+        let mut store = DagStore::new(vec!["auth1".to_string()]);
+
+        let new_config = CheckpointConfig::aggressive();
+        assert!(store.set_checkpoint_config(new_config.clone()).is_ok());
+
+        assert_eq!(
+            store.get_checkpoint_config().min_rounds,
+            new_config.min_rounds
+        );
+
+        // Try invalid config
+        let invalid_config = CheckpointConfig {
+            min_rounds: 100,
+            max_rounds: 50,
+            min_vertices: 100,
+            max_vertices: 1000,
+        };
+        assert!(store.set_checkpoint_config(invalid_config).is_err());
     }
 }

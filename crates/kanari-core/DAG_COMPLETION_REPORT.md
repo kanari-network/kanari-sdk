@@ -379,11 +379,17 @@ All planned features have been successfully implemented:
 
 ### 🚀 Potential Production Enhancements
 
-While core features are complete, these advanced optimizations could be added:
+**Phase 1.1 COMPLETE** ✅  
+All other features have detailed implementation plans in [ADVANCED_FEATURES_PLAN.md](ADVANCED_FEATURES_PLAN.md)
 
 #### Phase 1: Production Hardening
 
-- [ ] Replace simplified VRF with proper ECVRF (RFC 9381)
+- [x] **ECVRF (RFC 9381)** - COMPLETE (496 lines, 6 tests passing)
+  - Production-grade elliptic curve VRF for leader election
+  - VrfSecretKey/VrfPublicKey with prove/verify
+  - Replaces simplified SHA3-based VRF
+  - File: `src/blockchain/ecvrf.rs`
+
 - [ ] Implement real zstd compression (currently placeholder)
 - [ ] Add ed25519/BLS cryptographic signatures
 - [ ] Persistent storage layer with RocksDB

@@ -26,3 +26,4 @@ smt = { workspace = true }
 tracing = { workspace = true }
 lru = "0.16.2"
 sha3 = { workspace = true }
+zstd = "0.13"
