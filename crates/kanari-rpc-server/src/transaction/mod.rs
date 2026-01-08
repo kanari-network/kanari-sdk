@@ -172,10 +172,19 @@ pub async fn handle_submit_transaction(
     // Create SignedTransaction
     let mut signed_tx = SignedTransaction::new(transaction);
 
-    // Set signature if present
-    if let Some(sig) = tx_data.signature {
-        signed_tx.signature = Some(sig);
-    }
+    // Require signature
+    let sig = match tx_data.signature {
+        Some(s) => s,
+        None => {
+            return RpcResponse {
+                jsonrpc: "2.0".to_string(),
+                result: None,
+                error: Some(RpcError::invalid_params("Missing transaction signature")),
+                id: request.id,
+            };
+        }
+    };
+    signed_tx.signature = sig;
 
     // Submit transaction to blockchain
     match state.engine.submit_transaction(signed_tx) {
@@ -797,7 +806,7 @@ pub async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest)
 
     let mut signed_tx = SignedTransaction::new(transaction);
     if let Some(sig) = module_data.signature {
-        signed_tx.signature = Some(sig);
+        signed_tx.signature = sig;
     }
 
     // If caller requested immediate execution (or omitted it), execute and return the changeset
@@ -941,7 +950,7 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
 
     let mut signed_tx = SignedTransaction::new(transaction);
     if let Some(sig) = call_data.signature {
-        signed_tx.signature = Some(sig);
+        signed_tx.signature = sig;
     }
 
     // If caller requested immediate execution (or omitted it), execute and return the changeset

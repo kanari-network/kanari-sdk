@@ -14,6 +14,7 @@ description.workspace = true
 [dependencies]
 kanari-core = { workspace = true }
 move-core-types = { workspace = true }
+kanari-crypto = { workspace = true }
 anyhow = { workspace = true }
 
 [profile.dev]

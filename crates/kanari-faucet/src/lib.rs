@@ -102,7 +102,7 @@ pub async fn request_from_dev(
         gas_limit: signed_tx.transaction.gas_limit(),
         gas_price: signed_tx.transaction.gas_price(),
         sequence_number: account.sequence_number,
-        signature: signed_tx.signature.clone(),
+        signature: Some(signed_tx.signature.clone()),
     };
 
     let status = client

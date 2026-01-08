@@ -4,7 +4,7 @@
 use super::common::{build_blocking_client, get_account_sequence, load_wallet_for, normalize_addr};
 use anyhow::{Context, Result};
 use clap::*;
-use kanari_core::Transaction;
+use kanari_core::{SignedTransaction, Transaction};
 use kanari_move_runtime::gas::{GasEstimate, GasOperation};
 use log::error;
 use move_core_types::{account_address::AccountAddress, language_storage::TypeTag, parser};
@@ -185,8 +185,8 @@ impl Call {
         let client = build_blocking_client(30)?;
         let seq_num: u64 = get_account_sequence(&client, &self.rpc_endpoint, &sender_normalized)?;
 
-        // Sign transaction using the loaded wallet
-        let signature = {
+        // Sign transaction using the loaded wallet via SignedTransaction
+        let signed_tx = {
             // Format module as "address::module_name" for runtime compatibility
             let module_full = format!("{}::{}", package_normalized, module_name);
 
@@ -202,14 +202,12 @@ impl Call {
                 sequence_number: seq_num,
             };
 
-            // Get transaction hash (same way server does it)
-            let tx_hash = transaction.hash();
-
-            // Sign with wallet; signing failure is fatal
-            let sig = kanari_crypto::sign_message(&wallet.private_key, &tx_hash, wallet.curve_type)
+            // Wrap and sign using SignedTransaction helper
+            let mut stx = SignedTransaction::new(transaction);
+            stx.sign(&wallet.private_key, wallet.curve_type)
                 .map_err(|e| anyhow::anyhow!("Failed to sign transaction: {}", e))?;
             eprintln!("   Transaction signed (curve: {})", wallet.curve_type);
-            Some(sig)
+            stx
         };
 
         // Build CallFunctionRequest and wrap into RpcRequest
@@ -228,7 +226,7 @@ impl Call {
             gas_limit: self.gas_limit,
             gas_price: self.gas_price,
             sequence_number: seq_num,
-            signature,
+            signature: Some(signed_tx.signature.clone()),
             execute_immediate: Some(true),
         };
 

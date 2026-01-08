@@ -7,7 +7,7 @@ use super::{
 };
 use anyhow::{Context, Result, bail};
 use clap::*;
-use kanari_core::Transaction;
+use kanari_core::{SignedTransaction, Transaction};
 use kanari_move_runtime::gas::{GasEstimate, GasOperation};
 use log::error;
 use move_package::BuildConfig;
@@ -175,8 +175,8 @@ impl Publish {
             // Use a monotonic sequence number reserved from base_seq for this publish
             let seq_num = next_seq;
 
-            // Sign transaction using the loaded wallet (fatal on failure)
-            let signature = {
+            // Wrap and sign transaction using SignedTransaction (fatal on failure)
+            let signed_tx = {
                 let transaction = Transaction::PublishModule {
                     sender: sender_normalized.clone(),
                     module_bytes: module_bytecode.clone(),
@@ -186,12 +186,10 @@ impl Publish {
                     sequence_number: seq_num,
                 };
 
-                // Get transaction hash (same way server does it)
-                let tx_hash = transaction.hash();
-
-                // Sign with wallet; signing failure is fatal
-                kanari_crypto::sign_message(&wallet.private_key, &tx_hash, wallet.curve_type)
-                    .map_err(|e| anyhow::anyhow!("Failed to sign module {}: {}", module_name, e))?
+                let mut stx = SignedTransaction::new(transaction);
+                stx.sign(&wallet.private_key, wallet.curve_type)
+                    .map_err(|e| anyhow::anyhow!("Failed to sign module {}: {}", module_name, e))?;
+                stx
             };
 
             let pub_req = PublishModuleRequest {
@@ -201,7 +199,7 @@ impl Publish {
                 gas_limit: self.gas_limit,
                 gas_price: self.gas_price,
                 sequence_number: seq_num,
-                signature: Some(signature),
+                signature: Some(signed_tx.signature.clone()),
                 execute_immediate: Some(true),
             };
 

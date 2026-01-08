@@ -5,9 +5,7 @@ use crate::blockchain::{Block, Blockchain, SignedTransaction, Transaction};
 use anyhow::{Context, Result};
 use kanari_move_runtime::ContractABI;
 use kanari_move_runtime::changeset::{ChangeSet, Event};
-use kanari_move_runtime::contract::{
-    ContractCall, ContractDeployment, ContractInfo, ContractRegistry,
-};
+use kanari_move_runtime::contract::{ContractInfo, ContractRegistry};
 use kanari_move_runtime::gas::{GasMeter, GasOperation};
 use kanari_move_runtime::move_runtime::MoveRuntime;
 use kanari_move_runtime::state::StateManager;
@@ -239,11 +237,9 @@ impl BlockchainEngine {
 
     /// Add signed transaction to pending pool after verifying signature
     pub fn submit_transaction(&self, signed_tx: SignedTransaction) -> Result<Vec<u8>> {
-        // If a signature is present, verify it. Empty signature indicates an
-        // internally-generated or pre-validated transaction which should be
-        // accepted without signature verification.
-        if signed_tx.signature.is_some() && !signed_tx.verify_signature()? {
-            anyhow::bail!("Invalid transaction signature");
+        // Require a signature and verify it. Empty signature is rejected.
+        if !signed_tx.verify_signature()? {
+            anyhow::bail!("Invalid or missing transaction signature");
         }
 
         let tx_hash = signed_tx.hash();
@@ -651,76 +647,46 @@ impl BlockchainEngine {
             .unwrap_or_default()
     }
 
-    /// Deploy a contract (publish Move module)
-    pub fn deploy_contract(&self, deployment: ContractDeployment) -> Result<Vec<u8>> {
-        // Determine current sequence number for the publisher from state
-        let sequence_number = {
-            let state = self.state.read().unwrap();
-            state
-                .get_account_by_hex(&deployment.publisher_address())
-                .map(|acc| acc.sequence_number)
-                .unwrap_or(0)
-        };
+    /// Deploy a contract (publish Move module).
+    /// Expects a `SignedTransaction` containing a `PublishModule` transaction.
+    pub fn deploy_contract(&self, signed_tx: SignedTransaction) -> Result<Vec<u8>> {
+        // Submit the signed transaction (will verify signature)
+        let tx_hash = self.submit_transaction(signed_tx.clone())?;
 
-        let tx = Transaction::PublishModule {
-            sender: deployment.publisher_address(),
-            module_bytes: deployment.bytecode.clone(),
-            module_name: deployment.module_name.clone(),
-            gas_limit: deployment.gas_limit,
-            gas_price: deployment.gas_price,
-            sequence_number,
-        };
+        // Extract deployment info from the transaction and register the contract
+        if let Transaction::PublishModule {
+            sender,
+            module_bytes,
+            module_name,
+            ..
+        } = signed_tx.transaction
+        {
+            let block_height = self.blockchain.read().unwrap().height();
+            let contract_info = ContractInfo {
+                address: sender,
+                module_name,
+                bytecode: module_bytes,
+                deployment_tx: tx_hash.clone(),
+                deployed_at: block_height,
+                abi: ContractABI::new(),
+                metadata: kanari_move_runtime::contract::ContractMetadata::new(
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                ),
+            };
 
-        // Submit transaction
-        let signed_tx = SignedTransaction::new(tx.clone());
-        let tx_hash = self.submit_transaction(signed_tx)?;
-
-        // Register contract in registry
-        let block_height = self.blockchain.read().unwrap().height();
-        let contract_info = ContractInfo {
-            address: deployment.publisher_address(),
-            module_name: deployment.module_name,
-            bytecode: deployment.bytecode,
-            deployment_tx: tx_hash.clone(),
-            deployed_at: block_height,
-            abi: ContractABI::new(),
-            metadata: deployment.metadata,
-        };
-
-        self.contract_registry
-            .write()
-            .unwrap()
-            .register(contract_info);
+            self.contract_registry
+                .write()
+                .unwrap()
+                .register(contract_info);
+        }
 
         Ok(tx_hash)
     }
 
-    /// Call a contract function
-    pub fn call_contract(&self, call: ContractCall) -> Result<Vec<u8>> {
-        let sender_hex = format!("0x{}", hex::encode(call.sender.to_vec()));
-
-        // Read current sequence number from state (fallback to 0 if account not found)
-        let sequence_number = {
-            let state = self.state.read().unwrap();
-            state
-                .get_account_by_hex(&sender_hex)
-                .map(|acc| acc.sequence_number)
-                .unwrap_or(0)
-        };
-
-        let tx = Transaction::ExecuteFunction {
-            sender: sender_hex,
-            module: call.module_address(),
-            function: call.function.clone(),
-            type_args: call.type_args.iter().map(|t| format!("{}", t)).collect(),
-            args: call.args.clone(),
-            gas_limit: call.gas_limit,
-            gas_price: call.gas_price,
-            sequence_number,
-        };
-
-        // Submit transaction
-        let signed_tx = SignedTransaction::new(tx);
+    /// Call a contract function using a pre-signed `SignedTransaction`.
+    pub fn call_contract(&self, signed_tx: SignedTransaction) -> Result<Vec<u8>> {
         self.submit_transaction(signed_tx)
     }
 
@@ -863,15 +829,12 @@ impl BlockchainEngine {
             block_data.height
         );
         for (i, signed_tx) in block_data.transactions.iter().enumerate() {
-            // Skip signature verification for transactions without signatures (system/internal txs)
-            if signed_tx.signature.is_some()
-                && let Err(e) = signed_tx.verify_signature()
-            {
+            // Require signature verification for all transactions from the network
+            if !signed_tx.verify_signature()? {
                 anyhow::bail!(
-                    "Invalid signature for transaction {} in block #{}: {}",
+                    "Invalid or missing signature for transaction {} in block #{}",
                     i + 1,
                     block_data.height,
-                    e
                 );
             }
         }

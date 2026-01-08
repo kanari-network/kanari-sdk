@@ -3,6 +3,7 @@
 
 use anyhow::Result;
 use kanari_core::{BlockchainEngine, SignedTransaction, Transaction};
+use kanari_crypto::keys::{CurveType, generate_keypair};
 use move_core_types::account_address::AccountAddress;
 use std::time::Instant;
 
@@ -15,26 +16,37 @@ fn main() -> Result<()> {
     eprintln!("TPS harness: creating engine and preparing {} txs", n);
     let engine = BlockchainEngine::new()?;
 
-    // Pre-fund accounts
+    // Generate keypairs for senders and recipients, pre-fund senders,
+    // sign each transaction and push into pending_txs.
+    let mut senders: Vec<_> = Vec::with_capacity(n);
+    let mut recipients: Vec<_> = Vec::with_capacity(n);
+    for _ in 0..n {
+        senders.push(generate_keypair(CurveType::Ed25519)?);
+    }
+    for _ in 0..n {
+        recipients.push(generate_keypair(CurveType::Ed25519)?);
+    }
+
+    // Pre-fund sender accounts
     {
         let mut state = engine.state.write().unwrap();
-        for i in 0..n {
-            let addr_str = format!("0x{:x}", i + 1);
-            if let Ok(addr) = AccountAddress::from_hex_literal(&addr_str) {
+        for kp in &senders {
+            if let Ok(addr) = AccountAddress::from_hex_literal(kp.address.as_str()) {
                 let acc = state.get_or_create_account(addr);
                 acc.balance = 1_000_000_000_000; // large balance
             }
         }
     }
 
-    // Prepare transactions and push to pending_txs
+    // Prepare transactions and push signed transactions to pending_txs
     {
         let mut pending = engine.pending_txs.write().unwrap();
         for i in 0..n {
-            let from = format!("0x{:x}", i + 1);
-            let to = format!("0x{:x}", i + 1000000);
-            let tx = Transaction::new_transfer(from, to, 1);
-            let signed_tx = SignedTransaction::new(tx);
+            let from = senders[i].address.clone();
+            let to = recipients[i].address.clone();
+            let tx = Transaction::new_transfer(from.clone(), to, 1);
+            let mut signed_tx = SignedTransaction::new(tx);
+            signed_tx.sign(&*senders[i].private_key, senders[i].curve_type)?;
             pending.push(signed_tx);
         }
     }

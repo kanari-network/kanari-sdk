@@ -20,14 +20,14 @@ pub use merkle::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedTransaction {
     pub transaction: Transaction,
-    pub signature: Option<Vec<u8>>,
+    pub signature: Vec<u8>,
 }
 
 impl SignedTransaction {
     pub fn new(transaction: Transaction) -> Self {
         Self {
             transaction,
-            signature: None,
+            signature: vec![],
         }
     }
 
@@ -35,15 +35,16 @@ impl SignedTransaction {
         let tx_hash = self.transaction.hash();
         let signature = kanari_crypto::sign_message(private_key, &tx_hash, curve_type)
             .map_err(|e| anyhow::anyhow!("Failed to sign transaction: {}", e))?;
-        self.signature = Some(signature);
+        self.signature = signature;
         Ok(())
     }
 
     pub fn verify_signature(&self) -> Result<bool> {
-        let signature = self
-            .signature
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Transaction not signed"))?;
+        if self.signature.is_empty() {
+            anyhow::bail!("Transaction not signed");
+        }
+
+        let signature = &self.signature;
 
         let tx_hash = self.transaction.hash();
         let sender = self.transaction.sender_address();
@@ -349,12 +350,10 @@ impl Block {
                 anyhow::bail!("Transaction {} has empty sender address", i);
             }
 
-            // Verify signature if present
-            if signed_tx.signature.is_some() {
-                signed_tx.verify_signature().map_err(|e| {
-                    anyhow::anyhow!("Invalid signature for transaction {}: {}", i, e)
-                })?;
-            }
+            // Require a valid signature for every transaction
+            signed_tx.verify_signature().map_err(|e| {
+                anyhow::anyhow!("Invalid or missing signature for transaction {}: {}", i, e)
+            })?;
         }
 
         Ok(())
