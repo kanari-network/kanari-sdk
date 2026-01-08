@@ -24,8 +24,11 @@ use std::sync::{Arc, RwLock};
 
 type ProofCache = LruCache<(u64, usize), (String, Vec<Vec<u8>>)>;
 
-mod produce_block;
-pub use produce_block::BlockInfo;
+mod produce_dag_vertex;
+pub use produce_dag_vertex::{CheckpointInfo, DagBlockInfo, DagEngine};
+
+// Legacy BlockInfo type alias for backward compatibility
+pub type BlockInfo = DagBlockInfo;
 
 /// Complete blockchain engine with Move VM integration
 pub struct BlockchainEngine {
@@ -41,6 +44,12 @@ pub struct BlockchainEngine {
     // LRU cache for frequently requested merkle proofs
     // Cache key: (block_height, tx_index), Value: (tx_hash, proof)
     pub proof_cache: Arc<RwLock<ProofCache>>,
+    // DAG engine for high-throughput consensus (lazy-initialized)
+    dag_engine: Arc<RwLock<Option<DagEngine>>>,
+    // Authority ID for this node (used in DAG mode)
+    authority_id: String,
+    // List of all authorities (validators) in the network
+    authorities: Vec<String>,
 }
 
 // Basic recursive parser for simple type-argument strings used by RPC/tests.
@@ -204,6 +213,10 @@ impl BlockchainEngine {
         // Initialize LRU cache for merkle proofs (cache up to 1000 proofs)
         let proof_cache = Arc::new(RwLock::new(LruCache::new(NonZeroUsize::new(1000).unwrap())));
 
+        // Setup default authorities for DAG mode (single node by default)
+        let authority_id = "0xDEFAULT_AUTHORITY".to_string();
+        let authorities = vec![authority_id.clone()];
+
         Ok(Self {
             blockchain,
             state,
@@ -213,6 +226,9 @@ impl BlockchainEngine {
             persistent_store,
             runtime_pool,
             proof_cache,
+            dag_engine: Arc::new(RwLock::new(None)),
+            authority_id,
+            authorities,
         })
     }
 
@@ -561,12 +577,63 @@ impl BlockchainEngine {
     }
 
     /// Mine/produce a new block with pending transactions
-    /// Now uses ChangeSet pattern: execute -> collect ChangeSets -> apply atomically
+    /// Now uses DAG-based consensus for high throughput
     ///
-    /// CRITICAL: ALL ChangeSets (both successful and failed) are applied to state.
-    /// Failed transactions still deduct gas and increment sequence to prevent spam and replay attacks.
+    /// This method creates a DAG vertex and automatically commits checkpoints
+    /// when consensus is reached. Uses parallel transaction execution.
     pub fn produce_block(&self) -> Result<BlockInfo> {
-        produce_block::produce_block(self)
+        // Lazy-initialize DAG engine on first use
+        {
+            let mut dag_engine_guard = self.dag_engine.write().unwrap();
+            if dag_engine_guard.is_none() {
+                let dag_engine = DagEngine::new(
+                    Arc::new(self.clone_for_dag()),
+                    self.authority_id.clone(),
+                    self.authorities.clone(),
+                )?;
+                *dag_engine_guard = Some(dag_engine);
+            }
+        }
+
+        // Produce DAG vertex
+        let dag_engine = self.dag_engine.read().unwrap();
+        let dag_engine = dag_engine.as_ref().unwrap();
+        dag_engine.produce_vertex()
+    }
+
+    /// Clone engine for DAG usage (internal helper)
+    fn clone_for_dag(&self) -> BlockchainEngine {
+        BlockchainEngine {
+            blockchain: self.blockchain.clone(),
+            state: self.state.clone(),
+            move_runtime: self.move_runtime.clone(),
+            pending_txs: self.pending_txs.clone(),
+            contract_registry: self.contract_registry.clone(),
+            persistent_store: self.persistent_store.clone(),
+            runtime_pool: self.runtime_pool.clone(),
+            proof_cache: self.proof_cache.clone(),
+            dag_engine: Arc::new(RwLock::new(None)), // Don't clone DAG engine (prevent recursion)
+            authority_id: self.authority_id.clone(),
+            authorities: self.authorities.clone(),
+        }
+    }
+
+    /// Configure authorities for DAG mode
+    pub fn set_authorities(&mut self, authority_id: String, authorities: Vec<String>) {
+        self.authority_id = authority_id;
+        self.authorities = authorities;
+        // Reset DAG engine to use new authorities
+        *self.dag_engine.write().unwrap() = None;
+    }
+
+    /// Get current authority ID
+    pub fn get_authority_id(&self) -> String {
+        self.authority_id.clone()
+    }
+
+    /// Get list of authorities
+    pub fn get_authorities(&self) -> Vec<String> {
+        self.authorities.clone()
     }
 
     /// Get blockchain stats

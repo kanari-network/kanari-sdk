@@ -373,15 +373,17 @@ async fn run_node(
             match engine.produce_block() {
                 Ok(block_info) => {
                     tracing::info!(
-                        "Block #{} produced: {} txs ({} executed, {} failed)",
-                        block_info.height,
+                        "DAG Vertex (Round #{}) produced: {} txs ({} executed, {} failed)",
+                        block_info.round,
                         block_info.tx_count,
                         block_info.executed,
                         block_info.failed
                     );
 
                     // Broadcast the new block with full transaction data to the network
-                    if let Some(full_block_data) = engine.get_full_block(block_info.height)
+                    // Use current blockchain height since we just produced a vertex
+                    let current_height = engine.blockchain.read().unwrap().height();
+                    if let Some(full_block_data) = engine.get_full_block(current_height)
                         && let Ok(block_str) = serde_json::to_string(&full_block_data)
                     {
                         let msg = P2PMessage::NewBlock(block_str);

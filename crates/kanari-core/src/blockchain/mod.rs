@@ -16,6 +16,38 @@ pub use merkle::{
     generate_merkle_multiproof, generate_merkle_proof, verify_merkle_proof,
 };
 
+mod dag_consensus;
+pub use dag_consensus::{
+    AuthorityId, Checkpoint, DagConsensus, DagStore, DagVertex, Round, VertexId, VertexMetadata,
+};
+
+mod vrf_leader;
+pub use vrf_leader::{VrfLeaderElection, VrfOutput};
+
+mod byzantine_detector;
+pub use byzantine_detector::{
+    ByzantineDetector, ByzantineEvidence, ByzantineFault, SlashingPenalty,
+};
+
+mod vertex_broadcast;
+pub use vertex_broadcast::{
+    CompressedBatch, DeltaSync, VertexBatch, VertexBloomFilter, VertexBroadcaster,
+};
+
+mod state_sync;
+pub use state_sync::{FastSync, StateSynchronizer, SyncProgress, SyncRequest, SyncResponse};
+
+mod light_client;
+pub use light_client::{
+    CheckpointBuilder, CheckpointSignature, LightCheckpoint, LightClient, LightClientQuery,
+    StateProof, TransactionProof,
+};
+
+mod committee;
+pub use committee::{
+    Committee, CommitteeChange, CommitteeChangeTx, CommitteeManager, ValidatorInfo,
+};
+
 /// Signed transaction wrapper
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedTransaction {
@@ -360,12 +392,23 @@ impl Block {
     }
 }
 
-/// Blockchain state
+/// Blockchain state - supports both linear chain and DAG modes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Blockchain {
+    /// Linear chain mode: blocks in sequence
     pub blocks: Vec<Block>,
+
+    /// DAG mode: checkpoints (committed state)
+    #[serde(skip)]
+    pub dag_checkpoints: Vec<Checkpoint>,
+
+    /// Track executed transactions (for deduplication)
     #[serde(skip)]
     executed_tx_hashes: std::collections::HashSet<String>,
+
+    /// Operating mode: true = DAG mode, false = linear chain mode
+    #[serde(default)]
+    pub dag_mode: bool,
 }
 
 impl Blockchain {
@@ -373,8 +416,36 @@ impl Blockchain {
         let genesis = Block::genesis();
         Self {
             blocks: vec![genesis],
+            dag_checkpoints: vec![Checkpoint::genesis()],
             executed_tx_hashes: std::collections::HashSet::new(),
+            dag_mode: false, // Default to linear chain mode
         }
+    }
+
+    /// Create blockchain in DAG mode
+    pub fn new_with_dag() -> Self {
+        Self {
+            blocks: vec![Block::genesis()],
+            dag_checkpoints: vec![Checkpoint::genesis()],
+            executed_tx_hashes: std::collections::HashSet::new(),
+            dag_mode: true,
+        }
+    }
+
+    /// Switch to DAG mode
+    pub fn enable_dag_mode(&mut self) {
+        if !self.dag_mode {
+            self.dag_mode = true;
+            // Initialize DAG checkpoints if empty
+            if self.dag_checkpoints.is_empty() {
+                self.dag_checkpoints.push(Checkpoint::genesis());
+            }
+        }
+    }
+
+    /// Switch to linear chain mode
+    pub fn disable_dag_mode(&mut self) {
+        self.dag_mode = false;
     }
 
     pub fn latest_block(&self) -> &Block {
@@ -383,8 +454,23 @@ impl Blockchain {
             .expect("blockchain must contain at least the genesis block")
     }
 
+    /// Get latest checkpoint (for DAG mode)
+    pub fn latest_checkpoint(&self) -> &Checkpoint {
+        if self.dag_checkpoints.is_empty() {
+            // This should never happen as we initialize with genesis
+            panic!("DAG checkpoints is empty - should contain at least genesis");
+        }
+        self.dag_checkpoints.last().unwrap()
+    }
+
     pub fn height(&self) -> u64 {
-        self.latest_block().header.height
+        if self.dag_mode {
+            // In DAG mode, height = checkpoint sequence number
+            self.latest_checkpoint().sequence
+        } else {
+            // In linear chain mode, height = block height
+            self.latest_block().header.height
+        }
     }
 
     /// Check if transaction hash has been executed before (deduplication)
@@ -414,6 +500,11 @@ impl Blockchain {
     }
 
     pub fn add_block_with_validation(&mut self, block: Block, validate: bool) -> Result<()> {
+        // Only allow adding blocks in linear chain mode
+        if self.dag_mode {
+            anyhow::bail!("Cannot add blocks directly in DAG mode. Use add_checkpoint instead.");
+        }
+
         if validate {
             let prev_block = self.latest_block();
             block.verify(prev_block)?;
@@ -437,12 +528,68 @@ impl Blockchain {
         Ok(())
     }
 
+    /// Add checkpoint (for DAG mode)
+    pub fn add_checkpoint(&mut self, checkpoint: Checkpoint) -> Result<()> {
+        if !self.dag_mode {
+            anyhow::bail!("Cannot add checkpoints in linear chain mode. Use add_block instead.");
+        }
+
+        // Verify checkpoint sequence
+        let expected_seq = self.latest_checkpoint().sequence + 1;
+        if checkpoint.sequence != expected_seq {
+            anyhow::bail!(
+                "Invalid checkpoint sequence: expected {}, got {}",
+                expected_seq,
+                checkpoint.sequence
+            );
+        }
+
+        // Verify previous checkpoint hash
+        let prev_hash = self.latest_checkpoint().hash();
+        if checkpoint.prev_checkpoint_hash != prev_hash {
+            anyhow::bail!("Invalid previous checkpoint hash");
+        }
+
+        // Check for duplicate transactions
+        for signed_tx in &checkpoint.transactions {
+            let tx_hash = hex::encode(signed_tx.hash());
+            if self.is_transaction_executed(&tx_hash) {
+                anyhow::bail!("Duplicate transaction detected in checkpoint: {}", tx_hash);
+            }
+        }
+
+        // Mark transactions as executed
+        for signed_tx in &checkpoint.transactions {
+            let tx_hash = hex::encode(signed_tx.hash());
+            self.mark_transaction_executed(tx_hash);
+        }
+
+        self.dag_checkpoints.push(checkpoint);
+        Ok(())
+    }
+
     pub fn get_block(&self, height: u64) -> Option<&Block> {
         self.blocks.iter().find(|b| b.header.height == height)
     }
 
+    /// Get checkpoint by sequence number (for DAG mode)
+    pub fn get_checkpoint(&self, sequence: u64) -> Option<&Checkpoint> {
+        self.dag_checkpoints
+            .iter()
+            .find(|cp| cp.sequence == sequence)
+    }
+
     pub fn get_transaction_count(&self) -> usize {
-        self.blocks.iter().map(|b| b.transactions.len()).sum()
+        if self.dag_mode {
+            // Count transactions in checkpoints
+            self.dag_checkpoints
+                .iter()
+                .map(|cp| cp.transactions.len())
+                .sum()
+        } else {
+            // Count transactions in blocks
+            self.blocks.iter().map(|b| b.transactions.len()).sum()
+        }
     }
 }
 
