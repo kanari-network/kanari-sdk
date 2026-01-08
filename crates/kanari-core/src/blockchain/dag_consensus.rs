@@ -19,7 +19,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::SignedTransaction;
-use super::Transaction;
 use super::byzantine_detector::ByzantineDetector;
 use super::vrf_leader::{VrfLeaderElection, VrfOutput};
 use kanari_crypto::hash_data_blake3;
@@ -410,10 +409,10 @@ impl DagStore {
 
             // Verify parents are from previous round
             for parent_id in &vertex.parents {
-                if let Some(parent) = self.vertices.get(parent_id) {
-                    if parent.round != vertex.round - 1 {
-                        anyhow::bail!("Parent from wrong round");
-                    }
+                if let Some(parent) = self.vertices.get(parent_id)
+                    && parent.round != vertex.round - 1
+                {
+                    anyhow::bail!("Parent from wrong round");
                 }
             }
         }
@@ -804,6 +803,8 @@ impl DagConsensus {
 
 #[cfg(test)]
 mod tests {
+    use crate::Transaction;
+
     use super::*;
 
     #[test]
@@ -922,7 +923,7 @@ mod tests {
 
         let mut store = DagStore::with_config(vec!["auth1".to_string()], config);
 
-        // Add enough rounds to trigger max_rounds  
+        // Add enough rounds to trigger max_rounds
         // Note: Using round 0 for all vertices to avoid quorum requirements
         store.current_round = 10; // Simulate 10 rounds passing
         for i in 0..11 {
@@ -936,7 +937,7 @@ mod tests {
                 sequence_number: i,
             };
             let tx = SignedTransaction::new(transaction);
-            
+
             let vertex = DagVertex::new(
                 0, // Round 0
                 "auth1".to_string(),
@@ -977,7 +978,7 @@ mod tests {
                 sequence_number: i,
             };
             let tx = SignedTransaction::new(transaction);
-            
+
             let vertex = DagVertex::new(
                 0, // Round 0
                 "auth1".to_string(),
@@ -1016,7 +1017,7 @@ mod tests {
                 sequence_number: i,
             };
             let tx = SignedTransaction::new(transaction);
-            
+
             let vertex = DagVertex::new(
                 0, // Round 0
                 "auth1".to_string(),
@@ -1054,7 +1055,7 @@ mod tests {
                 sequence_number: i,
             };
             let tx = SignedTransaction::new(transaction);
-            
+
             let vertex = DagVertex::new(
                 0, // Round 0
                 "auth1".to_string(),

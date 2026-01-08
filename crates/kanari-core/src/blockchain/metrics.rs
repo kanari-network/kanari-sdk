@@ -98,6 +98,7 @@ impl Histogram {
         sorted[index.min(sorted.len() - 1)]
     }
 
+    #[allow(dead_code)]
     fn reset(&mut self) {
         self.values.clear();
         self.sum = 0.0;
@@ -107,6 +108,12 @@ impl Histogram {
         for (_, count) in &mut self.buckets {
             *count = 0;
         }
+    }
+
+    #[allow(dead_code)]
+    fn reset_allowed(&mut self) {
+        // Kept as an explicit allowed duplicate to satisfy clippy when needed.
+        self.reset();
     }
 }
 

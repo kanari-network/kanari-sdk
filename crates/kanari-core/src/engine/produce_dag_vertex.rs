@@ -93,15 +93,8 @@ impl DagEngine {
             kanari_crypto::hash_data_blake3(&bcs::to_bytes(&*state).unwrap_or_default())
         };
 
-        // Collect events
-        let events: Vec<Event> = transactions
-            .iter()
-            .enumerate()
-            .filter_map(|(_i, _)| {
-                // This is simplified - in practice, collect from changesets
-                None
-            })
-            .collect();
+        // Collect events (simplified placeholder)
+        let events: Vec<Event> = Vec::new();
 
         // Create DAG vertex
         let vertex = {

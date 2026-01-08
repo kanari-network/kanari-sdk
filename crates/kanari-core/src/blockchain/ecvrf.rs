@@ -24,6 +24,7 @@ pub struct VrfPublicKey {
 
 /// VRF proof (80 bytes: gamma=32, c=16, s=32)
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct VrfProof {
     gamma: [u8; 32], // VRF hash point
     c: [u8; 16],     // Challenge
@@ -222,6 +223,7 @@ impl VrfSecretKey {
     }
 }
 
+#[allow(dead_code)]
 impl VrfPublicKey {
     /// Create from raw bytes
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
@@ -389,7 +391,7 @@ mod tests {
     #[test]
     fn test_ecvrf_different_inputs() {
         let sk = VrfSecretKey::generate();
-        let pk = sk.public_key();
+        let _pk = sk.public_key();
 
         let (output1, _) = sk.prove(b"input1");
         let (output2, _) = sk.prove(b"input2");

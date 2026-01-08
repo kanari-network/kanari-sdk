@@ -223,6 +223,7 @@ impl AdaptiveBatcher {
     }
 
     /// Reset to default batch size (useful after network changes)
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.current_batch_size = (self.config.min_batch_size + self.config.max_batch_size) / 2;
         self.network_rtt = EwmaEstimator::new(0.2);

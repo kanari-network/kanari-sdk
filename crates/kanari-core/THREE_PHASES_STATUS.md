@@ -173,7 +173,7 @@ Based on **Value × Feasibility** analysis:
 
 ### **Quarter 2** (Production Readiness)
 
-5. Phase 1.3: Crypto Signatures (BLS aggregation = huge win)
+1. Phase 1.3: Crypto Signatures (BLS aggregation = huge win)
 2. Phase 1.4: RocksDB Storage (essential for persistence)
 3. Phase 2.1: Adaptive Batching
 4. Phase 2.4: Configurable Checkpoints
@@ -183,7 +183,7 @@ Based on **Value × Feasibility** analysis:
 
 ### **Quarter 3** (Performance & Scale)
 
-10. Phase 2.2: Parallel Validation (6x speedup)
+1. Phase 2.2: Parallel Validation (6x speedup)
 2. Phase 3.2: Optimistic Execution (40% latency reduction)
 3. Phase 3.3: Adaptive Quorum
 
@@ -191,7 +191,7 @@ Based on **Value × Feasibility** analysis:
 
 ### **Quarter 4** (Advanced R&D)
 
-13. Phase 3.1: Cross-Shard DAG (horizontal scaling)
+1. Phase 3.1: Cross-Shard DAG (horizontal scaling)
 2. Phase 3.4: ML Byzantine Prediction
 3. Phase 3.5: ZK Proofs (requires specialist)
 

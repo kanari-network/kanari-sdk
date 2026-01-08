@@ -57,6 +57,9 @@ pub use committee::{
     Committee, CommitteeChange, CommitteeChangeTx, CommitteeManager, ValidatorInfo,
 };
 
+mod crypto_signatures;
+pub use crypto_signatures::{Ed25519Keypair, SignatureScheme};
+
 /// Signed transaction wrapper
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedTransaction {

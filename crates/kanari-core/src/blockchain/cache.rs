@@ -71,20 +71,18 @@ where
         // Check if entry exists and not expired
         if let Some(entry) = cache.entries.get(key) {
             // Check TTL
-            if let Some(ttl) = cache.ttl {
-                if entry.inserted_at.elapsed() > ttl {
-                    // Expired, remove it
-                    drop(entry);
-                    cache.entries.remove(key);
-                    cache.access_order.retain(|k| k != key);
-                    cache.misses += 1;
-                    return None;
-                }
+            if let Some(ttl) = cache.ttl
+                && entry.inserted_at.elapsed() > ttl
+            {
+                // Expired, remove it
+                cache.entries.remove(key);
+                cache.access_order.retain(|k| k != key);
+                cache.misses += 1;
+                return None;
             }
 
             // Clone value before mutable operations
             let value = entry.value.clone();
-            drop(entry);
 
             // Update access time and move to back (most recently used)
             if let Some(entry) = cache.entries.get_mut(key) {
@@ -350,7 +348,7 @@ impl DagCacheStats {
         let mut s = String::new();
         s.push_str("=== DAG Cache Statistics ===\n\n");
 
-        s.push_str(&format!("Vertices Cache:\n"));
+        s.push_str("Vertices Cache:\n");
         s.push_str(&format!(
             "  Size:      {}/{}\n",
             self.vertices.size, self.vertices.capacity
@@ -363,7 +361,7 @@ impl DagCacheStats {
             self.vertices.hit_rate * 100.0
         ));
 
-        s.push_str(&format!("State Roots Cache:\n"));
+        s.push_str("State Roots Cache:\n");
         s.push_str(&format!(
             "  Size:      {}/{}\n",
             self.state_roots.size, self.state_roots.capacity
@@ -373,7 +371,7 @@ impl DagCacheStats {
             self.state_roots.hit_rate * 100.0
         ));
 
-        s.push_str(&format!("Merkle Proofs Cache:\n"));
+        s.push_str("Merkle Proofs Cache:\n");
         s.push_str(&format!(
             "  Size:      {}/{}\n",
             self.merkle_proofs.size, self.merkle_proofs.capacity

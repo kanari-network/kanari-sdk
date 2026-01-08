@@ -219,14 +219,14 @@ impl StateSynchronizer {
         }
 
         // Verify state root matches
-        if let Some(checkpoint) = self.checkpoints.get(&self.latest_checkpoint) {
-            if checkpoint.state_root != response.state_root {
-                return Err(anyhow!(
-                    "State root mismatch after sync: expected {:?}, got {:?}",
-                    response.state_root,
-                    checkpoint.state_root
-                ));
-            }
+        if let Some(checkpoint) = self.checkpoints.get(&self.latest_checkpoint)
+            && checkpoint.state_root != response.state_root
+        {
+            return Err(anyhow!(
+                "State root mismatch after sync: expected {:?}, got {:?}",
+                response.state_root,
+                checkpoint.state_root
+            ));
         }
 
         tracing::info!(

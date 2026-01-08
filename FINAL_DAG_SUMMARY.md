@@ -71,30 +71,35 @@
 ## ✅ ฟีเจอร์ที่เสร็จสมบูรณ์
 
 ### 1. โครงสร้าง DAG
+
 - ✅ DagVertex - Vertex structure with parents
 - ✅ Checkpoint - Committed ordered state
 - ✅ DagStore - Storage and indexing
 - ✅ Round-based organization
 
 ### 2. Consensus Protocol
+
 - ✅ Bullshark-style consensus
 - ✅ Leader election (round-robin)
 - ✅ Quorum checks (2f+1)
 - ✅ 3-round commit protocol
 
 ### 3. Parallel Execution
+
 - ✅ Multi-threaded execution
 - ✅ Per-sender sequencing
 - ✅ State snapshots
 - ✅ Worker pool utilization
 
 ### 4. Blockchain Integration
+
 - ✅ Dual-mode support (Linear + DAG)
 - ✅ Runtime mode switching
 - ✅ Backward compatibility
 - ✅ Checkpoint management
 
 ### 5. Documentation
+
 - ✅ User guide (DAG_CONSENSUS.md)
 - ✅ Architecture diagrams (DAG_ARCHITECTURE.md)
 - ✅ Implementation summary
@@ -174,26 +179,31 @@ $ cargo build --package kanari-core --example dag_consensus_demo
 ## 🎯 Key Benefits
 
 ### 1. High Throughput
+
 - หลาย validators สร้าง vertices พร้อมกัน
 - ไม่มี bottleneck จากการรอ block เดียว
 - **10x throughput improvement**
 
 ### 2. Low Latency
+
 - แยก Data Availability จาก Ordering
 - Transactions ถูกเผยแพร่ทันที
 - **4-6x latency reduction**
 
 ### 3. Parallel Execution
+
 - ใช้ประโยชน์จาก parallel execution ที่มีอยู่แล้ว
 - ธุรกรรมที่ไม่เกี่ยวข้องกันทำงานพร้อมกัน
 - **Maximize CPU usage**
 
 ### 4. Byzantine Fault Tolerance
+
 - ทนต่อ Byzantine failures (f < n/3)
 - Proven consensus algorithm
 - **Production-ready security**
 
 ### 5. Backward Compatible
+
 - Linear chain mode ยังใช้งานได้
 - ไม่ทำลาย existing APIs
 - **Zero breaking changes**
@@ -269,16 +279,19 @@ cargo run --package kanari-core --example dag_consensus_demo
 ## 🔮 Future Enhancements
 
 ### Phase 1 (Short-term)
+
 - [ ] VRF-based leader election
 - [ ] Optimized vertex broadcast
 - [ ] Vertex pruning
 
 ### Phase 2 (Medium-term)
+
 - [ ] State sync for DAG
 - [ ] Light client support
 - [ ] Byzantine detection
 
 ### Phase 3 (Long-term)
+
 - [ ] Dynamic committees
 - [ ] Cross-shard communication
 - [ ] Advanced optimizations
@@ -303,7 +316,7 @@ cargo run --package kanari-core --example dag_consensus_demo
 
 ## ✨ Summary
 
-### What was delivered:
+### What was delivered
 
 ✅ **1,900+ lines** of production code  
 ✅ **1,000+ lines** of documentation  
@@ -314,7 +327,7 @@ cargo run --package kanari-core --example dag_consensus_demo
 ✅ **4-6x latency** reduction  
 ✅ **Production ready** code quality  
 
-### Integration:
+### Integration
 
 ✅ Blockchain module (dual-mode)  
 ✅ Engine module (DAG execution)  
@@ -322,7 +335,7 @@ cargo run --package kanari-core --example dag_consensus_demo
 ✅ Cryptography (Blake3)  
 ✅ Serialization (BCS)  
 
-### Quality:
+### Quality
 
 ✅ All code compiles  
 ✅ All tests pass  
@@ -337,6 +350,7 @@ cargo run --package kanari-core --example dag_consensus_demo
 **DAG-based Consensus implementation for Kanari SDK is COMPLETE! 🎉**
 
 ระบบสามารถ:
+
 - ✨ ทำงานแบบขนานได้สูง (High Parallelism)
 - ⚡ มี Throughput สูงขึ้น 10 เท่า (10,000+ TPS)
 - 🚀 มี Latency ต่ำลง 4-6 เท่า (100-500ms)
