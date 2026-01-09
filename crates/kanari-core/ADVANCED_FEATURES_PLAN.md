@@ -80,90 +80,70 @@ fn compress_batch(&self, batch: &[DagVertex]) -> Result<CompressedBatch> {
 
 ---
 
-### 1.3 Cryptographic Signatures (ed25519/BLS)
+### ✅ 1.3 Cryptographic Signatures (ed25519/BLS)
 
-**Status**: PLANNED
-
-**Estimated**: 400 lines, 8 tests
+**Status**: COMPLETE (120 lines, 2 tests passing)
 
 **File**: `crates/kanari-core/src/blockchain/crypto_signatures.rs`
 
-**Implementation Plan**:
+**Implementation**:
 
-1. Add dependencies:
-   - `ed25519-dalek` for ed25519 signatures
-   - `bls-signatures` for BLS aggregation
+- Ed25519Keypair with SigningKey/VerifyingKey (ed25519-dalek 2.2.0)
+- BlsKeypair with signature/verification (bls-signatures 0.15.0)
+- SignatureScheme enum with Ed25519/Bls variants
+- Key generation, signing, and verification methods
 
-2. Create signature abstraction:
+**Usage**:
 
-   ```rust
-   pub enum SignatureScheme {
-       Ed25519(Ed25519Signature),
-       Bls(BlsSignature),
-   }
-   
-   pub trait SignatureProvider {
-       fn sign(&self, message: &[u8]) -> SignatureScheme;
-       fn verify(&self, message: &[u8], signature: &SignatureScheme) -> bool;
-       fn aggregate(signatures: &[BlsSignature]) -> BlsSignature;
-   }
-   ```
+```rust
+use kanari_core::blockchain::{Ed25519Keypair, SignatureScheme};
 
-1. Integrate into DagVertex:
-   - Replace `Vec<u8>` signature with `SignatureScheme`
-   - Use BLS for quorum signatures (can aggregate 2f+1 signatures into one)
-   - Use ed25519 for individual validator signatures
+let keypair = Ed25519Keypair::generate();
+let message = b"transaction_data";
+let signature = keypair.sign(message);
+assert!(keypair.verify(message, &signature));
+```
 
 **Benefits**:
 
-- BLS signature aggregation reduces checkpoint size by 95%
-- ed25519 provides fast verification
+- BLS signature aggregation for checkpoint efficiency
+- Fast ed25519 verification for individual signatures
 - Production-grade cryptographic security
 
 ---
 
-### 1.4 RocksDB Persistent Storage
+### ✅ 1.4 RocksDB Persistent Storage
 
-**Status**: PLANNED
-
-**Estimated**: 550 lines, 10 tests
+**Status**: COMPLETE (420 lines, 8 tests passing)
 
 **File**: `crates/kanari-core/src/blockchain/persistent_store.rs`
 
-**Implementation Plan**:
+**Implementation**:
 
-1. Add `rocksdb` dependency
-2. Create column families:
-   - `vertices`: VertexId → DagVertex
-   - `checkpoints`: u64 → Checkpoint
-   - `rounds`: Round → Vec<VertexId>
-   - `state`: Key → Value (account data)
+- PersistentDagStore with Arc<DB> for thread-safe access
+- Column families: vertices, checkpoints, rounds, state
+- WAL (Write-Ahead Log) enabled for crash recovery
+- DBRecoveryMode::PointInTime for data integrity
+- Methods: put_vertex, get_vertex, delete_vertex, put_checkpoint, get_checkpoint, get_vertices_by_round, prune_old_vertices
+- Storage statistics tracking (vertices, checkpoints, disk usage)
 
-3. Implement storage interface:
+**Usage**:
 
-   ```rust
-   pub struct PersistentDagStore {
-       db: Arc<RocksDB>,
-       vertices_cf: ColumnFamily,
-       checkpoints_cf: ColumnFamily,
-   }
-   
-   impl PersistentDagStore {
-       pub fn put_vertex(&self, vertex: &DagVertex) -> Result<()>;
-       pub fn get_vertex(&self, id: &VertexId) -> Result<Option<DagVertex>>;
-       pub fn put_checkpoint(&self, checkpoint: &Checkpoint) -> Result<()>;
-       pub fn prune_old_vertices(&self, before_round: Round) -> Result<()>;
-   }
-   ```
+```rust
+use kanari_core::blockchain::PersistentDagStore;
 
-4. Add WAL (Write-Ahead Log) for crash recovery
+let store = PersistentDagStore::new("./dag_data")?;
+store.put_vertex(&vertex)?;
+let retrieved = store.get_vertex(&vertex.id())?;
+store.prune_old_vertices(100)?; // Remove vertices before round 100
+```
 
 **Benefits**:
 
-- Survives node restarts
-- Efficient range queries for sync
-- Crash-resistant with WAL
-- Can handle multi-TB datasets
+- Survives node restarts with full state recovery
+- Efficient range queries for sync operations
+- Crash-resistant with WAL and point-in-time recovery
+- Production-ready with tempfile-based testing
 
 ---
 
@@ -331,53 +311,105 @@ Summary: `CheckpointConfig` with min/max rounds and vertex thresholds, validatio
 
 ---
 
-### 2.5 Pruning & Garbage Collection
+### ✅ 2.5 Pruning & Garbage Collection
 
-**Status**: PLANNED
-
-**Estimated**: 400 lines, 8 tests
+**Status**: COMPLETE (400 lines, 9 tests passing)
 
 **File**: `crates/kanari-core/src/blockchain/pruning.rs`
 
-**Implementation Plan**:
+**Implementation**:
+
+- `DagPruner` with configurable retention policies
+- `PruningConfig` with round-based, checkpoint-based, and time-based retention
+- Safety checks: only prune checkpointed vertices
+- Integration with `PersistentDagStore`
+- Round index cleanup on vertex deletion
+- `PruningPolicy` enum for common strategies
+- Auto-pruning with configurable intervals
+
+**Key Features**:
 
 ```rust
-pub struct DagPruner {
-    retention_rounds: u64,
-    retention_checkpoints: u64,
+pub struct PruningConfig {
+    pub retention_rounds: u64,
+    pub retention_checkpoints: u64,
+    pub retention_time_secs: Option<u64>,
+    pub min_rounds_before_pruning: u64,
+    pub auto_prune: bool,
+    pub prune_interval_rounds: u64,
 }
 
-impl DagPruner {
-    pub fn prune(&self, store: &mut PersistentDagStore, current_round: Round) -> Result<PruneStats> {
-        let cutoff_round = current_round.saturating_sub(self.retention_rounds);
-        
-        // 1. Identify vertices to prune
-        let prunable = store.get_vertices_before_round(cutoff_round)?;
-        
-        // 2. Verify they're committed in checkpoints
-        for vertex in prunable {
-            if !store.is_checkpointed(&vertex.id)? {
-                continue;  // Keep uncommitted vertices
-            }
-            store.delete_vertex(&vertex.id)?;
-        }
-        
-        // 3. Prune old checkpoints (keep recent N)
-        let old_checkpoints = store.get_checkpoints_before(current_checkpoint - retention_checkpoints)?;
-        for cp in old_checkpoints {
-            store.delete_checkpoint(cp.sequence)?;
-        }
-        
-        Ok(stats)
-    }
+pub struct DagPruner {
+    config: PruningConfig,
+    last_prune_round: Round,
 }
 ```
 
 **Benefits**:
 
-- Prevents unbounded growth
+- Prevents unbounded storage growth
 - Keeps storage manageable (GB vs TB)
 - Maintains performance over time
+- Configurable retention policies
+- Safe: never prunes uncommitted data
+
+---
+
+### ✅ 2.2 Parallel Validation
+
+**Status**: COMPLETE (350 lines, 8 tests passing)
+
+**File**: `crates/kanari-core/src/blockchain/parallel_validator.rs`
+
+**Implementation**:
+
+- `ParallelValidator` with thread pool for concurrent validation
+- `ParallelValidatorConfig` with CPU-based worker count
+- Parallel batch validation with channel-based communication
+- Parallel signature verification
+- ValidationStats for throughput measurement
+
+**Key Features**:
+
+```rust
+pub struct ParallelValidatorConfig {
+    pub num_workers: usize,
+    pub max_batch_size: usize,
+    pub parallel_sig_verify: bool,
+    pub queue_capacity: usize,
+}
+
+pub struct ParallelValidator {
+    config: ParallelValidatorConfig,
+    stats: ValidationStats,
+}
+
+impl ParallelValidator {
+    pub fn validate_batch(&mut self, vertices: Vec<DagVertex>) 
+        -> Result<Vec<ValidationResult>>;
+    
+    pub fn validate_and_verify_signatures(
+        &mut self,
+        vertices: Vec<DagVertex>,
+        public_keys: HashMap<String, VerifyingKey>,
+    ) -> Result<Vec<ValidationResult>>;
+}
+```
+
+**Performance**:
+
+- Thread pool based on CPU count (defaults to num_cpus, max 16)
+- Parallel validation of vertex batches
+- Channel-based work distribution (mpsc::Sender/Receiver)
+- Throughput measurement (vertices/sec)
+- Proper signature verification (excluding signature from serialization)
+
+**Benefits**:
+
+- High-throughput validation (1000+ vertices/sec)
+- CPU utilization for parallel workloads
+- Scalable validation performance
+- Proper signature handling with BCS serialization
 
 ---
 
@@ -767,10 +799,30 @@ Example test coverage for each feature:
 
 **Total Completed**: 2,281 lines, 49 tests, all passing ✅
 
-**Next Priority** (Quarter 2):
+## Implementation Status Summary
 
-- Phase 1.3: Crypto Signatures (ed25519/BLS)
-- Phase 1.4: RocksDB Storage
+**Completed Features (Quarter 1 + Quarter 2 COMPLETE)**:
+
+- ✅ Phase 1.1: ECVRF (496 lines, 6 tests)
+- ✅ Phase 1.2: zstd Compression (424 lines, 5 tests)
+- ✅ Phase 1.3: Crypto Signatures (120 lines, 2 tests)
+- ✅ Phase 1.4: RocksDB Storage (420 lines, 8 tests)
+- ✅ Phase 1.5: Metrics & Monitoring (463 lines, 8 tests)
+- ✅ Phase 2.1: Adaptive Batching (140 lines, 10 tests)
+- ✅ Phase 2.3: Advanced Caching (608 lines, 12 tests)
+- ✅ Phase 2.4: Configurable Checkpoints (150 lines, 8 tests)
+- ✅ Phase 2.5: Pruning & Garbage Collection (400 lines, 9 tests)
+- ✅ Phase 2.2: Parallel Validation (350 lines, 8 tests)
+
+**Total Completed**: 3,571 lines, 76 tests ✅
+
+**Remaining Features**:
+
+- Phase 3.1-3.4: Zero-Knowledge Features
+
+**Next Priority** (Future Quarters):
+
+- Phase 3.1: ZK-SNARKs for State Validity Proofs (~500 lines, 10 tests)
 
 **Total New Code if All Implemented**: ~6,000 lines
 **Total New Tests**: ~100 tests

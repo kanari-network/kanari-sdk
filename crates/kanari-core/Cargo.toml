@@ -31,3 +31,6 @@ ed25519-dalek = "2.2.0"
 rand = "0.8.5"
 bls-signatures = "0.15.0"
 rocksdb = "0.24.0"
+
+[dev-dependencies]
+tempfile = "3.8"

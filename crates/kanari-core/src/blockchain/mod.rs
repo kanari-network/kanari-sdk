@@ -60,6 +60,17 @@ pub use committee::{
 mod crypto_signatures;
 pub use crypto_signatures::{Ed25519Keypair, SignatureScheme};
 
+mod persistent_store;
+pub use persistent_store::{PersistentDagStore, StorageStats};
+
+mod pruning;
+pub use pruning::{DagPruner, PruneStats, PruningConfig, PruningPolicy};
+
+mod parallel_validator;
+pub use parallel_validator::{
+    ParallelValidator, ParallelValidatorConfig, ValidationResult, ValidationStats,
+};
+
 /// Signed transaction wrapper
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedTransaction {
