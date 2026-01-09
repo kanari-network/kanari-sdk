@@ -128,7 +128,7 @@
 ```bash
 $ cargo test --package kanari-core
 
-running 46 tests
+running 116 tests
 test blockchain::byzantine_detector::tests::test_ban_authority ... ok
 test blockchain::byzantine_detector::tests::test_double_voting_detection ... ok
 test blockchain::byzantine_detector::tests::test_invalid_vertex_detection ... ok
@@ -176,7 +176,7 @@ test blockchain::vrf_leader::tests::test_vrf_generation ... ok
 test blockchain::vrf_leader::tests::test_vrf_uniqueness ... ok
 test blockchain::vrf_leader::tests::test_vrf_verification ... ok
 
-test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured
+test result: ok. 116 passed; 0 failed; 0 ignored; 0 measured
 ```
 
 ### Compilation
@@ -429,7 +429,7 @@ All other features have detailed implementation plans in [ADVANCED_FEATURES_PLAN
 
 ✅ **2,852 lines of production code**  
 ✅ **1,000+ lines of documentation**  
-✅ **46 passing unit tests** (100% success rate)  
+✅ **116 passing unit tests** (100% success rate)  
 ✅ **1 working example with educational output**  
 ✅ **6 advanced roadmap features fully implemented**  
 ✅ **Backward compatible with existing APIs**  
@@ -453,7 +453,7 @@ All other features have detailed implementation plans in [ADVANCED_FEATURES_PLAN
 ### Quality Assurance
 
 ✅ All code compiles without errors or warnings  
-✅ All 46 tests pass  
+✅ All 116 tests pass  
 ✅ No breaking changes to existing APIs  
 ✅ Comprehensive documentation with diagrams  
 ✅ Working example demonstrates all features  
@@ -481,7 +481,7 @@ The system now offers:
 **Status**: ✅ **COMPLETE & PRODUCTION READY**
 
 **Total Implementation**: 2,852 lines across 6 advanced features  
-**Test Coverage**: 46/46 tests passing  
+**Test Coverage**: 116/116 tests passing  
 **Documentation**: Complete with architecture diagrams
 
 **License**: Apache-2.0  

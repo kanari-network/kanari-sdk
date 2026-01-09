@@ -193,15 +193,15 @@ if let Some(checkpoint) = dag_info.checkpoint {
 
 ### Short-term
 
-- [ ] VRF-based leader election (replace round-robin)
-- [ ] Optimize vertex broadcast protocol
-- [ ] Add vertex caching and pruning
+- [x] VRF-based leader election (replace round-robin) — implemented: [crates/kanari-core/src/blockchain/vrf_leader.rs](crates/kanari-core/src/blockchain/vrf_leader.rs) and [crates/kanari-core/src/blockchain/ecvrf.rs](crates/kanari-core/src/blockchain/ecvrf.rs)
+- [x] Optimize vertex broadcast protocol — implemented: [crates/kanari-core/src/blockchain/vertex_broadcast.rs](crates/kanari-core/src/blockchain/vertex_broadcast.rs)
+- [x] Add vertex caching and pruning — implemented: [crates/kanari-core/src/blockchain/cache.rs](crates/kanari-core/src/blockchain/cache.rs) and [crates/kanari-core/src/blockchain/pruning.rs](crates/kanari-core/src/blockchain/pruning.rs)
 
 ### Medium-term
 
-- [ ] State sync for DAG
-- [ ] Light client support
-- [ ] Byzantine behavior detection
+- [x] State sync for DAG — implemented: [crates/kanari-core/src/blockchain/state_sync.rs](crates/kanari-core/src/blockchain/state_sync.rs)
+- [x] Light client support — implemented: [crates/kanari-core/src/blockchain/light_client.rs](crates/kanari-core/src/blockchain/light_client.rs)
+- [x] Byzantine behavior detection — implemented: [crates/kanari-core/src/blockchain/byzantine_detector.rs](crates/kanari-core/src/blockchain/byzantine_detector.rs)
 
 ### Long-term
 

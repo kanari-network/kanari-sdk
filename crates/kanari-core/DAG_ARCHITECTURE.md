@@ -2,7 +2,7 @@
 
 ## System Overview
 
-```
+```rust
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Kanari Blockchain                        │
 │                                                                 │
@@ -22,7 +22,7 @@
 
 ## DAG Consensus Layers
 
-```
+```rust
 ┌──────────────────────────────────────────────────────────────────┐
 │                     Application Layer                            │
 │  (Move VM, Smart Contracts, Transactions)                        │
@@ -74,7 +74,7 @@
 
 ### Round-based Vertex Creation
 
-```
+```rust
 Time flows downward ↓
 
 Round 0 (Genesis):
@@ -115,7 +115,7 @@ Round 3:
 
 ## Parallel Execution Model
 
-```
+```rust
 ┌───────────────────────────────────────────────────────────┐
 │                    Transaction Pool                       │
 │  [Tx1 Tx2 Tx3 Tx4 Tx5 Tx6 Tx7 Tx8 Tx9 Tx10]               │
@@ -153,7 +153,7 @@ Round 3:
 
 ## Commit Protocol (Bullshark)
 
-```
+```rust
 Round N:
   Leader creates vertex VL
     │
@@ -188,7 +188,7 @@ Round N+2:
 
 ## Data Flow
 
-```
+```rust
 ┌─────────────┐
 │   Client    │
 └──────┬──────┘
@@ -222,7 +222,7 @@ Round N+2:
 
 ### Linear Chain
 
-```
+```rust
 Block 1 ──► Block 2 ──► Block 3 ──► Block 4 ──► ...
   (TX1-10)   (TX11-20)   (TX21-30)   (TX31-40)
 
@@ -233,7 +233,7 @@ Block 1 ──► Block 2 ──► Block 3 ──► Block 4 ──► ...
 
 ### DAG
 
-```
+```rust
          Vertex V1 (Auth1)  ──┐
          Vertex V2 (Auth2)  ──┼──► Checkpoint 1
          Vertex V3 (Auth3)  ──┤    (TX1-40)
@@ -248,7 +248,7 @@ Block 1 ──► Block 2 ──► Block 3 ──► Block 4 ──► ...
 
 ## State Management
 
-```
+```rust
 ┌──────────────────────────────────────────────────┐
 │              Global State                        │
 │  ┌────────────────────────────────────────┐      │
@@ -289,7 +289,7 @@ Block 1 ──► Block 2 ──► Block 3 ──► Block 4 ──► ...
 
 ## Security Model
 
-```
+```rust
 Byzantine Fault Tolerance (BFT)
 
 Total Authorities: n = 4
