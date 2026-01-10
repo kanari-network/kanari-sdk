@@ -422,12 +422,16 @@ mod tests {
         let valid_config = ParallelValidatorConfig::default();
         assert!(valid_config.validate().is_ok());
 
-        let mut invalid_config = ParallelValidatorConfig::default();
-        invalid_config.num_workers = 0;
+        let invalid_config = ParallelValidatorConfig {
+            num_workers: 0,
+            ..Default::default()
+        };
         assert!(invalid_config.validate().is_err());
 
-        invalid_config = ParallelValidatorConfig::default();
-        invalid_config.num_workers = 100;
+        let invalid_config = ParallelValidatorConfig {
+            num_workers: 100,
+            ..Default::default()
+        };
         assert!(invalid_config.validate().is_err());
     }
 
@@ -583,8 +587,8 @@ mod tests {
         let stats = validator.stats();
         assert!(stats.throughput_per_sec > 0.0);
         assert!(stats.avg_validation_time_ms > 0.0);
-        println!("Throughput: {:.2} vertices/sec", stats.throughput_per_sec);
-        println!(
+        eprintln!("Throughput: {:.2} vertices/sec", stats.throughput_per_sec);
+        eprintln!(
             "Avg validation time: {:.4} ms",
             stats.avg_validation_time_ms
         );

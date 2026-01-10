@@ -1,15 +1,16 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(clippy::print_stdout)]
 //! Example: Using DAG Consensus in Kanari
 //!
 //! This example demonstrates how to use DAG-based consensus
 //! to achieve high throughput and low latency transaction processing
 
 use anyhow::Result;
-use kanari_core::blockchain::{SignedTransaction, Transaction};
 use kanari_core::engine::{BlockchainEngine, DagEngine};
 use kanari_crypto::keys::CurveType;
+use kanari_types::transaction::{SignedTransaction, Transaction};
 use std::sync::Arc;
 
 fn main() -> Result<()> {

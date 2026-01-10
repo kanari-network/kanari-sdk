@@ -5,6 +5,7 @@
 // It utilizes MoveVM and InMemoryStorage for executing functions and publishing modules.
 // Enhanced with native function support, gas metering, and session management.
 use anyhow::Result;
+use kanari_types::event::Event;
 use log::debug;
 use move_binary_format::file_format::CompiledModule;
 use move_core_types::account_address::AccountAddress;
@@ -458,7 +459,7 @@ impl MoveRuntime {
 
         // Add captured events recorded by event native functions
         for ev in captured_events.into_iter() {
-            let ev_rec = crate::changeset::Event {
+            let ev_rec = Event {
                 key: ev.key,
                 sequence_number: ev.sequence_number,
                 type_tag: ev.type_tag,

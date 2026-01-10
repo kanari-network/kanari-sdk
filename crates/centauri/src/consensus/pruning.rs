@@ -350,12 +350,16 @@ mod tests {
         let valid_config = PruningConfig::default();
         assert!(valid_config.validate().is_ok());
 
-        let mut invalid_config = PruningConfig::default();
-        invalid_config.retention_rounds = 0;
+        let invalid_config = PruningConfig {
+            retention_rounds: 0,
+            ..Default::default()
+        };
         assert!(invalid_config.validate().is_err());
 
-        invalid_config = PruningConfig::default();
-        invalid_config.min_rounds_before_pruning = 5;
+        let invalid_config = PruningConfig {
+            min_rounds_before_pruning: 5,
+            ..Default::default()
+        };
         assert!(invalid_config.validate().is_err());
     }
 

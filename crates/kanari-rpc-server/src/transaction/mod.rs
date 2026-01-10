@@ -1,9 +1,9 @@
 use crate::respond_with_serialize;
 
 use super::{RpcError, RpcRequest, RpcResponse, RpcServerState};
-use kanari_core::{SignedTransaction, Transaction};
 use kanari_rpc_api::{CallFunctionRequest, PublishModuleRequest, SignedTransactionData};
 use kanari_types::address::Address;
+use kanari_types::transaction::{SignedTransaction, Transaction};
 use move_binary_format::CompiledModule;
 use serde_json;
 use tracing::{error, info};

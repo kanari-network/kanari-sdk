@@ -1,7 +1,8 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use kanari_core::{BlockchainEngine, FullBlockData, SignedTransaction};
+use kanari_core::{BlockchainEngine, FullBlockData};
+use kanari_types::transaction::SignedTransaction;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};

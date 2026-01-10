@@ -31,7 +31,8 @@ members = [
       "crates/smt",
       "crates/tps-harness", 
       "crates/kanari-system-natives",
-      "crates/kanari-db-common",
+      "crates/kanari-db-common", 
+      "crates/centauri",
 ]
 
 # Workspace Package Configuration: Metadata for the entire workspace as a package.
@@ -82,11 +83,11 @@ k256 = { version = "0.13.4", features = ["ecdsa", "std"] }
 p256 = { version = "0.13.2", features = ["ecdsa", "std"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 secp256k1 = { version = "0.31.1", features = ["recovery"] }
-
+bls-signatures = "0.15.0"
 aes-gcm = "0.10.3"
 base64 = "0.22.1"
 zstd = "0.13.3"
-
+lru = "0.16.2"
 # HD wallet / key derivation
 bip39 = { version = "2.2.2", features = ["rand"] }
 bip32 = "0.5.3"
@@ -146,6 +147,7 @@ kanari-db-common = { path = "crates/kanari-db-common" }
 
 # SMT Support
 smt = { path = "crates/smt" }
+centauri = { path = "crates/centauri" }
 
 # Move dependencies
 move-binary-format = { path = "third_party/move/crates/move-binary-format" }

@@ -7,8 +7,8 @@ use super::{
 };
 use anyhow::{Context, Result, bail};
 use clap::*;
-use kanari_core::{SignedTransaction, Transaction};
 use kanari_move_runtime::gas::{GasEstimate, GasOperation};
+use kanari_types::transaction::{SignedTransaction, Transaction};
 use log::error;
 use move_package::BuildConfig;
 use std::path::PathBuf;

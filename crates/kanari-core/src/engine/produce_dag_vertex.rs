@@ -5,10 +5,10 @@
 //! Integrates DAG consensus with parallel transaction execution
 
 use anyhow::Result;
+use centauri::consensus::DagConsensus;
 use std::sync::Arc;
 
 use super::*;
-use crate::blockchain::DagConsensus;
 
 /// DAG Block Production Info
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

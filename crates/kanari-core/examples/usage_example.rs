@@ -1,4 +1,5 @@
 // Example: Using Cryptographic Signatures and Persistent Storage together
+#![allow(clippy::print_stdout)]
 //
 // This example demonstrates how to:
 // 1. Generate Ed25519 keypair
@@ -8,7 +9,7 @@
 //
 // Run with: cargo run -p kanari-core --example usage_example
 
-use kanari_core::blockchain::{DagVertex, Ed25519Keypair, PersistentDagStore};
+use centauri::consensus::{DagVertex, Ed25519Keypair, PersistentDagStore};
 
 fn main() -> anyhow::Result<()> {
     // 1. Generate cryptographic keypair

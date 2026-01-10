@@ -3,6 +3,7 @@
 
 // Parser functions for Move VM changesets and events
 use crate::changeset::ChangeSet;
+use kanari_types::event::Event;
 use kanari_types::object::UIDRecord;
 use log::debug;
 use move_core_types::account_address::AccountAddress;
@@ -177,8 +178,6 @@ impl super::MoveRuntime {
         events: &[move_core_types::effects::Event],
         kanari_cs: &mut ChangeSet,
     ) {
-        use crate::changeset::Event;
-
         for event in events.iter() {
             let (key, sequence_number, type_tag, event_data) = event;
             let kanari_event = Event {

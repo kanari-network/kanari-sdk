@@ -13,15 +13,14 @@
 //! - Byzantine fault tolerance
 //! - Efficient parallel execution (already supported in Kanari's produce_block.rs)
 
+use super::byzantine_detector::ByzantineDetector;
+use super::vrf_leader::{VrfLeaderElection, VrfOutput};
 use anyhow::Result;
+use kanari_crypto::hash_data_blake3;
+use kanari_types::transaction::SignedTransaction;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{SystemTime, UNIX_EPOCH};
-
-use super::SignedTransaction;
-use super::byzantine_detector::ByzantineDetector;
-use super::vrf_leader::{VrfLeaderElection, VrfOutput};
-use kanari_crypto::hash_data_blake3;
 
 /// Unique identifier for a DAG vertex (block)
 pub type VertexId = Vec<u8>;
@@ -803,7 +802,7 @@ impl DagConsensus {
 
 #[cfg(test)]
 mod tests {
-    use crate::Transaction;
+    use kanari_types::transaction::Transaction;
 
     use super::*;
 
@@ -876,24 +875,30 @@ mod tests {
 
     #[test]
     fn test_checkpoint_config_validation() {
-        let mut config = CheckpointConfig::default();
-
         // Invalid: min >= max rounds
-        config.min_rounds = 100;
-        config.max_rounds = 50;
+        let config = CheckpointConfig {
+            min_rounds: 100,
+            max_rounds: 50,
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
 
         // Invalid: min >= max vertices
-        config.min_rounds = 10;
-        config.max_rounds = 100;
-        config.min_vertices = 5000;
-        config.max_vertices = 1000;
+        let config = CheckpointConfig {
+            min_rounds: 10,
+            max_rounds: 100,
+            min_vertices: 5000,
+            max_vertices: 1000,
+        };
         assert!(config.validate().is_err());
 
         // Invalid: max_rounds = 0
-        config.min_vertices = 100;
-        config.max_vertices = 1000;
-        config.max_rounds = 0;
+        let config = CheckpointConfig {
+            min_vertices: 100,
+            max_vertices: 1000,
+            max_rounds: 0,
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
     }
 

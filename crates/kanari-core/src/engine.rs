@@ -1,16 +1,19 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::blockchain::{Block, Blockchain, SignedTransaction, Transaction};
 use anyhow::{Context, Result};
+use centauri::blockchain::Blockchain;
 use kanari_move_runtime::ContractABI;
-use kanari_move_runtime::changeset::{ChangeSet, Event};
+use kanari_move_runtime::changeset::ChangeSet;
 use kanari_move_runtime::contract::{ContractInfo, ContractRegistry};
 use kanari_move_runtime::gas::{GasMeter, GasOperation};
 use kanari_move_runtime::move_runtime::MoveRuntime;
 use kanari_move_runtime::state::StateManager;
 use kanari_move_runtime::storage::persistent_store::PersistentStore;
 use kanari_types::address::Address as KanariAddress;
+use kanari_types::block::Block;
+use kanari_types::event::Event;
+use kanari_types::transaction::{SignedTransaction, Transaction};
 use lru::LruCache;
 use move_core_types::{
     account_address::AccountAddress,
@@ -19,6 +22,7 @@ use move_core_types::{
 };
 use num_cpus;
 use serde::{Deserialize, Serialize};
+use smt::generate_merkle_proof;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
 
@@ -1201,8 +1205,6 @@ impl BlockchainEngine {
         block_height: u64,
         tx_index: usize,
     ) -> Result<Option<(String, Vec<Vec<u8>>)>> {
-        use crate::blockchain::generate_merkle_proof;
-
         let cache_key = (block_height, tx_index);
 
         // Check cache first

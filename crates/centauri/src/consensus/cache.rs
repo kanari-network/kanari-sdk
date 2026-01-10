@@ -1,11 +1,12 @@
 // Phase 2.3: Advanced Caching System
 // High-performance LRU caching for DAG consensus (10-100x performance boost)
 
-use crate::blockchain::{DagVertex, VertexId};
 use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
+
+use crate::consensus::{DagVertex, VertexId};
 
 /// Generic LRU Cache with thread-safety and TTL support
 pub struct LruCache<K, V>
@@ -392,6 +393,8 @@ impl DagCacheStats {
 
 #[cfg(test)]
 mod tests {
+    use crate::consensus::{DagVertex, VertexMetadata};
+
     use super::*;
     use std::thread;
 
@@ -539,7 +542,7 @@ mod tests {
             transactions: vec![],
             timestamp: 12345,
             signature: vec![],
-            metadata: crate::blockchain::VertexMetadata {
+            metadata: VertexMetadata {
                 tx_count: 0,
                 total_gas_used: 0,
                 state_root: vec![],
@@ -576,7 +579,7 @@ mod tests {
                     transactions: vec![],
                     timestamp: 0,
                     signature: vec![],
-                    metadata: crate::blockchain::VertexMetadata {
+                    metadata: VertexMetadata {
                         tx_count: 0,
                         total_gas_used: 0,
                         state_root: vec![],
@@ -617,7 +620,7 @@ mod tests {
                     transactions: vec![],
                     timestamp: 0,
                     signature: vec![],
-                    metadata: crate::blockchain::VertexMetadata {
+                    metadata: VertexMetadata {
                         tx_count: 0,
                         total_gas_used: 0,
                         state_root: vec![],

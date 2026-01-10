@@ -1,13 +1,13 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::changeset::{ChangeSet, CreatedObject, Event};
+use crate::changeset::{ChangeSet, CreatedObject};
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
-use kanari_types::address::Address as KanariAddress;
 use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::TreasuryCap;
 use kanari_types::kanari::KanariModule;
+use kanari_types::{address::Address as KanariAddress, event::Event};
 use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};

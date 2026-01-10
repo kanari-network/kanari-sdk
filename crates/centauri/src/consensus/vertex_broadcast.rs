@@ -486,6 +486,8 @@ impl Default for DeltaSync {
 
 #[cfg(test)]
 mod tests {
+    use crate::consensus::VertexMetadata;
+
     use super::*;
 
     #[test]
@@ -545,8 +547,6 @@ mod tests {
 
     #[test]
     fn test_zstd_compression() {
-        use crate::blockchain::VertexMetadata;
-
         let broadcaster = VertexBroadcaster::new(10, Duration::from_secs(1));
 
         let batch = VertexBatch {
@@ -572,7 +572,7 @@ mod tests {
         };
 
         let compressed = broadcaster.compress_batch(&batch).unwrap();
-        assert!(compressed.data.len() > 0);
+        assert!(!compressed.data.is_empty());
         assert!(compressed.compression_ratio < 1.0); // Should be compressed
 
         let decompressed = broadcaster.decompress_batch(&compressed).unwrap();
@@ -686,7 +686,7 @@ mod tests {
 
         // Get adaptive batch size
         let batch_size = broadcaster.get_adaptive_batch_size();
-        assert!(batch_size >= 5 && batch_size <= 50);
+        assert!((5..=50).contains(&batch_size));
 
         // Create batch - should respect adaptive size
         let batch = broadcaster.create_batch().unwrap();

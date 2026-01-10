@@ -8,10 +8,12 @@
 
 use anyhow::Context;
 use kanari_common::get_main_wallet;
-use kanari_core::{SignedTransaction, Transaction};
 use kanari_rpc_api::SignedTransactionData;
 use kanari_rpc_client::RpcClient;
-use kanari_types::address::Address;
+use kanari_types::{
+    address::Address,
+    transaction::{SignedTransaction, Transaction},
+};
 use std::env;
 
 /// Request KANARI tokens from the Dev wallet.

@@ -4,11 +4,11 @@
 //! Main CLI binary for Kanari - A Move-based money transfer system
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use kanari_core::{SignedTransaction, Transaction};
 use kanari_crypto::{
     keys::{CurveType, generate_keypair, generate_mnemonic, keypair_from_mnemonic},
     wallet::{Wallet, list_wallet_files, load_wallet, save_wallet, set_selected_wallet},
 };
+use kanari_types::transaction::{SignedTransaction, Transaction};
 
 use kanari_rpc_api::SignedTransactionData;
 use kanari_rpc_client::RpcClient;

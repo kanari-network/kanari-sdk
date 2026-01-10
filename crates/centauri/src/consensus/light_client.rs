@@ -12,6 +12,7 @@
 
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
+use smt::compute_merkle_root;
 use std::collections::HashMap;
 
 use super::{AuthorityId, Checkpoint, Round};
@@ -350,7 +351,7 @@ impl CheckpointBuilder {
         let tx_root = if tx_hashes.is_empty() {
             vec![0u8; 32]
         } else {
-            super::merkle::compute_merkle_root(&tx_hashes)
+            compute_merkle_root(&tx_hashes)
         };
 
         LightCheckpoint {
