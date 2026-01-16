@@ -298,7 +298,7 @@ Quorum Required: 2f+1 = 3
 
 ┌─────────────────────────────────────────┐
 │  Honest: Auth1, Auth2, Auth3  (✓✓✓)    │
-│  Byzantine: Auth4             (✗)       │ 
+│  Byzantine: Auth4             (✗✗)     │ 
 └─────────────────────────────────────────┘
 
 For vertex to be valid:

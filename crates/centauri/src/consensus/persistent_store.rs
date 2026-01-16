@@ -327,6 +327,7 @@ mod tests {
         }
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_persistent_store_creation() -> Result<()> {
         let temp_dir = TempDir::new()?;
@@ -339,6 +340,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_put_get_vertex() -> Result<()> {
         let temp_dir = TempDir::new()?;
@@ -356,6 +358,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_put_get_checkpoint() -> Result<()> {
         let temp_dir = TempDir::new()?;
@@ -371,6 +374,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_delete_vertex() -> Result<()> {
         let temp_dir = TempDir::new()?;
@@ -388,6 +392,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_vertices_by_round() -> Result<()> {
         let temp_dir = TempDir::new()?;
@@ -410,6 +415,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_prune_old_vertices() -> Result<()> {
         let temp_dir = TempDir::new()?;
@@ -434,6 +440,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_persistence_across_reopens() -> Result<()> {
         let temp_dir = TempDir::new()?;
@@ -456,6 +463,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_storage_stats() -> Result<()> {
         let temp_dir = TempDir::new()?;

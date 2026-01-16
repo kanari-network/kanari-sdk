@@ -383,6 +383,7 @@ mod tests {
         assert!(pruner.should_prune(150));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_basic_vertex_pruning() -> Result<()> {
         let temp_dir = TempDir::new()?;
@@ -424,6 +425,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_safety_check_uncommitted_vertices() -> Result<()> {
         let temp_dir = TempDir::new()?;
@@ -454,6 +456,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_checkpoint_pruning() -> Result<()> {
         let temp_dir = TempDir::new()?;
@@ -500,6 +503,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_force_prune() -> Result<()> {
         let temp_dir = TempDir::new()?;
@@ -537,6 +541,7 @@ mod tests {
         assert_eq!(config.retention_time_secs, Some(86400));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_time_based_pruning() -> Result<()> {
         let temp_dir = TempDir::new()?;

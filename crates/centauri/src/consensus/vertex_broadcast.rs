@@ -545,6 +545,7 @@ mod tests {
         assert!(filter.might_contain(&vec![4, 5, 6]));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_zstd_compression() {
         let broadcaster = VertexBroadcaster::new(10, Duration::from_secs(1));

@@ -107,6 +107,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_bls_sign_verify() -> Result<()> {
         let kp = BlsKeypair::generate();

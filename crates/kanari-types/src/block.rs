@@ -27,6 +27,13 @@ impl BlockHeader {
         merkle_root: Vec<u8>,
         tx_count: usize,
     ) -> Self {
+        // Avoid calling `SystemTime::now()` under Miri (isolation), which
+        // triggers unsupported-operation errors. Use a deterministic timestamp
+        // when running under Miri to keep tests reproducible.
+        #[cfg(miri)]
+        let timestamp: u64 = 0;
+
+        #[cfg(not(miri))]
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
