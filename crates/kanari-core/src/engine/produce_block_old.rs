@@ -51,7 +51,10 @@ pub(super) fn produce_block(engine: &super::BlockchainEngine) -> Result<BlockInf
 
                 let handle = std::thread::spawn(move || {
                     while let Ok((idx, tx, state_arc)) = job_rx.recv() {
-                        let mut guard = pool_entry.lock().unwrap();
+                        let mut guard = match pool_entry.lock() {
+                            Ok(g) => g,
+                            Err(poisoned) => poisoned.into_inner(), // Recover from poisoned mutex
+                        };
                         let res = BlockchainEngine::execute_transaction_with_runtime(
                             &tx, &mut guard, &state_arc,
                         );

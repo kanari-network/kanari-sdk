@@ -3,7 +3,7 @@ use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
 use serde::{Deserialize, Serialize};
 use smt::compute_merkle_root;
-use std::time::{SystemTime, UNIX_EPOCH};
+// use fully-qualified paths for time APIs to avoid unused-import warnings
 use tracing::error;
 
 use crate::{event::Event, transaction::SignedTransaction};
@@ -34,8 +34,8 @@ impl BlockHeader {
         let timestamp: u64 = 0;
 
         #[cfg(not(miri))]
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
 

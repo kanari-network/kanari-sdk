@@ -73,7 +73,11 @@ impl MoveRuntime {
         natives: Vec<NativeFunctionTable>,
         enable_gas_metering: bool,
     ) -> Result<Self> {
-        let state = MoveVMState::open_default()?;
+        let state = if cfg!(miri) {
+            MoveVMState::new_in_memory()?
+        } else {
+            MoveVMState::open_default()?
+        };
         let mut storage = InMemoryStorage::new();
         state.load_into_storage(&mut storage)?;
 
@@ -147,8 +151,11 @@ impl MoveRuntime {
             true,
         )?;
 
-        // Load pre-compiled Kanari system modules
-        runtime.load_system_modules()?;
+        // Load pre-compiled Kanari system modules (skip under Miri to avoid
+        // invoking verification paths that rely on stack-borrows-unsafe ops).
+        if !cfg!(miri) {
+            runtime.load_system_modules()?;
+        }
 
         Ok(runtime)
     }

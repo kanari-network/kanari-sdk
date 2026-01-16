@@ -146,10 +146,15 @@ type AccountProof = Option<(bool, Vec<u8>, Vec<Vec<u8>>)>;
 impl BlockchainEngine {
     pub fn new() -> Result<Self> {
         // Try to open a persistent store for state + blockchain. If unavailable,
-        // fall back to in-memory defaults.
-        let persistent_store = match PersistentStore::open_default() {
-            Ok(s) => Some(Arc::new(s)),
-            Err(_) => None,
+        // fall back to in-memory defaults. Under Miri, avoid opening disk-backed
+        // stores to prevent unsupported OS calls during isolation.
+        let persistent_store = if cfg!(miri) {
+            None
+        } else {
+            match PersistentStore::open_default() {
+                Ok(s) => Some(Arc::new(s)),
+                Err(_) => None,
+            }
         };
 
         let blockchain = if let Some(store) = &persistent_store {

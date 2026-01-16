@@ -82,8 +82,8 @@ argon2 = { version = "0.5.3", default-features = true }
 k256 = { version = "0.13.4", features = ["ecdsa", "std"] }
 p256 = { version = "0.13.2", features = ["ecdsa", "std"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
+curve25519-dalek = { version = "4", features = ["rand_core"] }
 secp256k1 = { version = "0.31.1", features = ["recovery"] }
-bls-signatures = "0.15.0"
 aes-gcm = "0.10.3"
 base64 = "0.22.1"
 zstd = "0.13.3"

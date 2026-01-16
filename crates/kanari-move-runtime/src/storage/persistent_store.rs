@@ -118,6 +118,17 @@ impl PersistentStore {
         })
     }
 
+    /// Open an in-memory-only store that performs no filesystem operations.
+    /// Useful for tests and Miri where disk APIs may be unavailable.
+    pub fn open_in_memory() -> Result<Self> {
+        Ok(PersistentStore {
+            db: None,
+            smt: None,
+            sender: None,
+            worker: None,
+        })
+    }
+
     /// Save a serializable value under `key`. By default this enqueues the
     /// write for asynchronous batched persistence to the SMT backend. If
     /// `KANARI_PERSIST_SYNC=1` is set, the write will be performed

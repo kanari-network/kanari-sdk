@@ -110,23 +110,35 @@ impl ByzantineDetector {
     pub fn check_double_voting(&mut self, vertex: &DagVertex) -> Result<()> {
         let key = (vertex.author.clone(), vertex.round);
 
-        let existing_vertices = self
-            .vertices_by_authority_round
-            .entry(key.clone())
-            .or_default();
+        // Check if vertex already exists from this author in this round
+        let should_report_fault = if let Some(existing) = self.vertices_by_authority_round.get(&key)
+        {
+            !existing.is_empty()
+        } else {
+            false
+        };
 
-        existing_vertices.push(vertex.id.clone());
+        if should_report_fault {
+            // Collect all vertex IDs for fault reporting (safe unwrap - we just checked existence)
+            if let Some(existing) = self.vertices_by_authority_round.get(&key) {
+                let mut all_vertices = existing.clone();
+                all_vertices.push(vertex.id.clone());
 
-        // Detect double voting: multiple vertices in same round
-        if existing_vertices.len() > 1 {
-            let fault = ByzantineFault::DoubleVoting {
-                authority: vertex.author.clone(),
-                round: vertex.round,
-                vertices: existing_vertices.clone(),
-            };
+                let fault = ByzantineFault::DoubleVoting {
+                    authority: vertex.author.clone(),
+                    round: vertex.round,
+                    vertices: all_vertices,
+                };
 
-            self.report_fault(fault)?;
+                self.report_fault(fault)?;
+            }
         }
+
+        // Add vertex to tracking
+        self.vertices_by_authority_round
+            .entry(key)
+            .or_default()
+            .push(vertex.id.clone());
 
         Ok(())
     }
@@ -162,10 +174,14 @@ impl ByzantineDetector {
 
     /// Report a Byzantine fault
     pub fn report_fault(&mut self, fault: ByzantineFault) -> Result<()> {
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let timestamp: u64 = if cfg!(miri) {
+            0
+        } else {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+        };
 
         let evidence = ByzantineEvidence {
             fault: fault.clone(),

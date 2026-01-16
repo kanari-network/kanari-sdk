@@ -18,24 +18,9 @@ pub struct MoveVMState {
 }
 
 impl MoveVMState {
-    /// Create an in-memory MoveVMState for testing (uses temp directory)
-    #[cfg(test)]
+    /// Create an in-memory MoveVMState for testing or Miri (no filesystem ops).
     pub fn new_in_memory() -> Result<Self> {
-        use std::time::{SystemTime, UNIX_EPOCH};
-
-        use anyhow::Context;
-
-        // Create unique temp directory for this test
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let temp_path = std::env::temp_dir().join(format!("kanari_test_{}", timestamp));
-
-        std::fs::create_dir_all(&temp_path)
-            .context("Failed to create temp MoveVMState directory")?;
-
-        let store = PersistentStore::open_with_path(Some(temp_path))?;
+        let store = PersistentStore::open_in_memory()?;
         Ok(MoveVMState {
             store: Arc::new(store),
         })

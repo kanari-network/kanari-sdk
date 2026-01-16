@@ -14,13 +14,21 @@
 //! - Efficient parallel execution (already supported in Kanari's produce_block.rs)
 
 use super::byzantine_detector::ByzantineDetector;
+use super::cache::DagCaches;
+use super::committee::{Committee, ValidatorInfo};
+use super::metrics::DagMetrics;
+use super::parallel_validator::{ParallelValidator, ParallelValidatorConfig};
+use super::persistent_store::PersistentDagStore;
+use super::pruning::{DagPruner, PruningConfig};
+use super::state_sync::StateSynchronizer;
+use super::vertex_broadcast::VertexBroadcaster;
 use super::vrf_leader::{VrfLeaderElection, VrfOutput};
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
 use kanari_types::transaction::SignedTransaction;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::time::{SystemTime, UNIX_EPOCH};
+// Use fully-qualified time APIs where needed to avoid unused-import warnings
 
 /// Unique identifier for a DAG vertex (block)
 pub type VertexId = Vec<u8>;
@@ -89,8 +97,12 @@ impl DagVertex {
         transactions: Vec<SignedTransaction>,
         state_root: Vec<u8>,
     ) -> Self {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
+        #[cfg(miri)]
+        let timestamp: u64 = 0;
+
+        #[cfg(not(miri))]
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
@@ -197,8 +209,12 @@ impl Checkpoint {
         state_root: Vec<u8>,
         prev_checkpoint_hash: Vec<u8>,
     ) -> Self {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
+        #[cfg(miri)]
+        let timestamp: u64 = 0;
+
+        #[cfg(not(miri))]
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
@@ -451,6 +467,11 @@ impl DagStore {
         self.vertices.get(id)
     }
 
+    /// Get vertex by ID (mutable)
+    pub fn get_vertex_mut(&mut self, id: &VertexId) -> Option<&mut DagVertex> {
+        self.vertices.get_mut(id)
+    }
+
     /// Get all vertices in a round
     pub fn get_vertices_in_round(&self, round: Round) -> Vec<&DagVertex> {
         self.vertices_by_round
@@ -468,8 +489,11 @@ impl DagStore {
     }
 
     /// Get latest checkpoint
-    pub fn latest_checkpoint(&self) -> &Checkpoint {
-        self.checkpoints.last().unwrap()
+    pub fn latest_checkpoint(&self) -> Checkpoint {
+        self.checkpoints
+            .last()
+            .cloned()
+            .unwrap_or_else(Checkpoint::genesis)
     }
 
     /// Get checkpoint by sequence number
@@ -556,6 +580,30 @@ pub struct DagConsensus {
     /// Byzantine fault detector
     byzantine_detector: ByzantineDetector,
 
+    /// Caching layer for performance optimization
+    caches: DagCaches,
+
+    /// Committee management for dynamic validator sets
+    committee: Committee,
+
+    /// Metrics collection for monitoring
+    metrics: DagMetrics,
+
+    /// State synchronization for new nodes
+    state_sync: StateSynchronizer,
+
+    /// Vertex broadcasting with compression
+    broadcaster: VertexBroadcaster,
+
+    /// Persistent storage backend for DAG vertices
+    persistent_store: Option<PersistentDagStore>,
+
+    /// DAG pruning to manage storage growth
+    pruner: DagPruner,
+
+    /// Parallel vertex validator for high throughput
+    parallel_validator: ParallelValidator,
+
     /// Fallback: Simple round-robin leader schedule
     /// Used when VRF is not available
     leader_schedule: HashMap<Round, AuthorityId>,
@@ -568,11 +616,14 @@ impl DagConsensus {
         // Initialize VRF-based leader election
         let mut vrf_election = VrfLeaderElection::new();
 
-        // Register all authorities with random secrets (for demo)
-        // In production, use proper key management
+        // Register all authorities with deterministic VRF keys (for demo)
+        // In production, use proper key management (HSM, encrypted storage)
         for (i, auth) in authorities.iter().enumerate() {
-            let secret = format!("secret_{}", i).into_bytes();
-            vrf_election.register_authority(auth.clone(), secret);
+            // Create deterministic secret key from index
+            let mut secret = [0u8; 32];
+            secret[0] = i as u8;
+            secret[1] = (i >> 8) as u8;
+            vrf_election.register_authority_bytes(auth.clone(), &secret);
         }
 
         // Fallback: Create simple round-robin leader schedule
@@ -601,11 +652,65 @@ impl DagConsensus {
             byzantine_detector.init_authority(authority.clone());
         }
 
+        // Initialize caches for performance
+        let caches = DagCaches::new();
+
+        // Initialize committee with all authorities
+        let validator_infos: Vec<ValidatorInfo> = authorities
+            .iter()
+            .enumerate()
+            .map(|(i, auth)| ValidatorInfo {
+                authority_id: auth.clone(),
+                stake: 100, // Equal stake for demo
+                public_key: vec![i as u8; 32],
+                network_address: format!("validator-{}", i),
+                active: true,
+            })
+            .collect();
+        let committee = Committee::new(0, validator_infos);
+
+        // Initialize metrics
+        let metrics = DagMetrics::new();
+
+        // Initialize state synchronizer
+        let state_sync = StateSynchronizer::new();
+
+        // Initialize broadcaster with reasonable defaults
+        let broadcaster = VertexBroadcaster::new(
+            1000,                                  // max_batch_size
+            std::time::Duration::from_millis(100), // max_batch_delay
+        );
+
+        // Initialize persistent store (optional - for production deployment)
+        // In memory-only mode for testing, set to None
+        let persistent_store = None;
+
+        // Initialize pruner with conservative defaults
+        let pruner = DagPruner::new(PruningConfig::default())
+            .expect("Failed to create pruner with default config");
+
+        // Initialize parallel validator with reasonable thread count
+        let parallel_validator = ParallelValidator::new(ParallelValidatorConfig {
+            num_workers: num_cpus::get().min(8),
+            max_batch_size: 1000,
+            parallel_sig_verify: true,
+            queue_capacity: 10000,
+        })
+        .expect("Failed to create parallel validator");
+
         Self {
             store,
             authority_id,
             vrf_election,
             byzantine_detector,
+            caches,
+            committee,
+            metrics,
+            state_sync,
+            broadcaster,
+            persistent_store,
+            pruner,
+            parallel_validator,
             leader_schedule,
         }
     }
@@ -641,13 +746,60 @@ impl DagConsensus {
 
     /// Add vertex to the DAG
     pub fn add_vertex(&mut self, vertex: DagVertex) -> Result<()> {
-        // Check for Byzantine faults before adding
+        let vertex_id = vertex.id.clone();
+        let author = vertex.author.clone();
+
+        // 1. Verify author is in current committee
+        if !self.committee.contains(&author) {
+            anyhow::bail!("Vertex author '{}' is not in current committee", author);
+        }
+
+        // 1.5. Parallel validation check (structure, parents, etc.)
+        let validation_results = self
+            .parallel_validator
+            .validate_batch(vec![vertex.clone()])?;
+
+        if let Some(result) = validation_results.first() {
+            if !result.is_valid {
+                anyhow::bail!(
+                    "Vertex validation failed: {}",
+                    result.error.as_deref().unwrap_or("unknown error")
+                );
+            }
+        }
+
+        // 2. Check for Byzantine faults before adding
         let total_authorities = self.store.num_authorities();
         self.byzantine_detector.check_double_voting(&vertex)?;
         self.byzantine_detector
             .check_vertex_validity(&vertex, total_authorities)?;
 
-        self.store.add_vertex(vertex)
+        // 3. Add to store
+        self.store.add_vertex(vertex.clone())?;
+
+        // 4. Cache vertex for faster lookups
+        self.caches.vertices.put(vertex_id.clone(), vertex.clone());
+
+        // 5. Add to broadcaster pending queue for propagation
+        let is_priority = self.vrf_election.is_leader(vertex.round, &author);
+        self.broadcaster.add_vertex(vertex.clone(), is_priority);
+
+        // 6. Update state synchronizer with new vertex
+        self.state_sync.add_vertex(vertex.clone());
+
+        // 7. Check if pruning should run
+        let current_round = self.store.current_round();
+        if self.pruner.should_prune(current_round) {
+            // Prune in background if persistent store exists
+            if let Some(persistent) = &self.persistent_store {
+                let latest_checkpoint = self.store.latest_checkpoint();
+                let _ =
+                    self.pruner
+                        .prune(persistent, current_round, Some(latest_checkpoint.sequence));
+            }
+        }
+
+        Ok(())
     }
 
     /// Try to commit vertices to a checkpoint
@@ -705,15 +857,33 @@ impl DagConsensus {
                 }
 
                 // Create checkpoint
+                let latest = self.store.latest_checkpoint();
                 let checkpoint = Checkpoint::new(
-                    self.store.latest_checkpoint().sequence + 1,
-                    vertices_to_commit,
+                    latest.sequence + 1,
+                    vertices_to_commit.clone(),
                     all_transactions,
                     leader_vertex.metadata.state_root.clone(),
-                    self.store.latest_checkpoint().hash(),
+                    latest.hash(),
                 );
 
+                // Add checkpoint to store
                 self.store.add_checkpoint(checkpoint.clone())?;
+
+                // Persist checkpoint to disk if persistent store exists
+                if let Some(persistent) = &self.persistent_store {
+                    let _ = persistent.put_checkpoint(&checkpoint);
+
+                    // Persist committed vertices
+                    for vertex_id in &vertices_to_commit {
+                        if let Some(vertex) = self.store.get_vertex(vertex_id) {
+                            let _ = persistent.put_vertex(vertex);
+                        }
+                    }
+                }
+
+                // Update state synchronizer with new checkpoint
+                self.state_sync.add_checkpoint(checkpoint.clone());
+
                 return Ok(Some(checkpoint));
             }
         }
@@ -770,9 +940,13 @@ impl DagConsensus {
 
     /// Submit VRF output from another authority
     pub fn submit_vrf(&mut self, vrf: VrfOutput) -> Result<()> {
-        // Verify VRF (in production, verify with public key)
-        if !vrf.verify(&[]) {
-            anyhow::bail!("Invalid VRF proof");
+        // Get public key for verification (in production, verify properly)
+        if let Some(pk) = self.vrf_election.get_public_key(&vrf.authority) {
+            if !vrf.verify(pk) {
+                anyhow::bail!("Invalid VRF proof");
+            }
+        } else {
+            anyhow::bail!("Unknown authority: {}", vrf.authority);
         }
 
         self.vrf_election.add_vrf(vrf);
@@ -797,6 +971,71 @@ impl DagConsensus {
     /// Get mutable Byzantine detector
     pub fn byzantine_detector_mut(&mut self) -> &mut ByzantineDetector {
         &mut self.byzantine_detector
+    }
+
+    /// Get caches (read-only)
+    pub fn caches(&self) -> &DagCaches {
+        &self.caches
+    }
+
+    /// Get metrics (read-only)
+    pub fn metrics(&self) -> &DagMetrics {
+        &self.metrics
+    }
+
+    /// Get committee (read-only)
+    pub fn committee(&self) -> &Committee {
+        &self.committee
+    }
+
+    /// Get state synchronizer
+    pub fn state_sync(&self) -> &StateSynchronizer {
+        &self.state_sync
+    }
+
+    /// Get mutable state synchronizer
+    pub fn state_sync_mut(&mut self) -> &mut StateSynchronizer {
+        &mut self.state_sync
+    }
+
+    /// Get broadcaster
+    pub fn broadcaster(&self) -> &VertexBroadcaster {
+        &self.broadcaster
+    }
+
+    /// Get mutable broadcaster
+    pub fn broadcaster_mut(&mut self) -> &mut VertexBroadcaster {
+        &mut self.broadcaster
+    }
+
+    /// Get persistent store (optional)
+    pub fn persistent_store(&self) -> Option<&PersistentDagStore> {
+        self.persistent_store.as_ref()
+    }
+
+    /// Get mutable persistent store
+    pub fn persistent_store_mut(&mut self) -> Option<&mut PersistentDagStore> {
+        self.persistent_store.as_mut()
+    }
+
+    /// Get pruner
+    pub fn pruner(&self) -> &DagPruner {
+        &self.pruner
+    }
+
+    /// Get mutable pruner
+    pub fn pruner_mut(&mut self) -> &mut DagPruner {
+        &mut self.pruner
+    }
+
+    /// Get parallel validator
+    pub fn parallel_validator(&self) -> &ParallelValidator {
+        &self.parallel_validator
+    }
+
+    /// Get mutable parallel validator
+    pub fn parallel_validator_mut(&mut self) -> &mut ParallelValidator {
+        &mut self.parallel_validator
     }
 }
 

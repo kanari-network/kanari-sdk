@@ -92,7 +92,8 @@ impl Histogram {
         }
 
         let mut sorted = self.values.clone();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        // Handle NaN values safely
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let index = ((p / 100.0) * sorted.len() as f64) as usize;
         sorted[index.min(sorted.len() - 1)]
@@ -518,7 +519,10 @@ mod tests {
         metrics.observe_vertex_latency(Duration::from_millis(20));
         metrics.observe_vertex_latency(Duration::from_millis(30));
 
-        let hist = metrics.inner.vertex_latency.read().unwrap();
+        let hist = match metrics.inner.vertex_latency.read() {
+            Ok(h) => h,
+            Err(poisoned) => poisoned.into_inner(),
+        };
         assert_eq!(hist.count, 3);
         assert_eq!(hist.mean(), 0.020); // 20ms average
         assert_eq!(hist.min, 0.010);
@@ -533,7 +537,10 @@ mod tests {
         metrics.observe_compression_ratio(0.3); // 70% compression
         metrics.observe_compression_ratio(0.4); // 60% compression
 
-        let hist = metrics.inner.compression_ratio.read().unwrap();
+        let hist = match metrics.inner.compression_ratio.read() {
+            Ok(h) => h,
+            Err(poisoned) => poisoned.into_inner(),
+        };
         assert_eq!(hist.count, 3);
         assert!((hist.mean() - 0.4).abs() < 1e-10); // Floating point comparison with tolerance
     }

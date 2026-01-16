@@ -152,6 +152,11 @@ impl ObjectStorage {
 
     /// Return a boxed persistent `ObjectStore` trait object.
     pub fn boxed_with_persistence() -> Result<Box<dyn ObjectStore>> {
+        // Under Miri we avoid filesystem/FFI calls; return in-memory store.
+        if cfg!(miri) {
+            return Ok(Self::boxed_inmemory());
+        }
+
         Ok(Box::new(Self::new_with_persistence()?))
     }
 
