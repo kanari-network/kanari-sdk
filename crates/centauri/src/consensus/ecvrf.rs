@@ -28,10 +28,10 @@ fn vrf_hash_to_curve(alpha: &[u8]) -> RistrettoPoint {
         attempt.extend_from_slice(&i.to_le_bytes());
         let hash = hash_data_blake3(&attempt);
 
-        if let Ok(compressed) = CompressedRistretto::from_slice(&hash[..32]) {
-            if let Some(point) = compressed.decompress() {
-                return point;
-            }
+        if let Ok(compressed) = CompressedRistretto::from_slice(&hash[..32])
+            && let Some(point) = compressed.decompress()
+        {
+            return point;
         }
     }
 

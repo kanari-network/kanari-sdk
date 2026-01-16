@@ -183,17 +183,17 @@ impl ParallelValidator {
             }
 
             // Check persistent store if available
-            if let Some(store) = &self.persistent_store {
-                if let Ok(Some(_)) = store.get_vertex(&vertex_id) {
-                    // Vertex exists in persistent store, assume it's validated
-                    self.validated_cache.put(vertex_id.clone(), true); // Warm up cache
-                    cached_results.push(ValidationResult {
-                        vertex_id,
-                        is_valid: true,
-                        error: None,
-                    });
-                    continue;
-                }
+            if let Some(store) = &self.persistent_store
+                && let Ok(Some(_)) = store.get_vertex(&vertex_id)
+            {
+                // Vertex exists in persistent store, assume it's validated
+                self.validated_cache.put(vertex_id.clone(), true); // Warm up cache
+                cached_results.push(ValidationResult {
+                    vertex_id,
+                    is_valid: true,
+                    error: None,
+                });
+                continue;
             }
 
             // Not found in cache or store, needs validation

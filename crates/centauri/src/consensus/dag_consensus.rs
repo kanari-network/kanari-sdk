@@ -759,13 +759,13 @@ impl DagConsensus {
             .parallel_validator
             .validate_batch(vec![vertex.clone()])?;
 
-        if let Some(result) = validation_results.first() {
-            if !result.is_valid {
-                anyhow::bail!(
-                    "Vertex validation failed: {}",
-                    result.error.as_deref().unwrap_or("unknown error")
-                );
-            }
+        if let Some(result) = validation_results.first()
+            && !result.is_valid
+        {
+            anyhow::bail!(
+                "Vertex validation failed: {}",
+                result.error.as_deref().unwrap_or("unknown error")
+            );
         }
 
         // 2. Check for Byzantine faults before adding
