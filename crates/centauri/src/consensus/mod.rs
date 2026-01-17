@@ -35,7 +35,8 @@ pub use byzantine_detector::{
 // Vertex broadcast protocol
 mod vertex_broadcast;
 pub use vertex_broadcast::{
-    CompressedBatch, DeltaSync, VertexBatch, VertexBloomFilter, VertexBroadcaster,
+    AdaptiveBatchConfig, CompressedBatch, DeltaSync, VertexBatch, VertexBloomFilter,
+    VertexBroadcaster,
 };
 
 // State synchronization

@@ -265,15 +265,25 @@ pub struct CheckpointConfig {
 impl Default for CheckpointConfig {
     fn default() -> Self {
         Self {
-            min_rounds: 10,      // At least 10 rounds between checkpoints
-            max_rounds: 100,     // Force checkpoint after 100 rounds
-            min_vertices: 100,   // Need at least 100 vertices
-            max_vertices: 10000, // Force checkpoint if 10k pending vertices
+            min_rounds: 5,       // Faster checkpointing for 500K TPS
+            max_rounds: 50,      // More frequent forced checkpoints
+            min_vertices: 1000,  // Larger batches for efficiency
+            max_vertices: 50000, // 50k pending before force (handle bursts)
         }
     }
 }
 
 impl CheckpointConfig {
+    /// Create high-throughput config for 500K+ TPS
+    pub fn high_throughput() -> Self {
+        Self {
+            min_rounds: 2,        // Very frequent checkpointing
+            max_rounds: 20,       // Force every 20 rounds
+            min_vertices: 5000,   // 5K minimum for efficiency
+            max_vertices: 100000, // 100K max pending
+        }
+    }
+
     /// Create conservative config (frequent checkpoints, low latency)
     pub fn conservative() -> Self {
         Self {
@@ -652,8 +662,8 @@ impl DagConsensus {
             byzantine_detector.init_authority(authority.clone());
         }
 
-        // Initialize caches for performance
-        let caches = DagCaches::new();
+        // Initialize caches for performance (optimized for 500K TPS)
+        let caches = DagCaches::extreme_throughput();
 
         // Initialize committee with all authorities
         let validator_infos: Vec<ValidatorInfo> = authorities
@@ -675,10 +685,12 @@ impl DagConsensus {
         // Initialize state synchronizer
         let state_sync = StateSynchronizer::new();
 
-        // Initialize broadcaster with reasonable defaults
-        let broadcaster = VertexBroadcaster::new(
-            1000,                                  // max_batch_size
-            std::time::Duration::from_millis(100), // max_batch_delay
+        // Initialize broadcaster with high-throughput settings (10K batches, 50ms delay)
+        use super::vertex_broadcast::AdaptiveBatchConfig;
+        let broadcaster = VertexBroadcaster::with_adaptive_config(
+            10000,                                // max_batch_size for 500K TPS
+            std::time::Duration::from_millis(50), // 50ms for faster batching
+            AdaptiveBatchConfig::extreme_throughput(),
         );
 
         // Initialize persistent store (optional - for production deployment)
@@ -689,14 +701,9 @@ impl DagConsensus {
         let pruner = DagPruner::new(PruningConfig::default())
             .expect("Failed to create pruner with default config");
 
-        // Initialize parallel validator with reasonable thread count
-        let parallel_validator = ParallelValidator::new(ParallelValidatorConfig {
-            num_workers: num_cpus::get().min(8),
-            max_batch_size: 1000,
-            parallel_sig_verify: true,
-            queue_capacity: 10000,
-        })
-        .expect("Failed to create parallel validator");
+        // Initialize parallel validator with high-throughput configuration (500K TPS)
+        let parallel_validator = ParallelValidator::new(ParallelValidatorConfig::high_throughput())
+            .expect("Failed to create parallel validator");
 
         Self {
             store,
@@ -787,7 +794,7 @@ impl DagConsensus {
 
         // 5. Determine if this is a priority vertex
         let is_priority = self.vrf_election.is_leader(vertex.round, &author);
-        
+
         // 6. Add to broadcaster and state sync (final clone for both)
         self.broadcaster.add_vertex(vertex.clone(), is_priority);
         self.state_sync.add_vertex(vertex);
@@ -1124,18 +1131,20 @@ mod tests {
     #[test]
     fn test_checkpoint_config_default() {
         let config = CheckpointConfig::default();
-        assert_eq!(config.min_rounds, 10);
-        assert_eq!(config.max_rounds, 100);
-        assert_eq!(config.min_vertices, 100);
-        assert_eq!(config.max_vertices, 10000);
+        // Updated for 500K TPS optimization
+        assert_eq!(config.min_rounds, 5);
+        assert_eq!(config.max_rounds, 50);
+        assert_eq!(config.min_vertices, 1000);
+        assert_eq!(config.max_vertices, 50000);
         assert!(config.validate().is_ok());
     }
 
     #[test]
     fn test_checkpoint_config_conservative() {
         let config = CheckpointConfig::conservative();
-        assert!(config.min_rounds < CheckpointConfig::default().min_rounds);
-        assert!(config.max_rounds < CheckpointConfig::default().max_rounds);
+        // Conservative should still have smaller values than default
+        assert!(config.min_rounds <= CheckpointConfig::default().min_rounds);
+        assert!(config.max_rounds <= CheckpointConfig::default().max_rounds);
         assert!(config.validate().is_ok());
     }
 

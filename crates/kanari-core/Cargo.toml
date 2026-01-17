@@ -23,7 +23,7 @@ bcs = { workspace = true }
 crossbeam-channel = { workspace = true }
 num_cpus = { workspace = true }
 smt = { workspace = true }
-
+log = { workspace = true }
 lru = { workspace = true }
 
 centauri = { workspace = true }

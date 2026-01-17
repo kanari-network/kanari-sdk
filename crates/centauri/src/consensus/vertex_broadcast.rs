@@ -144,13 +144,35 @@ pub struct AdaptiveBatchConfig {
     pub adjustment_factor: f64, // How aggressively to adjust (0.1 = 10% per adjustment)
 }
 
+impl AdaptiveBatchConfig {
+    /// Moderate config for 8-16 core machines (10K-30K TPS)
+    pub fn moderate() -> Self {
+        Self {
+            min_batch_size: 10,     // Small minimum for low-end
+            max_batch_size: 1000,   // 1K max batch
+            target_latency_ms: 100, // 100ms moderate latency
+            adjustment_factor: 0.1, // Conservative tuning
+        }
+    }
+
+    /// Extreme high-throughput config for 500K+ TPS
+    pub fn extreme_throughput() -> Self {
+        Self {
+            min_batch_size: 1000,   // Start with 1K minimum
+            max_batch_size: 50000,  // 50K max batch
+            target_latency_ms: 20,  // 20ms ultra-low latency
+            adjustment_factor: 0.2, // Very aggressive tuning
+        }
+    }
+}
+
 impl Default for AdaptiveBatchConfig {
     fn default() -> Self {
         Self {
-            min_batch_size: 10,
-            max_batch_size: 1000,
-            target_latency_ms: 100, // 100ms target
-            adjustment_factor: 0.1,
+            min_batch_size: 100,     // Higher minimum for efficiency
+            max_batch_size: 10000,   // 10K max for 500K TPS
+            target_latency_ms: 50,   // 50ms target for faster batching
+            adjustment_factor: 0.15, // More aggressive adjustment
         }
     }
 }

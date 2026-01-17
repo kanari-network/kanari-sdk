@@ -239,14 +239,36 @@ pub struct DagCaches {
 }
 
 impl DagCaches {
-    /// Create new DAG caches with default sizes
-    pub fn new() -> Self {
+    /// Create moderate caches for 8-16 core machines (10K-30K TPS)
+    pub fn moderate() -> Self {
         Self {
             vertices: LruCache::new(10000),        // 10k vertices
             state_roots: LruCache::new(5000),      // 5k state roots
             merkle_proofs: LruCache::new(1000),    // 1k proofs
             parent_vertices: LruCache::new(10000), // 10k parent sets
             round_vertices: LruCache::new(1000),   // 1k rounds
+        }
+    }
+
+    /// Create new DAG caches with default sizes optimized for high throughput
+    pub fn new() -> Self {
+        Self {
+            vertices: LruCache::new(100000),        // 100k vertices for 100K TPS
+            state_roots: LruCache::new(50000),      // 50k state roots
+            merkle_proofs: LruCache::new(10000),    // 10k proofs
+            parent_vertices: LruCache::new(100000), // 100k parent sets
+            round_vertices: LruCache::new(10000),   // 10k rounds
+        }
+    }
+
+    /// Create extreme high-throughput caches for 500K+ TPS
+    pub fn extreme_throughput() -> Self {
+        Self {
+            vertices: LruCache::new(500000),        // 500k vertices
+            state_roots: LruCache::new(250000),     // 250k state roots
+            merkle_proofs: LruCache::new(50000),    // 50k proofs
+            parent_vertices: LruCache::new(500000), // 500k parent sets
+            round_vertices: LruCache::new(50000),   // 50k rounds
         }
     }
 

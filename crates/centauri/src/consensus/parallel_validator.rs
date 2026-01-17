@@ -30,21 +30,43 @@ impl Default for ParallelValidatorConfig {
         let num_cpus = rayon::current_num_threads();
 
         Self {
-            num_workers: num_cpus.min(16), // Cap at 16 threads
-            max_batch_size: 100,
+            num_workers: num_cpus.min(64), // Utilize more cores for 500K TPS
+            max_batch_size: 5000,          // Much larger batches for high throughput
             parallel_sig_verify: true,
-            queue_capacity: 1000,
+            queue_capacity: 100000, // Large queue to handle bursts
         }
     }
 }
 
 impl ParallelValidatorConfig {
+    /// Create moderate config for 8-16 core machines (10K-30K TPS)
+    pub fn moderate() -> Self {
+        let num_cpus = rayon::current_num_threads();
+        Self {
+            num_workers: num_cpus.min(16),  // Use up to 16 cores
+            max_batch_size: 500,            // 500 batch for moderate throughput
+            parallel_sig_verify: true,
+            queue_capacity: 10000,          // 10K queue depth
+        }
+    }
+
+    /// Create high-performance config optimized for 500K+ TPS
+    pub fn high_throughput() -> Self {
+        let num_cpus = rayon::current_num_threads();
+        Self {
+            num_workers: num_cpus.min(128), // Use up to 128 cores
+            max_batch_size: 10000,          // 10K batch for maximum throughput
+            parallel_sig_verify: true,
+            queue_capacity: 500000, // 500K queue depth
+        }
+    }
+
     pub fn validate(&self) -> Result<()> {
         if self.num_workers == 0 {
             return Err(anyhow::anyhow!("num_workers must be > 0"));
         }
-        if self.num_workers > 64 {
-            return Err(anyhow::anyhow!("num_workers must be <= 64"));
+        if self.num_workers > 256 {
+            return Err(anyhow::anyhow!("num_workers must be <= 256"));
         }
         if self.max_batch_size == 0 {
             return Err(anyhow::anyhow!("max_batch_size must be > 0"));
@@ -496,8 +518,9 @@ mod tests {
         };
         assert!(invalid_config.validate().is_err());
 
+        // Test exceeds new 256 limit for high-throughput
         let invalid_config = ParallelValidatorConfig {
-            num_workers: 100,
+            num_workers: 300,
             ..Default::default()
         };
         assert!(invalid_config.validate().is_err());

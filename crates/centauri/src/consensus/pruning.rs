@@ -30,17 +30,41 @@ pub struct PruningConfig {
 impl Default for PruningConfig {
     fn default() -> Self {
         Self {
-            retention_rounds: 1000,
-            retention_checkpoints: 100,
-            retention_time_secs: Some(86400 * 7), // 7 days
-            min_rounds_before_pruning: 100,
+            retention_rounds: 500,                // Less retention for 500K TPS
+            retention_checkpoints: 200,           // Keep more checkpoints
+            retention_time_secs: Some(86400 * 3), // 3 days (less storage)
+            min_rounds_before_pruning: 50,        // Prune sooner
             auto_prune: true,
-            prune_interval_rounds: 100,
+            prune_interval_rounds: 50, // More frequent pruning
         }
     }
 }
 
 impl PruningConfig {
+    /// Moderate config for 8-16 core machines (10K-30K TPS)
+    pub fn moderate() -> Self {
+        Self {
+            retention_rounds: 1000,             // Keep more data
+            retention_checkpoints: 100,         // Fewer checkpoints
+            retention_time_secs: Some(604800),  // 7 days
+            min_rounds_before_pruning: 100,     // Conservative pruning
+            auto_prune: true,
+            prune_interval_rounds: 100,         // Prune every 100 rounds
+        }
+    }
+
+    /// High-throughput config for 500K+ TPS - aggressive pruning
+    pub fn high_throughput() -> Self {
+        Self {
+            retention_rounds: 200,            // Minimal retention
+            retention_checkpoints: 500,       // Keep many checkpoints
+            retention_time_secs: Some(86400), // 1 day only
+            min_rounds_before_pruning: 20,    // Very early pruning
+            auto_prune: true,
+            prune_interval_rounds: 20, // Prune every 20 rounds
+        }
+    }
+
     pub fn validate(&self) -> Result<()> {
         if self.retention_rounds == 0 {
             return Err(anyhow::anyhow!("retention_rounds must be > 0"));
