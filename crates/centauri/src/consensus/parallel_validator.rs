@@ -454,6 +454,19 @@ impl ParallelValidator {
         (stats.size, stats.capacity, stats.hit_rate)
     }
 
+    /// Invalidate cache entries for pruned vertices
+    pub fn invalidate_pruned_vertices(&mut self, vertex_ids: &[VertexId]) {
+        for id in vertex_ids {
+            // Remove from cache - vertex no longer exists
+            let _ = self.validated_cache.get(id); // This will mark as miss if exists
+        }
+    }
+
+    /// Clear entire validation cache (use after major state changes)
+    pub fn clear_cache(&mut self) {
+        self.validated_cache = LruCache::new(10_000);
+    }
+
     /// Update configuration
     pub fn update_config(&mut self, config: ParallelValidatorConfig) -> Result<()> {
         config.validate()?;

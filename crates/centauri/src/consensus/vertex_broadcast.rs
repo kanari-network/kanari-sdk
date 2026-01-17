@@ -239,9 +239,6 @@ pub struct VertexBroadcaster {
     /// Bloom filter of broadcasted vertices
     broadcasted_filter: VertexBloomFilter,
 
-    /// Vertices we've seen (to avoid rebroadcasting)
-    seen_vertices: HashSet<VertexId>,
-
     /// Batch configuration
     max_batch_size: usize,
     max_batch_delay: Duration,
@@ -262,7 +259,6 @@ impl VertexBroadcaster {
         Self {
             pending: VecDeque::new(),
             broadcasted_filter: VertexBloomFilter::new(10000, 0.01),
-            seen_vertices: HashSet::new(),
             max_batch_size,
             max_batch_delay,
             compression_enabled: true,
@@ -280,7 +276,6 @@ impl VertexBroadcaster {
         Self {
             pending: VecDeque::new(),
             broadcasted_filter: VertexBloomFilter::new(10000, 0.01),
-            seen_vertices: HashSet::new(),
             max_batch_size,
             max_batch_delay,
             compression_enabled: true,
@@ -306,12 +301,11 @@ impl VertexBroadcaster {
 
     /// Add vertex to broadcast queue
     pub fn add_vertex(&mut self, vertex: DagVertex, is_priority: bool) {
-        // Check if already seen
-        if self.seen_vertices.contains(&vertex.id) {
-            return;
+        // Use Bloom filter only - avoid duplicate HashSet
+        if self.broadcasted_filter.might_contain(&vertex.id) {
+            return; // Likely already broadcasted
         }
 
-        self.seen_vertices.insert(vertex.id.clone());
         self.broadcasted_filter.add(&vertex.id);
 
         if is_priority {
@@ -457,6 +451,23 @@ impl DeltaSync {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// Prune old round data to prevent memory leak
+    pub fn prune_old_rounds(&mut self, before_round: Round) {
+        self.local_vertices
+            .retain(|round, _| *round >= before_round);
+
+        tracing::debug!(
+            "Pruned DeltaSync before round {}, remaining: {} rounds",
+            before_round,
+            self.local_vertices.len()
+        );
+    }
+
+    /// Get number of tracked rounds
+    pub fn tracked_rounds(&self) -> usize {
+        self.local_vertices.len()
     }
 
     /// Create bloom filter for a round

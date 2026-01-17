@@ -177,6 +177,23 @@ impl VrfLeaderElection {
     pub fn get_vrfs(&self, round: Round) -> Vec<VrfOutput> {
         self.vrf_cache.get(&round).cloned().unwrap_or_default()
     }
+
+    /// Prune old VRF cache entries to prevent memory leak
+    /// Should be called after checkpointing old rounds
+    pub fn prune_old_rounds(&mut self, before_round: Round) {
+        self.vrf_cache.retain(|round, _| *round >= before_round);
+
+        tracing::debug!(
+            "Pruned VRF cache data before round {}, remaining entries: {}",
+            before_round,
+            self.vrf_cache.len()
+        );
+    }
+
+    /// Get cache size (number of rounds with VRF data)
+    pub fn cache_size(&self) -> usize {
+        self.vrf_cache.len()
+    }
 }
 
 impl Default for VrfLeaderElection {

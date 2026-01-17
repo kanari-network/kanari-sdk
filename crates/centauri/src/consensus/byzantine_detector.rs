@@ -299,6 +299,53 @@ impl ByzantineDetector {
         self.reputation.insert(authority.to_string(), 0);
         tracing::warn!("Authority {} has been banned (reputation = 0)", authority);
     }
+
+    /// Prune old round data to prevent memory leak
+    /// Should be called after checkpointing old rounds
+    pub fn prune_old_rounds(&mut self, before_round: Round) {
+        self.vertices_by_authority_round
+            .retain(|(_, round), _| *round >= before_round);
+
+        // Also prune old faults and penalties (keep last 10000 for auditing)
+        const MAX_FAULTS: usize = 10000;
+        const MAX_PENALTIES: usize = 10000;
+
+        if self.faults.len() > MAX_FAULTS {
+            let remove_count = self.faults.len() - MAX_FAULTS;
+            self.faults.drain(0..remove_count);
+        }
+
+        if self.penalties.len() > MAX_PENALTIES {
+            let remove_count = self.penalties.len() - MAX_PENALTIES;
+            self.penalties.drain(0..remove_count);
+        }
+
+        tracing::debug!(
+            "Pruned Byzantine detector data before round {} ({} faults, {} penalties remaining)",
+            before_round,
+            self.faults.len(),
+            self.penalties.len()
+        );
+    }
+
+    /// Get memory usage statistics
+    pub fn get_memory_stats(&self) -> ByzantineMemoryStats {
+        ByzantineMemoryStats {
+            tracked_rounds: self.vertices_by_authority_round.len(),
+            total_faults: self.faults.len(),
+            total_penalties: self.penalties.len(),
+            tracked_authorities: self.reputation.len(),
+        }
+    }
+}
+
+/// Memory statistics for Byzantine detector
+#[derive(Debug, Clone)]
+pub struct ByzantineMemoryStats {
+    pub tracked_rounds: usize,
+    pub total_faults: usize,
+    pub total_penalties: usize,
+    pub tracked_authorities: usize,
 }
 
 impl Default for ByzantineDetector {

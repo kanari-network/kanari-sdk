@@ -40,10 +40,10 @@ struct DagMetricsInner {
     custom_metrics: RwLock<HashMap<String, f64>>,
 }
 
-/// Histogram for tracking value distributions
+/// Histogram for tracking value distributions (Prometheus-style)
+/// Uses buckets for efficient percentile approximation without storing individual values
 #[derive(Debug, Clone)]
 pub struct Histogram {
-    values: Vec<f64>,
     sum: f64,
     count: u64,
     min: f64,
@@ -54,7 +54,6 @@ pub struct Histogram {
 impl Histogram {
     fn new(buckets: Vec<f64>) -> Self {
         Self {
-            values: Vec::new(),
             sum: 0.0,
             count: 0,
             min: f64::MAX,
@@ -64,13 +63,12 @@ impl Histogram {
     }
 
     fn observe(&mut self, value: f64) {
-        self.values.push(value);
         self.sum += value;
         self.count += 1;
         self.min = self.min.min(value);
         self.max = self.max.max(value);
 
-        // Update buckets
+        // Update buckets - increment all buckets >= value
         for (upper_bound, count) in &mut self.buckets {
             if value <= *upper_bound {
                 *count += 1;
@@ -86,22 +84,38 @@ impl Histogram {
         }
     }
 
+    /// Estimate percentile from buckets (linear interpolation)
+    /// Production-grade approach used by Prometheus
     fn percentile(&self, p: f64) -> f64 {
-        if self.values.is_empty() {
+        if self.count == 0 {
             return 0.0;
         }
 
-        let mut sorted = self.values.clone();
-        // Handle NaN values safely
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let target_count = (p / 100.0 * self.count as f64).ceil() as u64;
 
-        let index = ((p / 100.0) * sorted.len() as f64) as usize;
-        sorted[index.min(sorted.len() - 1)]
+        // Find the bucket containing the percentile
+        let mut prev_count = 0u64;
+        let mut prev_bound = 0.0;
+
+        for (upper_bound, count) in &self.buckets {
+            if *count >= target_count {
+                // Linear interpolation within bucket
+                if *count == prev_count {
+                    return *upper_bound;
+                }
+                let fraction = (target_count - prev_count) as f64 / (*count - prev_count) as f64;
+                return prev_bound + fraction * (*upper_bound - prev_bound);
+            }
+            prev_count = *count;
+            prev_bound = *upper_bound;
+        }
+
+        // If not found in any bucket, return max
+        self.max
     }
 
     #[allow(dead_code)]
     fn reset(&mut self) {
-        self.values.clear();
         self.sum = 0.0;
         self.count = 0;
         self.min = f64::MAX;

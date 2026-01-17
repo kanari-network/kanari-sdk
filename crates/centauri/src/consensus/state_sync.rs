@@ -274,6 +274,27 @@ impl StateSynchronizer {
     pub fn get_latest_round(&self) -> Round {
         self.latest_round
     }
+
+    /// Prune old checkpoints and vertices to prevent memory leak
+    pub fn prune_old_data(&mut self, before_checkpoint: u64, before_round: Round) {
+        // Keep only recent checkpoints
+        self.checkpoints.retain(|seq, _| *seq >= before_checkpoint);
+
+        // Keep only recent rounds
+        self.vertices_by_round
+            .retain(|round, _| *round >= before_round);
+
+        tracing::debug!(
+            "Pruned StateSynchronizer: {} checkpoints, {} rounds remaining",
+            self.checkpoints.len(),
+            self.vertices_by_round.len()
+        );
+    }
+
+    /// Get memory usage statistics
+    pub fn get_memory_stats(&self) -> (usize, usize) {
+        (self.checkpoints.len(), self.vertices_by_round.len())
+    }
 }
 
 impl Default for StateSynchronizer {

@@ -80,6 +80,9 @@ pub struct PruneStats {
 
     /// Duration of pruning operation (milliseconds)
     pub duration_ms: u64,
+
+    /// IDs of pruned vertices (for cache invalidation)
+    pub pruned_vertex_ids: Vec<super::VertexId>,
 }
 
 /// DAG pruner for garbage collection and storage management
@@ -133,8 +136,9 @@ impl DagPruner {
         // Calculate cutoff round
         let cutoff_round = current_round.saturating_sub(self.config.retention_rounds);
 
-        // Prune vertices
-        let (vertices_pruned, vertices_skipped) = self.prune_vertices(store, cutoff_round)?;
+        // Prune vertices and collect pruned IDs
+        let (vertices_pruned, vertices_skipped, _pruned_ids) =
+            self.prune_vertices(store, cutoff_round)?;
 
         // Prune checkpoints
         let (checkpoints_pruned, cutoff_checkpoint) = if let Some(latest_cp) = latest_checkpoint_seq
@@ -159,17 +163,20 @@ impl DagPruner {
             cutoff_round,
             cutoff_checkpoint,
             duration_ms,
+            pruned_vertex_ids: _pruned_ids,
         })
     }
 
     /// Prune vertices older than the cutoff round
+    /// Returns (pruned_count, skipped_count, pruned_vertex_ids)
     fn prune_vertices(
         &self,
         store: &PersistentDagStore,
         cutoff_round: Round,
-    ) -> Result<(usize, usize)> {
+    ) -> Result<(usize, usize, Vec<super::VertexId>)> {
         let mut pruned = 0;
         let mut skipped = 0;
+        let mut pruned_ids = Vec::new();
 
         // Get all vertices before cutoff round
         for round in 0..cutoff_round {
@@ -199,10 +206,11 @@ impl DagPruner {
                 // Prune the vertex
                 store.delete_vertex(&vertex.id)?;
                 pruned += 1;
+                pruned_ids.push(vertex_id);
             }
         }
 
-        Ok((pruned, skipped))
+        Ok((pruned, skipped, pruned_ids))
     }
 
     /// Prune checkpoints older than retention policy

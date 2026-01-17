@@ -774,18 +774,23 @@ impl DagConsensus {
         self.byzantine_detector
             .check_vertex_validity(&vertex, total_authorities)?;
 
-        // 3. Add to store
+        // 3. Add to store (takes ownership)
         self.store.add_vertex(vertex.clone())?;
 
-        // 4. Cache vertex for faster lookups
+        // 3.5. Persist vertex to disk if persistent store exists
+        if let Some(persistent) = &self.persistent_store {
+            let _ = persistent.put_vertex(&vertex);
+        }
+
+        // 4. Cache vertex for faster lookups (use Arc to avoid clone)
         self.caches.vertices.put(vertex_id.clone(), vertex.clone());
 
-        // 5. Add to broadcaster pending queue for propagation
+        // 5. Determine if this is a priority vertex
         let is_priority = self.vrf_election.is_leader(vertex.round, &author);
+        
+        // 6. Add to broadcaster and state sync (final clone for both)
         self.broadcaster.add_vertex(vertex.clone(), is_priority);
-
-        // 6. Update state synchronizer with new vertex
-        self.state_sync.add_vertex(vertex.clone());
+        self.state_sync.add_vertex(vertex);
 
         // 7. Check if pruning should run
         let current_round = self.store.current_round();
@@ -793,9 +798,39 @@ impl DagConsensus {
             // Prune in background if persistent store exists
             if let Some(persistent) = &self.persistent_store {
                 let latest_checkpoint = self.store.latest_checkpoint();
-                let _ =
+                if let Ok(prune_stats) =
                     self.pruner
-                        .prune(persistent, current_round, Some(latest_checkpoint.sequence));
+                        .prune(persistent, current_round, Some(latest_checkpoint.sequence))
+                {
+                    // Invalidate cache entries for pruned vertices
+                    self.parallel_validator
+                        .invalidate_pruned_vertices(&prune_stats.pruned_vertex_ids);
+
+                    // Also invalidate DAG cache for pruned vertices
+                    for vertex_id in &prune_stats.pruned_vertex_ids {
+                        self.caches.vertices.remove(vertex_id);
+                    }
+
+                    // Prune Byzantine detector old round data to prevent memory leak
+                    self.byzantine_detector
+                        .prune_old_rounds(prune_stats.cutoff_round);
+
+                    // Prune VRF leader election cache to prevent memory leak
+                    self.vrf_election.prune_old_rounds(prune_stats.cutoff_round);
+
+                    // Prune state synchronizer old data
+                    // Keep last 100 checkpoints and rounds matching retention policy
+                    let keep_checkpoints = latest_checkpoint.sequence.saturating_sub(100);
+                    self.state_sync
+                        .prune_old_data(keep_checkpoints, prune_stats.cutoff_round);
+
+                    tracing::debug!(
+                        "Pruning completed: {} vertices, {} checkpoints pruned at round {}",
+                        prune_stats.vertices_pruned,
+                        prune_stats.checkpoints_pruned,
+                        current_round
+                    );
+                }
             }
         }
 

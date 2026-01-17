@@ -162,6 +162,12 @@ pub struct CommitteeChangeTx {
     pub signatures: Vec<(AuthorityId, Vec<u8>)>,
 }
 
+/// Maximum pending epochs to retain (beyond current)
+const MAX_PENDING_EPOCHS: u64 = 100;
+
+/// Maximum historical committees to retain
+const MAX_COMMITTEE_HISTORY: usize = 1000;
+
 /// Committee manager
 pub struct CommitteeManager {
     /// Current committee
@@ -295,6 +301,36 @@ impl CommitteeManager {
     /// Get pending changes for epoch
     pub fn get_pending_changes(&self, epoch: u64) -> Option<&[CommitteeChange]> {
         self.pending_changes.get(&epoch).map(|v| v.as_slice())
+    }
+
+    /// Prune old pending changes and committee history to prevent memory leak
+    pub fn prune_old_data(&mut self) {
+        let current_epoch = self.current_committee.epoch;
+
+        // Remove pending changes for epochs too far in the past (already expired)
+        // Keep only current epoch and up to MAX_PENDING_EPOCHS ahead
+        let max_future_epoch = current_epoch + MAX_PENDING_EPOCHS;
+        self.pending_changes
+            .retain(|&epoch, _| epoch >= current_epoch && epoch <= max_future_epoch);
+
+        // Remove old committee history if exceeding limit
+        if self.committee_history.len() > MAX_COMMITTEE_HISTORY {
+            // Keep only recent epochs
+            let cutoff_epoch = current_epoch.saturating_sub(MAX_COMMITTEE_HISTORY as u64);
+            self.committee_history
+                .retain(|&epoch, _| epoch >= cutoff_epoch);
+        }
+
+        tracing::debug!(
+            "Pruned committee data: {} pending epochs, {} historical committees",
+            self.pending_changes.len(),
+            self.committee_history.len()
+        );
+    }
+
+    /// Get memory usage statistics
+    pub fn get_memory_stats(&self) -> (usize, usize) {
+        (self.pending_changes.len(), self.committee_history.len())
     }
 
     /// Verify committee change transaction

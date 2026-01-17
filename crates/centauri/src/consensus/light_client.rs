@@ -17,6 +17,9 @@ use std::collections::HashMap;
 
 use super::{AuthorityId, Checkpoint, Round};
 
+/// Maximum checkpoints to retain in light client (keep last N)
+const MAX_CHECKPOINTS: usize = 1000;
+
 /// Light client checkpoint verification
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LightCheckpoint {
@@ -233,6 +236,28 @@ impl LightClient {
     /// Get checkpoint by sequence
     pub fn get_checkpoint(&self, sequence: u64) -> Option<&LightCheckpoint> {
         self.verified_checkpoints.get(&sequence)
+    }
+
+    /// Prune old checkpoints to prevent memory leak
+    pub fn prune_old_checkpoints(&mut self) {
+        if self.verified_checkpoints.len() > MAX_CHECKPOINTS {
+            // Keep only the most recent MAX_CHECKPOINTS
+            let cutoff_seq = self
+                .latest_checkpoint
+                .saturating_sub(MAX_CHECKPOINTS as u64);
+            self.verified_checkpoints
+                .retain(|&seq, _| seq >= cutoff_seq);
+
+            tracing::debug!(
+                "Pruned old checkpoints, retained {} recent checkpoints",
+                self.verified_checkpoints.len()
+            );
+        }
+    }
+
+    /// Get memory usage statistics
+    pub fn get_checkpoint_count(&self) -> usize {
+        self.verified_checkpoints.len()
     }
 
     /// Hash checkpoint for signing
