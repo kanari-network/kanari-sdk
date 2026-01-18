@@ -288,6 +288,28 @@ impl ByzantineDetector {
             .collect()
     }
 
+    /// Prune old Byzantine detection data (500K TPS - prevent OOM)
+    /// Call after checkpoints to free memory for finalized rounds
+    pub fn prune_before_round(&mut self, before_round: Round) {
+        // Remove old per-round tracking data
+        self.vertices_by_authority_round
+            .retain(|(_, round), _| *round >= before_round);
+
+        tracing::debug!(
+            "Pruned Byzantine detector data before round {}, remaining entries: {}",
+            before_round,
+            self.vertices_by_authority_round.len()
+        );
+    }
+
+    /// Get memory usage estimate (for monitoring)
+    pub fn memory_usage(&self) -> usize {
+        self.faults.len() * 256  // Approximate
+            + self.penalties.len() * 128
+            + self.reputation.len() * 32
+            + self.vertices_by_authority_round.len() * 64
+    }
+
     /// Reset authority reputation (e.g., after governance decision)
     pub fn reset_reputation(&mut self, authority: &str, score: u64) {
         self.reputation
@@ -359,11 +381,21 @@ mod tests {
     use super::*;
 
     fn create_test_vertex(round: Round, author: &str, vertex_id: u8) -> DagVertex {
+        let mut id = [0u8; 32];
+        id[0] = vertex_id;
+
+        let mut parent1 = [0u8; 32];
+        parent1[0] = 0;
+        let mut parent2 = [0u8; 32];
+        parent2[0] = 1;
+        let mut parent3 = [0u8; 32];
+        parent3[0] = 2;
+
         DagVertex {
-            id: vec![vertex_id],
+            id,
             round,
             author: author.to_string(),
-            parents: vec![vec![0], vec![1], vec![2]], // 3 parents for quorum
+            parents: vec![parent1, parent2, parent3], // 3 parents for quorum
             transactions: vec![],
             timestamp: 0,
             signature: vec![],
@@ -374,6 +406,8 @@ mod tests {
                 is_checkpoint: false,
                 checkpoint_seq: None,
             },
+            cached_serialized_data: None,
+            cached_hash: None,
         }
     }
 
@@ -404,7 +438,8 @@ mod tests {
         detector.init_authority("auth1".to_string());
 
         let mut vertex = create_test_vertex(1, "auth1", 1);
-        vertex.parents = vec![vec![0]]; // Only 1 parent (insufficient)
+        let insufficient_parent = [0u8; 32];
+        vertex.parents = vec![insufficient_parent]; // Only 1 parent (insufficient)
 
         // Should detect invalid vertex
         assert!(detector.check_vertex_validity(&vertex, 4).is_ok());

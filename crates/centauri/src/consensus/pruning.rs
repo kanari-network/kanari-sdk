@@ -44,12 +44,12 @@ impl PruningConfig {
     /// Moderate config for 8-16 core machines (10K-30K TPS)
     pub fn moderate() -> Self {
         Self {
-            retention_rounds: 1000,             // Keep more data
-            retention_checkpoints: 100,         // Fewer checkpoints
-            retention_time_secs: Some(604800),  // 7 days
-            min_rounds_before_pruning: 100,     // Conservative pruning
+            retention_rounds: 1000,            // Keep more data
+            retention_checkpoints: 100,        // Fewer checkpoints
+            retention_time_secs: Some(604800), // 7 days
+            min_rounds_before_pruning: 100,    // Conservative pruning
             auto_prune: true,
-            prune_interval_rounds: 100,         // Prune every 100 rounds
+            prune_interval_rounds: 100, // Prune every 100 rounds
         }
     }
 
@@ -367,9 +367,14 @@ mod tests {
     }
 
     fn create_test_checkpoint(sequence: u64) -> Checkpoint {
+        let mut vertex_id = [0u8; 32];
+        for i in 0..32 {
+            vertex_id[i] = sequence as u8;
+        }
+
         Checkpoint {
             sequence,
-            vertices: vec![vec![sequence as u8; 32]],
+            vertices: vec![vertex_id],
             transactions: vec![],
             state_root: vec![sequence as u8; 32],
             timestamp: 12345,

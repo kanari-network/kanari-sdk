@@ -555,9 +555,12 @@ mod tests {
     fn test_dag_caches() {
         let caches = DagCaches::new();
 
+        let mut vertex_id = [0u8; 32];
+        vertex_id[0..3].copy_from_slice(&[1, 2, 3]);
+
         // Test vertices cache
         let vertex = DagVertex {
-            id: vec![1, 2, 3],
+            id: vertex_id,
             round: 1,
             author: "test_author".to_string(),
             parents: vec![],
@@ -571,14 +574,16 @@ mod tests {
                 is_checkpoint: false,
                 checkpoint_seq: None,
             },
+            cached_serialized_data: None,
+            cached_hash: None,
         };
 
-        caches.vertices.put(vec![1, 2, 3], vertex.clone());
-        assert!(caches.vertices.get(&vec![1, 2, 3]).is_some());
+        caches.vertices.put(vertex_id, vertex.clone());
+        assert!(caches.vertices.get(&vertex_id).is_some());
 
         // Test state roots cache
-        caches.state_roots.put(vec![1, 2, 3], vec![7, 8, 9]);
-        assert_eq!(caches.state_roots.get(&vec![1, 2, 3]), Some(vec![7, 8, 9]));
+        caches.state_roots.put(vertex_id, vec![7, 8, 9]);
+        assert_eq!(caches.state_roots.get(&vertex_id), Some(vec![7, 8, 9]));
 
         let stats = caches.total_stats();
         assert_eq!(stats.vertices.size, 1);
@@ -591,10 +596,12 @@ mod tests {
 
         // Add some data
         for i in 0..10 {
+            let mut vertex_id = [0u8; 32];
+            vertex_id[0] = i;
             caches.vertices.put(
-                vec![i],
+                vertex_id,
                 DagVertex {
-                    id: vec![i],
+                    id: vertex_id,
                     round: i as u64,
                     author: "test".to_string(),
                     parents: vec![],
@@ -608,15 +615,21 @@ mod tests {
                         is_checkpoint: false,
                         checkpoint_seq: None,
                     },
+                    cached_serialized_data: None,
+                    cached_hash: None,
                 },
             );
         }
 
         // Generate some hits/misses
         for i in 0..5 {
-            caches.vertices.get(&vec![i]);
+            let mut vid = [0u8; 32];
+            vid[0] = i;
+            caches.vertices.get(&vid);
         }
-        caches.vertices.get(&vec![99]); // Miss
+        let mut miss_id = [0u8; 32];
+        miss_id[0] = 99;
+        caches.vertices.get(&miss_id); // Miss
 
         let stats = caches.total_stats();
         let summary = stats.summary();
@@ -632,10 +645,12 @@ mod tests {
 
         // Add some vertices
         for i in 0..100 {
+            let mut vertex_id = [0u8; 32];
+            vertex_id[0] = i;
             caches.vertices.put(
-                vec![i],
+                vertex_id,
                 DagVertex {
-                    id: vec![i],
+                    id: vertex_id,
                     round: i as u64,
                     author: "test".to_string(),
                     parents: vec![],
@@ -649,6 +664,8 @@ mod tests {
                         is_checkpoint: false,
                         checkpoint_seq: None,
                     },
+                    cached_serialized_data: None,
+                    cached_hash: None,
                 },
             );
         }

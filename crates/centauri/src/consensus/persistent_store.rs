@@ -21,6 +21,7 @@ const CF_ROUNDS: &str = "rounds";
 const CF_STATE: &str = "state";
 
 /// Persistent DAG storage backed by RocksDB
+#[derive(Clone)]
 pub struct PersistentDagStore {
     db: Arc<DB>,
 }
@@ -317,9 +318,14 @@ mod tests {
     }
 
     fn create_test_checkpoint(sequence: u64) -> Checkpoint {
+        let mut vertex_id = [0u8; 32];
+        for i in 0..32 {
+            vertex_id[i] = sequence as u8;
+        }
+
         Checkpoint {
             sequence,
-            vertices: vec![vec![sequence as u8; 32]],
+            vertices: vec![vertex_id],
             transactions: vec![],
             state_root: vec![sequence as u8; 32],
             timestamp: 12345,

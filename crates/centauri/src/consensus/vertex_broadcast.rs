@@ -527,8 +527,10 @@ mod tests {
     fn test_bloom_filter() {
         let mut filter = VertexBloomFilter::new(1000, 0.01);
 
-        let id1 = vec![1, 2, 3, 4];
-        let id2 = vec![5, 6, 7, 8];
+        let mut id1 = [0u8; 32];
+        id1[0..4].copy_from_slice(&[1, 2, 3, 4]);
+        let mut id2 = [0u8; 32];
+        id2[0..4].copy_from_slice(&[5, 6, 7, 8]);
 
         filter.add(&id1);
 
@@ -540,7 +542,8 @@ mod tests {
     fn test_broadcaster() {
         let mut broadcaster = VertexBroadcaster::new(10, Duration::from_secs(1));
 
-        let vertex = DagVertex::new(1, "auth1".to_string(), vec![vec![0]], vec![], vec![0u8; 32]);
+        let parent = [0u8; 32];
+        let vertex = DagVertex::new(1, "auth1".to_string(), vec![parent], vec![], vec![0u8; 32]);
 
         broadcaster.add_vertex(vertex.clone(), false);
         assert_eq!(broadcaster.pending_count(), 1);
@@ -570,12 +573,17 @@ mod tests {
     fn test_delta_sync() {
         let mut sync = DeltaSync::new();
 
-        sync.add_local_vertex(1, vec![1, 2, 3]);
-        sync.add_local_vertex(1, vec![4, 5, 6]);
+        let mut id1 = [0u8; 32];
+        id1[0..3].copy_from_slice(&[1, 2, 3]);
+        let mut id2 = [0u8; 32];
+        id2[0..3].copy_from_slice(&[4, 5, 6]);
+
+        sync.add_local_vertex(1, id1);
+        sync.add_local_vertex(1, id2);
 
         let filter = sync.create_round_filter(1);
-        assert!(filter.might_contain(&vec![1, 2, 3]));
-        assert!(filter.might_contain(&vec![4, 5, 6]));
+        assert!(filter.might_contain(&id1));
+        assert!(filter.might_contain(&id2));
     }
 
     #[cfg_attr(miri, ignore)]
@@ -583,9 +591,12 @@ mod tests {
     fn test_zstd_compression() {
         let broadcaster = VertexBroadcaster::new(10, Duration::from_secs(1));
 
+        let mut vertex_id = [0u8; 32];
+        vertex_id[0..3].copy_from_slice(&[1, 2, 3]);
+
         let batch = VertexBatch {
             vertices: vec![DagVertex {
-                id: vec![1, 2, 3],
+                id: vertex_id,
                 round: 1,
                 author: "test_author".to_string(),
                 parents: vec![],
@@ -599,6 +610,8 @@ mod tests {
                     is_checkpoint: false,
                     checkpoint_seq: None,
                 },
+                cached_serialized_data: None,
+                cached_hash: None,
             }],
             round_range: (1, 1),
             size_bytes: 200,
@@ -611,7 +624,7 @@ mod tests {
 
         let decompressed = broadcaster.decompress_batch(&compressed).unwrap();
         assert_eq!(decompressed.vertices.len(), 1);
-        assert_eq!(decompressed.vertices[0].id, vec![1, 2, 3]);
+        assert_eq!(decompressed.vertices[0].id, vertex_id);
     }
 
     #[test]

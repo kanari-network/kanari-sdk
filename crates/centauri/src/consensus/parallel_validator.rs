@@ -43,10 +43,10 @@ impl ParallelValidatorConfig {
     pub fn moderate() -> Self {
         let num_cpus = rayon::current_num_threads();
         Self {
-            num_workers: num_cpus.min(16),  // Use up to 16 cores
-            max_batch_size: 500,            // 500 batch for moderate throughput
+            num_workers: num_cpus.min(16), // Use up to 16 cores
+            max_batch_size: 500,           // 500 batch for moderate throughput
             parallel_sig_verify: true,
-            queue_capacity: 10000,          // 10K queue depth
+            queue_capacity: 10000, // 10K queue depth
         }
     }
 

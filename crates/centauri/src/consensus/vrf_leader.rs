@@ -14,6 +14,8 @@
 //!
 //! Now using production-grade ECVRF implementation with Ristretto255.
 
+use std::collections::HashMap;
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
@@ -162,6 +164,38 @@ impl VrfLeaderElection {
 
         // Find VRF with lowest output value
         let leader_vrf = vrfs.iter().min_by_key(|vrf| vrf.as_number())?;
+
+        Some(leader_vrf.authority.clone())
+    }
+
+    /// Elect leader with weighted selection based on stake (500K TPS - fair PoS)
+    /// Higher stake = higher probability of winning
+    pub fn elect_leader_weighted(
+        &self,
+        round: Round,
+        stakes: &HashMap<AuthorityId, u64>,
+    ) -> Option<AuthorityId> {
+        let vrfs = self.vrf_cache.get(&round)?;
+
+        if vrfs.is_empty() {
+            return None;
+        }
+
+        // Weighted selection: VRF_output / stake (lower is better)
+        // Higher stake reduces effective VRF value = higher chance to win
+        let leader_vrf = vrfs
+            .iter()
+            .filter_map(|vrf| {
+                let stake = stakes.get(&vrf.authority).copied().unwrap_or(1);
+                if stake == 0 {
+                    return None; // Skip zero stake
+                }
+                // Calculate weighted score (lower is better)
+                let weighted_score = vrf.as_number() / stake.max(1);
+                Some((vrf, weighted_score))
+            })
+            .min_by_key(|(_, score)| *score)
+            .map(|(vrf, _)| vrf)?;
 
         Some(leader_vrf.authority.clone())
     }

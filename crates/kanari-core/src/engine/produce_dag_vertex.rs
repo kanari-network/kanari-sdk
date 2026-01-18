@@ -69,7 +69,7 @@ impl DagEngine {
     }
 
     /// Create DAG engine with moderate configuration for 8-16 core machines (10K-30K TPS)
-    /// 
+    ///
     /// # Moderate Optimizations
     /// - Parallel validation: 16 worker threads max
     /// - Moderate batches: up to 1,000 vertices per batch
@@ -196,7 +196,7 @@ impl DagEngine {
         let checkpoint_info = {
             let mut consensus = self.consensus.write().unwrap();
             if let Some(checkpoint) = consensus.try_commit()? {
-                // Add checkpoint to blockchain
+                // Add checkpoint to blockchain (checkpoint creates blocks internally)
                 let mut blockchain = self.engine.blockchain.write().unwrap();
                 blockchain.add_checkpoint(checkpoint.clone())?;
 
