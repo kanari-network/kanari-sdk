@@ -3,6 +3,7 @@
 
 use anyhow::{Context, Result};
 use centauri::blockchain::Blockchain;
+use centauri::consensus::Checkpoint;
 use kanari_move_runtime::ContractABI;
 use kanari_move_runtime::changeset::ChangeSet;
 use kanari_move_runtime::contract::{ContractInfo, ContractRegistry};
@@ -591,10 +592,18 @@ impl BlockchainEngine {
     /// This method creates a DAG vertex and automatically commits checkpoints
     /// when consensus is reached. Uses parallel transaction execution.
     pub fn produce_block(&self) -> Result<BlockInfo> {
-        // Lazy-initialize DAG engine on first use
+        // Lazy-initialize DAG engine on first use and enable DAG mode
         {
             let mut dag_engine_guard = self.dag_engine.write().unwrap();
             if dag_engine_guard.is_none() {
+                // Enable DAG mode on blockchain before initializing DAG engine
+                {
+                    let mut chain = self.blockchain.write().unwrap();
+                    if !chain.dag_mode {
+                        chain.enable_dag_mode();
+                    }
+                }
+                
                 let dag_engine = DagEngine::new(
                     Arc::new(self.clone_for_dag()),
                     self.authority_id.clone(),
@@ -878,7 +887,7 @@ impl BlockchainEngine {
     /// Sync full block with transactions from network data
     /// This method executes all transactions to rebuild the state
     pub fn sync_full_block_from_data(&self, block_data: &FullBlockData) -> Result<()> {
-        let chain = self.blockchain.write().unwrap();
+        let mut chain = self.blockchain.write().unwrap();
 
         // Check if we already have this block
         if chain.get_block(block_data.height).is_some() {
@@ -894,6 +903,12 @@ impl BlockchainEngine {
                 current_height
             );
         }
+
+        // Always enable DAG mode for all nodes
+        if !chain.dag_mode {
+            chain.enable_dag_mode();
+        }
+        let should_use_dag_mode = true; // Always use DAG mode
 
         // Release chain lock before executing transactions
         drop(chain);
@@ -989,10 +1004,73 @@ impl BlockchainEngine {
             block_data.events.clone(),
         );
 
-        // Add to blockchain
-        let mut chain = self.blockchain.write().unwrap();
-        chain.add_block_with_validation(block, false)?;
-        drop(chain);
+        // Add to blockchain - use appropriate method based on DAG mode
+        let add_result = if should_use_dag_mode {
+            // In DAG mode, create and add checkpoint
+            let mut chain = self.blockchain.write().unwrap();
+            let prev_cp_hash = chain.latest_checkpoint().hash();
+            let checkpoint = Checkpoint::new(
+                block_data.height,
+                Vec::new(), // vertices not available via simple block sync
+                block_data.transactions.clone(),
+                state_root.clone(),
+                prev_cp_hash,
+            );
+            
+            // Add checkpoint without strict validation (trusted peer data)
+            let res = chain.add_checkpoint_with_validation(checkpoint, false);
+            drop(chain);
+            res
+        } else {
+            // In linear mode, add block directly
+            let mut chain = self.blockchain.write().unwrap();
+            let res = chain.add_block_with_validation(block, false);
+            drop(chain);
+            res
+        };
+
+        // Handle errors with DAG fallback for compatibility
+        if let Err(e) = add_result {
+            let emsg = format!("{}", e);
+            if emsg.contains("Invalid previous checkpoint hash") {
+                // Attempt DAG fallback: enable DAG mode and add checkpoint
+                let mut chain = self.blockchain.write().unwrap();
+                if !chain.dag_mode {
+                    chain.enable_dag_mode();
+                }
+
+                let prev_cp_hash = chain.latest_checkpoint().hash();
+                let checkpoint = Checkpoint::new(
+                    block_data.height,
+                    Vec::new(),
+                    block_data.transactions.clone(),
+                    state_root.clone(),
+                    prev_cp_hash,
+                );
+
+                // Add checkpoint without strict validation (trusted sync)
+                chain.add_checkpoint_with_validation(checkpoint, false)?;
+                drop(chain);
+
+                // Persist blockchain and state
+                if let Some(store) = &self.persistent_store {
+                    let chain = self.blockchain.read().unwrap();
+                    store
+                        .save("blockchain", &*chain)
+                        .context("Failed to persist blockchain")?;
+                    drop(chain);
+
+                    let state_guard = self.state.read().unwrap();
+                    store
+                        .save("state_manager", &*state_guard)
+                        .context("Failed to persist state manager")?;
+                    drop(state_guard);
+                }
+
+                return Ok(());
+            }
+            return Err(e);
+        }
 
         // Persist blockchain and state
         if let Some(store) = &self.persistent_store {

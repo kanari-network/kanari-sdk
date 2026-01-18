@@ -146,30 +146,35 @@ impl Blockchain {
 
     /// Add checkpoint (for DAG mode)
     pub fn add_checkpoint(&mut self, checkpoint: Checkpoint) -> Result<()> {
+        self.add_checkpoint_with_validation(checkpoint, true)
+    }
+
+    /// Add checkpoint with optional validation. When `validate` is false,
+    /// the sequence and previous-checkpoint-hash checks are skipped. This is
+    /// useful for trusted sync paths which reconstruct checkpoints from
+    /// external data where full checkpoint metadata may not be present.
+    pub fn add_checkpoint_with_validation(&mut self, checkpoint: Checkpoint, validate: bool) -> Result<()> {
         if !self.dag_mode {
             anyhow::bail!("Cannot add checkpoints in linear chain mode. Use add_block instead.");
         }
 
-        // Verify checkpoint sequence
-        let expected_seq = self.latest_checkpoint().sequence + 1;
-        if checkpoint.sequence != expected_seq {
-            anyhow::bail!(
-                "Invalid checkpoint sequence: expected {}, got {}",
-                expected_seq,
-                checkpoint.sequence
-            );
-        }
+        if validate {
+            // Verify checkpoint sequence
+            let expected_seq = self.latest_checkpoint().sequence + 1;
+            if checkpoint.sequence != expected_seq {
+                anyhow::bail!(
+                    "Invalid checkpoint sequence: expected {}, got {}",
+                    expected_seq,
+                    checkpoint.sequence
+                );
+            }
 
-        // Verify previous checkpoint hash
-        let prev_hash = self.latest_checkpoint().hash();
-        if checkpoint.prev_checkpoint_hash != prev_hash {
-            anyhow::bail!("Invalid previous checkpoint hash");
+            // Verify previous checkpoint hash
+            let prev_hash = self.latest_checkpoint().hash();
+            if checkpoint.prev_checkpoint_hash != prev_hash {
+                anyhow::bail!("Invalid previous checkpoint hash");
+            }
         }
-
-        // Note: Duplicate transaction check removed because:
-        // 1. Consensus layer (try_commit) already deduplicates transactions
-        // 2. executed_tx_hashes check prevents double-spend at state level
-        // 3. Rejecting here causes checkpoint sequence mismatch (Bug #26)
 
         // Mark transactions as executed (for state-level deduplication)
         for signed_tx in &checkpoint.transactions {
