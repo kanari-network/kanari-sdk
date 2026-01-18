@@ -6,17 +6,16 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Kanari Blockchain                        │
 │                                                                 │
-│  ┌──────────────┐                      ┌──────────────┐         │
-│  │ Linear Chain │  ◄────switch────►    │   DAG Mode   │         │
-│  │    Mode      │                      │              │         │
-│  └──────────────┘                      └──────────────┘         │
-│         │                                      │                │
-│         │                                      │                │
-│         ▼                                      ▼                │
-│  ┌──────────────┐                      ┌──────────────┐         │
-│  │   Blocks     │                      │  Checkpoints │         │
-│  │  (Sequential)│                      │  (from DAG)  │         │
-│  └──────────────┘                      └──────────────┘         │
+│                      ┌──────────────┐                           │
+│                      │   DAG Mode   │                           │
+│                      │              │                           │
+│                      └──────────────┘                           │
+│                             │                                   │
+│                             ▼                                   │
+│                      ┌──────────────┐                           │
+│                      │  Checkpoints │                           │
+│                      │  (from DAG)  │                           │
+│                      └──────────────┘                           │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -218,20 +217,9 @@ Round N+2:
                  └─► Add to Blockchain
 ```
 
-## Comparison: Linear Chain vs DAG
+## DAG Architecture
 
-### Linear Chain
-
-```rust
-Block 1 ──► Block 2 ──► Block 3 ──► Block 4 ──► ...
-  (TX1-10)   (TX11-20)   (TX21-30)   (TX31-40)
-
-• Sequential creation
-• One producer at a time
-• ~1 second per block
-```
-
-### DAG
+### Parallel Vertex Creation
 
 ```rust
          Vertex V1 (Auth1)  ──┐
@@ -244,6 +232,7 @@ Block 1 ──► Block 2 ──► Block 3 ──► Block 4 ──► ...
 • Parallel creation
 • Multiple producers
 • ~100ms to checkpoint
+• High throughput (10,000+ TPS)
 ```
 
 ## State Management

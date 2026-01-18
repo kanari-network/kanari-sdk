@@ -46,7 +46,7 @@ pub type Round = u64;
 /// Authority/validator identifier
 pub type AuthorityId = String;
 
-/// DAG Vertex (equivalent to a block in traditional blockchain)
+/// DAG Vertex - represents a batch of transactions in the DAG
 /// Each vertex can reference multiple parent vertices, forming a DAG
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DagVertex {

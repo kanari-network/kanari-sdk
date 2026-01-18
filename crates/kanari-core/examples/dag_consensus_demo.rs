@@ -93,7 +93,7 @@ fn main() -> Result<()> {
     }
     println!();
 
-    // 6. Produce DAG vertices (equivalent to blocks in linear chain)
+    // 6. Produce DAG vertices
     println!("6. Producing DAG vertices...\n");
 
     // In a real system, this would be called periodically by each authority
@@ -151,14 +151,7 @@ fn main() -> Result<()> {
     println!("7. Checking blockchain state...");
     let blockchain = engine.blockchain.read().unwrap();
 
-    println!(
-        "   - Mode: {}",
-        if blockchain.dag_mode {
-            "DAG"
-        } else {
-            "Linear Chain"
-        }
-    );
+    println!("   - Mode: DAG");
     println!("   - Height: {}", blockchain.height());
     println!(
         "   - Total transactions: {}",

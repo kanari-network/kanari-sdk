@@ -27,7 +27,7 @@ cargo run --package kanari-core --example dag_consensus_demo
 
 #### Expected output
 
-```
+```rust
 === Kanari DAG Consensus Example ===
 
 1. Creating blockchain engine...
@@ -86,9 +86,9 @@ cargo run --package kanari-core --example dag_consensus_demo
 
 #### Key Features Demonstrated
 
-1. **Dual-Mode Blockchain**
-   - Switches between Linear Chain and DAG mode
-   - Backward compatible
+1. **DAG-Based Blockchain**
+   - High-throughput DAG consensus
+   - Parallel transaction processing
 
 2. **DAG Structure**
    - Vertices with multiple parents
@@ -110,13 +110,6 @@ cargo run --package kanari-core --example dag_consensus_demo
    - Ordered transaction finalization
    - State root computation
 
-## Related Documentation
-
-- [DAG_CONSENSUS.md](../DAG_CONSENSUS.md) - Complete DAG consensus guide
-- [DAG_ARCHITECTURE.md](../DAG_ARCHITECTURE.md) - Architecture diagrams and flow
-- [DAG_IMPLEMENTATION_SUMMARY.md](../DAG_IMPLEMENTATION_SUMMARY.md) - Implementation details
-- [DAG_COMPLETION_REPORT.md](../DAG_COMPLETION_REPORT.md) - Project completion report
-
 ## Running Tests
 
 ```bash
@@ -137,12 +130,14 @@ cargo build --package kanari-core --examples
 cargo build --package kanari-core --example dag_consensus_demo
 ```
 
-## Performance Comparison
+## Performance
 
-| Mode | Throughput | Latency | Parallelism |
-|------|------------|---------|-------------|
-| Linear Chain | ~1,000 TPS | ~2-3s | Limited |
-| **DAG** | **~10,000+ TPS** | **~100-500ms** | **High** |
+| Metric      |       DAG Mode      |
+|-------------|---------------------|
+| Throughput  |~10,000+ TPS         |
+| Latency     | ~100-500ms          |
+| Parallelism | High (N validators) |
+| CPU Usage   | ~80%+ (optimized)   |
 
 ## Code Structure
 

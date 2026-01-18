@@ -32,7 +32,6 @@ type ProofCache = LruCache<(u64, usize), (String, Vec<Vec<u8>>)>;
 mod produce_dag_vertex;
 pub use produce_dag_vertex::{CheckpointInfo, DagBlockInfo, DagEngine};
 
-// Legacy BlockInfo type alias for backward compatibility
 pub type BlockInfo = DagBlockInfo;
 
 /// Complete blockchain engine with Move VM integration
@@ -586,8 +585,7 @@ impl BlockchainEngine {
         Self::execute_transaction_with_runtime_skip_seq(tx, &mut runtime, &self.state)
     }
 
-    /// Mine/produce a new block with pending transactions
-    /// Now uses DAG-based consensus for high throughput
+    /// Produce a new block with pending transactions using DAG-based consensus
     ///
     /// This method creates a DAG vertex and automatically commits checkpoints
     /// when consensus is reached. Uses parallel transaction execution.
@@ -603,7 +601,7 @@ impl BlockchainEngine {
                         chain.enable_dag_mode();
                     }
                 }
-                
+
                 let dag_engine = DagEngine::new(
                     Arc::new(self.clone_for_dag()),
                     self.authority_id.clone(),
@@ -908,7 +906,6 @@ impl BlockchainEngine {
         if !chain.dag_mode {
             chain.enable_dag_mode();
         }
-        let should_use_dag_mode = true; // Always use DAG mode
 
         // Release chain lock before executing transactions
         drop(chain);
@@ -993,20 +990,8 @@ impl BlockchainEngine {
         eprintln!("[SYNC] New state root: {}", hex::encode(&state_root));
         drop(state);
 
-        // Create block with full transaction data
-        let prev_hash = hex::decode(&block_data.prev_hash).context("Failed to decode prev_hash")?;
-
-        let block = Block::new(
-            block_data.height,
-            prev_hash,
-            state_root.clone(),
-            block_data.transactions.clone(),
-            block_data.events.clone(),
-        );
-
-        // Add to blockchain - use appropriate method based on DAG mode
-        let add_result = if should_use_dag_mode {
-            // In DAG mode, create and add checkpoint
+        // Add checkpoint to blockchain (DAG mode)
+        let add_result = {
             let mut chain = self.blockchain.write().unwrap();
             let prev_cp_hash = chain.latest_checkpoint().hash();
             let checkpoint = Checkpoint::new(
@@ -1016,15 +1001,9 @@ impl BlockchainEngine {
                 state_root.clone(),
                 prev_cp_hash,
             );
-            
+
             // Add checkpoint without strict validation (trusted peer data)
             let res = chain.add_checkpoint_with_validation(checkpoint, false);
-            drop(chain);
-            res
-        } else {
-            // In linear mode, add block directly
-            let mut chain = self.blockchain.write().unwrap();
-            let res = chain.add_block_with_validation(block, false);
             drop(chain);
             res
         };

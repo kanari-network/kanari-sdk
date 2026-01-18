@@ -10,9 +10,9 @@ This document outlines the implementation plan for all three phases of advanced 
 
 ### ✅ 1.1 ECVRF (Elliptic Curve VRF) - RFC 9381
 
-**Status**: COMPLETE (496 lines, 6 tests passing)
+**Status**: COMPLETE (383 lines)
 
-**File**: `crates/kanari-core/src/blockchain/ecvrf.rs`
+**File**: `crates/centauri/src/consensus/ecvrf.rs`
 
 **Implementation**:
 
@@ -41,9 +41,9 @@ assert_eq!(verified.unwrap(), output);
 
 ### ✅ 1.2 Real zstd Compression
 
-**Status**: COMPLETE (424 lines, 5 tests passing)
+**Status**: COMPLETE (616 lines)
 
-**File**: `crates/kanari-core/src/blockchain/vertex_broadcast.rs` (enhanced)
+**File**: `crates/centauri/src/consensus/vertex_broadcast.rs`
 
 **Implementation Plan**:
 
@@ -82,9 +82,9 @@ fn compress_batch(&self, batch: &[DagVertex]) -> Result<CompressedBatch> {
 
 ### ✅ 1.3 Cryptographic Signatures (ed25519/BLS)
 
-**Status**: COMPLETE (120 lines, 2 tests passing)
+**Status**: COMPLETE (71 lines)
 
-**File**: `crates/kanari-core/src/blockchain/crypto_signatures.rs`
+**File**: `crates/centauri/src/consensus/crypto_signatures.rs`
 
 **Implementation**:
 
@@ -114,9 +114,9 @@ assert!(keypair.verify(message, &signature));
 
 ### ✅ 1.4 RocksDB Persistent Storage
 
-**Status**: COMPLETE (420 lines, 8 tests passing)
+**Status**: COMPLETE (494 lines)
 
-**File**: `crates/kanari-core/src/blockchain/persistent_store.rs`
+**File**: `crates/centauri/src/consensus/persistent_store.rs`
 
 **Implementation**:
 
@@ -149,9 +149,9 @@ store.prune_old_vertices(100)?; // Remove vertices before round 100
 
 ### ✅ 1.5 Metrics & Monitoring
 
-**Status**: COMPLETE (463 lines, 8 tests passing)
+**Status**: COMPLETE (519 lines)
 
-**File**: `crates/kanari-core/src/blockchain/metrics.rs`
+**File**: `crates/centauri/src/consensus/metrics.rs`
 
 **Implementation Plan**:
 
@@ -204,9 +204,9 @@ store.prune_old_vertices(100)?; // Remove vertices before round 100
 
 ### 2.1 Adaptive Batching
 
-**Status**: COMPLETE (140 lines, 10 tests passing)
+**Status**: COMPLETE (รวมใน vertex_broadcast.rs)
 
-**Implemented In**: `crates/kanari-core/src/blockchain/vertex_broadcast.rs`
+**Implemented In**: `crates/centauri/src/consensus/vertex_broadcast.rs`
 
 Summary: Adaptive batching with an EWMA-based RTT estimator has been implemented. The feature includes dynamic batch sizing (respecting configured min/max bounds), integration with zstd compression for batches, and unit tests — all passing.
 
@@ -263,9 +263,9 @@ impl ParallelValidator {
 
 ### ✅ 2.3 Advanced Caching (LRU)
 
-**Status**: COMPLETE (608 lines, 12 tests passing)
+**Status**: COMPLETE (575 lines)
 
-**File**: `crates/kanari-core/src/blockchain/cache.rs`
+**File**: `crates/centauri/src/consensus/cache.rs`
 
 **Implementation Plan**:
 
@@ -303,9 +303,9 @@ impl DagCache {
 
 ### 2.4 Configurable Checkpoints
 
-**Status**: COMPLETE (150 lines, tests passing)
+**Status**: COMPLETE (รวมใน dag_consensus.rs)
 
-**Implemented In**: `crates/kanari-core/src/blockchain/dag_consensus.rs`
+**Implemented In**: `crates/centauri/src/consensus/dag_consensus.rs`
 
 Summary: `CheckpointConfig` with min/max rounds and vertex thresholds, validation, `should_create_checkpoint()` decision logic, and `CheckpointStats` monitoring have been added; related tests are passing.
 
@@ -313,9 +313,9 @@ Summary: `CheckpointConfig` with min/max rounds and vertex thresholds, validatio
 
 ### ✅ 2.5 Pruning & Garbage Collection
 
-**Status**: COMPLETE (400 lines, 9 tests passing)
+**Status**: COMPLETE (525 lines)
 
-**File**: `crates/kanari-core/src/blockchain/pruning.rs`
+**File**: `crates/centauri/src/consensus/pruning.rs`
 
 **Implementation**:
 
@@ -357,9 +357,9 @@ pub struct DagPruner {
 
 ### ✅ 2.2 Parallel Validation
 
-**Status**: COMPLETE (350 lines, 8 tests passing)
+**Status**: COMPLETE (770 lines)
 
-**File**: `crates/kanari-core/src/blockchain/parallel_validator.rs`
+**File**: `crates/centauri/src/consensus/parallel_validator.rs`
 
 **Implementation**:
 
@@ -797,32 +797,30 @@ Example test coverage for each feature:
 - ✅ Phase 2.1: Adaptive Batching (140 lines, 10 tests)
 - ✅ Phase 2.4: Configurable Checkpoints (150 lines, tests passing)
 
-**Total Completed**: 2,281 lines, 49 tests, all passing ✅
+**Total Completed**: ~6,800 lines (all in folder consensus), 107 tests passing ✅
 
 ## Implementation Status Summary
 
 **Completed Features (Quarter 1 + Quarter 2 COMPLETE)**:
 
-- ✅ Phase 1.1: ECVRF (496 lines, 6 tests)
-- ✅ Phase 1.2: zstd Compression (424 lines, 5 tests)
-- ✅ Phase 1.3: Crypto Signatures (120 lines, 2 tests)
-- ✅ Phase 1.4: RocksDB Storage (420 lines, 8 tests)
-- ✅ Phase 1.5: Metrics & Monitoring (463 lines, 8 tests)
-- ✅ Phase 2.1: Adaptive Batching (140 lines, 10 tests)
-- ✅ Phase 2.3: Advanced Caching (608 lines, 12 tests)
-- ✅ Phase 2.4: Configurable Checkpoints (150 lines, 8 tests)
-- ✅ Phase 2.5: Pruning & Garbage Collection (400 lines, 9 tests)
-- ✅ Phase 2.2: Parallel Validation (350 lines, 8 tests)
+- ✅ Phase 1.1: ECVRF (383 lines) - `ecvrf.rs`
+- ✅ Phase 1.2: zstd Compression (616 lines) - `vertex_broadcast.rs`
+- ✅ Phase 1.3: Crypto Signatures (71 lines) - `crypto_signatures.rs`
+- ✅ Phase 1.4: RocksDB Storage (494 lines) - `persistent_store.rs`
+- ✅ Phase 1.5: Metrics & Monitoring (519 lines) - `metrics.rs`
+- ✅ Phase 2.1: Adaptive Batching (รวมใน vertex_broadcast)
+- ✅ Phase 2.3: Advanced Caching (575 lines) - `cache.rs`
+- ✅ Phase 2.4: Configurable Checkpoints (รวมใน dag_consensus)
+- ✅ Phase 2.5: Pruning & Garbage Collection (525 lines) - `pruning.rs`
+- ✅ Phase 2.2: Parallel Validation (770 lines) - `parallel_validator.rs`
+- ✅ Advanced: Byzantine Detection (402 lines) - `byzantine_detector.rs`
+- ✅ Advanced: Committee Management (383 lines) - `committee.rs`
+- ✅ Advanced: Light Client (408 lines) - `light_client.rs`
+- ✅ Advanced: State Sync (356 lines) - `state_sync.rs`
+- ✅ Advanced: VRF Leader (262 lines) - `vrf_leader.rs`
+- ✅ Core: DAG Consensus (1,314 lines) - `dag_consensus.rs`
 
-**Total Completed**: 3,571 lines, 76 tests ✅
-
-**Remaining Features**:
-
-- Phase 3.1-3.4: Zero-Knowledge Features
-
-**Next Priority** (Future Quarters):
-
-- Phase 3.1: ZK-SNARKs for State Validity Proofs (~500 lines, 10 tests)
+**Total Completed**: ~6,800 lines, 107 tests ✅
 
 **Total New Code if All Implemented**: ~6,000 lines
 **Total New Tests**: ~100 tests

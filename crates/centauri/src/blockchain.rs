@@ -8,13 +8,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::consensus::Checkpoint;
 
-/// Blockchain state - supports both linear chain and DAG modes
+/// Blockchain state - DAG-based consensus
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Blockchain {
-    /// Linear chain mode: blocks in sequence
+    /// Blocks for P2P sync compatibility
     pub blocks: Vec<Block>,
 
-    /// DAG mode: checkpoints (committed state)
+    /// DAG checkpoints (committed state)
     #[serde(skip)]
     pub dag_checkpoints: Vec<Checkpoint>,
 
@@ -22,9 +22,13 @@ pub struct Blockchain {
     #[serde(skip)]
     executed_tx_hashes: std::collections::HashSet<String>,
 
-    /// Operating mode: true = DAG mode, false = linear chain mode
-    #[serde(default)]
+    /// Always in DAG mode
+    #[serde(default = "default_dag_mode")]
     pub dag_mode: bool,
+}
+
+fn default_dag_mode() -> bool {
+    true
 }
 
 impl Blockchain {
@@ -34,34 +38,21 @@ impl Blockchain {
             blocks: vec![genesis],
             dag_checkpoints: vec![Checkpoint::genesis()],
             executed_tx_hashes: std::collections::HashSet::new(),
-            dag_mode: false, // Default to linear chain mode
+            dag_mode: true, // Always DAG mode
         }
     }
 
-    /// Create blockchain in DAG mode
+    /// Create blockchain in DAG mode (same as new())
     pub fn new_with_dag() -> Self {
-        Self {
-            blocks: vec![Block::genesis()],
-            dag_checkpoints: vec![Checkpoint::genesis()],
-            executed_tx_hashes: std::collections::HashSet::new(),
-            dag_mode: true,
-        }
+        Self::new()
     }
 
-    /// Switch to DAG mode
+    /// Enable DAG mode (always enabled, kept for compatibility)
     pub fn enable_dag_mode(&mut self) {
-        if !self.dag_mode {
-            self.dag_mode = true;
-            // Initialize DAG checkpoints if empty
-            if self.dag_checkpoints.is_empty() {
-                self.dag_checkpoints.push(Checkpoint::genesis());
-            }
+        // DAG mode is always enabled
+        if self.dag_checkpoints.is_empty() {
+            self.dag_checkpoints.push(Checkpoint::genesis());
         }
-    }
-
-    /// Switch to linear chain mode
-    pub fn disable_dag_mode(&mut self) {
-        self.dag_mode = false;
     }
 
     pub fn latest_block(&self) -> &Block {
@@ -80,13 +71,8 @@ impl Blockchain {
     }
 
     pub fn height(&self) -> u64 {
-        if self.dag_mode {
-            // In DAG mode, height = checkpoint sequence number
-            self.latest_checkpoint().sequence
-        } else {
-            // In linear chain mode, height = block height
-            self.latest_block().header.height
-        }
+        // Height = checkpoint sequence number (always in DAG mode)
+        self.latest_checkpoint().sequence
     }
 
     /// Check if transaction hash has been executed before (deduplication)
@@ -115,33 +101,12 @@ impl Blockchain {
         self.add_block_with_validation(block, true)
     }
 
-    pub fn add_block_with_validation(&mut self, block: Block, validate: bool) -> Result<()> {
-        // Only allow adding blocks in linear chain mode
-        if self.dag_mode {
-            anyhow::bail!("Cannot add blocks directly in DAG mode. Use add_checkpoint instead.");
-        }
-
-        if validate {
-            let prev_block = self.latest_block();
-            block.verify(prev_block)?;
-
-            // Check for duplicate transactions in this block
-            for signed_tx in &block.transactions {
-                let tx_hash = hex::encode(signed_tx.hash());
-                if self.is_transaction_executed(&tx_hash) {
-                    anyhow::bail!("Duplicate transaction detected: {}", tx_hash);
-                }
-            }
-        }
-
-        // Add transaction hashes to executed set
-        for signed_tx in &block.transactions {
-            let tx_hash = hex::encode(signed_tx.hash());
-            self.mark_transaction_executed(tx_hash);
-        }
-
-        self.blocks.push(block);
-        Ok(())
+    pub fn add_block_with_validation(&mut self, _block: Block, _validate: bool) -> Result<()> {
+        // Blocks are only used for P2P sync compatibility in DAG mode
+        // Direct block addition is deprecated - use add_checkpoint instead
+        anyhow::bail!(
+            "Direct block addition is not supported in DAG mode. Use add_checkpoint instead."
+        );
     }
 
     /// Add checkpoint (for DAG mode)
@@ -153,11 +118,11 @@ impl Blockchain {
     /// the sequence and previous-checkpoint-hash checks are skipped. This is
     /// useful for trusted sync paths which reconstruct checkpoints from
     /// external data where full checkpoint metadata may not be present.
-    pub fn add_checkpoint_with_validation(&mut self, checkpoint: Checkpoint, validate: bool) -> Result<()> {
-        if !self.dag_mode {
-            anyhow::bail!("Cannot add checkpoints in linear chain mode. Use add_block instead.");
-        }
-
+    pub fn add_checkpoint_with_validation(
+        &mut self,
+        checkpoint: Checkpoint,
+        validate: bool,
+    ) -> Result<()> {
         if validate {
             // Verify checkpoint sequence
             let expected_seq = self.latest_checkpoint().sequence + 1;
@@ -182,7 +147,7 @@ impl Blockchain {
             self.mark_transaction_executed(tx_hash);
         }
 
-        // Create a traditional block for each checkpoint for P2P sync compatibility
+        // Create a block for each checkpoint for P2P sync compatibility
         let prev_hash = if self.blocks.is_empty() {
             vec![0u8; 32]
         } else {
@@ -214,16 +179,11 @@ impl Blockchain {
     }
 
     pub fn get_transaction_count(&self) -> usize {
-        if self.dag_mode {
-            // Count transactions in checkpoints
-            self.dag_checkpoints
-                .iter()
-                .map(|cp| cp.transactions.len())
-                .sum()
-        } else {
-            // Count transactions in blocks
-            self.blocks.iter().map(|b| b.transactions.len()).sum()
-        }
+        // Count transactions in checkpoints
+        self.dag_checkpoints
+            .iter()
+            .map(|cp| cp.transactions.len())
+            .sum()
     }
 }
 
@@ -251,18 +211,19 @@ mod tests {
         let chain = Blockchain::new();
         assert_eq!(chain.height(), 0);
         assert_eq!(chain.blocks.len(), 1);
+        assert!(chain.dag_mode);
     }
 
     #[test]
-    fn test_add_block() {
+    fn test_add_checkpoint() {
         let mut chain = Blockchain::new();
-        let prev_hash = chain.latest_block().hash();
 
-        let block = Block::new(1, prev_hash, vec![0u8; 32], vec![], vec![]);
-        chain.add_block(block).unwrap();
+        let prev_cp_hash = chain.latest_checkpoint().hash();
+        let checkpoint = Checkpoint::new(1, Vec::new(), Vec::new(), vec![0u8; 32], prev_cp_hash);
 
+        chain.add_checkpoint(checkpoint).unwrap();
         assert_eq!(chain.height(), 1);
-        assert_eq!(chain.blocks.len(), 2);
+        assert_eq!(chain.dag_checkpoints.len(), 2);
     }
 
     #[test]

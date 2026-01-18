@@ -4,17 +4,16 @@ Core blockchain engine and consensus implementation for Kanari Network.
 
 ## Features
 
-### 🔗 Dual-Mode Blockchain
+### 🔗 DAG-Based Blockchain
 
-- **Linear Chain Mode**: Traditional sequential blockchain
 - **DAG Mode**: High-throughput DAG-based consensus (Narwhal & Bullshark)
-- Switch between modes at runtime
-- Backward compatible APIs
+- Parallel transaction processing
+- Byzantine fault tolerance
 
 ### ⚡ High Performance
 
-- **10,000+ TPS** throughput in DAG mode (10x improvement)
-- **100-500ms** latency (4-6x faster than linear chain)
+- **10,000+ TPS** throughput in DAG mode
+- **100-500ms** latency
 - Parallel transaction execution
 - Multi-core CPU utilization
 
@@ -34,24 +33,24 @@ Core blockchain engine and consensus implementation for Kanari Network.
 
 ## Architecture
 
-```
+```rust
 ┌─────────────────────────────────────────┐
-│       Application Layer                  │
+│       Application Layer                 │
 │  (Move VM, Smart Contracts, TXs)        │
 └──────────────┬──────────────────────────┘
                │
 ┌──────────────▼──────────────────────────┐
-│       Execution Layer                    │
+│       Execution Layer                   │
 │  • DagEngine / BlockchainEngine         │
 │  • Parallel TX execution                │
-│  • State management                      │
+│  • State management                     │
 └──────────────┬──────────────────────────┘
                │
 ┌──────────────▼──────────────────────────┐
-│       Consensus Layer                    │
+│       Consensus Layer                   │
 │  • DagConsensus (Bullshark)             │
-│  • Leader election                       │
-│  • Checkpoint creation                   │
+│  • Leader election                      │
+│  • Checkpoint creation                  │
 └──────────────┬──────────────────────────┘
                │
 ┌──────────────▼──────────────────────────┐
@@ -63,21 +62,6 @@ Core blockchain engine and consensus implementation for Kanari Network.
 ```
 
 ## Quick Start
-
-### Linear Chain Mode
-
-```rust
-use kanari_core::engine::BlockchainEngine;
-
-// Create engine
-let engine = BlockchainEngine::new()?;
-
-// Submit transaction
-let tx_hash = engine.submit_transaction(signed_tx)?;
-
-// Produce block
-let block_info = engine.produce_block()?;
-```
 
 ### DAG Mode
 
@@ -122,7 +106,7 @@ if let Some(checkpoint) = dag_info.checkpoint {
 Core blockchain data structures and operations:
 
 - `Block`, `BlockHeader`, `Transaction`, `SignedTransaction`
-- `Blockchain` - dual-mode (linear/DAG) blockchain state
+- `Blockchain` - DAG-based blockchain state
 - `DagVertex`, `Checkpoint` - DAG structures
 - `DagStore`, `DagConsensus` - DAG consensus protocol
 - Merkle tree implementation
@@ -133,18 +117,17 @@ Blockchain execution engine:
 
 - `BlockchainEngine` - main engine with Move VM
 - `DagEngine` - DAG consensus engine
-- `produce_block()` - linear chain block production
 - `produce_vertex()` - DAG vertex production
 - Parallel transaction execution
 
 ## Performance
 
-| Metric | Linear Chain | DAG Mode | Improvement |
-|--------|--------------|----------|-------------|
-| Throughput | ~1,000 TPS | ~10,000+ TPS | **10x** |
-| Latency | ~2-3 seconds | ~100-500ms | **4-6x** |
-| Parallelism | Limited | High | **N validators** |
-| CPU Usage | ~25% | ~80%+ | **3x better** |
+|    Metric   |       DAG Mode      |
+|-------------|---------------------|
+| Throughput  | ~10,000+ TPS        |
+| Latency     | ~100-500ms          |
+| Parallelism | High (N validators) |
+| CPU Usage   | ~80%+ (optimized)   |
 
 ## DAG Consensus
 
