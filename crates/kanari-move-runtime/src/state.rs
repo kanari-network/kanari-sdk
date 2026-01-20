@@ -95,7 +95,7 @@ pub struct StateManager {
 
 impl StateManager {
     /// Create new state with genesis allocation
-    /// Total supply: 100 million KANARI = 100,000,000,000,000,000 Mist
+    /// Total supply: 1 million KANARI = 11,000,000,000,000,000 Mist
     /// Dev address gets entire supply according to kanari.move
     pub fn new() -> Self {
         let mut accounts = HashMap::new();

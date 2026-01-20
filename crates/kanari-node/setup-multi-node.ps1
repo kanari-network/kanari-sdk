@@ -5,7 +5,7 @@ Write-Host "Starting Kanari Multi-Node Setup..." -ForegroundColor Green
 Write-Host ""
 
 # Configuration
-$BaseDataDir = "$env:USERPROFILE\.kanari\kanari-db"
+$BaseDataDir = "$env:USERPROFILE\.kanari\node-db"
 $BasePeerPort = 19000
 $BaseRpcPort = 19001
 $NodeCount = 3

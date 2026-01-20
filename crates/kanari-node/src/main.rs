@@ -421,15 +421,24 @@ async fn run_node(
                         block_info.failed
                     );
 
-                    // Broadcast the new block with full transaction data to the network
-                    // Use current blockchain height since we just produced a vertex
-                    let current_height = engine.blockchain.read().unwrap().height();
-                    if let Some(full_block_data) = engine.get_full_block(current_height)
-                        && let Ok(block_str) = serde_json::to_string(&full_block_data)
-                    {
-                        let msg = P2PMessage::NewBlock(block_str);
+                    // Broadcast the DAG vertex to other nodes
+                    if let Ok(vertex_str) = serde_json::to_string(&block_info) {
+                        let msg = P2PMessage::NewDagVertex(vertex_str);
                         if let Err(e) = network_tx.send(msg) {
-                            tracing::warn!("Failed to queue block broadcast: {}", e);
+                            tracing::warn!("Failed to queue DAG vertex broadcast: {}", e);
+                        }
+                    }
+
+                    // If a checkpoint was created, broadcast the new blocks as well
+                    if block_info.checkpoint.is_some() {
+                        let current_height = engine.blockchain.read().unwrap().height();
+                        if let Some(full_block_data) = engine.get_full_block(current_height)
+                            && let Ok(block_str) = serde_json::to_string(&full_block_data)
+                        {
+                            let msg = P2PMessage::NewBlock(block_str);
+                            if let Err(e) = network_tx.send(msg) {
+                                tracing::warn!("Failed to queue block broadcast: {}", e);
+                            }
                         }
                     }
                 }

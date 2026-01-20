@@ -32,6 +32,9 @@ impl SyncManager {
             P2PMessage::NewBlock(block_data) => {
                 self.handle_new_block(block_data).await;
             }
+            P2PMessage::NewDagVertex(vertex_data) => {
+                self.handle_new_dag_vertex(vertex_data).await;
+            }
             P2PMessage::BlockRequest(height, _timestamp) => {
                 self.handle_block_request(height).await;
             }
@@ -82,6 +85,36 @@ impl SyncManager {
             }
             Err(e) => {
                 error!("Failed to deserialize block: {}", e);
+            }
+        }
+    }
+
+    async fn handle_new_dag_vertex(&self, vertex_data: String) {
+        use kanari_core::DagBlockInfo;
+        
+        match serde_json::from_str::<DagBlockInfo>(&vertex_data) {
+            Ok(dag_info) => {
+                info!(
+                    "Received DAG vertex {} (round {}) from network with {} transactions",
+                    dag_info.vertex_id, dag_info.round, dag_info.tx_count
+                );
+                
+                // Re-execute the transactions from the vertex
+                // In a full implementation, we would validate and add the vertex to local DAG
+                // For now, we just log that we received it
+                // The checkpoint will sync blocks when consensus is reached
+                
+                if let Some(checkpoint_info) = dag_info.checkpoint {
+                    info!(
+                        "Checkpoint reached: sequence {}, {} vertices, {} transactions",
+                        checkpoint_info.sequence,
+                        checkpoint_info.vertex_count,
+                        checkpoint_info.tx_count
+                    );
+                }
+            }
+            Err(e) => {
+                error!("Failed to deserialize DAG vertex: {}", e);
             }
         }
     }

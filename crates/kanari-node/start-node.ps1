@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory=$true)]
     [int]$NodeId = 1,
     
-    [string]$BaseDataDir = "$env:USERPROFILE\.kanari\kanari-db",
+    [string]$BaseDataDir = "$env:USERPROFILE\.kanari\node-db",
     [int]$BasePeerPort = 19000,
     [int]$BaseRpcPort = 19001
 )

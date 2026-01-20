@@ -400,6 +400,7 @@ impl DagEngine {
         }
 
         drop(job_tx);
+        drop(res_tx);
         for h in handles {
             let _ = h.join();
         }

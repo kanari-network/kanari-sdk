@@ -27,6 +27,7 @@ use tracing::{info, warn};
 pub enum P2PMessage {
     NewTransaction(String), // Serialized transaction
     NewBlock(String),       // Serialized FULL block with transactions
+    NewDagVertex(String),   // Serialized DAG vertex for multi-node sync
     BlockRequest(u64, u64), // (height, timestamp) - timestamp makes it unique
     BlockResponse(String),  // Full block data response with transactions
     PeerInfo(PeerInfoMsg),
@@ -60,6 +61,7 @@ pub struct P2PTopics {
     pub blocks: IdentTopic,
     pub transactions: IdentTopic,
     pub peers: IdentTopic,
+    pub dag_vertices: IdentTopic,
 }
 
 impl P2PNetwork {
@@ -98,11 +100,13 @@ impl P2PNetwork {
         let blocks_topic = IdentTopic::new("kanari/blocks");
         let tx_topic = IdentTopic::new("kanari/transactions");
         let peers_topic = IdentTopic::new("kanari/peers");
+        let dag_vertices_topic = IdentTopic::new("kanari/dag_vertices");
 
         // Subscribe to topics
         gossipsub.subscribe(&blocks_topic)?;
         gossipsub.subscribe(&tx_topic)?;
         gossipsub.subscribe(&peers_topic)?;
+        gossipsub.subscribe(&dag_vertices_topic)?;
 
         // Create mDNS for local peer discovery
         let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)?;
@@ -168,6 +172,7 @@ impl P2PNetwork {
                 blocks: blocks_topic,
                 transactions: tx_topic,
                 peers: peers_topic,
+                dag_vertices: dag_vertices_topic,
             },
         })
     }
@@ -179,6 +184,7 @@ impl P2PNetwork {
             | P2PMessage::BlockRequest(_, _) => &self.topics.blocks,
             P2PMessage::NewTransaction(_) => &self.topics.transactions,
             P2PMessage::PeerInfo(_) => &self.topics.peers,
+            P2PMessage::NewDagVertex(_) => &self.topics.dag_vertices,
         };
 
         let config = bincode::config::standard();

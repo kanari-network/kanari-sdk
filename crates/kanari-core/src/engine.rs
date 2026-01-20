@@ -275,6 +275,9 @@ impl BlockchainEngine {
 
     /// Execute transaction immediately and return both hash and changeset
     /// Used by RPC to get object IDs created during execution
+    /// 
+    /// In DAG mode: This will execute AND apply the changeset to state immediately,
+    /// bypassing DAG consensus. This is necessary for RPC calls/publishes to work.
     pub fn execute_transaction_immediate(
         &self,
         signed_tx: SignedTransaction,
@@ -287,42 +290,62 @@ impl BlockchainEngine {
         let tx_hash = signed_tx.hash();
         let tx = signed_tx.transaction;
 
-        // Execute transaction to get changeset
-        // For immediate (RPC) execution we run the Move execution against a
-        // cloned snapshot of the current StateManager so the call is a
-        // read-only/simulated run: it returns the ChangeSet that would be
-        // applied, but it does NOT mutate the engine's canonical `state`.
-        // This prevents sequence number / balance drift when the same signed
-        // transaction is later submitted for inclusion in a block.
-        let changeset = {
-            // Clone the current state for a safe simulation
-            let mut state_snapshot = { self.state.read().unwrap().clone() };
+        // Check if DAG mode is enabled
+        let is_dag_mode = self.blockchain.read().unwrap().dag_mode;
 
-            // Adjust the cloned snapshot to account for any pending transactions
-            // from the same sender so that sequence validation during the
-            // simulated execution reflects the expected sequence number once
-            // pending transactions are included. This prevents immediate
-            // execution from rejecting a transaction whose sequence has been
-            // advanced by earlier pending submissions.
-            if let Ok(pending) = self.pending_txs.read() {
-                for ptx in pending.iter() {
-                    if ptx.transaction.sender_address() == tx.sender_address()
-                        && let Ok(addr) =
-                            AccountAddress::from_hex_literal(ptx.transaction.sender_address())
-                    {
-                        let acct = state_snapshot.get_or_create_account(addr);
-                        acct.increment_sequence();
+        if is_dag_mode {
+            // In DAG mode: Execute directly against live state and apply changeset
+            // This bypasses DAG consensus for immediate execution (needed for RPC)
+            let changeset = {
+                let mut runtime = self.move_runtime.write().unwrap();
+                Self::execute_transaction_with_runtime(&tx, &mut runtime, &self.state)?
+            };
+
+            // Apply changeset to live state immediately
+            if changeset.success {
+                let mut state = self.state.write().unwrap();
+                state.apply_changeset(&changeset)?;
+            }
+
+            Ok((tx_hash, changeset))
+        } else {
+            // Original behavior for non-DAG mode: Use snapshot (read-only simulation)
+            // For immediate (RPC) execution we run the Move execution against a
+            // cloned snapshot of the current StateManager so the call is a
+            // read-only/simulated run: it returns the ChangeSet that would be
+            // applied, but it does NOT mutate the engine's canonical `state`.
+            // This prevents sequence number / balance drift when the same signed
+            // transaction is later submitted for inclusion in a block.
+            let changeset = {
+                // Clone the current state for a safe simulation
+                let mut state_snapshot = { self.state.read().unwrap().clone() };
+
+                // Adjust the cloned snapshot to account for any pending transactions
+                // from the same sender so that sequence validation during the
+                // simulated execution reflects the expected sequence number once
+                // pending transactions are included. This prevents immediate
+                // execution from rejecting a transaction whose sequence has been
+                // advanced by earlier pending submissions.
+                if let Ok(pending) = self.pending_txs.read() {
+                    for ptx in pending.iter() {
+                        if ptx.transaction.sender_address() == tx.sender_address()
+                            && let Ok(addr) =
+                                AccountAddress::from_hex_literal(ptx.transaction.sender_address())
+                        {
+                            let acct = state_snapshot.get_or_create_account(addr);
+                            acct.increment_sequence();
+                        }
                     }
                 }
-            }
-            let state_arc = Arc::new(RwLock::new(state_snapshot));
+                let state_arc = Arc::new(RwLock::new(state_snapshot));
 
-            // Use the engine's runtime to execute against the cloned state.
-            let mut runtime = self.move_runtime.write().unwrap();
-            Self::execute_transaction_with_runtime(&tx, &mut runtime, &state_arc)?
-        };
+                // Use the engine's runtime to execute against the cloned state.
+                let mut runtime = self.move_runtime.write().unwrap();
+                Self::execute_transaction_with_runtime(&tx, &mut runtime, &state_arc)?
+            };
 
-        Ok((tx_hash, changeset))
+            Ok((tx_hash, changeset))
+        }
     }
 
     /// Execute a single transaction and return ChangeSet
