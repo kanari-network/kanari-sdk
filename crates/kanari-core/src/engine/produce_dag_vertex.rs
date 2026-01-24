@@ -170,8 +170,9 @@ impl DagEngine {
                     state.apply_changeset(&cs)?;
                 }
             }
-            // Compute state root (simplified - in production use SMT)
-            kanari_crypto::hash_data_blake3(&bcs::to_bytes(&*state).unwrap_or_default())
+            // CRITICAL: Use the same state root computation method as sync
+            // to ensure deterministic state roots across all nodes
+            state.compute_state_root()
         };
 
         // Collect events (simplified placeholder)
@@ -180,7 +181,13 @@ impl DagEngine {
         // Create DAG vertex
         let vertex = {
             let mut consensus = self.consensus.write().unwrap();
-            consensus.create_vertex(transactions.clone(), state_root.clone())?
+            let v = consensus.create_vertex(transactions.clone(), state_root.clone())?;
+            println!(
+                "[DAG] Created vertex for round {} with {} transactions",
+                v.round,
+                transactions.len()
+            );
+            v
         };
 
         let vertex_id = hex::encode(&vertex.id);

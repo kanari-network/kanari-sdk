@@ -275,7 +275,7 @@ impl BlockchainEngine {
 
     /// Execute transaction immediately and return both hash and changeset
     /// Used by RPC to get object IDs created during execution
-    /// 
+    ///
     /// In DAG mode: This will execute AND apply the changeset to state immediately,
     /// bypassing DAG consensus. This is necessary for RPC calls/publishes to work.
     pub fn execute_transaction_immediate(
@@ -849,15 +849,22 @@ impl BlockchainEngine {
     /// Get full block with transactions by height
     pub fn get_full_block(&self, height: u64) -> Option<FullBlockData> {
         let chain = self.blockchain.read().unwrap();
-        chain.get_block(height).map(|block| FullBlockData {
-            height: block.header.height,
-            timestamp: block.header.timestamp,
-            hash: hex::encode(block.hash()),
-            prev_hash: hex::encode(&block.header.prev_hash),
-            state_root: hex::encode(&block.header.state_root),
-            tx_count: block.transactions.len(),
-            events: block.events.clone(),
-            transactions: block.transactions.clone(),
+        chain.get_block(height).map(|block| {
+            eprintln!(
+                "[GET_FULL_BLOCK] Block #{} has {} transactions",
+                height,
+                block.transactions.len()
+            );
+            FullBlockData {
+                height: block.header.height,
+                timestamp: block.header.timestamp,
+                hash: hex::encode(block.hash()),
+                prev_hash: hex::encode(&block.header.prev_hash),
+                state_root: hex::encode(&block.header.state_root),
+                tx_count: block.transactions.len(),
+                events: block.events.clone(),
+                transactions: block.transactions.clone(),
+            }
         })
     }
 
@@ -1009,8 +1016,28 @@ impl BlockchainEngine {
         }
 
         // Compute new state root after applying all changes
-        let state_root = state.compute_state_root();
-        eprintln!("[SYNC] New state root: {}", hex::encode(&state_root));
+        let computed_state_root = state.compute_state_root();
+        eprintln!(
+            "[SYNC] Computed state root: {}",
+            hex::encode(&computed_state_root)
+        );
+
+        // Verify state root matches the one from the block
+        let expected_state_root_bytes =
+            hex::decode(&block_data.state_root.trim_start_matches("0x"))
+                .context("Invalid state root format in block data")?;
+
+        if computed_state_root != expected_state_root_bytes {
+            drop(state);
+            anyhow::bail!(
+                "[SYNC] STATE ROOT MISMATCH!\n  Expected: {}\n  Computed: {}\n\nThis indicates state divergence. The node's state after executing transactions does not match the sender's state.\nPossible causes:\n  - Different genesis state\n  - Different transaction execution order\n  - Determinism issues in Move VM execution\n  - Missing prior blocks/transactions\n\nRecommendation: Clear state and resync from genesis.",
+                block_data.state_root,
+                hex::encode(&computed_state_root)
+            );
+        }
+
+        eprintln!("[SYNC] ✅ State root verification passed!");
+        let state_root = computed_state_root;
         drop(state);
 
         // Add checkpoint to blockchain (DAG mode)

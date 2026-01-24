@@ -236,9 +236,12 @@ impl MoveRuntime {
             Err(e) => {
                 let err_msg = format!("{:?}", e);
                 if err_msg.contains("already exists") {
-                    // Module upgrade - use publish_or_overwrite instead of apply
-                    self.storage
-                        .publish_or_overwrite_module(module_id.clone(), module_bytes.clone());
+                    // Module upgrade - overwrite module in the new storage and adopt it.
+                    // Use `storage` (the new_storage returned by the session) so any other
+                    // state changes included alongside the publish are preserved.
+                    storage.publish_or_overwrite_module(module_id.clone(), module_bytes.clone());
+                    // Replace runtime storage with the updated new_storage.
+                    self.storage = storage.clone();
                     self.published_modules.insert(module_id.clone());
                 } else {
                     return Err(anyhow::anyhow!(format!("apply error: {:?}", e)));
