@@ -10,7 +10,7 @@ use kanari_types::kanari::KanariModule;
 use kanari_types::{address::Address as KanariAddress, event::Event};
 use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 /// Account state in the blockchain
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,34 +78,27 @@ impl Account {
 
 /// Global state manager for accounts and balances
 /// This is a pure data layer that applies ChangeSet from Move VM execution
-///
-/// CRITICAL: Uses BTreeMap for deterministic state root computation.
-/// HashMap has non-deterministic iteration order which would cause different
-/// state roots across nodes even with identical data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateManager {
-    pub accounts: BTreeMap<AccountAddress, Account>,
+    pub accounts: HashMap<AccountAddress, Account>,
     pub total_supply: u64,
     pub events: Vec<Event>,
     /// Per-token total supplies tracked via TreasuryCap (token_type -> total_supply)
-    pub token_supplies: BTreeMap<String, TreasuryCap>,
+    pub token_supplies: HashMap<String, TreasuryCap>,
     /// Owner of TreasuryCap for a token type (token_type -> owner address)
-    pub token_treasuries: BTreeMap<String, AccountAddress>,
+    pub token_treasuries: HashMap<String, AccountAddress>,
     /// Map of object id -> CreatedObject for objects created by Move executions
-    pub objects: BTreeMap<String, CreatedObject>,
+    pub objects: HashMap<String, CreatedObject>,
     /// Per-account list of owned object ids
-    pub owned_objects: BTreeMap<AccountAddress, Vec<String>>,
+    pub owned_objects: HashMap<AccountAddress, Vec<String>>,
 }
 
 impl StateManager {
     /// Create new state with genesis allocation
     /// Total supply: 11 million KANARI = 11,000,000,000,000,000 Mist
     /// Dev address gets entire supply according to kanari.move
-    ///
-    /// IMPORTANT: This function creates a deterministic genesis state.
-    /// All nodes MUST compute the same state root from this genesis.
     pub fn new() -> Self {
-        let mut accounts = BTreeMap::new();
+        let mut accounts = HashMap::new();
 
         // Total supply in Mist (from kanari-types constants)
         let total_supply_mist: u64 = KanariModule::TOTAL_SUPPLY_MIST;
@@ -127,10 +120,10 @@ impl StateManager {
             accounts,
             total_supply: total_supply_mist,
             events: Vec::new(),
-            token_supplies: BTreeMap::new(),
-            token_treasuries: BTreeMap::new(),
-            objects: BTreeMap::new(),
-            owned_objects: BTreeMap::new(),
+            token_supplies: HashMap::new(),
+            token_treasuries: HashMap::new(),
+            objects: HashMap::new(),
+            owned_objects: HashMap::new(),
         }
     }
 
@@ -295,10 +288,6 @@ impl StateManager {
         self.accounts.len()
     }
 
-    /// Compute deterministic state root from account data.
-    ///
-    /// CRITICAL: This MUST be deterministic across all nodes.
-    /// BTreeMap ensures deterministic iteration order during BCS serialization.
     pub fn compute_state_root(&self) -> Vec<u8> {
         let serialized =
             bcs::to_bytes(&self.accounts).expect("BCS serialization of accounts should never fail");

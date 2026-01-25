@@ -1237,6 +1237,11 @@ impl DagConsensus {
         &mut self.broadcaster
     }
 
+    /// Check if vertex exists in DAG
+    pub fn has_vertex(&self, vertex_id: &VertexId) -> bool {
+        self.store.vertices.contains_key(vertex_id)
+    }
+
     /// Get persistent store (optional)
     pub fn persistent_store(&self) -> Option<&PersistentDagStore> {
         self.persistent_store.as_ref()

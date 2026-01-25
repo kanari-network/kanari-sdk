@@ -7,7 +7,7 @@ use anyhow::Result;
 /// Stores transferred objects that can be queried and used as function arguments
 use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 /// Error types that can occur during `ObjectStorage` operations.
@@ -98,9 +98,9 @@ pub struct StoredObject {
 /// Object Storage - in-memory cache backed by persistent DB
 pub struct ObjectStorage {
     // Object ID -> StoredObject
-    objects: Arc<RwLock<BTreeMap<String, StoredObject>>>,
+    objects: Arc<RwLock<HashMap<String, StoredObject>>>,
     // Owner Address -> Vec<Object IDs>
-    owner_index: Arc<RwLock<BTreeMap<AccountAddress, Vec<String>>>>,
+    owner_index: Arc<RwLock<HashMap<AccountAddress, Vec<String>>>>,
     // Optional persistent backend
     persistent: Option<Arc<PersistentStore>>,
 }
@@ -110,8 +110,8 @@ impl ObjectStorage {
 
     pub fn new() -> Self {
         Self {
-            objects: Arc::new(RwLock::new(BTreeMap::new())),
-            owner_index: Arc::new(RwLock::new(BTreeMap::new())),
+            objects: Arc::new(RwLock::new(HashMap::new())),
+            owner_index: Arc::new(RwLock::new(HashMap::new())),
             persistent: None,
         }
     }
@@ -127,7 +127,7 @@ impl ObjectStorage {
         let store = Arc::new(store);
 
         // Load object index (list of ids) if present and rebuild in-memory maps
-        let mut objects_map: BTreeMap<String, StoredObject> = BTreeMap::new();
+        let mut objects_map: HashMap<String, StoredObject> = HashMap::new();
 
         if let Ok(Some(ids)) = store.load::<Vec<String>>(Self::OBJECT_INDEX_KEY) {
             for id in ids.into_iter() {
@@ -138,7 +138,7 @@ impl ObjectStorage {
         }
 
         // Build owner index from objects
-        let mut owner_map: BTreeMap<AccountAddress, Vec<String>> = BTreeMap::new();
+        let mut owner_map: HashMap<AccountAddress, Vec<String>> = HashMap::new();
         for (id, obj) in objects_map.iter() {
             owner_map.entry(obj.owner).or_default().push(id.clone());
         }

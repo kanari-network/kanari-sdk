@@ -422,11 +422,31 @@ async fn run_node(
                     );
 
                     // Broadcast the DAG vertex to other nodes
-                    if let Ok(vertex_str) = serde_json::to_string(&block_info) {
-                        let msg = P2PMessage::NewDagVertex(vertex_str);
-                        if let Err(e) = network_tx.send(msg) {
-                            tracing::warn!("Failed to queue DAG vertex broadcast: {}", e);
+                    if let Some(vertex) = block_info.vertex {
+                        match serde_json::to_string(&vertex) {
+                            Ok(vertex_str) => {
+                                tracing::info!(
+                                    "Broadcasting DAG vertex {} (round {}) to network ({} bytes)",
+                                    block_info.vertex_id,
+                                    block_info.round,
+                                    vertex_str.len()
+                                );
+                                let msg = P2PMessage::NewDagVertex(vertex_str);
+                                if let Err(e) = network_tx.send(msg) {
+                                    tracing::warn!("Failed to queue DAG vertex broadcast: {}", e);
+                                } else {
+                                    tracing::info!("DAG vertex queued for broadcast successfully");
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    "Failed to serialize DAG vertex for broadcast: {}",
+                                    e
+                                );
+                            }
                         }
+                    } else {
+                        tracing::warn!("No vertex in block_info to broadcast");
                     }
 
                     // If a checkpoint was created, broadcast the new blocks as well

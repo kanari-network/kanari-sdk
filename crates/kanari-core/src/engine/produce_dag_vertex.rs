@@ -21,6 +21,8 @@ pub struct DagBlockInfo {
     pub failed: usize,
     pub events: Vec<Event>,
     pub checkpoint: Option<CheckpointInfo>,
+    /// The actual DAG vertex for network broadcast
+    pub vertex: Option<centauri::consensus::DagVertex>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -193,6 +195,9 @@ impl DagEngine {
         let vertex_id = hex::encode(&vertex.id);
         let round = vertex.round;
 
+        // Clone vertex before adding to DAG (for network broadcast)
+        let vertex_for_broadcast = vertex.clone();
+
         // Add vertex to DAG
         {
             let mut consensus = self.consensus.write().unwrap();
@@ -225,6 +230,7 @@ impl DagEngine {
             failed,
             events,
             checkpoint: checkpoint_info,
+            vertex: Some(vertex_for_broadcast),
         })
     }
 
@@ -232,6 +238,24 @@ impl DagEngine {
     fn execute_transactions_parallel(
         &self,
         transactions: &[SignedTransaction],
+    ) -> Result<(Vec<ChangeSet>, usize, usize)> {
+        self.execute_transactions_parallel_internal(transactions, false)
+    }
+
+    /// Execute transactions in parallel with skip sequence validation
+    /// Used for syncing transactions from network vertices
+    fn execute_transactions_parallel_skip_seq(
+        &self,
+        transactions: &[SignedTransaction],
+    ) -> Result<(Vec<ChangeSet>, usize, usize)> {
+        self.execute_transactions_parallel_internal(transactions, true)
+    }
+
+    /// Internal parallel transaction execution with optional sequence validation skip
+    fn execute_transactions_parallel_internal(
+        &self,
+        transactions: &[SignedTransaction],
+        skip_seq_validation: bool,
     ) -> Result<(Vec<ChangeSet>, usize, usize)> {
         use crossbeam_channel as cbchan;
         use num_cpus;
@@ -244,10 +268,15 @@ impl DagEngine {
 
         if tx_count == 1 {
             // Single transaction - execute directly
-            match self
-                .engine
-                .execute_transaction(&transactions[0].transaction)
-            {
+            let result = if skip_seq_validation {
+                self.engine
+                    .execute_transaction_sync(&transactions[0].transaction)
+            } else {
+                self.engine
+                    .execute_transaction(&transactions[0].transaction)
+            };
+
+            match result {
                 Ok(changeset) => {
                     if changeset.success {
                         executed += 1;
@@ -276,6 +305,7 @@ impl DagEngine {
                 let job_rx = job_rx.clone();
                 let res_tx = res_tx.clone();
                 let pool_entry = pool[i % pool.len()].clone();
+                let skip_seq = skip_seq_validation;
 
                 let handle = std::thread::spawn(move || {
                     while let Ok((idx, tx, state_arc)) = job_rx.recv() {
@@ -283,9 +313,15 @@ impl DagEngine {
                             Ok(g) => g,
                             Err(poisoned) => poisoned.into_inner(), // Recover from poisoned mutex
                         };
-                        let res = BlockchainEngine::execute_transaction_with_runtime(
-                            &tx, &mut guard, &state_arc,
-                        );
+                        let res = if skip_seq {
+                            BlockchainEngine::execute_transaction_with_runtime_skip_seq(
+                                &tx, &mut guard, &state_arc,
+                            )
+                        } else {
+                            BlockchainEngine::execute_transaction_with_runtime(
+                                &tx, &mut guard, &state_arc,
+                            )
+                        };
                         let _ = res_tx.send((idx, res));
                     }
                 });
@@ -298,13 +334,22 @@ impl DagEngine {
                     Ok(mut runtime) => {
                         let job_rx = job_rx.clone();
                         let res_tx = res_tx.clone();
+                        let skip_seq = skip_seq_validation;
                         let handle = std::thread::spawn(move || {
                             while let Ok((idx, tx, state_arc)) = job_rx.recv() {
-                                let res = BlockchainEngine::execute_transaction_with_runtime(
-                                    &tx,
-                                    &mut runtime,
-                                    &state_arc,
-                                );
+                                let res = if skip_seq {
+                                    BlockchainEngine::execute_transaction_with_runtime_skip_seq(
+                                        &tx,
+                                        &mut runtime,
+                                        &state_arc,
+                                    )
+                                } else {
+                                    BlockchainEngine::execute_transaction_with_runtime(
+                                        &tx,
+                                        &mut runtime,
+                                        &state_arc,
+                                    )
+                                };
                                 let _ = res_tx.send((idx, res));
                             }
                         });
@@ -430,6 +475,93 @@ impl DagEngine {
     /// Get authority ID
     pub fn authority_id(&self) -> &str {
         &self.authority_id
+    }
+
+    /// Add a DAG vertex received from the network
+    /// This synchronizes the local DAG with vertices created by other nodes
+    /// IMPORTANT: Execute transactions BEFORE adding vertex to ensure state consistency
+    pub fn add_network_vertex(&self, vertex: centauri::consensus::DagVertex) -> Result<()> {
+        // Check if vertex already exists in DAG to avoid duplicate processing
+        {
+            let consensus = self.consensus.read().unwrap();
+            if consensus.has_vertex(&vertex.id) {
+                info!(
+                    "[DAG SYNC] Vertex {} (round {}) already exists, skipping",
+                    hex::encode(&vertex.id),
+                    vertex.round
+                );
+                return Ok(());
+            }
+        }
+
+        // Extract transactions from the vertex
+        let transactions = vertex.transactions.clone();
+
+        if !transactions.is_empty() {
+            // Remove these transactions from pending pool to avoid double execution
+            {
+                let mut pending = self.engine.pending_txs.write().unwrap();
+                let tx_hashes: std::collections::HashSet<Vec<u8>> =
+                    transactions.iter().map(|tx| tx.hash()).collect();
+
+                pending.retain(|tx| !tx_hashes.contains(&tx.hash()));
+
+                if !pending.is_empty() {
+                    info!(
+                        "[DAG SYNC] Removed {} transactions from pending pool (keeping {})",
+                        transactions.len(),
+                        pending.len()
+                    );
+                }
+            }
+
+            // Execute transactions to update local state
+            // NOTE: We execute with skip_seq validation since these txs are already validated
+            let (changesets, executed, failed) =
+                self.execute_transactions_parallel_skip_seq(&transactions)?;
+
+            info!(
+                "[DAG SYNC] Executed {} transactions from network vertex (round {}): {} succeeded, {} failed",
+                transactions.len(),
+                vertex.round,
+                executed,
+                failed
+            );
+
+            // Apply changesets to state and verify state root
+            let computed_state_root = {
+                let mut state = self.engine.state.write().unwrap();
+                for cs in changesets {
+                    if cs.success {
+                        state.apply_changeset(&cs)?;
+                    }
+                }
+                // Compute state root after applying changes
+                state.compute_state_root()
+            };
+
+            // CRITICAL: Validate state root matches vertex
+            let expected_state_root = &vertex.metadata.state_root;
+            if computed_state_root != *expected_state_root {
+                anyhow::bail!(
+                    "[DAG SYNC] STATE ROOT MISMATCH for vertex round {}!\n  Expected: {}\n  Computed: {}\n\nRejecting vertex due to state divergence.",
+                    vertex.round,
+                    hex::encode(expected_state_root),
+                    hex::encode(&computed_state_root)
+                );
+            }
+
+            info!(
+                "[DAG SYNC] State root validated successfully for vertex round {}: {}",
+                vertex.round,
+                hex::encode(&computed_state_root)
+            );
+        }
+
+        // Now add vertex to DAG consensus
+        let mut consensus = self.consensus.write().unwrap();
+        consensus.add_vertex(vertex)?;
+        Ok(())
     }
 }
 

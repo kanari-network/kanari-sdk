@@ -675,6 +675,11 @@ impl BlockchainEngine {
         self.authorities.clone()
     }
 
+    /// Get DAG engine if initialized (for vertex sync)
+    pub fn get_dag_engine(&self) -> Option<Arc<RwLock<Option<DagEngine>>>> {
+        Some(self.dag_engine.clone())
+    }
+
     /// Get blockchain stats
     pub fn get_stats(&self) -> BlockchainStats {
         let chain = self.blockchain.read().unwrap();
