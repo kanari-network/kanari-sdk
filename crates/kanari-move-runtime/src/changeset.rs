@@ -3,9 +3,9 @@
 
 use hex;
 use kanari_crypto::hash_data_blake3;
-use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::TreasuryCap;
 use kanari_types::object::UIDRecord;
+use kanari_types::{balance::BalanceRecord, event::Event};
 use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -20,15 +20,6 @@ pub struct CreatedObject {
     pub type_: String,
     pub data: Vec<u8>,
     pub version: u64,
-}
-
-/// Move VM Event representation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Event {
-    pub key: Vec<u8>,
-    pub sequence_number: u64,
-    pub type_tag: String,
-    pub event_data: Vec<u8>,
 }
 
 /// Represents changes to account state from Move VM execution

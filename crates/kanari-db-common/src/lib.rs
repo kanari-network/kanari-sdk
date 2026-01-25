@@ -34,7 +34,11 @@ pub fn open_or_get_db(path_opt: Option<PathBuf>) -> Result<Arc<DB>> {
         }
         pb
     } else {
-        let mut pb = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        let mut pb = if cfg!(miri) {
+            PathBuf::from(".")
+        } else {
+            dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
+        };
         pb.push(".kanari");
         pb.push("kanari-db");
         std::fs::create_dir_all(&pb).context("Failed to create kanari-db directory")?;

@@ -1,13 +1,13 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::changeset::{ChangeSet, CreatedObject, Event};
+use crate::changeset::{ChangeSet, CreatedObject};
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
-use kanari_types::address::Address as KanariAddress;
 use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::TreasuryCap;
 use kanari_types::kanari::KanariModule;
+use kanari_types::{address::Address as KanariAddress, event::Event};
 use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -95,7 +95,7 @@ pub struct StateManager {
 
 impl StateManager {
     /// Create new state with genesis allocation
-    /// Total supply: 100 million KANARI = 100,000,000,000,000,000 Mist
+    /// Total supply: 11 million KANARI = 11,000,000,000,000,000 Mist
     /// Dev address gets entire supply according to kanari.move
     pub fn new() -> Self {
         let mut accounts = HashMap::new();

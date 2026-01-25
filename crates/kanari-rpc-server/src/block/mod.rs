@@ -4,6 +4,7 @@ use kanari_rpc_api::{
     CompressedMerkleProofResponse, RpcEvent, TransactionMerkleProof,
 };
 use serde_json;
+use smt::{CompressedMerkleProof, compute_merkle_root};
 
 /// Handle get block request
 pub async fn handle_get_block(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
@@ -239,7 +240,7 @@ pub async fn handle_get_transaction_merkle_proof(
                     let merkle_root =
                         if let Some(full_block) = state.engine.get_full_block(req.block_height) {
                             // Compute merkle root from transactions
-                            use kanari_core::blockchain::compute_merkle_root;
+
                             let tx_hashes: Vec<Vec<u8>> =
                                 full_block.transactions.iter().map(|tx| tx.hash()).collect();
                             hex::encode(compute_merkle_root(&tx_hashes))
@@ -302,7 +303,6 @@ pub async fn handle_get_batch_merkle_proofs(
 
     // Get merkle root from block
     let merkle_root = if let Some(full_block) = state.engine.get_full_block(req.block_height) {
-        use kanari_core::blockchain::compute_merkle_root;
         let tx_hashes: Vec<Vec<u8>> = full_block.transactions.iter().map(|tx| tx.hash()).collect();
         hex::encode(compute_merkle_root(&tx_hashes))
     } else {
@@ -377,7 +377,6 @@ pub async fn handle_get_compressed_merkle_proof(
             // Get merkle root
             let merkle_root =
                 if let Some(full_block) = state.engine.get_full_block(req.block_height) {
-                    use kanari_core::blockchain::compute_merkle_root;
                     let tx_hashes: Vec<Vec<u8>> =
                         full_block.transactions.iter().map(|tx| tx.hash()).collect();
                     hex::encode(compute_merkle_root(&tx_hashes))
@@ -390,8 +389,6 @@ pub async fn handle_get_compressed_merkle_proof(
                     };
                 };
 
-            // Compress proof
-            use kanari_core::blockchain::CompressedMerkleProof;
             let tx_hash_bytes = hex::decode(&tx_hash).unwrap_or_default();
             let compressed =
                 CompressedMerkleProof::from_proof(&tx_hash_bytes, req.tx_index, &proof);

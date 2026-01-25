@@ -54,6 +54,14 @@ enum Commands {
         /// Run as relay server to help other nodes behind NAT
         #[arg(long, default_value = "false")]
         relay_server: bool,
+
+        /// Enable moderate mode for 8-16 cores (10K-30K TPS)
+        #[arg(long, default_value = "false")]
+        moderate: bool,
+
+        /// Enable high-throughput mode for 500K+ TPS (requires 64+ cores, 32GB+ RAM)
+        #[arg(long, default_value = "false")]
+        high_throughput: bool,
     },
     /// Run a local-only node
     Local {},
@@ -140,7 +148,8 @@ async fn main() -> Result<()> {
             rpc_host,
             data_dir,
             relay_server,
-            // bootstrap,
+            moderate,
+            high_throughput,
         } => {
             let data_dir_path = data_dir.clone().unwrap_or_else(|| {
                 let home = std::env::var("HOME")
@@ -158,6 +167,19 @@ async fn main() -> Result<()> {
                 tracing::info!("Using data directory: {}", d.display());
             }
 
+            // Check for conflicting flags
+            if moderate && high_throughput {
+                anyhow::bail!("Cannot use both --moderate and --high-throughput flags");
+            }
+
+            if moderate {
+                tracing::info!("👍 MODERATE MODE ENABLED (10K-30K TPS target)");
+                tracing::info!("   Optimized for: 8-16 cores, 16-32GB RAM");
+            } else if high_throughput {
+                tracing::info!("🚀 HIGH-THROUGHPUT MODE ENABLED (500K+ TPS target)");
+                tracing::info!("   Ensure sufficient resources: 64+ cores, 32GB+ RAM, NVMe SSD");
+            }
+
             let engine = BlockchainEngine::new()?;
             let engine_arc = Arc::new(engine);
 
@@ -168,6 +190,8 @@ async fn main() -> Result<()> {
                 rpc_host,
                 data_dir_path,
                 relay_server,
+                moderate,
+                high_throughput,
             )
             .await?;
             return Ok(());
@@ -195,6 +219,8 @@ async fn main() -> Result<()> {
                 rpc_host,
                 data_dir_path,
                 false,
+                false, // moderate
+                false, // high_throughput
             )
             .await?;
             return Ok(());
@@ -222,6 +248,8 @@ async fn run_node(
     rpc_host: String,
     data_dir: std::path::PathBuf,
     relay_server: bool,
+    moderate: bool,
+    high_throughput: bool,
 ) -> Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
@@ -230,6 +258,19 @@ async fn run_node(
 
     tracing::info!("Kanari blockchain node starting");
     tracing::info!("Network: Testnet, Move VM: Enabled");
+    if moderate {
+        tracing::info!("Mode: MODERATE (10K-30K TPS)");
+        tracing::info!("  - Parallel workers: up to 16 cores");
+        tracing::info!("  - Cache size: 10K vertices");
+        tracing::info!("  - Batch size: up to 1K");
+    } else if high_throughput {
+        tracing::info!("Mode: HIGH-THROUGHPUT (500K+ TPS)");
+        tracing::info!("  - Parallel workers: up to 128 cores");
+        tracing::info!("  - Cache size: 500K vertices");
+        tracing::info!("  - Batch size: up to 50K");
+    } else {
+        tracing::info!("Mode: Default (100K TPS)");
+    }
     tracing::info!("Initial blockchain height: {}", stats.height);
     let total_supply_str = KanariModule::format_kanari(stats.total_supply);
     tracing::info!(
@@ -373,20 +414,51 @@ async fn run_node(
             match engine.produce_block() {
                 Ok(block_info) => {
                     tracing::info!(
-                        "Block #{} produced: {} txs ({} executed, {} failed)",
-                        block_info.height,
+                        "DAG Vertex (Round #{}) produced: {} txs ({} executed, {} failed)",
+                        block_info.round,
                         block_info.tx_count,
                         block_info.executed,
                         block_info.failed
                     );
 
-                    // Broadcast the new block with full transaction data to the network
-                    if let Some(full_block_data) = engine.get_full_block(block_info.height)
-                        && let Ok(block_str) = serde_json::to_string(&full_block_data)
-                    {
-                        let msg = P2PMessage::NewBlock(block_str);
-                        if let Err(e) = network_tx.send(msg) {
-                            tracing::warn!("Failed to queue block broadcast: {}", e);
+                    // Broadcast the DAG vertex to other nodes
+                    if let Some(vertex) = block_info.vertex {
+                        match serde_json::to_string(&vertex) {
+                            Ok(vertex_str) => {
+                                tracing::info!(
+                                    "Broadcasting DAG vertex {} (round {}) to network ({} bytes)",
+                                    block_info.vertex_id,
+                                    block_info.round,
+                                    vertex_str.len()
+                                );
+                                let msg = P2PMessage::NewDagVertex(vertex_str);
+                                if let Err(e) = network_tx.send(msg) {
+                                    tracing::warn!("Failed to queue DAG vertex broadcast: {}", e);
+                                } else {
+                                    tracing::info!("DAG vertex queued for broadcast successfully");
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    "Failed to serialize DAG vertex for broadcast: {}",
+                                    e
+                                );
+                            }
+                        }
+                    } else {
+                        tracing::warn!("No vertex in block_info to broadcast");
+                    }
+
+                    // If a checkpoint was created, broadcast the new blocks as well
+                    if block_info.checkpoint.is_some() {
+                        let current_height = engine.blockchain.read().unwrap().height();
+                        if let Some(full_block_data) = engine.get_full_block(current_height)
+                            && let Ok(block_str) = serde_json::to_string(&full_block_data)
+                        {
+                            let msg = P2PMessage::NewBlock(block_str);
+                            if let Err(e) = network_tx.send(msg) {
+                                tracing::warn!("Failed to queue block broadcast: {}", e);
+                            }
                         }
                     }
                 }

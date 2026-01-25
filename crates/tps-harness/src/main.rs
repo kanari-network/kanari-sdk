@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Result;
-use kanari_core::{BlockchainEngine, SignedTransaction, Transaction};
+use kanari_core::BlockchainEngine;
 use kanari_crypto::keys::{CurveType, generate_keypair};
+use kanari_types::transaction::{SignedTransaction, Transaction};
 use move_core_types::account_address::AccountAddress;
 use std::time::Instant;
 
@@ -11,7 +12,7 @@ fn main() -> Result<()> {
     // Simple harness: create engine, pre-fund accounts, submit N transfers into pending_txs,
     // call produce_block() once and measure duration.
     let args: Vec<String> = std::env::args().collect();
-    let n: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(10000);
+    let n: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(2000);
 
     eprintln!("TPS harness: creating engine and preparing {} txs", n);
     let engine = BlockchainEngine::new()?;
@@ -46,7 +47,7 @@ fn main() -> Result<()> {
             let to = recipients[i].address.clone();
             let tx = Transaction::new_transfer(from.clone(), to, 1);
             let mut signed_tx = SignedTransaction::new(tx);
-            signed_tx.sign(&*senders[i].private_key, senders[i].curve_type)?;
+            signed_tx.sign(&senders[i].private_key, senders[i].curve_type)?;
             pending.push(signed_tx);
         }
     }

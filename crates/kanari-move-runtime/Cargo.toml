@@ -15,10 +15,8 @@ description.workspace = true
 anyhow = { workspace = true }
 bcs = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-dirs = { workspace = true }
 rocksdb = { workspace = true }
 hex = { workspace = true }
-once_cell = { workspace = true }
 zstd = { workspace = true }
 
 # Move VM dependencies (use workspace/local paths similar to other crates)

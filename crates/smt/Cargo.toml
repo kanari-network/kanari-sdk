@@ -14,10 +14,9 @@ description.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 rocksdb = { workspace = true }
-once_cell = { workspace = true }
-dirs = { workspace = true }
 blake3 = { workspace = true }
 kanari-db-common = { workspace = true }
+tracing = { workspace = true }
 
 [features]
 default = []

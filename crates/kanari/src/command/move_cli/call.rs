@@ -4,8 +4,8 @@
 use super::common::{build_blocking_client, get_account_sequence, load_wallet_for, normalize_addr};
 use anyhow::{Context, Result};
 use clap::*;
-use kanari_core::{SignedTransaction, Transaction};
 use kanari_move_runtime::gas::{GasEstimate, GasOperation};
+use kanari_types::transaction::{SignedTransaction, Transaction};
 use log::error;
 use move_core_types::{account_address::AccountAddress, language_storage::TypeTag, parser};
 

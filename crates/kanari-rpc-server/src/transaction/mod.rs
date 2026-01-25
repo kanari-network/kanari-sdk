@@ -1,9 +1,9 @@
 use crate::respond_with_serialize;
 
 use super::{RpcError, RpcRequest, RpcResponse, RpcServerState};
-use kanari_core::{SignedTransaction, Transaction};
 use kanari_rpc_api::{CallFunctionRequest, PublishModuleRequest, SignedTransactionData};
 use kanari_types::address::Address;
+use kanari_types::transaction::{SignedTransaction, Transaction};
 use move_binary_format::CompiledModule;
 use serde_json;
 use tracing::{error, info};
@@ -130,7 +130,7 @@ pub async fn handle_submit_transaction(
             gas_price: tx_data.gas_price,
             sequence_number: tx_data.sequence_number,
         }
-    } else if recipient.is_none() && tx_data.amount.is_some() {
+    } else if let (None, Some(amount)) = (recipient, tx_data.amount) {
         // Burn transaction (no recipient, amount provided)
         // Restrict burns to system/admin addresses only
         // Compare Address types directly instead of string hex to avoid formatting issues
@@ -152,7 +152,7 @@ pub async fn handle_submit_transaction(
 
         Transaction::Burn {
             from: sender.to_string(),
-            amount: tx_data.amount.unwrap(),
+            amount,
             gas_limit: tx_data.gas_limit,
             gas_price: tx_data.gas_price,
             sequence_number: tx_data.sequence_number,

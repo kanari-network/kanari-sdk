@@ -1,0 +1,382 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+//! ECVRF (Elliptic Curve Verifiable Random Function) implementation
+//! Based on RFC 9381: https://www.rfc-editor.org/rfc/rfc9381.html
+//!
+//! This is a production-grade VRF using Ristretto255 curve for cryptographically
+//! secure and unpredictable leader election in DAG consensus.
+
+use super::crypto_signatures::{
+    CompressedRistretto, RISTRETTO_BASEPOINT_TABLE, RistrettoPoint, Scalar,
+};
+use kanari_crypto::hash_data_blake3;
+use std::fmt;
+
+// ===== VRF Helper Functions (Shared between SecretKey and PublicKey) =====
+
+/// Hash arbitrary input to a curve point (hash-to-curve)
+/// Uses try-and-increment approach for Ristretto255
+fn vrf_hash_to_curve(alpha: &[u8]) -> RistrettoPoint {
+    let mut data = Vec::new();
+    data.extend_from_slice(b"vrf_h2c_v1");
+    data.extend_from_slice(alpha);
+
+    // Try-and-increment approach
+    for i in 0u32..256 {
+        let mut attempt = data.clone();
+        attempt.extend_from_slice(&i.to_le_bytes());
+        let hash = hash_data_blake3(&attempt);
+
+        if let Ok(compressed) = CompressedRistretto::from_slice(&hash[..32])
+            && let Some(point) = compressed.decompress()
+        {
+            return point;
+        }
+    }
+
+    // Fallback: use basepoint (should rarely happen)
+    RistrettoPoint::default()
+}
+
+/// Hash points to create challenge scalar for VRF proof
+fn vrf_hash_challenge(
+    pk: &RistrettoPoint,
+    h: &RistrettoPoint,
+    gamma: &RistrettoPoint,
+    u: &RistrettoPoint,
+    v: &RistrettoPoint,
+) -> Scalar {
+    let mut data = Vec::new();
+    data.extend_from_slice(b"vrf_challenge_v1");
+    data.extend_from_slice(pk.compress().as_bytes());
+    data.extend_from_slice(h.compress().as_bytes());
+    data.extend_from_slice(gamma.compress().as_bytes());
+    data.extend_from_slice(u.compress().as_bytes());
+    data.extend_from_slice(v.compress().as_bytes());
+
+    let hash = hash_data_blake3(&data);
+    let bytes: [u8; 32] = hash[..32].try_into().unwrap_or([0u8; 32]);
+    Scalar::from_bytes_mod_order(bytes)
+}
+
+/// Convert proof gamma to final VRF output hash
+fn vrf_proof_to_hash(gamma: &RistrettoPoint) -> [u8; 32] {
+    let mut data = Vec::new();
+    data.extend_from_slice(b"vrf_output_v1");
+    data.extend_from_slice(gamma.compress().as_bytes());
+
+    let hash = hash_data_blake3(&data);
+    hash[..32].try_into().unwrap_or([0u8; 32])
+}
+
+// ===== VRF Types =====
+
+/// VRF secret key (32 bytes, Ristretto255 scalar)
+#[derive(Clone)]
+pub struct VrfSecretKey {
+    scalar: Scalar,
+}
+
+/// VRF public key (32 bytes, Ristretto255 point)
+#[derive(Clone, PartialEq, Eq)]
+pub struct VrfPublicKey {
+    point: RistrettoPoint,
+}
+
+impl fmt::Debug for VrfPublicKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "VrfPublicKey({})",
+            hex::encode(self.point.compress().as_bytes())
+        )
+    }
+}
+
+/// VRF proof (gamma point + challenge + response)
+#[derive(Clone)]
+pub struct VrfProof {
+    gamma: RistrettoPoint, // VRF hash point
+    c: Scalar,             // Challenge
+    s: Scalar,             // Response
+}
+
+impl fmt::Debug for VrfProof {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("VrfProof")
+            .field("gamma", &hex::encode(self.gamma.compress().as_bytes()))
+            .field("c", &"[scalar]")
+            .field("s", &"[scalar]")
+            .finish()
+    }
+}
+
+/// VRF output (pseudorandom value)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VrfOutput {
+    pub value: [u8; 32],
+}
+
+impl VrfSecretKey {
+    /// Generate a new random VRF secret key
+    pub fn generate() -> Self {
+        // Keep deterministic behavior under Miri for testing, but use a
+        // secure OS RNG in all other environments.
+        if cfg!(miri) {
+            // deterministic seed under Miri
+            Self {
+                scalar: Scalar::from_bytes_mod_order([0u8; 32]),
+            }
+        } else {
+            // Use OS randomness for production security
+            use rand::RngCore;
+            use rand::rngs::OsRng;
+
+            let mut rng = OsRng;
+            let mut bytes = [0u8; 32];
+            rng.fill_bytes(&mut bytes);
+            Self {
+                scalar: Scalar::from_bytes_mod_order(bytes),
+            }
+        }
+    }
+
+    /// Create from raw bytes (clamped to valid scalar)
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self {
+            scalar: Scalar::from_bytes_mod_order(bytes),
+        }
+    }
+
+    /// Get raw bytes of the scalar
+    pub fn to_bytes(&self) -> [u8; 32] {
+        self.scalar.to_bytes()
+    }
+
+    /// Get the corresponding public key (scalar * basepoint)
+    pub fn public_key(&self) -> VrfPublicKey {
+        VrfPublicKey {
+            point: &self.scalar * RISTRETTO_BASEPOINT_TABLE,
+        }
+    }
+
+    /// Prove VRF evaluation for given input
+    pub fn prove(&self, alpha: &[u8]) -> (VrfOutput, VrfProof) {
+        // ECVRF-PROVE algorithm (simplified, using Ristretto255)
+
+        // 1. Hash to curve: H = hash_to_curve(alpha)
+        let h = vrf_hash_to_curve(alpha);
+
+        // 2. Compute gamma = sk * H (the VRF hash point)
+        let gamma = self.scalar * h;
+
+        // 3. Generate deterministic nonce k from sk and alpha
+        let k = self.generate_nonce(alpha, &gamma);
+
+        // 4. Compute commitment points: U = k*G, V = k*H
+        let u = &k * RISTRETTO_BASEPOINT_TABLE;
+        let v = k * h;
+
+        // 5. Compute challenge c = Hash(pk, H, gamma, U, V)
+        let pk = self.public_key();
+        let c = vrf_hash_challenge(&pk.point, &h, &gamma, &u, &v);
+
+        // 6. Compute response s = k + c*sk (mod order)
+        let s = k + (c * self.scalar);
+
+        // 7. Compute output = Hash(gamma)
+        let output = vrf_proof_to_hash(&gamma);
+
+        let proof = VrfProof { gamma, c, s };
+
+        (VrfOutput { value: output }, proof)
+    }
+
+    /// Generate deterministic nonce from secret key and input
+    fn generate_nonce(&self, alpha: &[u8], gamma: &RistrettoPoint) -> Scalar {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"vrf_nonce_v1");
+        data.extend_from_slice(&self.scalar.to_bytes());
+        data.extend_from_slice(alpha);
+        data.extend_from_slice(gamma.compress().as_bytes());
+
+        let hash = hash_data_blake3(&data);
+        let bytes: [u8; 32] = hash[..32].try_into().unwrap_or([0u8; 32]);
+        Scalar::from_bytes_mod_order(bytes)
+    }
+}
+
+impl VrfPublicKey {
+    /// Create from raw bytes
+    pub fn from_bytes(bytes: [u8; 32]) -> Option<Self> {
+        let compressed = CompressedRistretto::from_slice(&bytes).ok()?;
+        let point = compressed.decompress()?;
+        Some(Self { point })
+    }
+
+    /// Get raw bytes
+    pub fn as_bytes(&self) -> [u8; 32] {
+        *self.point.compress().as_bytes()
+    }
+
+    /// Verify VRF proof and recover output
+    ///
+    /// This implements the verification equation:
+    /// s*G == U + c*PK  and  s*H == V + c*Gamma
+    pub fn verify(&self, alpha: &[u8], proof: &VrfProof) -> Option<VrfOutput> {
+        // 1. Recompute H = hash_to_curve(alpha)
+        let h = vrf_hash_to_curve(alpha);
+
+        // 2. Recompute challenge c' = Hash(pk, H, gamma, U', V')
+        //    where U' = s*G - c*PK  and  V' = s*H - c*Gamma
+        let s_g = &proof.s * RISTRETTO_BASEPOINT_TABLE;
+        let c_pk = proof.c * self.point;
+        let u = s_g - c_pk;
+
+        let s_h = proof.s * h;
+        let c_gamma = proof.c * proof.gamma;
+        let v = s_h - c_gamma;
+
+        let c_prime = vrf_hash_challenge(&self.point, &h, &proof.gamma, &u, &v);
+
+        // 3. Verify that c == c'
+        if proof.c != c_prime {
+            return None;
+        }
+
+        // 4. Compute and return output = Hash(gamma)
+        let output = vrf_proof_to_hash(&proof.gamma);
+        Some(VrfOutput { value: output })
+    }
+}
+
+impl VrfOutput {
+    /// Convert to u64 for leader election (use first 8 bytes)
+    pub fn to_u64(&self) -> u64 {
+        u64::from_le_bytes(self.value[..8].try_into().unwrap_or([0u8; 8]))
+    }
+}
+
+impl fmt::Display for VrfOutput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", hex::encode(&self.value[..8]))
+    }
+}
+
+impl fmt::Debug for VrfSecretKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "VrfSecretKey([REDACTED])")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ecvrf_keygen() {
+        let sk = VrfSecretKey::generate();
+        let pk1 = sk.public_key();
+
+        // Public key should be deterministic
+        let pk2 = sk.public_key();
+        assert_eq!(pk1, pk2);
+    }
+
+    #[test]
+    fn test_ecvrf_prove_verify() {
+        let sk = VrfSecretKey::generate();
+        let pk = sk.public_key();
+
+        let alpha = b"test_input";
+        let (output, proof) = sk.prove(alpha);
+
+        // Verify proof
+        let verified_output = pk.verify(alpha, &proof);
+        assert!(verified_output.is_some());
+        assert_eq!(output, verified_output.unwrap());
+    }
+
+    #[test]
+    fn test_ecvrf_different_inputs() {
+        let sk = VrfSecretKey::generate();
+        let _pk = sk.public_key();
+
+        let (output1, _) = sk.prove(b"input1");
+        let (output2, _) = sk.prove(b"input2");
+
+        // Different inputs should produce different outputs
+        assert_ne!(output1, output2);
+    }
+
+    #[test]
+    fn test_ecvrf_deterministic() {
+        let sk = VrfSecretKey::from_bytes([42u8; 32]);
+
+        let alpha = b"deterministic_test";
+        let (output1, _) = sk.prove(alpha);
+        let (output2, _) = sk.prove(alpha);
+
+        // Same key and input should produce same output
+        assert_eq!(output1, output2);
+    }
+
+    #[test]
+    fn test_ecvrf_output_to_u64() {
+        let sk = VrfSecretKey::generate();
+        let (output, _) = sk.prove(b"test");
+
+        let value = output.to_u64();
+        // Value might be zero, so we just check it's valid
+        let _ = value;
+    }
+
+    #[test]
+    fn test_ecvrf_uniqueness() {
+        let sk = VrfSecretKey::generate();
+
+        let mut outputs = std::collections::HashSet::new();
+        for i in 0..100 {
+            let input = format!("input_{}", i);
+            let (output, _) = sk.prove(input.as_bytes());
+            outputs.insert(output.to_u64());
+        }
+
+        // Most outputs should be unique (allowing some collisions in u64 space)
+        assert!(outputs.len() > 90);
+    }
+
+    #[test]
+    fn test_ecvrf_invalid_proof() {
+        let sk = VrfSecretKey::generate();
+        let pk = sk.public_key();
+
+        let alpha = b"test_input";
+        let (_output, mut proof) = sk.prove(alpha);
+
+        // Tamper with the proof
+        proof.c = Scalar::from(999u64);
+
+        // Verification should fail
+        let verified = pk.verify(alpha, &proof);
+        assert!(verified.is_none());
+    }
+
+    #[test]
+    fn test_ecvrf_serialization() {
+        let sk = VrfSecretKey::from_bytes([42u8; 32]);
+        let pk = sk.public_key();
+
+        // Test public key serialization
+        let pk_bytes = pk.as_bytes();
+        let pk_restored = VrfPublicKey::from_bytes(pk_bytes);
+        assert!(pk_restored.is_some());
+        assert_eq!(pk, pk_restored.unwrap());
+
+        // Test secret key serialization
+        let sk_bytes = sk.to_bytes();
+        let sk_restored = VrfSecretKey::from_bytes(sk_bytes);
+        assert_eq!(sk.to_bytes(), sk_restored.to_bytes());
+    }
+}

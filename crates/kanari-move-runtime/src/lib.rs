@@ -13,7 +13,6 @@ pub mod storage;
 // #[cfg(test)]
 // mod tests;
 
-pub use changeset::Event;
 pub use changeset::{AccountChange, ChangeSet};
 pub use contract::{
     ContractABI, ContractCall, ContractDeployment, ContractInfo, ContractMetadata,

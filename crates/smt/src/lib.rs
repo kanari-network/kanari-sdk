@@ -26,3 +26,8 @@ pub use sparse_merkle::SparseMerkleTree;
 pub use sparse_merkle::default_hashes;
 
 pub use hash::*;
+mod merkle;
+pub use merkle::{
+    CompressedMerkleProof, batch_verify_merkle_proofs, compute_merkle_root,
+    generate_merkle_multiproof, generate_merkle_proof, verify_merkle_proof,
+};

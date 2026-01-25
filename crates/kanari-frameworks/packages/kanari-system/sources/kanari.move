@@ -20,11 +20,11 @@ module kanari_system::kanari {
     const MIST_PER_KANARI: u64 = 1_000_000_000;
 
     #[allow(unused_const)]
-    /// The total supply of Kanari denominated in whole Kanari tokens (100 Million)
-    const TOTAL_SUPPLY_KANARI: u64 = 100_000_000;
+    /// The total supply of Kanari denominated in whole Kanari tokens (11 Million)
+    const TOTAL_SUPPLY_KANARI: u64 = 11_000_000;
 
-    /// The total supply of Kanari denominated in Mist (100 Million * 10^9)
-    const TOTAL_SUPPLY_MIST: u64 = 100_000_000_000_000_000;
+    /// The total supply of Kanari denominated in Mist (11 Million * 10^9)
+    const TOTAL_SUPPLY_MIST: u64 = 11_000_000_000_000_000;
 
     /// Name of the coin
     struct KANARI has drop {}

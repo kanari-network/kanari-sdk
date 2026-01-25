@@ -4,7 +4,7 @@
 //! Transaction Merkle tree implementation using SMT hash functions
 //! This provides efficient verification for light clients
 
-use smt::digest;
+use crate::digest;
 
 type MerkleProofItem = (Vec<u8>, usize, Vec<Vec<u8>>);
 

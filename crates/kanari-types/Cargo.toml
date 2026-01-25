@@ -19,7 +19,10 @@ anyhow = { workspace = true }
 lazy_static = { workspace = true }
 serde = { workspace = true }
 hex = { workspace = true }
-
+kanari-crypto = { workspace = true }
+tracing = { workspace = true }
+bcs = { workspace = true }
+smt = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

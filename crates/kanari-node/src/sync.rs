@@ -1,12 +1,13 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use kanari_core::{BlockchainEngine, FullBlockData, SignedTransaction};
+use crate::p2p::{P2PMessage, PeerInfoMsg};
+use centauri::consensus::DagVertex;
+use kanari_core::{BlockchainEngine, FullBlockData, engine::DagEngine};
+use kanari_types::transaction::SignedTransaction;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
-
-use crate::p2p::{P2PMessage, PeerInfoMsg};
 
 /// Handles block and transaction synchronization between peers
 pub struct SyncManager {
@@ -30,6 +31,9 @@ impl SyncManager {
             }
             P2PMessage::NewBlock(block_data) => {
                 self.handle_new_block(block_data).await;
+            }
+            P2PMessage::NewDagVertex(vertex_data) => {
+                self.handle_new_dag_vertex(vertex_data).await;
             }
             P2PMessage::BlockRequest(height, _timestamp) => {
                 self.handle_block_request(height).await;
@@ -81,6 +85,102 @@ impl SyncManager {
             }
             Err(e) => {
                 error!("Failed to deserialize block: {}", e);
+            }
+        }
+    }
+
+    async fn handle_new_dag_vertex(&self, vertex_data: String) {
+        // DAG vertices are serialized as centauri::consensus::DagVertex
+        // NOT as DagBlockInfo which is just metadata
+
+        match serde_json::from_str::<DagVertex>(&vertex_data) {
+            Ok(vertex) => {
+                info!(
+                    "Received DAG vertex {} (round {}) from network with {} transactions",
+                    hex::encode(&vertex.id),
+                    vertex.round,
+                    vertex.transactions.len()
+                );
+
+                // Add vertex to local DAG consensus
+                // Auto-initialize DAG engine if not already initialized
+                if let Some(dag_engine_arc) = self.engine.get_dag_engine() {
+                    // Ensure DAG engine is initialized before processing vertex
+                    {
+                        let mut dag_engine_opt = dag_engine_arc.write().unwrap();
+                        if dag_engine_opt.is_none() {
+                            info!(
+                                "[DAG SYNC] Auto-initializing DAG engine for vertex round {}",
+                                vertex.round
+                            );
+
+                            // Initialize DAG engine with same authorities as the network
+                            let authority_id = self.engine.get_authority_id();
+                            let authorities = self.engine.get_authorities();
+
+                            match DagEngine::new(self.engine.clone(), authority_id, authorities) {
+                                Ok(engine) => {
+                                    *dag_engine_opt = Some(engine);
+                                    info!("[DAG SYNC] DAG engine initialized successfully");
+                                }
+                                Err(e) => {
+                                    error!("[DAG SYNC] Failed to initialize DAG engine: {}", e);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+
+                    let dag_engine_opt = dag_engine_arc.read().unwrap();
+                    if let Some(ref dag_engine) = *dag_engine_opt {
+                        match dag_engine.add_network_vertex(vertex.clone()) {
+                            Ok(_) => {
+                                info!(
+                                    "Successfully added DAG vertex {} to local consensus",
+                                    hex::encode(&vertex.id)
+                                );
+
+                                // Check if this triggered a checkpoint commit
+                                let consensus = dag_engine.consensus();
+                                if let Ok(checkpoint_opt) = consensus.write().unwrap().try_commit()
+                                {
+                                    if let Some(checkpoint) = checkpoint_opt {
+                                        info!(
+                                            "Checkpoint {} committed with {} vertices and {} transactions",
+                                            checkpoint.sequence,
+                                            checkpoint.vertices.len(),
+                                            checkpoint.transactions.len()
+                                        );
+
+                                        // Apply checkpoint to blockchain
+                                        if let Err(e) = self
+                                            .engine
+                                            .blockchain
+                                            .write()
+                                            .unwrap()
+                                            .add_checkpoint(checkpoint)
+                                        {
+                                            error!(
+                                                "Failed to apply checkpoint to blockchain: {}",
+                                                e
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                warn!("Failed to add DAG vertex to consensus: {}", e);
+                            }
+                        }
+                    } else {
+                        warn!("DAG engine not initialized, cannot process vertex");
+                    }
+                } else {
+                    warn!("DAG mode not enabled, ignoring vertex");
+                }
+            }
+            Err(e) => {
+                error!("Failed to deserialize DAG vertex: {}", e);
             }
         }
     }
