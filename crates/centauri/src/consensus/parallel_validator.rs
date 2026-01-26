@@ -168,7 +168,7 @@ impl ParallelValidator {
         // Cache newly validated vertices
         for result in &validation_results {
             if result.is_valid {
-                self.validated_cache.put(result.vertex_id.clone(), true);
+                self.validated_cache.put(result.vertex_id, true);
             }
         }
 
@@ -192,7 +192,7 @@ impl ParallelValidator {
         let mut vertices_to_validate = Vec::new();
 
         for vertex in vertices {
-            let vertex_id = vertex.id.clone();
+            let vertex_id = vertex.id;
 
             // Check in-memory cache first (fastest)
             if self.validated_cache.get(&vertex_id).is_some() {
@@ -209,7 +209,7 @@ impl ParallelValidator {
                 && let Ok(Some(_)) = store.get_vertex(&vertex_id)
             {
                 // Vertex exists in persistent store, assume it's validated
-                self.validated_cache.put(vertex_id.clone(), true); // Warm up cache
+                self.validated_cache.put(vertex_id, true); // Warm up cache
                 cached_results.push(ValidationResult {
                     vertex_id,
                     is_valid: true,
@@ -227,7 +227,7 @@ impl ParallelValidator {
 
     /// Validate a single vertex
     fn validate_single(vertex: DagVertex, _parallel_sig: bool) -> ValidationResult {
-        let vertex_id = vertex.id.clone();
+        let vertex_id = vertex.id;
 
         // Basic validation checks
         if let Err(e) = Self::check_vertex_structure(&vertex) {
@@ -334,7 +334,7 @@ impl ParallelValidator {
         // Cache validated vertices
         for result in &validation_results {
             if result.is_valid {
-                self.validated_cache.put(result.vertex_id.clone(), true);
+                self.validated_cache.put(result.vertex_id, true);
             }
         }
 
@@ -353,7 +353,7 @@ impl ParallelValidator {
         vertex: DagVertex,
         public_keys: &HashMap<String, ed25519_dalek::VerifyingKey>,
     ) -> ValidationResult {
-        let vertex_id = vertex.id.clone();
+        let vertex_id = vertex.id;
 
         // Basic validation
         if let Err(e) = Self::check_vertex_structure(&vertex) {

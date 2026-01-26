@@ -122,7 +122,7 @@ impl ByzantineDetector {
             // Collect all vertex IDs for fault reporting (safe unwrap - we just checked existence)
             if let Some(existing) = self.vertices_by_authority_round.get(&key) {
                 let mut all_vertices = existing.clone();
-                all_vertices.push(vertex.id.clone());
+                all_vertices.push(vertex.id);
 
                 let fault = ByzantineFault::DoubleVoting {
                     authority: vertex.author.clone(),
@@ -138,7 +138,7 @@ impl ByzantineDetector {
         self.vertices_by_authority_round
             .entry(key)
             .or_default()
-            .push(vertex.id.clone());
+            .push(vertex.id);
 
         Ok(())
     }
@@ -157,7 +157,7 @@ impl ByzantineDetector {
             if vertex.parents.len() < quorum {
                 let fault = ByzantineFault::InvalidVertex {
                     authority: vertex.author.clone(),
-                    vertex_id: vertex.id.clone(),
+                    vertex_id: vertex.id,
                     reason: format!(
                         "Insufficient parents: {} < {} (quorum)",
                         vertex.parents.len(),

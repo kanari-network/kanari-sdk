@@ -1028,9 +1028,8 @@ impl BlockchainEngine {
         );
 
         // Verify state root matches the one from the block
-        let expected_state_root_bytes =
-            hex::decode(&block_data.state_root.trim_start_matches("0x"))
-                .context("Invalid state root format in block data")?;
+        let expected_state_root_bytes = hex::decode(block_data.state_root.trim_start_matches("0x"))
+            .context("Invalid state root format in block data")?;
 
         if computed_state_root != expected_state_root_bytes {
             drop(state);

@@ -532,24 +532,24 @@ impl DagStore {
         }
 
         // Store vertex with Arc for zero-copy sharing (500K TPS optimization)
-        let vertex_id = vertex.id.clone();
+        let vertex_id = vertex.id;
         let round = vertex.round;
         let author = vertex.author.clone();
 
         let vertex_arc = Arc::new(vertex);
-        self.vertices.insert(vertex_id.clone(), vertex_arc);
+        self.vertices.insert(vertex_id, vertex_arc);
 
         // Index by round
         self.vertices_by_round
             .entry(round)
             .or_default()
-            .push(vertex_id.clone());
+            .push(vertex_id);
 
         // Index by authority
         self.vertices_by_authority
             .entry(author)
             .or_default()
-            .push(vertex_id.clone());
+            .push(vertex_id);
 
         // Add to pending
         self.pending_vertices.push_back(vertex_id);
@@ -642,7 +642,7 @@ impl DagStore {
                     v.metadata.is_checkpoint
                         && v.metadata.checkpoint_seq.unwrap_or(u64::MAX) <= cutoff_seq
                 })
-                .map(|(id, _)| id.clone())
+                .map(|(id, _)| *id)
                 .collect();
 
             for vertex_id in vertices_to_remove {
@@ -882,7 +882,7 @@ impl DagConsensus {
             .store
             .get_vertices_in_round(current_round)
             .into_iter()
-            .map(|v| v.id.clone())
+            .map(|v| v.id)
             .collect();
 
         // Create vertex
@@ -899,7 +899,7 @@ impl DagConsensus {
 
     /// Add vertex to the DAG
     pub fn add_vertex(&mut self, vertex: DagVertex) -> Result<()> {
-        let vertex_id = vertex.id.clone();
+        let vertex_id = vertex.id;
         let author = vertex.author.clone();
 
         // 1. Verify author is in current committee
@@ -946,7 +946,7 @@ impl DagConsensus {
         }
 
         // 6. Cache vertex for faster lookups (use Arc to avoid clone)
-        self.caches.vertices.put(vertex_id.clone(), vertex.clone());
+        self.caches.vertices.put(vertex_id, vertex.clone());
 
         // 7. Determine if this is a priority vertex
         let is_priority = self.vrf_election.is_leader(vertex.round, &author);
@@ -1043,8 +1043,7 @@ impl DagConsensus {
 
             if support_count >= quorum {
                 // Commit! Collect all uncommitted vertices up to and including leader vertex
-                let vertices_to_commit =
-                    self.collect_vertices_to_commit(leader_vertex.id.clone())?;
+                let vertices_to_commit = self.collect_vertices_to_commit(leader_vertex.id)?;
 
                 // Order transactions from vertices (with deduplication)
                 // Use HashSet to prevent duplicate transactions across vertices
@@ -1108,8 +1107,8 @@ impl DagConsensus {
             if processed {
                 // Second visit: add to result (post-order traversal)
                 if !visited.contains(&vertex_id) {
-                    visited.insert(vertex_id.clone());
-                    result.push(vertex_id.clone());
+                    visited.insert(vertex_id);
+                    result.push(vertex_id);
                 }
                 in_progress.remove(&vertex_id);
                 continue;
@@ -1122,10 +1121,7 @@ impl DagConsensus {
 
             // Cycle detection: if vertex is in current path, we have a cycle
             if in_progress.contains(&vertex_id) {
-                anyhow::bail!(
-                    "Cycle detected in DAG at vertex {}",
-                    hex::encode(&vertex_id)
-                );
+                anyhow::bail!("Cycle detected in DAG at vertex {}", hex::encode(vertex_id));
             }
 
             if let Some(vertex) = self.store.get_vertex(&vertex_id) {
@@ -1135,7 +1131,7 @@ impl DagConsensus {
                     continue;
                 }
 
-                in_progress.insert(vertex_id.clone());
+                in_progress.insert(vertex_id);
 
                 // Mark this vertex for second visit
                 stack.push((vertex_id, true));
@@ -1143,7 +1139,7 @@ impl DagConsensus {
                 // Add parents to stack (depth-first, will be processed before this vertex)
                 for parent_id in &vertex.parents {
                     if !visited.contains(parent_id) {
-                        stack.push((parent_id.clone(), false));
+                        stack.push((*parent_id, false));
                     }
                 }
             }

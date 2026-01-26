@@ -189,7 +189,7 @@ impl PersistentDagStore {
 
         let key = round.to_le_bytes();
         let mut vertex_ids = self.get_vertices_by_round(round)?;
-        vertex_ids.push(vertex_id.clone());
+        vertex_ids.push(*vertex_id);
 
         let value = bcs::to_bytes(&vertex_ids)
             .map_err(|e| anyhow::anyhow!("Failed to serialize vertex IDs: {}", e))?;

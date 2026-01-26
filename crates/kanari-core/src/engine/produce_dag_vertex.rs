@@ -184,7 +184,7 @@ impl DagEngine {
         let vertex = {
             let mut consensus = self.consensus.write().unwrap();
             let v = consensus.create_vertex(transactions.clone(), state_root.clone())?;
-            println!(
+            log::info!(
                 "[DAG] Created vertex for round {} with {} transactions",
                 v.round,
                 transactions.len()
@@ -192,7 +192,7 @@ impl DagEngine {
             v
         };
 
-        let vertex_id = hex::encode(&vertex.id);
+        let vertex_id = hex::encode(vertex.id);
         let round = vertex.round;
 
         // Clone vertex before adding to DAG (for network broadcast)
@@ -487,7 +487,7 @@ impl DagEngine {
             if consensus.has_vertex(&vertex.id) {
                 info!(
                     "[DAG SYNC] Vertex {} (round {}) already exists, skipping",
-                    hex::encode(&vertex.id),
+                    hex::encode(vertex.id),
                     vertex.round
                 );
                 return Ok(());

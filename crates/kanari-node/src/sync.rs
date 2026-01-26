@@ -97,7 +97,7 @@ impl SyncManager {
             Ok(vertex) => {
                 info!(
                     "Received DAG vertex {} (round {}) from network with {} transactions",
-                    hex::encode(&vertex.id),
+                    hex::encode(vertex.id),
                     vertex.round,
                     vertex.transactions.len()
                 );
@@ -137,34 +137,30 @@ impl SyncManager {
                             Ok(_) => {
                                 info!(
                                     "Successfully added DAG vertex {} to local consensus",
-                                    hex::encode(&vertex.id)
+                                    hex::encode(vertex.id)
                                 );
 
                                 // Check if this triggered a checkpoint commit
                                 let consensus = dag_engine.consensus();
-                                if let Ok(checkpoint_opt) = consensus.write().unwrap().try_commit()
+                                if let Ok(Some(checkpoint)) =
+                                    consensus.write().unwrap().try_commit()
                                 {
-                                    if let Some(checkpoint) = checkpoint_opt {
-                                        info!(
-                                            "Checkpoint {} committed with {} vertices and {} transactions",
-                                            checkpoint.sequence,
-                                            checkpoint.vertices.len(),
-                                            checkpoint.transactions.len()
-                                        );
+                                    info!(
+                                        "Checkpoint {} committed with {} vertices and {} transactions",
+                                        checkpoint.sequence,
+                                        checkpoint.vertices.len(),
+                                        checkpoint.transactions.len()
+                                    );
 
-                                        // Apply checkpoint to blockchain
-                                        if let Err(e) = self
-                                            .engine
-                                            .blockchain
-                                            .write()
-                                            .unwrap()
-                                            .add_checkpoint(checkpoint)
-                                        {
-                                            error!(
-                                                "Failed to apply checkpoint to blockchain: {}",
-                                                e
-                                            );
-                                        }
+                                    // Apply checkpoint to blockchain
+                                    if let Err(e) = self
+                                        .engine
+                                        .blockchain
+                                        .write()
+                                        .unwrap()
+                                        .add_checkpoint(checkpoint)
+                                    {
+                                        error!("Failed to apply checkpoint to blockchain: {}", e);
                                     }
                                 }
                             }
