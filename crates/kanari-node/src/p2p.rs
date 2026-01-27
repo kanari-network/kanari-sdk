@@ -199,12 +199,19 @@ impl P2PNetwork {
             .publish(topic.clone(), data)
         {
             Ok(_) => Ok(()),
-            Err(gossipsub::PublishError::Duplicate) => {
-                // Duplicate is not an error, just skip silently
-                Ok(())
-            }
             Err(e) => {
-                // Log warning but don't fail - could be no peers yet (InsufficientPeers/NoPeersSubscribedToTopic)
+                let err_str = e.to_string();
+                if err_str.contains("Duplicate") {
+                    // Duplicate is not an error, just skip silently
+                    return Ok(());
+                }
+                if err_str.contains("InsufficientPeers") {
+                     // This is normal when starting up or isolated - just log debug/info
+                     tracing::debug!("No peers subscribed to topic yet");
+                     return Ok(());
+                }
+                
+                // Log warning but don't fail
                 warn!("Publish warning: {}", e);
                 Ok(())
             }

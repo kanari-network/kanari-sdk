@@ -160,13 +160,6 @@ async fn main() -> Result<()> {
                     .join("kanari-db")
             });
 
-            if let Some(ref d) = data_dir {
-                unsafe {
-                    std::env::set_var("KANARI_STATE_DB", d);
-                }
-                tracing::info!("Using data directory: {}", d.display());
-            }
-
             // Check for conflicting flags
             if moderate && high_throughput {
                 anyhow::bail!("Cannot use both --moderate and --high-throughput flags");
@@ -180,7 +173,21 @@ async fn main() -> Result<()> {
                 tracing::info!("   Ensure sufficient resources: 64+ cores, 32GB+ RAM, NVMe SSD");
             }
 
-            let engine = BlockchainEngine::new()?;
+            // If data_dir is provided, use it. Otherwise, use the default internal logic
+            // which handles path resolution and directory creation correctly.
+            let engine = if let Some(ref d) = data_dir {
+                 unsafe {
+                     std::env::set_var("KANARI_STATE_DB", d);
+                     // Also set MOVE_VM_DB to ensure consistency if fallback is triggered
+                     std::env::set_var("KANARI_MOVE_VM_DB", d);
+                 }
+                 tracing::info!("Using data directory: {}", d.display());
+                 BlockchainEngine::new_dir(d.to_str().expect("Invalid data directory path"))?
+             } else {
+                // Use default persistent store (internally resolves to ~/.kanari/kanari-db/kanari_db)
+                BlockchainEngine::new()?
+            };
+            
             let engine_arc = Arc::new(engine);
 
             run_node(
@@ -468,6 +475,15 @@ async fn run_node(
             }
         }
 
-        sleep(Duration::from_secs(5)).await;
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("Shutdown signal received. Cleaning up and exiting...");
+                break;
+            }
+            _ = sleep(Duration::from_secs(5)) => {}
+        }
     }
+
+    tracing::info!("Node shutdown complete.");
+    Ok(())
 }

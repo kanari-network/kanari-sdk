@@ -144,6 +144,24 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
 type AccountProof = Option<(bool, Vec<u8>, Vec<Vec<u8>>)>;
 
 impl BlockchainEngine {
+    pub fn new_dir(dir: &str) -> Result<Self> {
+        let persistent_store = if cfg!(miri) {
+            None
+        } else {
+            match PersistentStore::open_with_path(Some(std::path::PathBuf::from(dir))) {
+                Ok(s) => Some(Arc::new(s)),
+                Err(e) => {
+                    eprintln!(
+                        "WARN: Failed to open persistent store at '{}': {}. Falling back to in-memory mode.",
+                        dir, e
+                    );
+                    None
+                }
+            }
+        };
+        Self::init(persistent_store)
+    }
+
     pub fn new() -> Result<Self> {
         // Try to open a persistent store for state + blockchain. If unavailable,
         // fall back to in-memory defaults. Under Miri, avoid opening disk-backed
@@ -153,10 +171,19 @@ impl BlockchainEngine {
         } else {
             match PersistentStore::open_default() {
                 Ok(s) => Some(Arc::new(s)),
-                Err(_) => None,
+                Err(e) => {
+                    eprintln!(
+                        "WARN: Failed to open default persistent store: {}. Falling back to in-memory mode.",
+                        e
+                    );
+                    None
+                }
             }
         };
+        Self::init(persistent_store)
+    }
 
+    fn init(persistent_store: Option<Arc<PersistentStore>>) -> Result<Self> {
         let blockchain = if let Some(store) = &persistent_store {
             if let Ok(Some(mut b)) = store.load::<Blockchain>("blockchain") {
                 // Rebuild transaction hash index after loading from disk

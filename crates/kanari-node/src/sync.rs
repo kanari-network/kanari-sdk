@@ -242,14 +242,15 @@ impl SyncManager {
                 "Peer {} is ahead at height {} (current: {})",
                 peer_info.peer_id, peer_info.height, stats.height
             );
-            // Request missing blocks starting from block 1 (skip genesis at height 0)
-            // This ensures we sync all blocks from the beginning
-            let start_height = if stats.height == 0 {
-                1
-            } else {
-                stats.height + 1
-            };
-            self.request_blocks(start_height, peer_info.height).await;
+            // Request missing blocks starting from the next block we need
+            // If we are at 0 (genesis only), start from 1.
+            // If we are at N, start from N+1.
+            let start_height = stats.height + 1;
+            
+            // Only request if start_height <= peer_height
+            if start_height <= peer_info.height {
+                self.request_blocks(start_height, peer_info.height).await;
+            }
         }
     }
 

@@ -72,14 +72,28 @@ impl PeerStore {
             .unwrap_or_default()
             .as_secs();
 
-        self.peers.insert(
-            peer_id_str.clone(),
-            PeerInfo {
-                peer_id: peer_id_str,
-                addresses: addr_strs,
-                last_seen: timestamp,
-            },
-        );
+        // If peer exists, update it. Only update addresses if we have new ones.
+        if let Some(existing) = self.peers.get_mut(&peer_id_str) {
+            existing.last_seen = timestamp;
+            if !addr_strs.is_empty() {
+                // Merge new addresses avoiding duplicates
+                for new_addr in addr_strs {
+                    if !existing.addresses.contains(&new_addr) {
+                        existing.addresses.push(new_addr);
+                    }
+                }
+            }
+        } else {
+            // New peer
+            self.peers.insert(
+                peer_id_str.clone(),
+                PeerInfo {
+                    peer_id: peer_id_str,
+                    addresses: addr_strs,
+                    last_seen: timestamp,
+                },
+            );
+        }
     }
 
     /// Remove a peer

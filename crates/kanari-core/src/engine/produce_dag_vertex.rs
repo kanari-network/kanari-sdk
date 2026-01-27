@@ -212,6 +212,22 @@ impl DagEngine {
                 let mut blockchain = self.engine.blockchain.write().unwrap();
                 blockchain.add_checkpoint(checkpoint.clone())?;
 
+                // Persist state and blockchain to avoid data loss on restart
+                if let Some(store) = &self.engine.persistent_store {
+                    // Save blockchain (blocks)
+                    if let Err(e) = store.save("blockchain", &*blockchain) {
+                        log::error!("Failed to persist blockchain: {}", e);
+                    }
+                    
+                    // Save state manager (accounts, balances)
+                    // Note: In DAG mode, state tracks the tip of the DAG.
+                    // Saving it here ensures we have at least the state at the last checkpoint.
+                    let state = self.engine.state.read().unwrap();
+                    if let Err(e) = store.save("state_manager", &*state) {
+                        log::error!("Failed to persist state_manager: {}", e);
+                    }
+                }
+
                 Some(CheckpointInfo {
                     sequence: checkpoint.sequence,
                     vertex_count: checkpoint.vertices.len(),
