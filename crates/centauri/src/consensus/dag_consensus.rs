@@ -26,6 +26,7 @@ use super::vrf_leader::{VrfLeaderElection, VrfOutput};
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
 use kanari_types::transaction::SignedTransaction;
+use log;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{
@@ -697,6 +698,15 @@ pub struct CheckpointStats {
     pub should_checkpoint: bool,
 }
 
+/// Serializable state of the DAG for persistence
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistentDagState {
+    vertices: Vec<DagVertex>,
+    checkpoints: Vec<Checkpoint>,
+    current_round: Round,
+    last_checkpoint_round: Round,
+}
+
 /// DAG Consensus Protocol (Bullshark-style with VRF leader election)
 pub struct DagConsensus {
     /// DAG storage
@@ -1004,6 +1014,10 @@ impl DagConsensus {
     /// Uses Bullshark-style leader-based ordering with VRF
     pub fn try_commit(&mut self) -> Result<Option<Checkpoint>> {
         let current_round = self.store.current_round();
+        log::debug!(
+            "[DAG Consensus] try_commit: current_round = {}",
+            current_round
+        );
 
         // Need at least 3 rounds to commit (leader round + 2 acknowledgment rounds)
         if current_round < 3 {
@@ -1011,6 +1025,10 @@ impl DagConsensus {
         }
 
         let commit_round = current_round - 2;
+        log::debug!(
+            "[DAG Consensus] try_commit: commit_round = {}",
+            commit_round
+        );
 
         // Try VRF-based leader election first
         let leader_id = if let Some(vrf_leader) = self.vrf_election.elect_leader(commit_round) {
@@ -1063,12 +1081,20 @@ impl DagConsensus {
 
                 // Create checkpoint
                 let latest = self.store.latest_checkpoint();
+                log::debug!(
+                    "[DAG Consensus] try_commit: latest.sequence = {}",
+                    latest.sequence
+                );
                 let checkpoint = Checkpoint::new(
                     latest.sequence + 1,
                     vertices_to_commit.clone(),
                     all_transactions,
                     leader_vertex.metadata.state_root.clone(),
                     latest.hash(),
+                );
+                log::debug!(
+                    "[DAG Consensus] try_commit: new checkpoint.sequence = {}",
+                    checkpoint.sequence
                 );
 
                 // Add checkpoint to store
@@ -1266,6 +1292,70 @@ impl DagConsensus {
     /// Get mutable parallel validator
     pub fn parallel_validator_mut(&mut self) -> &mut ParallelValidator {
         &mut self.parallel_validator
+    }
+
+    /// Save the essential state of the DAG to a serializable struct
+    pub fn save_state(&self) -> Result<PersistentDagState> {
+        let vertices = self
+            .store
+            .vertices
+            .values()
+            .map(|v| (**v).clone())
+            .collect();
+        let state = PersistentDagState {
+            vertices,
+            checkpoints: self.store.checkpoints.clone(),
+            current_round: self.store.current_round,
+            last_checkpoint_round: self.store.last_checkpoint_round,
+        };
+        Ok(state)
+    }
+
+    /// Load the state of the DAG from a serializable struct
+    pub fn load_state(&mut self, state: PersistentDagState) -> Result<()> {
+        let mut new_store = DagStore::with_config(
+            self.store.authorities.iter().cloned().collect(),
+            self.store.checkpoint_config.clone(),
+        );
+
+        new_store.checkpoints = state.checkpoints;
+        new_store.current_round = state.current_round;
+        new_store.last_checkpoint_round = state.last_checkpoint_round;
+
+        for vertex in state.vertices {
+            let vertex_id = vertex.id;
+            let round = vertex.round;
+            let author = vertex.author.clone();
+
+            new_store.vertices.insert(vertex_id, Arc::new(vertex));
+            new_store
+                .vertices_by_round
+                .entry(round)
+                .or_default()
+                .push(vertex_id);
+            new_store
+                .vertices_by_authority
+                .entry(author)
+                .or_default()
+                .push(vertex_id);
+        }
+
+        // Reconstruct pending_vertices
+        let committed_vertices: HashSet<VertexId> = new_store
+            .checkpoints
+            .iter()
+            .flat_map(|cp| cp.vertices.iter().cloned())
+            .collect();
+
+        new_store.pending_vertices = new_store
+            .vertices
+            .keys()
+            .filter(|&id| !committed_vertices.contains(id))
+            .cloned()
+            .collect();
+
+        self.store = new_store;
+        Ok(())
     }
 }
 

@@ -161,6 +161,34 @@ impl SyncManager {
                                         .add_checkpoint(checkpoint)
                                     {
                                         error!("Failed to apply checkpoint to blockchain: {}", e);
+                                    } else {
+                                        // Persist blockchain and state after checkpoint commit
+                                        if let Some(store) = &self.engine.persistent_store {
+                                            let chain = self.engine.blockchain.read().unwrap();
+                                            if let Err(e) = store.save("blockchain", &*chain) {
+                                                error!(
+                                                    "Failed to persist blockchain after checkpoint: {}",
+                                                    e
+                                                );
+                                            }
+                                            drop(chain);
+
+                                            let state = self.engine.state.read().unwrap();
+                                            if let Err(e) = store.save("state_manager", &*state) {
+                                                error!(
+                                                    "Failed to persist state after checkpoint: {}",
+                                                    e
+                                                );
+                                            }
+                                            drop(state);
+
+                                            if let Err(e) = store.flush() {
+                                                error!(
+                                                    "Failed to flush store after checkpoint: {}",
+                                                    e
+                                                );
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -246,11 +274,21 @@ impl SyncManager {
             // If we are at 0 (genesis only), start from 1.
             // If we are at N, start from N+1.
             let start_height = stats.height + 1;
-            
+
             // Only request if start_height <= peer_height
             if start_height <= peer_info.height {
                 self.request_blocks(start_height, peer_info.height).await;
+            } else {
+                warn!(
+                    "Peer {} has height {} but we need {} (stats.height: {}). Not requesting.",
+                    peer_info.peer_id, peer_info.height, start_height, stats.height
+                );
             }
+        } else {
+            info!(
+                "Peer {} is at height {} (current: {}). We are synced.",
+                peer_info.peer_id, peer_info.height, stats.height
+            );
         }
     }
 

@@ -21,6 +21,7 @@ pub type SmtSnapshot = Vec<(Vec<u8>, Vec<u8>)>;
 enum WriteOp {
     Put(Vec<u8>, Vec<u8>),
     Delete(Vec<u8>),
+    Flush(mpsc::Sender<()>),
 }
 
 /// Lightweight persistent BCS-backed store for runtime state. Internally it
@@ -65,6 +66,19 @@ impl PersistentStore {
                         Ok(op) => match op {
                             WriteOp::Put(k, v) => puts.push((k, v)),
                             WriteOp::Delete(k) => deletes.push(k),
+                            WriteOp::Flush(ack) => {
+                                // Flush pending writes immediately
+                                if !puts.is_empty() {
+                                    let _ = worker_smt.insert(&puts);
+                                    puts.clear();
+                                }
+                                if !deletes.is_empty() {
+                                    let _ = worker_smt.delete(&deletes);
+                                    deletes.clear();
+                                }
+                                // Signal completion
+                                let _ = ack.send(());
+                            }
                         },
                         Err(mpsc::RecvTimeoutError::Timeout) => {
                             // timeout - continue to flushing logic
@@ -88,6 +102,19 @@ impl PersistentStore {
                         match op {
                             WriteOp::Put(k, v) => puts.push((k, v)),
                             WriteOp::Delete(k) => deletes.push(k),
+                            WriteOp::Flush(ack) => {
+                                // Flush buffered ops first
+                                if !puts.is_empty() {
+                                    let _ = worker_smt.insert(&puts);
+                                    puts.clear();
+                                }
+                                if !deletes.is_empty() {
+                                    let _ = worker_smt.delete(&deletes);
+                                    deletes.clear();
+                                }
+                                // Signal completion
+                                let _ = ack.send(());
+                            }
                         }
                         if puts.len() + deletes.len() >= 5000 {
                             break;
@@ -166,6 +193,20 @@ impl PersistentStore {
             return Ok(());
         }
 
+        Ok(())
+    }
+
+    /// Flush all pending writes to the backing store synchronously.
+    /// This blocks until the background worker has processed all currently queued operations.
+    pub fn flush(&self) -> Result<()> {
+        if let Some(tx) = &self.sender {
+            let (ack_tx, ack_rx) = mpsc::channel();
+            tx.send(WriteOp::Flush(ack_tx))
+                .map_err(|e| anyhow::anyhow!(format!("Failed to enqueue flush: {}", e)))?;
+            ack_rx
+                .recv()
+                .map_err(|e| anyhow::anyhow!(format!("Failed to receive flush ack: {}", e)))?;
+        }
         Ok(())
     }
 

@@ -57,15 +57,23 @@ impl DagEngine {
             blockchain.enable_dag_mode();
         }
 
-        // Use default config which is already optimized for high throughput
-        let consensus = Arc::new(RwLock::new(DagConsensus::new(
-            authority_id.clone(),
-            authorities,
-        )));
+        let mut consensus = DagConsensus::new(authority_id.clone(), authorities);
+
+        // Load persisted DAG state if it exists
+        if let Some(dag_state) = &engine.persisted_dag_state {
+            if let Err(e) = consensus.load_state(dag_state.clone()) {
+                log::error!(
+                    "Failed to load persisted DAG state: {}. Creating fresh state.",
+                    e
+                );
+            } else {
+                log::info!("Successfully loaded persisted DAG state.");
+            }
+        }
 
         Ok(Self {
             engine,
-            consensus,
+            consensus: Arc::new(RwLock::new(consensus)),
             authority_id,
         })
     }
@@ -218,13 +226,23 @@ impl DagEngine {
                     if let Err(e) = store.save("blockchain", &*blockchain) {
                         log::error!("Failed to persist blockchain: {}", e);
                     }
-                    
+
                     // Save state manager (accounts, balances)
-                    // Note: In DAG mode, state tracks the tip of the DAG.
-                    // Saving it here ensures we have at least the state at the last checkpoint.
                     let state = self.engine.state.read().unwrap();
                     if let Err(e) = store.save("state_manager", &*state) {
                         log::error!("Failed to persist state_manager: {}", e);
+                    }
+
+                    // Save DAG consensus state
+                    if let Ok(dag_state) = consensus.save_state()
+                        && let Err(e) = store.save("dag_state", &dag_state)
+                    {
+                        log::error!("Failed to persist dag_state: {}", e);
+                    }
+
+                    // Flush all pending writes to ensure durability
+                    if let Err(e) = store.flush() {
+                        log::error!("Failed to flush persistent store: {}", e);
                     }
                 }
 
@@ -545,15 +563,17 @@ impl DagEngine {
             );
 
             // Apply changesets to state and verify state root
+            // CRITICAL: We must validate against a CLONE first to avoid corrupting
+            // the main state if the vertex is invalid (e.g. state root mismatch).
             let computed_state_root = {
-                let mut state = self.engine.state.write().unwrap();
-                for cs in changesets {
+                let mut state_clone = self.engine.state.read().unwrap().clone();
+                for cs in &changesets {
                     if cs.success {
-                        state.apply_changeset(&cs)?;
+                        state_clone.apply_changeset(cs)?;
                     }
                 }
-                // Compute state root after applying changes
-                state.compute_state_root()
+                // Compute state root after applying changes to clone
+                state_clone.compute_state_root()
             };
 
             // CRITICAL: Validate state root matches vertex
@@ -572,6 +592,16 @@ impl DagEngine {
                 vertex.round,
                 hex::encode(&computed_state_root)
             );
+
+            // Validation passed - now apply to canonical state
+            {
+                let mut state = self.engine.state.write().unwrap();
+                for cs in changesets {
+                    if cs.success {
+                        state.apply_changeset(&cs)?;
+                    }
+                }
+            }
         }
 
         // Now add vertex to DAG consensus

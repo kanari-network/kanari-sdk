@@ -15,7 +15,7 @@ pub struct Blockchain {
     pub blocks: Vec<Block>,
 
     /// DAG checkpoints (committed state)
-    #[serde(skip)]
+    #[serde(default = "default_dag_checkpoints")]
     pub dag_checkpoints: Vec<Checkpoint>,
 
     /// Track executed transactions (for deduplication)
@@ -29,6 +29,10 @@ pub struct Blockchain {
 
 fn default_dag_mode() -> bool {
     true
+}
+
+fn default_dag_checkpoints() -> Vec<Checkpoint> {
+    vec![Checkpoint::genesis()]
 }
 
 impl Blockchain {
@@ -239,7 +243,7 @@ mod tests {
 
     #[test]
     fn test_transaction_hash() {
-        let tx = Transaction::new_transfer("0x1".to_string(), "0x2".to_string(), 1000);
+        let tx = Transaction::new_transfer("0x1".to_string(), "0x2".to_string(), 1000, 0);
 
         let hash1 = tx.hash();
         let hash2 = tx.hash();

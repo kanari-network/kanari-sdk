@@ -34,13 +34,39 @@ impl PeerStore {
         }
     }
 
-    /// Load peer store from disk
+    /// Load peer store from disk and filter out old peers
     pub fn load(file_path: PathBuf) -> Result<Self> {
         if file_path.exists() {
             let contents = fs::read_to_string(&file_path)?;
             let mut store: PeerStore = serde_json::from_str(&contents)?;
             store.file_path = file_path;
-            info!("Loaded {} peers from disk", store.peers.len());
+
+            // Filter out peers older than 24 hours
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+
+            let old_count = store.peers.len();
+            store.peers.retain(|_, info| {
+                // Keep peers seen in last 24 hours (86400 seconds)
+                // If last_seen is 0 (legacy), keep them for now or discard? Let's discard if strictly checking.
+                // But for safety, let's say if 0, update to now? No, that's fake.
+                // Let's keep if diff < 86400.
+                now.saturating_sub(info.last_seen) < 86400
+            });
+            let new_count = store.peers.len();
+
+            if old_count != new_count {
+                info!(
+                    "Loaded {} peers from disk (discarded {} old peers)",
+                    new_count,
+                    old_count - new_count
+                );
+            } else {
+                info!("Loaded {} peers from disk", store.peers.len());
+            }
+
             Ok(store)
         } else {
             info!("No existing peer store found, creating new one");

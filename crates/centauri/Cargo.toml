@@ -27,6 +27,7 @@ rand = { workspace = true }
 rocksdb = { workspace = true }
 rayon = { workspace = true }
 num_cpus = { workspace = true }
+log = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

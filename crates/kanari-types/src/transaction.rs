@@ -157,25 +157,25 @@ impl Transaction {
     }
 
     /// Create a transfer transaction with default gas settings
-    pub fn new_transfer(from: String, to: String, amount: u64) -> Self {
+    pub fn new_transfer(from: String, to: String, amount: u64, sequence_number: u64) -> Self {
         Self::Transfer {
             from,
             to,
             amount,
             gas_limit: 100_000, // Default gas limit
             gas_price: 1000,    // Default gas price (1000 Mist)
-            sequence_number: 0,
+            sequence_number,
         }
     }
 
     /// Create a burn transaction with default gas settings
-    pub fn new_burn(from: String, amount: u64) -> Self {
+    pub fn new_burn(from: String, amount: u64, sequence_number: u64) -> Self {
         Self::Burn {
             from,
             amount,
             gas_limit: 100_000,
             gas_price: 1000,
-            sequence_number: 0,
+            sequence_number,
         }
     }
 }

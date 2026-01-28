@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result};
 use centauri::blockchain::Blockchain;
-use centauri::consensus::Checkpoint;
+use centauri::consensus::{Checkpoint, PersistentDagState};
 use kanari_move_runtime::ContractABI;
 use kanari_move_runtime::changeset::ChangeSet;
 use kanari_move_runtime::contract::{ContractInfo, ContractRegistry};
@@ -54,6 +54,8 @@ pub struct BlockchainEngine {
     authority_id: String,
     // List of all authorities (validators) in the network
     authorities: Vec<String>,
+    // Persisted DAG state, loaded on startup
+    persisted_dag_state: Option<PersistentDagState>,
 }
 
 // Basic recursive parser for simple type-argument strings used by RPC/tests.
@@ -253,6 +255,14 @@ impl BlockchainEngine {
         let authority_id = "0xDEFAULT_AUTHORITY".to_string();
         let authorities = vec![authority_id.clone()];
 
+        let persisted_dag_state = if let Some(store) = &persistent_store {
+            store
+                .load::<PersistentDagState>("dag_state")
+                .unwrap_or(None)
+        } else {
+            None
+        };
+
         Ok(Self {
             blockchain,
             state,
@@ -265,6 +275,7 @@ impl BlockchainEngine {
             dag_engine: Arc::new(RwLock::new(None)),
             authority_id,
             authorities,
+            persisted_dag_state,
         })
     }
 
@@ -317,62 +328,40 @@ impl BlockchainEngine {
         let tx_hash = signed_tx.hash();
         let tx = signed_tx.transaction;
 
-        // Check if DAG mode is enabled
-        let is_dag_mode = self.blockchain.read().unwrap().dag_mode;
+        // For immediate (RPC) execution, whether in DAG mode or not, we run
+        // the Move execution against a cloned snapshot of the current StateManager.
+        // This makes the call a read-only/simulated run: it returns the
+        // ChangeSet that would be applied, but it does NOT mutate the engine's
+        // canonical `state`. This is crucial because the same transaction is
+        // also submitted for consensus. Modifying the state here would cause
+        // validation to fail during consensus, leading to state divergence.
+        let changeset = {
+            // Clone the current state for a safe simulation
+            let mut state_snapshot = { self.state.read().unwrap().clone() };
 
-        if is_dag_mode {
-            // In DAG mode: Execute directly against live state and apply changeset
-            // This bypasses DAG consensus for immediate execution (needed for RPC)
-            let changeset = {
-                let mut runtime = self.move_runtime.write().unwrap();
-                Self::execute_transaction_with_runtime(&tx, &mut runtime, &self.state)?
-            };
-
-            // Apply changeset to live state immediately
-            if changeset.success {
-                let mut state = self.state.write().unwrap();
-                state.apply_changeset(&changeset)?;
-            }
-
-            Ok((tx_hash, changeset))
-        } else {
-            // Original behavior for non-DAG mode: Use snapshot (read-only simulation)
-            // For immediate (RPC) execution we run the Move execution against a
-            // cloned snapshot of the current StateManager so the call is a
-            // read-only/simulated run: it returns the ChangeSet that would be
-            // applied, but it does NOT mutate the engine's canonical `state`.
-            // This prevents sequence number / balance drift when the same signed
-            // transaction is later submitted for inclusion in a block.
-            let changeset = {
-                // Clone the current state for a safe simulation
-                let mut state_snapshot = { self.state.read().unwrap().clone() };
-
-                // Adjust the cloned snapshot to account for any pending transactions
-                // from the same sender so that sequence validation during the
-                // simulated execution reflects the expected sequence number once
-                // pending transactions are included. This prevents immediate
-                // execution from rejecting a transaction whose sequence has been
-                // advanced by earlier pending submissions.
-                if let Ok(pending) = self.pending_txs.read() {
-                    for ptx in pending.iter() {
-                        if ptx.transaction.sender_address() == tx.sender_address()
-                            && let Ok(addr) =
-                                AccountAddress::from_hex_literal(ptx.transaction.sender_address())
-                        {
-                            let acct = state_snapshot.get_or_create_account(addr);
-                            acct.increment_sequence();
-                        }
+            // Adjust the cloned snapshot to account for any pending transactions
+            // from the same sender. This ensures that sequence validation during
+            // the simulated execution reflects the expected sequence number once
+            // pending transactions are included, preventing spurious rejections.
+            if let Ok(pending) = self.pending_txs.read() {
+                for ptx in pending.iter() {
+                    if ptx.transaction.sender_address() == tx.sender_address()
+                        && let Ok(addr) =
+                            AccountAddress::from_hex_literal(ptx.transaction.sender_address())
+                    {
+                        let acct = state_snapshot.get_or_create_account(addr);
+                        acct.increment_sequence();
                     }
                 }
-                let state_arc = Arc::new(RwLock::new(state_snapshot));
+            }
+            let state_arc = Arc::new(RwLock::new(state_snapshot));
 
-                // Use the engine's runtime to execute against the cloned state.
-                let mut runtime = self.move_runtime.write().unwrap();
-                Self::execute_transaction_with_runtime(&tx, &mut runtime, &state_arc)?
-            };
+            // Use the engine's runtime to execute against the cloned state.
+            let mut runtime = self.move_runtime.write().unwrap();
+            Self::execute_transaction_with_runtime(&tx, &mut runtime, &state_arc)?
+        };
 
-            Ok((tx_hash, changeset))
-        }
+        Ok((tx_hash, changeset))
     }
 
     /// Execute a single transaction and return ChangeSet
@@ -681,6 +670,7 @@ impl BlockchainEngine {
             dag_engine: Arc::new(RwLock::new(None)), // Don't clone DAG engine (prevent recursion)
             authority_id: self.authority_id.clone(),
             authorities: self.authorities.clone(),
+            persisted_dag_state: self.persisted_dag_state.clone(),
         }
     }
 
@@ -1032,23 +1022,21 @@ impl BlockchainEngine {
             }
         }
 
-        // Apply all changesets to state
+        // Apply all changesets to state (validate on clone first)
         eprintln!(
-            "[SYNC] Applying {} changesets to state",
+            "[SYNC] Applying {} changesets to state (validating on clone first)",
             all_changesets.len()
         );
-        let mut state = self.state.write().unwrap();
-        for (i, cs) in all_changesets.iter().enumerate() {
-            eprintln!(
-                "[SYNC] Applying changeset {}/{}",
-                i + 1,
-                all_changesets.len()
-            );
-            state.apply_changeset(cs)?;
-        }
 
-        // Compute new state root after applying all changes
-        let computed_state_root = state.compute_state_root();
+        // 1. Validate on clone to prevent state corruption
+        let computed_state_root = {
+            let mut state_clone = self.state.read().unwrap().clone();
+            for cs in &all_changesets {
+                state_clone.apply_changeset(cs)?;
+            }
+            state_clone.compute_state_root()
+        };
+
         eprintln!(
             "[SYNC] Computed state root: {}",
             hex::encode(&computed_state_root)
@@ -1059,7 +1047,6 @@ impl BlockchainEngine {
             .context("Invalid state root format in block data")?;
 
         if computed_state_root != expected_state_root_bytes {
-            drop(state);
             anyhow::bail!(
                 "[SYNC] STATE ROOT MISMATCH!\n  Expected: {}\n  Computed: {}\n\nThis indicates state divergence. The node's state after executing transactions does not match the sender's state.\nPossible causes:\n  - Different genesis state\n  - Different transaction execution order\n  - Determinism issues in Move VM execution\n  - Missing prior blocks/transactions\n\nRecommendation: Clear state and resync from genesis.",
                 block_data.state_root,
@@ -1068,8 +1055,21 @@ impl BlockchainEngine {
         }
 
         eprintln!("[SYNC] ✅ State root verification passed!");
+
+        // 2. Apply to canonical state
+        {
+            let mut state = self.state.write().unwrap();
+            for (i, cs) in all_changesets.iter().enumerate() {
+                eprintln!(
+                    "[SYNC] Applying changeset {}/{}",
+                    i + 1,
+                    all_changesets.len()
+                );
+                state.apply_changeset(cs)?;
+            }
+        }
+
         let state_root = computed_state_root;
-        drop(state);
 
         // Add checkpoint to blockchain (DAG mode)
         let add_result = {
