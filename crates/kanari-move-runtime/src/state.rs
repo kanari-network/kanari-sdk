@@ -10,7 +10,7 @@ use kanari_types::kanari::KanariModule;
 use kanari_types::{address::Address as KanariAddress, event::Event};
 use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Account state in the blockchain
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,10 +18,10 @@ pub struct Account {
     pub address: AccountAddress,
     pub balance: u64, // Native KANARI balance in Mist
     pub sequence_number: u64,
-    pub modules: HashSet<String>,
+    pub modules: BTreeSet<String>,
     /// Token balances: token_type -> BalanceRecord
     /// Example: "0x840512ff...::james::JAMES" -> BalanceRecord(1000000000)
-    pub token_balances: HashMap<String, BalanceRecord>,
+    pub token_balances: BTreeMap<String, BalanceRecord>,
 }
 
 impl Account {
@@ -30,8 +30,8 @@ impl Account {
             address,
             balance,
             sequence_number: 0,
-            modules: HashSet::new(),
-            token_balances: HashMap::new(),
+            modules: BTreeSet::new(),
+            token_balances: BTreeMap::new(),
         }
     }
 
@@ -80,17 +80,17 @@ impl Account {
 /// This is a pure data layer that applies ChangeSet from Move VM execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateManager {
-    pub accounts: HashMap<AccountAddress, Account>,
+    pub accounts: BTreeMap<AccountAddress, Account>,
     pub total_supply: u64,
     pub events: Vec<Event>,
     /// Per-token total supplies tracked via TreasuryCap (token_type -> total_supply)
-    pub token_supplies: HashMap<String, TreasuryCap>,
+    pub token_supplies: BTreeMap<String, TreasuryCap>,
     /// Owner of TreasuryCap for a token type (token_type -> owner address)
-    pub token_treasuries: HashMap<String, AccountAddress>,
+    pub token_treasuries: BTreeMap<String, AccountAddress>,
     /// Map of object id -> CreatedObject for objects created by Move executions
-    pub objects: HashMap<String, CreatedObject>,
+    pub objects: BTreeMap<String, CreatedObject>,
     /// Per-account list of owned object ids
-    pub owned_objects: HashMap<AccountAddress, Vec<String>>,
+    pub owned_objects: BTreeMap<AccountAddress, Vec<String>>,
 }
 
 impl StateManager {
@@ -98,7 +98,7 @@ impl StateManager {
     /// Total supply: 11 million KANARI = 11,000,000,000,000,000 Mist
     /// Dev address gets entire supply according to kanari.move
     pub fn new() -> Self {
-        let mut accounts = HashMap::new();
+        let mut accounts = BTreeMap::new();
 
         // Total supply in Mist (from kanari-types constants)
         let total_supply_mist: u64 = KanariModule::TOTAL_SUPPLY_MIST;
@@ -120,10 +120,10 @@ impl StateManager {
             accounts,
             total_supply: total_supply_mist,
             events: Vec::new(),
-            token_supplies: HashMap::new(),
-            token_treasuries: HashMap::new(),
-            objects: HashMap::new(),
-            owned_objects: HashMap::new(),
+            token_supplies: BTreeMap::new(),
+            token_treasuries: BTreeMap::new(),
+            objects: BTreeMap::new(),
+            owned_objects: BTreeMap::new(),
         }
     }
 
@@ -245,6 +245,8 @@ impl StateManager {
         // Persist events emitted by Move VM into state event store
         if !changeset.events.is_empty() {
             self.events.extend(changeset.events.clone());
+            // Sort events by sequence number to ensure deterministic order
+            self.events.sort_by_key(|e| (e.sequence_number, e.type_tag.to_string()));
         }
 
         Ok(())

@@ -12,7 +12,6 @@ use kanari_move_runtime::move_runtime::MoveRuntime;
 use kanari_move_runtime::state::StateManager;
 use kanari_move_runtime::storage::persistent_store::PersistentStore;
 use kanari_types::address::Address as KanariAddress;
-use kanari_types::block::Block;
 use kanari_types::event::Event;
 use kanari_types::transaction::{SignedTransaction, Transaction};
 use lru::LruCache;
@@ -888,50 +887,6 @@ impl BlockchainEngine {
                 transactions: block.transactions.clone(),
             }
         })
-    }
-
-    /// Sync block from network data (simplified sync without full transaction re-execution)
-    pub fn sync_block_from_data(&self, block_data: &BlockData) -> Result<()> {
-        let mut chain = self.blockchain.write().unwrap();
-
-        // Check if we already have this block
-        if chain.get_block(block_data.height).is_some() {
-            return Ok(()); // Already have it
-        }
-
-        // Verify this is the next block
-        let current_height = chain.height();
-        if block_data.height != current_height + 1 {
-            anyhow::bail!(
-                "Cannot sync block #{}: current height is {}",
-                block_data.height,
-                current_height
-            );
-        }
-
-        // Create a placeholder block with the data we have
-        // Note: This is simplified sync - we don't have the actual transactions
-        let prev_hash = hex::decode(&block_data.prev_hash).context("Failed to decode prev_hash")?;
-        let state_root =
-            hex::decode(&block_data.state_root).context("Failed to decode state_root")?;
-
-        let block = Block::new(
-            block_data.height,
-            prev_hash,
-            state_root,
-            vec![], // No transactions in simplified sync
-            block_data.events.clone(),
-        );
-
-        // Add to blockchain without validation (trusted sync from peer)
-        chain.add_block_with_validation(block, false)?;
-
-        // Persist if we have a store
-        if let Some(store) = &self.persistent_store {
-            let _ = store.save("blockchain", &*chain);
-        }
-
-        Ok(())
     }
 
     /// Sync full block with transactions from network data
