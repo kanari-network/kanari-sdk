@@ -28,7 +28,7 @@ use kanari_crypto::hash_data_blake3;
 use kanari_types::transaction::SignedTransaction;
 use log;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{
     Arc,
     mpsc::{Sender, channel},
@@ -226,7 +226,7 @@ impl DagVertex {
         let quorum_size = 2 * f + 1;
 
         // Collect unique authors from parent vertices
-        let mut unique_authors = HashSet::new();
+        let mut unique_authors = BTreeSet::new();
         for parent_id in &self.parents {
             if let Some(parent_vertex) = store.get_vertex(parent_id) {
                 unique_authors.insert(parent_vertex.author.clone());
@@ -383,13 +383,13 @@ impl CheckpointConfig {
 #[derive(Debug, Clone)]
 pub struct DagStore {
     /// All vertices indexed by their ID (Arc for zero-copy sharing - 500K TPS)
-    vertices: HashMap<VertexId, Arc<DagVertex>>,
+    vertices: BTreeMap<VertexId, Arc<DagVertex>>,
 
     /// Vertices indexed by round number
-    vertices_by_round: HashMap<Round, Vec<VertexId>>,
+    vertices_by_round: BTreeMap<Round, Vec<VertexId>>,
 
     /// Vertices indexed by authority
-    vertices_by_authority: HashMap<AuthorityId, Vec<VertexId>>,
+    vertices_by_authority: BTreeMap<AuthorityId, Vec<VertexId>>,
 
     /// Checkpoints (committed state)
     checkpoints: Vec<Checkpoint>,
@@ -401,7 +401,7 @@ pub struct DagStore {
     current_round: Round,
 
     /// Set of authority IDs
-    authorities: HashSet<AuthorityId>,
+    authorities: BTreeSet<AuthorityId>,
 
     /// Checkpoint configuration
     checkpoint_config: CheckpointConfig,
@@ -429,9 +429,9 @@ impl DagStore {
         };
 
         Self {
-            vertices: HashMap::new(),
-            vertices_by_round: HashMap::new(),
-            vertices_by_authority: HashMap::new(),
+            vertices: BTreeMap::new(),
+            vertices_by_round: BTreeMap::new(),
+            vertices_by_authority: BTreeMap::new(),
             checkpoints: vec![genesis_checkpoint],
             pending_vertices: VecDeque::new(),
             current_round: 0,
@@ -750,7 +750,7 @@ pub struct DagConsensus {
 
     /// Fallback: Simple round-robin leader schedule
     /// Used when VRF is not available
-    leader_schedule: HashMap<Round, AuthorityId>,
+    leader_schedule: BTreeMap<Round, AuthorityId>,
 }
 
 impl DagConsensus {
@@ -771,7 +771,7 @@ impl DagConsensus {
         }
 
         // Fallback: Create simple round-robin leader schedule
-        let mut leader_schedule = HashMap::new();
+        let mut leader_schedule = BTreeMap::new();
         for round in 0..1000 {
             let leader_idx = (round as usize) % authorities.len();
             leader_schedule.insert(round, authorities[leader_idx].clone());
@@ -1065,7 +1065,7 @@ impl DagConsensus {
 
                 // Order transactions from vertices (with deduplication)
                 // Use HashSet to prevent duplicate transactions across vertices
-                let mut seen_tx_hashes = HashSet::new();
+                let mut seen_tx_hashes = BTreeSet::new();
                 let mut all_transactions = Vec::new();
                 for vertex_id in &vertices_to_commit {
                     if let Some(vertex) = self.store.get_vertex(vertex_id) {
@@ -1125,8 +1125,8 @@ impl DagConsensus {
     /// Collect all vertices that should be committed (topological sort with cycle detection)
     fn collect_vertices_to_commit(&self, leader_vertex_id: VertexId) -> Result<Vec<VertexId>> {
         let mut result = Vec::new();
-        let mut visited = HashSet::new();
-        let mut in_progress = HashSet::new(); // Track vertices in current path
+        let mut visited = BTreeSet::new();
+        let mut in_progress = BTreeSet::new(); // Track vertices in current path
         let mut stack = vec![(leader_vertex_id, false)]; // (vertex_id, processed)
 
         while let Some((vertex_id, processed)) = stack.pop() {
@@ -1341,7 +1341,7 @@ impl DagConsensus {
         }
 
         // Reconstruct pending_vertices
-        let committed_vertices: HashSet<VertexId> = new_store
+        let committed_vertices: BTreeSet<VertexId> = new_store
             .checkpoints
             .iter()
             .flat_map(|cp| cp.vertices.iter().cloned())

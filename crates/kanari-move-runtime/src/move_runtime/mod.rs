@@ -79,7 +79,7 @@ impl MoveRuntime {
             MoveVMState::open_default()?
         };
         let mut storage = InMemoryStorage::new();
-        state.load_into_storage(&mut storage)?;
+        let loaded_ids = state.load_into_storage(&mut storage)?;
 
         // Flatten all native tables into a single iterator
         let all_natives: Vec<_> = natives
@@ -117,12 +117,17 @@ impl MoveRuntime {
             }
         };
 
+        let mut published_modules = HashSet::new();
+        for id in loaded_ids {
+            published_modules.insert(id);
+        }
+
         Ok(MoveRuntime {
             vm,
             storage,
             state,
             enable_gas_metering,
-            published_modules: HashSet::new(),
+            published_modules,
             object_storage,
         })
     }
@@ -286,6 +291,25 @@ impl MoveRuntime {
         // include gas accounting (debit sender if available, credit DAO) in the returned ChangeSet.
         gas_info: Option<(u64, u64)>,
     ) -> Result<ChangeSet> {
+        // Just-In-Time (JIT) module loading
+        // If the module is not in our in-memory cache, try to load it from persistent state.
+        // This is crucial for RPC servers where simulation threads might have stale caches
+        // relative to the block production thread.
+        if !self.published_modules.contains(module_id) {
+            debug!(
+                "[RUNTIME] Module {} not in memory cache, attempting JIT load from DB",
+                module_id
+            );
+            if let Some(blob) = self.state.get_module(module_id) {
+                self.storage
+                    .publish_or_overwrite_module(module_id.clone(), blob);
+                self.published_modules.insert(module_id.clone());
+                debug!("[RUNTIME] JIT loaded module {} successfully", module_id);
+            } else {
+                debug!("[RUNTIME] Module {} not found in persistent DB", module_id);
+            }
+        }
+
         let storage_clone = self.storage.clone();
         let mut session = self.vm.new_session(storage_clone);
         let mut gas = UnmeteredGasMeter;

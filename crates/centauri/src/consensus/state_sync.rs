@@ -12,7 +12,7 @@
 
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use super::{AuthorityId, Checkpoint, DagVertex, Round, VertexId};
 
@@ -89,10 +89,10 @@ impl SyncProgress {
 /// State synchronizer
 pub struct StateSynchronizer {
     /// Checkpoints stored locally
-    checkpoints: HashMap<u64, Checkpoint>,
+    checkpoints: BTreeMap<u64, Checkpoint>,
 
     /// Vertices by round
-    vertices_by_round: HashMap<Round, Vec<DagVertex>>,
+    vertices_by_round: BTreeMap<Round, Vec<DagVertex>>,
 
     /// Latest checkpoint sequence
     latest_checkpoint: u64,
@@ -108,12 +108,12 @@ impl StateSynchronizer {
     /// Create new state synchronizer
     pub fn new() -> Self {
         // Add genesis checkpoint
-        let mut checkpoints = HashMap::new();
+        let mut checkpoints = BTreeMap::new();
         checkpoints.insert(0, Checkpoint::genesis());
 
         Self {
             checkpoints,
-            vertices_by_round: HashMap::new(),
+            vertices_by_round: BTreeMap::new(),
             latest_checkpoint: 0,
             latest_round: 0,
             sync_progress: None,

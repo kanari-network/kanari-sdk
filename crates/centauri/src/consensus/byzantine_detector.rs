@@ -11,7 +11,7 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use super::{AuthorityId, DagVertex, Round, VertexId};
 
@@ -84,10 +84,10 @@ pub struct ByzantineDetector {
     penalties: Vec<SlashingPenalty>,
 
     /// Authority reputation scores (0-100)
-    reputation: HashMap<AuthorityId, u64>,
+    reputation: BTreeMap<AuthorityId, u64>,
 
     /// Vertices created by each authority per round
-    vertices_by_authority_round: HashMap<(AuthorityId, Round), Vec<VertexId>>,
+    vertices_by_authority_round: BTreeMap<(AuthorityId, Round), Vec<VertexId>>,
 }
 
 impl ByzantineDetector {
@@ -96,8 +96,8 @@ impl ByzantineDetector {
         Self {
             faults: Vec::new(),
             penalties: Vec::new(),
-            reputation: HashMap::new(),
-            vertices_by_authority_round: HashMap::new(),
+            reputation: BTreeMap::new(),
+            vertices_by_authority_round: BTreeMap::new(),
         }
     }
 

@@ -14,7 +14,7 @@
 //!
 //! Now using production-grade ECVRF implementation with Ristretto255.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -100,22 +100,22 @@ mod serde_bytes {
 pub struct VrfLeaderElection {
     /// Authority ID to VRF secret key mapping
     /// In production, use secure key management (HSM, encrypted storage)
-    authority_keys: std::collections::HashMap<AuthorityId, VrfSecretKey>,
+    authority_keys: BTreeMap<AuthorityId, VrfSecretKey>,
 
     /// Authority ID to VRF public key mapping
-    authority_pubkeys: std::collections::HashMap<AuthorityId, VrfPublicKey>,
+    authority_pubkeys: BTreeMap<AuthorityId, VrfPublicKey>,
 
     /// Cache of VRF outputs by round
-    vrf_cache: std::collections::HashMap<Round, Vec<VrfOutput>>,
+    vrf_cache: BTreeMap<Round, Vec<VrfOutput>>,
 }
 
 impl VrfLeaderElection {
     /// Create a new VRF leader election system
     pub fn new() -> Self {
         Self {
-            authority_keys: std::collections::HashMap::new(),
-            authority_pubkeys: std::collections::HashMap::new(),
-            vrf_cache: std::collections::HashMap::new(),
+            authority_keys: BTreeMap::new(),
+            authority_pubkeys: BTreeMap::new(),
+            vrf_cache: BTreeMap::new(),
         }
     }
 
@@ -163,7 +163,15 @@ impl VrfLeaderElection {
         }
 
         // Find VRF with lowest output value
-        let leader_vrf = vrfs.iter().min_by_key(|vrf| vrf.as_number())?;
+        // Use tie-breaker (AuthorityId) for strict determinism regardless of insertion order
+        let leader_vrf = vrfs.iter().min_by(|a, b| {
+            let val_cmp = a.as_number().cmp(&b.as_number());
+            if val_cmp == std::cmp::Ordering::Equal {
+                a.authority.cmp(&b.authority)
+            } else {
+                val_cmp
+            }
+        })?;
 
         Some(leader_vrf.authority.clone())
     }
@@ -173,7 +181,7 @@ impl VrfLeaderElection {
     pub fn elect_leader_weighted(
         &self,
         round: Round,
-        stakes: &HashMap<AuthorityId, u64>,
+        stakes: &BTreeMap<AuthorityId, u64>,
     ) -> Option<AuthorityId> {
         let vrfs = self.vrf_cache.get(&round)?;
 
@@ -194,7 +202,14 @@ impl VrfLeaderElection {
                 let weighted_score = vrf.as_number() / stake.max(1);
                 Some((vrf, weighted_score))
             })
-            .min_by_key(|(_, score)| *score)
+            .min_by(|(vrf_a, score_a), (vrf_b, score_b)| {
+                let score_cmp = score_a.cmp(score_b);
+                if score_cmp == std::cmp::Ordering::Equal {
+                    vrf_a.authority.cmp(&vrf_b.authority)
+                } else {
+                    score_cmp
+                }
+            })
             .map(|(vrf, _)| vrf)?;
 
         Some(leader_vrf.authority.clone())

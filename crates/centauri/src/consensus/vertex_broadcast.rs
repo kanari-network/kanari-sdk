@@ -13,7 +13,7 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::{DagVertex, Round, VertexId};
@@ -438,14 +438,14 @@ impl VertexBroadcaster {
 /// Delta sync: Identify missing vertices between two nodes
 pub struct DeltaSync {
     /// Local vertex IDs by round
-    local_vertices: HashMap<Round, HashSet<VertexId>>,
+    local_vertices: BTreeMap<Round, BTreeSet<VertexId>>,
 }
 
 impl DeltaSync {
     /// Create new delta sync
     pub fn new() -> Self {
         Self {
-            local_vertices: HashMap::new(),
+            local_vertices: BTreeMap::new(),
         }
     }
 

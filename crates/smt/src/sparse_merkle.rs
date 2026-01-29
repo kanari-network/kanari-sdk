@@ -141,8 +141,8 @@ impl SparseMerkleTree {
         // node hashes we write during this batch so subsequent keys can see
         // sibling updates without additional DB reads.
         let mut batch = WriteBatch::default();
-        use std::collections::HashMap;
-        let mut node_cache: HashMap<Vec<u8>, [u8; 32]> = HashMap::new();
+        use std::collections::BTreeMap;
+        let mut node_cache: BTreeMap<Vec<u8>, [u8; 32]> = BTreeMap::new();
 
         for (k, v) in kvs.iter() {
             let key = k.as_slice();
@@ -226,7 +226,7 @@ impl SparseMerkleTree {
             return Ok(());
         }
 
-        use std::collections::HashMap;
+        use std::collections::BTreeMap;
         // prepare (key, key_hash) pairs
         let mut keyed: Vec<(Vec<u8>, [u8; 32])> = Vec::with_capacity(keys.len());
         for k in keys.iter() {
@@ -239,7 +239,7 @@ impl SparseMerkleTree {
         keyed.dedup_by(|a, b| a.1 == b.1);
 
         let mut batch = WriteBatch::default();
-        let mut node_cache: HashMap<Vec<u8>, [u8; 32]> = HashMap::new();
+        let mut node_cache: BTreeMap<Vec<u8>, [u8; 32]> = BTreeMap::new();
 
         for (_key, kh) in keyed.into_iter() {
             // delete stored data entry

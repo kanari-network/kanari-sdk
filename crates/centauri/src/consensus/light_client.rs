@@ -13,7 +13,7 @@
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use smt::compute_merkle_root;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use super::{AuthorityId, Checkpoint, Round};
 
@@ -87,13 +87,13 @@ pub struct TransactionProof {
 /// Light client
 pub struct LightClient {
     /// Verified checkpoints (sequence -> checkpoint)
-    verified_checkpoints: HashMap<u64, LightCheckpoint>,
+    verified_checkpoints: BTreeMap<u64, LightCheckpoint>,
 
     /// Latest verified checkpoint
     latest_checkpoint: u64,
 
     /// Authority public keys for signature verification
-    authority_keys: HashMap<AuthorityId, Vec<u8>>,
+    authority_keys: BTreeMap<AuthorityId, Vec<u8>>,
 
     /// Total stake
     total_stake: u64,
@@ -101,11 +101,11 @@ pub struct LightClient {
 
 impl LightClient {
     /// Create new light client
-    pub fn new(authority_keys: HashMap<AuthorityId, Vec<u8>>) -> Self {
+    pub fn new(authority_keys: BTreeMap<AuthorityId, Vec<u8>>) -> Self {
         let total_stake: u64 = authority_keys.len() as u64; // Simplified: 1 stake per authority
 
         Self {
-            verified_checkpoints: HashMap::new(),
+            verified_checkpoints: BTreeMap::new(),
             latest_checkpoint: 0,
             authority_keys,
             total_stake,
@@ -424,8 +424,8 @@ impl CheckpointBuilder {
 mod tests {
     use super::*;
 
-    fn create_test_authorities() -> HashMap<AuthorityId, Vec<u8>> {
-        let mut authorities = HashMap::new();
+    fn create_test_authorities() -> BTreeMap<AuthorityId, Vec<u8>> {
+        let mut authorities = BTreeMap::new();
         for i in 0..4 {
             authorities.insert(
                 format!("auth{}", i),

@@ -101,7 +101,7 @@ pub struct AccountInfo {
     pub sequence_number: u64,
     pub modules: Vec<String>,
     /// Token balances: token_type -> amount
-    pub token_balances: std::collections::HashMap<String, u64>,
+    pub token_balances: std::collections::BTreeMap<String, u64>,
     /// Owned objects discovered by the runtime (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owned_objects: Option<Vec<ObjectInfo>>,

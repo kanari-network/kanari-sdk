@@ -248,7 +248,9 @@ impl BlockchainEngine {
         }
 
         // Initialize LRU cache for merkle proofs (cache up to 1000 proofs)
-        let proof_cache = Arc::new(RwLock::new(LruCache::new(NonZeroUsize::new(1000).unwrap())));
+        let proof_cache = Arc::new(RwLock::new(LruCache::new(
+            NonZeroUsize::new(1000).expect("NonZeroUsize::new(1000) should never fail"),
+        )));
 
         // Setup default authorities for DAG mode (single node by default)
         let authority_id = "0xDEFAULT_AUTHORITY".to_string();
@@ -761,7 +763,7 @@ impl BlockchainEngine {
     }
 
     /// Get all token balances for an address
-    pub fn get_all_token_balances(&self, address: &str) -> std::collections::HashMap<String, u64> {
+    pub fn get_all_token_balances(&self, address: &str) -> std::collections::BTreeMap<String, u64> {
         let state = self.state.read().unwrap();
         state
             .get_account_by_hex(address)
@@ -1135,10 +1137,10 @@ impl BlockchainEngine {
 
     /// Return list of registered token types and their total supplies
     pub fn list_tokens(&self) -> Vec<(String, u64)> {
-        use std::collections::HashSet;
+        use std::collections::BTreeSet;
 
         let state = self.state.read().unwrap();
-        let mut seen: HashSet<String> = HashSet::new();
+        let mut seen: BTreeSet<String> = BTreeSet::new();
         let mut out: Vec<(String, u64)> = Vec::new();
 
         // Include native KANARI token (total supply tracked in state)
@@ -1221,10 +1223,10 @@ impl BlockchainEngine {
     pub fn get_account_proof_at_height(&self, height: u64, key: &str) -> Result<AccountProof> {
         if let Some(store) = &self.persistent_store {
             if let Some(pairs) = store.load_smt_snapshot(height)? {
-                use std::collections::HashMap;
+                use std::collections::BTreeMap;
 
                 // Build map for lookup
-                let mut map: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
+                let mut map: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
                 for (k, v) in pairs.into_iter() {
                     map.insert(k, v);
                 }
@@ -1255,7 +1257,9 @@ impl BlockchainEngine {
 
                 // leaf hash
                 let leaf_hash = if is_member {
-                    let val = map.get(&data_key(&kh)).unwrap();
+                    let val = map
+                        .get(&data_key(&kh))
+                        .ok_or_else(|| anyhow::anyhow!("SMT data inconsistency"))?;
                     smt::hash_leaf(&kh, val.as_slice()).to_vec()
                 } else {
                     default_hashes[256].to_vec()
@@ -1362,7 +1366,7 @@ pub struct AccountInfo {
     pub balance: u64,
     pub sequence_number: u64,
     pub modules: Vec<String>,
-    pub token_balances: std::collections::HashMap<String, u64>,
+    pub token_balances: std::collections::BTreeMap<String, u64>,
     /// Owned objects (object id, owner, type, data, version)
     pub owned_objects: Vec<ObjectInfo>,
 }

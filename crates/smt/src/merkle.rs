@@ -145,15 +145,15 @@ pub fn generate_merkle_multiproof(tx_hashes: &[Vec<u8>], indices: &[usize]) -> V
     }
 
     // Track all nodes we need in the proof
-    let mut proof_nodes = std::collections::HashSet::new();
+    let mut proof_nodes = std::collections::BTreeSet::new();
     let mut current_level = tx_hashes.to_vec();
 
     // For each level, track which indices we're proving
-    let mut current_indices: std::collections::HashSet<usize> = indices.iter().copied().collect();
+    let mut current_indices: std::collections::BTreeSet<usize> = indices.iter().copied().collect();
 
     while current_level.len() > 1 {
         let mut next_level = Vec::new();
-        let mut next_indices = std::collections::HashSet::new();
+        let mut next_indices = std::collections::BTreeSet::new();
 
         for chunk_idx in 0..current_level.len().div_ceil(2) {
             let left_idx = chunk_idx * 2;

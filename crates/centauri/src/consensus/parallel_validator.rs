@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use super::cache::LruCache;
@@ -292,13 +292,13 @@ impl ParallelValidator {
         Ok(())
     }
 
-    /// Check parent references
+    /// Check if parents are unique
     fn check_parents(vertex: &DagVertex) -> Result<()> {
-        // Check for duplicate parents
-        let mut seen = std::collections::HashSet::new();
+        use std::collections::BTreeSet;
+        let mut seen = BTreeSet::new();
         for parent in &vertex.parents {
             if !seen.insert(parent) {
-                return Err(anyhow::anyhow!("Duplicate parent found"));
+                return Err(anyhow::anyhow!("Duplicate parent in vertex"));
             }
         }
         Ok(())
@@ -308,7 +308,7 @@ impl ParallelValidator {
     pub fn validate_and_verify_signatures(
         &mut self,
         vertices: Vec<DagVertex>,
-        public_keys: HashMap<String, ed25519_dalek::VerifyingKey>,
+        public_keys: BTreeMap<String, ed25519_dalek::VerifyingKey>,
     ) -> Result<Vec<ValidationResult>> {
         let start = std::time::Instant::now();
 
@@ -351,7 +351,7 @@ impl ParallelValidator {
     /// Validate vertex and verify signature
     fn validate_with_signature(
         vertex: DagVertex,
-        public_keys: &HashMap<String, ed25519_dalek::VerifyingKey>,
+        public_keys: &BTreeMap<String, ed25519_dalek::VerifyingKey>,
     ) -> ValidationResult {
         let vertex_id = vertex.id;
 
@@ -607,7 +607,7 @@ mod tests {
 
         // Create keypair
         let keypair = Ed25519Keypair::generate();
-        let mut public_keys = HashMap::new();
+        let mut public_keys = BTreeMap::new();
         public_keys.insert("validator_0".to_string(), keypair.public());
 
         // Create vertex
@@ -634,7 +634,7 @@ mod tests {
 
         // Create keypair
         let keypair = Ed25519Keypair::generate();
-        let mut public_keys = HashMap::new();
+        let mut public_keys = BTreeMap::new();
         public_keys.insert("validator_0".to_string(), keypair.public());
 
         // Create vertex with invalid signature

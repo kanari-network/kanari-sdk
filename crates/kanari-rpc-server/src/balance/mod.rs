@@ -152,8 +152,8 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
 
             // Best-effort: inspect owned objects for coin objects and sum their values.
             // Many Move coin implementations store the coin value as a u64 in the last 8 bytes.
-            use std::collections::HashMap;
-            let mut coin_sums: HashMap<String, u128> = HashMap::new();
+            use std::collections::BTreeMap;
+            let mut coin_sums: BTreeMap<String, u128> = BTreeMap::new();
             for obj in info.owned_objects.iter() {
                 if obj.type_.contains("::coin::Coin<") {
                     // Try to parse last 8 bytes from obj.data (which is Vec<u8> in RPC types)

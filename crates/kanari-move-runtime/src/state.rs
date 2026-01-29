@@ -246,7 +246,8 @@ impl StateManager {
         if !changeset.events.is_empty() {
             self.events.extend(changeset.events.clone());
             // Sort events by sequence number to ensure deterministic order
-            self.events.sort_by_key(|e| (e.sequence_number, e.type_tag.to_string()));
+            self.events
+                .sort_by_key(|e| (e.sequence_number, e.type_tag.to_string()));
         }
 
         Ok(())

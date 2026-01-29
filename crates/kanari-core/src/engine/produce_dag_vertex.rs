@@ -293,7 +293,7 @@ impl DagEngine {
     ) -> Result<(Vec<ChangeSet>, usize, usize)> {
         use crossbeam_channel as cbchan;
         use num_cpus;
-        use std::collections::{HashMap, VecDeque};
+        use std::collections::{BTreeMap, VecDeque};
 
         let tx_count = transactions.len();
         let mut all_changesets: Vec<ChangeSet> = Vec::with_capacity(tx_count);
@@ -398,7 +398,7 @@ impl DagEngine {
         }
 
         // Group transactions by sender
-        let mut per_sender: HashMap<String, VecDeque<(usize, Transaction)>> = HashMap::new();
+        let mut per_sender: BTreeMap<String, VecDeque<(usize, Transaction)>> = BTreeMap::new();
         for (i, signed_tx) in transactions.iter().enumerate() {
             per_sender
                 .entry(signed_tx.transaction.sender().to_string())
@@ -407,7 +407,7 @@ impl DagEngine {
         }
 
         // Reserve sequence numbers
-        let mut per_sender_next_seq: HashMap<String, u64> = HashMap::new();
+        let mut per_sender_next_seq: BTreeMap<String, u64> = BTreeMap::new();
         {
             let state_guard = self.engine.state.read().unwrap();
             for sender in per_sender.keys() {
@@ -424,7 +424,7 @@ impl DagEngine {
         }
 
         let mut results: Vec<Option<ChangeSet>> = vec![None; tx_count];
-        let mut idx_to_sender: HashMap<usize, String> = HashMap::new();
+        let mut idx_to_sender: BTreeMap<usize, String> = BTreeMap::new();
 
         // Dispatch first transaction from each sender
         for (sender, queue) in per_sender.iter_mut() {
