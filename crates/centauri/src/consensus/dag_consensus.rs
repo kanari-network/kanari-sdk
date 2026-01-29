@@ -112,16 +112,8 @@ impl DagVertex {
         parents: Vec<VertexId>,
         transactions: Vec<SignedTransaction>,
         state_root: Vec<u8>,
+        timestamp: u64,
     ) -> Self {
-        #[cfg(miri)]
-        let timestamp: u64 = 0;
-
-        #[cfg(not(miri))]
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-
         let tx_count = transactions.len();
 
         let metadata = VertexMetadata {
@@ -785,6 +777,7 @@ impl DagConsensus {
                 vec![],        // No parents for genesis
                 vec![],        // No transactions in genesis
                 vec![0u8; 32], // Genesis state root
+                0,             // Genesis timestamp
             );
             // Add genesis vertices (will succeed because round 0 has no parent requirements)
             let _ = store.add_vertex(genesis_vertex);
@@ -883,6 +876,7 @@ impl DagConsensus {
         &mut self,
         transactions: Vec<SignedTransaction>,
         state_root: Vec<u8>,
+        timestamp: u64,
     ) -> Result<DagVertex> {
         let current_round = self.store.current_round();
         let next_round = current_round + 1;
@@ -902,6 +896,7 @@ impl DagConsensus {
             parents,
             transactions,
             state_root,
+            timestamp,
         );
 
         Ok(vertex)
@@ -1374,6 +1369,7 @@ mod tests {
             vec![parent],
             vec![],
             vec![0u8; 32],
+            0,
         );
 
         assert_eq!(vertex.round, 1);
@@ -1393,7 +1389,7 @@ mod tests {
         let mut store = DagStore::new(authorities);
 
         // Create genesis vertices (round 0)
-        let vertex0 = DagVertex::new(0, "auth1".to_string(), vec![], vec![], vec![0u8; 32]);
+        let vertex0 = DagVertex::new(0, "auth1".to_string(), vec![], vec![], vec![0u8; 32], 0);
         store.add_vertex(vertex0.clone()).unwrap();
 
         assert_eq!(store.current_round(), 0);
@@ -1511,6 +1507,7 @@ mod tests {
                 vec![],
                 vec![tx],
                 vec![i as u8; 32],
+                0,
             );
             if let Err(e) = store.add_vertex(vertex) {
                 eprintln!("Failed to add vertex {}: {}", i, e);
@@ -1552,6 +1549,7 @@ mod tests {
                 vec![],
                 vec![tx],
                 vec![i as u8; 32],
+                0,
             );
             store.add_vertex(vertex).ok();
         }
@@ -1591,6 +1589,7 @@ mod tests {
                 vec![],
                 vec![tx],
                 vec![i as u8; 32],
+                0,
             );
             store.add_vertex(vertex).ok();
         }
@@ -1629,6 +1628,7 @@ mod tests {
                 vec![],
                 vec![tx],
                 vec![i as u8; 32],
+                0,
             );
             store.add_vertex(vertex).ok();
         }

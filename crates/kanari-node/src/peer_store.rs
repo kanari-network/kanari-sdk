@@ -4,7 +4,7 @@
 use anyhow::Result;
 use libp2p::{Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 use tracing::{info, warn};
@@ -20,7 +20,7 @@ pub struct PeerInfo {
 /// Persistent peer storage
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerStore {
-    pub peers: HashMap<String, PeerInfo>,
+    pub peers: BTreeMap<String, PeerInfo>,
     #[serde(skip)]
     pub file_path: PathBuf,
 }
@@ -29,7 +29,7 @@ impl PeerStore {
     /// Create a new peer store with specified file path
     pub fn new(file_path: PathBuf) -> Self {
         Self {
-            peers: HashMap::new(),
+            peers: BTreeMap::new(),
             file_path,
         }
     }

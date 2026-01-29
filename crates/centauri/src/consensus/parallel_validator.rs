@@ -504,7 +504,7 @@ mod tests {
     use super::*;
 
     fn create_test_vertex(round: Round, author: AuthorityId) -> DagVertex {
-        DagVertex::new(round, author, vec![], vec![], vec![round as u8; 32])
+        DagVertex::new(round, author, vec![], vec![], vec![round as u8; 32], 0)
     }
 
     #[test]

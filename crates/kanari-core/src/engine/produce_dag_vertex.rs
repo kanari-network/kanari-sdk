@@ -169,8 +169,15 @@ impl DagEngine {
         let transactions = pending.drain(..).collect::<Vec<_>>();
         let tx_count = transactions.len();
 
+        // Capture timestamp for deterministic execution and vertex creation
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
         // Execute transactions using parallel execution (same as produce_block)
-        let (changesets, executed, failed) = self.execute_transactions_parallel(&transactions)?;
+        let (changesets, executed, failed) =
+            self.execute_transactions_parallel(&transactions, Some(timestamp))?;
 
         // Apply changesets to state
         let state_root = {
@@ -191,7 +198,7 @@ impl DagEngine {
         // Create DAG vertex
         let vertex = {
             let mut consensus = self.consensus.write().unwrap();
-            let v = consensus.create_vertex(transactions.clone(), state_root.clone())?;
+            let v = consensus.create_vertex(transactions.clone(), state_root.clone(), timestamp)?;
             log::info!(
                 "[DAG] Created vertex for round {} with {} transactions",
                 v.round,
@@ -272,8 +279,9 @@ impl DagEngine {
     fn execute_transactions_parallel(
         &self,
         transactions: &[SignedTransaction],
+        timestamp: Option<u64>,
     ) -> Result<(Vec<ChangeSet>, usize, usize)> {
-        self.execute_transactions_parallel_internal(transactions, false)
+        self.execute_transactions_parallel_internal(transactions, false, timestamp)
     }
 
     /// Execute transactions in parallel with skip sequence validation
@@ -281,8 +289,9 @@ impl DagEngine {
     fn execute_transactions_parallel_skip_seq(
         &self,
         transactions: &[SignedTransaction],
+        timestamp: Option<u64>,
     ) -> Result<(Vec<ChangeSet>, usize, usize)> {
-        self.execute_transactions_parallel_internal(transactions, true)
+        self.execute_transactions_parallel_internal(transactions, true, timestamp)
     }
 
     /// Internal parallel transaction execution with optional sequence validation skip
@@ -290,6 +299,7 @@ impl DagEngine {
         &self,
         transactions: &[SignedTransaction],
         skip_seq_validation: bool,
+        timestamp: Option<u64>,
     ) -> Result<(Vec<ChangeSet>, usize, usize)> {
         use crossbeam_channel as cbchan;
         use num_cpus;
@@ -302,12 +312,21 @@ impl DagEngine {
 
         if tx_count == 1 {
             // Single transaction - execute directly
+            let mut runtime = self.engine.move_runtime.write().unwrap();
             let result = if skip_seq_validation {
-                self.engine
-                    .execute_transaction_sync(&transactions[0].transaction)
+                BlockchainEngine::execute_transaction_with_runtime_skip_seq(
+                    &transactions[0].transaction,
+                    &mut runtime,
+                    &self.engine.state,
+                    timestamp,
+                )
             } else {
-                self.engine
-                    .execute_transaction(&transactions[0].transaction)
+                BlockchainEngine::execute_transaction_with_runtime(
+                    &transactions[0].transaction,
+                    &mut runtime,
+                    &self.engine.state,
+                    timestamp,
+                )
             };
 
             match result {
@@ -349,11 +368,11 @@ impl DagEngine {
                         };
                         let res = if skip_seq {
                             BlockchainEngine::execute_transaction_with_runtime_skip_seq(
-                                &tx, &mut guard, &state_arc,
+                                &tx, &mut guard, &state_arc, timestamp,
                             )
                         } else {
                             BlockchainEngine::execute_transaction_with_runtime(
-                                &tx, &mut guard, &state_arc,
+                                &tx, &mut guard, &state_arc, timestamp,
                             )
                         };
                         let _ = res_tx.send((idx, res));
@@ -376,12 +395,14 @@ impl DagEngine {
                                         &tx,
                                         &mut runtime,
                                         &state_arc,
+                                        timestamp,
                                     )
                                 } else {
                                     BlockchainEngine::execute_transaction_with_runtime(
                                         &tx,
                                         &mut runtime,
                                         &state_arc,
+                                        timestamp,
                                     )
                                 };
                                 let _ = res_tx.send((idx, res));
@@ -552,7 +573,7 @@ impl DagEngine {
             // Execute transactions to update local state
             // NOTE: We execute with skip_seq validation since these txs are already validated
             let (changesets, executed, failed) =
-                self.execute_transactions_parallel_skip_seq(&transactions)?;
+                self.execute_transactions_parallel_skip_seq(&transactions, Some(vertex.timestamp))?;
 
             info!(
                 "[DAG SYNC] Executed {} transactions from network vertex (round {}): {} succeeded, {} failed",

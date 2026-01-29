@@ -26,6 +26,7 @@ fn main() -> anyhow::Result<()> {
         vec![],                    // parents
         vec![],                    // transactions
         vec![0xaa; 32],            // state_root
+        0,                         // timestamp
     );
 
     // 3. Sign the vertex

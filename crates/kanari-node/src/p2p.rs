@@ -16,8 +16,6 @@ use libp2p::{
     tcp, yamux,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
@@ -78,9 +76,9 @@ impl P2PNetwork {
 
         // Create Gossipsub behavior
         let message_id_fn = |message: &gossipsub::Message| {
-            let mut hasher = DefaultHasher::new();
-            message.data.hash(&mut hasher);
-            gossipsub::MessageId::from(hasher.finish().to_string())
+            // Use deterministic Blake3 hash for message ID instead of DefaultHasher
+            let hash = kanari_crypto::hash_data_blake3(&message.data);
+            gossipsub::MessageId::from(hex::encode(hash))
         };
 
         let gossipsub_config = gossipsub::ConfigBuilder::default()

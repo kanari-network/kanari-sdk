@@ -290,6 +290,8 @@ impl MoveRuntime {
         // Optional gas tuple: (gas_limit, gas_price). If provided, runtime will
         // include gas accounting (debit sender if available, credit DAO) in the returned ChangeSet.
         gas_info: Option<(u64, u64)>,
+        // Optional timestamp for TxContext (defaults to SystemTime::now() if None)
+        timestamp: Option<u64>,
     ) -> Result<ChangeSet> {
         // Just-In-Time (JIT) module loading
         // If the module is not in our in-memory cache, try to load it from persistent state.
@@ -368,10 +370,12 @@ impl MoveRuntime {
         let sender_addr = sender.unwrap_or(AccountAddress::ZERO);
         let tx_hash = vec![0u8; 32]; // Placeholder
         let epoch = 0u64;
-        let epoch_timestamp_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let epoch_timestamp_ms = timestamp.unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64
+        });
         let ids_created = 0u64;
 
         let tx_ctx = TxContextRecord::from_address(

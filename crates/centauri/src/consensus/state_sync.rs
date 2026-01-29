@@ -387,7 +387,7 @@ mod tests {
         let mut sync = StateSynchronizer::new();
 
         // Add some data
-        let vertex = DagVertex::new(1, "auth1".to_string(), vec![], vec![], vec![0u8; 32]);
+        let vertex = DagVertex::new(1, "auth1".to_string(), vec![], vec![], vec![0u8; 32], 0);
         sync.add_vertex(vertex);
 
         let request = SyncRequest {
@@ -406,7 +406,7 @@ mod tests {
     fn test_apply_sync_response() {
         let mut sync = StateSynchronizer::new();
 
-        let vertex = DagVertex::new(1, "auth1".to_string(), vec![], vec![], vec![0u8; 32]);
+        let vertex = DagVertex::new(1, "auth1".to_string(), vec![], vec![], vec![0u8; 32], 0);
 
         let response = SyncResponse {
             checkpoints: vec![],

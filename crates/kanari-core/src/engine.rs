@@ -359,7 +359,7 @@ impl BlockchainEngine {
 
             // Use the engine's runtime to execute against the cloned state.
             let mut runtime = self.move_runtime.write().unwrap();
-            Self::execute_transaction_with_runtime(&tx, &mut runtime, &state_arc)?
+            Self::execute_transaction_with_runtime(&tx, &mut runtime, &state_arc, None)?
         };
 
         Ok((tx_hash, changeset))
@@ -373,8 +373,9 @@ impl BlockchainEngine {
         tx: &Transaction,
         runtime: &mut kanari_move_runtime::move_runtime::MoveRuntime,
         state_arc: &Arc<RwLock<StateManager>>,
+        timestamp: Option<u64>,
     ) -> Result<ChangeSet> {
-        Self::execute_transaction_with_runtime_internal(tx, runtime, state_arc, true)
+        Self::execute_transaction_with_runtime_internal(tx, runtime, state_arc, true, timestamp)
     }
 
     /// Execute a transaction with option to skip sequence validation
@@ -383,8 +384,9 @@ impl BlockchainEngine {
         tx: &Transaction,
         runtime: &mut kanari_move_runtime::move_runtime::MoveRuntime,
         state_arc: &Arc<RwLock<StateManager>>,
+        timestamp: Option<u64>,
     ) -> Result<ChangeSet> {
-        Self::execute_transaction_with_runtime_internal(tx, runtime, state_arc, false)
+        Self::execute_transaction_with_runtime_internal(tx, runtime, state_arc, false, timestamp)
     }
 
     /// Internal transaction execution with optional sequence validation
@@ -393,6 +395,7 @@ impl BlockchainEngine {
         runtime: &mut kanari_move_runtime::move_runtime::MoveRuntime,
         state_arc: &Arc<RwLock<StateManager>>,
         validate_sequence: bool,
+        timestamp: Option<u64>,
     ) -> Result<ChangeSet> {
         // 1. Pre-flight validation: Check sequence number (skip for synced transactions)
         let sender_addr = AccountAddress::from_hex_literal(tx.sender_address())?;
@@ -517,6 +520,7 @@ impl BlockchainEngine {
                     args.clone(),
                     Some(sender_addr),
                     None,
+                    timestamp,
                 )?;
                 changeset.merge(move_cs);
 
@@ -609,20 +613,19 @@ impl BlockchainEngine {
         Ok(changeset)
     }
 
-    /// Original single-threaded entry that uses the engine's shared runtime.
-    fn execute_transaction(&self, tx: &Transaction) -> Result<ChangeSet> {
-        let mut runtime = self.move_runtime.write().unwrap();
-        Self::execute_transaction_with_runtime(tx, &mut runtime, &self.state)
-    }
-
     /// Execute transaction for sync (without affecting pending pool)
     /// Used when syncing blocks from network - executes transactions to rebuild state
     /// Skips sequence validation since transactions are already validated by the original node
     /// IMPORTANT: Uses main runtime (not pool) to ensure module bytecode is persisted correctly
-    fn execute_transaction_sync(&self, tx: &Transaction) -> Result<ChangeSet> {
+    fn execute_transaction_sync(&self, tx: &Transaction, timestamp: u64) -> Result<ChangeSet> {
         // Always use main runtime for synced transactions to ensure modules are persisted
         let mut runtime = self.move_runtime.write().unwrap();
-        Self::execute_transaction_with_runtime_skip_seq(tx, &mut runtime, &self.state)
+        Self::execute_transaction_with_runtime_skip_seq(
+            tx,
+            &mut runtime,
+            &self.state,
+            Some(timestamp),
+        )
     }
 
     /// Produce a new block with pending transactions using DAG-based consensus
@@ -954,7 +957,7 @@ impl BlockchainEngine {
                 block_data.transactions.len(),
                 block_data.height
             );
-            match self.execute_transaction_sync(&signed_tx.transaction) {
+            match self.execute_transaction_sync(&signed_tx.transaction, block_data.timestamp) {
                 Ok(changeset) => {
                     eprintln!(
                         "[SYNC] Transaction {} executed, success={}",

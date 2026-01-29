@@ -299,7 +299,7 @@ impl SyncManager {
             .unwrap()
             .as_secs();
 
-        for height in from..=to.min(from + 10) {
+        for height in from..=to.min(from + 100) {
             // Limit batch size
             let msg = P2PMessage::BlockRequest(height, timestamp);
             if let Err(e) = self.network_tx.send(msg) {

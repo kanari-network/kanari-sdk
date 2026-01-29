@@ -151,6 +151,7 @@ fn main() {
         vec![tx_context_bytes.clone()],
         Some(publish_sender),
         None,
+        None,
     ) {
         Ok(cs) => cs,
         Err(e) => {
@@ -340,6 +341,7 @@ fn main() {
                         vec![],
                         mint_args,
                         Some(publish_sender),
+                        None,
                         None,
                     );
                     match mint_call {

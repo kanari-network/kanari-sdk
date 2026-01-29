@@ -77,7 +77,7 @@ mod tests {
     #[test]
     fn test_constants() {
         assert_eq!(KanariModule::MIST_PER_KANARI, 1_000_000_000);
-        assert_eq!(KanariModule::TOTAL_SUPPLY_KANARI, 100_000_000);
+        assert_eq!(KanariModule::TOTAL_SUPPLY_KANARI, 11_000_000);
         assert_eq!(
             KanariModule::TOTAL_SUPPLY_MIST,
             KanariModule::TOTAL_SUPPLY_KANARI * KanariModule::MIST_PER_KANARI
