@@ -287,11 +287,12 @@ impl Checkpoint {
 
     /// Genesis checkpoint
     pub fn genesis() -> Self {
+        let genesis_state_root = smt::default_hashes()[0].to_vec();
         Self {
             sequence: 0,
             vertices: Vec::new(),
             transactions: Vec::new(),
-            state_root: vec![0u8; 32],
+            state_root: genesis_state_root,
             timestamp: 0,
             prev_checkpoint_hash: vec![0u8; 32],
         }
@@ -395,6 +396,9 @@ pub struct DagStore {
     /// Set of authority IDs
     authorities: BTreeSet<AuthorityId>,
 
+    /// Map of vertex ID to its checkpoint sequence number (for GC)
+    vertex_checkpoint_map: BTreeMap<VertexId, u64>,
+
     /// Checkpoint configuration
     checkpoint_config: CheckpointConfig,
 
@@ -428,6 +432,7 @@ impl DagStore {
             pending_vertices: VecDeque::new(),
             current_round: 0,
             authorities: authorities.into_iter().collect(),
+            vertex_checkpoint_map: BTreeMap::new(),
             checkpoint_config: config,
             last_checkpoint_round: 0,
             max_pending_vertices: max_pending,
@@ -600,19 +605,33 @@ impl DagStore {
     /// Add a new checkpoint (commits vertices)
     pub fn add_checkpoint(&mut self, checkpoint: Checkpoint) -> Result<()> {
         // Verify checkpoint sequence
-        let expected_seq = self.latest_checkpoint().sequence + 1;
+        let latest = self.latest_checkpoint();
+        let expected_seq = latest.sequence + 1;
+
         if checkpoint.sequence != expected_seq {
-            anyhow::bail!("Invalid checkpoint sequence");
+            // If it's the same as latest, we already have it
+            if checkpoint.sequence == latest.sequence && checkpoint.hash() == latest.hash() {
+                return Ok(());
+            }
+            anyhow::bail!(
+                "Invalid checkpoint sequence: expected {}, got {}",
+                expected_seq,
+                checkpoint.sequence
+            );
         }
 
         // Verify previous checkpoint hash
-        let prev_hash = self.latest_checkpoint().hash();
+        let prev_hash = latest.hash();
         if checkpoint.prev_checkpoint_hash != prev_hash {
             anyhow::bail!("Invalid previous checkpoint hash");
         }
 
         // Note: Vertices in Arc are immutable - checkpoint status tracked separately
-        // In production, use a separate HashMap<VertexId, CheckpointMetadata>
+        // Track which vertices belong to this checkpoint for Garbage Collection
+        for vertex_id in &checkpoint.vertices {
+            self.vertex_checkpoint_map
+                .insert(*vertex_id, checkpoint.sequence);
+        }
 
         // Remove from pending
         self.pending_vertices
@@ -629,12 +648,9 @@ impl DagStore {
         if self.checkpoints.len() > 10 {
             let cutoff_seq = self.checkpoints.len().saturating_sub(10) as u64;
             let vertices_to_remove: Vec<VertexId> = self
-                .vertices
+                .vertex_checkpoint_map
                 .iter()
-                .filter(|(_, v)| {
-                    v.metadata.is_checkpoint
-                        && v.metadata.checkpoint_seq.unwrap_or(u64::MAX) <= cutoff_seq
-                })
+                .filter(|&(_, &seq)| seq <= cutoff_seq)
                 .map(|(id, _)| *id)
                 .collect();
 
@@ -652,6 +668,8 @@ impl DagStore {
                         auth_vertices.retain(|id| id != &vertex_id);
                     }
                 }
+                // Remove from checkpoint map
+                self.vertex_checkpoint_map.remove(&vertex_id);
             }
         }
 
@@ -770,14 +788,15 @@ impl DagConsensus {
         }
 
         // Create genesis vertices (round 0) for all authorities
+        let genesis_state_root = smt::default_hashes()[0].to_vec();
         for authority in &authorities {
             let genesis_vertex = DagVertex::new(
                 0,
                 authority.clone(),
-                vec![],        // No parents for genesis
-                vec![],        // No transactions in genesis
-                vec![0u8; 32], // Genesis state root
-                0,             // Genesis timestamp
+                vec![],                     // No parents for genesis
+                vec![],                     // No transactions in genesis
+                genesis_state_root.clone(), // Genesis state root
+                0,                          // Genesis timestamp
             );
             // Add genesis vertices (will succeed because round 0 has no parent requirements)
             let _ = store.add_vertex(genesis_vertex);
@@ -1092,29 +1111,21 @@ impl DagConsensus {
                     checkpoint.sequence
                 );
 
-                // Add checkpoint to store
-                self.store.add_checkpoint(checkpoint.clone())?;
-
-                // Persist checkpoint to disk if persistent store exists
-                if let Some(persistent) = &self.persistent_store {
-                    let _ = persistent.put_checkpoint(&checkpoint);
-
-                    // Persist committed vertices
-                    for vertex_id in &vertices_to_commit {
-                        if let Some(vertex) = self.store.get_vertex(vertex_id) {
-                            let _ = persistent.put_vertex(vertex);
-                        }
-                    }
-                }
-
-                // Update state synchronizer with new checkpoint
-                self.state_sync.add_checkpoint(checkpoint.clone());
-
                 return Ok(Some(checkpoint));
             }
         }
 
         Ok(None)
+    }
+
+    /// Add a new checkpoint (delegates to store)
+    pub fn add_checkpoint(&mut self, checkpoint: Checkpoint) -> Result<()> {
+        self.store.add_checkpoint(checkpoint)
+    }
+
+    /// Get latest checkpoint (delegates to store)
+    pub fn latest_checkpoint(&self) -> Checkpoint {
+        self.store.latest_checkpoint()
     }
 
     /// Collect all vertices that should be committed (topological sort with cycle detection)

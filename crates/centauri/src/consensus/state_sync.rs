@@ -412,7 +412,7 @@ mod tests {
             checkpoints: vec![],
             vertices: vec![vertex],
             current_round: 1,
-            state_root: vec![0u8; 32],
+            state_root: Checkpoint::genesis().state_root,
         };
 
         assert!(sync.apply_sync_response(response).is_ok());

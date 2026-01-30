@@ -292,9 +292,45 @@ impl StateManager {
     }
 
     pub fn compute_state_root(&self) -> Vec<u8> {
-        let serialized =
+        let mut data = Vec::new();
+
+        // 1. Serialize accounts (sorted by address because BTreeMap)
+        let accounts_bytes =
             bcs::to_bytes(&self.accounts).expect("BCS serialization of accounts should never fail");
-        hash_data_blake3(&serialized)
+        data.extend_from_slice(&accounts_bytes);
+
+        // 2. Serialize total supply
+        data.extend_from_slice(&self.total_supply.to_le_bytes());
+
+        // 3. Serialize token supplies
+        let token_supplies_bytes = bcs::to_bytes(&self.token_supplies)
+            .expect("BCS serialization of token_supplies should never fail");
+        data.extend_from_slice(&token_supplies_bytes);
+
+        // 4. Serialize token treasuries
+        let token_treasuries_bytes = bcs::to_bytes(&self.token_treasuries)
+            .expect("BCS serialization of token_treasuries should never fail");
+        data.extend_from_slice(&token_treasuries_bytes);
+
+        // 5. Serialize objects
+        let objects_bytes =
+            bcs::to_bytes(&self.objects).expect("BCS serialization of objects should never fail");
+        data.extend_from_slice(&objects_bytes);
+
+        // 6. Serialize owned objects (Sort each Vec for determinism)
+        let mut sorted_owned_objects = self.owned_objects.clone();
+        for objects in sorted_owned_objects.values_mut() {
+            objects.sort();
+        }
+        let owned_objects_bytes = bcs::to_bytes(&sorted_owned_objects)
+            .expect("BCS serialization of owned_objects should never fail");
+        data.extend_from_slice(&owned_objects_bytes);
+
+        // NOTE: We do NOT include events in the State Root anymore.
+        // Events are transient and should be verified via a separate Event Root in the block header.
+        // This ensures the State Root only reflects the actual persistent state (accounts, objects).
+
+        hash_data_blake3(&data)
     }
 
     /// Drain and return all accumulated events from the state event store.

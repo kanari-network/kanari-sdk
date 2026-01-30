@@ -183,13 +183,19 @@ impl DagEngine {
         let state_root = {
             let mut state = self.engine.state.write().unwrap();
             for cs in changesets {
-                if cs.success {
-                    state.apply_changeset(&cs)?;
-                }
+                // Apply ALL changesets (including failed ones) to ensure
+                // gas deduction and sequence increments are consistent across nodes.
+                state.apply_changeset(&cs)?;
             }
             // CRITICAL: Use the same state root computation method as sync
             // to ensure deterministic state roots across all nodes
-            state.compute_state_root()
+            let root = state.compute_state_root();
+
+            // DRAIN EVENTS: Clear events after each vertex production to prevent
+            // accumulation and ensure they don't affect future state roots or memory.
+            let _ = state.drain_events();
+
+            root
         };
 
         // Collect events (simplified placeholder)
@@ -226,6 +232,10 @@ impl DagEngine {
                 // Add checkpoint to blockchain (checkpoint creates blocks internally)
                 let mut blockchain = self.engine.blockchain.write().unwrap();
                 blockchain.add_checkpoint(checkpoint.clone())?;
+
+                // CRITICAL: Also add to consensus store to advance its state
+                // Otherwise it will keep trying to produce the same checkpoint
+                consensus.add_checkpoint(checkpoint.clone())?;
 
                 // Persist state and blockchain to avoid data loss on restart
                 if let Some(store) = &self.engine.persistent_store {
@@ -532,6 +542,13 @@ impl DagEngine {
         &self.authority_id
     }
 
+    /// Sync a checkpoint from external source (e.g. block sync)
+    pub fn sync_checkpoint(&self, checkpoint: centauri::consensus::Checkpoint) -> Result<()> {
+        let mut consensus = self.consensus.write().unwrap();
+        // Use add_checkpoint which handles sequence and prev_hash validation
+        consensus.add_checkpoint(checkpoint)
+    }
+
     /// Add a DAG vertex received from the network
     /// This synchronizes the local DAG with vertices created by other nodes
     /// IMPORTANT: Execute transactions BEFORE adding vertex to ensure state consistency
@@ -628,6 +645,22 @@ impl DagEngine {
         // Now add vertex to DAG consensus
         let mut consensus = self.consensus.write().unwrap();
         consensus.add_vertex(vertex)?;
+
+        // Try to commit (follower side) - this ensures all nodes commit the same checkpoints
+        if let Some(checkpoint) = consensus.try_commit()? {
+            let mut blockchain = self.engine.blockchain.write().unwrap();
+            // Add to blockchain
+            if let Err(e) = blockchain.add_checkpoint(checkpoint.clone()) {
+                log::warn!(
+                    "[DAG SYNC] Failed to add committed checkpoint to blockchain: {}",
+                    e
+                );
+            } else {
+                // Also add to consensus store to advance its state
+                let _ = consensus.add_checkpoint(checkpoint);
+            }
+        }
+
         Ok(())
     }
 }

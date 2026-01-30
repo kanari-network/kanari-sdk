@@ -277,6 +277,12 @@ impl ParallelValidator {
             return Err(anyhow::anyhow!("State root is empty"));
         }
 
+        if vertex.metadata.state_root.len() != 32 {
+            return Err(anyhow::anyhow!(
+                "Invalid state root length (must be 32 bytes)"
+            ));
+        }
+
         Ok(())
     }
 

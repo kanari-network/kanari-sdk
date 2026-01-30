@@ -52,14 +52,21 @@ pub struct CheckpointSignature {
     pub stake: u64,
 }
 
-/// State proof for light client (simplified - no Merkle proof)
+/// State proof for light client
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateProof {
     /// Account address
     pub address: String,
 
-    /// Account state data
+    /// Account state data (value)
+    /// If is_membership is false, this should be empty
     pub state_data: Vec<u8>,
+
+    /// Whether this is a membership proof (true) or non-membership proof (false)
+    pub is_membership: bool,
+
+    /// Merkle proof siblings (bottom-up from leaf)
+    pub siblings: Vec<[u8; 32]>,
 
     /// State root hash
     pub state_root: Vec<u8>,
@@ -68,14 +75,20 @@ pub struct StateProof {
     pub checkpoint: LightCheckpoint,
 }
 
-/// Transaction inclusion proof (simplified - no Merkle proof)
+/// Transaction inclusion proof
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionProof {
     /// Transaction hash
     pub tx_hash: Vec<u8>,
 
+    /// Transaction index in the block/checkpoint
+    pub tx_index: usize,
+
     /// Transaction data
     pub tx_data: Vec<u8>,
+
+    /// Merkle proof path
+    pub path: Vec<Vec<u8>>,
 
     /// Transaction root hash
     pub tx_root: Vec<u8>,
@@ -169,7 +182,7 @@ impl LightClient {
         Ok(())
     }
 
-    /// Verify state proof (simplified - checks state root match)
+    /// Verify state proof using SMT verification
     pub fn verify_state_proof(&self, proof: &StateProof) -> Result<()> {
         // Check if checkpoint is verified
         if !self
@@ -182,9 +195,37 @@ impl LightClient {
             ));
         }
 
-        // Verify state root matches
+        // Verify state root matches checkpoint
         if proof.state_root != proof.checkpoint.state_root {
             return Err(anyhow!("State root mismatch"));
+        }
+
+        // Verify Merkle proof using SMT library
+        let mut root_arr = [0u8; 32];
+        if proof.state_root.len() == 32 {
+            root_arr.copy_from_slice(&proof.state_root);
+        } else {
+            return Err(anyhow!("Invalid state root length"));
+        }
+
+        // Reconstruct leaf hash (consistent with SMT implementation)
+        let key_hash = smt::digest(proof.address.as_bytes());
+        let leaf_hash = if proof.is_membership {
+            smt::hash_leaf(&key_hash, &proof.state_data)
+        } else {
+            // Use default leaf hash for non-membership
+            // The default leaf is H(0x00 || 32 zero key || 32 zero value)
+            smt::default_hashes()[256]
+        };
+
+        // verify_proof returns true if valid
+        // Proof tuple: (is_member, leaf_hash, siblings)
+        if !smt::verify_proof(
+            &root_arr,
+            proof.address.as_bytes(),
+            (proof.is_membership, leaf_hash, proof.siblings.clone()),
+        ) {
+            return Err(anyhow!("Invalid Merkle proof for state"));
         }
 
         tracing::debug!(
@@ -196,7 +237,7 @@ impl LightClient {
         Ok(())
     }
 
-    /// Verify transaction proof (simplified - checks tx root match)
+    /// Verify transaction proof using Merkle proof verification
     pub fn verify_transaction_proof(&self, proof: &TransactionProof) -> Result<()> {
         // Check if checkpoint is verified
         if !self
@@ -215,9 +256,14 @@ impl LightClient {
             return Err(anyhow!("Transaction hash mismatch"));
         }
 
-        // Verify tx root matches
+        // Verify tx root matches checkpoint
         if proof.tx_root != proof.checkpoint.tx_root {
             return Err(anyhow!("Transaction root mismatch"));
+        }
+
+        // Verify Merkle inclusion proof using smt library
+        if !smt::verify_merkle_proof(&proof.tx_hash, proof.tx_index, &proof.path, &proof.tx_root) {
+            return Err(anyhow!("Invalid Merkle proof for transaction inclusion"));
         }
 
         tracing::debug!(
@@ -362,17 +408,8 @@ impl CheckpointBuilder {
         checkpoint: &Checkpoint,
         signatures: Vec<CheckpointSignature>,
     ) -> LightCheckpoint {
-        // Calculate tx_root from transactions
-        let tx_hashes: Vec<Vec<u8>> = checkpoint
-            .transactions
-            .iter()
-            .enumerate()
-            .map(|(i, _tx)| {
-                // Simple hash using index
-                let data = format!("tx:{}", i);
-                kanari_crypto::hash_data_blake3(data.as_bytes())
-            })
-            .collect();
+        // Calculate tx_root from actual transactions
+        let tx_hashes: Vec<Vec<u8>> = checkpoint.transactions.iter().map(|tx| tx.hash()).collect();
         let tx_root = if tx_hashes.is_empty() {
             vec![0u8; 32]
         } else {

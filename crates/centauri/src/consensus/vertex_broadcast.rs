@@ -543,7 +543,14 @@ mod tests {
         let mut broadcaster = VertexBroadcaster::new(10, Duration::from_secs(1));
 
         let parent = [0u8; 32];
-        let vertex = DagVertex::new(1, "auth1".to_string(), vec![parent], vec![], vec![0u8; 32], 0);
+        let vertex = DagVertex::new(
+            1,
+            "auth1".to_string(),
+            vec![parent],
+            vec![],
+            vec![0u8; 32],
+            0,
+        );
 
         broadcaster.add_vertex(vertex.clone(), false);
         assert_eq!(broadcaster.pending_count(), 1);

@@ -22,7 +22,6 @@ use move_core_types::{
 };
 use num_cpus;
 use serde::{Deserialize, Serialize};
-use smt::generate_merkle_proof;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
 
@@ -141,8 +140,6 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
 
     None
 }
-
-type AccountProof = Option<(bool, Vec<u8>, Vec<Vec<u8>>)>;
 
 impl BlockchainEngine {
     pub fn new_dir(dir: &str) -> Result<Self> {
@@ -1105,13 +1102,6 @@ impl BlockchainEngine {
                 .save("state_manager", &*state_guard)
                 .context("Failed to persist state manager")?;
             drop(state_guard);
-
-            if let Err(e) = store.save_smt_snapshot(block_data.height) {
-                eprintln!(
-                    "Failed to save SMT snapshot for synced block {}: {}",
-                    block_data.height, e
-                );
-            }
         }
 
         eprintln!(
@@ -1203,153 +1193,6 @@ impl BlockchainEngine {
         }
 
         out
-    }
-
-    /// Produce an SMT proof for the given account key (hex or address string).
-    /// Returns Ok(None) if no persistent SMT is configured or the key wasn't found.
-    pub fn get_account_proof(&self, key: &str) -> Result<AccountProof> {
-        if let Some(store) = &self.persistent_store {
-            if let Some((is_member, leaf, siblings)) = store.proof(key)? {
-                let leaf_v = leaf.to_vec();
-                let sibs_v = siblings.into_iter().map(|s| s.to_vec()).collect();
-                return Ok(Some((is_member, leaf_v, sibs_v)));
-            }
-            Ok(None)
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Produce an account proof at a historical block height using the SMT
-    /// snapshot persisted at that height. Returns Ok(None) if snapshot
-    /// unavailable.
-    pub fn get_account_proof_at_height(&self, height: u64, key: &str) -> Result<AccountProof> {
-        if let Some(store) = &self.persistent_store {
-            if let Some(pairs) = store.load_smt_snapshot(height)? {
-                use std::collections::BTreeMap;
-
-                // Build map for lookup
-                let mut map: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
-                for (k, v) in pairs.into_iter() {
-                    map.insert(k, v);
-                }
-
-                // helper closures matching SMT key format
-                let data_key = |kh: &[u8; 32]| -> Vec<u8> {
-                    let mut out = b"smt:data:".to_vec();
-                    out.extend(kh);
-                    out
-                };
-
-                let node_key = |depth: usize, prefix: &[u8]| -> Vec<u8> {
-                    let mut out = b"smt:node:".to_vec();
-                    let d = (depth as u16).to_be_bytes();
-                    out.extend(&d);
-                    out.extend(prefix);
-                    out
-                };
-
-                // compute key hash
-                let kh = smt::digest(key.as_bytes());
-
-                // default hashes
-                let default_hashes = smt::default_hashes();
-
-                // membership
-                let is_member = map.contains_key(&data_key(&kh));
-
-                // leaf hash
-                let leaf_hash = if is_member {
-                    let val = map
-                        .get(&data_key(&kh))
-                        .ok_or_else(|| anyhow::anyhow!("SMT data inconsistency"))?;
-                    smt::hash_leaf(&kh, val.as_slice()).to_vec()
-                } else {
-                    default_hashes[256].to_vec()
-                };
-
-                let mut siblings: Vec<Vec<u8>> = Vec::new();
-                for depth in (1..=256).rev() {
-                    let prefix_bits: usize = depth;
-                    let prefix_bytes = prefix_bits.div_ceil(8usize);
-                    let mut prefix = vec![0u8; prefix_bytes];
-                    prefix.copy_from_slice(&kh[..prefix_bytes]);
-                    let excess = (prefix_bytes * 8) - prefix_bits;
-                    if excess > 0 {
-                        let mask = 0xFF << excess;
-                        let last = prefix_bytes - 1;
-                        prefix[last] &= mask as u8;
-                    }
-
-                    let last_bit_index = prefix_bits - 1;
-                    let byte_idx = last_bit_index / 8;
-                    let bit_in_byte = 7 - (last_bit_index % 8);
-
-                    let mut sibling_prefix = prefix.clone();
-                    sibling_prefix[byte_idx] ^= 1u8 << bit_in_byte;
-                    let nk = node_key(depth, &sibling_prefix);
-                    if let Some(v) = map.get(&nk) {
-                        siblings.push(v.clone());
-                    } else {
-                        siblings.push(default_hashes[depth].to_vec());
-                    }
-                }
-
-                return Ok(Some((is_member, leaf_hash, siblings)));
-            }
-            Ok(None)
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Generate merkle proof for a transaction at given index in a block
-    /// Uses LRU cache for frequently requested proofs
-    pub fn get_transaction_merkle_proof(
-        &self,
-        block_height: u64,
-        tx_index: usize,
-    ) -> Result<Option<(String, Vec<Vec<u8>>)>> {
-        let cache_key = (block_height, tx_index);
-
-        // Check cache first
-        {
-            let mut cache = self.proof_cache.write().unwrap();
-            if let Some(cached_proof) = cache.get(&cache_key) {
-                return Ok(Some(cached_proof.clone()));
-            }
-        }
-
-        // Not in cache, compute proof
-        let chain = self.blockchain.read().unwrap();
-        let block = chain
-            .get_block(block_height)
-            .ok_or_else(|| anyhow::anyhow!("Block not found at height {}", block_height))?;
-
-        if tx_index >= block.transactions.len() {
-            anyhow::bail!(
-                "Transaction index {} out of bounds (block has {} transactions)",
-                tx_index,
-                block.transactions.len()
-            );
-        }
-
-        // Collect transaction hashes
-        let tx_hashes: Vec<Vec<u8>> = block.transactions.iter().map(|tx| tx.hash()).collect();
-
-        // Generate proof
-        let proof = generate_merkle_proof(&tx_hashes, tx_index);
-        let tx_hash = hex::encode(&tx_hashes[tx_index]);
-
-        let result = (tx_hash, proof);
-
-        // Store in cache
-        {
-            let mut cache = self.proof_cache.write().unwrap();
-            cache.put(cache_key, result.clone());
-        }
-
-        Ok(Some(result))
     }
 }
 

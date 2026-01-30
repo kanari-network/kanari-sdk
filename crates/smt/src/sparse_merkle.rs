@@ -4,17 +4,29 @@
 use crate::hash::{digest, hash_leaf, hash_node};
 use crate::open_or_get_db;
 use anyhow::Result;
+use once_cell::sync::Lazy;
 use rocksdb::IteratorMode;
 use rocksdb::WriteBatch;
 use std::path::PathBuf;
 
-/// Sparse Merkle Tree implementation (256-bit keyspace using SHA-256).
+/// Precomputed default hashes for SMT levels (256 levels + 1 leaf default)
+static DEFAULT_HASHES: Lazy<Vec<[u8; 32]>> = Lazy::new(|| {
+    let mut default_hashes = vec![[0u8; 32]; 257];
+    default_hashes[256] = hash_leaf(&[0u8; 32], &[0u8; 32]);
+
+    for d in (0..256).rev() {
+        default_hashes[d] = hash_node(&default_hashes[d + 1], &default_hashes[d + 1]);
+    }
+    default_hashes
+});
+
+/// Sparse Merkle Tree implementation (256-bit keyspace using BLAKE3).
 /// - Leaf hash: H(0x00 || key_hash || value)
 /// - Node hash: H(0x01 || left || right)
 ///   Stores only non-default nodes in RocksDB under keys `smt:node:<depth>:<prefix_bytes>`.
 pub struct SparseMerkleTree {
     db: std::sync::Arc<rocksdb::DB>,
-    default_hashes: Vec<[u8; 32]>,
+    default_hashes: &'static [[u8; 32]],
 }
 
 fn node_key(depth: usize, prefix: &[u8]) -> Vec<u8> {
@@ -32,18 +44,16 @@ fn data_key(key_hash: &[u8; 32]) -> Vec<u8> {
 }
 
 impl SparseMerkleTree {
+    pub fn new(db: std::sync::Arc<rocksdb::DB>) -> Self {
+        Self {
+            db,
+            default_hashes: &DEFAULT_HASHES,
+        }
+    }
+
     pub fn open(path_opt: Option<PathBuf>) -> Result<Self> {
         let db = open_or_get_db(path_opt)?;
-        // precompute default hashes: index = depth, 256 = leaf default
-        let mut default_hashes = vec![[0u8; 32]; 257];
-        // define empty leaf as H(0x00 || 32 zero key || 32 zero value)
-        default_hashes[256] = hash_leaf(&[0u8; 32], &[0u8; 32]);
-
-        for d in (0..256).rev() {
-            default_hashes[d] = hash_node(&default_hashes[d + 1], &default_hashes[d + 1]);
-        }
-
-        Ok(Self { db, default_hashes })
+        Ok(Self::new(db))
     }
 
     /// Export all stored SMT key/value pairs (node entries and data entries)
@@ -315,20 +325,12 @@ impl SparseMerkleTree {
 }
 
 /// Produce the canonical default hash vector used by the SMT.
-pub fn default_hashes() -> Vec<[u8; 32]> {
-    let mut default_hashes = vec![[0u8; 32]; 257];
-    default_hashes[256] = hash_leaf(&[0u8; 32], &[0u8; 32]);
-
-    for d in (0..256).rev() {
-        default_hashes[d] = hash_node(&default_hashes[d + 1], &default_hashes[d + 1]);
-    }
-
-    default_hashes
+pub fn default_hashes() -> &'static [[u8; 32]] {
+    &DEFAULT_HASHES
 }
 
 /// Verify a proof (membership or non-membership) against a given root.
 /// `proof` is the tuple returned by `proof()`: `(is_member, leaf_hash, siblings)`.
-#[allow(dead_code)]
 pub fn verify_proof(root: &[u8; 32], key: &[u8], proof: (bool, [u8; 32], Vec<[u8; 32]>)) -> bool {
     let (_is_member, leaf, siblings) = proof;
     let kh = digest(key);
@@ -350,4 +352,121 @@ pub fn verify_proof(root: &[u8; 32], key: &[u8], proof: (bool, [u8; 32], Vec<[u8
     // After folding up, `cur` should equal the root. For non-membership proofs
     // `is_member` should be false and the leaf used is the default leaf.
     &cur == root
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rocksdb::{DB, Options};
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    fn open_test_db(path: &std::path::Path) -> SparseMerkleTree {
+        let mut opts = Options::default();
+        opts.create_if_missing(true);
+        let db = DB::open(&opts, path).unwrap();
+        SparseMerkleTree::new(Arc::new(db))
+    }
+
+    #[test]
+    fn test_smt_basic_membership() -> Result<()> {
+        let dir = tempdir()?;
+        let smt = open_test_db(dir.path());
+
+        let key = b"test-key";
+        let value = b"test-value";
+
+        // Insert
+        smt.insert(&[(key.to_vec(), value.to_vec())])?;
+
+        // Proof
+        let (is_member, leaf_hash, siblings) = smt.proof(key)?;
+        assert!(is_member);
+
+        // Root
+        let root = smt.root_hash()?;
+
+        // Verify
+        assert!(verify_proof(&root, key, (is_member, leaf_hash, siblings)));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_smt_non_membership() -> Result<()> {
+        let dir = tempdir()?;
+        let smt = open_test_db(dir.path());
+
+        let key = b"non-existent";
+
+        // Proof
+        let (is_member, leaf_hash, siblings) = smt.proof(key)?;
+        assert!(!is_member);
+        assert_eq!(leaf_hash, default_hashes()[256]);
+
+        // Root (should be empty tree root)
+        let root = smt.root_hash()?;
+        assert_eq!(root, default_hashes()[0]);
+
+        // Verify
+        assert!(verify_proof(&root, key, (is_member, leaf_hash, siblings)));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_smt_multi_keys() -> Result<()> {
+        let dir = tempdir()?;
+        let smt = open_test_db(dir.path());
+
+        let kvs = vec![
+            (b"key1".to_vec(), b"val1".to_vec()),
+            (b"key2".to_vec(), b"val2".to_vec()),
+            (b"key3".to_vec(), b"val3".to_vec()),
+        ];
+
+        smt.insert(&kvs)?;
+
+        let root = smt.root_hash()?;
+
+        for (k, _v) in kvs {
+            let (is_member, leaf_hash, siblings) = smt.proof(&k)?;
+            assert!(is_member);
+            assert!(verify_proof(&root, &k, (is_member, leaf_hash, siblings)));
+        }
+
+        // Test non-membership of another key
+        let other_key = b"key4";
+        let (is_member, leaf_hash, siblings) = smt.proof(other_key)?;
+        assert!(!is_member);
+        assert!(verify_proof(
+            &root,
+            other_key,
+            (is_member, leaf_hash, siblings)
+        ));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_smt_delete() -> Result<()> {
+        let dir = tempdir()?;
+        let smt = open_test_db(dir.path());
+
+        let key = b"delete-me";
+        let value = b"val";
+
+        smt.insert(&[(key.to_vec(), value.to_vec())])?;
+        let root_after_insert = smt.root_hash()?;
+        assert_ne!(root_after_insert, default_hashes()[0]);
+
+        smt.delete(&[key.to_vec()])?;
+        let root_after_delete = smt.root_hash()?;
+        assert_eq!(root_after_delete, default_hashes()[0]);
+
+        let (is_member, _, _) = smt.proof(key)?;
+        assert!(!is_member);
+
+        Ok(())
+    }
 }

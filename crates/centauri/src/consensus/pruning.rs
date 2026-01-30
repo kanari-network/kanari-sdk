@@ -368,9 +368,7 @@ mod tests {
 
     fn create_test_checkpoint(sequence: u64) -> Checkpoint {
         let mut vertex_id = [0u8; 32];
-        for i in 0..32 {
-            vertex_id[i] = sequence as u8;
-        }
+        vertex_id.fill(sequence as u8);
 
         Checkpoint {
             sequence,
