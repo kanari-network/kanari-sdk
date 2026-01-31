@@ -449,6 +449,30 @@ mod tests {
     }
 
     #[test]
+    fn test_smt_update() -> Result<()> {
+        let dir = tempdir()?;
+        let smt = open_test_db(dir.path());
+
+        let key = b"key";
+        let val1 = b"val1";
+        let val2 = b"val2";
+
+        smt.insert(&[(key.to_vec(), val1.to_vec())])?;
+        let root1 = smt.root_hash()?;
+
+        smt.insert(&[(key.to_vec(), val2.to_vec())])?;
+        let root2 = smt.root_hash()?;
+
+        assert_ne!(root1, root2);
+
+        let (is_member, leaf_hash, siblings) = smt.proof(key)?;
+        assert!(is_member);
+        assert!(verify_proof(&root2, key, (is_member, leaf_hash, siblings)));
+
+        Ok(())
+    }
+
+    #[test]
     fn test_smt_delete() -> Result<()> {
         let dir = tempdir()?;
         let smt = open_test_db(dir.path());
