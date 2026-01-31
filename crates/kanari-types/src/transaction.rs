@@ -2,6 +2,7 @@
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
 use kanari_crypto::keys::CurveType;
+use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
 use tracing::error;
 
@@ -164,7 +165,28 @@ impl Transaction {
             Transaction::Transfer { to, .. } => {
                 keys.push(to.clone());
             }
-            _ => {}
+            Transaction::ExecuteFunction { module, args, .. } => {
+                // Include the module as a conflict key to ensure sequential execution
+                // of transactions affecting the same module's global state.
+                keys.push(module.clone());
+
+                // If any arguments look like addresses, they might be objects/accounts being modified
+                for arg in args {
+                    if arg.len() == 32 {
+                        if let Ok(addr) = AccountAddress::from_bytes(arg) {
+                            keys.push(addr.to_string());
+                        }
+                    }
+                }
+            }
+            Transaction::PublishModule { module_name, .. } => {
+                keys.push(module_name.clone());
+            }
+            Transaction::Burn { .. } => {
+                // Burn only affects the sender (already added) and total_supply.
+                // Since total_supply is a global metric, we don't add a specific key for it
+                // to avoid sequentializing all burns, as the state application is locked.
+            }
         }
         keys
     }

@@ -467,6 +467,11 @@ impl DagStore {
         &self.checkpoint_config
     }
 
+    /// Check if a vertex is already checkpointed
+    pub fn is_vertex_checkpointed(&self, id: &VertexId) -> bool {
+        self.vertex_checkpoint_map.contains_key(id)
+    }
+
     /// Update checkpoint configuration
     pub fn set_checkpoint_config(&mut self, config: CheckpointConfig) -> Result<()> {
         config.validate()?;
@@ -1171,7 +1176,7 @@ impl DagConsensus {
             }
 
             if let Some(vertex) = self.store.get_vertex(&vertex_id) {
-                if vertex.metadata.is_checkpoint {
+                if self.store.is_vertex_checkpointed(&vertex_id) {
                     visited.insert(vertex_id);
                     continue;
                 }
@@ -1222,7 +1227,7 @@ impl DagConsensus {
 
             if let Some(vertex) = self.store.get_vertex(&vertex_id) {
                 // Skip if already checkpointed
-                if vertex.metadata.is_checkpoint {
+                if self.store.is_vertex_checkpointed(&vertex_id) {
                     visited.insert(vertex_id);
                     continue;
                 }
