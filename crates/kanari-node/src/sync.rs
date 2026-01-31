@@ -5,22 +5,36 @@ use crate::p2p::{P2PMessage, PeerInfoMsg};
 use centauri::consensus::DagVertex;
 use kanari_core::{BlockchainEngine, FullBlockData, engine::DagEngine};
 use kanari_types::transaction::SignedTransaction;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 /// Handles block and transaction synchronization between peers
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+
 pub struct SyncManager {
     engine: Arc<BlockchainEngine>,
     network_tx: mpsc::UnboundedSender<P2PMessage>,
+    local_peer_id: String,
+    /// Buffer for blocks that arrived out of order (height -> block)
+    block_buffer: Mutex<std::collections::BTreeMap<u64, FullBlockData>>,
+    /// Highest height seen in the network
+    max_peer_height: AtomicU64,
 }
 
 impl SyncManager {
     pub fn new(
         engine: Arc<BlockchainEngine>,
         network_tx: mpsc::UnboundedSender<P2PMessage>,
+        local_peer_id: String,
     ) -> Self {
-        Self { engine, network_tx }
+        Self {
+            engine,
+            network_tx,
+            local_peer_id,
+            block_buffer: Mutex::new(std::collections::BTreeMap::new()),
+            max_peer_height: AtomicU64::new(0),
+        }
     }
 
     /// Process incoming P2P messages
@@ -75,17 +89,86 @@ impl SyncManager {
                         "Received new block #{} from network (current: {}) with {} transactions",
                         block.height, stats.height, block.tx_count
                     );
-                    // TODO: Validate and apply block to local chain
-                    // For now, if we're behind, request missing blocks
-                    if block.height > stats.height + 1 {
-                        self.request_blocks(stats.height + 1, block.height - 1)
+
+                    // Buffer the block
+                    {
+                        let mut buffer = self.block_buffer.lock().unwrap();
+                        buffer.insert(block.height, block);
+                    }
+
+                    // Try to apply consecutive blocks from the buffer
+                    self.try_apply_buffered_blocks().await;
+
+                    // If we're still behind, request missing blocks
+                    let new_stats = self.engine.get_stats();
+                    let latest_buffered = {
+                        let buffer = self.block_buffer.lock().unwrap();
+                        buffer.keys().last().cloned().unwrap_or(0)
+                    };
+
+                    if latest_buffered > new_stats.height + 1 {
+                        self.request_blocks(new_stats.height + 1, latest_buffered - 1)
                             .await;
                     }
                 }
             }
             Err(e) => {
-                error!("Failed to deserialize block: {}", e);
+                error!("Failed to deserialize new block: {}", e);
             }
+        }
+    }
+
+    /// Try to apply buffered blocks in sequence
+    async fn try_apply_buffered_blocks(&self) {
+        loop {
+            let stats = self.engine.get_stats();
+            let next_height = stats.height + 1;
+
+            let next_block = {
+                let mut buffer = self.block_buffer.lock().unwrap();
+                buffer.remove(&next_height)
+            };
+
+            if let Some(block) = next_block {
+                info!("Applying block #{} from buffer", block.height);
+                match self.engine.sync_full_block_from_data(&block) {
+                    Ok(_) => {
+                        info!(
+                            "Successfully synced block #{} with {} transactions",
+                            block.height, block.tx_count
+                        );
+                        // Broadcast our new height
+                        self.broadcast_peer_info().await;
+                    }
+                    Err(e) => {
+                        error!("Failed to sync block #{}: {}", block.height, e);
+                        // Put it back in buffer if it failed (maybe temporary?)
+                        // Actually, if it failed due to state root mismatch, putting it back won't help.
+                        // But for now, let's keep it simple.
+                        break;
+                    }
+                }
+            } else {
+                // No more consecutive blocks in buffer.
+                // Check if we are still behind the network and should request more.
+                let stats = self.engine.get_stats();
+                let max_seen = self.max_peer_height.load(Ordering::Relaxed);
+                if stats.height < max_seen {
+                    info!(
+                        "[SYNC] Applied all buffered blocks but still behind network (current: {}, max seen: {}). Requesting next batch.",
+                        stats.height, max_seen
+                    );
+                    self.request_blocks(stats.height + 1, max_seen).await;
+                }
+                break;
+            }
+        }
+
+        // Clean up old blocks from buffer
+        {
+            let stats = self.engine.get_stats();
+            let mut buffer = self.block_buffer.lock().unwrap();
+            buffer.retain(|&h, _| h > stats.height);
         }
     }
 
@@ -95,6 +178,7 @@ impl SyncManager {
 
         match serde_json::from_str::<DagVertex>(&vertex_data) {
             Ok(vertex) => {
+                let stats = self.engine.get_stats();
                 info!(
                     "Received DAG vertex {} (round {}) from network with {} transactions",
                     hex::encode(vertex.id),
@@ -131,73 +215,34 @@ impl SyncManager {
                         }
                     }
 
-                    let dag_engine_opt = dag_engine_arc.read().unwrap();
-                    if let Some(ref dag_engine) = *dag_engine_opt {
-                        match dag_engine.add_network_vertex(vertex.clone()) {
-                            Ok(_) => {
-                                info!(
-                                    "Successfully added DAG vertex {} to local consensus",
-                                    hex::encode(vertex.id)
-                                );
-
-                                // Check if this triggered a checkpoint commit
-                                let consensus = dag_engine.consensus();
-                                if let Ok(Some(checkpoint)) =
-                                    consensus.write().unwrap().try_commit()
-                                {
+                    let height_changed = {
+                        let dag_engine_opt = dag_engine_arc.read().unwrap();
+                        if let Some(ref dag_engine) = *dag_engine_opt {
+                            match dag_engine.add_network_vertex(vertex.clone()) {
+                                Ok(_) => {
                                     info!(
-                                        "Checkpoint {} committed with {} vertices and {} transactions",
-                                        checkpoint.sequence,
-                                        checkpoint.vertices.len(),
-                                        checkpoint.transactions.len()
+                                        "Successfully added DAG vertex {} to local consensus",
+                                        hex::encode(vertex.id)
                                     );
-
-                                    // Apply checkpoint to blockchain
-                                    if let Err(e) = self
-                                        .engine
-                                        .blockchain
-                                        .write()
-                                        .unwrap()
-                                        .add_checkpoint(checkpoint)
-                                    {
-                                        error!("Failed to apply checkpoint to blockchain: {}", e);
-                                    } else {
-                                        // Persist blockchain and state after checkpoint commit
-                                        if let Some(store) = &self.engine.persistent_store {
-                                            let chain = self.engine.blockchain.read().unwrap();
-                                            if let Err(e) = store.save("blockchain", &*chain) {
-                                                error!(
-                                                    "Failed to persist blockchain after checkpoint: {}",
-                                                    e
-                                                );
-                                            }
-                                            drop(chain);
-
-                                            let state = self.engine.state.read().unwrap();
-                                            if let Err(e) = store.save("state_manager", &*state) {
-                                                error!(
-                                                    "Failed to persist state after checkpoint: {}",
-                                                    e
-                                                );
-                                            }
-                                            drop(state);
-
-                                            if let Err(e) = store.flush() {
-                                                error!(
-                                                    "Failed to flush store after checkpoint: {}",
-                                                    e
-                                                );
-                                            }
-                                        }
-                                    }
+                                    // Check if height changed to broadcast new info
+                                    let new_stats = self.engine.get_stats();
+                                    new_stats.height > stats.height
+                                }
+                                Err(e) => {
+                                    warn!("Failed to add DAG vertex to consensus: {}", e);
+                                    false
                                 }
                             }
-                            Err(e) => {
-                                warn!("Failed to add DAG vertex to consensus: {}", e);
-                            }
+                        } else {
+                            warn!("DAG engine not initialized, cannot process vertex");
+                            false
                         }
-                    } else {
-                        warn!("DAG engine not initialized, cannot process vertex");
+                    };
+
+                    if height_changed {
+                        let new_stats = self.engine.get_stats();
+                        info!("New height reached via DAG: {}", new_stats.height);
+                        self.broadcast_peer_info().await;
                     }
                 } else {
                     warn!("DAG mode not enabled, ignoring vertex");
@@ -210,15 +255,23 @@ impl SyncManager {
     }
 
     async fn handle_block_request(&self, height: u64) {
+        info!("[SYNC] Received block request for height {}", height);
         if let Some(full_block_data) = self.engine.get_full_block(height) {
+            info!(
+                "[SYNC] Found block #{} with {} txs, sending response",
+                height, full_block_data.tx_count
+            );
             if let Ok(data_str) = serde_json::to_string(&full_block_data) {
                 let msg = P2PMessage::BlockResponse(data_str);
                 if let Err(e) = self.network_tx.send(msg) {
-                    error!("Failed to send block response: {}", e);
+                    error!("[SYNC] Failed to send block response: {}", e);
                 }
             }
         } else {
-            warn!("Block #{} not found for request", height);
+            warn!(
+                "[SYNC] Block #{} not found in our engine for request",
+                height
+            );
         }
     }
 
@@ -227,44 +280,43 @@ impl SyncManager {
             Ok(block) => {
                 let stats = self.engine.get_stats();
 
-                // Only apply if it's the next block we need
-                if block.height == stats.height + 1 {
+                if block.height > stats.height {
                     info!(
-                        "Applying block #{} with {} transactions from network",
-                        block.height, block.tx_count
+                        "[SYNC] Received block response #{} (current: {}, txs: {})",
+                        block.height, stats.height, block.tx_count
                     );
-                    match self.engine.sync_full_block_from_data(&block) {
-                        Ok(_) => {
-                            info!(
-                                "Successfully synced block #{} with {} transactions",
-                                block.height, block.tx_count
-                            );
-                        }
-                        Err(e) => {
-                            error!("Failed to sync block #{}: {}", block.height, e);
-                        }
+
+                    // Buffer the block
+                    {
+                        let mut buffer = self.block_buffer.lock().unwrap();
+                        buffer.insert(block.height, block);
                     }
-                } else if block.height > stats.height + 1 {
-                    info!(
-                        "Received block #{} but still need block #{}",
-                        block.height,
-                        stats.height + 1
-                    );
+
+                    // Try to apply consecutive blocks
+                    self.try_apply_buffered_blocks().await;
                 } else {
                     info!(
-                        "Received old block #{} (current: {})",
+                        "[SYNC] Received old block response #{} (current: {}) - ignoring",
                         block.height, stats.height
                     );
                 }
             }
             Err(e) => {
-                error!("Failed to deserialize block response: {}", e);
+                error!("[SYNC] Failed to deserialize block response: {}", e);
             }
         }
     }
 
     async fn handle_peer_info(&self, peer_info: PeerInfoMsg) {
         let stats = self.engine.get_stats();
+
+        // Update max seen height
+        let current_max = self.max_peer_height.load(Ordering::Relaxed);
+        if peer_info.height > current_max {
+            self.max_peer_height
+                .store(peer_info.height, Ordering::Relaxed);
+        }
+
         if peer_info.height > stats.height {
             info!(
                 "Peer {} is ahead at height {} (current: {})",
@@ -293,24 +345,39 @@ impl SyncManager {
     }
 
     async fn request_blocks(&self, from: u64, to: u64) {
-        info!("Requesting blocks from {} to {}", from, to);
+        if from > to {
+            return;
+        }
+
+        info!(
+            "[SYNC] Requesting blocks from {} to {} (current height: {})",
+            from,
+            to,
+            self.engine.get_stats().height
+        );
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
-        for height in from..=to.min(from + 100) {
-            // Limit batch size
+        // Limit the number of blocks requested at once to avoid network congestion
+        let max_request = 50;
+        let actual_to = to.min(from + max_request);
+
+        for height in from..=actual_to {
             let msg = P2PMessage::BlockRequest(height, timestamp);
             if let Err(e) = self.network_tx.send(msg) {
-                error!("Failed to send block request: {}", e);
+                error!(
+                    "[SYNC] Failed to send block request for height {}: {}",
+                    height, e
+                );
                 break;
             }
         }
     }
 
     /// Broadcast local chain height to peers
-    pub async fn broadcast_peer_info(&self, peer_id: String) {
+    pub async fn broadcast_peer_info(&self) {
         let stats = self.engine.get_stats();
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -319,7 +386,7 @@ impl SyncManager {
 
         let msg = P2PMessage::PeerInfo(PeerInfoMsg {
             height: stats.height,
-            peer_id,
+            peer_id: self.local_peer_id.clone(),
             timestamp,
         });
 

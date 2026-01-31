@@ -259,17 +259,9 @@ impl Checkpoint {
         vertices: Vec<VertexId>,
         transactions: Vec<SignedTransaction>,
         state_root: Vec<u8>,
+        timestamp: u64,
         prev_checkpoint_hash: Vec<u8>,
     ) -> Self {
-        #[cfg(miri)]
-        let timestamp: u64 = 0;
-
-        #[cfg(not(miri))]
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-
         Self {
             sequence,
             vertices,
@@ -900,13 +892,14 @@ impl DagConsensus {
         let current_round = self.store.current_round();
         let next_round = current_round + 1;
 
-        // Get parent vertices from current round
-        let parents: Vec<VertexId> = self
+        // Get parent vertices from current round and sort them for determinism
+        let mut parents: Vec<VertexId> = self
             .store
             .get_vertices_in_round(current_round)
             .into_iter()
             .map(|v| v.id)
             .collect();
+        parents.sort(); // Ensure deterministic parent order for state root consistency
 
         // Create vertex
         let vertex = DagVertex::new(
@@ -1095,15 +1088,32 @@ impl DagConsensus {
 
                 // Create checkpoint
                 let latest = self.store.latest_checkpoint();
-                log::debug!(
-                    "[DAG Consensus] try_commit: latest.sequence = {}",
-                    latest.sequence
+                log::info!(
+                    "[DAG Consensus] try_commit: creating checkpoint #{} from leader {} (round {})",
+                    latest.sequence + 1,
+                    hex::encode(leader_vertex.id),
+                    leader_vertex.round
                 );
+                log::debug!(
+                    "[DAG Consensus] Checkpoint #{} contains {} vertices and {} transactions",
+                    latest.sequence + 1,
+                    vertices_to_commit.len(),
+                    all_transactions.len()
+                );
+                if !all_transactions.is_empty() {
+                    log::debug!(
+                        "[DAG Consensus] First tx hash in checkpoint #{}: 0x{}",
+                        latest.sequence + 1,
+                        hex::encode(all_transactions[0].hash())
+                    );
+                }
+
                 let checkpoint = Checkpoint::new(
                     latest.sequence + 1,
                     vertices_to_commit.clone(),
                     all_transactions,
                     leader_vertex.metadata.state_root.clone(),
+                    leader_vertex.timestamp,
                     latest.hash(),
                 );
                 log::debug!(
@@ -1126,6 +1136,60 @@ impl DagConsensus {
     /// Get latest checkpoint (delegates to store)
     pub fn latest_checkpoint(&self) -> Checkpoint {
         self.store.latest_checkpoint()
+    }
+
+    /// Collect all vertices that would be committed if a vertex with given parents became a leader
+    pub fn collect_history_for_parents(&self, parents: &[VertexId]) -> Result<Vec<VertexId>> {
+        let mut result = Vec::new();
+        let mut visited = BTreeSet::new();
+        let mut in_progress = BTreeSet::new();
+        let mut stack = Vec::new();
+
+        // Add all parents to stack (sorted for determinism)
+        let mut sorted_parents = parents.to_vec();
+        sorted_parents.sort();
+        for parent_id in sorted_parents {
+            stack.push((parent_id, false));
+        }
+
+        while let Some((vertex_id, processed)) = stack.pop() {
+            if processed {
+                if !visited.contains(&vertex_id) {
+                    visited.insert(vertex_id);
+                    result.push(vertex_id);
+                }
+                in_progress.remove(&vertex_id);
+                continue;
+            }
+
+            if visited.contains(&vertex_id) {
+                continue;
+            }
+
+            if in_progress.contains(&vertex_id) {
+                anyhow::bail!("Cycle detected in DAG");
+            }
+
+            if let Some(vertex) = self.store.get_vertex(&vertex_id) {
+                if vertex.metadata.is_checkpoint {
+                    visited.insert(vertex_id);
+                    continue;
+                }
+
+                in_progress.insert(vertex_id);
+                stack.push((vertex_id, true));
+
+                let mut sorted_parents = vertex.parents.clone();
+                sorted_parents.sort();
+                for parent_id in sorted_parents {
+                    if !visited.contains(&parent_id) {
+                        stack.push((parent_id, false));
+                    }
+                }
+            }
+        }
+
+        Ok(result)
     }
 
     /// Collect all vertices that should be committed (topological sort with cycle detection)
@@ -1168,10 +1232,12 @@ impl DagConsensus {
                 // Mark this vertex for second visit
                 stack.push((vertex_id, true));
 
-                // Add parents to stack (depth-first, will be processed before this vertex)
-                for parent_id in &vertex.parents {
-                    if !visited.contains(parent_id) {
-                        stack.push((*parent_id, false));
+                // Add parents to stack (depth-first, sorted for determinism)
+                let mut sorted_parents = vertex.parents.clone();
+                sorted_parents.sort();
+                for parent_id in sorted_parents {
+                    if !visited.contains(&parent_id) {
+                        stack.push((parent_id, false));
                     }
                 }
             }

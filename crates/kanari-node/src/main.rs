@@ -315,8 +315,17 @@ async fn run_node(
     let (p2p_msg_tx, mut p2p_msg_rx) = tokio::sync::mpsc::unbounded_channel::<P2PMessage>();
     let (network_tx, network_rx) = tokio::sync::mpsc::unbounded_channel::<P2PMessage>();
 
+    // Initialize P2P network info
+    let keypair = Keypair::generate_ed25519();
+    let peer_id = keypair.public().to_peer_id().to_string();
+    tracing::info!("Node Peer ID: {}", peer_id);
+
     // Create sync manager
-    let sync_manager = Arc::new(SyncManager::new(engine.clone(), network_tx.clone()));
+    let sync_manager = Arc::new(SyncManager::new(
+        engine.clone(),
+        network_tx.clone(),
+        peer_id.clone(),
+    ));
 
     if p2p_port > 0 {
         // Load or create peer store
@@ -328,11 +337,6 @@ async fn run_node(
 
         // Clean up old peers (older than 7 days)
         peer_store.cleanup_old_peers(7 * 24 * 60 * 60);
-
-        // Initialize P2P network
-        let keypair = Keypair::generate_ed25519();
-        let peer_id = keypair.public().to_peer_id().to_string();
-        tracing::info!("Node Peer ID: {}", peer_id);
 
         let p2p_network = P2PNetwork::new(keypair, p2p_port, relay_server)?;
         tracing::info!("P2P network initialized on port {}", p2p_port);
@@ -363,14 +367,11 @@ async fn run_node(
 
         // Broadcast peer info periodically
         let sync_for_broadcast = sync_manager.clone();
-        let peer_id_clone = peer_id.clone();
         tokio::spawn(async move {
             // Wait a bit for peer discovery to complete before first broadcast
             sleep(Duration::from_secs(3)).await;
             loop {
-                sync_for_broadcast
-                    .broadcast_peer_info(peer_id_clone.clone())
-                    .await;
+                sync_for_broadcast.broadcast_peer_info().await;
                 // Broadcast more frequently (every 5s) to ensure new peers sync quickly
                 sleep(Duration::from_secs(5)).await;
             }

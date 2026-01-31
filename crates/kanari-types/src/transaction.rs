@@ -156,6 +156,19 @@ impl Transaction {
         }
     }
 
+    /// Get conflict keys for this transaction.
+    /// Transactions with overlapping conflict keys must be executed sequentially.
+    pub fn get_conflict_keys(&self) -> Vec<String> {
+        let mut keys = vec![self.sender().to_string()];
+        match self {
+            Transaction::Transfer { to, .. } => {
+                keys.push(to.clone());
+            }
+            _ => {}
+        }
+        keys
+    }
+
     /// Create a transfer transaction with default gas settings
     pub fn new_transfer(from: String, to: String, amount: u64, sequence_number: u64) -> Self {
         Self::Transfer {

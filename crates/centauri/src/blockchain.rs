@@ -93,8 +93,18 @@ impl Blockchain {
     /// Call this after loading blockchain from disk
     pub fn rebuild_tx_hash_index(&mut self) {
         self.executed_tx_hashes.clear();
+
+        // Rebuild from blocks (compatibility)
         for block in &self.blocks {
             for signed_tx in &block.transactions {
+                let tx_hash = hex::encode(signed_tx.hash());
+                self.executed_tx_hashes.insert(tx_hash);
+            }
+        }
+
+        // Rebuild from DAG checkpoints (primary mode)
+        for checkpoint in &self.dag_checkpoints {
+            for signed_tx in &checkpoint.transactions {
                 let tx_hash = hex::encode(signed_tx.hash());
                 self.executed_tx_hashes.insert(tx_hash);
             }
@@ -223,7 +233,7 @@ mod tests {
         let mut chain = Blockchain::new();
 
         let prev_cp_hash = chain.latest_checkpoint().hash();
-        let checkpoint = Checkpoint::new(1, Vec::new(), Vec::new(), vec![0u8; 32], prev_cp_hash);
+        let checkpoint = Checkpoint::new(1, Vec::new(), Vec::new(), vec![0u8; 32], 0, prev_cp_hash);
 
         chain.add_checkpoint(checkpoint).unwrap();
         assert_eq!(chain.height(), 1);

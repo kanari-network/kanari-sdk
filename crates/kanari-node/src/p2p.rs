@@ -85,6 +85,11 @@ impl P2PNetwork {
             .heartbeat_interval(Duration::from_secs(1))
             .validation_mode(ValidationMode::Permissive)
             .message_id_fn(message_id_fn)
+            // Critical for small networks (2-3 nodes)
+            .mesh_n_low(1)
+            .mesh_n(2)
+            .mesh_n_high(4)
+            .do_px() // Enable peer exchange
             .build()
             .map_err(|e| anyhow::anyhow!("Gossipsub config error: {}", e))?;
 
@@ -302,7 +307,52 @@ impl P2PEventHandler {
                         .swarm
                         .behaviour_mut()
                         .kademlia
-                        .add_address(&peer_id, multiaddr);
+                        .add_address(&peer_id, multiaddr.clone());
+
+                    // Explicitly dial discovered peer to ensure connection
+                    if let Err(e) = self.network.swarm.dial(multiaddr.clone()) {
+                        warn!("Failed to dial discovered peer {}: {}", peer_id, e);
+                    } else {
+                        // Add to peer store if available
+                        if let Some(store_arc) = &self.peer_store {
+                            let mut store = store_arc.lock().await;
+                            let _ = store.add_peer(peer_id, vec![multiaddr.clone()]);
+                            let _ = store.save();
+                        }
+                    }
+                }
+            }
+            SwarmEvent::ConnectionClosed {
+                peer_id,
+                endpoint: _,
+                num_established,
+                cause,
+                ..
+            } => {
+                info!(
+                    "Connection to {} closed (cause: {:?}, remaining: {})",
+                    peer_id, cause, num_established
+                );
+                if num_established == 0 {
+                    // If no connections left to this peer, try to reconnect if it's in our peer store
+                    if let Some(store_arc) = &self.peer_store {
+                        let store = store_arc.lock().await;
+                        if let Some(peer_info) = store.peers.get(&peer_id.to_string()) {
+                            if let Some(addr_str) = peer_info.addresses.first() {
+                                if let Ok(addr) = addr_str.parse::<libp2p::Multiaddr>() {
+                                    info!("Attempting to reconnect to {} at {}...", peer_id, addr);
+                                    let _ = self.network.swarm.dial(addr);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
+                if let Some(pid) = peer_id {
+                    warn!("Failed to connect to {}: {}", pid, error);
+                } else {
+                    warn!("Outgoing connection error: {}", error);
                 }
             }
             SwarmEvent::Behaviour(KanariBehaviourEvent::Mdns(mdns::Event::Expired(peers))) => {
@@ -339,17 +389,6 @@ impl P2PEventHandler {
                         warn!("Failed to save peer store: {}", e);
                     }
                 }
-            }
-            SwarmEvent::ConnectionClosed {
-                peer_id,
-                cause,
-                num_established,
-                ..
-            } => {
-                info!(
-                    "Connection closed with {} (remaining: {}) - {:?}",
-                    peer_id, num_established, cause
-                );
             }
             SwarmEvent::Behaviour(KanariBehaviourEvent::Dcutr(dcutr::Event {
                 remote_peer_id,

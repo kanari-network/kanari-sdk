@@ -5,9 +5,9 @@
 //! Integrates DAG consensus with parallel transaction execution
 
 use anyhow::Result;
-use centauri::consensus::DagConsensus;
+use centauri::consensus::{DagConsensus, VertexId};
 use log::info;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use super::*;
 
@@ -160,13 +160,69 @@ impl DagEngine {
     /// Produce a DAG vertex with pending transactions
     /// This is similar to produce_block but creates a DAG vertex instead
     pub fn produce_vertex(&self) -> Result<DagBlockInfo> {
-        let mut pending = self.engine.pending_txs.write().unwrap();
+        // 1. Identify all uncommitted vertices in history and their transactions
+        let (history_vertices, history_tx_hashes) = {
+            let consensus = self.consensus.read().unwrap();
+            let current_round = consensus.store().current_round();
+            let parents: Vec<VertexId> = consensus
+                .store()
+                .get_vertices_in_round(current_round)
+                .into_iter()
+                .map(|v| v.id)
+                .collect();
 
-        if pending.is_empty() {
-            anyhow::bail!("No pending transactions");
+            let history_vertices = consensus.collect_history_for_parents(&parents)?;
+            let mut history_tx_hashes = std::collections::BTreeSet::new();
+            for v_id in &history_vertices {
+                if let Some(v) = consensus.store().get_vertex(v_id) {
+                    for tx in &v.transactions {
+                        history_tx_hashes.insert(tx.hash());
+                    }
+                }
+            }
+            (history_vertices, history_tx_hashes)
+        };
+
+        // 2. Filter current transactions to exclude those already in history or blockchain
+        let (transactions, tx_to_remove_from_pending) = {
+            let pending = self.engine.pending_txs.read().unwrap();
+            let chain = self.engine.blockchain.read().unwrap();
+
+            let mut to_include = Vec::new();
+            let mut to_remove = Vec::new();
+
+            // Limit transactions per vertex (e.g., 1000)
+            for tx in pending.iter().take(1000) {
+                let hash = tx.hash();
+                let hash_hex = hex::encode(&hash);
+
+                if history_tx_hashes.contains(&hash) {
+                    // Already in DAG history, skip for this vertex but keep in pending
+                    // until it's committed to the blockchain.
+                    continue;
+                } else if chain.is_transaction_executed(&hash_hex) {
+                    // Already executed in blockchain, mark for removal
+                    to_remove.push(hash);
+                } else {
+                    // Valid new transaction
+                    to_include.push(tx.clone());
+                }
+            }
+            (to_include, to_remove)
+        };
+
+        // Cleanup pending pool ONLY from transactions already committed to blockchain
+        if !tx_to_remove_from_pending.is_empty() {
+            let mut pending = self.engine.pending_txs.write().unwrap();
+            let remove_set: std::collections::HashSet<_> =
+                tx_to_remove_from_pending.into_iter().collect();
+            pending.retain(|tx| !remove_set.contains(&tx.hash()));
         }
 
-        let transactions = pending.drain(..).collect::<Vec<_>>();
+        if transactions.is_empty() && history_vertices.is_empty() {
+            anyhow::bail!("No new transactions and no history to commit");
+        }
+
         let tx_count = transactions.len();
 
         // Capture timestamp for deterministic execution and vertex creation
@@ -175,27 +231,89 @@ impl DagEngine {
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
-        // Execute transactions using parallel execution (same as produce_block)
-        let (changesets, executed, failed) =
-            self.execute_transactions_parallel(&transactions, Some(timestamp))?;
+        // 3. Create a state snapshot and apply history + current transactions sequentially
+        let (_state_arc_clone, state_root, executed, failed) = {
+            let state_clone = self.engine.state.read().unwrap().clone();
+            let state_arc = Arc::new(RwLock::new(state_clone));
+            let consensus = self.consensus.read().unwrap();
+            let chain = self.engine.blockchain.read().unwrap();
 
-        // Apply changesets to state
-        let state_root = {
-            let mut state = self.engine.state.write().unwrap();
-            for cs in changesets {
-                // Apply ALL changesets (including failed ones) to ensure
-                // gas deduction and sequence increments are consistent across nodes.
-                state.apply_changeset(&cs)?;
+            let mut seen_tx_hashes = std::collections::BTreeSet::new();
+            let mut executed_count = 0usize;
+            let mut failed_count = 0usize;
+
+            // Collect all transactions to execute (History + Current)
+            let mut all_to_execute = Vec::new();
+
+            // A. Collect from history
+            for v_id in history_vertices {
+                if let Some(v) = consensus.store().get_vertex(&v_id) {
+                    for signed_tx in &v.transactions {
+                        let tx_hash = signed_tx.hash();
+                        if seen_tx_hashes.insert(tx_hash.clone())
+                            && !chain.is_transaction_executed(&hex::encode(&tx_hash))
+                        {
+                            all_to_execute.push(signed_tx.clone());
+                        }
+                    }
+                }
             }
-            // CRITICAL: Use the same state root computation method as sync
-            // to ensure deterministic state roots across all nodes
-            let root = state.compute_state_root();
 
-            // DRAIN EVENTS: Clear events after each vertex production to prevent
-            // accumulation and ensure they don't affect future state roots or memory.
-            let _ = state.drain_events();
+            // B. Collect from current vertex
+            for signed_tx in &transactions {
+                let tx_hash = signed_tx.hash();
+                if seen_tx_hashes.insert(tx_hash.clone())
+                    && !chain.is_transaction_executed(&hex::encode(&tx_hash))
+                {
+                    all_to_execute.push(signed_tx.clone());
+                }
+            }
 
-            root
+            // Partition into parallel waves
+            let waves = partition_into_waves(&all_to_execute);
+            log::info!(
+                "[DAG] Executing {} transactions in {} parallel waves",
+                all_to_execute.len(),
+                waves.len()
+            );
+
+            for wave in waves {
+                // Execute all waves in parallel using the runtime pool
+                let results: Vec<Result<ChangeSet>> = wave
+                    .iter()
+                    .enumerate()
+                    .map(|(i, signed_tx)| {
+                        let pool_idx = i % self.engine.runtime_pool.len();
+                        let runtime_arc = &self.engine.runtime_pool[pool_idx];
+                        let mut runtime = runtime_arc.lock().unwrap();
+
+                        // Execute using the pooled runtime
+                        self.engine.execute_transaction_with_runtime_skip_seq(
+                            &signed_tx.transaction,
+                            &mut runtime,
+                            &state_arc,
+                            Some(timestamp),
+                        )
+                    })
+                    .collect();
+
+                // Apply results sequentially to maintain determinism
+                for res in results {
+                    match res {
+                        Ok(cs) => {
+                            let _ = state_arc.write().unwrap().apply_changeset(&cs);
+                            executed_count += 1;
+                        }
+                        Err(e) => {
+                            log::warn!("[DAG] Parallel execution failed: {}", e);
+                            failed_count += 1;
+                        }
+                    }
+                }
+            }
+
+            let root = state_arc.write().unwrap().compute_state_root();
+            (state_arc, root, executed_count, failed_count)
         };
 
         // Collect events (simplified placeholder)
@@ -213,6 +331,9 @@ impl DagEngine {
             v
         };
 
+        // Success! Transaction removal from pending will happen automatically
+        // once they are executed and committed to the blockchain state in apply_checkpoint.
+
         let vertex_id = hex::encode(vertex.id);
         let round = vertex.round;
 
@@ -223,45 +344,28 @@ impl DagEngine {
         {
             let mut consensus = self.consensus.write().unwrap();
             consensus.add_vertex(vertex)?;
+
+            // Persist DAG state immediately after adding vertex
+            match consensus.save_state() {
+                Ok(state) => {
+                    if let Err(e) = self.engine.persist_dag_state(state) {
+                        log::error!("[DAG] Failed to persist DAG state: {}", e);
+                    }
+                }
+                Err(e) => log::error!("[DAG] Failed to generate DAG state for persistence: {}", e),
+            }
         }
 
         // Try to commit vertices to checkpoint
         let checkpoint_info = {
             let mut consensus = self.consensus.write().unwrap();
             if let Some(checkpoint) = consensus.try_commit()? {
-                // Add checkpoint to blockchain (checkpoint creates blocks internally)
-                let mut blockchain = self.engine.blockchain.write().unwrap();
-                blockchain.add_checkpoint(checkpoint.clone())?;
+                // Apply checkpoint using the unified engine path (updates state & blockchain)
+                self.engine.apply_checkpoint(checkpoint.clone())?;
 
                 // CRITICAL: Also add to consensus store to advance its state
                 // Otherwise it will keep trying to produce the same checkpoint
                 consensus.add_checkpoint(checkpoint.clone())?;
-
-                // Persist state and blockchain to avoid data loss on restart
-                if let Some(store) = &self.engine.persistent_store {
-                    // Save blockchain (blocks)
-                    if let Err(e) = store.save("blockchain", &*blockchain) {
-                        log::error!("Failed to persist blockchain: {}", e);
-                    }
-
-                    // Save state manager (accounts, balances)
-                    let state = self.engine.state.read().unwrap();
-                    if let Err(e) = store.save("state_manager", &*state) {
-                        log::error!("Failed to persist state_manager: {}", e);
-                    }
-
-                    // Save DAG consensus state
-                    if let Ok(dag_state) = consensus.save_state()
-                        && let Err(e) = store.save("dag_state", &dag_state)
-                    {
-                        log::error!("Failed to persist dag_state: {}", e);
-                    }
-
-                    // Flush all pending writes to ensure durability
-                    if let Err(e) = store.flush() {
-                        log::error!("Failed to flush persistent store: {}", e);
-                    }
-                }
 
                 Some(CheckpointInfo {
                     sequence: checkpoint.sequence,
@@ -283,248 +387,6 @@ impl DagEngine {
             checkpoint: checkpoint_info,
             vertex: Some(vertex_for_broadcast),
         })
-    }
-
-    /// Execute transactions in parallel (reuses logic from produce_block)
-    fn execute_transactions_parallel(
-        &self,
-        transactions: &[SignedTransaction],
-        timestamp: Option<u64>,
-    ) -> Result<(Vec<ChangeSet>, usize, usize)> {
-        self.execute_transactions_parallel_internal(transactions, false, timestamp)
-    }
-
-    /// Execute transactions in parallel with skip sequence validation
-    /// Used for syncing transactions from network vertices
-    fn execute_transactions_parallel_skip_seq(
-        &self,
-        transactions: &[SignedTransaction],
-        timestamp: Option<u64>,
-    ) -> Result<(Vec<ChangeSet>, usize, usize)> {
-        self.execute_transactions_parallel_internal(transactions, true, timestamp)
-    }
-
-    /// Internal parallel transaction execution with optional sequence validation skip
-    fn execute_transactions_parallel_internal(
-        &self,
-        transactions: &[SignedTransaction],
-        skip_seq_validation: bool,
-        timestamp: Option<u64>,
-    ) -> Result<(Vec<ChangeSet>, usize, usize)> {
-        use crossbeam_channel as cbchan;
-        use num_cpus;
-        use std::collections::{BTreeMap, VecDeque};
-
-        let tx_count = transactions.len();
-        let mut all_changesets: Vec<ChangeSet> = Vec::with_capacity(tx_count);
-        let mut executed = 0usize;
-        let mut failed = 0usize;
-
-        if tx_count == 1 {
-            // Single transaction - execute directly
-            let mut runtime = self.engine.move_runtime.write().unwrap();
-            let result = if skip_seq_validation {
-                BlockchainEngine::execute_transaction_with_runtime_skip_seq(
-                    &transactions[0].transaction,
-                    &mut runtime,
-                    &self.engine.state,
-                    timestamp,
-                )
-            } else {
-                BlockchainEngine::execute_transaction_with_runtime(
-                    &transactions[0].transaction,
-                    &mut runtime,
-                    &self.engine.state,
-                    timestamp,
-                )
-            };
-
-            match result {
-                Ok(changeset) => {
-                    if changeset.success {
-                        executed += 1;
-                    } else {
-                        failed += 1;
-                    }
-                    all_changesets.push(changeset);
-                }
-                Err(e) => {
-                    eprintln!("Transaction execution error: {:?}", e);
-                    failed += 1;
-                }
-            }
-            return Ok((all_changesets, executed, failed));
-        }
-
-        // Multiple transactions - use parallel execution
-        let workers = std::cmp::min(num_cpus::get().max(1), tx_count);
-        let (job_tx, job_rx) =
-            cbchan::unbounded::<(usize, Transaction, Arc<RwLock<StateManager>>)>();
-        let (res_tx, res_rx) = cbchan::unbounded::<(usize, Result<ChangeSet>)>();
-        let mut handles = Vec::new();
-
-        if let Some(pool) = &self.engine.runtime_pool {
-            for i in 0..workers {
-                let job_rx = job_rx.clone();
-                let res_tx = res_tx.clone();
-                let pool_entry = pool[i % pool.len()].clone();
-                let skip_seq = skip_seq_validation;
-
-                let handle = std::thread::spawn(move || {
-                    while let Ok((idx, tx, state_arc)) = job_rx.recv() {
-                        let mut guard = match pool_entry.lock() {
-                            Ok(g) => g,
-                            Err(poisoned) => poisoned.into_inner(), // Recover from poisoned mutex
-                        };
-                        let res = if skip_seq {
-                            BlockchainEngine::execute_transaction_with_runtime_skip_seq(
-                                &tx, &mut guard, &state_arc, timestamp,
-                            )
-                        } else {
-                            BlockchainEngine::execute_transaction_with_runtime(
-                                &tx, &mut guard, &state_arc, timestamp,
-                            )
-                        };
-                        let _ = res_tx.send((idx, res));
-                    }
-                });
-                handles.push(handle);
-            }
-        } else {
-            // Fallback to creating runtimes on the fly
-            for _ in 0..workers {
-                match MoveRuntime::new_with_kanari_natives() {
-                    Ok(mut runtime) => {
-                        let job_rx = job_rx.clone();
-                        let res_tx = res_tx.clone();
-                        let skip_seq = skip_seq_validation;
-                        let handle = std::thread::spawn(move || {
-                            while let Ok((idx, tx, state_arc)) = job_rx.recv() {
-                                let res = if skip_seq {
-                                    BlockchainEngine::execute_transaction_with_runtime_skip_seq(
-                                        &tx,
-                                        &mut runtime,
-                                        &state_arc,
-                                        timestamp,
-                                    )
-                                } else {
-                                    BlockchainEngine::execute_transaction_with_runtime(
-                                        &tx,
-                                        &mut runtime,
-                                        &state_arc,
-                                        timestamp,
-                                    )
-                                };
-                                let _ = res_tx.send((idx, res));
-                            }
-                        });
-                        handles.push(handle);
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to create runtime for worker: {}", e);
-                        break;
-                    }
-                }
-            }
-        }
-
-        // Group transactions by sender
-        let mut per_sender: BTreeMap<String, VecDeque<(usize, Transaction)>> = BTreeMap::new();
-        for (i, signed_tx) in transactions.iter().enumerate() {
-            per_sender
-                .entry(signed_tx.transaction.sender().to_string())
-                .or_default()
-                .push_back((i, signed_tx.transaction.clone()));
-        }
-
-        // Reserve sequence numbers
-        let mut per_sender_next_seq: BTreeMap<String, u64> = BTreeMap::new();
-        {
-            let state_guard = self.engine.state.read().unwrap();
-            for sender in per_sender.keys() {
-                if let Ok(addr) = AccountAddress::from_hex_literal(sender) {
-                    if let Some(acct) = state_guard.get_account(&addr) {
-                        per_sender_next_seq.insert(sender.clone(), acct.sequence_number);
-                    } else {
-                        per_sender_next_seq.insert(sender.clone(), 0u64);
-                    }
-                } else {
-                    per_sender_next_seq.insert(sender.clone(), 0u64);
-                }
-            }
-        }
-
-        let mut results: Vec<Option<ChangeSet>> = vec![None; tx_count];
-        let mut idx_to_sender: BTreeMap<usize, String> = BTreeMap::new();
-
-        // Dispatch first transaction from each sender
-        for (sender, queue) in per_sender.iter_mut() {
-            if let Some((idx, tx)) = queue.pop_front() {
-                let mut state_snapshot = self.engine.state.read().unwrap().clone();
-                if let Ok(addr) = AccountAddress::from_hex_literal(sender) {
-                    let acct = state_snapshot.get_or_create_account(addr);
-                    if let Some(next_seq) = per_sender_next_seq.get_mut(sender) {
-                        acct.sequence_number = *next_seq;
-                        *next_seq = next_seq.wrapping_add(1);
-                    }
-                }
-                let state_arc = Arc::new(RwLock::new(state_snapshot));
-                job_tx.send((idx, tx, state_arc)).unwrap();
-                idx_to_sender.insert(idx, sender.clone());
-            }
-        }
-
-        let mut collected = 0usize;
-
-        while collected < tx_count {
-            if let Ok((idx, res)) = res_rx.recv() {
-                match res {
-                    Ok(cs) => {
-                        if cs.success {
-                            executed += 1;
-                        } else {
-                            failed += 1;
-                        }
-                        results[idx] = Some(cs);
-                    }
-                    Err(e) => {
-                        eprintln!("Transaction execution error: {:?}", e);
-                        failed += 1;
-                        results[idx] = None;
-                    }
-                }
-
-                // Dispatch next transaction for this sender
-                if let Some(sender) = idx_to_sender.remove(&idx)
-                    && let Some(queue) = per_sender.get_mut(&sender)
-                    && let Some((next_idx, next_tx)) = queue.pop_front()
-                {
-                    let mut snapshot = self.engine.state.read().unwrap().clone();
-                    if let Ok(addr) = AccountAddress::from_hex_literal(&sender) {
-                        let acct = snapshot.get_or_create_account(addr);
-                        if let Some(next_seq) = per_sender_next_seq.get_mut(&sender) {
-                            acct.sequence_number = *next_seq;
-                            *next_seq = next_seq.wrapping_add(1);
-                        }
-                    }
-                    let state_arc = Arc::new(RwLock::new(snapshot));
-                    job_tx.send((next_idx, next_tx, state_arc)).unwrap();
-                    idx_to_sender.insert(next_idx, sender.clone());
-                }
-
-                collected += 1;
-            }
-        }
-
-        drop(job_tx);
-        drop(res_tx);
-        for h in handles {
-            let _ = h.join();
-        }
-
-        all_changesets = results.into_iter().flatten().collect();
-
-        Ok((all_changesets, executed, failed))
     }
 
     /// Get consensus instance (read-only)
@@ -587,10 +449,89 @@ impl DagEngine {
                 }
             }
 
-            // Execute transactions to update local state
-            // NOTE: We execute with skip_seq validation since these txs are already validated
-            let (changesets, executed, failed) =
-                self.execute_transactions_parallel_skip_seq(&transactions, Some(vertex.timestamp))?;
+            // Create a state snapshot for validation (includes history + vertex txs)
+            let (computed_state_root, executed, failed) = {
+                let state_clone = self.engine.state.read().unwrap().clone();
+                let state_arc = Arc::new(RwLock::new(state_clone));
+                let consensus = self.consensus.read().unwrap();
+                let chain = self.engine.blockchain.read().unwrap();
+
+                let mut seen_tx_hashes = std::collections::BTreeSet::new();
+                let mut executed = 0;
+                let mut failed = 0;
+
+                // 1. Collect all transactions to execute (History + Current)
+                let mut all_to_execute = Vec::new();
+
+                // A. Collect from history
+                let history_vertices = consensus.collect_history_for_parents(&vertex.parents)?;
+
+                for v_id in history_vertices {
+                    if let Some(v) = consensus.store().get_vertex(&v_id) {
+                        for signed_tx in &v.transactions {
+                            let tx_hash = signed_tx.hash();
+                            if seen_tx_hashes.insert(tx_hash.clone())
+                                && !chain.is_transaction_executed(&hex::encode(&tx_hash))
+                            {
+                                all_to_execute.push(signed_tx.clone());
+                            }
+                        }
+                    }
+                }
+
+                // B. Collect from current vertex
+                for signed_tx in &transactions {
+                    let tx_hash = signed_tx.hash();
+                    if seen_tx_hashes.insert(tx_hash.clone())
+                        && !chain.is_transaction_executed(&hex::encode(&tx_hash))
+                    {
+                        all_to_execute.push(signed_tx.clone());
+                    }
+                }
+
+                // Partition into parallel waves
+                let waves = partition_into_waves(&all_to_execute);
+                log::info!(
+                    "[DAG SYNC] Validating {} transactions in {} parallel waves",
+                    all_to_execute.len(),
+                    waves.len()
+                );
+
+                for wave in waves {
+                    let results: Vec<Result<ChangeSet>> = wave
+                        .iter()
+                        .enumerate()
+                        .map(|(i, signed_tx)| {
+                            let pool_idx = i % self.engine.runtime_pool.len();
+                            let runtime_arc = &self.engine.runtime_pool[pool_idx];
+                            let mut runtime = runtime_arc.lock().unwrap();
+
+                            self.engine.execute_transaction_with_runtime_skip_seq(
+                                &signed_tx.transaction,
+                                &mut runtime,
+                                &state_arc,
+                                Some(vertex.timestamp),
+                            )
+                        })
+                        .collect();
+
+                    for res in results {
+                        match res {
+                            Ok(cs) => {
+                                let _ = state_arc.write().unwrap().apply_changeset(&cs);
+                                executed += 1;
+                            }
+                            Err(e) => {
+                                log::warn!("[DAG SYNC] Parallel validation failed: {}", e);
+                                failed += 1;
+                            }
+                        }
+                    }
+                }
+
+                let root = state_arc.write().unwrap().compute_state_root();
+                (root, executed, failed)
+            };
 
             info!(
                 "[DAG SYNC] Executed {} transactions from network vertex (round {}): {} succeeded, {} failed",
@@ -599,20 +540,6 @@ impl DagEngine {
                 executed,
                 failed
             );
-
-            // Apply changesets to state and verify state root
-            // CRITICAL: We must validate against a CLONE first to avoid corrupting
-            // the main state if the vertex is invalid (e.g. state root mismatch).
-            let computed_state_root = {
-                let mut state_clone = self.engine.state.read().unwrap().clone();
-                for cs in &changesets {
-                    if cs.success {
-                        state_clone.apply_changeset(cs)?;
-                    }
-                }
-                // Compute state root after applying changes to clone
-                state_clone.compute_state_root()
-            };
 
             // CRITICAL: Validate state root matches vertex
             let expected_state_root = &vertex.metadata.state_root;
@@ -631,15 +558,9 @@ impl DagEngine {
                 hex::encode(&computed_state_root)
             );
 
-            // Validation passed - now apply to canonical state
-            {
-                let mut state = self.engine.state.write().unwrap();
-                for cs in changesets {
-                    if cs.success {
-                        state.apply_changeset(&cs)?;
-                    }
-                }
-            }
+            // NOTE: We DO NOT apply to canonical state here!
+            // Vertices are only committed and applied when they become part of a checkpoint.
+            // This prevents state divergence if multiple vertices are produced for the same round.
         }
 
         // Now add vertex to DAG consensus
@@ -648,11 +569,16 @@ impl DagEngine {
 
         // Try to commit (follower side) - this ensures all nodes commit the same checkpoints
         if let Some(checkpoint) = consensus.try_commit()? {
-            let mut blockchain = self.engine.blockchain.write().unwrap();
-            // Add to blockchain
-            if let Err(e) = blockchain.add_checkpoint(checkpoint.clone()) {
-                log::warn!(
-                    "[DAG SYNC] Failed to add committed checkpoint to blockchain: {}",
+            info!(
+                "[DAG SYNC] Committed checkpoint {} with {} transactions",
+                checkpoint.sequence,
+                checkpoint.transactions.len()
+            );
+
+            // Apply checkpoint using the unified engine path (updates state & blockchain)
+            if let Err(e) = self.engine.apply_checkpoint(checkpoint.clone()) {
+                log::error!(
+                    "[DAG SYNC] Failed to apply committed checkpoint to engine: {}",
                     e
                 );
             } else {
