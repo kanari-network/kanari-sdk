@@ -762,6 +762,11 @@ pub struct DagConsensus {
 
 impl DagConsensus {
     pub fn new(authority_id: AuthorityId, authorities: Vec<AuthorityId>) -> Self {
+        log::info!(
+            "[DAG Consensus] Initializing with authority_id: {}, committee: {:?}",
+            authority_id,
+            authorities
+        );
         let mut store = DagStore::new(authorities.clone());
 
         // Initialize VRF-based leader election
@@ -926,6 +931,11 @@ impl DagConsensus {
 
         // 1. Verify author is in current committee
         if !self.committee.contains(&author) {
+            log::error!(
+                "[DAG Consensus] Committee check failed for author: '{}'. Committee members: {:?}",
+                author,
+                self.committee.validators.keys().collect::<Vec<_>>()
+            );
             anyhow::bail!("Vertex author '{}' is not in current committee", author);
         }
 

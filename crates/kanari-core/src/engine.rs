@@ -11,10 +11,11 @@ use kanari_move_runtime::gas::{GasMeter, GasOperation};
 use kanari_move_runtime::move_runtime::MoveRuntime;
 use kanari_move_runtime::state::StateManager;
 use kanari_move_runtime::storage::persistent_store::PersistentStore;
+pub use kanari_rpc_api::{AccountInfo, BlockData, BlockchainStats, FullBlockData, ObjectInfo};
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::event::Event;
 use kanari_types::transaction::{SignedTransaction, Transaction};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use lru::LruCache;
 use move_core_types::{
     account_address::AccountAddress,
@@ -22,7 +23,6 @@ use move_core_types::{
     language_storage::{ModuleId, StructTag, TypeTag},
 };
 use num_cpus;
-use serde::{Deserialize, Serialize};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
 
@@ -269,16 +269,15 @@ impl BlockchainEngine {
                     let mut sm = StateManager::new();
                     if let Ok(mvs) =
                         kanari_move_runtime::storage::move_vm_state::MoveVMState::open_default()
+                        && let Ok(treas) = mvs.load_treasuries()
                     {
-                        if let Ok(treas) = mvs.load_treasuries() {
-                            info!(
-                                "Populating StateManager from {} MoveVM treasuries",
-                                treas.len()
-                            );
-                            for (owner, token_type, cap) in treas.into_iter() {
-                                sm.token_supplies.insert(token_type.clone(), cap.clone());
-                                sm.token_treasuries.insert(token_type, owner);
-                            }
+                        info!(
+                            "Populating StateManager from {} MoveVM treasuries",
+                            treas.len()
+                        );
+                        for (owner, token_type, cap) in treas.into_iter() {
+                            sm.token_supplies.insert(token_type.clone(), cap.clone());
+                            sm.token_treasuries.insert(token_type, owner);
                         }
                     }
                     Arc::new(RwLock::new(sm))
@@ -801,8 +800,12 @@ impl BlockchainEngine {
         }
 
         // Produce DAG vertex
-        let dag_engine = self.dag_engine.read().unwrap();
-        let dag_engine = dag_engine.as_ref().unwrap();
+        // We don't hold state/blockchain locks here because produce_vertex and
+        // apply_checkpoint will acquire them in the correct order.
+        let dag_engine = {
+            let guard = self.dag_engine.read().unwrap();
+            guard.as_ref().unwrap().clone()
+        };
         dag_engine.produce_vertex()
     }
 
@@ -825,8 +828,18 @@ impl BlockchainEngine {
 
     /// Configure authorities for DAG mode
     pub fn set_authorities(&mut self, authority_id: String, authorities: Vec<String>) {
-        self.authority_id = authority_id;
-        self.authorities = authorities;
+        // Normalize authority IDs to ensure consistency (ensure 0x prefix)
+        fn normalize(s: String) -> String {
+            if s.starts_with("0x") {
+                s
+            } else {
+                format!("0x{}", s)
+            }
+        }
+
+        self.authority_id = normalize(authority_id);
+        self.authorities = authorities.into_iter().map(normalize).collect();
+
         // Reset DAG engine to use new authorities
         *self.dag_engine.write().unwrap() = None;
     }
@@ -848,8 +861,8 @@ impl BlockchainEngine {
 
     /// Get blockchain stats
     pub fn get_stats(&self) -> BlockchainStats {
-        let chain = self.blockchain.read().unwrap();
         let state = self.state.read().unwrap();
+        let chain = self.blockchain.read().unwrap();
         let pending = self.pending_txs.read().unwrap();
 
         BlockchainStats {
@@ -864,8 +877,10 @@ impl BlockchainEngine {
 
     /// Get account info
     pub fn get_account_info(&self, address: &str) -> Option<AccountInfo> {
+        debug!("[ENGINE] get_account_info called for {}", address);
         let state = self.state.read().unwrap();
         state.get_account_by_hex(address).map(|acc| {
+            debug!("[ENGINE] Found account {} in state", address);
             // collect owned object ids for this account and map to ObjectInfo
             let owned_ids = state
                 .owned_objects
@@ -898,7 +913,7 @@ impl BlockchainEngine {
                 }
             }
 
-            AccountInfo {
+            let info = AccountInfo {
                 address: format!("{:#x}", acc.address),
                 balance: acc.balance,
                 sequence_number,
@@ -908,8 +923,10 @@ impl BlockchainEngine {
                     .iter()
                     .map(|(k, v)| (k.clone(), v.value()))
                     .collect(),
-                owned_objects: owned_objs,
-            }
+                owned_objects: Some(owned_objs),
+            };
+            debug!("[ENGINE] get_account_info completed for {}", address);
+            info
         })
     }
 
@@ -1037,22 +1054,23 @@ impl BlockchainEngine {
     /// Get full block with transactions by height
     pub fn get_full_block(&self, height: u64) -> Option<FullBlockData> {
         let chain = self.blockchain.read().unwrap();
-        chain.get_block(height).map(|block| {
-            eprintln!(
-                "[GET_FULL_BLOCK] Block #{} has {} transactions",
-                height,
-                block.transactions.len()
-            );
-            FullBlockData {
-                height: block.header.height,
-                timestamp: block.header.timestamp,
-                hash: hex::encode(block.hash()),
-                prev_hash: hex::encode(&block.header.prev_hash),
-                state_root: hex::encode(&block.header.state_root),
-                tx_count: block.transactions.len(),
-                events: block.events.clone(),
-                transactions: block.transactions.clone(),
-            }
+        let block = chain.get_block(height)?;
+        let checkpoint = chain.get_checkpoint(height);
+
+        let vertices = checkpoint
+            .map(|cp| cp.vertices.iter().map(hex::encode).collect())
+            .unwrap_or_default();
+
+        Some(FullBlockData {
+            height: block.header.height,
+            timestamp: block.header.timestamp,
+            hash: hex::encode(block.hash()),
+            prev_hash: hex::encode(&block.header.prev_hash),
+            state_root: hex::encode(&block.header.state_root),
+            tx_count: block.transactions.len(),
+            events: block.events.clone(),
+            transactions: block.transactions.clone(),
+            vertices,
         })
     }
 
@@ -1060,14 +1078,24 @@ impl BlockchainEngine {
     /// This method executes all transactions to rebuild the state
     pub fn sync_full_block_from_data(&self, block_data: &FullBlockData) -> Result<()> {
         let stats = self.get_stats();
+        info!(
+            "[SYNC] Attempting to sync block #{} (our height: {})",
+            block_data.height, stats.height
+        );
 
         // Check if we already have this block
         if block_data.height <= stats.height {
+            info!("[SYNC] Already have block #{}, skipping", block_data.height);
             return Ok(()); // Already have it
         }
 
         // Verify this is the next block
         if block_data.height != stats.height + 1 {
+            warn!(
+                "[SYNC] Block #{} is not consecutive (need {})",
+                block_data.height,
+                stats.height + 1
+            );
             anyhow::bail!(
                 "Cannot sync block #{}: current height is {}",
                 block_data.height,
@@ -1076,12 +1104,13 @@ impl BlockchainEngine {
         }
 
         // Verify all transaction signatures before executing
-        eprintln!(
+        info!(
             "[SYNC] Verifying {} transaction signatures from block #{}",
             block_data.transactions.len(),
             block_data.height
         );
         for (i, signed_tx) in block_data.transactions.iter().enumerate() {
+            let signed_tx: &SignedTransaction = signed_tx;
             if !signed_tx.verify_signature()? {
                 anyhow::bail!(
                     "Invalid or missing signature for transaction {} in block #{}",
@@ -1100,9 +1129,22 @@ impl BlockchainEngine {
             chain.latest_checkpoint().hash()
         };
 
+        let vertices: Vec<[u8; 32]> = block_data
+            .vertices
+            .iter()
+            .map(|v: &String| {
+                let bytes = hex::decode(v.trim_start_matches("0x")).unwrap_or_default();
+                let mut arr = [0u8; 32];
+                if bytes.len() == 32 {
+                    arr.copy_from_slice(&bytes);
+                }
+                arr
+            })
+            .collect();
+
         let checkpoint = Checkpoint::new(
             block_data.height,
-            Vec::new(), // vertices not available via simple block sync
+            vertices,
             block_data.transactions.clone(),
             state_root,
             block_data.timestamp,
@@ -1112,7 +1154,7 @@ impl BlockchainEngine {
         // Apply checkpoint using the unified atomic path
         self.apply_checkpoint(checkpoint)?;
 
-        eprintln!(
+        info!(
             "Synced block #{} with {} transactions",
             block_data.height,
             block_data.transactions.len()
@@ -1125,9 +1167,10 @@ impl BlockchainEngine {
     /// This executes all transactions in the checkpoint and updates the canonical state.
     pub fn apply_checkpoint(&self, mut checkpoint: Checkpoint) -> Result<()> {
         info!(
-            "[ENGINE] Applying checkpoint {} with {} transactions",
+            "[ENGINE] Applying checkpoint {} with {} transactions, state_root: {}",
             checkpoint.sequence,
-            checkpoint.transactions.len()
+            checkpoint.transactions.len(),
+            hex::encode(&checkpoint.state_root)
         );
 
         // 1. Create a clone of the current state to work on
@@ -1141,7 +1184,7 @@ impl BlockchainEngine {
         {
             let chain = self.blockchain.read().unwrap();
             for signed_tx in &checkpoint.transactions {
-                let tx_hash_hex = hex::encode(&signed_tx.hash());
+                let tx_hash_hex = hex::encode(signed_tx.hash());
                 if chain.is_transaction_executed(&tx_hash_hex) {
                     skipped_count += 1;
                     continue;
@@ -1246,6 +1289,7 @@ impl BlockchainEngine {
 
         // 7. Persist blockchain and state
         if let Some(store) = &self.persistent_store {
+            let state_guard = self.state.read().unwrap();
             let chain = self.blockchain.read().unwrap();
             let height = chain.height();
             info!("[ENGINE] Persisting blockchain at height {}...", height);
@@ -1254,7 +1298,6 @@ impl BlockchainEngine {
                 .context("Failed to persist blockchain")?;
             drop(chain);
 
-            let state_guard = self.state.read().unwrap();
             info!("[ENGINE] Persisting state manager...");
             store
                 .save("state_manager", &*state_guard)
@@ -1262,15 +1305,13 @@ impl BlockchainEngine {
             drop(state_guard);
 
             // Also persist DAG state if it exists
-            if let Ok(dag_engine_guard) = self.dag_engine.read() {
-                if let Some(dag_engine) = &*dag_engine_guard {
-                    if let Ok(consensus) = dag_engine.consensus().read() {
-                        if let Ok(dag_state) = consensus.save_state() {
-                            info!("[ENGINE] Persisting DAG consensus state during checkpoint...");
-                            let _ = store.save("dag_state", &dag_state);
-                        }
-                    }
-                }
+            if let Ok(dag_engine_guard) = self.dag_engine.read()
+                && let Some(dag_engine) = &*dag_engine_guard
+                && let Ok(consensus) = dag_engine.consensus().read()
+                && let Ok(dag_state) = consensus.save_state()
+            {
+                info!("[ENGINE] Persisting DAG consensus state during checkpoint...");
+                let _ = store.save("dag_state", &dag_state);
             }
 
             info!(
@@ -1364,57 +1405,4 @@ impl BlockchainEngine {
 
         out
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BlockchainStats {
-    pub height: u64,
-    pub total_blocks: usize,
-    pub total_transactions: usize,
-    pub pending_transactions: usize,
-    pub total_accounts: usize,
-    pub total_supply: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AccountInfo {
-    pub address: String,
-    pub balance: u64,
-    pub sequence_number: u64,
-    pub modules: Vec<String>,
-    pub token_balances: std::collections::BTreeMap<String, u64>,
-    /// Owned objects (object id, owner, type, data, version)
-    pub owned_objects: Vec<ObjectInfo>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ObjectInfo {
-    pub id: String,
-    pub owner: String,
-    pub type_: String,
-    pub data: Vec<u8>,
-    pub version: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BlockData {
-    pub height: u64,
-    pub timestamp: u64,
-    pub hash: String,
-    pub prev_hash: String,
-    pub state_root: String,
-    pub tx_count: usize,
-    pub events: Vec<Event>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FullBlockData {
-    pub height: u64,
-    pub timestamp: u64,
-    pub hash: String,
-    pub prev_hash: String,
-    pub state_root: String,
-    pub tx_count: usize,
-    pub events: Vec<Event>,
-    pub transactions: Vec<SignedTransaction>,
 }

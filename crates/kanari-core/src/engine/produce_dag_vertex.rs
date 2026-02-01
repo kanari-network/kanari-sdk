@@ -33,6 +33,7 @@ pub struct CheckpointInfo {
 }
 
 /// DAG-enabled blockchain engine
+#[derive(Clone)]
 pub struct DagEngine {
     /// Reference to the base blockchain engine
     engine: Arc<BlockchainEngine>,
@@ -183,10 +184,11 @@ impl DagEngine {
             (history_vertices, history_tx_hashes)
         };
 
-        // 2. Filter current transactions to exclude those already in history or blockchain
+        // 2. Select transactions from pending pool and filter them
         let (transactions, tx_to_remove_from_pending) = {
-            let pending = self.engine.pending_txs.read().unwrap();
+            let _state = self.engine.state.read().unwrap(); // Lock state first to maintain consistent lock order
             let chain = self.engine.blockchain.read().unwrap();
+            let pending = self.engine.pending_txs.read().unwrap();
 
             let mut to_include = Vec::new();
             let mut to_remove = Vec::new();
@@ -234,9 +236,9 @@ impl DagEngine {
         // 3. Create a state snapshot and apply history + current transactions sequentially
         let (_state_arc_clone, state_root, executed, failed) = {
             let state_clone = self.engine.state.read().unwrap().clone();
-            let state_arc = Arc::new(RwLock::new(state_clone));
-            let consensus = self.consensus.read().unwrap();
             let chain = self.engine.blockchain.read().unwrap();
+            let consensus = self.consensus.read().unwrap();
+            let state_arc = Arc::new(RwLock::new(state_clone));
 
             let mut seen_tx_hashes = std::collections::BTreeSet::new();
             let mut executed_count = 0usize;
@@ -358,14 +360,22 @@ impl DagEngine {
 
         // Try to commit vertices to checkpoint
         let checkpoint_info = {
-            let mut consensus = self.consensus.write().unwrap();
-            if let Some(checkpoint) = consensus.try_commit()? {
+            let checkpoint = {
+                let mut consensus = self.consensus.write().unwrap();
+                consensus.try_commit()?
+            };
+
+            if let Some(checkpoint) = checkpoint {
                 // Apply checkpoint using the unified engine path (updates state & blockchain)
+                // We drop the consensus lock before calling apply_checkpoint to avoid lock inversion deadlocks.
                 self.engine.apply_checkpoint(checkpoint.clone())?;
 
                 // CRITICAL: Also add to consensus store to advance its state
                 // Otherwise it will keep trying to produce the same checkpoint
-                consensus.add_checkpoint(checkpoint.clone())?;
+                {
+                    let mut consensus = self.consensus.write().unwrap();
+                    consensus.add_checkpoint(checkpoint.clone())?;
+                }
 
                 Some(CheckpointInfo {
                     sequence: checkpoint.sequence,
@@ -415,14 +425,21 @@ impl DagEngine {
     /// This synchronizes the local DAG with vertices created by other nodes
     /// IMPORTANT: Execute transactions BEFORE adding vertex to ensure state consistency
     pub fn add_network_vertex(&self, vertex: centauri::consensus::DagVertex) -> Result<()> {
+        let vertex_id_hex = hex::encode(vertex.id);
+        info!(
+            "[DAG SYNC] Received vertex {} for round {} from network with {} transactions",
+            vertex_id_hex,
+            vertex.round,
+            vertex.transactions.len()
+        );
+
         // Check if vertex already exists in DAG to avoid duplicate processing
         {
             let consensus = self.consensus.read().unwrap();
             if consensus.has_vertex(&vertex.id) {
                 info!(
                     "[DAG SYNC] Vertex {} (round {}) already exists, skipping",
-                    hex::encode(vertex.id),
-                    vertex.round
+                    vertex_id_hex, vertex.round
                 );
                 return Ok(());
             }
@@ -452,9 +469,9 @@ impl DagEngine {
             // Create a state snapshot for validation (includes history + vertex txs)
             let (computed_state_root, executed, failed) = {
                 let state_clone = self.engine.state.read().unwrap().clone();
-                let state_arc = Arc::new(RwLock::new(state_clone));
-                let consensus = self.consensus.read().unwrap();
                 let chain = self.engine.blockchain.read().unwrap();
+                let consensus = self.consensus.read().unwrap();
+                let state_arc = Arc::new(RwLock::new(state_clone));
 
                 let mut seen_tx_hashes = std::collections::BTreeSet::new();
                 let mut executed = 0;
@@ -482,19 +499,33 @@ impl DagEngine {
                 // B. Collect from current vertex
                 for signed_tx in &transactions {
                     let tx_hash = signed_tx.hash();
+                    let tx_hash_hex = hex::encode(&tx_hash);
                     if seen_tx_hashes.insert(tx_hash.clone())
-                        && !chain.is_transaction_executed(&hex::encode(&tx_hash))
+                        && !chain.is_transaction_executed(&tx_hash_hex)
                     {
                         all_to_execute.push(signed_tx.clone());
+                    } else {
+                        debug!(
+                            "[DAG SYNC] Transaction {} already executed or seen, skipping in vertex {}",
+                            tx_hash_hex, vertex_id_hex
+                        );
                     }
+                }
+
+                if all_to_execute.is_empty() {
+                    info!(
+                        "[DAG SYNC] No new transactions to execute for vertex round {} (ID: {})",
+                        vertex.round, vertex_id_hex
+                    );
                 }
 
                 // Partition into parallel waves
                 let waves = partition_into_waves(&all_to_execute);
                 log::info!(
-                    "[DAG SYNC] Validating {} transactions in {} parallel waves",
+                    "[DAG SYNC] Validating {} transactions in {} parallel waves for vertex round {}",
                     all_to_execute.len(),
-                    waves.len()
+                    waves.len(),
+                    vertex.round
                 );
 
                 for wave in waves {
@@ -522,7 +553,11 @@ impl DagEngine {
                                 executed += 1;
                             }
                             Err(e) => {
-                                log::warn!("[DAG SYNC] Parallel validation failed: {}", e);
+                                log::warn!(
+                                    "[DAG SYNC] Parallel validation failed for vertex round {}: {}",
+                                    vertex.round,
+                                    e
+                                );
                                 failed += 1;
                             }
                         }
@@ -534,22 +569,24 @@ impl DagEngine {
             };
 
             info!(
-                "[DAG SYNC] Executed {} transactions from network vertex (round {}): {} succeeded, {} failed",
-                transactions.len(),
+                "[DAG SYNC] Validation result for vertex round {}: executed={}, failed={}, computed_root={}",
                 vertex.round,
                 executed,
-                failed
+                failed,
+                hex::encode(&computed_state_root)
             );
 
             // CRITICAL: Validate state root matches vertex
             let expected_state_root = &vertex.metadata.state_root;
             if computed_state_root != *expected_state_root {
-                anyhow::bail!(
-                    "[DAG SYNC] STATE ROOT MISMATCH for vertex round {}!\n  Expected: {}\n  Computed: {}\n\nRejecting vertex due to state divergence.",
+                error!(
+                    "[DAG SYNC] STATE ROOT MISMATCH for vertex round {}!\n  Expected: {}\n  Computed: {}\n  Transactions: {}\nRejecting vertex due to state divergence.",
                     vertex.round,
                     hex::encode(expected_state_root),
-                    hex::encode(&computed_state_root)
+                    hex::encode(&computed_state_root),
+                    transactions.len()
                 );
+                anyhow::bail!("STATE ROOT MISMATCH for vertex round {}", vertex.round);
             }
 
             info!(
@@ -564,11 +601,15 @@ impl DagEngine {
         }
 
         // Now add vertex to DAG consensus
-        let mut consensus = self.consensus.write().unwrap();
-        consensus.add_vertex(vertex)?;
+        let checkpoint = {
+            let mut consensus = self.consensus.write().unwrap();
+            consensus.add_vertex(vertex)?;
 
-        // Try to commit (follower side) - this ensures all nodes commit the same checkpoints
-        if let Some(checkpoint) = consensus.try_commit()? {
+            // Try to commit (follower side) - this ensures all nodes commit the same checkpoints
+            consensus.try_commit()?
+        };
+
+        if let Some(checkpoint) = checkpoint {
             info!(
                 "[DAG SYNC] Committed checkpoint {} with {} transactions",
                 checkpoint.sequence,
@@ -576,6 +617,7 @@ impl DagEngine {
             );
 
             // Apply checkpoint using the unified engine path (updates state & blockchain)
+            // We drop the consensus lock before calling apply_checkpoint to avoid lock inversion deadlocks.
             if let Err(e) = self.engine.apply_checkpoint(checkpoint.clone()) {
                 log::error!(
                     "[DAG SYNC] Failed to apply committed checkpoint to engine: {}",
@@ -583,6 +625,7 @@ impl DagEngine {
                 );
             } else {
                 // Also add to consensus store to advance its state
+                let mut consensus = self.consensus.write().unwrap();
                 let _ = consensus.add_checkpoint(checkpoint);
             }
         }

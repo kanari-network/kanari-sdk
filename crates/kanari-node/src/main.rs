@@ -62,6 +62,18 @@ enum Commands {
         /// Enable high-throughput mode for 500K+ TPS (requires 64+ cores, 32GB+ RAM)
         #[arg(long, default_value = "false")]
         high_throughput: bool,
+
+        /// External RPC URL for block synchronization
+        #[arg(long)]
+        rpc_sync_url: Option<String>,
+
+        /// Authority ID for DAG consensus (e.g. 0x1)
+        #[arg(long)]
+        authority_id: Option<String>,
+
+        /// List of authority IDs for DAG consensus (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        authorities: Option<Vec<String>>,
     },
     /// Run a local-only node
     Local {},
@@ -150,6 +162,9 @@ async fn main() -> Result<()> {
             relay_server,
             moderate,
             high_throughput,
+            rpc_sync_url,
+            authority_id,
+            authorities,
         } => {
             let data_dir_path = data_dir.clone().unwrap_or_else(|| {
                 let home = std::env::var("HOME")
@@ -175,7 +190,7 @@ async fn main() -> Result<()> {
 
             // If data_dir is provided, use it. Otherwise, use the default internal logic
             // which handles path resolution and directory creation correctly.
-            let engine = if let Some(ref d) = data_dir {
+            let mut engine = if let Some(ref d) = data_dir {
                 unsafe {
                     std::env::set_var("KANARI_STATE_DB", d);
                     // Also set MOVE_VM_DB to ensure consistency if fallback is triggered
@@ -188,6 +203,16 @@ async fn main() -> Result<()> {
                 BlockchainEngine::new()?
             };
 
+            // Configure authorities if provided
+            if let (Some(id), Some(auths)) = (authority_id, authorities) {
+                tracing::info!(
+                    "Configuring node with Authority ID: {} and {} authorities",
+                    id,
+                    auths.len()
+                );
+                engine.set_authorities(id, auths);
+            }
+
             let engine_arc = Arc::new(engine);
 
             run_node(
@@ -199,6 +224,7 @@ async fn main() -> Result<()> {
                 relay_server,
                 moderate,
                 high_throughput,
+                rpc_sync_url,
             )
             .await?;
             return Ok(());
@@ -228,6 +254,7 @@ async fn main() -> Result<()> {
                 false,
                 false, // moderate
                 false, // high_throughput
+                None,  // rpc_sync_url
             )
             .await?;
             return Ok(());
@@ -257,6 +284,7 @@ async fn run_node(
     relay_server: bool,
     moderate: bool,
     high_throughput: bool,
+    rpc_sync_url: Option<String>,
 ) -> Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
@@ -277,6 +305,9 @@ async fn run_node(
         tracing::info!("  - Batch size: up to 50K");
     } else {
         tracing::info!("Mode: Default (100K TPS)");
+    }
+    if let Some(ref url) = rpc_sync_url {
+        tracing::info!("External RPC Sync: ENABLED ({})", url);
     }
     tracing::info!("Initial blockchain height: {}", stats.height);
     let total_supply_str = KanariModule::format_kanari(stats.total_supply);
@@ -325,7 +356,11 @@ async fn run_node(
         engine.clone(),
         network_tx.clone(),
         peer_id.clone(),
+        rpc_sync_url,
     ));
+
+    // Start sync manager tasks
+    sync_manager.clone().start().await;
 
     if p2p_port > 0 {
         // Load or create peer store

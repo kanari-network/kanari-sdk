@@ -89,6 +89,16 @@ impl RpcClient {
         serde_json::from_value(result).context("Failed to parse block info")
     }
 
+    /// Get full block by height (including transactions and vertices)
+    pub async fn get_full_block(&self, height: u64) -> Result<FullBlockData> {
+        let response = self
+            .request(methods::GET_FULL_BLOCK, serde_json::json!(height))
+            .await?;
+
+        let result = response.result.context("No result in response")?;
+        serde_json::from_value(result).context("Failed to parse full block data")
+    }
+
     /// Get current block height
     pub async fn get_block_height(&self) -> Result<u64> {
         let response = self

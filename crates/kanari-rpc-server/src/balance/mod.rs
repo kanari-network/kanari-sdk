@@ -1,5 +1,5 @@
 use super::{RpcError, RpcRequest, RpcResponse, RpcServerState, respond_with_serialize};
-use kanari_rpc_api::{AccountInfo, GetAllBalancesRequest, GetTokenBalanceRequest, ObjectInfo};
+use kanari_rpc_api::{GetAllBalancesRequest, GetTokenBalanceRequest};
 use serde_json;
 
 /// Handle get account request
@@ -17,34 +17,7 @@ pub async fn handle_get_account(state: &RpcServerState, request: &RpcRequest) ->
     };
 
     match state.engine.get_account_info(&address) {
-        Some(info) => {
-            let owned_objects = if !info.owned_objects.is_empty() {
-                Some(
-                    info.owned_objects
-                        .into_iter()
-                        .map(|o| ObjectInfo {
-                            id: o.id,
-                            owner: o.owner,
-                            type_: o.type_,
-                            data: o.data,
-                            version: o.version,
-                        })
-                        .collect(),
-                )
-            } else {
-                None
-            };
-
-            let account_info = AccountInfo {
-                address: info.address,
-                balance: info.balance,
-                sequence_number: info.sequence_number,
-                modules: info.modules,
-                token_balances: info.token_balances,
-                owned_objects,
-            };
-            respond_with_serialize(request.id, account_info)
-        }
+        Some(info) => respond_with_serialize(request.id, info),
         None => RpcResponse {
             jsonrpc: "2.0".to_string(),
             result: None,
@@ -154,17 +127,19 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
             // Many Move coin implementations store the coin value as a u64 in the last 8 bytes.
             use std::collections::BTreeMap;
             let mut coin_sums: BTreeMap<String, u128> = BTreeMap::new();
-            for obj in info.owned_objects.iter() {
-                if obj.type_.contains("::coin::Coin<") {
-                    // Try to parse last 8 bytes from obj.data (which is Vec<u8> in RPC types)
-                    if obj.data.len() >= 8 {
-                        let n = obj.data.len();
-                        if let Ok(bytes) = obj.data[n - 8..].try_into() {
-                            let amount = u64::from_le_bytes(bytes) as u128;
-                            // token_type = the generic type inside Coin<...>
-                            // We'll use the full object type as token_type for uniqueness
-                            let token_type = obj.type_.clone();
-                            *coin_sums.entry(token_type).or_insert(0) += amount;
+            if let Some(ref objects) = info.owned_objects {
+                for obj in objects {
+                    if obj.type_.contains("::coin::Coin<") {
+                        // Try to parse last 8 bytes from obj.data (which is Vec<u8> in RPC types)
+                        if obj.data.len() >= 8 {
+                            let n = obj.data.len();
+                            if let Ok(bytes) = obj.data[n - 8..].try_into() {
+                                let amount = u64::from_le_bytes(bytes) as u128;
+                                // token_type = the generic type inside Coin<...>
+                                // We'll use the full object type as token_type for uniqueness
+                                let token_type = obj.type_.clone();
+                                *coin_sums.entry(token_type).or_insert(0) += amount;
+                            }
                         }
                     }
                 }

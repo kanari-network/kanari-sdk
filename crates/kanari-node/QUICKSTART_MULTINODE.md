@@ -52,14 +52,20 @@ INFO kanari_node: Connection established with 12D3KooW...
 ## การรันแบบ Manual (ไม่ใช้ Scripts)
 
 ```powershell
-# Terminal 1
-kanari-node start --p2p-port 19000 --rpc-port 19001 --rpc-host 0.0.0.0 --data-dir C:\Users\Pukpuy\.kanari\kanari-db\node1
+# Terminal 1 - Node 1 (Auth: 0x1)
+cargo run --bin kanari-node -- start --p2p-port 19000 --rpc-port 19001 --data-dir data/node1 --authority-id 0x1 --authorities 0x1,0x2,0x3,0x4,0x5
 
-# Terminal 2  
-kanari-node start --p2p-port 19010 --rpc-port 19011 --rpc-host 0.0.0.0 --data-dir C:\Users\Pukpuy\.kanari\kanari-db\node2
+# Terminal 2 - Node 2 (Auth: 0x2)
+cargo run --bin kanari-node -- start --p2p-port 19010 --rpc-port 19011 --data-dir data/node2 --authority-id 0x2 --authorities 0x1,0x2,0x3,0x4,0x5
 
-# Terminal 3
-kanari-node start --p2p-port 19020 --rpc-port 19021 --rpc-host 0.0.0.0 --data-dir C:\Users\Pukpuy\.kanari\kanari-db\node3
+# Terminal 3 - Node 3 (Auth: 0x3)
+cargo run --bin kanari-node -- start --p2p-port 19020 --rpc-port 19021 --data-dir data/node3 --authority-id 0x3 --authorities 0x1,0x2,0x3,0x4,0x5
+
+# Terminal 4 - Node 4 (Auth: 0x4)
+cargo run --bin kanari-node -- start --p2p-port 19030 --rpc-port 19031 --data-dir data/node4 --authority-id 0x4 --authorities 0x1,0x2,0x3,0x4,0x5
+
+# Terminal 5 - Node 5 (Auth: 0x5)
+cargo run --bin kanari-node -- start --p2p-port 19040 --rpc-port 19041 --data-dir data/node5 --authority-id 0x5 --authorities 0x1,0x2,0x3,0x4,0x5
 ```
 
 ## ตรวจสอบสถานะ Blockchain

@@ -4,6 +4,8 @@
 //! Kanari RPC API Definitions
 //!
 //! Defines request/response types and RPC methods for Kanari blockchain
+use kanari_types::event::Event;
+use kanari_types::transaction::SignedTransaction;
 use serde::{Deserialize, Serialize};
 
 /// RPC request wrapper
@@ -116,7 +118,7 @@ pub struct TokenBalance {
     pub symbol: String,
 }
 
-/// Block info response
+/// Block info response (legacy/simple)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockInfo {
     pub height: u64,
@@ -126,6 +128,49 @@ pub struct BlockInfo {
     pub tx_count: usize,
     pub state_root: String,
     pub events: Vec<RpcEvent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockchainStats {
+    pub height: u64,
+    pub total_blocks: usize,
+    pub total_transactions: usize,
+    pub pending_transactions: usize,
+    pub total_accounts: usize,
+    pub total_supply: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObjectInfo {
+    pub id: String,
+    pub owner: String,
+    pub type_: String,
+    pub data: Vec<u8>,
+    pub version: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockData {
+    pub height: u64,
+    pub timestamp: u64,
+    pub hash: String,
+    pub prev_hash: String,
+    pub state_root: String,
+    pub tx_count: usize,
+    pub events: Vec<Event>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FullBlockData {
+    pub height: u64,
+    pub timestamp: u64,
+    pub hash: String,
+    pub prev_hash: String,
+    pub state_root: String,
+    pub tx_count: usize,
+    pub events: Vec<Event>,
+    pub transactions: Vec<SignedTransaction>,
+    pub vertices: Vec<String>,
 }
 
 /// Request for state root (optional height). If `height` is None, latest root is returned.
@@ -197,17 +242,6 @@ pub struct TransactionResult {
     pub error_message: Option<String>,
 }
 
-/// Blockchain statistics
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BlockchainStats {
-    pub height: u64,
-    pub total_blocks: u64,
-    pub total_transactions: u64,
-    pub pending_transactions: usize,
-    pub total_accounts: usize,
-    pub total_supply: u64,
-}
-
 /// Submit transaction request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubmitTransactionRequest {
@@ -275,16 +309,6 @@ pub struct HealthStatus {
     pub sync_status: String,
 }
 
-/// Object information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ObjectInfo {
-    pub id: String,
-    pub owner: String,
-    pub type_: String,
-    pub data: Vec<u8>,
-    pub version: u64,
-}
-
 /// Get object request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetObjectRequest {
@@ -328,6 +352,7 @@ pub mod methods {
 
     // Blocks & Transactions
     pub const GET_BLOCK: &str = "kanari_getBlock";
+    pub const GET_FULL_BLOCK: &str = "kanari_getFullBlock";
     pub const GET_BLOCK_HEIGHT: &str = "kanari_getBlockHeight";
     pub const GET_TRANSACTION: &str = "kanari_getTransaction";
     pub const GET_ALL_TRANSACTIONS: &str = "kanari_getAllTransactions";

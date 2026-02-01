@@ -51,6 +51,31 @@ pub async fn handle_get_block(state: &RpcServerState, request: &RpcRequest) -> R
     }
 }
 
+/// Handle get full block request
+pub async fn handle_get_full_block(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    let height: u64 = match serde_json::from_value(request.params.clone()) {
+        Ok(h) => h,
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".to_string(),
+                result: None,
+                error: Some(RpcError::invalid_params(e.to_string())),
+                id: request.id,
+            };
+        }
+    };
+
+    match state.engine.get_full_block(height) {
+        Some(block) => respond_with_serialize(request.id, block),
+        None => RpcResponse {
+            jsonrpc: "2.0".to_string(),
+            result: None,
+            error: Some(RpcError::internal_error("Block not found")),
+            id: request.id,
+        },
+    }
+}
+
 /// Handle get state root request
 pub async fn handle_get_state_root(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let req: kanari_rpc_api::GetStateRootRequest =
@@ -94,8 +119,8 @@ pub async fn handle_get_stats(state: &RpcServerState, request: &RpcRequest) -> R
     let stats = state.engine.get_stats();
     let blockchain_stats = kanari_rpc_api::BlockchainStats {
         height: stats.height,
-        total_blocks: stats.total_blocks as u64,
-        total_transactions: stats.total_transactions as u64,
+        total_blocks: stats.total_blocks,
+        total_transactions: stats.total_transactions,
         pending_transactions: stats.pending_transactions,
         total_accounts: stats.total_accounts,
         total_supply: stats.total_supply,

@@ -14,3 +14,5 @@ description.workspace = true
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+kanari-types = { path = "../kanari-types" }
+hex = { workspace = true }

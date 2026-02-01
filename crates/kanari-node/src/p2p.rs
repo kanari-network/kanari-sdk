@@ -190,6 +190,28 @@ impl P2PNetwork {
             P2PMessage::NewDagVertex(_) => &self.topics.dag_vertices,
         };
 
+        // Log message publication for debugging
+        match &msg {
+            P2PMessage::PeerInfo(info) => {
+                info!(
+                    "[P2P] Publishing PeerInfo: height={}, peer_id={}",
+                    info.height, info.peer_id
+                );
+            }
+            P2PMessage::NewBlock(data) => {
+                info!("[P2P] Publishing NewBlock (size: {})", data.len());
+            }
+            P2PMessage::NewDagVertex(data) => {
+                info!("[P2P] Publishing NewDagVertex (size: {})", data.len());
+            }
+            P2PMessage::BlockRequest(h, t) => {
+                info!("[P2P] Publishing BlockRequest: height={}, ts={}", h, t);
+            }
+            _ => {
+                tracing::debug!("[P2P] Publishing message: {:?}", msg);
+            }
+        }
+
         let config = bincode::config::standard();
         let data = bincode::encode_to_vec(&msg, config)
             .map_err(|e| anyhow::anyhow!("Failed to encode message: {}", e))?;
@@ -283,16 +305,63 @@ impl P2PEventHandler {
                 info!("Listening on {}", address);
             }
             SwarmEvent::Behaviour(KanariBehaviourEvent::Gossipsub(gossipsub::Event::Message {
-                propagation_source: _,
+                propagation_source,
                 message_id: _,
                 message,
             })) => {
                 let config = bincode::config::standard();
-                if let Ok((msg, _)) =
-                    bincode::decode_from_slice::<P2PMessage, _>(&message.data, config)
-                    && let Err(e) = self.message_tx.send(msg)
-                {
-                    warn!("Failed to forward P2P message: {}", e);
+                match bincode::decode_from_slice::<P2PMessage, _>(&message.data, config) {
+                    Ok((msg, _)) => {
+                        // Log message reception for debugging
+                        match &msg {
+                            P2PMessage::PeerInfo(info) => {
+                                info!(
+                                    "[P2P] Received PeerInfo from {}: height={}, peer_id={}",
+                                    propagation_source, info.height, info.peer_id
+                                );
+                            }
+                            P2PMessage::NewBlock(data) => {
+                                info!(
+                                    "[P2P] Received NewBlock from {} (size: {})",
+                                    propagation_source,
+                                    data.len()
+                                );
+                            }
+                            P2PMessage::NewDagVertex(data) => {
+                                info!(
+                                    "[P2P] Received NewDagVertex from {} (size: {})",
+                                    propagation_source,
+                                    data.len()
+                                );
+                            }
+                            P2PMessage::BlockRequest(h, t) => {
+                                info!(
+                                    "[P2P] Received BlockRequest from {}: height={}, ts={}",
+                                    propagation_source, h, t
+                                );
+                            }
+                            P2PMessage::BlockResponse(data) => {
+                                info!(
+                                    "[P2P] Received BlockResponse from {} (size: {})",
+                                    propagation_source,
+                                    data.len()
+                                );
+                            }
+                            _ => {
+                                info!(
+                                    "[P2P] Received message {:?} from {}",
+                                    msg, propagation_source
+                                );
+                            }
+                        }
+
+                        if let Err(e) = self.message_tx.send(msg) {
+                            warn!("[P2P] Failed to forward P2P message: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        warn!("[P2P] Failed to decode P2P message: {}", e);
+                    }
                 }
             }
             SwarmEvent::Behaviour(KanariBehaviourEvent::Mdns(mdns::Event::Discovered(peers))) => {
@@ -316,7 +385,7 @@ impl P2PEventHandler {
                         // Add to peer store if available
                         if let Some(store_arc) = &self.peer_store {
                             let mut store = store_arc.lock().await;
-                            let _ = store.add_peer(peer_id, vec![multiaddr.clone()]);
+                            store.add_peer(peer_id, vec![multiaddr.clone()]);
                             let _ = store.save();
                         }
                     }
@@ -337,13 +406,12 @@ impl P2PEventHandler {
                     // If no connections left to this peer, try to reconnect if it's in our peer store
                     if let Some(store_arc) = &self.peer_store {
                         let store = store_arc.lock().await;
-                        if let Some(peer_info) = store.peers.get(&peer_id.to_string()) {
-                            if let Some(addr_str) = peer_info.addresses.first() {
-                                if let Ok(addr) = addr_str.parse::<libp2p::Multiaddr>() {
-                                    info!("Attempting to reconnect to {} at {}...", peer_id, addr);
-                                    let _ = self.network.swarm.dial(addr);
-                                }
-                            }
+                        if let Some(peer_info) = store.peers.get(&peer_id.to_string())
+                            && let Some(addr_str) = peer_info.addresses.first()
+                            && let Ok(addr) = addr_str.parse::<libp2p::Multiaddr>()
+                        {
+                            info!("Attempting to reconnect to {} at {}...", peer_id, addr);
+                            let _ = self.network.swarm.dial(addr);
                         }
                     }
                 }

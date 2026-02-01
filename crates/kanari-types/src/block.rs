@@ -26,19 +26,8 @@ impl BlockHeader {
         state_root: Vec<u8>,
         merkle_root: Vec<u8>,
         tx_count: usize,
+        timestamp: u64,
     ) -> Self {
-        // Avoid calling `SystemTime::now()` under Miri (isolation), which
-        // triggers unsupported-operation errors. Use a deterministic timestamp
-        // when running under Miri to keep tests reproducible.
-        #[cfg(miri)]
-        let timestamp: u64 = 0;
-
-        #[cfg(not(miri))]
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-
         Self {
             height,
             timestamp,
@@ -76,6 +65,7 @@ impl Block {
         state_root: Vec<u8>,
         transactions: Vec<SignedTransaction>,
         events: Vec<Event>,
+        timestamp: u64,
     ) -> Self {
         let tx_count = transactions.len();
 
@@ -83,7 +73,14 @@ impl Block {
         let tx_hashes: Vec<Vec<u8>> = transactions.iter().map(|tx| tx.hash()).collect();
         let merkle_root = compute_merkle_root(&tx_hashes);
 
-        let header = BlockHeader::new(height, prev_hash, state_root, merkle_root, tx_count);
+        let header = BlockHeader::new(
+            height,
+            prev_hash,
+            state_root,
+            merkle_root,
+            tx_count,
+            timestamp,
+        );
 
         Self {
             header,
@@ -93,7 +90,8 @@ impl Block {
     }
 
     pub fn genesis() -> Self {
-        Self::new(0, vec![0u8; 32], vec![0u8; 32], vec![], vec![])
+        let genesis_state_root = smt::default_hashes()[0].to_vec();
+        Self::new(0, vec![0u8; 32], genesis_state_root, vec![], vec![], 0)
     }
 
     pub fn hash(&self) -> Vec<u8> {

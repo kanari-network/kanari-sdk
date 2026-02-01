@@ -17,6 +17,7 @@ serde = { workspace = true, features = ["derive"] }
 hex = { workspace = true }
 kanari-move-runtime = { workspace = true }
 kanari-types = { workspace = true }
+kanari-rpc-api = { workspace = true }
 kanari-crypto = { workspace = true }
 anyhow = { workspace = true }
 bcs = { workspace = true }

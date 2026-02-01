@@ -172,10 +172,10 @@ impl Transaction {
 
                 // If any arguments look like addresses, they might be objects/accounts being modified
                 for arg in args {
-                    if arg.len() == 32 {
-                        if let Ok(addr) = AccountAddress::from_bytes(arg) {
-                            keys.push(addr.to_string());
-                        }
+                    if arg.len() == 32
+                        && let Ok(addr) = AccountAddress::from_bytes(arg)
+                    {
+                        keys.push(addr.to_string());
                     }
                 }
             }

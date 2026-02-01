@@ -169,11 +169,12 @@ impl Blockchain {
         };
 
         let block = Block::new(
-            self.height() + 1,
+            checkpoint.sequence, // Use checkpoint sequence for block height
             prev_hash,
             checkpoint.state_root.clone(),
             checkpoint.transactions.clone(),
             Vec::new(), // events handled separately
+            checkpoint.timestamp,
         );
 
         self.blocks.push(block);
@@ -245,9 +246,9 @@ mod tests {
         let chain = Blockchain::new();
         let prev_block = chain.latest_block();
 
-        let valid_block = Block::new(1, prev_block.hash(), vec![0u8; 32], vec![], vec![]);
+        let valid_block = Block::new(1, prev_block.hash(), vec![0u8; 32], vec![], vec![], 0);
         assert!(valid_block.verify(prev_block).is_ok());
-        let invalid_block = Block::new(2, prev_block.hash(), vec![0u8; 32], vec![], vec![]);
+        let invalid_block = Block::new(2, prev_block.hash(), vec![0u8; 32], vec![], vec![], 0);
         assert!(invalid_block.verify(prev_block).is_err());
     }
 
