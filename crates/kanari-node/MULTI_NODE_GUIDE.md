@@ -244,23 +244,26 @@ Script นี้จะ:
 .\start-node.ps1 -NodeId 3
 ```
 
-### การรัน 5 Nodes พร้อมกัน (Manual)
+### การรัน 6 Nodes พร้อมกัน (Manual)
 
 ```bash
 # Terminal 1 (Authority 0x1)
-cargo run --bin kanari-node -- start --p2p-port 19000 --rpc-port 19001 --data-dir data/node1 --authority-id 0x1 --authorities 0x1,0x2,0x3,0x4,0x5
+cargo run --bin kanari-node -- start --p2p-port 19000 --rpc-port 19001 --data-dir data/node1 --authority-id 0x1 --authorities 0x1,0x2,0x3,0x4,0x5,0x6
 
 # Terminal 2 (Authority 0x2)
-cargo run --bin kanari-node -- start --p2p-port 19010 --rpc-port 19011 --data-dir data/node2 --authority-id 0x2 --authorities 0x1,0x2,0x3,0x4,0x5
+cargo run --bin kanari-node -- start --p2p-port 19010 --rpc-port 19011 --data-dir data/node2 --authority-id 0x2 --authorities 0x1,0x2,0x3,0x4,0x5,0x6
 
 # Terminal 3 (Authority 0x3)
-cargo run --bin kanari-node -- start --p2p-port 19020 --rpc-port 19021 --data-dir data/node3 --authority-id 0x3 --authorities 0x1,0x2,0x3,0x4,0x5
+cargo run --bin kanari-node -- start --p2p-port 19020 --rpc-port 19021 --data-dir data/node3 --authority-id 0x3 --authorities 0x1,0x2,0x3,0x4,0x5,0x6
 
 # Terminal 4 (Authority 0x4)
-cargo run --bin kanari-node -- start --p2p-port 19030 --rpc-port 19031 --data-dir data/node4 --authority-id 0x4 --authorities 0x1,0x2,0x3,0x4,0x5
+cargo run --bin kanari-node -- start --p2p-port 19030 --rpc-port 19031 --data-dir data/node4 --authority-id 0x4 --authorities 0x1,0x2,0x3,0x4,0x5,0x6
 
 # Terminal 5 (Authority 0x5)
-cargo run --bin kanari-node -- start --p2p-port 19040 --rpc-port 19041 --data-dir data/node5 --authority-id 0x5 --authorities 0x1,0x2,0x3,0x4,0x5
+cargo run --bin kanari-node -- start --p2p-port 19040 --rpc-port 19041 --data-dir data/node5 --authority-id 0x5 --authorities 0x1,0x2,0x3,0x4,0x5,0x6
+
+# Terminal 6 (Authority 0x6)
+cargo run --bin kanari-node -- start --p2p-port 19050 --rpc-port 19051 --data-dir data/node6 --authority-id 0x6 --authorities 0x1,0x2,0x3,0x4,0x5,0x6
 ```
 
 ## RPC Endpoints

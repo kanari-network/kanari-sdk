@@ -10,6 +10,13 @@ $BasePeerPort = 19000
 $BaseRpcPort = 19001
 $NodeCount = 3
 
+# Generate authorities list (0x1, 0x2, ..., 0xN)
+$authorities = @()
+for ($i = 1; $i -le $NodeCount; $i++) {
+    $authorities += "0x$i"
+}
+$authoritiesStr = $authorities -join ","
+
 # Create data directories
 Write-Host "Creating data directories..." -ForegroundColor Yellow
 for ($i = 1; $i -le $NodeCount; $i++) {
@@ -65,10 +72,11 @@ for ($i = 1; $i -le $NodeCount; $i++) {
     $p2pPort = $BasePeerPort + (($i - 1) * 10)
     $rpcPort = $BaseRpcPort + (($i - 1) * 10)
     $dataDir = "$BaseDataDir\node$i"
+    $authId = "0x$i"
     
     Write-Host "# Terminal ${i} (Node ${i}):" -ForegroundColor Cyan
     # Recommend binding RPC to all interfaces so the node is reachable via the machine IP
-    Write-Host "kanari-node start --p2p-port $p2pPort --rpc-port $rpcPort --rpc-host 0.0.0.0 --data-dir `"$dataDir`"" -ForegroundColor White
+    Write-Host "kanari-node start --p2p-port $p2pPort --rpc-port $rpcPort --rpc-host 0.0.0.0 --data-dir `"$dataDir`" --authority-id $authId --authorities $authoritiesStr" -ForegroundColor White
     Write-Host ""
 }
 
@@ -89,7 +97,7 @@ if ($startNow -match '^[Yy]') {
         $dataDir = "$BaseDataDir\node$i"
 
         # Launch new PowerShell window running the start-node script for this node
-        $argString = "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`" -NodeId $i"
+        $argString = "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`" -NodeId $i -Authorities `"$authoritiesStr`""
         Start-Process -FilePath "powershell.exe" -ArgumentList $argString -WindowStyle Normal
         Start-Sleep -Milliseconds 500
     }
