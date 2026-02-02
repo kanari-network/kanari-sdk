@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use super::cache::LruCache;
@@ -168,7 +168,7 @@ impl ParallelValidator {
         // Cache newly validated vertices
         for result in &validation_results {
             if result.is_valid {
-                self.validated_cache.put(result.vertex_id.clone(), true);
+                self.validated_cache.put(result.vertex_id, true);
             }
         }
 
@@ -192,7 +192,7 @@ impl ParallelValidator {
         let mut vertices_to_validate = Vec::new();
 
         for vertex in vertices {
-            let vertex_id = vertex.id.clone();
+            let vertex_id = vertex.id;
 
             // Check in-memory cache first (fastest)
             if self.validated_cache.get(&vertex_id).is_some() {
@@ -209,7 +209,7 @@ impl ParallelValidator {
                 && let Ok(Some(_)) = store.get_vertex(&vertex_id)
             {
                 // Vertex exists in persistent store, assume it's validated
-                self.validated_cache.put(vertex_id.clone(), true); // Warm up cache
+                self.validated_cache.put(vertex_id, true); // Warm up cache
                 cached_results.push(ValidationResult {
                     vertex_id,
                     is_valid: true,
@@ -227,7 +227,7 @@ impl ParallelValidator {
 
     /// Validate a single vertex
     fn validate_single(vertex: DagVertex, _parallel_sig: bool) -> ValidationResult {
-        let vertex_id = vertex.id.clone();
+        let vertex_id = vertex.id;
 
         // Basic validation checks
         if let Err(e) = Self::check_vertex_structure(&vertex) {
@@ -277,6 +277,12 @@ impl ParallelValidator {
             return Err(anyhow::anyhow!("State root is empty"));
         }
 
+        if vertex.metadata.state_root.len() != 32 {
+            return Err(anyhow::anyhow!(
+                "Invalid state root length (must be 32 bytes)"
+            ));
+        }
+
         Ok(())
     }
 
@@ -292,13 +298,13 @@ impl ParallelValidator {
         Ok(())
     }
 
-    /// Check parent references
+    /// Check if parents are unique
     fn check_parents(vertex: &DagVertex) -> Result<()> {
-        // Check for duplicate parents
-        let mut seen = std::collections::HashSet::new();
+        use std::collections::BTreeSet;
+        let mut seen = BTreeSet::new();
         for parent in &vertex.parents {
             if !seen.insert(parent) {
-                return Err(anyhow::anyhow!("Duplicate parent found"));
+                return Err(anyhow::anyhow!("Duplicate parent in vertex"));
             }
         }
         Ok(())
@@ -308,7 +314,7 @@ impl ParallelValidator {
     pub fn validate_and_verify_signatures(
         &mut self,
         vertices: Vec<DagVertex>,
-        public_keys: HashMap<String, ed25519_dalek::VerifyingKey>,
+        public_keys: BTreeMap<String, ed25519_dalek::VerifyingKey>,
     ) -> Result<Vec<ValidationResult>> {
         let start = std::time::Instant::now();
 
@@ -334,7 +340,7 @@ impl ParallelValidator {
         // Cache validated vertices
         for result in &validation_results {
             if result.is_valid {
-                self.validated_cache.put(result.vertex_id.clone(), true);
+                self.validated_cache.put(result.vertex_id, true);
             }
         }
 
@@ -351,9 +357,9 @@ impl ParallelValidator {
     /// Validate vertex and verify signature
     fn validate_with_signature(
         vertex: DagVertex,
-        public_keys: &HashMap<String, ed25519_dalek::VerifyingKey>,
+        public_keys: &BTreeMap<String, ed25519_dalek::VerifyingKey>,
     ) -> ValidationResult {
-        let vertex_id = vertex.id.clone();
+        let vertex_id = vertex.id;
 
         // Basic validation
         if let Err(e) = Self::check_vertex_structure(&vertex) {
@@ -504,7 +510,7 @@ mod tests {
     use super::*;
 
     fn create_test_vertex(round: Round, author: AuthorityId) -> DagVertex {
-        DagVertex::new(round, author, vec![], vec![], vec![round as u8; 32])
+        DagVertex::new(round, author, vec![], vec![], vec![round as u8; 32], 0)
     }
 
     #[test]
@@ -607,7 +613,7 @@ mod tests {
 
         // Create keypair
         let keypair = Ed25519Keypair::generate();
-        let mut public_keys = HashMap::new();
+        let mut public_keys = BTreeMap::new();
         public_keys.insert("validator_0".to_string(), keypair.public());
 
         // Create vertex
@@ -634,7 +640,7 @@ mod tests {
 
         // Create keypair
         let keypair = Ed25519Keypair::generate();
-        let mut public_keys = HashMap::new();
+        let mut public_keys = BTreeMap::new();
         public_keys.insert("validator_0".to_string(), keypair.public());
 
         // Create vertex with invalid signature

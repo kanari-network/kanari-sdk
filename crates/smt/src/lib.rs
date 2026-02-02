@@ -1,22 +1,19 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Minimal merkle map implementation used as a Sparse Merkle Tree substitute
-//! for runtime state. This is intentionally pragmatic: keys are hashed and the
-//! Merkle root is computed over sorted key-value hashes. It supports batched
-//! writes persisted to RocksDB for high-throughput commits.
+//! Optimized Sparse Merkle Tree (SMT) and binary Merkle tree implementation.
+//! This crate provides the cryptographic foundations for Kanari state and block verification.
 //!
-//! IMPORTANT LIMITATIONS (by design)
-//! - Non-membership proofs are NOT supported. This is NOT a full Sparse Merkle
-//!   Tree with implicit zero/default leaves; it only produces membership proofs
-//!   that show "key K has value V". Systems that require proofs of absence
-//!   must use a different structure or maintain additional bookkeeping.
-//! - No versioning / snapshots: this SMT exposes only the latest state.
-//!   Historical roots must be managed externally (e.g. by keeping multiple
-//!   DB instances or taking RocksDB snapshots at the application layer).
+//! FEATURES:
+//! - Full Sparse Merkle Tree (SMT) with 256-bit keyspace and default (zero) leaves.
+//! - Efficient membership and non-membership proofs.
+//! - Binary Merkle tree for transaction inclusion proofs in block headers.
+//! - High-performance hashing using BLAKE3.
 //!
-//! These constraints simplify the implementation and are acceptable for use
-//! cases that only need compact membership proofs for the current state.
+//! IMPLEMENTATION DETAILS:
+//! - SMT uses domain-separated hashing: H(0x00 || ...) for leaves, H(0x01 || ...) for nodes.
+//! - Persistence is backed by RocksDB for high-throughput batched writes.
+//! - Transaction tree supports standard inclusion proofs for light clients.
 
 pub use kanari_db_common::open_or_get_db;
 
@@ -24,6 +21,7 @@ mod hash;
 mod sparse_merkle;
 pub use sparse_merkle::SparseMerkleTree;
 pub use sparse_merkle::default_hashes;
+pub use sparse_merkle::verify_proof;
 
 pub use hash::*;
 mod merkle;

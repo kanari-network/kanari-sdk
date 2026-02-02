@@ -16,8 +16,6 @@ use libp2p::{
     tcp, yamux,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
@@ -78,15 +76,20 @@ impl P2PNetwork {
 
         // Create Gossipsub behavior
         let message_id_fn = |message: &gossipsub::Message| {
-            let mut hasher = DefaultHasher::new();
-            message.data.hash(&mut hasher);
-            gossipsub::MessageId::from(hasher.finish().to_string())
+            // Use deterministic Blake3 hash for message ID instead of DefaultHasher
+            let hash = kanari_crypto::hash_data_blake3(&message.data);
+            gossipsub::MessageId::from(hex::encode(hash))
         };
 
         let gossipsub_config = gossipsub::ConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(1))
             .validation_mode(ValidationMode::Permissive)
             .message_id_fn(message_id_fn)
+            // Critical for small networks (2-3 nodes)
+            .mesh_n_low(1)
+            .mesh_n(2)
+            .mesh_n_high(4)
+            .do_px() // Enable peer exchange
             .build()
             .map_err(|e| anyhow::anyhow!("Gossipsub config error: {}", e))?;
 
@@ -187,6 +190,28 @@ impl P2PNetwork {
             P2PMessage::NewDagVertex(_) => &self.topics.dag_vertices,
         };
 
+        // Log message publication for debugging
+        match &msg {
+            P2PMessage::PeerInfo(info) => {
+                info!(
+                    "[P2P] Publishing PeerInfo: height={}, peer_id={}",
+                    info.height, info.peer_id
+                );
+            }
+            P2PMessage::NewBlock(data) => {
+                info!("[P2P] Publishing NewBlock (size: {})", data.len());
+            }
+            P2PMessage::NewDagVertex(data) => {
+                info!("[P2P] Publishing NewDagVertex (size: {})", data.len());
+            }
+            P2PMessage::BlockRequest(h, t) => {
+                info!("[P2P] Publishing BlockRequest: height={}, ts={}", h, t);
+            }
+            _ => {
+                tracing::debug!("[P2P] Publishing message: {:?}", msg);
+            }
+        }
+
         let config = bincode::config::standard();
         let data = bincode::encode_to_vec(&msg, config)
             .map_err(|e| anyhow::anyhow!("Failed to encode message: {}", e))?;
@@ -199,12 +224,21 @@ impl P2PNetwork {
             .publish(topic.clone(), data)
         {
             Ok(_) => Ok(()),
-            Err(gossipsub::PublishError::Duplicate) => {
-                // Duplicate is not an error, just skip silently
-                Ok(())
-            }
             Err(e) => {
-                // Log warning but don't fail - could be no peers yet (InsufficientPeers/NoPeersSubscribedToTopic)
+                let err_str = e.to_string();
+                // Handle duplicate messages gracefully
+                // "Duplicate" comes from gossipsub when message is already seen
+                if err_str.contains("Duplicate") || err_str.contains("duplicate") {
+                    // Duplicate is not an error, just skip silently
+                    return Ok(());
+                }
+                if err_str.contains("InsufficientPeers") {
+                    // This is normal when starting up or isolated - just log debug/info
+                    tracing::debug!("No peers subscribed to topic yet");
+                    return Ok(());
+                }
+
+                // Log warning but don't fail
                 warn!("Publish warning: {}", e);
                 Ok(())
             }
@@ -271,16 +305,63 @@ impl P2PEventHandler {
                 info!("Listening on {}", address);
             }
             SwarmEvent::Behaviour(KanariBehaviourEvent::Gossipsub(gossipsub::Event::Message {
-                propagation_source: _,
+                propagation_source,
                 message_id: _,
                 message,
             })) => {
                 let config = bincode::config::standard();
-                if let Ok((msg, _)) =
-                    bincode::decode_from_slice::<P2PMessage, _>(&message.data, config)
-                    && let Err(e) = self.message_tx.send(msg)
-                {
-                    warn!("Failed to forward P2P message: {}", e);
+                match bincode::decode_from_slice::<P2PMessage, _>(&message.data, config) {
+                    Ok((msg, _)) => {
+                        // Log message reception for debugging
+                        match &msg {
+                            P2PMessage::PeerInfo(info) => {
+                                info!(
+                                    "[P2P] Received PeerInfo from {}: height={}, peer_id={}",
+                                    propagation_source, info.height, info.peer_id
+                                );
+                            }
+                            P2PMessage::NewBlock(data) => {
+                                info!(
+                                    "[P2P] Received NewBlock from {} (size: {})",
+                                    propagation_source,
+                                    data.len()
+                                );
+                            }
+                            P2PMessage::NewDagVertex(data) => {
+                                info!(
+                                    "[P2P] Received NewDagVertex from {} (size: {})",
+                                    propagation_source,
+                                    data.len()
+                                );
+                            }
+                            P2PMessage::BlockRequest(h, t) => {
+                                info!(
+                                    "[P2P] Received BlockRequest from {}: height={}, ts={}",
+                                    propagation_source, h, t
+                                );
+                            }
+                            P2PMessage::BlockResponse(data) => {
+                                info!(
+                                    "[P2P] Received BlockResponse from {} (size: {})",
+                                    propagation_source,
+                                    data.len()
+                                );
+                            }
+                            _ => {
+                                info!(
+                                    "[P2P] Received message {:?} from {}",
+                                    msg, propagation_source
+                                );
+                            }
+                        }
+
+                        if let Err(e) = self.message_tx.send(msg) {
+                            warn!("[P2P] Failed to forward P2P message: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        warn!("[P2P] Failed to decode P2P message: {}", e);
+                    }
                 }
             }
             SwarmEvent::Behaviour(KanariBehaviourEvent::Mdns(mdns::Event::Discovered(peers))) => {
@@ -295,7 +376,51 @@ impl P2PEventHandler {
                         .swarm
                         .behaviour_mut()
                         .kademlia
-                        .add_address(&peer_id, multiaddr);
+                        .add_address(&peer_id, multiaddr.clone());
+
+                    // Explicitly dial discovered peer to ensure connection
+                    if let Err(e) = self.network.swarm.dial(multiaddr.clone()) {
+                        warn!("Failed to dial discovered peer {}: {}", peer_id, e);
+                    } else {
+                        // Add to peer store if available
+                        if let Some(store_arc) = &self.peer_store {
+                            let mut store = store_arc.lock().await;
+                            store.add_peer(peer_id, vec![multiaddr.clone()]);
+                            let _ = store.save();
+                        }
+                    }
+                }
+            }
+            SwarmEvent::ConnectionClosed {
+                peer_id,
+                endpoint: _,
+                num_established,
+                cause,
+                ..
+            } => {
+                info!(
+                    "Connection to {} closed (cause: {:?}, remaining: {})",
+                    peer_id, cause, num_established
+                );
+                if num_established == 0 {
+                    // If no connections left to this peer, try to reconnect if it's in our peer store
+                    if let Some(store_arc) = &self.peer_store {
+                        let store = store_arc.lock().await;
+                        if let Some(peer_info) = store.peers.get(&peer_id.to_string())
+                            && let Some(addr_str) = peer_info.addresses.first()
+                            && let Ok(addr) = addr_str.parse::<libp2p::Multiaddr>()
+                        {
+                            info!("Attempting to reconnect to {} at {}...", peer_id, addr);
+                            let _ = self.network.swarm.dial(addr);
+                        }
+                    }
+                }
+            }
+            SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
+                if let Some(pid) = peer_id {
+                    warn!("Failed to connect to {}: {}", pid, error);
+                } else {
+                    warn!("Outgoing connection error: {}", error);
                 }
             }
             SwarmEvent::Behaviour(KanariBehaviourEvent::Mdns(mdns::Event::Expired(peers))) => {
@@ -332,17 +457,6 @@ impl P2PEventHandler {
                         warn!("Failed to save peer store: {}", e);
                     }
                 }
-            }
-            SwarmEvent::ConnectionClosed {
-                peer_id,
-                cause,
-                num_established,
-                ..
-            } => {
-                info!(
-                    "Connection closed with {} (remaining: {}) - {:?}",
-                    peer_id, num_established, cause
-                );
             }
             SwarmEvent::Behaviour(KanariBehaviourEvent::Dcutr(dcutr::Event {
                 remote_peer_id,

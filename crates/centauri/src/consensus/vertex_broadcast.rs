@@ -13,7 +13,7 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::{DagVertex, Round, VertexId};
@@ -438,14 +438,14 @@ impl VertexBroadcaster {
 /// Delta sync: Identify missing vertices between two nodes
 pub struct DeltaSync {
     /// Local vertex IDs by round
-    local_vertices: HashMap<Round, HashSet<VertexId>>,
+    local_vertices: BTreeMap<Round, BTreeSet<VertexId>>,
 }
 
 impl DeltaSync {
     /// Create new delta sync
     pub fn new() -> Self {
         Self {
-            local_vertices: HashMap::new(),
+            local_vertices: BTreeMap::new(),
         }
     }
 
@@ -543,7 +543,14 @@ mod tests {
         let mut broadcaster = VertexBroadcaster::new(10, Duration::from_secs(1));
 
         let parent = [0u8; 32];
-        let vertex = DagVertex::new(1, "auth1".to_string(), vec![parent], vec![], vec![0u8; 32]);
+        let vertex = DagVertex::new(
+            1,
+            "auth1".to_string(),
+            vec![parent],
+            vec![],
+            vec![0u8; 32],
+            0,
+        );
 
         broadcaster.add_vertex(vertex.clone(), false);
         assert_eq!(broadcaster.pending_count(), 1);
@@ -557,8 +564,8 @@ mod tests {
     fn test_priority_queue() {
         let mut broadcaster = VertexBroadcaster::new(10, Duration::from_secs(1));
 
-        let normal = DagVertex::new(1, "auth1".to_string(), vec![], vec![], vec![]);
-        let priority = DagVertex::new(2, "auth2".to_string(), vec![], vec![], vec![]);
+        let normal = DagVertex::new(1, "auth1".to_string(), vec![], vec![], vec![], 0);
+        let priority = DagVertex::new(2, "auth2".to_string(), vec![], vec![], vec![], 0);
 
         broadcaster.add_vertex(normal, false);
         broadcaster.add_vertex(priority, true);
@@ -724,7 +731,7 @@ mod tests {
 
         // Add some vertices
         for i in 0..20 {
-            let vertex = DagVertex::new(i, format!("auth{}", i), vec![], vec![], vec![]);
+            let vertex = DagVertex::new(i, format!("auth{}", i), vec![], vec![], vec![], 0);
             broadcaster.add_vertex(vertex, false);
         }
 

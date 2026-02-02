@@ -42,10 +42,15 @@ fn main() -> Result<()> {
     // Prepare transactions and push signed transactions to pending_txs
     {
         let mut pending = engine.pending_txs.write().unwrap();
+        let state = engine.state.read().unwrap();
         for i in 0..n {
             let from = senders[i].address.clone();
             let to = recipients[i].address.clone();
-            let tx = Transaction::new_transfer(from.clone(), to, 1);
+            let sender_addr = AccountAddress::from_hex_literal(&from)?;
+            let sequence_number = state
+                .get_account(&sender_addr)
+                .map_or(0, |acc| acc.sequence_number);
+            let tx = Transaction::new_transfer(from.clone(), to, 1, sequence_number);
             let mut signed_tx = SignedTransaction::new(tx);
             signed_tx.sign(&senders[i].private_key, senders[i].curve_type)?;
             pending.push(signed_tx);

@@ -12,7 +12,7 @@
 
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use super::{AuthorityId, Checkpoint, DagVertex, Round, VertexId};
 
@@ -89,10 +89,10 @@ impl SyncProgress {
 /// State synchronizer
 pub struct StateSynchronizer {
     /// Checkpoints stored locally
-    checkpoints: HashMap<u64, Checkpoint>,
+    checkpoints: BTreeMap<u64, Checkpoint>,
 
     /// Vertices by round
-    vertices_by_round: HashMap<Round, Vec<DagVertex>>,
+    vertices_by_round: BTreeMap<Round, Vec<DagVertex>>,
 
     /// Latest checkpoint sequence
     latest_checkpoint: u64,
@@ -108,12 +108,12 @@ impl StateSynchronizer {
     /// Create new state synchronizer
     pub fn new() -> Self {
         // Add genesis checkpoint
-        let mut checkpoints = HashMap::new();
+        let mut checkpoints = BTreeMap::new();
         checkpoints.insert(0, Checkpoint::genesis());
 
         Self {
             checkpoints,
-            vertices_by_round: HashMap::new(),
+            vertices_by_round: BTreeMap::new(),
             latest_checkpoint: 0,
             latest_round: 0,
             sync_progress: None,
@@ -387,7 +387,7 @@ mod tests {
         let mut sync = StateSynchronizer::new();
 
         // Add some data
-        let vertex = DagVertex::new(1, "auth1".to_string(), vec![], vec![], vec![0u8; 32]);
+        let vertex = DagVertex::new(1, "auth1".to_string(), vec![], vec![], vec![0u8; 32], 0);
         sync.add_vertex(vertex);
 
         let request = SyncRequest {
@@ -406,13 +406,13 @@ mod tests {
     fn test_apply_sync_response() {
         let mut sync = StateSynchronizer::new();
 
-        let vertex = DagVertex::new(1, "auth1".to_string(), vec![], vec![], vec![0u8; 32]);
+        let vertex = DagVertex::new(1, "auth1".to_string(), vec![], vec![], vec![0u8; 32], 0);
 
         let response = SyncResponse {
             checkpoints: vec![],
             vertices: vec![vertex],
             current_round: 1,
-            state_root: vec![0u8; 32],
+            state_root: Checkpoint::genesis().state_root,
         };
 
         assert!(sync.apply_sync_response(response).is_ok());

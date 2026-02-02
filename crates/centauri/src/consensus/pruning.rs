@@ -358,7 +358,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn create_test_vertex(round: Round, author: AuthorityId, checkpointed: bool) -> DagVertex {
-        let mut vertex = DagVertex::new(round, author, vec![], vec![], vec![round as u8; 32]);
+        let mut vertex = DagVertex::new(round, author, vec![], vec![], vec![round as u8; 32], 0);
         vertex.metadata.is_checkpoint = checkpointed;
         if checkpointed {
             vertex.metadata.checkpoint_seq = Some(round);
@@ -368,9 +368,7 @@ mod tests {
 
     fn create_test_checkpoint(sequence: u64) -> Checkpoint {
         let mut vertex_id = [0u8; 32];
-        for i in 0..32 {
-            vertex_id[i] = sequence as u8;
-        }
+        vertex_id.fill(sequence as u8);
 
         Checkpoint {
             sequence,

@@ -5,12 +5,14 @@ param(
     
     [string]$BaseDataDir = "$env:USERPROFILE\.kanari\node-db",
     [int]$BasePeerPort = 19000,
-    [int]$BaseRpcPort = 19001
+    [int]$BaseRpcPort = 19001,
+    [string]$Authorities = ""
 )
 
 $p2pPort = $BasePeerPort + (($NodeId - 1) * 10)
 $rpcPort = $BaseRpcPort + (($NodeId - 1) * 10)
 $dataDir = "$BaseDataDir\node$NodeId"
+$authId = "0x$NodeId"
 
 # Create data directory if it doesn't exist
 if (-not (Test-Path $dataDir)) {
@@ -77,5 +79,9 @@ if (Test-Path $releaseExe) {
 Write-Host ''
 
 # Start the node (bind RPC to all interfaces so it is reachable via the machine's IP)
-& $exePath start --p2p-port $p2pPort --rpc-port $rpcPort --rpc-host 0.0.0.0 --data-dir $dataDir
+if ($Authorities -ne "") {
+    & $exePath start --p2p-port $p2pPort --rpc-port $rpcPort --rpc-host 0.0.0.0 --data-dir $dataDir --authority-id $authId --authorities $Authorities
+} else {
+    & $exePath start --p2p-port $p2pPort --rpc-port $rpcPort --rpc-host 0.0.0.0 --data-dir $dataDir
+}
 

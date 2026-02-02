@@ -62,6 +62,18 @@ enum Commands {
         /// Enable high-throughput mode for 500K+ TPS (requires 64+ cores, 32GB+ RAM)
         #[arg(long, default_value = "false")]
         high_throughput: bool,
+
+        /// External RPC URL for block synchronization
+        #[arg(long)]
+        rpc_sync_url: Option<String>,
+
+        /// Authority ID for DAG consensus (e.g. 0x1)
+        #[arg(long)]
+        authority_id: Option<String>,
+
+        /// List of authority IDs for DAG consensus (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        authorities: Option<Vec<String>>,
     },
     /// Run a local-only node
     Local {},
@@ -150,6 +162,9 @@ async fn main() -> Result<()> {
             relay_server,
             moderate,
             high_throughput,
+            rpc_sync_url,
+            authority_id,
+            authorities,
         } => {
             let data_dir_path = data_dir.clone().unwrap_or_else(|| {
                 let home = std::env::var("HOME")
@@ -159,13 +174,6 @@ async fn main() -> Result<()> {
                     .join(".kanari")
                     .join("kanari-db")
             });
-
-            if let Some(ref d) = data_dir {
-                unsafe {
-                    std::env::set_var("KANARI_STATE_DB", d);
-                }
-                tracing::info!("Using data directory: {}", d.display());
-            }
 
             // Check for conflicting flags
             if moderate && high_throughput {
@@ -180,7 +188,31 @@ async fn main() -> Result<()> {
                 tracing::info!("   Ensure sufficient resources: 64+ cores, 32GB+ RAM, NVMe SSD");
             }
 
-            let engine = BlockchainEngine::new()?;
+            // If data_dir is provided, use it. Otherwise, use the default internal logic
+            // which handles path resolution and directory creation correctly.
+            let mut engine = if let Some(ref d) = data_dir {
+                unsafe {
+                    std::env::set_var("KANARI_STATE_DB", d);
+                    // Also set MOVE_VM_DB to ensure consistency if fallback is triggered
+                    std::env::set_var("KANARI_MOVE_VM_DB", d);
+                }
+                tracing::info!("Using data directory: {}", d.display());
+                BlockchainEngine::new_dir(d.to_str().expect("Invalid data directory path"))?
+            } else {
+                // Use default persistent store (internally resolves to ~/.kanari/kanari-db/kanari_db)
+                BlockchainEngine::new()?
+            };
+
+            // Configure authorities if provided
+            if let (Some(id), Some(auths)) = (authority_id, authorities) {
+                tracing::info!(
+                    "Configuring node with Authority ID: {} and {} authorities",
+                    id,
+                    auths.len()
+                );
+                engine.set_authorities(id, auths);
+            }
+
             let engine_arc = Arc::new(engine);
 
             run_node(
@@ -192,6 +224,7 @@ async fn main() -> Result<()> {
                 relay_server,
                 moderate,
                 high_throughput,
+                rpc_sync_url,
             )
             .await?;
             return Ok(());
@@ -221,6 +254,7 @@ async fn main() -> Result<()> {
                 false,
                 false, // moderate
                 false, // high_throughput
+                None,  // rpc_sync_url
             )
             .await?;
             return Ok(());
@@ -250,6 +284,7 @@ async fn run_node(
     relay_server: bool,
     moderate: bool,
     high_throughput: bool,
+    rpc_sync_url: Option<String>,
 ) -> Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
@@ -270,6 +305,9 @@ async fn run_node(
         tracing::info!("  - Batch size: up to 50K");
     } else {
         tracing::info!("Mode: Default (100K TPS)");
+    }
+    if let Some(ref url) = rpc_sync_url {
+        tracing::info!("External RPC Sync: ENABLED ({})", url);
     }
     tracing::info!("Initial blockchain height: {}", stats.height);
     let total_supply_str = KanariModule::format_kanari(stats.total_supply);
@@ -308,8 +346,21 @@ async fn run_node(
     let (p2p_msg_tx, mut p2p_msg_rx) = tokio::sync::mpsc::unbounded_channel::<P2PMessage>();
     let (network_tx, network_rx) = tokio::sync::mpsc::unbounded_channel::<P2PMessage>();
 
+    // Initialize P2P network info
+    let keypair = Keypair::generate_ed25519();
+    let peer_id = keypair.public().to_peer_id().to_string();
+    tracing::info!("Node Peer ID: {}", peer_id);
+
     // Create sync manager
-    let sync_manager = Arc::new(SyncManager::new(engine.clone(), network_tx.clone()));
+    let sync_manager = Arc::new(SyncManager::new(
+        engine.clone(),
+        network_tx.clone(),
+        peer_id.clone(),
+        rpc_sync_url,
+    ));
+
+    // Start sync manager tasks
+    sync_manager.clone().start().await;
 
     if p2p_port > 0 {
         // Load or create peer store
@@ -321,11 +372,6 @@ async fn run_node(
 
         // Clean up old peers (older than 7 days)
         peer_store.cleanup_old_peers(7 * 24 * 60 * 60);
-
-        // Initialize P2P network
-        let keypair = Keypair::generate_ed25519();
-        let peer_id = keypair.public().to_peer_id().to_string();
-        tracing::info!("Node Peer ID: {}", peer_id);
 
         let p2p_network = P2PNetwork::new(keypair, p2p_port, relay_server)?;
         tracing::info!("P2P network initialized on port {}", p2p_port);
@@ -356,15 +402,13 @@ async fn run_node(
 
         // Broadcast peer info periodically
         let sync_for_broadcast = sync_manager.clone();
-        let peer_id_clone = peer_id.clone();
         tokio::spawn(async move {
             // Wait a bit for peer discovery to complete before first broadcast
             sleep(Duration::from_secs(3)).await;
             loop {
-                sync_for_broadcast
-                    .broadcast_peer_info(peer_id_clone.clone())
-                    .await;
-                sleep(Duration::from_secs(30)).await;
+                sync_for_broadcast.broadcast_peer_info().await;
+                // Broadcast more frequently (every 5s) to ensure new peers sync quickly
+                sleep(Duration::from_secs(5)).await;
             }
         });
     } else {
@@ -468,6 +512,15 @@ async fn run_node(
             }
         }
 
-        sleep(Duration::from_secs(5)).await;
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("Shutdown signal received. Cleaning up and exiting...");
+                break;
+            }
+            _ = sleep(Duration::from_secs(5)) => {}
+        }
     }
+
+    tracing::info!("Node shutdown complete.");
+    Ok(())
 }

@@ -8,7 +8,7 @@ use move_core_types::{
     language_storage::{ModuleId, TypeTag},
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// Contract deployment information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -182,17 +182,17 @@ impl ContractMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContractRegistry {
     /// Map: (address, module_name) -> ContractInfo
-    contracts: HashMap<(String, String), ContractInfo>,
+    contracts: BTreeMap<(String, String), ContractInfo>,
 
     /// Map: address -> list of module names
-    address_modules: HashMap<String, Vec<String>>,
+    address_modules: BTreeMap<String, Vec<String>>,
 }
 
 impl ContractRegistry {
     pub fn new() -> Self {
         Self {
-            contracts: HashMap::new(),
-            address_modules: HashMap::new(),
+            contracts: BTreeMap::new(),
+            address_modules: BTreeMap::new(),
         }
     }
 

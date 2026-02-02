@@ -2,6 +2,7 @@
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
 use kanari_crypto::keys::CurveType;
+use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
 use tracing::error;
 
@@ -156,26 +157,60 @@ impl Transaction {
         }
     }
 
+    /// Get conflict keys for this transaction.
+    /// Transactions with overlapping conflict keys must be executed sequentially.
+    pub fn get_conflict_keys(&self) -> Vec<String> {
+        let mut keys = vec![self.sender().to_string()];
+        match self {
+            Transaction::Transfer { to, .. } => {
+                keys.push(to.clone());
+            }
+            Transaction::ExecuteFunction { module, args, .. } => {
+                // Include the module as a conflict key to ensure sequential execution
+                // of transactions affecting the same module's global state.
+                keys.push(module.clone());
+
+                // If any arguments look like addresses, they might be objects/accounts being modified
+                for arg in args {
+                    if arg.len() == 32
+                        && let Ok(addr) = AccountAddress::from_bytes(arg)
+                    {
+                        keys.push(addr.to_string());
+                    }
+                }
+            }
+            Transaction::PublishModule { module_name, .. } => {
+                keys.push(module_name.clone());
+            }
+            Transaction::Burn { .. } => {
+                // Burn only affects the sender (already added) and total_supply.
+                // Since total_supply is a global metric, we don't add a specific key for it
+                // to avoid sequentializing all burns, as the state application is locked.
+            }
+        }
+        keys
+    }
+
     /// Create a transfer transaction with default gas settings
-    pub fn new_transfer(from: String, to: String, amount: u64) -> Self {
+    pub fn new_transfer(from: String, to: String, amount: u64, sequence_number: u64) -> Self {
         Self::Transfer {
             from,
             to,
             amount,
             gas_limit: 100_000, // Default gas limit
             gas_price: 1000,    // Default gas price (1000 Mist)
-            sequence_number: 0,
+            sequence_number,
         }
     }
 
     /// Create a burn transaction with default gas settings
-    pub fn new_burn(from: String, amount: u64) -> Self {
+    pub fn new_burn(from: String, amount: u64, sequence_number: u64) -> Self {
         Self::Burn {
             from,
             amount,
             gas_limit: 100_000,
             gas_price: 1000,
-            sequence_number: 0,
+            sequence_number,
         }
     }
 }

@@ -1,7 +1,7 @@
 // Phase 1.5: Advanced Metrics & Monitoring
 // Production-grade prometheus-style metrics for DAG consensus
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
@@ -37,7 +37,7 @@ struct DagMetricsInner {
 
     // Custom metrics
     start_time: Instant,
-    custom_metrics: RwLock<HashMap<String, f64>>,
+    custom_metrics: RwLock<BTreeMap<String, f64>>,
 }
 
 /// Histogram for tracking value distributions (Prometheus-style)
@@ -165,7 +165,7 @@ impl DagMetrics {
                 ])),
 
                 start_time: Instant::now(),
-                custom_metrics: RwLock::new(HashMap::new()),
+                custom_metrics: RwLock::new(BTreeMap::new()),
             }),
         }
     }

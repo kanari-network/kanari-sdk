@@ -85,7 +85,7 @@ fn test_function_names_are_accessible() {
 fn test_kanari_constants_match_move() {
     // Test that Kanari constants are consistent
     assert_eq!(kanari::KanariModule::MIST_PER_KANARI, 1_000_000_000);
-    assert_eq!(kanari::KanariModule::TOTAL_SUPPLY_KANARI, 100_000_000);
+    assert_eq!(kanari::KanariModule::TOTAL_SUPPLY_KANARI, 11_000_000);
     assert_eq!(
         kanari::KanariModule::TOTAL_SUPPLY_MIST,
         kanari::KanariModule::TOTAL_SUPPLY_KANARI * kanari::KanariModule::MIST_PER_KANARI

@@ -108,7 +108,7 @@ Round 3:
 │V12  │  │V13  │  │V14  │  │V15  │
 │Auth1│  │Auth2│  │Auth3│  │Auth4│
 └─────┘  └─────┘  └─────┘  └─────┘
-         
+
          ⭐ Checkpoint #1 commits Round 1 vertices!
 ```
 
@@ -165,7 +165,7 @@ Round N+1:
     ├─ YES ─► Continue to Round N+2
     │
     └─ NO ──► No commit yet, continue
-    
+
 Round N+2:
   Vertices created
     │
@@ -228,7 +228,7 @@ Round N+2:
          Vertex V4 (Auth4)  ──┘
               │
          All created simultaneously!
-         
+
 • Parallel creation
 • Multiple producers
 • ~100ms to checkpoint
@@ -294,6 +294,30 @@ For vertex to be valid:
 • Must reference ≥ 3 parents
 • Parents must be from previous round
 • Signature must be valid
+
+## SMT and Light Client Integration
+
+Centauri uses the `smt` crate to provide cryptographic proofs for light clients.
+
+### State Proofs (SMT)
+- The `state_root` in each checkpoint represents the root of a Sparse Merkle Tree (SMT).
+- Light clients can verify account state using `StateProof`, which contains:
+  - Account address and state data.
+  - SMT siblings (Merkle path).
+- Verification is performed using `smt::verify_proof`, ensuring that the state data matches the `state_root` in a verified checkpoint.
+
+### Transaction Proofs (Binary Merkle Tree)
+- The `tx_root` in each checkpoint is the root of a binary Merkle tree of all transactions included in that checkpoint.
+- `CheckpointBuilder` computes this root using `smt::compute_merkle_root` from actual transaction hashes.
+- Light clients verify transaction inclusion using `TransactionProof`, which contains:
+  - Transaction data and hash.
+  - Merkle inclusion path.
+  - Transaction index.
+- Verification is performed using `smt::verify_merkle_proof` against the `tx_root` in a verified checkpoint.
+
+### Key Components
+- **CheckpointBuilder**: Responsible for converting full DAG checkpoints into `LightCheckpoint`s with correctly computed Merkle roots.
+- **LightClient**: Maintains a set of verified checkpoints (via quorum signatures) and provides methods to verify state and transaction proofs.
 
 For commit to happen:
 • Leader vertex needs ≥ 3 supporters

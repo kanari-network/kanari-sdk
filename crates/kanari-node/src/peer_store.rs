@@ -4,7 +4,7 @@
 use anyhow::Result;
 use libp2p::{Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 use tracing::{info, warn};
@@ -20,7 +20,7 @@ pub struct PeerInfo {
 /// Persistent peer storage
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerStore {
-    pub peers: HashMap<String, PeerInfo>,
+    pub peers: BTreeMap<String, PeerInfo>,
     #[serde(skip)]
     pub file_path: PathBuf,
 }
@@ -29,18 +29,44 @@ impl PeerStore {
     /// Create a new peer store with specified file path
     pub fn new(file_path: PathBuf) -> Self {
         Self {
-            peers: HashMap::new(),
+            peers: BTreeMap::new(),
             file_path,
         }
     }
 
-    /// Load peer store from disk
+    /// Load peer store from disk and filter out old peers
     pub fn load(file_path: PathBuf) -> Result<Self> {
         if file_path.exists() {
             let contents = fs::read_to_string(&file_path)?;
             let mut store: PeerStore = serde_json::from_str(&contents)?;
             store.file_path = file_path;
-            info!("Loaded {} peers from disk", store.peers.len());
+
+            // Filter out peers older than 24 hours
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+
+            let old_count = store.peers.len();
+            store.peers.retain(|_, info| {
+                // Keep peers seen in last 24 hours (86400 seconds)
+                // If last_seen is 0 (legacy), keep them for now or discard? Let's discard if strictly checking.
+                // But for safety, let's say if 0, update to now? No, that's fake.
+                // Let's keep if diff < 86400.
+                now.saturating_sub(info.last_seen) < 86400
+            });
+            let new_count = store.peers.len();
+
+            if old_count != new_count {
+                info!(
+                    "Loaded {} peers from disk (discarded {} old peers)",
+                    new_count,
+                    old_count - new_count
+                );
+            } else {
+                info!("Loaded {} peers from disk", store.peers.len());
+            }
+
             Ok(store)
         } else {
             info!("No existing peer store found, creating new one");
@@ -72,14 +98,28 @@ impl PeerStore {
             .unwrap_or_default()
             .as_secs();
 
-        self.peers.insert(
-            peer_id_str.clone(),
-            PeerInfo {
-                peer_id: peer_id_str,
-                addresses: addr_strs,
-                last_seen: timestamp,
-            },
-        );
+        // If peer exists, update it. Only update addresses if we have new ones.
+        if let Some(existing) = self.peers.get_mut(&peer_id_str) {
+            existing.last_seen = timestamp;
+            if !addr_strs.is_empty() {
+                // Merge new addresses avoiding duplicates
+                for new_addr in addr_strs {
+                    if !existing.addresses.contains(&new_addr) {
+                        existing.addresses.push(new_addr);
+                    }
+                }
+            }
+        } else {
+            // New peer
+            self.peers.insert(
+                peer_id_str.clone(),
+                PeerInfo {
+                    peer_id: peer_id_str,
+                    addresses: addr_strs,
+                    last_seen: timestamp,
+                },
+            );
+        }
     }
 
     /// Remove a peer

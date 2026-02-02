@@ -13,7 +13,7 @@
 
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use super::AuthorityId;
 
@@ -43,7 +43,7 @@ pub struct Committee {
     pub epoch: u64,
 
     /// Validators
-    pub validators: HashMap<AuthorityId, ValidatorInfo>,
+    pub validators: BTreeMap<AuthorityId, ValidatorInfo>,
 
     /// Total stake
     pub total_stake: u64,
@@ -61,7 +61,7 @@ impl Committee {
         // For Byzantine fault tolerance: f = (n-1)/3, so 2f+1 = (2n+1)/3
         let quorum_threshold = (total_stake * 2 / 3) + 1;
 
-        let validators_map: HashMap<AuthorityId, ValidatorInfo> = validators
+        let validators_map: BTreeMap<AuthorityId, ValidatorInfo> = validators
             .into_iter()
             .map(|v| (v.authority_id.clone(), v))
             .collect();
@@ -174,22 +174,22 @@ pub struct CommitteeManager {
     current_committee: Committee,
 
     /// Pending committee changes (target_epoch -> changes)
-    pending_changes: HashMap<u64, Vec<CommitteeChange>>,
+    pending_changes: BTreeMap<u64, Vec<CommitteeChange>>,
 
     /// Committee history (epoch -> committee)
-    committee_history: HashMap<u64, Committee>,
+    committee_history: BTreeMap<u64, Committee>,
 }
 
 impl CommitteeManager {
     /// Create new committee manager
     pub fn new(initial_committee: Committee) -> Self {
         let epoch = initial_committee.epoch;
-        let mut history = HashMap::new();
+        let mut history = BTreeMap::new();
         history.insert(epoch, initial_committee.clone());
 
         Self {
             current_committee: initial_committee,
-            pending_changes: HashMap::new(),
+            pending_changes: BTreeMap::new(),
             committee_history: history,
         }
     }
@@ -231,7 +231,7 @@ impl CommitteeManager {
         }
 
         // Start with current validators
-        let mut new_validators: HashMap<AuthorityId, ValidatorInfo> =
+        let mut new_validators: BTreeMap<AuthorityId, ValidatorInfo> =
             self.current_committee.validators.clone();
 
         // Apply pending changes

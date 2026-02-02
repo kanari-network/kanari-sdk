@@ -4,6 +4,5 @@
 pub mod engine;
 
 pub use engine::{
-    AccountInfo, BlockData, BlockInfo, BlockchainEngine, BlockchainStats, DagBlockInfo,
-    FullBlockData,
+    BlockData, BlockInfo, BlockchainEngine, BlockchainStats, DagBlockInfo, FullBlockData,
 };

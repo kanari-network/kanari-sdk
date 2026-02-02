@@ -9,7 +9,7 @@ use kanari_types::event::Event;
 use log::debug;
 use move_binary_format::file_format::CompiledModule;
 use move_core_types::account_address::AccountAddress;
-use move_core_types::identifier::IdentStr;
+use move_core_types::identifier::{IdentStr, Identifier};
 use move_core_types::language_storage::{ModuleId, TypeTag};
 use move_vm_runtime::move_vm::MoveVM;
 use move_vm_runtime::native_functions::NativeFunctionTable;
@@ -79,7 +79,7 @@ impl MoveRuntime {
             MoveVMState::open_default()?
         };
         let mut storage = InMemoryStorage::new();
-        state.load_into_storage(&mut storage)?;
+        let loaded_ids = state.load_into_storage(&mut storage)?;
 
         // Flatten all native tables into a single iterator
         let all_natives: Vec<_> = natives
@@ -117,12 +117,17 @@ impl MoveRuntime {
             }
         };
 
+        let mut published_modules = HashSet::new();
+        for id in loaded_ids {
+            published_modules.insert(id);
+        }
+
         Ok(MoveRuntime {
             vm,
             storage,
             state,
             enable_gas_metering,
-            published_modules: HashSet::new(),
+            published_modules,
             object_storage,
         })
     }
@@ -160,6 +165,60 @@ impl MoveRuntime {
         Ok(runtime)
     }
 
+    /// Apply a Move VM changeset to our storage, handling module overwrites/upgrades
+    /// and persisting modules to the database.
+    pub(crate) fn apply_move_changeset(
+        &mut self,
+        move_cs: move_core_types::effects::ChangeSet,
+    ) -> Result<()> {
+        let mut storage = self.storage.clone();
+
+        // 1. Manually apply ALL module changes using publish_or_overwrite_module.
+        // This ensures upgrades/overwrites work even if normal apply would fail.
+        for (addr, account_changes) in move_cs.accounts() {
+            for (module_name, op) in account_changes.modules() {
+                if let move_core_types::effects::Op::New(bytes)
+                | move_core_types::effects::Op::Modify(bytes) = op
+                {
+                    let module_id = ModuleId::new(
+                        *addr,
+                        Identifier::new(module_name.as_str())
+                            .map_err(|e| anyhow::anyhow!("invalid module name: {:?}", e))?,
+                    );
+                    storage.publish_or_overwrite_module(module_id.clone(), bytes.clone());
+
+                    // Persist to DB and index
+                    self.state.save_module(&module_id, bytes)?;
+                    self.published_modules.insert(module_id);
+                }
+            }
+        }
+
+        // 2. Create a NEW changeset that contains ONLY resources.
+        // This avoids module collisions in the second apply.
+        let mut resource_cs = move_core_types::effects::ChangeSet::new();
+        for (addr, account_changes) in move_cs.accounts() {
+            for (struct_tag, op) in account_changes.resources() {
+                resource_cs
+                    .add_resource_op(*addr, struct_tag.clone(), op.clone())
+                    .map_err(|e| anyhow::anyhow!("resource op error: {:?}", e))?;
+            }
+        }
+
+        // 3. Apply the resource-only changeset.
+        // Note: ChangeSet doesn't have a direct is_empty, but its inner accounts map might.
+        if !resource_cs.accounts().is_empty() {
+            storage
+                .apply(resource_cs)
+                .map_err(|e| anyhow::anyhow!(format!("apply resources error: {:?}", e)))?;
+        }
+
+        // 4. Update in-memory storage.
+        self.storage = storage;
+
+        Ok(())
+    }
+
     /// Load pre-compiled Kanari system modules from the framework package
     /// This publishes all 0x2::* modules (transfer, coin, balance, etc.) to storage
     fn load_system_modules(&mut self) -> Result<()> {
@@ -195,7 +254,7 @@ impl MoveRuntime {
             .publish_module(module_bytes.clone(), sender, &mut gas)
             .map_err(|e| anyhow::anyhow!(format!("publish error: {:?}", e)))?;
 
-        let (res, new_storage) = session.finish();
+        let (res, _new_storage) = session.finish();
         let (move_changeset, events) =
             res.map_err(|e| anyhow::anyhow!(format!("finish error: {:?}", e)))?;
 
@@ -224,33 +283,7 @@ impl MoveRuntime {
 
         // Apply changeset - if module exists, this will fail with "already exists"
         // In that case, we'll handle it as an upgrade
-        let mut storage = new_storage;
-        let apply_result = storage.apply(move_changeset.clone());
-
-        match apply_result {
-            Ok(_) => {
-                // New module published successfully
-                self.storage = storage.clone();
-                self.published_modules.insert(module_id.clone());
-            }
-            Err(e) => {
-                let err_msg = format!("{:?}", e);
-                if err_msg.contains("already exists") {
-                    // Module upgrade - overwrite module in the new storage and adopt it.
-                    // Use `storage` (the new_storage returned by the session) so any other
-                    // state changes included alongside the publish are preserved.
-                    storage.publish_or_overwrite_module(module_id.clone(), module_bytes.clone());
-                    // Replace runtime storage with the updated new_storage.
-                    self.storage = storage.clone();
-                    self.published_modules.insert(module_id.clone());
-                } else {
-                    return Err(anyhow::anyhow!(format!("apply error: {:?}", e)));
-                }
-            }
-        }
-
-        // persist module bytes to DB (overwrite if exists for upgrades)
-        self.state.save_module(&module_id, &module_bytes)?;
+        self.apply_move_changeset(move_changeset.clone())?;
 
         // Create ChangeSet from Move VM changeset
         let mut cs = ChangeSet::new();
@@ -285,7 +318,28 @@ impl MoveRuntime {
         // Optional gas tuple: (gas_limit, gas_price). If provided, runtime will
         // include gas accounting (debit sender if available, credit DAO) in the returned ChangeSet.
         gas_info: Option<(u64, u64)>,
+        // Optional timestamp for TxContext (defaults to SystemTime::now() if None)
+        timestamp: Option<u64>,
     ) -> Result<ChangeSet> {
+        // Just-In-Time (JIT) module loading
+        // If the module is not in our in-memory cache, try to load it from persistent state.
+        // This is crucial for RPC servers where simulation threads might have stale caches
+        // relative to the block production thread.
+        if !self.published_modules.contains(module_id) {
+            debug!(
+                "[RUNTIME] Module {} not in memory cache, attempting JIT load from DB",
+                module_id
+            );
+            if let Some(blob) = self.state.get_module(module_id) {
+                self.storage
+                    .publish_or_overwrite_module(module_id.clone(), blob);
+                self.published_modules.insert(module_id.clone());
+                debug!("[RUNTIME] JIT loaded module {} successfully", module_id);
+            } else {
+                debug!("[RUNTIME] Module {} not found in persistent DB", module_id);
+            }
+        }
+
         let storage_clone = self.storage.clone();
         let mut session = self.vm.new_session(storage_clone);
         let mut gas = UnmeteredGasMeter;
@@ -344,10 +398,12 @@ impl MoveRuntime {
         let sender_addr = sender.unwrap_or(AccountAddress::ZERO);
         let tx_hash = vec![0u8; 32]; // Placeholder
         let epoch = 0u64;
-        let epoch_timestamp_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let epoch_timestamp_ms = timestamp.unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64
+        });
         let ids_created = 0u64;
 
         let tx_ctx = TxContextRecord::from_address(
@@ -446,16 +502,12 @@ impl MoveRuntime {
             (trans, evs)
         };
 
-        let (res, new_storage) = session.finish();
+        let (res, _new_storage) = session.finish();
         let (move_changeset, events) =
-            res.map_err(|e| anyhow::anyhow!(format!("finish error: {:?}", e)))?;
+            res.map_err(|e| anyhow::anyhow!(format!("exec error: {:?}", e)))?;
 
-        let mut storage = new_storage;
-        storage
-            .apply(move_changeset.clone())
-            .map_err(|e| anyhow::anyhow!(format!("apply error: {:?}", e)))?;
-
-        self.storage = storage;
+        // After successful execution, update our local storage and persist modules
+        self.apply_move_changeset(move_changeset.clone())?;
 
         // Create ChangeSet from Move VM execution
         let mut cs = ChangeSet::new();

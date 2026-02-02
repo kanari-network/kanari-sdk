@@ -26,8 +26,9 @@ use super::vrf_leader::{VrfLeaderElection, VrfOutput};
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
 use kanari_types::transaction::SignedTransaction;
+use log;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{
     Arc,
     mpsc::{Sender, channel},
@@ -111,16 +112,8 @@ impl DagVertex {
         parents: Vec<VertexId>,
         transactions: Vec<SignedTransaction>,
         state_root: Vec<u8>,
+        timestamp: u64,
     ) -> Self {
-        #[cfg(miri)]
-        let timestamp: u64 = 0;
-
-        #[cfg(not(miri))]
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-
         let tx_count = transactions.len();
 
         let metadata = VertexMetadata {
@@ -225,7 +218,7 @@ impl DagVertex {
         let quorum_size = 2 * f + 1;
 
         // Collect unique authors from parent vertices
-        let mut unique_authors = HashSet::new();
+        let mut unique_authors = BTreeSet::new();
         for parent_id in &self.parents {
             if let Some(parent_vertex) = store.get_vertex(parent_id) {
                 unique_authors.insert(parent_vertex.author.clone());
@@ -266,17 +259,9 @@ impl Checkpoint {
         vertices: Vec<VertexId>,
         transactions: Vec<SignedTransaction>,
         state_root: Vec<u8>,
+        timestamp: u64,
         prev_checkpoint_hash: Vec<u8>,
     ) -> Self {
-        #[cfg(miri)]
-        let timestamp: u64 = 0;
-
-        #[cfg(not(miri))]
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-
         Self {
             sequence,
             vertices,
@@ -294,11 +279,12 @@ impl Checkpoint {
 
     /// Genesis checkpoint
     pub fn genesis() -> Self {
+        let genesis_state_root = smt::default_hashes()[0].to_vec();
         Self {
             sequence: 0,
             vertices: Vec::new(),
             transactions: Vec::new(),
-            state_root: vec![0u8; 32],
+            state_root: genesis_state_root,
             timestamp: 0,
             prev_checkpoint_hash: vec![0u8; 32],
         }
@@ -382,13 +368,13 @@ impl CheckpointConfig {
 #[derive(Debug, Clone)]
 pub struct DagStore {
     /// All vertices indexed by their ID (Arc for zero-copy sharing - 500K TPS)
-    vertices: HashMap<VertexId, Arc<DagVertex>>,
+    vertices: BTreeMap<VertexId, Arc<DagVertex>>,
 
     /// Vertices indexed by round number
-    vertices_by_round: HashMap<Round, Vec<VertexId>>,
+    vertices_by_round: BTreeMap<Round, Vec<VertexId>>,
 
     /// Vertices indexed by authority
-    vertices_by_authority: HashMap<AuthorityId, Vec<VertexId>>,
+    vertices_by_authority: BTreeMap<AuthorityId, Vec<VertexId>>,
 
     /// Checkpoints (committed state)
     checkpoints: Vec<Checkpoint>,
@@ -400,7 +386,10 @@ pub struct DagStore {
     current_round: Round,
 
     /// Set of authority IDs
-    authorities: HashSet<AuthorityId>,
+    authorities: BTreeSet<AuthorityId>,
+
+    /// Map of vertex ID to its checkpoint sequence number (for GC)
+    vertex_checkpoint_map: BTreeMap<VertexId, u64>,
 
     /// Checkpoint configuration
     checkpoint_config: CheckpointConfig,
@@ -428,13 +417,14 @@ impl DagStore {
         };
 
         Self {
-            vertices: HashMap::new(),
-            vertices_by_round: HashMap::new(),
-            vertices_by_authority: HashMap::new(),
+            vertices: BTreeMap::new(),
+            vertices_by_round: BTreeMap::new(),
+            vertices_by_authority: BTreeMap::new(),
             checkpoints: vec![genesis_checkpoint],
             pending_vertices: VecDeque::new(),
             current_round: 0,
             authorities: authorities.into_iter().collect(),
+            vertex_checkpoint_map: BTreeMap::new(),
             checkpoint_config: config,
             last_checkpoint_round: 0,
             max_pending_vertices: max_pending,
@@ -475,6 +465,11 @@ impl DagStore {
     /// Get checkpoint configuration
     pub fn get_checkpoint_config(&self) -> &CheckpointConfig {
         &self.checkpoint_config
+    }
+
+    /// Check if a vertex is already checkpointed
+    pub fn is_vertex_checkpointed(&self, id: &VertexId) -> bool {
+        self.vertex_checkpoint_map.contains_key(id)
     }
 
     /// Update checkpoint configuration
@@ -532,24 +527,24 @@ impl DagStore {
         }
 
         // Store vertex with Arc for zero-copy sharing (500K TPS optimization)
-        let vertex_id = vertex.id.clone();
+        let vertex_id = vertex.id;
         let round = vertex.round;
         let author = vertex.author.clone();
 
         let vertex_arc = Arc::new(vertex);
-        self.vertices.insert(vertex_id.clone(), vertex_arc);
+        self.vertices.insert(vertex_id, vertex_arc);
 
         // Index by round
         self.vertices_by_round
             .entry(round)
             .or_default()
-            .push(vertex_id.clone());
+            .push(vertex_id);
 
         // Index by authority
         self.vertices_by_authority
             .entry(author)
             .or_default()
-            .push(vertex_id.clone());
+            .push(vertex_id);
 
         // Add to pending
         self.pending_vertices.push_back(vertex_id);
@@ -607,19 +602,33 @@ impl DagStore {
     /// Add a new checkpoint (commits vertices)
     pub fn add_checkpoint(&mut self, checkpoint: Checkpoint) -> Result<()> {
         // Verify checkpoint sequence
-        let expected_seq = self.latest_checkpoint().sequence + 1;
+        let latest = self.latest_checkpoint();
+        let expected_seq = latest.sequence + 1;
+
         if checkpoint.sequence != expected_seq {
-            anyhow::bail!("Invalid checkpoint sequence");
+            // If it's the same as latest, we already have it
+            if checkpoint.sequence == latest.sequence && checkpoint.hash() == latest.hash() {
+                return Ok(());
+            }
+            anyhow::bail!(
+                "Invalid checkpoint sequence: expected {}, got {}",
+                expected_seq,
+                checkpoint.sequence
+            );
         }
 
         // Verify previous checkpoint hash
-        let prev_hash = self.latest_checkpoint().hash();
+        let prev_hash = latest.hash();
         if checkpoint.prev_checkpoint_hash != prev_hash {
             anyhow::bail!("Invalid previous checkpoint hash");
         }
 
         // Note: Vertices in Arc are immutable - checkpoint status tracked separately
-        // In production, use a separate HashMap<VertexId, CheckpointMetadata>
+        // Track which vertices belong to this checkpoint for Garbage Collection
+        for vertex_id in &checkpoint.vertices {
+            self.vertex_checkpoint_map
+                .insert(*vertex_id, checkpoint.sequence);
+        }
 
         // Remove from pending
         self.pending_vertices
@@ -636,13 +645,10 @@ impl DagStore {
         if self.checkpoints.len() > 10 {
             let cutoff_seq = self.checkpoints.len().saturating_sub(10) as u64;
             let vertices_to_remove: Vec<VertexId> = self
-                .vertices
+                .vertex_checkpoint_map
                 .iter()
-                .filter(|(_, v)| {
-                    v.metadata.is_checkpoint
-                        && v.metadata.checkpoint_seq.unwrap_or(u64::MAX) <= cutoff_seq
-                })
-                .map(|(id, _)| id.clone())
+                .filter(|&(_, &seq)| seq <= cutoff_seq)
+                .map(|(id, _)| *id)
                 .collect();
 
             for vertex_id in vertices_to_remove {
@@ -659,6 +665,8 @@ impl DagStore {
                         auth_vertices.retain(|id| id != &vertex_id);
                     }
                 }
+                // Remove from checkpoint map
+                self.vertex_checkpoint_map.remove(&vertex_id);
             }
         }
 
@@ -695,6 +703,15 @@ pub struct CheckpointStats {
     pub rounds_since_last: u64,
     pub total_checkpoints: usize,
     pub should_checkpoint: bool,
+}
+
+/// Serializable state of the DAG for persistence
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistentDagState {
+    vertices: Vec<DagVertex>,
+    checkpoints: Vec<Checkpoint>,
+    current_round: Round,
+    last_checkpoint_round: Round,
 }
 
 /// DAG Consensus Protocol (Bullshark-style with VRF leader election)
@@ -740,11 +757,16 @@ pub struct DagConsensus {
 
     /// Fallback: Simple round-robin leader schedule
     /// Used when VRF is not available
-    leader_schedule: HashMap<Round, AuthorityId>,
+    leader_schedule: BTreeMap<Round, AuthorityId>,
 }
 
 impl DagConsensus {
     pub fn new(authority_id: AuthorityId, authorities: Vec<AuthorityId>) -> Self {
+        log::info!(
+            "[DAG Consensus] Initializing with authority_id: {}, committee: {:?}",
+            authority_id,
+            authorities
+        );
         let mut store = DagStore::new(authorities.clone());
 
         // Initialize VRF-based leader election
@@ -761,20 +783,22 @@ impl DagConsensus {
         }
 
         // Fallback: Create simple round-robin leader schedule
-        let mut leader_schedule = HashMap::new();
+        let mut leader_schedule = BTreeMap::new();
         for round in 0..1000 {
             let leader_idx = (round as usize) % authorities.len();
             leader_schedule.insert(round, authorities[leader_idx].clone());
         }
 
         // Create genesis vertices (round 0) for all authorities
+        let genesis_state_root = smt::default_hashes()[0].to_vec();
         for authority in &authorities {
             let genesis_vertex = DagVertex::new(
                 0,
                 authority.clone(),
-                vec![],        // No parents for genesis
-                vec![],        // No transactions in genesis
-                vec![0u8; 32], // Genesis state root
+                vec![],                     // No parents for genesis
+                vec![],                     // No transactions in genesis
+                genesis_state_root.clone(), // Genesis state root
+                0,                          // Genesis timestamp
             );
             // Add genesis vertices (will succeed because round 0 has no parent requirements)
             let _ = store.add_vertex(genesis_vertex);
@@ -873,17 +897,19 @@ impl DagConsensus {
         &mut self,
         transactions: Vec<SignedTransaction>,
         state_root: Vec<u8>,
+        timestamp: u64,
     ) -> Result<DagVertex> {
         let current_round = self.store.current_round();
         let next_round = current_round + 1;
 
-        // Get parent vertices from current round
-        let parents: Vec<VertexId> = self
+        // Get parent vertices from current round and sort them for determinism
+        let mut parents: Vec<VertexId> = self
             .store
             .get_vertices_in_round(current_round)
             .into_iter()
-            .map(|v| v.id.clone())
+            .map(|v| v.id)
             .collect();
+        parents.sort(); // Ensure deterministic parent order for state root consistency
 
         // Create vertex
         let vertex = DagVertex::new(
@@ -892,6 +918,7 @@ impl DagConsensus {
             parents,
             transactions,
             state_root,
+            timestamp,
         );
 
         Ok(vertex)
@@ -899,11 +926,16 @@ impl DagConsensus {
 
     /// Add vertex to the DAG
     pub fn add_vertex(&mut self, vertex: DagVertex) -> Result<()> {
-        let vertex_id = vertex.id.clone();
+        let vertex_id = vertex.id;
         let author = vertex.author.clone();
 
         // 1. Verify author is in current committee
         if !self.committee.contains(&author) {
+            log::error!(
+                "[DAG Consensus] Committee check failed for author: '{}'. Committee members: {:?}",
+                author,
+                self.committee.validators.keys().collect::<Vec<_>>()
+            );
             anyhow::bail!("Vertex author '{}' is not in current committee", author);
         }
 
@@ -946,7 +978,7 @@ impl DagConsensus {
         }
 
         // 6. Cache vertex for faster lookups (use Arc to avoid clone)
-        self.caches.vertices.put(vertex_id.clone(), vertex.clone());
+        self.caches.vertices.put(vertex_id, vertex.clone());
 
         // 7. Determine if this is a priority vertex
         let is_priority = self.vrf_election.is_leader(vertex.round, &author);
@@ -1004,6 +1036,10 @@ impl DagConsensus {
     /// Uses Bullshark-style leader-based ordering with VRF
     pub fn try_commit(&mut self) -> Result<Option<Checkpoint>> {
         let current_round = self.store.current_round();
+        log::debug!(
+            "[DAG Consensus] try_commit: current_round = {}",
+            current_round
+        );
 
         // Need at least 3 rounds to commit (leader round + 2 acknowledgment rounds)
         if current_round < 3 {
@@ -1011,6 +1047,10 @@ impl DagConsensus {
         }
 
         let commit_round = current_round - 2;
+        log::debug!(
+            "[DAG Consensus] try_commit: commit_round = {}",
+            commit_round
+        );
 
         // Try VRF-based leader election first
         let leader_id = if let Some(vrf_leader) = self.vrf_election.elect_leader(commit_round) {
@@ -1043,12 +1083,11 @@ impl DagConsensus {
 
             if support_count >= quorum {
                 // Commit! Collect all uncommitted vertices up to and including leader vertex
-                let vertices_to_commit =
-                    self.collect_vertices_to_commit(leader_vertex.id.clone())?;
+                let vertices_to_commit = self.collect_vertices_to_commit(leader_vertex.id)?;
 
                 // Order transactions from vertices (with deduplication)
                 // Use HashSet to prevent duplicate transactions across vertices
-                let mut seen_tx_hashes = HashSet::new();
+                let mut seen_tx_hashes = BTreeSet::new();
                 let mut all_transactions = Vec::new();
                 for vertex_id in &vertices_to_commit {
                     if let Some(vertex) = self.store.get_vertex(vertex_id) {
@@ -1064,31 +1103,38 @@ impl DagConsensus {
 
                 // Create checkpoint
                 let latest = self.store.latest_checkpoint();
+                log::info!(
+                    "[DAG Consensus] try_commit: creating checkpoint #{} from leader {} (round {})",
+                    latest.sequence + 1,
+                    hex::encode(leader_vertex.id),
+                    leader_vertex.round
+                );
+                log::debug!(
+                    "[DAG Consensus] Checkpoint #{} contains {} vertices and {} transactions",
+                    latest.sequence + 1,
+                    vertices_to_commit.len(),
+                    all_transactions.len()
+                );
+                if !all_transactions.is_empty() {
+                    log::debug!(
+                        "[DAG Consensus] First tx hash in checkpoint #{}: 0x{}",
+                        latest.sequence + 1,
+                        hex::encode(all_transactions[0].hash())
+                    );
+                }
+
                 let checkpoint = Checkpoint::new(
                     latest.sequence + 1,
                     vertices_to_commit.clone(),
                     all_transactions,
                     leader_vertex.metadata.state_root.clone(),
+                    leader_vertex.timestamp,
                     latest.hash(),
                 );
-
-                // Add checkpoint to store
-                self.store.add_checkpoint(checkpoint.clone())?;
-
-                // Persist checkpoint to disk if persistent store exists
-                if let Some(persistent) = &self.persistent_store {
-                    let _ = persistent.put_checkpoint(&checkpoint);
-
-                    // Persist committed vertices
-                    for vertex_id in &vertices_to_commit {
-                        if let Some(vertex) = self.store.get_vertex(vertex_id) {
-                            let _ = persistent.put_vertex(vertex);
-                        }
-                    }
-                }
-
-                // Update state synchronizer with new checkpoint
-                self.state_sync.add_checkpoint(checkpoint.clone());
+                log::debug!(
+                    "[DAG Consensus] try_commit: new checkpoint.sequence = {}",
+                    checkpoint.sequence
+                );
 
                 return Ok(Some(checkpoint));
             }
@@ -1097,19 +1143,83 @@ impl DagConsensus {
         Ok(None)
     }
 
+    /// Add a new checkpoint (delegates to store)
+    pub fn add_checkpoint(&mut self, checkpoint: Checkpoint) -> Result<()> {
+        self.store.add_checkpoint(checkpoint)
+    }
+
+    /// Get latest checkpoint (delegates to store)
+    pub fn latest_checkpoint(&self) -> Checkpoint {
+        self.store.latest_checkpoint()
+    }
+
+    /// Collect all vertices that would be committed if a vertex with given parents became a leader
+    pub fn collect_history_for_parents(&self, parents: &[VertexId]) -> Result<Vec<VertexId>> {
+        let mut result = Vec::new();
+        let mut visited = BTreeSet::new();
+        let mut in_progress = BTreeSet::new();
+        let mut stack = Vec::new();
+
+        // Add all parents to stack (sorted for determinism)
+        let mut sorted_parents = parents.to_vec();
+        sorted_parents.sort();
+        for parent_id in sorted_parents {
+            stack.push((parent_id, false));
+        }
+
+        while let Some((vertex_id, processed)) = stack.pop() {
+            if processed {
+                if !visited.contains(&vertex_id) {
+                    visited.insert(vertex_id);
+                    result.push(vertex_id);
+                }
+                in_progress.remove(&vertex_id);
+                continue;
+            }
+
+            if visited.contains(&vertex_id) {
+                continue;
+            }
+
+            if in_progress.contains(&vertex_id) {
+                anyhow::bail!("Cycle detected in DAG");
+            }
+
+            if let Some(vertex) = self.store.get_vertex(&vertex_id) {
+                if self.store.is_vertex_checkpointed(&vertex_id) {
+                    visited.insert(vertex_id);
+                    continue;
+                }
+
+                in_progress.insert(vertex_id);
+                stack.push((vertex_id, true));
+
+                let mut sorted_parents = vertex.parents.clone();
+                sorted_parents.sort();
+                for parent_id in sorted_parents {
+                    if !visited.contains(&parent_id) {
+                        stack.push((parent_id, false));
+                    }
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
     /// Collect all vertices that should be committed (topological sort with cycle detection)
     fn collect_vertices_to_commit(&self, leader_vertex_id: VertexId) -> Result<Vec<VertexId>> {
         let mut result = Vec::new();
-        let mut visited = HashSet::new();
-        let mut in_progress = HashSet::new(); // Track vertices in current path
+        let mut visited = BTreeSet::new();
+        let mut in_progress = BTreeSet::new(); // Track vertices in current path
         let mut stack = vec![(leader_vertex_id, false)]; // (vertex_id, processed)
 
         while let Some((vertex_id, processed)) = stack.pop() {
             if processed {
                 // Second visit: add to result (post-order traversal)
                 if !visited.contains(&vertex_id) {
-                    visited.insert(vertex_id.clone());
-                    result.push(vertex_id.clone());
+                    visited.insert(vertex_id);
+                    result.push(vertex_id);
                 }
                 in_progress.remove(&vertex_id);
                 continue;
@@ -1122,28 +1232,27 @@ impl DagConsensus {
 
             // Cycle detection: if vertex is in current path, we have a cycle
             if in_progress.contains(&vertex_id) {
-                anyhow::bail!(
-                    "Cycle detected in DAG at vertex {}",
-                    hex::encode(&vertex_id)
-                );
+                anyhow::bail!("Cycle detected in DAG at vertex {}", hex::encode(vertex_id));
             }
 
             if let Some(vertex) = self.store.get_vertex(&vertex_id) {
                 // Skip if already checkpointed
-                if vertex.metadata.is_checkpoint {
+                if self.store.is_vertex_checkpointed(&vertex_id) {
                     visited.insert(vertex_id);
                     continue;
                 }
 
-                in_progress.insert(vertex_id.clone());
+                in_progress.insert(vertex_id);
 
                 // Mark this vertex for second visit
                 stack.push((vertex_id, true));
 
-                // Add parents to stack (depth-first, will be processed before this vertex)
-                for parent_id in &vertex.parents {
-                    if !visited.contains(parent_id) {
-                        stack.push((parent_id.clone(), false));
+                // Add parents to stack (depth-first, sorted for determinism)
+                let mut sorted_parents = vertex.parents.clone();
+                sorted_parents.sort();
+                for parent_id in sorted_parents {
+                    if !visited.contains(&parent_id) {
+                        stack.push((parent_id, false));
                     }
                 }
             }
@@ -1271,6 +1380,70 @@ impl DagConsensus {
     pub fn parallel_validator_mut(&mut self) -> &mut ParallelValidator {
         &mut self.parallel_validator
     }
+
+    /// Save the essential state of the DAG to a serializable struct
+    pub fn save_state(&self) -> Result<PersistentDagState> {
+        let vertices = self
+            .store
+            .vertices
+            .values()
+            .map(|v| (**v).clone())
+            .collect();
+        let state = PersistentDagState {
+            vertices,
+            checkpoints: self.store.checkpoints.clone(),
+            current_round: self.store.current_round,
+            last_checkpoint_round: self.store.last_checkpoint_round,
+        };
+        Ok(state)
+    }
+
+    /// Load the state of the DAG from a serializable struct
+    pub fn load_state(&mut self, state: PersistentDagState) -> Result<()> {
+        let mut new_store = DagStore::with_config(
+            self.store.authorities.iter().cloned().collect(),
+            self.store.checkpoint_config.clone(),
+        );
+
+        new_store.checkpoints = state.checkpoints;
+        new_store.current_round = state.current_round;
+        new_store.last_checkpoint_round = state.last_checkpoint_round;
+
+        for vertex in state.vertices {
+            let vertex_id = vertex.id;
+            let round = vertex.round;
+            let author = vertex.author.clone();
+
+            new_store.vertices.insert(vertex_id, Arc::new(vertex));
+            new_store
+                .vertices_by_round
+                .entry(round)
+                .or_default()
+                .push(vertex_id);
+            new_store
+                .vertices_by_authority
+                .entry(author)
+                .or_default()
+                .push(vertex_id);
+        }
+
+        // Reconstruct pending_vertices
+        let committed_vertices: BTreeSet<VertexId> = new_store
+            .checkpoints
+            .iter()
+            .flat_map(|cp| cp.vertices.iter().cloned())
+            .collect();
+
+        new_store.pending_vertices = new_store
+            .vertices
+            .keys()
+            .filter(|&id| !committed_vertices.contains(id))
+            .cloned()
+            .collect();
+
+        self.store = new_store;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1288,6 +1461,7 @@ mod tests {
             vec![parent],
             vec![],
             vec![0u8; 32],
+            0,
         );
 
         assert_eq!(vertex.round, 1);
@@ -1307,7 +1481,7 @@ mod tests {
         let mut store = DagStore::new(authorities);
 
         // Create genesis vertices (round 0)
-        let vertex0 = DagVertex::new(0, "auth1".to_string(), vec![], vec![], vec![0u8; 32]);
+        let vertex0 = DagVertex::new(0, "auth1".to_string(), vec![], vec![], vec![0u8; 32], 0);
         store.add_vertex(vertex0.clone()).unwrap();
 
         assert_eq!(store.current_round(), 0);
@@ -1425,6 +1599,7 @@ mod tests {
                 vec![],
                 vec![tx],
                 vec![i as u8; 32],
+                0,
             );
             if let Err(e) = store.add_vertex(vertex) {
                 eprintln!("Failed to add vertex {}: {}", i, e);
@@ -1466,6 +1641,7 @@ mod tests {
                 vec![],
                 vec![tx],
                 vec![i as u8; 32],
+                0,
             );
             store.add_vertex(vertex).ok();
         }
@@ -1505,6 +1681,7 @@ mod tests {
                 vec![],
                 vec![tx],
                 vec![i as u8; 32],
+                0,
             );
             store.add_vertex(vertex).ok();
         }
@@ -1543,6 +1720,7 @@ mod tests {
                 vec![],
                 vec![tx],
                 vec![i as u8; 32],
+                0,
             );
             store.add_vertex(vertex).ok();
         }

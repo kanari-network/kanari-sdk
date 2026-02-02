@@ -4,7 +4,7 @@
 //! Transaction Merkle tree implementation using SMT hash functions
 //! This provides efficient verification for light clients
 
-use crate::digest;
+use crate::hash_node;
 
 type MerkleProofItem = (Vec<u8>, usize, Vec<Vec<u8>>);
 
@@ -28,15 +28,14 @@ pub fn compute_merkle_root(tx_hashes: &[Vec<u8>]) -> Vec<u8> {
         // Process pairs
         for chunk in current_level.chunks(2) {
             if chunk.len() == 2 {
-                // Hash pair using SMT's digest function
-                let combined = [chunk[0].as_slice(), chunk[1].as_slice()].concat();
-                let hash = digest(&combined);
+                // Hash pair using SMT's hash_node function (consistent with SMT)
+                let left: [u8; 32] = chunk[0].as_slice().try_into().unwrap_or([0u8; 32]);
+                let right: [u8; 32] = chunk[1].as_slice().try_into().unwrap_or([0u8; 32]);
+                let hash = hash_node(&left, &right);
                 next_level.push(hash.to_vec());
             } else {
-                // Odd node - duplicate it
-                let combined = [chunk[0].as_slice(), chunk[0].as_slice()].concat();
-                let hash = digest(&combined);
-                next_level.push(hash.to_vec());
+                // Odd node - just pass it up to the next level to avoid malleability (CVE-2012-2459)
+                next_level.push(chunk[0].clone());
             }
         }
 
@@ -71,20 +70,19 @@ pub fn generate_merkle_proof(tx_hashes: &[Vec<u8>], index: usize) -> Vec<Vec<u8>
         if sibling_index < current_level.len() {
             proof.push(current_level[sibling_index].clone());
         } else {
-            // No sibling - duplicate current node
-            proof.push(current_level[current_index].clone());
+            // Push an empty vector to indicate a pass-through (no sibling at this level)
+            proof.push(Vec::new());
         }
 
         // Build next level
         for chunk in current_level.chunks(2) {
             if chunk.len() == 2 {
-                let combined = [chunk[0].as_slice(), chunk[1].as_slice()].concat();
-                let hash = digest(&combined);
+                let left: [u8; 32] = chunk[0].as_slice().try_into().unwrap_or([0u8; 32]);
+                let right: [u8; 32] = chunk[1].as_slice().try_into().unwrap_or([0u8; 32]);
+                let hash = hash_node(&left, &right);
                 next_level.push(hash.to_vec());
             } else {
-                let combined = [chunk[0].as_slice(), chunk[0].as_slice()].concat();
-                let hash = digest(&combined);
-                next_level.push(hash.to_vec());
+                next_level.push(chunk[0].clone());
             }
         }
 
@@ -97,6 +95,8 @@ pub fn generate_merkle_proof(tx_hashes: &[Vec<u8>], index: usize) -> Vec<Vec<u8>
 
 /// Verify a merkle proof
 /// Returns true if the proof is valid for the given transaction hash
+/// NOTE: This simple verification only works for balanced trees or specific shapes.
+/// For pass-through, the verifier needs to know when to skip hashing.
 pub fn verify_merkle_proof(
     tx_hash: &[u8],
     index: usize,
@@ -107,23 +107,31 @@ pub fn verify_merkle_proof(
         return true; // Single transaction tree
     }
 
-    let mut current_hash = tx_hash.to_vec();
+    let mut current_hash: [u8; 32] = tx_hash.try_into().unwrap_or([0u8; 32]);
     let mut current_index = index;
+    let proof_iter = proof.iter();
 
-    for sibling in proof {
-        current_hash = if current_index.is_multiple_of(2) {
-            // Current is left, sibling is right
-            let combined = [current_hash.as_slice(), sibling.as_slice()].concat();
-            digest(&combined).to_vec()
-        } else {
-            // Current is right, sibling is left
-            let combined = [sibling.as_slice(), current_hash.as_slice()].concat();
-            digest(&combined).to_vec()
-        };
+    // This verification logic is tricky with pass-through if we don't know the tree size.
+    // However, in many implementations, if a node has no sibling, it's NOT hashed.
+    // But the proof must reflect this.
+
+    for sibling_vec in proof_iter {
+        if !sibling_vec.is_empty() {
+            let sibling: [u8; 32] = sibling_vec.as_slice().try_into().unwrap_or([0u8; 32]);
+            current_hash = if current_index.is_multiple_of(2) {
+                // Current is left, sibling is right
+                hash_node(&current_hash, &sibling)
+            } else {
+                // Current is right, sibling is left
+                hash_node(&sibling, &current_hash)
+            };
+        }
+        // If sibling is empty, it's a pass-through node, so we don't hash it.
+        // We just move up to the next level.
         current_index /= 2;
     }
 
-    current_hash == merkle_root
+    current_hash.as_slice() == merkle_root
 }
 
 /// Batch verify multiple merkle proofs efficiently
@@ -145,15 +153,15 @@ pub fn generate_merkle_multiproof(tx_hashes: &[Vec<u8>], indices: &[usize]) -> V
     }
 
     // Track all nodes we need in the proof
-    let mut proof_nodes = std::collections::HashSet::new();
+    let mut proof_nodes = std::collections::BTreeSet::new();
     let mut current_level = tx_hashes.to_vec();
 
     // For each level, track which indices we're proving
-    let mut current_indices: std::collections::HashSet<usize> = indices.iter().copied().collect();
+    let mut current_indices: std::collections::BTreeSet<usize> = indices.iter().copied().collect();
 
     while current_level.len() > 1 {
         let mut next_level = Vec::new();
-        let mut next_indices = std::collections::HashSet::new();
+        let mut next_indices = std::collections::BTreeSet::new();
 
         for chunk_idx in 0..current_level.len().div_ceil(2) {
             let left_idx = chunk_idx * 2;
@@ -166,27 +174,30 @@ pub fn generate_merkle_multiproof(tx_hashes: &[Vec<u8>], indices: &[usize]) -> V
                 right_idx < current_level.len() && current_indices.contains(&right_idx);
 
             // Add siblings to proof (but not the nodes we're proving)
-            if need_left && !need_right && right_idx < current_level.len() {
-                proof_nodes.insert(current_level[right_idx].clone());
+            if need_left && !need_right {
+                if right_idx < current_level.len() {
+                    proof_nodes.insert(current_level[right_idx].clone());
+                } else {
+                    // Push an empty vector to indicate a pass-through (consistent with generate_merkle_proof)
+                    proof_nodes.insert(Vec::new());
+                }
             } else if need_right && !need_left {
                 proof_nodes.insert(current_level[left_idx].clone());
             }
 
             // Build next level
             if right_idx < current_level.len() {
-                let combined = [
-                    current_level[left_idx].as_slice(),
-                    current_level[right_idx].as_slice(),
-                ]
-                .concat();
-                next_level.push(digest(&combined).to_vec());
+                let left: [u8; 32] = current_level[left_idx]
+                    .as_slice()
+                    .try_into()
+                    .unwrap_or([0u8; 32]);
+                let right: [u8; 32] = current_level[right_idx]
+                    .as_slice()
+                    .try_into()
+                    .unwrap_or([0u8; 32]);
+                next_level.push(hash_node(&left, &right).to_vec());
             } else {
-                let combined = [
-                    current_level[left_idx].as_slice(),
-                    current_level[left_idx].as_slice(),
-                ]
-                .concat();
-                next_level.push(digest(&combined).to_vec());
+                next_level.push(current_level[left_idx].clone());
             }
 
             // Track parent index for next level
@@ -237,21 +248,23 @@ impl CompressedMerkleProof {
             return false; // Invalid compressed proof
         }
 
-        let mut current_hash = tx_hash.to_vec();
+        let mut current_hash: [u8; 32] = tx_hash.try_into().unwrap_or([0u8; 32]);
 
-        for (sibling, &is_left) in self.siblings.iter().zip(self.flags.iter()) {
-            current_hash = if is_left {
-                // Current is left, sibling is right
-                let combined = [current_hash.as_slice(), sibling.as_slice()].concat();
-                digest(&combined).to_vec()
-            } else {
-                // Current is right, sibling is left
-                let combined = [sibling.as_slice(), current_hash.as_slice()].concat();
-                digest(&combined).to_vec()
-            };
+        for (sibling_vec, &is_right) in self.siblings.iter().zip(self.flags.iter()) {
+            if !sibling_vec.is_empty() {
+                let sibling: [u8; 32] = sibling_vec.as_slice().try_into().unwrap_or([0u8; 32]);
+                current_hash = if is_right {
+                    // Current is left, sibling is right
+                    hash_node(&current_hash, &sibling)
+                } else {
+                    // Current is right, sibling is left
+                    hash_node(&sibling, &current_hash)
+                };
+            }
+            // If sibling is empty, it's a pass-through node - don't hash, just move up
         }
 
-        current_hash == merkle_root
+        current_hash.as_slice() == merkle_root
     }
 
     /// Serialize to compact bytes (for network transmission)
@@ -324,6 +337,8 @@ impl CompressedMerkleProof {
 
 #[cfg(test)]
 mod tests {
+    use crate::digest;
+
     use super::*;
 
     #[test]
@@ -342,30 +357,49 @@ mod tests {
 
     #[test]
     fn test_two_tx_merkle_root() {
-        let tx1 = digest(b"tx1").to_vec();
-        let tx2 = digest(b"tx2").to_vec();
-        let root = compute_merkle_root(&[tx1.clone(), tx2.clone()]);
+        let tx1: [u8; 32] = digest(b"tx1");
+        let tx2: [u8; 32] = digest(b"tx2");
+        let root = compute_merkle_root(&[tx1.to_vec(), tx2.to_vec()]);
 
-        let combined = [tx1.as_slice(), tx2.as_slice()].concat();
-        let expected = digest(&combined).to_vec();
-        assert_eq!(root, expected);
+        let expected = hash_node(&tx1, &tx2);
+        assert_eq!(root, expected.to_vec());
     }
 
     #[test]
     fn test_three_tx_merkle_root() {
+        let tx1: [u8; 32] = digest(b"tx1");
+        let tx2: [u8; 32] = digest(b"tx2");
+        let tx3: [u8; 32] = digest(b"tx3");
+
+        let root = compute_merkle_root(&[tx1.to_vec(), tx2.to_vec(), tx3.to_vec()]);
+
+        // Level 1: hash pairs, pass through odd
+        let h12 = hash_node(&tx1, &tx2);
+        let h3 = tx3; // pass through
+
+        // Level 2: hash results
+        let expected = hash_node(&h12, &h3);
+        assert_eq!(root, expected.to_vec());
+    }
+
+    #[test]
+    fn test_three_tx_merkle_proof() {
         let tx1 = digest(b"tx1").to_vec();
         let tx2 = digest(b"tx2").to_vec();
         let tx3 = digest(b"tx3").to_vec();
 
-        let root = compute_merkle_root(&[tx1.clone(), tx2.clone(), tx3.clone()]);
+        let txs = vec![tx1.clone(), tx2.clone(), tx3.clone()];
+        let root = compute_merkle_root(&txs);
 
-        // Level 1: hash pairs
-        let h12 = digest(&[tx1.as_slice(), tx2.as_slice()].concat()).to_vec();
-        let h33 = digest(&[tx3.as_slice(), tx3.as_slice()].concat()).to_vec(); // duplicate
-
-        // Level 2: hash results
-        let expected = digest(&[h12.as_slice(), h33.as_slice()].concat()).to_vec();
-        assert_eq!(root, expected);
+        // Test proof for each transaction
+        for (i, tx) in txs.iter().enumerate() {
+            let proof = generate_merkle_proof(&txs, i);
+            assert!(
+                verify_merkle_proof(tx, i, &proof, &root),
+                "Proof failed for index {}",
+                i
+            );
+        }
     }
 
     #[test]

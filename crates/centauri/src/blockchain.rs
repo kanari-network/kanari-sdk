@@ -15,7 +15,7 @@ pub struct Blockchain {
     pub blocks: Vec<Block>,
 
     /// DAG checkpoints (committed state)
-    #[serde(skip)]
+    #[serde(default = "default_dag_checkpoints")]
     pub dag_checkpoints: Vec<Checkpoint>,
 
     /// Track executed transactions (for deduplication)
@@ -29,6 +29,10 @@ pub struct Blockchain {
 
 fn default_dag_mode() -> bool {
     true
+}
+
+fn default_dag_checkpoints() -> Vec<Checkpoint> {
+    vec![Checkpoint::genesis()]
 }
 
 impl Blockchain {
@@ -89,8 +93,18 @@ impl Blockchain {
     /// Call this after loading blockchain from disk
     pub fn rebuild_tx_hash_index(&mut self) {
         self.executed_tx_hashes.clear();
+
+        // Rebuild from blocks (compatibility)
         for block in &self.blocks {
             for signed_tx in &block.transactions {
+                let tx_hash = hex::encode(signed_tx.hash());
+                self.executed_tx_hashes.insert(tx_hash);
+            }
+        }
+
+        // Rebuild from DAG checkpoints (primary mode)
+        for checkpoint in &self.dag_checkpoints {
+            for signed_tx in &checkpoint.transactions {
                 let tx_hash = hex::encode(signed_tx.hash());
                 self.executed_tx_hashes.insert(tx_hash);
             }
@@ -155,11 +169,12 @@ impl Blockchain {
         };
 
         let block = Block::new(
-            self.height() + 1,
+            checkpoint.sequence, // Use checkpoint sequence for block height
             prev_hash,
             checkpoint.state_root.clone(),
             checkpoint.transactions.clone(),
             Vec::new(), // events handled separately
+            checkpoint.timestamp,
         );
 
         self.blocks.push(block);
@@ -219,7 +234,7 @@ mod tests {
         let mut chain = Blockchain::new();
 
         let prev_cp_hash = chain.latest_checkpoint().hash();
-        let checkpoint = Checkpoint::new(1, Vec::new(), Vec::new(), vec![0u8; 32], prev_cp_hash);
+        let checkpoint = Checkpoint::new(1, Vec::new(), Vec::new(), vec![0u8; 32], 0, prev_cp_hash);
 
         chain.add_checkpoint(checkpoint).unwrap();
         assert_eq!(chain.height(), 1);
@@ -231,15 +246,15 @@ mod tests {
         let chain = Blockchain::new();
         let prev_block = chain.latest_block();
 
-        let valid_block = Block::new(1, prev_block.hash(), vec![0u8; 32], vec![], vec![]);
+        let valid_block = Block::new(1, prev_block.hash(), vec![0u8; 32], vec![], vec![], 0);
         assert!(valid_block.verify(prev_block).is_ok());
-        let invalid_block = Block::new(2, prev_block.hash(), vec![0u8; 32], vec![], vec![]);
+        let invalid_block = Block::new(2, prev_block.hash(), vec![0u8; 32], vec![], vec![], 0);
         assert!(invalid_block.verify(prev_block).is_err());
     }
 
     #[test]
     fn test_transaction_hash() {
-        let tx = Transaction::new_transfer("0x1".to_string(), "0x2".to_string(), 1000);
+        let tx = Transaction::new_transfer("0x1".to_string(), "0x2".to_string(), 1000, 0);
 
         let hash1 = tx.hash();
         let hash2 = tx.hash();

@@ -25,8 +25,9 @@ ed25519-dalek = { workspace = true }
 curve25519-dalek = { workspace = true }
 rand = { workspace = true }
 rocksdb = { workspace = true }
-rayon = "1.10"
-num_cpus = "1.16"
+rayon = { workspace = true }
+num_cpus = { workspace = true }
+log = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3.8"
+tempfile = { workspace = true }

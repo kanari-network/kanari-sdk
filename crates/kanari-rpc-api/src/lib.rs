@@ -4,6 +4,8 @@
 //! Kanari RPC API Definitions
 //!
 //! Defines request/response types and RPC methods for Kanari blockchain
+use kanari_types::event::Event;
+use kanari_types::transaction::SignedTransaction;
 use serde::{Deserialize, Serialize};
 
 /// RPC request wrapper
@@ -101,7 +103,7 @@ pub struct AccountInfo {
     pub sequence_number: u64,
     pub modules: Vec<String>,
     /// Token balances: token_type -> amount
-    pub token_balances: std::collections::HashMap<String, u64>,
+    pub token_balances: std::collections::BTreeMap<String, u64>,
     /// Owned objects discovered by the runtime (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owned_objects: Option<Vec<ObjectInfo>>,
@@ -116,7 +118,7 @@ pub struct TokenBalance {
     pub symbol: String,
 }
 
-/// Block info response
+/// Block info response (legacy/simple)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockInfo {
     pub height: u64,
@@ -126,6 +128,49 @@ pub struct BlockInfo {
     pub tx_count: usize,
     pub state_root: String,
     pub events: Vec<RpcEvent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockchainStats {
+    pub height: u64,
+    pub total_blocks: usize,
+    pub total_transactions: usize,
+    pub pending_transactions: usize,
+    pub total_accounts: usize,
+    pub total_supply: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObjectInfo {
+    pub id: String,
+    pub owner: String,
+    pub type_: String,
+    pub data: Vec<u8>,
+    pub version: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockData {
+    pub height: u64,
+    pub timestamp: u64,
+    pub hash: String,
+    pub prev_hash: String,
+    pub state_root: String,
+    pub tx_count: usize,
+    pub events: Vec<Event>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FullBlockData {
+    pub height: u64,
+    pub timestamp: u64,
+    pub hash: String,
+    pub prev_hash: String,
+    pub state_root: String,
+    pub tx_count: usize,
+    pub events: Vec<Event>,
+    pub transactions: Vec<SignedTransaction>,
+    pub vertices: Vec<String>,
 }
 
 /// Request for state root (optional height). If `height` is None, latest root is returned.
@@ -147,54 +192,6 @@ pub struct AccountProof {
 pub struct GetAccountProofRequest {
     pub address: String,
     pub height: Option<u64>,
-}
-
-/// Transaction merkle proof for light client verification
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TransactionMerkleProof {
-    pub tx_hash: String,
-    pub tx_index: usize,
-    pub merkle_root: String,
-    pub proof: Vec<String>, // Sibling hashes as hex strings
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetTransactionMerkleProofRequest {
-    pub block_height: u64,
-    pub tx_index: usize,
-}
-
-/// Batch merkle proof request for multiple transactions
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BatchMerkleProofRequest {
-    pub block_height: u64,
-    pub tx_indices: Vec<usize>,
-}
-
-/// Batch merkle proof response
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BatchMerkleProofResponse {
-    pub block_height: u64,
-    pub merkle_root: String,
-    pub proofs: Vec<TransactionMerkleProof>,
-}
-
-/// Compressed merkle proof request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompressedMerkleProofRequest {
-    pub block_height: u64,
-    pub tx_index: usize,
-}
-
-/// Compressed merkle proof response
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompressedMerkleProofResponse {
-    pub tx_hash: String,
-    pub tx_index: usize,
-    pub merkle_root: String,
-    pub compressed_proof: String, // Base64-encoded compressed proof
-    pub original_size: usize,     // Original proof size in bytes
-    pub compressed_size: usize,   // Compressed proof size in bytes
 }
 
 /// Event emitted by Move runtime (RPC representation)
@@ -243,17 +240,6 @@ pub struct TransactionResult {
     pub gas_used: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
-}
-
-/// Blockchain statistics
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BlockchainStats {
-    pub height: u64,
-    pub total_blocks: u64,
-    pub total_transactions: u64,
-    pub pending_transactions: usize,
-    pub total_accounts: usize,
-    pub total_supply: u64,
 }
 
 /// Submit transaction request
@@ -323,16 +309,6 @@ pub struct HealthStatus {
     pub sync_status: String,
 }
 
-/// Object information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ObjectInfo {
-    pub id: String,
-    pub owner: String,
-    pub type_: String,
-    pub data: Vec<u8>,
-    pub version: u64,
-}
-
 /// Get object request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetObjectRequest {
@@ -376,16 +352,13 @@ pub mod methods {
 
     // Blocks & Transactions
     pub const GET_BLOCK: &str = "kanari_getBlock";
+    pub const GET_FULL_BLOCK: &str = "kanari_getFullBlock";
     pub const GET_BLOCK_HEIGHT: &str = "kanari_getBlockHeight";
     pub const GET_TRANSACTION: &str = "kanari_getTransaction";
     pub const GET_ALL_TRANSACTIONS: &str = "kanari_getAllTransactions";
     pub const PRODUCE_BLOCK: &str = "kanari_produceBlock";
     pub const SUBMIT_TRANSACTION: &str = "kanari_submitTransaction";
     pub const GET_STATE_ROOT: &str = "kanari_getStateRoot";
-    pub const GET_ACCOUNT_PROOF: &str = "kanari_getAccountProof";
-    pub const GET_TRANSACTION_MERKLE_PROOF: &str = "kanari_getTransactionMerkleProof";
-    pub const GET_BATCH_MERKLE_PROOFS: &str = "kanari_getBatchMerkleProofs";
-    pub const GET_COMPRESSED_MERKLE_PROOF: &str = "kanari_getCompressedMerkleProof";
 
     // Stats & Info
     pub const GET_STATS: &str = "kanari_getStats";

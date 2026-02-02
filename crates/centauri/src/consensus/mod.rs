@@ -4,7 +4,8 @@
 // Core DAG consensus components
 mod dag_consensus;
 pub use dag_consensus::{
-    AuthorityId, Checkpoint, DagConsensus, DagStore, DagVertex, Round, VertexId, VertexMetadata,
+    AuthorityId, Checkpoint, DagConsensus, DagStore, DagVertex, PersistentDagState, Round,
+    VertexId, VertexMetadata,
 };
 
 // Cryptographic primitives

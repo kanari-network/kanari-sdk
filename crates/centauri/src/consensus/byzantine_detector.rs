@@ -11,7 +11,7 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use super::{AuthorityId, DagVertex, Round, VertexId};
 
@@ -84,10 +84,10 @@ pub struct ByzantineDetector {
     penalties: Vec<SlashingPenalty>,
 
     /// Authority reputation scores (0-100)
-    reputation: HashMap<AuthorityId, u64>,
+    reputation: BTreeMap<AuthorityId, u64>,
 
     /// Vertices created by each authority per round
-    vertices_by_authority_round: HashMap<(AuthorityId, Round), Vec<VertexId>>,
+    vertices_by_authority_round: BTreeMap<(AuthorityId, Round), Vec<VertexId>>,
 }
 
 impl ByzantineDetector {
@@ -96,8 +96,8 @@ impl ByzantineDetector {
         Self {
             faults: Vec::new(),
             penalties: Vec::new(),
-            reputation: HashMap::new(),
-            vertices_by_authority_round: HashMap::new(),
+            reputation: BTreeMap::new(),
+            vertices_by_authority_round: BTreeMap::new(),
         }
     }
 
@@ -122,7 +122,7 @@ impl ByzantineDetector {
             // Collect all vertex IDs for fault reporting (safe unwrap - we just checked existence)
             if let Some(existing) = self.vertices_by_authority_round.get(&key) {
                 let mut all_vertices = existing.clone();
-                all_vertices.push(vertex.id.clone());
+                all_vertices.push(vertex.id);
 
                 let fault = ByzantineFault::DoubleVoting {
                     authority: vertex.author.clone(),
@@ -138,7 +138,7 @@ impl ByzantineDetector {
         self.vertices_by_authority_round
             .entry(key)
             .or_default()
-            .push(vertex.id.clone());
+            .push(vertex.id);
 
         Ok(())
     }
@@ -157,7 +157,7 @@ impl ByzantineDetector {
             if vertex.parents.len() < quorum {
                 let fault = ByzantineFault::InvalidVertex {
                     authority: vertex.author.clone(),
-                    vertex_id: vertex.id.clone(),
+                    vertex_id: vertex.id,
                     reason: format!(
                         "Insufficient parents: {} < {} (quorum)",
                         vertex.parents.len(),

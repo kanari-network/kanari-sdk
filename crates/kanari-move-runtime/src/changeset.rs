@@ -8,7 +8,7 @@ use kanari_types::object::UIDRecord;
 use kanari_types::{balance::BalanceRecord, event::Event};
 use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Created object information captured from Move VM write-sets
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,7 +28,7 @@ pub struct AccountChange {
     pub address: AccountAddress,
     pub balance_delta: i64, // Positive = credit, Negative = debit
     pub sequence_increment: u64,
-    pub modules_added: HashSet<String>,
+    pub modules_added: BTreeSet<String>,
 }
 
 impl AccountChange {
@@ -37,7 +37,7 @@ impl AccountChange {
             address,
             balance_delta: 0,
             sequence_increment: 0,
-            modules_added: HashSet::new(),
+            modules_added: BTreeSet::new(),
         }
     }
 
@@ -62,7 +62,7 @@ impl AccountChange {
 /// This is the canonical output from Move VM that StateManager will apply
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ChangeSet {
-    pub account_changes: HashMap<AccountAddress, AccountChange>,
+    pub account_changes: BTreeMap<AccountAddress, AccountChange>,
     pub events: Vec<Event>,
     /// Treasury creations or updates: (owner, token_type, TreasuryCap)
     pub treasuries: Vec<(AccountAddress, String, TreasuryCap)>,
@@ -84,7 +84,7 @@ pub struct ChangeSet {
 impl ChangeSet {
     pub fn new() -> Self {
         Self {
-            account_changes: HashMap::new(),
+            account_changes: BTreeMap::new(),
             events: Vec::new(),
             treasuries: Vec::new(),
             nft_caps: Vec::new(),
@@ -98,7 +98,7 @@ impl ChangeSet {
 
     pub fn with_gas(gas_used: u64) -> Self {
         Self {
-            account_changes: HashMap::new(),
+            account_changes: BTreeMap::new(),
             events: Vec::new(),
             treasuries: Vec::new(),
             nft_caps: Vec::new(),
@@ -112,7 +112,7 @@ impl ChangeSet {
 
     pub fn failed(error: String, gas_used: u64) -> Self {
         Self {
-            account_changes: HashMap::new(),
+            account_changes: BTreeMap::new(),
             events: Vec::new(),
             treasuries: Vec::new(),
             nft_caps: Vec::new(),

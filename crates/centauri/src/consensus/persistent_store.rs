@@ -189,7 +189,7 @@ impl PersistentDagStore {
 
         let key = round.to_le_bytes();
         let mut vertex_ids = self.get_vertices_by_round(round)?;
-        vertex_ids.push(vertex_id.clone());
+        vertex_ids.push(*vertex_id);
 
         let value = bcs::to_bytes(&vertex_ids)
             .map_err(|e| anyhow::anyhow!("Failed to serialize vertex IDs: {}", e))?;
@@ -314,14 +314,12 @@ mod tests {
     use tempfile::TempDir;
 
     fn create_test_vertex(round: Round, author: AuthorityId) -> DagVertex {
-        DagVertex::new(round, author, vec![], vec![], vec![round as u8; 32])
+        DagVertex::new(round, author, vec![], vec![], vec![round as u8; 32], 0)
     }
 
     fn create_test_checkpoint(sequence: u64) -> Checkpoint {
         let mut vertex_id = [0u8; 32];
-        for i in 0..32 {
-            vertex_id[i] = sequence as u8;
-        }
+        vertex_id.fill(sequence as u8);
 
         Checkpoint {
             sequence,
@@ -353,7 +351,7 @@ mod tests {
         let store = PersistentDagStore::new(temp_dir.path())?;
 
         let vertex = create_test_vertex(1, "auth1".to_string());
-        let vertex_id = vertex.id.clone();
+        let vertex_id = vertex.id;
 
         store.put_vertex(&vertex)?;
 
@@ -387,7 +385,7 @@ mod tests {
         let store = PersistentDagStore::new(temp_dir.path())?;
 
         let vertex = create_test_vertex(1, "auth1".to_string());
-        let vertex_id = vertex.id.clone();
+        let vertex_id = vertex.id;
 
         store.put_vertex(&vertex)?;
         assert!(store.get_vertex(&vertex_id)?.is_some());

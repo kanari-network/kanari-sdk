@@ -3,14 +3,14 @@
 
 use crate::changeset::{ChangeSet, CreatedObject};
 use anyhow::Result;
-use kanari_crypto::hash_data_blake3;
 use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::TreasuryCap;
 use kanari_types::kanari::KanariModule;
 use kanari_types::{address::Address as KanariAddress, event::Event};
 use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use smt;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Account state in the blockchain
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,10 +18,10 @@ pub struct Account {
     pub address: AccountAddress,
     pub balance: u64, // Native KANARI balance in Mist
     pub sequence_number: u64,
-    pub modules: HashSet<String>,
+    pub modules: BTreeSet<String>,
     /// Token balances: token_type -> BalanceRecord
     /// Example: "0x840512ff...::james::JAMES" -> BalanceRecord(1000000000)
-    pub token_balances: HashMap<String, BalanceRecord>,
+    pub token_balances: BTreeMap<String, BalanceRecord>,
 }
 
 impl Account {
@@ -30,8 +30,8 @@ impl Account {
             address,
             balance,
             sequence_number: 0,
-            modules: HashSet::new(),
-            token_balances: HashMap::new(),
+            modules: BTreeSet::new(),
+            token_balances: BTreeMap::new(),
         }
     }
 
@@ -80,17 +80,19 @@ impl Account {
 /// This is a pure data layer that applies ChangeSet from Move VM execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateManager {
-    pub accounts: HashMap<AccountAddress, Account>,
+    pub accounts: BTreeMap<AccountAddress, Account>,
     pub total_supply: u64,
     pub events: Vec<Event>,
     /// Per-token total supplies tracked via TreasuryCap (token_type -> total_supply)
-    pub token_supplies: HashMap<String, TreasuryCap>,
+    pub token_supplies: BTreeMap<String, TreasuryCap>,
     /// Owner of TreasuryCap for a token type (token_type -> owner address)
-    pub token_treasuries: HashMap<String, AccountAddress>,
+    pub token_treasuries: BTreeMap<String, AccountAddress>,
     /// Map of object id -> CreatedObject for objects created by Move executions
-    pub objects: HashMap<String, CreatedObject>,
+    pub objects: BTreeMap<String, CreatedObject>,
     /// Per-account list of owned object ids
-    pub owned_objects: HashMap<AccountAddress, Vec<String>>,
+    pub owned_objects: BTreeMap<AccountAddress, Vec<String>>,
+    /// NFT capability creations or updates: (token_type -> (owner, NftCapRecord))
+    pub nft_caps: BTreeMap<String, (AccountAddress, kanari_types::collection::NftCapRecord)>,
 }
 
 impl StateManager {
@@ -98,7 +100,7 @@ impl StateManager {
     /// Total supply: 11 million KANARI = 11,000,000,000,000,000 Mist
     /// Dev address gets entire supply according to kanari.move
     pub fn new() -> Self {
-        let mut accounts = HashMap::new();
+        let mut accounts = BTreeMap::new();
 
         // Total supply in Mist (from kanari-types constants)
         let total_supply_mist: u64 = KanariModule::TOTAL_SUPPLY_MIST;
@@ -120,10 +122,11 @@ impl StateManager {
             accounts,
             total_supply: total_supply_mist,
             events: Vec::new(),
-            token_supplies: HashMap::new(),
-            token_treasuries: HashMap::new(),
-            objects: HashMap::new(),
-            owned_objects: HashMap::new(),
+            token_supplies: BTreeMap::new(),
+            token_treasuries: BTreeMap::new(),
+            objects: BTreeMap::new(),
+            owned_objects: BTreeMap::new(),
+            nft_caps: BTreeMap::new(),
         }
     }
 
@@ -190,11 +193,6 @@ impl StateManager {
             for module_name in &change.modules_added {
                 account.add_module(module_name.clone());
             }
-            // If modules were added, treat this as a transaction from the publisher
-            // and consume a sequence number (engine behavior).
-            if !change.modules_added.is_empty() {
-                account.sequence_number += 1;
-            }
         }
 
         // Update total supply if there was mint/burn (supply_delta != 0)
@@ -222,6 +220,12 @@ impl StateManager {
             self.token_treasuries.insert(token_type.clone(), *owner);
         }
 
+        // Apply NFT capability creations/updates from ChangeSet
+        for (owner, token_type, nft_cap) in &changeset.nft_caps {
+            self.nft_caps
+                .insert(token_type.clone(), (*owner, nft_cap.clone()));
+        }
+
         // Apply per-account token balance sets from ChangeSet (absolute values)
         for (owner, token_type, amount) in &changeset.token_balance_sets {
             let account = self.get_or_create_account(*owner);
@@ -245,6 +249,9 @@ impl StateManager {
         // Persist events emitted by Move VM into state event store
         if !changeset.events.is_empty() {
             self.events.extend(changeset.events.clone());
+            // Sort events by sequence number to ensure deterministic order
+            self.events
+                .sort_by_key(|e| (e.sequence_number, e.type_tag.to_string()));
         }
 
         Ok(())
@@ -288,16 +295,75 @@ impl StateManager {
         self.accounts.len()
     }
 
-    pub fn compute_state_root(&self) -> Vec<u8> {
-        let serialized =
-            bcs::to_bytes(&self.accounts).expect("BCS serialization of accounts should never fail");
-        hash_data_blake3(&serialized)
-    }
-
     /// Drain and return all accumulated events from the state event store.
     /// This moves events out so callers can process them without cloning.
     pub fn drain_events(&mut self) -> Vec<Event> {
         std::mem::take(&mut self.events)
+    }
+
+    /// Compute the Merkle root of the current state.
+    /// This includes accounts, objects, and total supply.
+    /// Uses smt::compute_merkle_root for a deterministic state root.
+    pub fn compute_state_root(&self) -> Vec<u8> {
+        let mut hashes = Vec::new();
+
+        // 1. Hash accounts (deterministic order because BTreeMap)
+        for account in self.accounts.values() {
+            if let Ok(bytes) = bcs::to_bytes(account) {
+                hashes.push(smt::digest(&bytes).to_vec());
+            }
+        }
+
+        // 2. Hash objects
+        for obj in self.objects.values() {
+            if let Ok(bytes) = bcs::to_bytes(obj) {
+                hashes.push(smt::digest(&bytes).to_vec());
+            }
+        }
+
+        // 3. Hash total supply
+        hashes.push(smt::digest(&self.total_supply.to_le_bytes()).to_vec());
+
+        // 4. Hash token supplies
+        for (token_type, supply) in &self.token_supplies {
+            let mut data = token_type.as_bytes().to_vec();
+            if let Ok(bytes) = bcs::to_bytes(supply) {
+                data.extend(bytes);
+                hashes.push(smt::digest(&data).to_vec());
+            }
+        }
+
+        // 5. Hash token treasuries (ownership of TreasuryCap)
+        for (token_type, owner) in &self.token_treasuries {
+            let mut data = token_type.as_bytes().to_vec();
+            data.extend(owner.as_slice());
+            hashes.push(smt::digest(&data).to_vec());
+        }
+
+        // 6. Hash owned objects
+        for (owner, obj_ids) in &self.owned_objects {
+            let mut data = owner.as_slice().to_vec();
+            // Sort object IDs to ensure deterministic hashing
+            let mut sorted_ids = obj_ids.clone();
+            sorted_ids.sort();
+            if let Ok(bytes) = bcs::to_bytes(&sorted_ids) {
+                data.extend(bytes);
+                hashes.push(smt::digest(&data).to_vec());
+            }
+        }
+
+        // 7. Hash NFT capabilities
+        for (token_type, (owner, nft_cap)) in &self.nft_caps {
+            let mut data = token_type.as_bytes().to_vec();
+            data.extend(owner.as_slice());
+            if let Ok(bytes) = bcs::to_bytes(nft_cap) {
+                data.extend(bytes);
+                hashes.push(smt::digest(&data).to_vec());
+            }
+        }
+
+        // Compute final Merkle root using smt crate
+        smt::compute_merkle_root(&hashes)
     }
 
     // Gas collection is handled via ChangeSet; no separate `collect_gas` method on StateManager.

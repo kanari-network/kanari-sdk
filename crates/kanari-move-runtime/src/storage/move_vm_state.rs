@@ -60,11 +60,14 @@ impl MoveVMState {
     }
 
     /// Load persisted modules into an `InMemoryStorage` instance.
-    pub fn load_into_storage(&self, storage: &mut InMemoryStorage) -> Result<()> {
+    /// Returns a list of loaded ModuleIds.
+    pub fn load_into_storage(&self, storage: &mut InMemoryStorage) -> Result<Vec<ModuleId>> {
         // Prefix scan is not directly supported by SMT shim; fallback to RocksDB
         // behavior by attempting to iterate using underlying RocksDB if available.
         // For simplicity, attempt to load by trying keys stored in an index key
         // `module_index` if present, otherwise return Ok(()) to avoid blocking.
+
+        let mut loaded_modules = Vec::new();
 
         if let Ok(Some(bytes)) = self.store.load::<Vec<String>>("module_index") {
             for s in bytes.into_iter() {
@@ -76,16 +79,17 @@ impl MoveVMState {
                         continue;
                     }
                     let addr = AccountAddress::from_hex_literal(parts[1]).ok();
-                    let ident = Identifier::from_utf8(parts[2].as_bytes().to_vec()).ok();
+                    let ident = Identifier::new(parts[2]).ok();
                     if let (Some(a), Some(id)) = (addr, ident) {
                         let module_id = ModuleId::new(a, id);
-                        storage.publish_or_overwrite_module(module_id, blob);
+                        storage.publish_or_overwrite_module(module_id.clone(), blob);
+                        loaded_modules.push(module_id);
                     }
                 }
             }
         }
 
-        Ok(())
+        Ok(loaded_modules)
     }
 
     /// Get module bytecode from persistent storage
