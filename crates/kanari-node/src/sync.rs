@@ -4,7 +4,6 @@
 use crate::p2p::{P2PMessage, PeerInfoMsg};
 use centauri::consensus::DagVertex;
 use kanari_core::{BlockchainEngine, FullBlockData, engine::DagEngine};
-use kanari_rpc_client::RpcClient;
 use kanari_types::transaction::SignedTransaction;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
@@ -22,8 +21,6 @@ pub struct SyncManager {
     block_buffer: Mutex<std::collections::BTreeMap<u64, FullBlockData>>,
     /// Highest height seen in the network
     max_peer_height: AtomicU64,
-    /// Optional RPC client for syncing from external nodes
-    rpc_client: Option<Arc<RpcClient>>,
 }
 
 impl SyncManager {
@@ -31,16 +28,13 @@ impl SyncManager {
         engine: Arc<BlockchainEngine>,
         network_tx: mpsc::UnboundedSender<P2PMessage>,
         local_peer_id: String,
-        rpc_url: Option<String>,
     ) -> Self {
-        let rpc_client = rpc_url.map(|url| Arc::new(RpcClient::new(url)));
         Self {
             engine,
             network_tx,
             local_peer_id,
             block_buffer: Mutex::new(std::collections::BTreeMap::new()),
             max_peer_height: AtomicU64::new(0),
-            rpc_client,
         }
     }
 
@@ -60,62 +54,13 @@ impl SyncManager {
         let stats = self.engine.get_stats();
         let max_seen = self.max_peer_height.load(Ordering::Relaxed);
 
-        // If we have an RPC client, always check its height
-        if let Some(ref rpc) = self.rpc_client {
-            match rpc.get_block_height().await {
-                Ok(rpc_height) => {
-                    if rpc_height > stats.height {
-                        info!(
-                            "[SYNC] RPC node is at height {}, we are at {}. Fetching blocks...",
-                            rpc_height, stats.height
-                        );
-                        self.sync_from_rpc(stats.height + 1, rpc_height).await;
-                        return; // Successfully syncing via RPC
-                    }
-                }
-                Err(e) => {
-                    warn!("[SYNC] Failed to get height from RPC: {}", e);
-                }
-            }
-        }
-
-        // Fallback to P2P sync if no RPC or RPC is not ahead
+        // Fallback to P2P sync if we are behind
         if stats.height < max_seen {
             info!(
                 "[SYNC] Behind network P2P (current: {}, max seen: {}). Requesting via P2P...",
                 stats.height, max_seen
             );
             self.request_blocks(stats.height + 1, max_seen).await;
-        }
-    }
-
-    /// Sync blocks from external RPC
-    async fn sync_from_rpc(&self, from: u64, to: u64) {
-        if let Some(ref rpc) = self.rpc_client {
-            // Sync in batches
-            let batch_size = 10;
-            let end = to.min(from + batch_size - 1);
-
-            for height in from..=end {
-                match rpc.get_full_block(height).await {
-                    Ok(block) => {
-                        info!("[SYNC] Received block #{} from RPC, applying...", height);
-                        match self.engine.sync_full_block_from_data(&block) {
-                            Ok(_) => {
-                                info!("[SYNC] Successfully applied block #{} from RPC", height);
-                            }
-                            Err(e) => {
-                                error!("[SYNC] Failed to apply block #{} from RPC: {}", height, e);
-                                break;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!("[SYNC] Failed to fetch block #{} from RPC: {}", height, e);
-                        break;
-                    }
-                }
-            }
         }
     }
 
@@ -247,46 +192,7 @@ impl SyncManager {
                         self.broadcast_peer_info().await;
                     }
                     Err(e) => {
-                        error!(
-                            "[SYNC] Failed to sync block #{}: {}. Attempting RPC sync fallback...",
-                            block.height, e
-                        );
-
-                        // If P2P sync failed, try to sync this specific block from RPC if available
-                        if let Some(ref rpc) = self.rpc_client {
-                            info!("[SYNC] Attempting RPC fallback for block #{}", block.height);
-                            match rpc.get_full_block(block.height).await {
-                                Ok(rpc_block) => {
-                                    info!(
-                                        "[SYNC] Fetched block #{} from RPC for retry",
-                                        block.height
-                                    );
-                                    if let Err(re_e) =
-                                        self.engine.sync_full_block_from_data(&rpc_block)
-                                    {
-                                        error!(
-                                            "[SYNC] Retry block #{} from RPC also failed: {}",
-                                            block.height, re_e
-                                        );
-                                        break;
-                                    } else {
-                                        info!(
-                                            "[SYNC] Successfully synced block #{} from RPC after P2P failure",
-                                            block.height
-                                        );
-                                        self.broadcast_peer_info().await;
-                                        continue;
-                                    }
-                                }
-                                Err(rpc_e) => {
-                                    error!(
-                                        "[SYNC] Failed to fetch block #{} from RPC for retry: {}",
-                                        block.height, rpc_e
-                                    );
-                                    break;
-                                }
-                            }
-                        }
+                        error!("[SYNC] Failed to sync block #{}: {}.", block.height, e);
                         break;
                     }
                 }

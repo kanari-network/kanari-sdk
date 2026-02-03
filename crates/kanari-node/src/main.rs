@@ -63,10 +63,6 @@ enum Commands {
         #[arg(long, default_value = "false")]
         high_throughput: bool,
 
-        /// External RPC URL for block synchronization
-        #[arg(long)]
-        rpc_sync_url: Option<String>,
-
         /// Authority ID for DAG consensus (e.g. 0x1)
         #[arg(long)]
         authority_id: Option<String>,
@@ -162,7 +158,6 @@ async fn main() -> Result<()> {
             relay_server,
             moderate,
             high_throughput,
-            rpc_sync_url,
             authority_id,
             authorities,
         } => {
@@ -224,7 +219,6 @@ async fn main() -> Result<()> {
                 relay_server,
                 moderate,
                 high_throughput,
-                rpc_sync_url,
             )
             .await?;
             return Ok(());
@@ -254,7 +248,6 @@ async fn main() -> Result<()> {
                 false,
                 false, // moderate
                 false, // high_throughput
-                None,  // rpc_sync_url
             )
             .await?;
             return Ok(());
@@ -284,7 +277,6 @@ async fn run_node(
     relay_server: bool,
     moderate: bool,
     high_throughput: bool,
-    rpc_sync_url: Option<String>,
 ) -> Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
@@ -306,9 +298,7 @@ async fn run_node(
     } else {
         tracing::info!("Mode: Default (100K TPS)");
     }
-    if let Some(ref url) = rpc_sync_url {
-        tracing::info!("External RPC Sync: ENABLED ({})", url);
-    }
+
     tracing::info!("Initial blockchain height: {}", stats.height);
     let total_supply_str = KanariModule::format_kanari(stats.total_supply);
     tracing::info!(
@@ -356,7 +346,6 @@ async fn run_node(
         engine.clone(),
         network_tx.clone(),
         peer_id.clone(),
-        rpc_sync_url,
     ));
 
     // Start sync manager tasks
