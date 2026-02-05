@@ -22,12 +22,18 @@ pub struct Verify {
     pub package_path: Option<PathBuf>,
 
     /// RPC endpoint
-    #[clap(long = "rpc", default_value = "http://127.0.0.1:19001")]
-    pub rpc_endpoint: String,
+    #[clap(long = "rpc")]
+    pub rpc_endpoint: Option<String>,
 }
 
 impl Verify {
     pub fn execute(self) -> Result<()> {
+        let rpc = self
+            .rpc_endpoint
+            .clone()
+            .or_else(kanari_common::get_active_rpc)
+            .unwrap_or_else(|| "http://127.0.0.1:19001".to_string());
+
         // Build blocking client
         let client = build_blocking_client(30)?;
 
@@ -59,9 +65,9 @@ impl Verify {
             id: 1,
         };
 
-        eprintln!("Sending verify request to {}...", self.rpc_endpoint);
+        eprintln!("Sending verify request to {}...", rpc);
         let resp = client
-            .post(&self.rpc_endpoint)
+            .post(&rpc)
             .json(&req)
             .send()
             .context("Failed to send RPC request")?;

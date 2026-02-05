@@ -7,6 +7,7 @@ use clap::Subcommand;
 pub mod account;
 pub mod balance;
 pub mod burn;
+pub mod envs;
 pub mod faucet;
 pub mod stats;
 pub mod transfer;
@@ -28,6 +29,8 @@ pub enum ClientCommand {
         #[command(subcommand)]
         command: account::AccountCommand,
     },
+    /// Manage environments (RPC endpoints)
+    Envs(envs::Envs),
 }
 
 impl ClientCommand {
@@ -39,6 +42,7 @@ impl ClientCommand {
             ClientCommand::Stats(cmd) => cmd.execute().await,
             ClientCommand::Balance(cmd) => cmd.execute(),
             ClientCommand::Account { command } => command.execute(),
+            ClientCommand::Envs(cmd) => cmd.execute(),
         }
     }
 }

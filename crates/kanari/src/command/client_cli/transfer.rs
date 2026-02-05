@@ -25,12 +25,18 @@ pub struct Transfer {
     pub password: String,
 
     /// RPC endpoint
-    #[clap(long = "rpc", default_value = "http://127.0.0.1:19001")]
-    pub rpc_endpoint: String,
+    #[clap(long = "rpc")]
+    pub rpc_endpoint: Option<String>,
 }
 
 impl Transfer {
     pub async fn execute(&self) -> Result<()> {
+        let rpc = self
+            .rpc_endpoint
+            .clone()
+            .or_else(kanari_common::get_active_rpc)
+            .unwrap_or_else(|| "http://127.0.0.1:19001".to_string());
+
         // Determine sender: prefer explicit `--from`, otherwise use selected wallet
         let from_addr = if let Some(f) = self.from.clone() {
             f
@@ -55,13 +61,13 @@ impl Transfer {
         eprintln!("  Amount (Mist): {}", amount_mist);
 
         // Connect to RPC server
-        let client = RpcClient::new(&self.rpc_endpoint);
+        let client = RpcClient::new(&rpc);
 
         // Get current block height to verify connection
         match client.get_block_height().await {
             Ok(height) => eprintln!("  Connected to node (height: {})", height),
             Err(_) => {
-                error!("  Cannot connect to RPC server at {}", self.rpc_endpoint);
+                error!("  Cannot connect to RPC server at {}", rpc);
                 error!("  Please start the node first: cargo run --bin kanari-node");
                 return Err(anyhow::anyhow!("RPC server not available"));
             }

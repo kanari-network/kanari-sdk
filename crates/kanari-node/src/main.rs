@@ -226,7 +226,7 @@ async fn main() -> Result<()> {
         Commands::Local {} => {
             // Run a local-only node: RPC bound to localhost, P2P disabled
             let p2p_port = 0;
-            let rpc_port = 19001;
+            let rpc_port = 6767;
             let rpc_host = "127.0.0.1".to_string();
 
             let data_dir_path = std::path::PathBuf::from("./.kanari-local");

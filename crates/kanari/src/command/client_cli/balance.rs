@@ -15,8 +15,8 @@ pub struct Balance {
     pub address: String,
 
     /// RPC endpoint URL
-    #[clap(long = "rpc", default_value = "http://127.0.0.1:19001")]
-    pub rpc_endpoint: String,
+    #[clap(long = "rpc")]
+    pub rpc_endpoint: Option<String>,
 
     /// Show detailed information
     #[clap(long = "detailed", short = 'd')]
@@ -25,9 +25,15 @@ pub struct Balance {
 
 impl Balance {
     pub fn execute(&self) -> Result<()> {
+        let rpc = self
+            .rpc_endpoint
+            .clone()
+            .or_else(kanari_common::get_active_rpc)
+            .unwrap_or_else(|| "http://127.0.0.1:19001".to_string());
+
         eprintln!("Querying token balances...");
         eprintln!("   Address: {}", self.address);
-        eprintln!("   RPC: {}\n", self.rpc_endpoint);
+        eprintln!("   RPC: {}\n", rpc);
 
         let client = Client::new();
         let request = serde_json::json!({
@@ -40,7 +46,7 @@ impl Balance {
         });
 
         let response = client
-            .post(&self.rpc_endpoint)
+            .post(&rpc)
             .json(&request)
             .send()
             .context("Failed to send RPC request")?;
@@ -120,10 +126,7 @@ impl Balance {
                         "id": 1
                     });
 
-                    if let Ok(resp) = Client::new()
-                        .post(&self.rpc_endpoint)
-                        .json(&acct_req)
-                        .send()
+                    if let Ok(resp) = Client::new().post(&rpc).json(&acct_req).send()
                         && let Ok(val) = resp.json::<serde_json::Value>()
                         && let Some(result_acc) = val.get("result")
                         && let Some(owned) =
@@ -144,8 +147,7 @@ impl Balance {
                                     "id": 1
                                 });
 
-                                if let Ok(resp) =
-                                    Client::new().post(&self.rpc_endpoint).json(&obj_req).send()
+                                if let Ok(resp) = Client::new().post(&rpc).json(&obj_req).send()
                                     && let Ok(val) = resp.json::<serde_json::Value>()
                                     && let Some(res) = val.get("result")
                                     && let Some(data_arr) =

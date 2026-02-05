@@ -16,8 +16,8 @@ pub enum AccountCommand {
         address: String,
 
         /// RPC endpoint URL
-        #[clap(long = "rpc", default_value = "http://127.0.0.1:19001")]
-        rpc_endpoint: String,
+        #[clap(long = "rpc")]
+        rpc_endpoint: Option<String>,
     },
 }
 
@@ -28,6 +28,11 @@ impl AccountCommand {
                 address,
                 rpc_endpoint,
             } => {
+                let rpc = rpc_endpoint
+                    .clone()
+                    .or_else(kanari_common::get_active_rpc)
+                    .unwrap_or_else(|| "http://127.0.0.1:19001".to_string());
+
                 let client = Client::new();
                 let request = serde_json::json!({
                     "jsonrpc": "2.0",
@@ -38,7 +43,7 @@ impl AccountCommand {
                 });
 
                 let response = client
-                    .post(rpc_endpoint)
+                    .post(&rpc)
                     .json(&request)
                     .send()
                     .context("Failed to send RPC request")?;

@@ -9,13 +9,19 @@ use log::error;
 #[derive(Parser, Debug)]
 pub struct Stats {
     /// RPC endpoint
-    #[clap(long = "rpc", default_value = "http://127.0.0.1:19001")]
-    pub rpc_endpoint: String,
+    #[clap(long = "rpc")]
+    pub rpc_endpoint: Option<String>,
 }
 
 impl Stats {
     pub async fn execute(&self) -> Result<()> {
-        let client = RpcClient::new(&self.rpc_endpoint);
+        let rpc = self
+            .rpc_endpoint
+            .clone()
+            .or_else(kanari_common::get_active_rpc)
+            .unwrap_or_else(|| "http://127.0.0.1:19001".to_string());
+
+        let client = RpcClient::new(&rpc);
 
         match client.get_stats().await {
             Ok(stats) => {
@@ -33,7 +39,7 @@ impl Stats {
                 eprintln!("─────────────────────────────────");
             }
             Err(_) => {
-                error!("  Cannot connect to RPC server at {}", self.rpc_endpoint);
+                error!("  Cannot connect to RPC server at {}", rpc);
                 error!("  Please start the node first: cargo run --bin kanari-node");
                 return Err(anyhow::anyhow!("RPC server not available"));
             }

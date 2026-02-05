@@ -12,9 +12,8 @@ use std::io;
 use std::str::FromStr;
 use thiserror::Error;
 
-use kanari_common::{load_kanari_config, save_kanari_config};
+use kanari_common::{get_active_address, set_active_address};
 use move_core_types::account_address::AccountAddress;
-use serde_yaml::{Mapping, Value};
 use toml; // Ensure toml is imported for serialization/deserialization
 
 use crate::Keystore;
@@ -268,7 +267,7 @@ pub fn save_wallet(
         .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
 
     // Also update the active_address in kanari.yaml
-    update_active_address(&address_str)?;
+    set_active_address(&address_str)?;
 
     Ok(())
 }
@@ -602,49 +601,13 @@ pub fn set_selected_wallet(wallet_address: &str) -> io::Result<()> {
     let formatted_address = wallet_address.to_string();
 
     // Update active_address in kanari.yaml
-    update_active_address(&formatted_address)
-}
-
-/// Helper function to update `active_address` in kanari.yaml
-fn update_active_address(address: &str) -> io::Result<()> {
-    // Try to load kanari config - use if let instead of match for single pattern
-    if let Ok(mut kanari_config) = load_kanari_config() {
-        if let Some(mapping) = kanari_config.as_mapping_mut() {
-            mapping.insert(
-                Value::String("active_address".to_string()),
-                Value::String(address.to_string()),
-            );
-            save_kanari_config(&kanari_config)
-        } else {
-            // Create mapping if none exists
-            let mut mapping = Mapping::new();
-            mapping.insert(
-                Value::String("active_address".to_string()),
-                Value::String(address.to_string()),
-            );
-            save_kanari_config(&Value::Mapping(mapping))
-        }
-    } else {
-        // If kanari config doesn't exist or load, create it
-        let mut mapping = Mapping::new();
-        mapping.insert(
-            Value::String("active_address".to_string()),
-            Value::String(address.to_string()),
-        );
-        save_kanari_config(&Value::Mapping(mapping))
-    }
+    set_active_address(&formatted_address)
 }
 
 /// Get the currently selected wallet from configuration
 #[must_use]
 pub fn get_selected_wallet() -> Option<String> {
-    // Only use kanari config
-    if let Ok(kanari_config) = load_kanari_config()
-        && let Some(active_address) = kanari_config.get("active_address").and_then(|v| v.as_str())
-    {
-        return Some(active_address.to_string());
-    }
-    None
+    get_active_address()
 }
 
 #[cfg(test)]

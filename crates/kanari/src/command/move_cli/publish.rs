@@ -38,14 +38,20 @@ pub struct Publish {
     pub password: Option<String>,
 
     /// RPC endpoint
-    #[clap(long = "rpc", default_value = "http://127.0.0.1:19001")]
-    pub rpc_endpoint: String,
+    #[clap(long = "rpc")]
+    pub rpc_endpoint: Option<String>,
     // `immediate` execution option removed — always submit normally.
 }
 
 impl Publish {
     pub fn execute(self, path: Option<PathBuf>, config: BuildConfig) -> Result<()> {
         let rerooted_path = reroot_path(path.or(self.package_path.clone()))?;
+
+        let rpc = self
+            .rpc_endpoint
+            .clone()
+            .or_else(kanari_common::get_active_rpc)
+            .unwrap_or_else(|| "http://127.0.0.1:19001".to_string());
 
         // Normalize and validate sender address
         let sender_normalized = normalize_addr(&self.sender)
@@ -112,14 +118,14 @@ impl Publish {
         };
 
         eprintln!("Publishing modules to blockchain...");
-        eprintln!("   RPC: {}", self.rpc_endpoint);
+        eprintln!("   RPC: {}", rpc);
         eprintln!("   Sender: {}", sender_normalized);
 
         let mut published_count = 0;
         let mut skipped_count = 0;
 
         // === Fetch base sequence number once to avoid race conditions ===
-        let base_seq: u64 = get_account_sequence(&client, &self.rpc_endpoint, &sender_normalized)?;
+        let base_seq: u64 = get_account_sequence(&client, &rpc, &sender_normalized)?;
 
         // Next sequence to use for publishing modules (increment only when a module is actually published)
         let mut next_seq = base_seq;
@@ -210,8 +216,8 @@ impl Publish {
                 id: 1,
             };
 
-            eprintln!("     Sending publish RPC to {}...", self.rpc_endpoint);
-            match client.post(&self.rpc_endpoint).json(&rpc_request).send() {
+            eprintln!("     Sending publish RPC to {}...", rpc);
+            match client.post(&rpc).json(&rpc_request).send() {
                 Ok(resp) => match resp.json::<RpcResponse>() {
                     Ok(rpc_resp) => {
                         if let Some(err) = rpc_resp.error {
