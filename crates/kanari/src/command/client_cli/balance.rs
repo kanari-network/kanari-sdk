@@ -7,7 +7,7 @@ use reqwest::blocking::Client;
 use serde_json::Value;
 
 /// Show token balances for an address
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[clap(name = "balances")]
 pub struct Balance {
     /// Address to query
@@ -15,7 +15,7 @@ pub struct Balance {
     pub address: String,
 
     /// RPC endpoint URL
-    #[clap(long = "rpc", default_value = "http://localhost:19001")]
+    #[clap(long = "rpc", default_value = "http://127.0.0.1:19001")]
     pub rpc_endpoint: String,
 
     /// Show detailed information
@@ -188,7 +188,7 @@ impl Balance {
                             eprintln!("  {}  ({})", id, ty);
                         }
                         eprintln!(
-                            "\nTip: use `kanari account get --address <addr>` to inspect object data and determine token types."
+                            "\nTip: use `kanari client account get --address <addr>` to inspect object data and determine token types."
                         );
                     }
                 }
