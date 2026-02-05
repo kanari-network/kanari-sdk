@@ -434,6 +434,7 @@ mod tests {
 
         let mut cs = ChangeSet::new();
         cs.publish_module(publisher, "kanari".to_string());
+        cs.get_or_create_change(publisher).increment_sequence();
 
         state.apply_changeset(&cs).unwrap();
 

@@ -16,7 +16,7 @@ pub enum AccountCommand {
         address: String,
 
         /// RPC endpoint URL
-        #[clap(long = "rpc", default_value = "http://localhost:19001")]
+        #[clap(long = "rpc", default_value = "http://127.0.0.1:19001")]
         rpc_endpoint: String,
     },
 }
