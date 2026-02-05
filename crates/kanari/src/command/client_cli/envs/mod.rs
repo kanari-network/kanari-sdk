@@ -39,14 +39,14 @@ impl Envs {
     pub fn execute(&self) -> Result<()> {
         match &self.command {
             EnvsCommand::List => {
-                let envs = get_envs();
+                let envs = get_envs().unwrap_or_default();
                 let active = get_active_env();
 
                 eprintln!("{:<15} {:<30}", "ALIAS", "RPC ENDPOINT");
                 eprintln!("{:-<15} {:-<30}", "", "");
 
                 for (alias, rpc) in envs {
-                    let mark = if Some(alias.clone()) == active {
+                    let mark = if active.as_deref() == Some(&alias) {
                         "*"
                     } else {
                         " "

@@ -6,21 +6,25 @@ use serde_yaml::{Mapping, Value};
 use std::io;
 
 /// Get all environments from config
-pub fn get_envs() -> Vec<(String, String)> {
-    let config = load_kanari_config().unwrap_or(Value::Mapping(Mapping::new()));
+pub fn get_envs() -> io::Result<Vec<(String, String)>> {
+    let config = load_kanari_config()?;
     let mut result = Vec::new();
 
     if let Some(envs) = config.get("envs").and_then(|v| v.as_sequence()) {
-        for env in envs {
-            if let (Some(alias), Some(rpc)) = (
-                env.get("alias").and_then(|v| v.as_str()),
-                env.get("rpc").and_then(|v| v.as_str()),
-            ) {
-                result.push((alias.to_string(), rpc.to_string()));
-            }
-        }
+        result = envs
+            .iter()
+            .filter_map(|env| {
+                let alias = env.get("alias").and_then(|v| v.as_str());
+                let rpc = env.get("rpc").and_then(|v| v.as_str());
+                if let (Some(alias), Some(rpc)) = (alias, rpc) {
+                    Some((alias.to_string(), rpc.to_string()))
+                } else {
+                    None
+                }
+            })
+            .collect();
     }
-    result
+    Ok(result)
 }
 
 /// Get active environment alias
@@ -122,9 +126,9 @@ pub fn add_env(alias: &str, rpc: &str) -> io::Result<()> {
 /// Remove an environment by alias
 pub fn remove_env(alias: &str) -> io::Result<()> {
     let mut config = load_kanari_config()?;
-    let mut removed = false;
 
     if let Some(map) = config.as_mapping_mut() {
+        let mut removed = false;
         if let Some(envs) = map
             .get_mut(Value::String("envs".to_string()))
             .and_then(|v| v.as_sequence_mut())
@@ -140,14 +144,19 @@ pub fn remove_env(alias: &str) -> io::Result<()> {
                 map.remove(Value::String("active_env".to_string()));
             }
             save_kanari_config(&config)?;
-            return Ok(());
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("Environment alias '{}' not found", alias),
+            ))
         }
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Invalid config format",
+        ))
     }
-
-    Err(io::Error::new(
-        io::ErrorKind::NotFound,
-        format!("Environment alias '{}' not found", alias),
-    ))
 }
 
 /// Get RPC URL of the active environment
