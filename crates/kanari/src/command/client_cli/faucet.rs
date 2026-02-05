@@ -23,18 +23,24 @@ pub struct Faucet {
     pub dev_password: Option<String>,
 
     /// RPC endpoint
-    #[clap(long = "rpc", default_value = "http://127.0.0.1:19001")]
-    pub rpc_endpoint: String,
+    #[clap(long = "rpc")]
+    pub rpc_endpoint: Option<String>,
 }
 
 impl Faucet {
     pub async fn execute(&self) -> Result<()> {
+        let rpc = self
+            .rpc_endpoint
+            .clone()
+            .or_else(kanari_common::get_active_rpc)
+            .unwrap_or_else(|| "http://127.0.0.1:19001".to_string());
+
         let status = kanari_faucet::request_from_dev(
             self.dev_address.as_deref(),
             self.dev_password.as_deref(),
             self.to.as_deref(),
             self.amount,
-            &self.rpc_endpoint,
+            &rpc,
         )
         .await
         .context("Faucet request failed")?;

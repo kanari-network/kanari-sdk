@@ -59,13 +59,19 @@ pub struct Call {
     pub gas_price: u64,
 
     /// RPC endpoint
-    #[clap(long = "rpc", default_value = "http://localhost:19001")]
-    pub rpc_endpoint: String,
+    #[clap(long = "rpc")]
+    pub rpc_endpoint: Option<String>,
     // `immediate` execution option removed — always submit normally.
 }
 
 impl Call {
     pub fn execute(self) -> Result<()> {
+        let rpc = self
+            .rpc_endpoint
+            .clone()
+            .or_else(kanari_common::get_active_rpc)
+            .unwrap_or_else(|| "http://127.0.0.1:19001".to_string());
+
         eprintln!("Preparing function call...");
 
         // Normalize and validate addresses
@@ -183,7 +189,7 @@ impl Call {
 
         // Query account sequence number so signature and RPC include it (fail-fast)
         let client = build_blocking_client(30)?;
-        let seq_num: u64 = get_account_sequence(&client, &self.rpc_endpoint, &sender_normalized)?;
+        let seq_num: u64 = get_account_sequence(&client, &rpc, &sender_normalized)?;
 
         // Sign transaction using the loaded wallet via SignedTransaction
         let signed_tx = {
@@ -237,10 +243,10 @@ impl Call {
             id: 1,
         };
 
-        eprintln!("Sending RPC request to {}...", self.rpc_endpoint);
+        eprintln!("Sending RPC request to {}...", rpc);
 
         let client = build_blocking_client(30)?;
-        match client.post(&self.rpc_endpoint).json(&rpc_request).send() {
+        match client.post(&rpc).json(&rpc_request).send() {
             Ok(resp) => match resp.json::<RpcResponse>() {
                 Ok(rpc_resp) => {
                     if let Some(err) = rpc_resp.error {
