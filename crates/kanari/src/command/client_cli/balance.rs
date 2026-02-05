@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result};
 use clap::*;
-use reqwest::blocking::Client;
+use reqwest::Client;
 use serde_json::Value;
 
 /// Show token balances for an address
@@ -24,7 +24,7 @@ pub struct Balance {
 }
 
 impl Balance {
-    pub fn execute(&self) -> Result<()> {
+    pub async fn execute(&self) -> Result<()> {
         let rpc = self
             .rpc_endpoint
             .clone()
@@ -49,9 +49,10 @@ impl Balance {
             .post(&rpc)
             .json(&request)
             .send()
+            .await
             .context("Failed to send RPC request")?;
 
-        let rpc_response: Value = response.json().context("Failed to parse RPC response")?;
+        let rpc_response: Value = response.json().await.context("Failed to parse RPC response")?;
 
         if let Some(error) = rpc_response.get("error") {
             eprintln!(
@@ -126,8 +127,8 @@ impl Balance {
                         "id": 1
                     });
 
-                    if let Ok(resp) = Client::new().post(&rpc).json(&acct_req).send()
-                        && let Ok(val) = resp.json::<serde_json::Value>()
+                    if let Ok(resp) = client.post(&rpc).json(&acct_req).send().await
+                        && let Ok(val) = resp.json::<serde_json::Value>().await
                         && let Some(result_acc) = val.get("result")
                         && let Some(owned) =
                             result_acc.get("owned_objects").and_then(|v| v.as_array())
@@ -147,8 +148,8 @@ impl Balance {
                                     "id": 1
                                 });
 
-                                if let Ok(resp) = Client::new().post(&rpc).json(&obj_req).send()
-                                    && let Ok(val) = resp.json::<serde_json::Value>()
+                                if let Ok(resp) = client.post(&rpc).json(&obj_req).send().await
+                                    && let Ok(val) = resp.json::<serde_json::Value>().await
                                     && let Some(res) = val.get("result")
                                     && let Some(data_arr) =
                                         res.get("data").and_then(|d| d.as_array())
