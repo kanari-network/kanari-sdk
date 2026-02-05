@@ -40,8 +40,8 @@ impl ClientCommand {
             ClientCommand::Faucet(cmd) => cmd.execute().await,
             ClientCommand::Burn(cmd) => cmd.execute().await,
             ClientCommand::Stats(cmd) => cmd.execute().await,
-            ClientCommand::Balance(cmd) => cmd.execute(),
-            ClientCommand::Account { command } => command.execute(),
+            ClientCommand::Balance(cmd) => cmd.execute().await,
+            ClientCommand::Account { command } => command.execute().await,
             ClientCommand::Envs(cmd) => cmd.execute(),
         }
     }

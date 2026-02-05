@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result};
 use clap::*;
-use reqwest::blocking::Client;
+use reqwest::Client;
 use serde_json::Value;
 
 /// Account subcommands
@@ -22,7 +22,7 @@ pub enum AccountCommand {
 }
 
 impl AccountCommand {
-    pub fn execute(&self) -> Result<()> {
+    pub async fn execute(&self) -> Result<()> {
         match self {
             AccountCommand::Get {
                 address,
@@ -46,10 +46,11 @@ impl AccountCommand {
                     .post(&rpc)
                     .json(&request)
                     .send()
+                    .await
                     .context("Failed to send RPC request")?;
 
                 let rpc_response: Value =
-                    response.json().context("Failed to parse RPC response")?;
+                    response.json().await.context("Failed to parse RPC response")?;
 
                 if let Some(error) = rpc_response.get("error") {
                     eprintln!(
