@@ -10,18 +10,12 @@ RUN cargo chef prepare --recipe-path recipe.json
 FROM chef AS builder
 COPY --from=planner /usr/src/kanari-sdk/recipe.json recipe.json
 
-# Copy third_party dependencies because they are path-based but NOT workspace members
-# cargo-chef needs them to compile the skeleton.
+# Copy path dependencies (third_party) because they are required during 'cook'
 COPY third_party third_party
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
-    clang \
-    llvm \
-    librocksdb-dev \
-    pkg-config \
-    libssl-dev \
-    cmake \
+    clang llvm librocksdb-dev pkg-config libssl-dev cmake \
     && rm -rf /var/lib/apt/lists/*
 
 # Build dependencies
@@ -32,17 +26,9 @@ COPY . .
 RUN cargo build --release --bin kanari-node --bin kanari
 
 # Stage 3: Runtime
-FROM debian:bookworm-slim AS runtime
-
-# Install only necessary runtime shared libraries
-# librocksdb-dev is replaced by the actual shared library if possible, 
-# but for simplicity and compatibility, we'll use the slim package.
-RUN apt-get update && apt-get install -y \
-    librocksdb7.8 \
-    libssl3 \
-    ca-certificates \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# Using distroless for the smallest possible secure image
+# 'cc' variant includes libstdc++ which is needed for RocksDB
+FROM gcr.io/distroless/cc-debian12 AS runtime
 
 WORKDIR /usr/local/bin
 
@@ -50,11 +36,20 @@ WORKDIR /usr/local/bin
 COPY --from=builder /usr/src/kanari-sdk/target/release/kanari-node .
 COPY --from=builder /usr/src/kanari-sdk/target/release/kanari .
 
-# Set environment variables
-ENV RUST_LOG=info
+# Copy required shared libraries from builder
+# We need RocksDB, SSL, and other dependencies of the compiled binaries
+COPY --from=builder /usr/lib/x86_64-linux-gnu/librocksdb.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libssl.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libcrypto.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libz.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libbz2.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libsnappy.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/liblz4.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libzstd.so* /usr/lib/x86_64-linux-gnu/
 
-# Expose ports
+ENV RUST_LOG=info
 EXPOSE 19000 19001 19002
 
-# Default command
-CMD ["./kanari-node", "start"]
+# Use the full path for the binary in distroless
+ENTRYPOINT ["/usr/local/bin/kanari-node"]
+CMD ["start"]
