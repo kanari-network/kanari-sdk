@@ -1,0 +1,12 @@
+target
+node_modules
+.next
+.git
+.github
+.vscode
+*.log
+.env
+.env.local
+bun.lock
+Cargo.lock
+**/Move.lock

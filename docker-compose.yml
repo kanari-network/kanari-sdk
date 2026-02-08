@@ -1,0 +1,31 @@
+services:
+  node:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kanari-node:latest
+    container_name: kanari-node
+    ports:
+      - "19000:19000" # P2P
+      - "19001:19001" # RPC
+    volumes:
+      - kanari-data:/root/.kanari
+    command: ["./kanari-node", "start", "--rpc-host", "0.0.0.0", "--data-dir", "/root/.kanari"]
+    restart: unless-stopped
+
+  explorer:
+    build:
+      context: ./kanariexplorer
+      dockerfile: Dockerfile
+    image: kanari-explorer:latest
+    container_name: kanari-explorer
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_RPC_URL=http://node:19001
+    depends_on:
+      - node
+    restart: unless-stopped
+
+volumes:
+  kanari-data:
