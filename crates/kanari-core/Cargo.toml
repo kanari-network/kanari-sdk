@@ -21,7 +21,6 @@ kanari-rpc-api = { workspace = true }
 kanari-crypto = { workspace = true }
 anyhow = { workspace = true }
 bcs = { workspace = true }
-crossbeam-channel = { workspace = true }
 num_cpus = { workspace = true }
 log = { workspace = true }
 lru = { workspace = true }

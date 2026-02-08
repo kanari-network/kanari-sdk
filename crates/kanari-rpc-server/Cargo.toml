@@ -26,5 +26,3 @@ blake3 = { workspace = true }
 hex = { workspace = true }
 move-binary-format = { workspace = true }
 move-core-types = { workspace = true }
-base64 = { workspace = true }
-smt = { workspace = true }

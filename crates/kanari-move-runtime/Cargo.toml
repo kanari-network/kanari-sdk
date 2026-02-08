@@ -17,7 +17,6 @@ bcs = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 rocksdb = { workspace = true }
 hex = { workspace = true }
-zstd = { workspace = true }
 
 # Move VM dependencies (use workspace/local paths similar to other crates)
 move-core-types = { workspace = true }

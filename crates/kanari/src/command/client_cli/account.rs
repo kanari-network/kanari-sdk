@@ -49,8 +49,10 @@ impl AccountCommand {
                     .await
                     .context("Failed to send RPC request")?;
 
-                let rpc_response: Value =
-                    response.json().await.context("Failed to parse RPC response")?;
+                let rpc_response: Value = response
+                    .json()
+                    .await
+                    .context("Failed to parse RPC response")?;
 
                 if let Some(error) = rpc_response.get("error") {
                     eprintln!(
