@@ -32,7 +32,8 @@ members = [
       "crates/tps-harness", 
       "crates/kanari-system-natives",
       "crates/kanari-db-common", 
-      "crates/centauri",
+      "crates/centauri", 
+      "sdk/wallet",
 ]
 
 # Workspace Package Configuration: Metadata for the entire workspace as a package.
