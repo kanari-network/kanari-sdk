@@ -1,6 +1,7 @@
 library kanari_kit;
 
 export 'src/kanari_client.dart';
+export 'src/kanari_wallet.dart';
 export 'src/models/environment.dart';
 export 'src/models/rpc_response.dart';
 export 'src/models/health.dart';

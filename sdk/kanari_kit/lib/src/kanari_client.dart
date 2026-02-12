@@ -8,6 +8,7 @@ import 'models/stats.dart';
 import 'models/transaction.dart';
 import 'models/module.dart';
 import 'models/environment.dart';
+import 'kanari_wallet.dart';
 
 class KanariClient {
   final String url;
@@ -142,6 +143,48 @@ class KanariClient {
 
   Future<VerifyModuleResult> verifyModule(List<int> moduleBytes) async {
     final resp = await _request('kanari_verifyModule', {'module_bytes': moduleBytes}, (j) => VerifyModuleResult.fromJson(j as Map<String, dynamic>));
+    if (resp.error != null) throw Exception(resp.error!.message);
+    return resp.result!;
+  }
+
+  /// Transfer KANARI tokens from one account to another
+  Future<TransactionResult> transfer({
+    required KanariWallet wallet,
+    required String recipient,
+    required int amount,
+    int gasLimit = 2000,
+    int gasPrice = 1,
+  }) async {
+    // 1. Get current sequence number for the sender
+    final account = await getAccount(wallet.address);
+    final sequenceNumber = account.sequenceNumber;
+
+    // 2. Prepare transaction data (simplified for this RPC version)
+    // In a real scenario, we might need to sign the full transaction bytes.
+    // Here we'll follow the SubmitTransactionRequest structure from Rust.
+    final txData = {
+      'sender': wallet.address,
+      'recipient': recipient,
+      'amount': amount,
+      'gas_limit': gasLimit,
+      'gas_price': gasPrice,
+      'sequence_number': sequenceNumber,
+    };
+
+    // 3. Sign the transaction (represented as JSON string or bytes depending on server)
+    // For now, we sign the JSON representation as a simple way to demonstrate.
+    final messageToSign = utf8.encode(jsonEncode(txData));
+    final signature = await wallet.sign(messageToSign);
+
+    // 4. Submit the transaction
+    final params = {
+      'transaction': {
+        ...txData,
+        'signature': signature.toList(),
+      }
+    };
+
+    final resp = await _request('kanari_submitTransaction', params, (j) => TransactionResult.fromJson(j as Map<String, dynamic>));
     if (resp.error != null) throw Exception(resp.error!.message);
     return resp.result!;
   }

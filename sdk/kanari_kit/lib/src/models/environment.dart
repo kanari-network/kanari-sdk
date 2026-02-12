@@ -7,6 +7,11 @@ enum KanariEnvironment {
   final String url;
   const KanariEnvironment(this.url);
 
-  /// Returns the RPC endpoint URL (appends /rpc to the base URL)
-  String get rpcUrl => '$url/rpc';
+  /// Returns the RPC endpoint URL
+  String get rpcUrl {
+    if (this == KanariEnvironment.local) {
+      return url; // Local server usually handles RPC at root or specific port
+    }
+    return '$url/rpc';
+  }
 }
