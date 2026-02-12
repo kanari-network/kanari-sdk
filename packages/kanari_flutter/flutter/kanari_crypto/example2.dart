@@ -43,7 +43,6 @@ Future<void> main() async {
     final kp = await deriveKeypairFromMnemonic(
       mnemonic: mnemonic,
       curveName: curve,
-      password: '',
     );
 
     print('Derived address: ${kp.address}');

@@ -3,6 +3,7 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use kanari_crypto::hd_wallet::derive_keypair_from_path;
 use kanari_crypto::keys::CurveType;
 use kanari_crypto::wallet::save_wallet;
 use move_core_types::account_address::AccountAddress;
@@ -22,6 +23,9 @@ pub struct AddWallet {
     /// Curve type (supports classical and PQC private-key imports: ed25519, k256, p256, dilithium2, dilithium3, dilithium5, sphincs+)
     #[arg(short, long, default_value = "ed25519")]
     pub curve: String,
+    /// BIP32 derivation path (default: m/44'/637'/0'/0/0)
+    #[arg(long, default_value = "m/44'/637'/0'/0/0")]
+    pub path: String,
 }
 
 impl AddWallet {
@@ -67,9 +71,12 @@ impl AddWallet {
                     "Import from seed phrase is not supported for post-quantum or hybrid curves; use CreateWallet to generate such keys"
                 ));
             }
-            let (privk, _pubk, address_str) =
-                kanari_crypto::keys::import_from_seed_phrase(seed_phrase, curve_type)
-                    .map_err(|e| anyhow::anyhow!("Import from seed phrase failed: {}", e))?;
+            let kp = derive_keypair_from_path(seed_phrase, "", &self.path, curve_type)
+                .map_err(|e| anyhow::anyhow!("Import from seed phrase failed: {}", e))?;
+
+            let address_str = kp.address.clone();
+            let zk = kp.export_private_key_secure();
+            let privk = zk.to_string();
 
             let address =
                 AccountAddress::from_str(&address_str).context("Generated invalid address")?;
@@ -78,13 +85,14 @@ impl AddWallet {
                 &address,
                 &privk,
                 seed_phrase,
-                None,
+                Some(&self.path),
                 &self.password,
                 curve_type,
             )
             .context("Failed to save imported seed wallet")?;
 
             eprintln!("Imported wallet from seed phrase: {}", address_str);
+            eprintln!("Derivation path: {}", self.path);
         }
 
         Ok(())

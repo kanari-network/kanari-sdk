@@ -61,7 +61,6 @@ class MockRustApi extends RustLibApi {
   Future<KeyPairData> crateApiDeriveKeypairFromMnemonic({
     required String mnemonic,
     required String curveName,
-    required String password,
   }) async {
     return crateApiGenerateKeypairApi(curveName: curveName);
   }
