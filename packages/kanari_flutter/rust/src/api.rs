@@ -1,6 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::hd_wallet;
 use crate::keys::{CurveType, generate_keypair, keypair_from_mnemonic, keypair_from_private_key};
 use crate::signatures::{sign_message, verify_signature_with_curve};
 use serde::{Deserialize, Serialize};
@@ -137,6 +138,71 @@ pub fn generate_mnemonic_api(word_count: usize) -> Result<String, String> {
 
     crate::keys::generate_mnemonic(word_count)
         .map_err(|e| format!("Mnemonic generation failed: {}", e))
+}
+
+/// Derive a keypair from a mnemonic at a specific derivation path
+pub fn derive_keypair_from_path_api(
+    mnemonic: String,
+    derivation_path: String,
+    curve_name: String,
+) -> Result<KeyPairData, String> {
+    let curve = parse_curve_type(&curve_name)
+        .ok_or_else(|| format!("Unsupported curve type: {}", curve_name))?;
+
+    let kp = hd_wallet::derive_keypair_from_path(&mnemonic, "", &derivation_path, curve)
+        .map_err(|e| format!("Path derivation failed: {}", e))?;
+
+    let public_key_clone = kp.public_key.clone();
+    let raw_public_key = hex::decode(
+        kp.pqc_public_key
+            .clone()
+            .unwrap_or_else(|| public_key_clone.clone()),
+    )
+    .unwrap_or_default();
+
+    Ok(KeyPairData {
+        private_key: kp.private_key.to_string(),
+        public_key: public_key_clone,
+        address: kp.address,
+        raw_public_key,
+        curve_type: format!("{:?}", curve),
+    })
+}
+
+/// Derive multiple addresses from a mnemonic using a path template
+pub fn derive_multiple_addresses_api(
+    mnemonic: String,
+    path_template: String,
+    curve_name: String,
+    count: usize,
+) -> Result<Vec<KeyPairData>, String> {
+    let curve = parse_curve_type(&curve_name)
+        .ok_or_else(|| format!("Unsupported curve type: {}", curve_name))?;
+
+    let keypairs =
+        hd_wallet::derive_multiple_addresses(&mnemonic, "", &path_template, curve, count)
+            .map_err(|e| format!("HD derivation failed: {}", e))?;
+
+    Ok(keypairs
+        .into_iter()
+        .map(|kp| {
+            let public_key_clone = kp.public_key.clone();
+            let raw_public_key = hex::decode(
+                kp.pqc_public_key
+                    .clone()
+                    .unwrap_or_else(|| public_key_clone.clone()),
+            )
+            .unwrap_or_default();
+
+            KeyPairData {
+                private_key: kp.private_key.to_string(),
+                public_key: public_key_clone,
+                address: kp.address,
+                raw_public_key,
+                curve_type: format!("{:?}", curve),
+            }
+        })
+        .collect())
 }
 
 /// List all supported curves

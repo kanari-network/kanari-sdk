@@ -64,7 +64,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => 856256703;
+  int get rustContentHash => 284075310;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -78,6 +78,19 @@ abstract class RustLibApi extends BaseApi {
   Future<KeyPairData> crateApiDeriveKeypairFromMnemonic({
     required String mnemonic,
     required String curveName,
+  });
+
+  Future<KeyPairData> crateApiDeriveKeypairFromPathApi({
+    required String mnemonic,
+    required String derivationPath,
+    required String curveName,
+  });
+
+  Future<List<KeyPairData>> crateApiDeriveMultipleAddressesApi({
+    required String mnemonic,
+    required String pathTemplate,
+    required String curveName,
+    required BigInt count,
   });
 
   Future<KeyPairData> crateApiGenerateKeypairApi({required String curveName});
@@ -149,6 +162,82 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<KeyPairData> crateApiDeriveKeypairFromPathApi({
+    required String mnemonic,
+    required String derivationPath,
+    required String curveName,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(mnemonic, serializer);
+          sse_encode_String(derivationPath, serializer);
+          sse_encode_String(curveName, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 2,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_key_pair_data,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiDeriveKeypairFromPathApiConstMeta,
+        argValues: [mnemonic, derivationPath, curveName],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDeriveKeypairFromPathApiConstMeta =>
+      const TaskConstMeta(
+        debugName: "derive_keypair_from_path_api",
+        argNames: ["mnemonic", "derivationPath", "curveName"],
+      );
+
+  @override
+  Future<List<KeyPairData>> crateApiDeriveMultipleAddressesApi({
+    required String mnemonic,
+    required String pathTemplate,
+    required String curveName,
+    required BigInt count,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(mnemonic, serializer);
+          sse_encode_String(pathTemplate, serializer);
+          sse_encode_String(curveName, serializer);
+          sse_encode_usize(count, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 3,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_key_pair_data,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiDeriveMultipleAddressesApiConstMeta,
+        argValues: [mnemonic, pathTemplate, curveName, count],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDeriveMultipleAddressesApiConstMeta =>
+      const TaskConstMeta(
+        debugName: "derive_multiple_addresses_api",
+        argNames: ["mnemonic", "pathTemplate", "curveName", "count"],
+      );
+
+  @override
   Future<KeyPairData> crateApiGenerateKeypairApi({required String curveName}) {
     return handler.executeNormal(
       NormalTask(
@@ -158,7 +247,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 2,
+            funcId: 4,
             port: port_,
           );
         },
@@ -188,7 +277,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 3,
+            funcId: 5,
             port: port_,
           );
         },
@@ -223,7 +312,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 6,
             port: port_,
           );
         },
@@ -253,7 +342,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 7,
             port: port_,
           );
         },
@@ -287,7 +376,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 8,
             port: port_,
           );
         },
@@ -325,7 +414,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 9,
             port: port_,
           );
         },
@@ -390,6 +479,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   List<CurveInfo> dco_decode_list_curve_info(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_curve_info).toList();
+  }
+
+  @protected
+  List<KeyPairData> dco_decode_list_key_pair_data(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_key_pair_data).toList();
   }
 
   @protected
@@ -480,6 +575,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<KeyPairData> sse_decode_list_key_pair_data(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <KeyPairData>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_key_pair_data(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
@@ -556,6 +665,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_curve_info(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_key_pair_data(
+    List<KeyPairData> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_key_pair_data(item, serializer);
     }
   }
 

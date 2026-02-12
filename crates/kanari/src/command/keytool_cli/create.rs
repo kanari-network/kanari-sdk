@@ -8,7 +8,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use kanari_crypto::hd_wallet::derive_keypair_from_path;
-use kanari_crypto::keys::{generate_keypair, generate_mnemonic, CurveType};
+use kanari_crypto::keys::{CurveType, generate_keypair, generate_mnemonic};
 use kanari_crypto::wallet::save_wallet;
 use move_core_types::account_address::AccountAddress;
 use std::str::FromStr;

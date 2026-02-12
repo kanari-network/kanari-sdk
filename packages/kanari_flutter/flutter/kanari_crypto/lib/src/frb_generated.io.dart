@@ -34,6 +34,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<CurveInfo> dco_decode_list_curve_info(dynamic raw);
 
   @protected
+  List<KeyPairData> dco_decode_list_key_pair_data(dynamic raw);
+
+  @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
 
   @protected
@@ -62,6 +65,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<CurveInfo> sse_decode_list_curve_info(SseDeserializer deserializer);
+
+  @protected
+  List<KeyPairData> sse_decode_list_key_pair_data(SseDeserializer deserializer);
 
   @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
@@ -96,6 +102,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_curve_info(
     List<CurveInfo> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_key_pair_data(
+    List<KeyPairData> self,
     SseSerializer serializer,
   );
 

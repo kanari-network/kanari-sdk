@@ -72,6 +72,29 @@ class MockRustApi extends RustLibApi {
   }) async {
     return crateApiGenerateKeypairApi(curveName: curveName);
   }
+
+  @override
+  Future<KeyPairData> crateApiDeriveKeypairFromPathApi({
+    required String mnemonic,
+    required String derivationPath,
+    required String curveName,
+  }) async {
+    return crateApiGenerateKeypairApi(curveName: curveName);
+  }
+
+  @override
+  Future<List<KeyPairData>> crateApiDeriveMultipleAddressesApi({
+    required String mnemonic,
+    required String pathTemplate,
+    required String curveName,
+    required BigInt count,
+  }) async {
+    final list = <KeyPairData>[];
+    for (var i = 0; i < count.toInt(); i++) {
+      list.add(await crateApiGenerateKeypairApi(curveName: curveName));
+    }
+    return list;
+  }
 }
 
 void main() {

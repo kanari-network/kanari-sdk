@@ -19,11 +19,11 @@ fn main() -> Result<(), HdError> {
     // Number of wallets to generate
     let count = 10;
 
-    println!("--- HD Wallet Generation System ---");
-    println!("Seed Phrase: {}", mnemonic);
-    println!("Derivation Path Template: {}", path_template);
-    println!("Curve Type: {:?}", curve);
-    println!("--------------------------------------------------");
+    eprintln!("--- HD Wallet Generation System ---");
+    eprintln!("Seed Phrase: {}", mnemonic);
+    eprintln!("Derivation Path Template: {}", path_template);
+    eprintln!("Curve Type: {:?}", curve);
+    eprintln!("--------------------------------------------------");
 
     // Generate multiple KeyPairs from the template
     let keypairs = derive_multiple_addresses(mnemonic, password, path_template, curve, count)?;
@@ -32,10 +32,10 @@ fn main() -> Result<(), HdError> {
         // Securely export the Private Key (data will be zeroized after use)
         let private_key = kp.export_private_key_secure();
 
-        println!("Wallet #{}:", i + 1);
-        println!("  1. Address: {}", kp.address);
-        println!("  2. Private Key (PK): {}", *private_key);
-        println!("--------------------------------------------------");
+        eprintln!("Wallet #{}:", i + 1);
+        eprintln!("  1. Address: {}", kp.address);
+        eprintln!("  2. Private Key (PK): {}", *private_key);
+        eprintln!("--------------------------------------------------");
     }
 
     Ok(())

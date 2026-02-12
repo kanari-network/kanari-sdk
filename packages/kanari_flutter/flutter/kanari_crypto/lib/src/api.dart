@@ -59,6 +59,30 @@ Future<bool> verifySignatureApi({
 Future<String> generateMnemonicApi({required BigInt wordCount}) =>
     RustLib.instance.api.crateApiGenerateMnemonicApi(wordCount: wordCount);
 
+/// Derive a keypair from a mnemonic at a specific derivation path
+Future<KeyPairData> deriveKeypairFromPathApi({
+  required String mnemonic,
+  required String derivationPath,
+  required String curveName,
+}) => RustLib.instance.api.crateApiDeriveKeypairFromPathApi(
+  mnemonic: mnemonic,
+  derivationPath: derivationPath,
+  curveName: curveName,
+);
+
+/// Derive multiple addresses from a mnemonic using a path template
+Future<List<KeyPairData>> deriveMultipleAddressesApi({
+  required String mnemonic,
+  required String pathTemplate,
+  required String curveName,
+  required BigInt count,
+}) => RustLib.instance.api.crateApiDeriveMultipleAddressesApi(
+  mnemonic: mnemonic,
+  pathTemplate: pathTemplate,
+  curveName: curveName,
+  count: count,
+);
+
 /// List all supported curves
 Future<List<CurveInfo>> listSupportedCurves() =>
     RustLib.instance.api.crateApiListSupportedCurves();

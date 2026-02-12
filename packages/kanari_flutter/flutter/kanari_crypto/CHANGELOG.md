@@ -1,3 +1,10 @@
+## 0.2.2
+
+- Added: `deriveMultipleAddressesApi` for HD Wallet address generation using path templates.
+- Added: `deriveKeypairFromPathApi` for deriving a single keypair from a specific derivation path.
+- Feature: Support for BIP44-style derivation paths (e.g., `m/44'/637'/0'/0/{index}`).
+- Improvement: Updated internal Rust FFI to support new HD wallet functionalities.
+
 ## 0.2.1
 
 - API Change: Removed `password` parameter from `deriveKeypairFromMnemonic` to align with the core Rust implementation.
