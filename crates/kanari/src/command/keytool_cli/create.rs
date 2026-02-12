@@ -52,7 +52,7 @@ impl CreateWallet {
             (zk.to_string(), kp.get_address().to_string(), String::new())
         } else {
             let mnemonic = generate_mnemonic(self.words).context("Failed to generate mnemonic")?;
-            let kp = keypair_from_mnemonic(&mnemonic, curve_type, "")
+            let kp = keypair_from_mnemonic(&mnemonic, curve_type)
                 .context("Failed to derive keypair from mnemonic")?;
             let zk = kp.export_private_key_secure();
             (zk.to_string(), kp.get_address().to_string(), mnemonic)

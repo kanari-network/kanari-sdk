@@ -71,6 +71,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
         stem: 'rust',
         ioDirectory: 'lib/src/',
         webPrefix: 'pkg/',
+        wasmBindgenName: 'wasm_bindgen',
       );
 }
 
@@ -78,7 +79,6 @@ abstract class RustLibApi extends BaseApi {
   Future<KeyPairData> crateApiDeriveKeypairFromMnemonic({
     required String mnemonic,
     required String curveName,
-    required String password,
   });
 
   Future<KeyPairData> crateApiGenerateKeypairApi({required String curveName});
@@ -118,7 +118,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Future<KeyPairData> crateApiDeriveKeypairFromMnemonic({
     required String mnemonic,
     required String curveName,
-    required String password,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -126,7 +125,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(mnemonic, serializer);
           sse_encode_String(curveName, serializer);
-          sse_encode_String(password, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -139,7 +137,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiDeriveKeypairFromMnemonicConstMeta,
-        argValues: [mnemonic, curveName, password],
+        argValues: [mnemonic, curveName],
         apiImpl: this,
       ),
     );
@@ -148,7 +146,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiDeriveKeypairFromMnemonicConstMeta =>
       const TaskConstMeta(
         debugName: "derive_keypair_from_mnemonic",
-        argNames: ["mnemonic", "curveName", "password"],
+        argNames: ["mnemonic", "curveName"],
       );
 
   @override
@@ -384,8 +382,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       privateKey: dco_decode_String(arr[0]),
       publicKey: dco_decode_String(arr[1]),
       address: dco_decode_String(arr[2]),
-      rawPublicKey: Uint8List.fromList(dco_decode_list_prim_u_8_loose(arr[4])),
-      curveType: dco_decode_String(arr[3]),
+      rawPublicKey: dco_decode_list_prim_u_8_strict(arr[3]),
+      curveType: dco_decode_String(arr[4]),
     );
   }
 
@@ -459,8 +457,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_privateKey = sse_decode_String(deserializer);
     var var_publicKey = sse_decode_String(deserializer);
     var var_address = sse_decode_String(deserializer);
-    var var_curveType = sse_decode_String(deserializer);
     var var_rawPublicKey = sse_decode_list_prim_u_8_strict(deserializer);
+    var var_curveType = sse_decode_String(deserializer);
     return KeyPairData(
       privateKey: var_privateKey,
       publicKey: var_publicKey,
@@ -546,8 +544,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.privateKey, serializer);
     sse_encode_String(self.publicKey, serializer);
     sse_encode_String(self.address, serializer);
-    sse_encode_String(self.curveType, serializer);
     sse_encode_list_prim_u_8_strict(self.rawPublicKey, serializer);
+    sse_encode_String(self.curveType, serializer);
   }
 
   @protected

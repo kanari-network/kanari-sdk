@@ -51,7 +51,6 @@ pub fn generate_keypair_api(curve_name: String) -> Result<KeyPairData, String> {
 pub fn derive_keypair_from_mnemonic(
     mnemonic: String,
     curve_name: String,
-    password: String,
 ) -> Result<KeyPairData, String> {
     let curve = parse_curve_type(&curve_name)
         .ok_or_else(|| format!("Unsupported curve type: {}", curve_name))?;
@@ -60,7 +59,7 @@ pub fn derive_keypair_from_mnemonic(
         return Err("Post-quantum curves do not support BIP39 derivation".to_string());
     }
 
-    let kp = keypair_from_mnemonic(&mnemonic, curve, &password)
+    let kp = keypair_from_mnemonic(&mnemonic, curve)
         .map_err(|e| format!("Mnemonic derivation failed: {}", e))?;
 
     let public_key_clone = kp.public_key.clone();

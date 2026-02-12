@@ -319,8 +319,7 @@ fn main() {
 
     // Import from mnemonic
     println!("\nImporting wallet from mnemonic:");
-    match keypair_from_mnemonic(&mnemonic, CurveType::K256, "") {
-        // Added empty password as 3rd parameter
+    match keypair_from_mnemonic(&mnemonic, CurveType::K256) {
         Ok(mnemonic_keypair) => {
             println!("  Address: {}", mnemonic_keypair.address);
             println!("  Private Key: {}", &*mnemonic_keypair.private_key);

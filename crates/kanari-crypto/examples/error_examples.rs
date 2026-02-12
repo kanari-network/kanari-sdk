@@ -9,7 +9,7 @@ use kanari_crypto::signatures::{sign_message, verify_signature, verify_signature
 fn main() {
     // 1) Invalid mnemonic (too short)
     let bad_mnemonic = "abandon abandon abandon";
-    match keypair_from_mnemonic(bad_mnemonic, CurveType::K256, "") {
+    match keypair_from_mnemonic(bad_mnemonic, CurveType::K256) {
         Ok(kp) => println!("Unexpected success (mnemonic): {}", kp.get_address()),
         Err(e) => eprintln!("Expected mnemonic error: {}", e),
     }
@@ -33,14 +33,14 @@ fn main() {
 
     // 4) PQC mnemonic attempt (may not be supported for mnemonic-derived PQC keys)
     let long_mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-    match keypair_from_mnemonic(long_mnemonic, CurveType::Dilithium3, "") {
+    match keypair_from_mnemonic(long_mnemonic, CurveType::Dilithium3) {
         Ok(kp) => println!("Unexpected PQC mnemonic success: {}", kp.get_address()),
         Err(e) => eprintln!("Expected PQC mnemonic error: {}", e),
     }
 
     // 5) Cross-algorithm check: sign with K256, attempt to verify with Dilithium3
     let valid_mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-    match keypair_from_mnemonic(valid_mnemonic, CurveType::K256, "") {
+    match keypair_from_mnemonic(valid_mnemonic, CurveType::K256) {
         Ok(kp) => {
             let sec = kp.export_private_key_secure();
             let sig = match sign_message(&sec, msg, CurveType::K256) {

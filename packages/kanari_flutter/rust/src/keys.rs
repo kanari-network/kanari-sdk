@@ -563,11 +563,7 @@ fn generate_hybrid_k256_dilithium3_keypair() -> Result<KeyPair, KeyError> {
 }
 
 /// Generate a keypair from a mnemonic phrase
-pub fn keypair_from_mnemonic(
-    phrase: &str,
-    curve_type: CurveType,
-    password: &str, // Add optional password parameter
-) -> Result<KeyPair, KeyError> {
+pub fn keypair_from_mnemonic(phrase: &str, curve_type: CurveType) -> Result<KeyPair, KeyError> {
     // Validate inputs
     if phrase.trim().is_empty() {
         return Err(KeyError::InvalidMnemonic(
@@ -575,18 +571,12 @@ pub fn keypair_from_mnemonic(
         ));
     }
 
-    // Password can be empty, but validate reasonable length
-    const MAX_PASSWORD_LEN: usize = 1024;
-    if password.len() > MAX_PASSWORD_LEN {
-        return Err(KeyError::InvalidMnemonic("Password too long".to_string()));
-    }
-
     // Validate and create mnemonic
     let mnemonic = Mnemonic::parse_in(Language::English, phrase)
         .map_err(|e| KeyError::InvalidMnemonic(e.to_string()))?;
 
-    // Generate seed from mnemonic with password
-    let seed = mnemonic.to_seed(password); // Use password instead of empty string
+    // Generate seed from mnemonic (no password)
+    let seed = mnemonic.to_seed("");
     let bytes = &seed[0..32];
 
     match curve_type {
@@ -987,7 +977,7 @@ pub fn import_from_seed_phrase(
     phrase: &str,
     curve_type: CurveType,
 ) -> Result<(String, String, String), String> {
-    keypair_from_mnemonic(phrase, curve_type, "")
+    keypair_from_mnemonic(phrase, curve_type)
         .map(|keypair| {
             let zk = keypair.export_private_key_secure();
             (
@@ -1147,11 +1137,10 @@ mod tests {
     fn test_keypair_from_mnemonic_consistency() {
         // Generate a mnemonic
         let mnemonic = generate_mnemonic(12).unwrap();
-        let password = "test_password";
 
         // Generate keypair twice with same mnemonic
-        let keypair1 = keypair_from_mnemonic(&mnemonic, CurveType::K256, password).unwrap();
-        let keypair2 = keypair_from_mnemonic(&mnemonic, CurveType::K256, password).unwrap();
+        let keypair1 = keypair_from_mnemonic(&mnemonic, CurveType::K256).unwrap();
+        let keypair2 = keypair_from_mnemonic(&mnemonic, CurveType::K256).unwrap();
 
         // Should generate identical keypairs
         assert_eq!(keypair1.private_key, keypair2.private_key);
@@ -1255,7 +1244,7 @@ mod tests {
             .as_ref()
             .expect("PQC public key missing");
         assert!(hybrid.public_key.contains(':'));
-        let parts: Vec<&str> = hybrid.public_key.split(':').collect();
+        let parts: Vec<&str> = hybrid.public_key.splitn(2, ':').collect();
         assert_eq!(parts[1], hybrid_pqc);
     }
 
@@ -1278,7 +1267,7 @@ mod tests {
     fn test_pqc_mnemonic_not_supported() {
         // PQC algorithms don't support BIP39 derivation
         let mnemonic = generate_mnemonic(12).unwrap();
-        let result = keypair_from_mnemonic(&mnemonic, CurveType::Dilithium3, "");
+        let result = keypair_from_mnemonic(&mnemonic, CurveType::Dilithium3);
         assert!(
             result.is_err(),
             "PQC should not support mnemonic derivation yet"

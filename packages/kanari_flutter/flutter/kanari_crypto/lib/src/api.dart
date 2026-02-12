@@ -3,29 +3,26 @@
 
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
-import 'dart:typed_data';
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `parse_curve_type`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `fmt`, `fmt`
 
-/// Generate a keypair for the given curve.
+/// Generate a keypair for the specified curve type
 Future<KeyPairData> generateKeypairApi({required String curveName}) =>
     RustLib.instance.api.crateApiGenerateKeypairApi(curveName: curveName);
 
-/// Derive a keypair from a BIP39 mnemonic and optional password.
+/// Derive a keypair from a mnemonic (BIP39)
 Future<KeyPairData> deriveKeypairFromMnemonic({
   required String mnemonic,
   required String curveName,
-  required String password,
 }) => RustLib.instance.api.crateApiDeriveKeypairFromMnemonic(
   mnemonic: mnemonic,
   curveName: curveName,
-  password: password,
 );
 
-/// Create/import a keypair from a provided private key.
+/// Import a keypair from a provided private key
 Future<KeyPairData> importKeypairFromPrivateKey({
   required String privateKey,
   required String curveName,
@@ -34,7 +31,7 @@ Future<KeyPairData> importKeypairFromPrivateKey({
   curveName: curveName,
 );
 
-/// Sign a message with the given private key for the specified curve.
+/// Sign a message
 Future<Uint8List> signMessageApi({
   required String privateKey,
   required List<int> message,
@@ -45,7 +42,7 @@ Future<Uint8List> signMessageApi({
   curveName: curveName,
 );
 
-/// Verify a signature for a message and address using the specified curve.
+/// Verify a signature
 Future<bool> verifySignatureApi({
   required String address,
   required List<int> message,
@@ -58,32 +55,21 @@ Future<bool> verifySignatureApi({
   curveName: curveName,
 );
 
-/// Generate a random mnemonic with the specified word count.
+/// Generate a random mnemonic
 Future<String> generateMnemonicApi({required BigInt wordCount}) =>
     RustLib.instance.api.crateApiGenerateMnemonicApi(wordCount: wordCount);
 
-/// Returns the list of supported cryptographic curves with their metadata.
+/// List all supported curves
 Future<List<CurveInfo>> listSupportedCurves() =>
     RustLib.instance.api.crateApiListSupportedCurves();
 
-/// Information about a supported cryptographic curve.
-///
-/// Provides a stable, Dart-safe representation of metadata exposed by the
-/// underlying native library.
+/// Expose curve names safely for Dart
 class CurveInfo {
-  /// The curve's canonical name (for example, "k256", "dilithium3").
   final String name;
-
-  /// True when the curve uses post-quantum cryptography.
   final bool isPostQuantum;
-
-  /// True when the curve is a hybrid construction (classical + post-quantum).
   final bool isHybrid;
-
-  /// Security level as an integer (higher means stronger security).
   final int securityLevel;
 
-  /// Creates a new `CurveInfo` instance.
   const CurveInfo({
     required this.name,
     required this.isPostQuantum,
@@ -109,7 +95,7 @@ class CurveInfo {
           securityLevel == other.securityLevel;
 }
 
-/// Keypair data structure safe for FFI transfer between Dart and native code.
+/// KeyPair data structure safe for FFI transfer
 class KeyPairData {
   final String privateKey;
   final String publicKey;
@@ -141,15 +127,6 @@ class KeyPairData {
           privateKey == other.privateKey &&
           publicKey == other.publicKey &&
           address == other.address &&
-          _bytesEqual(rawPublicKey, other.rawPublicKey) &&
+          rawPublicKey == other.rawPublicKey &&
           curveType == other.curveType;
-}
-
-bool _bytesEqual(Uint8List a, Uint8List b) {
-  if (identical(a, b)) return true;
-  if (a.length != b.length) return false;
-  for (var i = 0; i < a.length; i++) {
-    if (a[i] != b[i]) return false;
-  }
-  return true;
 }
