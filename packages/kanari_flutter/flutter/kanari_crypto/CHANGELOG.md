@@ -1,3 +1,7 @@
+## 0.2.5
+
+- Added: Official Windows support with CMake configuration and automated native library loading.
+
 ## 0.2.4
 
 - Fixed: Android build error caused by missing `kotlin-android` plugin.

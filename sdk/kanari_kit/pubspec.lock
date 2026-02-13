@@ -311,10 +311,10 @@ packages:
     dependency: "direct main"
     description:
       name: kanari_crypto
-      sha256: faeb2d4c36af62d7cc915ee5f0351b2b41d57a7061726e48ff562a5522e75fcd
+      sha256: "5eb1e9fab86f00d37db599bf8e7f24a58b2ca085963304ad5988b9dc7b3f8f64"
       url: "https://pub.dev"
     source: hosted
-    version: "0.2.4"
+    version: "0.2.5"
   leak_tracker:
     dependency: transitive
     description:
