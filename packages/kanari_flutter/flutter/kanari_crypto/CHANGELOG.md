@@ -1,3 +1,10 @@
+## 0.2.3
+
+- Added: Mobile support for Android and iOS.
+- Fixed: "flutter_rust_bridge has not been initialized" error on mobile devices.
+- Infrastructure: Added native library loading for Windows, Android (.so), and iOS (.a).
+- Automation: Versioning in `build.gradle` and `podspec` is now synced automatically with `pubspec.yaml`.
+
 ## 0.2.2
 
 - Added: `deriveMultipleAddressesApi` for HD Wallet address generation using path templates.
