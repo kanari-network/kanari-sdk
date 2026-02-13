@@ -1,3 +1,9 @@
+## 0.2.4
+
+- Fixed: Android build error caused by missing `kotlin-android` plugin.
+- Fixed: Android compilation error where `KanariCryptoPlugin` class was not found.
+- Improvement: Optimized `build.gradle` to fetch version from `pubspec.yaml` using Regex (removing SnakeYAML dependency).
+
 ## 0.2.3
 
 - Added: Mobile support for Android and iOS.

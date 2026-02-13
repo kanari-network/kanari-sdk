@@ -310,10 +310,11 @@ packages:
   kanari_crypto:
     dependency: "direct main"
     description:
-      path: "../../packages/kanari_flutter/flutter/kanari_crypto"
-      relative: true
-    source: path
-    version: "0.2.2"
+      name: kanari_crypto
+      sha256: faeb2d4c36af62d7cc915ee5f0351b2b41d57a7061726e48ff562a5522e75fcd
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.2.4"
   leak_tracker:
     dependency: transitive
     description:

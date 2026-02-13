@@ -1,7 +1,15 @@
-def pubspecYaml = new org.yaml.snakeyaml.Yaml().load(new File(projectDir.parentFile, 'pubspec.yaml').newInputStream())
+def pubspecFile = new File(projectDir.parentFile, 'pubspec.yaml')
+def pubspecVersion = ''
+
+if (pubspecFile.exists()) {
+    def match = pubspecFile.text =~ /version:\s*([^\s+]+)/
+    if (match) {
+        pubspecVersion = match[0][1]
+    }
+}
 
 group 'com.kanari.kanari_crypto'
-version pubspecYaml['version']
+version pubspecVersion
 
 buildscript {
     repositories {
