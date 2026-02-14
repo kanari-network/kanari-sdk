@@ -34,7 +34,7 @@ class WalletStorage {
   static Future<Map<String, dynamic>?> loadWallet(String password) async {
     final prefs = await SharedPreferences.getInstance();
     final savedHashBase64 = prefs.getString(_keyPasswordHash);
-    
+
     // Support legacy plain text password for migration if needed
     // But for now, let's assume we want to be secure
     if (savedHashBase64 == null) {
