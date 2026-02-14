@@ -10,6 +10,7 @@ class KanariWallet {
   KanariWallet(this._keyPair, {this.mnemonic});
 
   String get address => _keyPair.address;
+  String get taggedAddress => _keyPair.taggedAddress;
   String get publicKey => _keyPair.publicKey;
   String get privateKey => _keyPair.privateKey;
   String get curveType => _keyPair.curveType;

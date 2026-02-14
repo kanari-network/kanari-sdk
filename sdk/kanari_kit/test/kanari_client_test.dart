@@ -126,7 +126,7 @@ void main() {
 
       // Verify params normalization and serialization
       expect(capturedParams, isNotNull);
-      final txData = capturedParams!['transaction'] as Map<String, dynamic>;
+      final txData = capturedParams!;
       expect(
         txData['sender'],
         '0x0000000000000000000000000000000000000000000000000000000000000123',
@@ -211,6 +211,162 @@ void main() {
       expect(capturedParams!['module_bytes'], [1, 2, 3]);
       expect(capturedParams!['module_name'], 'TestModule');
       expect(capturedParams!['sequence_number'], 10);
+      expect(capturedParams!['signature'], isA<List>());
+    });
+
+    test('executeFunction signs and submits correctly', () async {
+      final mockWallet = KanariWallet(
+        KeyPairData(
+          privateKey: 'priv',
+          publicKey: 'pub',
+          address: '0x123',
+          taggedAddress: 'Ed25519:0x123',
+          rawPublicKey: Uint8List(32),
+          curveType: 'Ed25519',
+        ),
+      );
+
+      Map<String, dynamic>? capturedParams;
+
+      final mockClient = MockClient((request) async {
+        final body = jsonDecode(request.body);
+        final method = body['method'];
+
+        if (method == 'kanari_getAccount') {
+          return http.Response(
+            jsonEncode({
+              'jsonrpc': '2.0',
+              'result': {
+                'address': '0x123',
+                'balance': 5000,
+                'sequence_number': 15,
+                'modules': [],
+                'token_balances': {},
+              },
+              'id': 1,
+            }),
+            200,
+          );
+        }
+        if (method == 'kanari_callFunction') {
+          capturedParams = body['params'] as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode({
+              'jsonrpc': '2.0',
+              'result': {
+                'hash': '0xcallhash',
+                'status': 'success',
+                'gas_used': 200,
+              },
+              'id': 2,
+            }),
+            200,
+          );
+        }
+        return http.Response('', 404);
+      });
+
+      final client = KanariClient('http://localhost/rpc', client: mockClient);
+      final result = await client.executeFunction(
+        wallet: mockWallet,
+        package: '0x1',
+        module: 'test',
+        function: 'run',
+        args: [
+          [1],
+          [2],
+        ],
+      );
+
+      expect(result.hash, '0xcallhash');
+      expect(result.status, 'success');
+
+      // Verify params
+      expect(capturedParams, isNotNull);
+      expect(
+        capturedParams!['sender'],
+        '0x0000000000000000000000000000000000000000000000000000000000000123',
+      );
+      expect(
+        capturedParams!['package'],
+        '0x0000000000000000000000000000000000000000000000000000000000000001',
+      );
+      expect(capturedParams!['module'], 'test');
+      expect(capturedParams!['function'], 'run');
+      expect(capturedParams!['args'], [
+        [1],
+        [2],
+      ]);
+      expect(capturedParams!['sequence_number'], 15);
+      expect(capturedParams!['signature'], isA<List>());
+    });
+
+    test('burn signs and submits correctly', () async {
+      final mockWallet = KanariWallet(
+        KeyPairData(
+          privateKey: 'priv',
+          publicKey: 'pub',
+          address: '0x123',
+          taggedAddress: 'Ed25519:0x123',
+          rawPublicKey: Uint8List(32),
+          curveType: 'Ed25519',
+        ),
+      );
+
+      Map<String, dynamic>? capturedParams;
+
+      final mockClient = MockClient((request) async {
+        final body = jsonDecode(request.body);
+        final method = body['method'];
+
+        if (method == 'kanari_getAccount') {
+          return http.Response(
+            jsonEncode({
+              'jsonrpc': '2.0',
+              'result': {
+                'address': '0x123',
+                'balance': 5000,
+                'sequence_number': 20,
+                'modules': [],
+                'token_balances': {},
+              },
+              'id': 1,
+            }),
+            200,
+          );
+        }
+        if (method == 'kanari_submitTransaction') {
+          capturedParams = body['params'] as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode({
+              'jsonrpc': '2.0',
+              'result': {
+                'hash': '0xburnhash',
+                'status': 'success',
+                'gas_used': 50,
+              },
+              'id': 2,
+            }),
+            200,
+          );
+        }
+        return http.Response('', 404);
+      });
+
+      final client = KanariClient('http://localhost/rpc', client: mockClient);
+      final result = await client.burn(wallet: mockWallet, amount: 500);
+
+      expect(result.hash, '0xburnhash');
+      expect(result.status, 'success');
+
+      // Verify params
+      expect(capturedParams, isNotNull);
+      expect(
+        capturedParams!['sender'],
+        '0x0000000000000000000000000000000000000000000000000000000000000123',
+      );
+      expect(capturedParams!['amount'], 500);
+      expect(capturedParams!['sequence_number'], 20);
       expect(capturedParams!['signature'], isA<List>());
     });
   });

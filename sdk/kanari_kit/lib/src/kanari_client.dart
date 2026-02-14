@@ -11,11 +11,47 @@ import 'models/module.dart';
 import 'models/environment.dart';
 import 'package:kanari_crypto/kanari_crypto.dart';
 import 'kanari_wallet.dart';
-import 'utils/bcs_writer.dart';
+import 'package:bcs/bcs.dart';
 
 class KanariClient {
   final String url;
   final http.Client _client;
+
+  static final _transactionBcs = Bcs.enumeration('Transaction', {
+    'PublishModule': Bcs.struct('PublishModule', {
+      'sender': Bcs.string(),
+      'module_bytes': Bcs.vector(Bcs.u8()),
+      'module_name': Bcs.string(),
+      'gas_limit': Bcs.u64(),
+      'gas_price': Bcs.u64(),
+      'sequence_number': Bcs.u64(),
+    }),
+    'ExecuteFunction': Bcs.struct('ExecuteFunction', {
+      'sender': Bcs.string(),
+      'module': Bcs.string(),
+      'function': Bcs.string(),
+      'type_args': Bcs.vector(Bcs.string()),
+      'args': Bcs.vector(Bcs.vector(Bcs.u8())),
+      'gas_limit': Bcs.u64(),
+      'gas_price': Bcs.u64(),
+      'sequence_number': Bcs.u64(),
+    }),
+    'Transfer': Bcs.struct('Transfer', {
+      'from': Bcs.string(),
+      'to': Bcs.string(),
+      'amount': Bcs.u64(),
+      'gas_limit': Bcs.u64(),
+      'gas_price': Bcs.u64(),
+      'sequence_number': Bcs.u64(),
+    }),
+    'Burn': Bcs.struct('Burn', {
+      'from': Bcs.string(),
+      'amount': Bcs.u64(),
+      'gas_limit': Bcs.u64(),
+      'gas_price': Bcs.u64(),
+      'sequence_number': Bcs.u64(),
+    }),
+  });
 
   KanariClient(this.url, {http.Client? client})
     : _client = client ?? http.Client();
@@ -154,7 +190,7 @@ class KanariClient {
     required List<int> moduleBytes,
     required String moduleName,
     int gasLimit = 100000,
-    int gasPrice = 1,
+    int gasPrice = 1000,
     bool? executeImmediate,
   }) async {
     // 1. Get current sequence number
@@ -162,21 +198,21 @@ class KanariClient {
     final sequenceNumber = account.sequenceNumber;
 
     // 2. Normalize sender address
-    final senderAddress = _normalizeAddress(wallet.address);
+    final senderAddress = wallet.taggedAddress;
 
     // 3. Sign the transaction
     // The Node expects the signature of the BCS-serialized Transaction enum.
-    final writer = BcsWriter();
-    // Variant 0: PublishModule (ULEB128)
-    writer.writeULEB128(0);
-    writer.writeString(senderAddress);
-    writer.writeVectorU8(moduleBytes);
-    writer.writeString(moduleName);
-    writer.writeU64(gasLimit);
-    writer.writeU64(gasPrice);
-    writer.writeU64(sequenceNumber);
+    final serializedTx = _transactionBcs.serialize({
+      'PublishModule': {
+        'sender': senderAddress,
+        'module_bytes': moduleBytes,
+        'module_name': moduleName,
+        'gas_limit': gasLimit,
+        'gas_price': gasPrice,
+        'sequence_number': sequenceNumber,
+      },
+    }).toBytes();
 
-    final serializedTx = writer.toBytes();
     List<int> messageToSign;
     try {
       messageToSign = await blake3HashApi(data: serializedTx);
@@ -259,30 +295,30 @@ class KanariClient {
     required KanariWallet wallet,
     required String recipient,
     required int amount,
-    int gasLimit = 2000,
-    int gasPrice = 1,
+    int gasLimit = 100000,
+    int gasPrice = 1000,
   }) async {
     // 1. Get current sequence number for the sender
     final account = await getAccount(wallet.address);
     final sequenceNumber = account.sequenceNumber;
 
     // 2. Normalize addresses to full 64-char hex strings
-    final senderAddress = _normalizeAddress(wallet.address);
+    final senderAddress = wallet.taggedAddress;
     final normalizedRecipient = _normalizeAddress(recipient);
 
     // 3. Sign the transaction
     // The Node expects the signature of the BCS-serialized Transaction enum.
-    final writer = BcsWriter();
-    // Variant 2: Transfer (ULEB128)
-    writer.writeULEB128(2);
-    writer.writeString(senderAddress);
-    writer.writeString(normalizedRecipient);
-    writer.writeU64(amount);
-    writer.writeU64(gasLimit);
-    writer.writeU64(gasPrice);
-    writer.writeU64(sequenceNumber);
+    final serializedTx = _transactionBcs.serialize({
+      'Transfer': {
+        'from': senderAddress,
+        'to': normalizedRecipient,
+        'amount': amount,
+        'gas_limit': gasLimit,
+        'gas_price': gasPrice,
+        'sequence_number': sequenceNumber,
+      },
+    }).toBytes();
 
-    final serializedTx = writer.toBytes();
     List<int> messageToSign;
     try {
       // In Rust implementation, transactions are hashed with Blake3 before signing.
@@ -320,14 +356,136 @@ class KanariClient {
     return resp.result!;
   }
 
-  /// Convert hex address to raw 32 bytes
-  List<int> _addressToBytes(String addr) {
-    final clean = addr.startsWith('0x') ? addr.substring(2) : addr;
-    final bytes = <int>[];
-    for (var i = 0; i < clean.length; i += 2) {
-      bytes.add(int.parse(clean.substring(i, i + 2), radix: 16));
+  /// Execute a Move function
+  Future<TransactionResult> executeFunction({
+    required KanariWallet wallet,
+    required String package,
+    required String module,
+    required String function,
+    List<String> typeArgs = const [],
+    List<List<int>> args = const [],
+    int gasLimit = 100000,
+    int gasPrice = 1000,
+    bool? executeImmediate,
+  }) async {
+    // 1. Get current sequence number
+    final account = await getAccount(wallet.address);
+    final sequenceNumber = account.sequenceNumber;
+
+    // 2. Normalize addresses
+    final senderAddress = wallet.taggedAddress;
+    final packageAddress = _normalizeAddress(package);
+
+    // 3. Sign the transaction
+    // The Node expects the signature of the BCS-serialized Transaction enum.
+    final serializedTx = _transactionBcs.serialize({
+      'ExecuteFunction': {
+        'sender': senderAddress,
+        'module': '$packageAddress::$module',
+        'function': function,
+        'type_args': typeArgs,
+        'args': args,
+        'gas_limit': gasLimit,
+        'gas_price': gasPrice,
+        'sequence_number': sequenceNumber,
+      },
+    }).toBytes();
+
+    List<int> messageToSign;
+    try {
+      messageToSign = await blake3HashApi(data: serializedTx);
+    } catch (e) {
+      if (e.toString().contains(
+        'flutter_rust_bridge has not been initialized',
+      )) {
+        messageToSign = serializedTx;
+      } else {
+        rethrow;
+      }
     }
-    return bytes;
+    final signature = await wallet.sign(messageToSign);
+
+    // 4. Submit the transaction
+    final params = {
+      'sender': senderAddress,
+      'package': packageAddress,
+      'module': module,
+      'function': function,
+      'type_args': typeArgs,
+      'args': args,
+      'gas_limit': gasLimit,
+      'gas_price': gasPrice,
+      'sequence_number': sequenceNumber,
+      'signature': signature.toList(),
+      'execute_immediate': executeImmediate,
+    };
+
+    final resp = await _request(
+      'kanari_callFunction',
+      params,
+      (j) => TransactionResult.fromJson(j as Map<String, dynamic>),
+    );
+    if (resp.error != null) throw Exception(resp.error!.message);
+    return resp.result!;
+  }
+
+  /// Burn KANARI tokens (restricted to system/admin)
+  Future<TransactionResult> burn({
+    required KanariWallet wallet,
+    required int amount,
+    int gasLimit = 100000,
+    int gasPrice = 1000,
+  }) async {
+    // 1. Get current sequence number
+    final account = await getAccount(wallet.address);
+    final sequenceNumber = account.sequenceNumber;
+
+    // 2. Normalize sender address
+    final senderAddress = wallet.taggedAddress;
+
+    // 3. Sign the transaction
+    // The Node expects the signature of the BCS-serialized Transaction enum.
+    final serializedTx = _transactionBcs.serialize({
+      'Burn': {
+        'from': senderAddress,
+        'amount': amount,
+        'gas_limit': gasLimit,
+        'gas_price': gasPrice,
+        'sequence_number': sequenceNumber,
+      },
+    }).toBytes();
+
+    List<int> messageToSign;
+    try {
+      messageToSign = await blake3HashApi(data: serializedTx);
+    } catch (e) {
+      if (e.toString().contains(
+        'flutter_rust_bridge has not been initialized',
+      )) {
+        messageToSign = serializedTx;
+      } else {
+        rethrow;
+      }
+    }
+    final signature = await wallet.sign(messageToSign);
+
+    // 4. Submit the transaction
+    final params = {
+      'sender': senderAddress,
+      'amount': amount,
+      'gas_limit': gasLimit,
+      'gas_price': gasPrice,
+      'sequence_number': sequenceNumber,
+      'signature': signature.toList(),
+    };
+
+    final resp = await _request(
+      'kanari_submitTransaction',
+      params,
+      (j) => TransactionResult.fromJson(j as Map<String, dynamic>),
+    );
+    if (resp.error != null) throw Exception(resp.error!.message);
+    return resp.result!;
   }
 
   void close() {

@@ -233,6 +233,47 @@ class WalletState extends ChangeNotifier {
     }
   }
 
+  Future<String?> executeFunction({
+    required String packageAddress,
+    required String module,
+    required String function,
+    List<String> typeArgs = const [],
+    List<List<int>> args = const [],
+  }) async {
+    if (_client == null || _wallet == null) return "Client not initialized";
+    _setLoading(true);
+    try {
+      final result = await _client!.executeFunction(
+        wallet: _wallet!,
+        package: packageAddress,
+        module: module,
+        function: function,
+        typeArgs: typeArgs,
+        args: args,
+      );
+      await refreshBalance();
+      _setLoading(false);
+      return "Success: Hash ${result.hash}";
+    } catch (e) {
+      _setLoading(false);
+      return "Error: $e";
+    }
+  }
+
+  Future<String?> burn(int amount) async {
+    if (_client == null || _wallet == null) return "Client not initialized";
+    _setLoading(true);
+    try {
+      final result = await _client!.burn(wallet: _wallet!, amount: amount);
+      await refreshBalance();
+      _setLoading(false);
+      return "Success: Hash ${result.hash}";
+    } catch (e) {
+      _setLoading(false);
+      return "Error: $e";
+    }
+  }
+
   void _setLoading(bool value) {
     _isLoading = value;
     notifyListeners();
@@ -339,10 +380,184 @@ class _WalletHomePageState extends State<WalletHomePage> {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _showExecuteDialog(context),
+                            icon: const Icon(Icons.code_rounded),
+                            label: const Text('Execute'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _showBurnDialog(context),
+                            icon: const Icon(
+                              Icons.local_fire_department_rounded,
+                            ),
+                            label: const Text('Burn'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              foregroundColor: Colors.orangeAccent,
+                              side: const BorderSide(
+                                color: Colors.orangeAccent,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ],
               ),
             ),
+    );
+  }
+
+  void _showExecuteDialog(BuildContext context) {
+    final packageController = TextEditingController();
+    final moduleController = TextEditingController();
+    final functionController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (innerContext) => AlertDialog(
+        title: const Text('Execute Move Function'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: packageController,
+                decoration: const InputDecoration(
+                  labelText: 'Package Address',
+                  hintText: '0x...',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: moduleController,
+                decoration: const InputDecoration(
+                  labelText: 'Module Name',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: functionController,
+                decoration: const InputDecoration(
+                  labelText: 'Function Name',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Note: Arguments and Type Args are currently limited to defaults in this UI.',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(innerContext),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (packageController.text.isEmpty ||
+                  moduleController.text.isEmpty ||
+                  functionController.text.isEmpty)
+                return;
+
+              final pkg = packageController.text;
+              final mod = moduleController.text;
+              final fun = functionController.text;
+
+              Navigator.pop(innerContext);
+              final result = await context.read<WalletState>().executeFunction(
+                packageAddress: pkg,
+                module: mod,
+                function: fun,
+              );
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(result ?? "Unknown error")),
+                );
+              }
+            },
+            child: const Text('Execute'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showBurnDialog(BuildContext context) {
+    final amountController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (innerContext) => AlertDialog(
+        title: const Text('Burn KANARI'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Warning: This action will permanently destroy tokens. Only admins can perform this.',
+              style: TextStyle(color: Colors.orangeAccent, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: amountController,
+              decoration: const InputDecoration(
+                labelText: 'Amount to Burn',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.number,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(innerContext),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final amountStr = amountController.text;
+              final amountDouble = double.tryParse(amountStr) ?? 0.0;
+              final amountMist = (amountDouble * 1000000000).round();
+
+              if (amountMist <= 0) return;
+
+              Navigator.pop(innerContext);
+              final result = await context.read<WalletState>().burn(amountMist);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(result ?? "Unknown error")),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orangeAccent,
+            ),
+            child: const Text('Burn'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -817,7 +1032,7 @@ class _WalletHomePageState extends State<WalletHomePage> {
                 recipient,
                 amountMist,
               );
-              if (mounted) {
+              if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text(result ?? "Unknown error")),
                 );

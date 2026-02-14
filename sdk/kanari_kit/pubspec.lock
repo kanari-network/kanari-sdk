@@ -33,6 +33,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.13.0"
+  bcs:
+    dependency: "direct main"
+    description:
+      name: bcs
+      sha256: "4795a89774e3f0335000b24aac682af147831b84009f405766533483514663fb"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.2"
   boolean_selector:
     dependency: transitive
     description:

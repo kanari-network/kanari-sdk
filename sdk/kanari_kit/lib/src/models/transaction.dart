@@ -8,7 +8,7 @@ class TransactionResult extends Equatable {
   final String hash;
   final String status;
   @JsonKey(name: 'gas_used')
-  final int gasUsed;
+  final int? gasUsed;
   @JsonKey(name: 'error_message')
   final String? errorMessage;
   final String? action; // Optional if coming from publish/upgrade
@@ -16,7 +16,7 @@ class TransactionResult extends Equatable {
   const TransactionResult({
     required this.hash,
     required this.status,
-    required this.gasUsed,
+    this.gasUsed,
     this.errorMessage,
     this.action,
   });

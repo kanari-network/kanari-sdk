@@ -43,6 +43,7 @@ dependencies:
   kanari_crypto:
     path: ../../packages/kanari_flutter/flutter/kanari_crypto
   shared_preferences: ^2.3.5
+  bcs: ^0.1.2
 
 dev_dependencies:
   flutter_test:
