@@ -42,6 +42,10 @@ Future<Uint8List> signMessageApi({
   curveName: curveName,
 );
 
+/// Hash data using Blake3
+Future<Uint8List> blake3HashApi({required List<int> data}) =>
+    RustLib.instance.api.crateApiBlake3HashApi(data: data);
+
 /// Verify a signature
 Future<bool> verifySignatureApi({
   required String address,
@@ -124,6 +128,7 @@ class KeyPairData {
   final String privateKey;
   final String publicKey;
   final String address;
+  final String taggedAddress;
   final Uint8List rawPublicKey;
   final String curveType;
 
@@ -131,6 +136,7 @@ class KeyPairData {
     required this.privateKey,
     required this.publicKey,
     required this.address,
+    required this.taggedAddress,
     required this.rawPublicKey,
     required this.curveType,
   });
@@ -140,6 +146,7 @@ class KeyPairData {
       privateKey.hashCode ^
       publicKey.hashCode ^
       address.hashCode ^
+      taggedAddress.hashCode ^
       rawPublicKey.hashCode ^
       curveType.hashCode;
 
@@ -151,6 +158,7 @@ class KeyPairData {
           privateKey == other.privateKey &&
           publicKey == other.publicKey &&
           address == other.address &&
+          taggedAddress == other.taggedAddress &&
           rawPublicKey == other.rawPublicKey &&
           curveType == other.curveType;
 }

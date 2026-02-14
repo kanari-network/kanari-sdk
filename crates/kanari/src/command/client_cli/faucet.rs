@@ -1,6 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::command::common::get_rpc_endpoint;
 use anyhow::{Context, Result};
 use clap::Parser;
 
@@ -29,11 +30,7 @@ pub struct Faucet {
 
 impl Faucet {
     pub async fn execute(&self) -> Result<()> {
-        let rpc = self
-            .rpc_endpoint
-            .clone()
-            .or_else(kanari_common::get_active_rpc)
-            .unwrap_or_else(|| "http://127.0.0.1:19001".to_string());
+        let rpc = get_rpc_endpoint(self.rpc_endpoint.clone());
 
         let status = kanari_faucet::request_from_dev(
             self.dev_address.as_deref(),

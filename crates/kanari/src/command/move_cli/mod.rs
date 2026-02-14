@@ -3,7 +3,6 @@
 
 pub mod build;
 pub mod call;
-pub mod common;
 pub mod docgen;
 pub mod new;
 pub mod publish;

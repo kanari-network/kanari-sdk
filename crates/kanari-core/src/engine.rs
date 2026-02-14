@@ -149,7 +149,7 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
                 (name_and_generics.as_str(), None)
             };
 
-            let addr = AccountAddress::from_hex_literal(addr_str).ok()?;
+            let addr = KanariAddress::parse_to_account_address(addr_str).ok()?;
             let module_id = Identifier::new(module_str).ok()?;
             let name_id = Identifier::new(name_str).ok()?;
 
@@ -495,8 +495,9 @@ impl BlockchainEngine {
                 let normalized_sender = Self::normalize_addr(tx.sender_address());
                 for ptx in pending.iter() {
                     if Self::normalize_addr(ptx.transaction.sender_address()) == normalized_sender
-                        && let Ok(addr) =
-                            AccountAddress::from_hex_literal(ptx.transaction.sender_address())
+                        && let Ok(addr) = KanariAddress::parse_to_account_address(
+                            ptx.transaction.sender_address(),
+                        )
                     {
                         let acct = state_snapshot.get_or_create_account(addr);
                         acct.increment_sequence();
@@ -550,7 +551,7 @@ impl BlockchainEngine {
         timestamp: Option<u64>,
     ) -> Result<ChangeSet> {
         // 1. Pre-flight validation: Check sequence number (skip for synced transactions)
-        let sender_addr = AccountAddress::from_hex_literal(tx.sender_address())?;
+        let sender_addr = KanariAddress::parse_to_account_address(tx.sender_address())?;
         if validate_sequence {
             let state = state_arc.read().unwrap();
             state
@@ -573,7 +574,7 @@ impl BlockchainEngine {
                 };
                 gas_meter.consume(gas_op.gas_units())?;
 
-                let addr = AccountAddress::from_hex_literal(sender)?;
+                let addr = KanariAddress::parse_to_account_address(sender)?;
                 let gas_cost = gas_meter.total_cost();
 
                 // balance check
@@ -597,7 +598,7 @@ impl BlockchainEngine {
 
                 match runtime.publish_module(
                     module_bytes.clone(),
-                    AccountAddress::from_hex_literal(sender)?,
+                    KanariAddress::parse_to_account_address(sender)?,
                     None,
                 ) {
                     Ok(move_cs) => changeset.merge(move_cs),
@@ -606,7 +607,7 @@ impl BlockchainEngine {
                     }
                 }
 
-                let sender_addr2 = AccountAddress::from_hex_literal(sender)?;
+                let sender_addr2 = KanariAddress::parse_to_account_address(sender)?;
                 Self::apply_gas_and_sequence(
                     &mut changeset,
                     sender_addr2,
@@ -625,7 +626,7 @@ impl BlockchainEngine {
             } => {
                 let gas_op = GasOperation::ExecuteFunction { complexity: 1 };
                 gas_meter.consume(gas_op.gas_units())?;
-                let sender_addr = AccountAddress::from_hex_literal(sender)?;
+                let sender_addr = KanariAddress::parse_to_account_address(sender)?;
                 let gas_cost = gas_meter.total_cost();
 
                 {
@@ -658,7 +659,7 @@ impl BlockchainEngine {
                     return Ok(changeset);
                 }
 
-                let addr = AccountAddress::from_hex_literal(parts[0])?;
+                let addr = KanariAddress::parse_to_account_address(parts[0])?;
                 let module_id = ModuleId::new(
                     addr,
                     move_core_types::identifier::Identifier::new(parts[1])?,
@@ -697,8 +698,8 @@ impl BlockchainEngine {
             } => {
                 let gas_op = GasOperation::Transfer;
                 gas_meter.consume(gas_op.gas_units())?;
-                let from_addr = AccountAddress::from_hex_literal(from)?;
-                let to_addr = AccountAddress::from_hex_literal(to)?;
+                let from_addr = KanariAddress::parse_to_account_address(from)?;
+                let to_addr = KanariAddress::parse_to_account_address(to)?;
                 let gas_cost = gas_meter.total_cost();
                 let total_required = amount.saturating_add(gas_cost);
 
@@ -735,7 +736,7 @@ impl BlockchainEngine {
             Transaction::Burn { from, amount, .. } => {
                 let gas_op = GasOperation::Transfer;
                 gas_meter.consume(gas_op.gas_units())?;
-                let from_addr = AccountAddress::from_hex_literal(from)?;
+                let from_addr = KanariAddress::parse_to_account_address(from)?;
                 let gas_cost = gas_meter.total_cost();
                 let total_required = amount.saturating_add(gas_cost);
 
@@ -953,9 +954,13 @@ impl BlockchainEngine {
             .unwrap_or_default()
     }
 
-    /// Normalize address for comparison (lowercase, no 0x prefix)
+    /// Normalize address for comparison (converts to raw hex address)
     fn normalize_addr(addr: &str) -> String {
-        addr.trim_start_matches("0x").to_lowercase()
+        use std::str::FromStr;
+        // Use the central Address type to handle tagged addresses, public keys, and hex literals
+        KanariAddress::from_str(addr)
+            .map(|a| a.to_hex())
+            .unwrap_or_else(|_| addr.trim_start_matches("0x").to_lowercase())
     }
 
     /// Deploy a contract (publish Move module).
@@ -1003,11 +1008,9 @@ impl BlockchainEngine {
 
     /// Get module bytecode from Move storage
     pub fn get_module_bytecode(&self, address: &str, module_name: &str) -> Option<Vec<u8>> {
-        use move_core_types::{
-            account_address::AccountAddress, identifier::Identifier, language_storage::ModuleId,
-        };
+        use move_core_types::{identifier::Identifier, language_storage::ModuleId};
 
-        let addr = match AccountAddress::from_hex_literal(address) {
+        let addr = match KanariAddress::parse_to_account_address(address) {
             Ok(a) => a,
             Err(_) => return None,
         };

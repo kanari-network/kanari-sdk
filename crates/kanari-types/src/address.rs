@@ -211,6 +211,25 @@ impl Address {
             return Err(AddressParseError::EmptyString);
         }
 
+        // Handle tagged addresses (e.g. "Dilithium3:HEX_PUB" or "Dilithium3:0xADDRESS")
+        if let Some((_tag, addr_or_pub)) = literal.split_once(':') {
+            // If it's a tagged address where the part after colon is a hex literal (0x...),
+            // then it's just an address with a hint.
+            if addr_or_pub.starts_with("0x") {
+                return Self::from_hex_literal(addr_or_pub);
+            }
+
+            // Otherwise, it's a Public Key (tagged) that needs to be hashed to get the address.
+            // This applies to both Hybrid (HEX:HEX) and pure PQC (HEX).
+            use sha3::{Digest, Sha3_256};
+            let mut hasher = Sha3_256::new();
+            hasher.update(addr_or_pub.as_bytes());
+            let hash_result = hasher.finalize();
+            let mut bytes = [0u8; Self::LENGTH];
+            bytes.copy_from_slice(&hash_result[..]);
+            return Ok(Self(bytes));
+        }
+
         if !literal.starts_with("0x") {
             return Err(AddressParseError::InvalidHexPrefix);
         }
@@ -233,6 +252,30 @@ impl Address {
         };
 
         Self::from_hex(&hex_str)
+    }
+
+    /// Convert to Move's AccountAddress
+    pub fn to_account_address(&self) -> AccountAddress {
+        AccountAddress::new(self.0)
+    }
+
+    /// Parse a string (potentially tagged) into a Move AccountAddress
+    pub fn parse_to_account_address(s: &str) -> Result<AccountAddress, AddressParseError> {
+        // If it already looks like a hex literal, use our enhanced parser
+        if s.starts_with("0x") || s.contains(':') {
+            Ok(Self::from_hex_literal(s)?.to_account_address())
+        } else {
+            // Otherwise, try to parse it as a raw hex string and then convert
+            let hex_str = s.trim();
+            // If it's a 32-byte hex string (64 chars), it's probably a raw address
+            if hex_str.len() == Self::LENGTH * 2 {
+                let addr = Self::from_hex(hex_str)?;
+                Ok(addr.to_account_address())
+            } else {
+                // Try prepending 0x and parsing
+                Ok(Self::from_hex_literal(&format!("0x{}", hex_str))?.to_account_address())
+            }
+        }
     }
 }
 
@@ -304,6 +347,61 @@ impl FromStr for Address {
         } else {
             Self::from_hex(s)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_hex_literal_tagged_address() {
+        // Tagged address (0x prefixed)
+        let addr_str =
+            "Dilithium3:0xd897adffc6bd9c4334506147d8ff3c29cbf986599876ecfd930889f856c0d9c5";
+        let addr = Address::from_hex_literal(addr_str).unwrap();
+        assert_eq!(
+            addr.to_hex_literal(),
+            "0xd897adffc6bd9c4334506147d8ff3c29cbf986599876ecfd930889f856c0d9c5"
+        );
+    }
+
+    #[test]
+    fn test_from_hex_literal_tagged_pubkey() {
+        // Tagged public key (non-0x prefixed)
+        let pubkey_hex = "d897adffc6bd9c4334506147d8ff3c29cbf986599876ecfd930889f856c0d9c5";
+        let tagged_pubkey = format!("Dilithium3:{}", pubkey_hex);
+        let addr = Address::from_hex_literal(&tagged_pubkey).unwrap();
+
+        // Should be hashed
+        use sha3::{Digest, Sha3_256};
+        let mut hasher = Sha3_256::new();
+        hasher.update(pubkey_hex.as_bytes());
+        let expected_hash = hasher.finalize();
+        let mut expected_bytes = [0u8; Address::LENGTH];
+        expected_bytes.copy_from_slice(&expected_hash[..]);
+        let expected_addr = Address::from(expected_bytes);
+
+        assert_eq!(addr, expected_addr);
+    }
+
+    #[test]
+    fn test_from_hex_literal_hybrid_pubkey() {
+        // Hybrid public key (tagged, contains another colon)
+        let pubkey_hex = "k256_hex:dilithium_hex";
+        let tagged_pubkey = format!("Hybrid:{}", pubkey_hex);
+        let addr = Address::from_hex_literal(&tagged_pubkey).unwrap();
+
+        // Should be hashed
+        use sha3::{Digest, Sha3_256};
+        let mut hasher = Sha3_256::new();
+        hasher.update(pubkey_hex.as_bytes());
+        let expected_hash = hasher.finalize();
+        let mut expected_bytes = [0u8; Address::LENGTH];
+        expected_bytes.copy_from_slice(&expected_hash[..]);
+        let expected_addr = Address::from(expected_bytes);
+
+        assert_eq!(addr, expected_addr);
     }
 }
 

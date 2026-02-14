@@ -21,6 +21,7 @@ pub struct KeyPairData {
     pub private_key: String, // format "kanari...", "kanapqc...", "kanahybrid..."
     pub public_key: String,  // hex
     pub address: String,     // 0x...
+    pub tagged_address: String, // Curve:0x...
     pub raw_public_key: Vec<u8>, // raw bytes of public key (for PQC verification)
     pub curve_type: String,  // e.g., "K256", "Ed25519Dilithium3"
 }
@@ -35,6 +36,7 @@ pub fn generate_keypair_api(curve_name: String) -> Result<KeyPairData, String> {
     // Clone the pieces we need to avoid moving out of `kp` more than once
     let public_key_clone = kp.public_key.clone();
     let address_clone = kp.address.clone();
+    let tagged_address = kp.tagged_address();
     let pqc_clone = kp.pqc_public_key.clone();
     let raw_public_key =
         hex::decode(pqc_clone.unwrap_or_else(|| public_key_clone.clone())).unwrap_or_default();
@@ -43,6 +45,7 @@ pub fn generate_keypair_api(curve_name: String) -> Result<KeyPairData, String> {
         private_key: kp.private_key.to_string(),
         public_key: public_key_clone,
         address: address_clone,
+        tagged_address,
         raw_public_key,
         curve_type: format!("{:?}", curve),
     })
@@ -65,6 +68,7 @@ pub fn derive_keypair_from_mnemonic(
 
     let public_key_clone = kp.public_key.clone();
     let address_clone = kp.address.clone();
+    let tagged_address = kp.tagged_address();
     let pqc_clone = kp.pqc_public_key.clone();
     let raw_public_key =
         hex::decode(pqc_clone.unwrap_or_else(|| public_key_clone.clone())).unwrap_or_default();
@@ -73,6 +77,7 @@ pub fn derive_keypair_from_mnemonic(
         private_key: kp.private_key.to_string(),
         public_key: public_key_clone,
         address: address_clone,
+        tagged_address,
         raw_public_key,
         curve_type: format!("{:?}", curve),
     })
@@ -91,6 +96,7 @@ pub fn import_keypair_from_private_key(
 
     let public_key_clone = kp.public_key.clone();
     let address_clone = kp.address.clone();
+    let tagged_address = kp.tagged_address();
     let pqc_clone = kp.pqc_public_key.clone();
     let raw_public_key =
         hex::decode(pqc_clone.unwrap_or_else(|| public_key_clone.clone())).unwrap_or_default();
@@ -99,6 +105,7 @@ pub fn import_keypair_from_private_key(
         private_key: kp.private_key.to_string(),
         public_key: public_key_clone,
         address: address_clone,
+        tagged_address,
         raw_public_key,
         curve_type: format!("{:?}", curve),
     })
@@ -114,6 +121,11 @@ pub fn sign_message_api(
         .ok_or_else(|| format!("Unsupported curve type: {}", curve_name))?;
 
     sign_message(&private_key, &message, curve).map_err(|e| format!("Signing failed: {}", e))
+}
+
+/// Hash data using Blake3
+pub fn blake3_hash_api(data: Vec<u8>) -> Vec<u8> {
+    blake3::hash(&data).as_bytes().to_vec()
 }
 
 /// Verify a signature
@@ -153,6 +165,7 @@ pub fn derive_keypair_from_path_api(
         .map_err(|e| format!("Path derivation failed: {}", e))?;
 
     let public_key_clone = kp.public_key.clone();
+    let tagged_address = kp.tagged_address();
     let raw_public_key = hex::decode(
         kp.pqc_public_key
             .clone()
@@ -164,6 +177,7 @@ pub fn derive_keypair_from_path_api(
         private_key: kp.private_key.to_string(),
         public_key: public_key_clone,
         address: kp.address,
+        tagged_address,
         raw_public_key,
         curve_type: format!("{:?}", curve),
     })
@@ -187,6 +201,7 @@ pub fn derive_multiple_addresses_api(
         .into_iter()
         .map(|kp| {
             let public_key_clone = kp.public_key.clone();
+            let tagged_address = kp.tagged_address();
             let raw_public_key = hex::decode(
                 kp.pqc_public_key
                     .clone()
@@ -198,6 +213,7 @@ pub fn derive_multiple_addresses_api(
                 private_key: kp.private_key.to_string(),
                 public_key: public_key_clone,
                 address: kp.address,
+                tagged_address,
                 raw_public_key,
                 curve_type: format!("{:?}", curve),
             }

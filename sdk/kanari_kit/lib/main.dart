@@ -3,6 +3,9 @@ import 'package:kanari_kit/kanari_kit.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:kanari_crypto/kanari_crypto.dart';
+import 'src/ui/balance_card.dart';
+import 'src/ui/network_selector.dart';
+import 'src/ui/wallet_info_card.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,9 +18,7 @@ void main() async {
   }
   runApp(
     MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => WalletState()),
-      ],
+      providers: [ChangeNotifierProvider(create: (_) => WalletState())],
       child: const KanariApp(),
     ),
   );
@@ -29,26 +30,59 @@ class WalletState extends ChangeNotifier {
   int _balance = 0;
   bool _isLoading = false;
   String? _error;
+  bool _hasSavedWallet = false;
+  KanariEnvironment _environment = KanariEnvironment.local;
 
   KanariClient? get client => _client;
   KanariWallet? get wallet => _wallet;
   int get balance => _balance;
   bool get isLoading => _isLoading;
   String? get error => _error;
+  bool get hasSavedWallet => _hasSavedWallet;
+  KanariEnvironment get environment => _environment;
 
   Future<void> initialize() async {
-    _client = KanariClient.fromEnvironment(KanariEnvironment.local);
-    // ไม่สร้างอัตโนมัติเพื่อให้ผู้ใช้กดสร้างเอง
+    _updateClient();
+    _hasSavedWallet = await WalletStorage.hasWallet();
     notifyListeners();
   }
 
-  Future<void> createNewWallet() async {
+  void _updateClient() {
+    _client = KanariClient.fromEnvironment(_environment);
+  }
+
+  Future<void> setEnvironment(KanariEnvironment env) async {
+    if (_environment == env) return;
+    _environment = env;
+    _updateClient();
+    if (_wallet != null) {
+      await refreshBalance();
+    }
+    notifyListeners();
+  }
+
+  Future<void> createNewWallet({
+    KanariCurve curve = KanariCurve.ed25519,
+    required String password,
+    bool rememberMe = true,
+  }) async {
     _setLoading(true);
     _error = null;
     try {
-      debugPrint("Starting wallet generation...");
-      _wallet = await KanariWallet.generate();
+      debugPrint("Starting wallet generation with curve: ${curve.name}...");
+      _wallet = await KanariWallet.generate(curve: curve);
       debugPrint("Wallet generated: ${_wallet?.address}");
+
+      if (rememberMe && _wallet != null) {
+        await WalletStorage.saveWallet(
+          mnemonic: _wallet!.mnemonic,
+          privateKey: _wallet!.privateKey,
+          curve: curve,
+          password: password,
+        );
+        _hasSavedWallet = true;
+      }
+
       await refreshBalance();
     } catch (e, stack) {
       _error = "Creation failed: $e";
@@ -59,17 +93,65 @@ class WalletState extends ChangeNotifier {
     }
   }
 
-  Future<void> importFromPrivateKey(String pk) async {
+  Future<void> unlockWallet(String password) async {
     _setLoading(true);
     _error = null;
     try {
-      // Clean prefix 'kanari' if present
-      String cleanPk = pk.trim();
-      if (cleanPk.startsWith('kanari')) {
-        cleanPk = cleanPk.substring(6);
+      final data = await WalletStorage.loadWallet(password);
+      if (data == null) {
+        _error = "Invalid password or no saved wallet";
+        return;
       }
-      
-      _wallet = await KanariWallet.fromPrivateKey(cleanPk);
+
+      final curve = KanariCurve.values.firstWhere(
+        (c) => c.name == data['curve'],
+        orElse: () => KanariCurve.ed25519,
+      );
+
+      if (data['mnemonic'] != null &&
+          data['mnemonic'].toString().isNotEmpty &&
+          !curve.isPostQuantum) {
+        _wallet = await KanariWallet.fromMnemonic(
+          data['mnemonic'],
+          curve: curve,
+        );
+      } else {
+        _wallet = await KanariWallet.fromPrivateKey(
+          data['privateKey'],
+          curve: curve,
+        );
+      }
+
+      await refreshBalance();
+    } catch (e) {
+      _error = "Unlock failed: $e";
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  Future<void> importFromPrivateKey(
+    String pk, {
+    KanariCurve curve = KanariCurve.ed25519,
+    String? password,
+  }) async {
+    _setLoading(true);
+    _error = null;
+    try {
+      String cleanPk = pk.trim();
+      // Let the Rust side handle all prefix variations (kanari, kanapqc, kanahybrid)
+      _wallet = await KanariWallet.fromPrivateKey(cleanPk, curve: curve);
+
+      if (password != null && _wallet != null) {
+        await WalletStorage.saveWallet(
+          mnemonic: '', // No mnemonic for PK import
+          privateKey: _wallet!.privateKey,
+          curve: curve,
+          password: password,
+        );
+        _hasSavedWallet = true;
+      }
+
       await refreshBalance();
     } catch (e) {
       _error = "Import PK failed: $e";
@@ -86,11 +168,32 @@ class WalletState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> importFromMnemonic(String mnemonic) async {
+  Future<void> deleteSavedWallet() async {
+    await WalletStorage.deleteWallet();
+    _hasSavedWallet = false;
+    logout();
+  }
+
+  Future<void> importFromMnemonic(
+    String mnemonic, {
+    KanariCurve curve = KanariCurve.ed25519,
+    String? password,
+  }) async {
     _setLoading(true);
     _error = null;
     try {
-      _wallet = await KanariWallet.fromMnemonic(mnemonic);
+      _wallet = await KanariWallet.fromMnemonic(mnemonic, curve: curve);
+
+      if (password != null && _wallet != null) {
+        await WalletStorage.saveWallet(
+          mnemonic: mnemonic,
+          privateKey: _wallet!.privateKey,
+          curve: curve,
+          password: password,
+        );
+        _hasSavedWallet = true;
+      }
+
       await refreshBalance();
     } catch (e) {
       _error = "Import Mnemonic failed: $e";
@@ -145,7 +248,10 @@ class KanariApp extends StatelessWidget {
       title: 'Kanari Wallet',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueAccent, brightness: Brightness.dark),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.blueAccent,
+          brightness: Brightness.dark,
+        ),
         useMaterial3: true,
       ),
       home: const WalletHomePage(),
@@ -175,8 +281,14 @@ class _WalletHomePageState extends State<WalletHomePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Kanari Wallet'),
+        title: const Text(
+          'Kanari Wallet',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        centerTitle: false,
         actions: [
+          const NetworkSelector(),
+          const SizedBox(width: 8),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: state.isLoading ? null : () => state.refreshBalance(),
@@ -187,62 +299,44 @@ class _WalletHomePageState extends State<WalletHomePage> {
               onPressed: () => state.logout(),
               tooltip: 'Logout',
             ),
+          const SizedBox(width: 8),
         ],
       ),
       body: state.isLoading
           ? const Center(child: SpinKitFadingCircle(color: Colors.blueAccent))
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.all(20.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (state.error != null)
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      margin: const EdgeInsets.only(bottom: 16),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.red.withOpacity(0.5)),
-                      ),
-                      child: Text(
-                        state.error!,
-                        style: const TextStyle(color: Colors.red),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
+                  if (state.error != null) _buildErrorBanner(state.error!),
                   if (state.wallet == null)
-                    Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const SizedBox(height: 100),
-                          ElevatedButton(
-                            onPressed: () => state.createNewWallet(),
-                            child: const Text('Create New Wallet'),
-                          ),
-                          const SizedBox(height: 12),
-                          TextButton.icon(
-                            onPressed: () => _showImportDialog(context),
-                            icon: const Icon(Icons.download),
-                            label: const Text('Import Wallet (PK / Seed)'),
-                          ),
-                        ],
-                      ),
-                    )
+                    _buildWelcomeScreen(context, state)
                   else ...[
-                    _buildBalanceCard(state),
-                    const SizedBox(height: 20),
-                    _buildWalletInfo(state),
-                    const SizedBox(height: 20),
+                    const BalanceCard(),
+                    const SizedBox(height: 24),
+                    const WalletInfoCard(),
+                    const SizedBox(height: 24),
                     _buildSecurityInfo(state),
-                    const SizedBox(height: 30),
+                    const SizedBox(height: 32),
                     ElevatedButton.icon(
                       onPressed: () => _showTransferDialog(context),
-                      icon: const Icon(Icons.send),
-                      label: const Text('Send KANARI'),
+                      icon: const Icon(Icons.send_rounded),
+                      label: const Text(
+                        'Send KANARI',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                       style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        backgroundColor: Colors.blueAccent,
+                        foregroundColor: Colors.white,
+                        elevation: 4,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                       ),
                     ),
                   ],
@@ -252,37 +346,128 @@ class _WalletHomePageState extends State<WalletHomePage> {
     );
   }
 
-  Widget _buildBalanceCard(WalletState state) {
-    return Card(
-      elevation: 4,
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          children: [
-            const Text('Total Balance', style: TextStyle(fontSize: 16, color: Colors.grey)),
-            const SizedBox(height: 8),
-            Text(
-              '${state.balance} KANARI',
-              style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+  Widget _buildErrorBanner(String error) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 20),
+      decoration: BoxDecoration(
+        color: Colors.red.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.red.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline, color: Colors.redAccent, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              error,
+              style: const TextStyle(color: Colors.redAccent, fontSize: 13),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildWalletInfo(WalletState state) {
-    if (state.wallet == null) return const SizedBox.shrink();
+  Widget _buildWelcomeScreen(BuildContext context, WalletState state) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        const Text('My Address:', style: TextStyle(fontWeight: FontWeight.bold)),
-        SelectableText(
-          state.wallet!.address,
-          style: const TextStyle(fontFamily: 'monospace', color: Colors.blue),
+        const SizedBox(height: 60),
+        Icon(
+          Icons.blur_on_rounded,
+          size: 100,
+          color: Colors.blueAccent.withOpacity(0.5),
         ),
-        const SizedBox(height: 10),
-        Text('Environment: ${KanariEnvironment.local.name.toUpperCase()}'),
+        const SizedBox(height: 24),
+        const Text(
+          'Welcome to Kanari',
+          style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Secure, Quantum-Safe Digital Wallet',
+          style: TextStyle(color: Colors.grey),
+        ),
+        const SizedBox(height: 60),
+        if (state.hasSavedWallet) ...[
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => _showUnlockDialog(context),
+              icon: const Icon(Icons.lock_open_rounded),
+              label: const Text('Unlock Saved Wallet'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                backgroundColor: Colors.greenAccent.withOpacity(0.1),
+                foregroundColor: Colors.greenAccent,
+                side: BorderSide(color: Colors.greenAccent.withOpacity(0.5)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextButton.icon(
+            onPressed: () => state.deleteSavedWallet(),
+            icon: const Icon(Icons.delete_outline, size: 18),
+            label: const Text('Clear Saved Data'),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.redAccent.withOpacity(0.7),
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 30),
+            child: Row(
+              children: [
+                Expanded(child: Divider()),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    'OR',
+                    style: TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+                ),
+                Expanded(child: Divider()),
+              ],
+            ),
+          ),
+        ],
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: () => _showCreateDialog(context),
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              backgroundColor: Colors.blueAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            child: const Text(
+              'Create New Wallet',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () => _showImportDialog(context),
+            icon: const Icon(Icons.file_download_outlined),
+            label: const Text('Import Existing Wallet'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -290,42 +475,164 @@ class _WalletHomePageState extends State<WalletHomePage> {
   Widget _buildSecurityInfo(WalletState state) {
     if (state.wallet == null) return const SizedBox.shrink();
     return Card(
-      color: Colors.red.withOpacity(0.1),
+      elevation: 0,
+      color: Colors.orangeAccent.withOpacity(0.05),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.red.withOpacity(0.3)),
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: Colors.orangeAccent.withOpacity(0.2)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Row(
               children: [
-                Icon(Icons.warning_amber_rounded, color: Colors.red),
-                SizedBox(width: 8),
-                Text('Security Info (Private)', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+                Icon(
+                  Icons.security_rounded,
+                  color: Colors.orangeAccent,
+                  size: 20,
+                ),
+                SizedBox(width: 10),
+                Text(
+                  'Security Info',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orangeAccent,
+                  ),
+                ),
               ],
             ),
-            const SizedBox(height: 12),
-            const Text('Seed Words (Mnemonic):', style: TextStyle(fontWeight: FontWeight.bold)),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8)),
-              child: SelectableText(
-                state.wallet!.mnemonic ?? 'N/A',
-                style: const TextStyle(fontFamily: 'monospace', color: Colors.orangeAccent),
-              ),
+            const SizedBox(height: 20),
+            _buildSecurityField(
+              'Mnemonic Seed',
+              state.wallet!.mnemonic ?? 'Not available for this curve',
             ),
-            const SizedBox(height: 12),
-            const Text('Private Key:', style: TextStyle(fontWeight: FontWeight.bold)),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8)),
-              child: SelectableText(
-                state.wallet!.privateKey,
-                style: const TextStyle(fontFamily: 'monospace', color: Colors.orangeAccent),
+            const SizedBox(height: 16),
+            _buildSecurityField('Private Key', state.wallet!.privateKey),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSecurityField(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            color: Colors.grey,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.black26,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: SelectableText(
+            value,
+            style: const TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 12,
+              color: Colors.orangeAccent,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showUnlockDialog(BuildContext context) {
+    final passwordController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Unlock Wallet'),
+        content: TextField(
+          controller: passwordController,
+          decoration: const InputDecoration(
+            labelText: 'Password',
+            border: OutlineInputBorder(),
+          ),
+          obscureText: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              context.read<WalletState>().unlockWallet(passwordController.text);
+              Navigator.pop(context);
+            },
+            child: const Text('Unlock'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCreateDialog(BuildContext context) {
+    final passwordController = TextEditingController();
+    KanariCurve selectedCurve = KanariCurve.ed25519;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Create New Wallet'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<KanariCurve>(
+                value: selectedCurve,
+                decoration: const InputDecoration(
+                  labelText: 'Curve Type',
+                  border: OutlineInputBorder(),
+                ),
+                items: KanariCurve.values.map((curve) {
+                  return DropdownMenuItem(
+                    value: curve,
+                    child: Text(curve.name),
+                  );
+                }).toList(),
+                onChanged: (val) => setState(() => selectedCurve = val!),
               ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: passwordController,
+                decoration: const InputDecoration(
+                  labelText: 'Set Password',
+                  border: OutlineInputBorder(),
+                ),
+                obscureText: true,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (passwordController.text.isNotEmpty) {
+                  context.read<WalletState>().createNewWallet(
+                    curve: selectedCurve,
+                    password: passwordController.text,
+                  );
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text('Generate'),
             ),
           ],
         ),
@@ -337,89 +644,133 @@ class _WalletHomePageState extends State<WalletHomePage> {
     final state = context.read<WalletState>();
     final pkController = TextEditingController();
     final mnemonicController = TextEditingController();
+    final passwordController = TextEditingController();
+    KanariCurve selectedCurve = KanariCurve.ed25519;
 
     showDialog(
       context: context,
       builder: (context) => DefaultTabController(
         length: 2,
-        child: AlertDialog(
-          title: const Text('Import Wallet'),
-          content: SizedBox(
-            width: double.maxFinite,
-            height: 250,
-            child: Column(
-              children: [
-                const TabBar(
-                  tabs: [
-                    Tab(text: 'Private Key'),
-                    Tab(text: 'Mnemonic'),
-                  ],
-                ),
-                Expanded(
-                  child: TabBarView(
-                    children: [
-                      // Import via Private Key
-                      Padding(
-                        padding: const EdgeInsets.only(top: 16),
-                        child: Column(
-                          children: [
-                            TextField(
-                              controller: pkController,
-                              decoration: const InputDecoration(
-                                labelText: 'Private Key',
-                                hintText: 'Enter your private key',
-                                border: OutlineInputBorder(),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            ElevatedButton(
-                              onPressed: () {
-                                if (pkController.text.isNotEmpty) {
-                                  state.importFromPrivateKey(pkController.text);
-                                  Navigator.pop(context);
-                                }
-                              },
-                              child: const Text('Import PK'),
-                            ),
-                          ],
-                        ),
-                      ),
-                      // Import via Mnemonic
-                      Padding(
-                        padding: const EdgeInsets.only(top: 16),
-                        child: Column(
-                          children: [
-                            TextField(
-                              controller: mnemonicController,
-                              maxLines: 3,
-                              decoration: const InputDecoration(
-                                labelText: 'Mnemonic (12 words)',
-                                hintText: 'Enter your seed words',
-                                border: OutlineInputBorder(),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            ElevatedButton(
-                              onPressed: () {
-                                if (mnemonicController.text.isNotEmpty) {
-                                  state.importFromMnemonic(mnemonicController.text);
-                                  Navigator.pop(context);
-                                }
-                              },
-                              child: const Text('Import Seed'),
-                            ),
-                          ],
-                        ),
-                      ),
+        child: StatefulBuilder(
+          builder: (context, setState) => AlertDialog(
+            title: const Text('Import Wallet'),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 400,
+              child: Column(
+                children: [
+                  const TabBar(
+                    tabs: [
+                      Tab(text: 'Private Key'),
+                      Tab(text: 'Mnemonic'),
                     ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<KanariCurve>(
+                    value: selectedCurve,
+                    decoration: const InputDecoration(
+                      labelText: 'Curve Type',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: KanariCurve.values.map((curve) {
+                      return DropdownMenuItem(
+                        value: curve,
+                        child: Text(curve.name),
+                      );
+                    }).toList(),
+                    onChanged: (val) => setState(() => selectedCurve = val!),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: passwordController,
+                    decoration: const InputDecoration(
+                      labelText: 'Set Password (to save)',
+                      border: OutlineInputBorder(),
+                    ),
+                    obscureText: true,
+                  ),
+                  const Divider(height: 32),
+                  Expanded(
+                    child: TabBarView(
+                      children: [
+                        // Import via Private Key
+                        SingleChildScrollView(
+                          child: Column(
+                            children: [
+                              TextField(
+                                controller: pkController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Private Key',
+                                  hintText: 'Enter your private key',
+                                  border: OutlineInputBorder(),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              ElevatedButton(
+                                onPressed: () {
+                                  if (pkController.text.isNotEmpty) {
+                                    state.importFromPrivateKey(
+                                      pkController.text,
+                                      curve: selectedCurve,
+                                      password:
+                                          passwordController.text.isNotEmpty
+                                          ? passwordController.text
+                                          : null,
+                                    );
+                                    Navigator.pop(context);
+                                  }
+                                },
+                                child: const Text('Import PK'),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // Import via Mnemonic
+                        SingleChildScrollView(
+                          child: Column(
+                            children: [
+                              TextField(
+                                controller: mnemonicController,
+                                maxLines: 3,
+                                decoration: const InputDecoration(
+                                  labelText: 'Mnemonic (12 words)',
+                                  hintText: 'Enter your seed words',
+                                  border: OutlineInputBorder(),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              ElevatedButton(
+                                onPressed: () {
+                                  if (mnemonicController.text.isNotEmpty) {
+                                    state.importFromMnemonic(
+                                      mnemonicController.text,
+                                      curve: selectedCurve,
+                                      password:
+                                          passwordController.text.isNotEmpty
+                                          ? passwordController.text
+                                          : null,
+                                    );
+                                    Navigator.pop(context);
+                                  }
+                                },
+                                child: const Text('Import Seed'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          ],
         ),
       ),
     );
@@ -448,17 +799,28 @@ class _WalletHomePageState extends State<WalletHomePage> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () async {
               final recipient = recipientController.text;
-              final amount = int.tryParse(amountController.text) ?? 0;
-              if (recipient.isEmpty || amount <= 0) return;
+              final amountStr = amountController.text;
+              final amountDouble = double.tryParse(amountStr) ?? 0.0;
+              final amountMist = (amountDouble * 1000000000).round();
+
+              if (recipient.isEmpty || amountMist <= 0) return;
 
               Navigator.pop(context);
-              final result = await context.read<WalletState>().transfer(recipient, amount);
+              final result = await context.read<WalletState>().transfer(
+                recipient,
+                amountMist,
+              );
               if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result ?? "Unknown error")));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(result ?? "Unknown error")),
+                );
               }
             },
             child: const Text('Send'),

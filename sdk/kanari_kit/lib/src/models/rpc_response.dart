@@ -10,18 +10,12 @@ class RpcResponse<T> extends Equatable {
   final RpcError? error;
   final dynamic id;
 
-  const RpcResponse({
-    required this.jsonrpc,
-    this.result,
-    this.error,
-    this.id,
-  });
+  const RpcResponse({required this.jsonrpc, this.result, this.error, this.id});
 
   factory RpcResponse.fromJson(
     Map<String, dynamic> json,
     T Function(Object? json) fromJsonT,
-  ) =>
-      _$RpcResponseFromJson(json, fromJsonT);
+  ) => _$RpcResponseFromJson(json, fromJsonT);
 
   Map<String, dynamic> toJson(Object? Function(T value) toJsonT) =>
       _$RpcResponseToJson(this, toJsonT);
@@ -36,11 +30,7 @@ class RpcError extends Equatable {
   final String message;
   final dynamic data;
 
-  const RpcError({
-    required this.code,
-    required this.message,
-    this.data,
-  });
+  const RpcError({required this.code, required this.message, this.data});
 
   factory RpcError.fromJson(Map<String, dynamic> json) =>
       _$RpcErrorFromJson(json);

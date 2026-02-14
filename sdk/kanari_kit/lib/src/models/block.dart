@@ -32,8 +32,15 @@ class BlockInfo extends Equatable {
   Map<String, dynamic> toJson() => _$BlockInfoToJson(this);
 
   @override
-  List<Object?> get props =>
-      [height, timestamp, hash, prevHash, txCount, stateRoot, events];
+  List<Object?> get props => [
+    height,
+    timestamp,
+    hash,
+    prevHash,
+    txCount,
+    stateRoot,
+    events,
+  ];
 }
 
 @JsonSerializable()

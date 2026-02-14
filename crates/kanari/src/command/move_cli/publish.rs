@@ -1,11 +1,12 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use super::{
-    common::{build_blocking_client, get_account_sequence, load_wallet_for, normalize_addr},
-    reroot_path,
+use super::reroot_path;
+use crate::command::common::{
+    build_blocking_client, get_account_sequence, get_rpc_endpoint, get_sender_for_tx,
+    load_wallet_for, normalize_addr, resolve_sender,
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use clap::*;
 use kanari_move_runtime::gas::{GasEstimate, GasOperation};
 use kanari_types::transaction::{SignedTransaction, Transaction};
@@ -47,15 +48,10 @@ impl Publish {
     pub fn execute(self, path: Option<PathBuf>, config: BuildConfig) -> Result<()> {
         let rerooted_path = reroot_path(path.or(self.package_path.clone()))?;
 
-        let rpc = self
-            .rpc_endpoint
-            .clone()
-            .or_else(kanari_common::get_active_rpc)
-            .unwrap_or_else(|| "http://127.0.0.1:19001".to_string());
+        let rpc = get_rpc_endpoint(self.rpc_endpoint.clone());
 
         // Normalize and validate sender address
-        let sender_normalized = normalize_addr(&self.sender)
-            .with_context(|| format!("Invalid sender address: {}", self.sender))?;
+        let sender_normalized = resolve_sender(Some(self.sender.clone()))?;
 
         eprintln!("Building Move package...");
 
@@ -75,12 +71,8 @@ impl Publish {
             .iter()
             .filter(|module_unit| {
                 let module_address = module_unit.unit.module.self_id().address().to_string();
-                let hex = if module_address.starts_with("0x") || module_address.starts_with("0X") {
-                    &module_address[2..]
-                } else {
-                    &module_address
-                };
-                let module_addr_normalized = format!("0x{:0>64}", hex);
+                let module_addr_normalized =
+                    normalize_addr(&module_address).unwrap_or(module_address);
                 module_addr_normalized.to_lowercase() == sender_normalized.to_lowercase()
             })
             .collect();
@@ -107,7 +99,7 @@ impl Publish {
             bail!("No modules found in package");
         }
 
-        // Load wallet (signing is required). If password not provided via CLI, prompt.
+        // Load wallet (signing is required).
         let wallet = {
             let w = load_wallet_for(&sender_normalized, self.password.clone())?;
             eprintln!(
@@ -117,9 +109,13 @@ impl Publish {
             w
         };
 
+        // If it's a PQC or Hybrid wallet, use the tagged address (Curve:PublicKey)
+        // for signing and sender identity to ensure the RPC server can verify it.
+        let sender_for_tx = get_sender_for_tx(&wallet, &sender_normalized)?;
+
         eprintln!("Publishing modules to blockchain...");
         eprintln!("   RPC: {}", rpc);
-        eprintln!("   Sender: {}", sender_normalized);
+        eprintln!("   Sender: {}", sender_for_tx);
 
         let mut published_count = 0;
         let mut skipped_count = 0;
@@ -136,14 +132,7 @@ impl Publish {
             let module_address = module.self_id().address().to_string();
 
             // Normalize module address for comparison
-            let module_addr_normalized = {
-                let hex = if module_address.starts_with("0x") || module_address.starts_with("0X") {
-                    &module_address[2..]
-                } else {
-                    &module_address
-                };
-                format!("0x{:0>64}", hex)
-            };
+            let module_addr_normalized = normalize_addr(&module_address).unwrap_or(module_address);
 
             // Only publish modules where the module address matches the sender
             if module_addr_normalized.to_lowercase() != sender_normalized.to_lowercase() {
@@ -184,7 +173,7 @@ impl Publish {
             // Wrap and sign transaction using SignedTransaction (fatal on failure)
             let signed_tx = {
                 let transaction = Transaction::PublishModule {
-                    sender: sender_normalized.clone(),
+                    sender: sender_for_tx.clone(),
                     module_bytes: module_bytecode.clone(),
                     module_name: module_name.clone(),
                     gas_limit: self.gas_limit,
@@ -199,7 +188,7 @@ impl Publish {
             };
 
             let pub_req = PublishModuleRequest {
-                sender: sender_normalized.clone(),
+                sender: sender_for_tx.clone(),
                 module_bytes: module_bytecode.clone(),
                 module_name: module_name.clone(),
                 gas_limit: self.gas_limit,

@@ -33,11 +33,11 @@ class BlockchainStats extends Equatable {
 
   @override
   List<Object?> get props => [
-        height,
-        totalBlocks,
-        totalTransactions,
-        pendingTransactions,
-        totalAccounts,
-        totalSupply
-      ];
+    height,
+    totalBlocks,
+    totalTransactions,
+    pendingTransactions,
+    totalAccounts,
+    totalSupply,
+  ];
 }

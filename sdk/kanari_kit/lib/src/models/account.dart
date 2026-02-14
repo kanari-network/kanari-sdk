@@ -30,8 +30,14 @@ class AccountInfo extends Equatable {
   Map<String, dynamic> toJson() => _$AccountInfoToJson(this);
 
   @override
-  List<Object?> get props =>
-      [address, balance, sequenceNumber, modules, tokenBalances, ownedObjects];
+  List<Object?> get props => [
+    address,
+    balance,
+    sequenceNumber,
+    modules,
+    tokenBalances,
+    ownedObjects,
+  ];
 }
 
 @JsonSerializable()

@@ -157,6 +157,25 @@ pub struct KeyPair {
     pub curve_type: CurveType,
 }
 
+impl FromStr for CurveType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "K256" => Ok(CurveType::K256),
+            "P256" => Ok(CurveType::P256),
+            "Ed25519" => Ok(CurveType::Ed25519),
+            "Dilithium2" => Ok(CurveType::Dilithium2),
+            "Dilithium3" => Ok(CurveType::Dilithium3),
+            "Dilithium5" => Ok(CurveType::Dilithium5),
+            "SphincsPlusSha256Robust" => Ok(CurveType::SphincsPlusSha256Robust),
+            "Ed25519Dilithium3" => Ok(CurveType::Ed25519Dilithium3),
+            "K256Dilithium3" => Ok(CurveType::K256Dilithium3),
+            _ => Err(format!("Unknown curve type: {}", s)),
+        }
+    }
+}
+
 impl KeyPair {
     /// Export private key in a wrapper that zeroizes on drop
     /// Prefer this API to avoid accidental long-lived clones of secret material.
@@ -208,18 +227,7 @@ impl KeyPair {
         // Use split_once to avoid indexing
         let (curve_str, address_str) = tagged.split_once(':')?;
 
-        let curve_type = match curve_str {
-            "K256" => CurveType::K256,
-            "P256" => CurveType::P256,
-            "Ed25519" => CurveType::Ed25519,
-            "Dilithium2" => CurveType::Dilithium2,
-            "Dilithium3" => CurveType::Dilithium3,
-            "Dilithium5" => CurveType::Dilithium5,
-            "SphincsPlusSha256Robust" => CurveType::SphincsPlusSha256Robust,
-            "Ed25519Dilithium3" => CurveType::Ed25519Dilithium3,
-            "K256Dilithium3" => CurveType::K256Dilithium3,
-            _ => return None,
-        };
+        let curve_type = CurveType::from_str(curve_str).ok()?;
 
         Some((curve_type, address_str.to_string()))
     }
@@ -1341,8 +1349,8 @@ mod tests {
     }
 
     #[test]
-    fn test_safe_signature_verification() {
-        // Test that verify_signature_safe works correctly even when curve type is ambiguous
+    fn test_signature_verification() {
+        // Test that verify_signature works correctly even when curve type is ambiguous
 
         // Generate keypairs for all classical curves
         let k256 = generate_keypair(CurveType::K256).unwrap();
@@ -1352,23 +1360,23 @@ mod tests {
         let message = b"test message for safe verification";
 
         // Sign with each curve
-        use crate::signatures::{sign_message, verify_signature_safe};
+        use crate::signatures::{sign_message, verify_signature};
 
         let k256_sig = sign_message(&k256.private_key, message, CurveType::K256).unwrap();
         let p256_sig = sign_message(&p256.private_key, message, CurveType::P256).unwrap();
         let ed25519_sig = sign_message(&ed25519.private_key, message, CurveType::Ed25519).unwrap();
 
-        // verify_signature_safe should work for all without knowing curve type
+        // verify_signature should work for all without knowing curve type
         assert!(
-            verify_signature_safe(&k256.address, message, &k256_sig).unwrap(),
+            verify_signature(&k256.address, message, &k256_sig).unwrap(),
             "K256 signature should verify with safe method"
         );
         assert!(
-            verify_signature_safe(&p256.address, message, &p256_sig).unwrap(),
+            verify_signature(&p256.address, message, &p256_sig).unwrap(),
             "P256 signature should verify with safe method"
         );
         assert!(
-            verify_signature_safe(&ed25519.address, message, &ed25519_sig).unwrap(),
+            verify_signature(&ed25519.address, message, &ed25519_sig).unwrap(),
             "Ed25519 signature should verify with safe method"
         );
     }

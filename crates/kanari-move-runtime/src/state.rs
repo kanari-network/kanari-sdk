@@ -141,7 +141,9 @@ impl StateManager {
     }
 
     pub fn get_account_by_hex(&self, hex_address: &str) -> Option<&Account> {
-        if let Ok(addr) = AccountAddress::from_hex_literal(hex_address) {
+        // Use Address::parse_to_account_address which handles tagged addresses,
+        // tagged public keys (hashing), and regular 0x addresses.
+        if let Ok(addr) = kanari_types::address::Address::parse_to_account_address(hex_address) {
             self.accounts.get(&addr)
         } else {
             None
@@ -284,7 +286,9 @@ impl StateManager {
     // Deprecated direct mutation helpers removed. Use `ChangeSet` + `apply_changeset()` instead.
 
     pub fn get_balance(&self, address: &str) -> u64 {
-        if let Ok(addr) = AccountAddress::from_hex_literal(address) {
+        // Use Address::parse_to_account_address which handles tagged addresses,
+        // tagged public keys (hashing), and regular 0x addresses.
+        if let Ok(addr) = kanari_types::address::Address::parse_to_account_address(address) {
             self.accounts.get(&addr).map(|acc| acc.balance).unwrap_or(0)
         } else {
             0

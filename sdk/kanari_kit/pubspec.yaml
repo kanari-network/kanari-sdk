@@ -40,7 +40,9 @@ dependencies:
   meta: ^1.11.1
   provider: ^6.1.5
   flutter_spinkit: ^5.2.2
-  kanari_crypto: 0.2.5
+  kanari_crypto:
+    path: ../../packages/kanari_flutter/flutter/kanari_crypto
+  shared_preferences: ^2.3.5
 
 dev_dependencies:
   flutter_test:

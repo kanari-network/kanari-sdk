@@ -1,6 +1,8 @@
 import 'package:kanari_crypto/kanari_crypto.dart';
 import 'dart:typed_data';
 
+import 'package:kanari_kit/src/kanaricurve.dart';
+
 class KanariWallet {
   final KeyPairData _keyPair;
   final String? mnemonic;
@@ -13,29 +15,41 @@ class KanariWallet {
   String get curveType => _keyPair.curveType;
 
   /// Generate a new wallet with a specific curve and random mnemonic
-  static Future<KanariWallet> generate({String curveName = 'Ed25519'}) async {
-    final mnemonic = await generateMnemonicApi(wordCount: BigInt.from(12));
-    final keyPair = await deriveKeypairFromMnemonic(
-      mnemonic: mnemonic,
-      curveName: curveName,
-    );
-    return KanariWallet(keyPair, mnemonic: mnemonic);
+  static Future<KanariWallet> generate({required KanariCurve curve}) async {
+    if (curve.isPostQuantum) {
+      // PQC curves use direct random generation as they don't support BIP39 yet
+      final keyPair = await generateKeypairApi(curveName: curve.name);
+      return KanariWallet(keyPair);
+    } else {
+      final mnemonic = await generateMnemonicApi(wordCount: BigInt.from(12));
+      final keyPair = await deriveKeypairFromMnemonic(
+        mnemonic: mnemonic,
+        curveName: curve.name,
+      );
+      return KanariWallet(keyPair, mnemonic: mnemonic);
+    }
   }
 
   /// Create a wallet from a mnemonic
-  static Future<KanariWallet> fromMnemonic(String mnemonic, {String curveName = 'Ed25519'}) async {
+  static Future<KanariWallet> fromMnemonic(
+    String mnemonic, {
+    required KanariCurve curve,
+  }) async {
     final keyPair = await deriveKeypairFromMnemonic(
       mnemonic: mnemonic,
-      curveName: curveName,
+      curveName: curve.name,
     );
     return KanariWallet(keyPair, mnemonic: mnemonic);
   }
 
   /// Create a wallet from a private key
-  static Future<KanariWallet> fromPrivateKey(String privateKey, {String curveName = 'Ed25519'}) async {
+  static Future<KanariWallet> fromPrivateKey(
+    String privateKey, {
+    required KanariCurve curve,
+  }) async {
     final keyPair = await importKeypairFromPrivateKey(
       privateKey: privateKey,
-      curveName: curveName,
+      curveName: curve.name,
     );
     return KanariWallet(keyPair);
   }
@@ -50,7 +64,9 @@ class KanariWallet {
       );
     } catch (e) {
       // For testing environment where RustLib might not be initialized
-      if (e.toString().contains('flutter_rust_bridge has not been initialized')) {
+      if (e.toString().contains(
+        'flutter_rust_bridge has not been initialized',
+      )) {
         return Uint8List.fromList(List.filled(64, 0)); // Return dummy signature
       }
       rethrow;

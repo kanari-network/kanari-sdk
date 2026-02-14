@@ -74,17 +74,17 @@ class TransactionDetails extends Equatable {
 
   @override
   List<Object?> get props => [
-        hash,
-        status,
-        blockHeight,
-        gasUsed,
-        txType,
-        sender,
-        sequenceNumber,
-        gasLimit,
-        gasPrice,
-        module,
-        function,
-        moduleFunctions,
-      ];
+    hash,
+    status,
+    blockHeight,
+    gasUsed,
+    txType,
+    sender,
+    sequenceNumber,
+    gasLimit,
+    gasPrice,
+    module,
+    function,
+    moduleFunctions,
+  ];
 }

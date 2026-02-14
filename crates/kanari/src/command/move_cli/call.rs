@@ -1,10 +1,14 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use super::common::{build_blocking_client, get_account_sequence, load_wallet_for, normalize_addr};
+use crate::command::common::{
+    build_blocking_client, get_account_sequence, get_rpc_endpoint, get_sender_for_tx,
+    load_wallet_for, normalize_addr, resolve_sender,
+};
 use anyhow::{Context, Result};
 use clap::*;
 use kanari_move_runtime::gas::{GasEstimate, GasOperation};
+use kanari_rpc_api::{CallFunctionRequest, RpcRequest, RpcResponse, methods};
 use kanari_types::transaction::{SignedTransaction, Transaction};
 use log::error;
 use move_core_types::{account_address::AccountAddress, language_storage::TypeTag, parser};
@@ -66,11 +70,7 @@ pub struct Call {
 
 impl Call {
     pub fn execute(self) -> Result<()> {
-        let rpc = self
-            .rpc_endpoint
-            .clone()
-            .or_else(kanari_common::get_active_rpc)
-            .unwrap_or_else(|| "http://127.0.0.1:19001".to_string());
+        let rpc = get_rpc_endpoint(self.rpc_endpoint.clone());
 
         eprintln!("Preparing function call...");
 
@@ -86,8 +86,7 @@ impl Call {
         let package_str = &self.package;
         let module_name = &self.module;
 
-        let sender_normalized = normalize_addr(&self.sender)
-            .with_context(|| format!("Invalid sender address: {}", self.sender))?;
+        let sender_normalized = resolve_sender(Some(self.sender.clone()))?;
         let package_normalized = normalize_addr(package_str)
             .with_context(|| format!("Invalid package address: {}", package_str))?;
 
@@ -98,15 +97,14 @@ impl Call {
         eprintln!("   Gas Limit: {}", self.gas_limit);
         eprintln!("   Gas Price: {}", self.gas_price);
 
-        // Load wallet (signing is required). If password not provided via CLI, prompt.
-        let wallet = {
-            let w = load_wallet_for(&sender_normalized, self.password.clone())?;
-            eprintln!(
-                "   Wallet loaded: {} (curve: {})",
-                sender_normalized, w.curve_type
-            );
-            w
-        };
+        // Load wallet (signing is required).
+        let wallet = load_wallet_for(&sender_normalized, self.password.clone())?;
+        eprintln!(
+            "   Wallet loaded: {} (curve: {})",
+            sender_normalized, wallet.curve_type
+        );
+
+        let sender_for_tx = get_sender_for_tx(&wallet, &sender_normalized)?;
 
         // Parse and validate type arguments (keep original string values for RPC but validate them)
         let parsed_type_args: Vec<String> = if !self.type_args.is_empty() {
@@ -198,7 +196,7 @@ impl Call {
 
             // Create proper Transaction to match server's expectation (use parsed args/type_args)
             let transaction = Transaction::ExecuteFunction {
-                sender: sender_normalized.clone(),
+                sender: sender_for_tx.clone(),
                 module: module_full.clone(),
                 function: self.function.clone(),
                 type_args: parsed_type_args.clone(),
@@ -216,16 +214,10 @@ impl Call {
             stx
         };
 
-        // Build CallFunctionRequest and wrap into RpcRequest
-        use kanari_rpc_api::{CallFunctionRequest, RpcRequest, RpcResponse, methods};
-
-        // Format module as "address::module_name" for runtime compatibility
-        let module_full = format!("{}::{}", package_normalized, module_name);
-
         let call_req = CallFunctionRequest {
-            sender: sender_normalized.clone(),
+            sender: sender_for_tx.clone(),
             package: package_normalized.clone(),
-            module: module_full,
+            module: module_name.clone(),
             function: self.function.clone(),
             type_args: parsed_type_args.clone(),
             args: parsed_args.clone(),
