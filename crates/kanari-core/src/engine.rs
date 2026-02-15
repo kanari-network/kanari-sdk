@@ -599,7 +599,7 @@ impl BlockchainEngine {
                 match runtime.publish_module(
                     module_bytes.clone(),
                     KanariAddress::parse_to_account_address(sender)?,
-                    None,
+                    Some((tx.gas_limit(), tx.gas_price())),
                 ) {
                     Ok(move_cs) => changeset.merge(move_cs),
                     Err(e) => {
@@ -676,7 +676,7 @@ impl BlockchainEngine {
                     type_tags,
                     args.clone(),
                     Some(sender_addr),
-                    None,
+                    Some((tx.gas_limit(), tx.gas_price())),
                     timestamp,
                 ) {
                     Ok(move_cs) => changeset.merge(move_cs),

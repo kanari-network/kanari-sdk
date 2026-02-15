@@ -41,4 +41,11 @@ enum KanariCurve {
   bool get isHybrid =>
       this == KanariCurve.ed25519Dilithium3 ||
       this == KanariCurve.k256Dilithium3;
+
+  static KanariCurve fromString(String curve) {
+    return KanariCurve.values.firstWhere(
+      (e) => e.name.toLowerCase() == curve.toLowerCase(),
+      orElse: () => KanariCurve.ed25519,
+    );
+  }
 }

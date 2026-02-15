@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:kanari_kit/src/kanaricurve.dart';
 import 'models/rpc_response.dart';
 import 'models/health.dart';
 import 'models/account.dart';
@@ -198,7 +199,7 @@ class KanariClient {
     final sequenceNumber = account.sequenceNumber;
 
     // 2. Normalize sender address
-    final senderAddress = wallet.taggedAddress;
+    final senderAddress = _getSenderForTx(wallet);
 
     // 3. Sign the transaction
     // The Node expects the signature of the BCS-serialized Transaction enum.
@@ -280,6 +281,15 @@ class KanariClient {
     return resp.result!;
   }
 
+  String _getSenderForTx(KanariWallet wallet) {
+    final curve = KanariCurve.fromString(wallet.curveType);
+    if (curve.isPostQuantum || curve.isHybrid) {
+      return wallet.taggedAddress;
+    } else {
+      return _normalizeAddress(wallet.address);
+    }
+  }
+
   /// Normalize address to 0x followed by 64 hex characters (32 bytes)
   /// This matches how the Rust Address type is serialized to String.
   String _normalizeAddress(String addr) {
@@ -303,7 +313,7 @@ class KanariClient {
     final sequenceNumber = account.sequenceNumber;
 
     // 2. Normalize addresses to full 64-char hex strings
-    final senderAddress = wallet.taggedAddress;
+    final senderAddress = _getSenderForTx(wallet);
     final normalizedRecipient = _normalizeAddress(recipient);
 
     // 3. Sign the transaction
@@ -373,7 +383,7 @@ class KanariClient {
     final sequenceNumber = account.sequenceNumber;
 
     // 2. Normalize addresses
-    final senderAddress = wallet.taggedAddress;
+    final senderAddress = _getSenderForTx(wallet);
     final packageAddress = _normalizeAddress(package);
 
     // 3. Sign the transaction
@@ -441,7 +451,7 @@ class KanariClient {
     final sequenceNumber = account.sequenceNumber;
 
     // 2. Normalize sender address
-    final senderAddress = wallet.taggedAddress;
+    final senderAddress = _getSenderForTx(wallet);
 
     // 3. Sign the transaction
     // The Node expects the signature of the BCS-serialized Transaction enum.
