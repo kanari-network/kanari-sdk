@@ -205,9 +205,14 @@ impl KeyPair {
 
     /// Get a tagged address that includes curve type information
     /// Format: "curve_type:address" (e.g., "K256:0xabc123...")
+    /// For hybrid keys, format is "curve_type:classical_pub:pqc_pub"
     /// This is the recommended way to store addresses for reliable curve detection
     pub fn tagged_address(&self) -> String {
-        format!("{:?}:{}", self.curve_type, self.address)
+        if self.curve_type.is_hybrid() {
+            format!("{:?}:{}", self.curve_type, self.public_key)
+        } else {
+            format!("{:?}:{}", self.curve_type, self.address)
+        }
     }
 
     /// Create a serializable version that includes private key (use with caution)
