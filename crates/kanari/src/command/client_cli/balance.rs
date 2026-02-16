@@ -1,7 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::command::common::{get_rpc_endpoint, normalize_addr};
+use crate::command::common::{get_rpc_endpoint, resolve_sender};
 use anyhow::{Context, Result};
 use clap::*;
 use kanari_rpc_api::{GetAllBalancesRequest, RpcRequest, RpcResponse, methods};
@@ -13,7 +13,7 @@ use kanari_rpc_client::RpcClient;
 pub struct Balance {
     /// Address to query
     #[clap(long = "address")]
-    pub address: String,
+    pub address: Option<String>,
 
     /// RPC endpoint URL
     #[clap(long = "rpc")]
@@ -27,7 +27,7 @@ pub struct Balance {
 impl Balance {
     pub async fn execute(&self) -> Result<()> {
         let rpc = get_rpc_endpoint(self.rpc_endpoint.clone());
-        let address_normalized = normalize_addr(&self.address)?;
+        let address_normalized = resolve_sender(self.address.clone())?;
 
         eprintln!("Querying token balances...");
         eprintln!("   Address: {}", address_normalized);

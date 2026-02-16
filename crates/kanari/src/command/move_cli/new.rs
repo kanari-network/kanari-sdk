@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use clap::*;
-use kanari_common::load_kanari_config;
 use move_package::source_package::layout::SourcePackageLayout;
 use std::{
     fmt::Display,
@@ -28,18 +27,6 @@ pub struct New {
 }
 
 impl New {
-    /// Tries to load the active address from the kanari config file (used to set the
-    /// package's named address). Defaults to 0x1 if config is unavailable or missing address.
-    fn get_address_from_config() -> Option<String> {
-        match load_kanari_config() {
-            Ok(config) => config
-                .get("active_address")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            Err(_) => None,
-        }
-    }
-
     /// Execute the command using default (empty) dependencies, addresses, and custom strings.
     pub fn execute_with_defaults(self, path: Option<PathBuf>) -> anyhow::Result<()> {
         self.execute(
@@ -125,13 +112,14 @@ MoveStdlib = {{ git = "https://github.com/jamesatomc/kanari-sdk_V2.git", subdir 
         }
 
         // --- Write [addresses] section ---
-        let address = Self::get_address_from_config().unwrap_or_else(|| "0x1".to_string());
+        // Default to 0x0 for the package address (will be overridden by CLI on publish)
+        let address = "0x0";
 
         writeln!(
             w,
             r#"
 [addresses]
-{name} = "{address}" # This package's named address, defaults to active config address
+{name} = "{address}"
 std = "0x1"
 kanari_system = "0x2"
 # Named addresses will be accessible in Move as `@name`. They're also exported:

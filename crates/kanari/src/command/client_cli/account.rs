@@ -1,7 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::command::common::{get_rpc_endpoint, normalize_addr};
+use crate::command::common::{get_rpc_endpoint, resolve_sender};
 use anyhow::{Context, Result};
 use clap::*;
 use kanari_rpc_client::RpcClient;
@@ -13,7 +13,7 @@ pub enum AccountCommand {
     Get {
         /// Address to query
         #[clap(long = "address")]
-        address: String,
+        address: Option<String>,
 
         /// RPC endpoint URL
         #[clap(long = "rpc")]
@@ -29,7 +29,7 @@ impl AccountCommand {
                 rpc_endpoint,
             } => {
                 let rpc = get_rpc_endpoint(rpc_endpoint.clone());
-                let address_normalized = normalize_addr(address)?;
+                let address_normalized = resolve_sender(address.clone())?;
 
                 let client = RpcClient::new(&rpc);
                 let account_info =

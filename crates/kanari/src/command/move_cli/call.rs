@@ -11,14 +11,14 @@ use kanari_move_runtime::gas::{GasEstimate, GasOperation};
 use kanari_rpc_api::{CallFunctionRequest, RpcRequest, RpcResponse, methods};
 use kanari_types::transaction::{SignedTransaction, Transaction};
 use log::error;
-use move_core_types::{account_address::AccountAddress, language_storage::TypeTag, parser};
+use move_core_types::{parser, runtime_value::MoveValue};
 
 /// Call a Move function on the blockchain
 #[derive(Parser)]
 #[clap(
     name = "call",
     about = "Call a Move function on the blockchain",
-    after_help = "Examples:\n  kanari call --package 0x1 --module coin --function transfer --args \"address:0x2\" \"u64:1000\" --sender 0x1\n  kanari call --package 0x1 --module game --function start --args \"[\\\"0x1\\\",\\\"0x2\\\"]\" --sender 0x1 --password mypass\n"
+    after_help = "Examples:\n  kanari call --package 0x1 --module coin --function transfer --args 0x2 1000 --sender 0x1\n"
 )]
 pub struct Call {
     /// Package address (hex)
@@ -45,14 +45,6 @@ pub struct Call {
     /// Example: 0x123 1000 true
     #[clap(long = "args", num_args = 0..)]
     pub args: Vec<String>,
-
-    /// Sender/Caller address (from wallet)
-    #[clap(long = "sender")]
-    pub sender: String,
-
-    /// Wallet password (required for signing)
-    #[clap(long = "password")]
-    pub password: Option<String>,
 
     /// Gas limit for the transaction
     #[clap(long = "gas-limit", default_value = "100000")]
@@ -86,7 +78,7 @@ impl Call {
         let package_str = &self.package;
         let module_name = &self.module;
 
-        let sender_normalized = resolve_sender(Some(self.sender.clone()))?;
+        let sender_normalized = resolve_sender(None)?;
         let package_normalized = normalize_addr(package_str)
             .with_context(|| format!("Invalid package address: {}", package_str))?;
 
@@ -98,7 +90,7 @@ impl Call {
         eprintln!("   Gas Price: {}", self.gas_price);
 
         // Load wallet (signing is required).
-        let wallet = load_wallet_for(&sender_normalized, self.password.clone())?;
+        let wallet = load_wallet_for(&sender_normalized, None)?;
         eprintln!(
             "   Wallet loaded: {} (curve: {})",
             sender_normalized, wallet.curve_type
@@ -107,67 +99,25 @@ impl Call {
         let sender_for_tx = get_sender_for_tx(&wallet, &sender_normalized)?;
 
         // Parse and validate type arguments (keep original string values for RPC but validate them)
-        let parsed_type_args: Vec<String> = if !self.type_args.is_empty() {
-            let mut validated = Vec::new();
+        if !self.type_args.is_empty() {
             for type_arg in &self.type_args {
-                // validate by attempting to parse to a TypeTag
-                let _ = self
-                    .parse_type_arg(type_arg)
+                parser::parse_type_tag(type_arg.trim())
                     .with_context(|| format!("Invalid type argument: {}", type_arg))?;
-                validated.push(type_arg.clone());
             }
             eprintln!("   Type Args: {}", self.type_args.join(", "));
-            validated
-        } else {
-            vec![]
-        };
+        }
+        let parsed_type_args = self.type_args.clone();
 
         // Parse arguments (support typed args and JSON arrays).
-        // Heuristic: support untyped mint form `0x<OBJID> <amount> <0x<recipient>>` by
-        // serializing the first arg (32-byte hex object id) as TreasuryCap-like bytes
-        // (32 raw bytes + zero u64) while leaving amount/address parsing unchanged.
-        let parsed_args: Vec<Vec<u8>> = if !self.args.is_empty() {
-            let mut parsed = Vec::new();
-            let mut i = 0usize;
-            while i < self.args.len() {
-                // If we can look ahead for the common pattern (objid, amount, address),
-                // and the current token looks like a 32-byte hex, produce cap bytes.
-                if i + 2 < self.args.len() {
-                    let maybe_obj = self.args[i].trim();
-                    let maybe_amount = self.args[i + 1].trim();
-                    let maybe_addr = self.args[i + 2].trim();
+        let parsed_args: Vec<Vec<u8>> = self
+            .args
+            .iter()
+            .map(|arg| self.parse_arg_flexible(arg))
+            .collect::<Result<_>>()?;
 
-                    let is_32b_hex = maybe_obj.starts_with("0x")
-                        && maybe_obj[2..].len() == 64
-                        && maybe_obj[2..].chars().all(|c| c.is_ascii_hexdigit());
-                    let is_u64 = maybe_amount.parse::<u64>().is_ok();
-                    let is_addr_like = maybe_addr.starts_with("0x")
-                        && maybe_addr[2..].chars().all(|c| c.is_ascii_hexdigit());
-
-                    if is_32b_hex && is_u64 && is_addr_like {
-                        // Build TreasuryCap-like raw bytes: 32 raw id bytes + u64(0) little-endian
-                        let hex_part = &maybe_obj[2..];
-                        let mut bytes = hex::decode(hex_part).with_context(|| {
-                            format!("Failed to parse hex object id: {}", maybe_obj)
-                        })?;
-                        bytes.extend(&0u64.to_le_bytes());
-                        parsed.push(bytes);
-                        // advance by one; the next tokens (amount/address) will be parsed normally
-                        i += 1;
-                        continue;
-                    }
-                }
-
-                let bytes = self.parse_arg_flexible(&self.args[i])?;
-                parsed.push(bytes);
-                i += 1;
-            }
-
-            eprintln!("   Arguments: {} args provided", parsed.len());
-            parsed
-        } else {
-            vec![]
-        };
+        if !parsed_args.is_empty() {
+            eprintln!("   Arguments: {} args provided", parsed_args.len());
+        }
 
         // Estimate gas using runtime `ContractCall` which accounts for function name length
         let operation = GasOperation::ContractCall {
@@ -244,7 +194,7 @@ impl Call {
                     if let Some(err) = rpc_resp.error {
                         error!("RPC error: {} (code {})", err.message, err.code);
                     } else if let Some(result) = rpc_resp.result {
-                        // Parse result as `TransactionResult` if possible, otherwise print raw JSON
+                        // Parse result as `TransactionResult` if possible to print summary
                         if let Ok(tx_result) = serde_json::from_value::<
                             kanari_rpc_api::TransactionResult,
                         >(result.clone())
@@ -256,49 +206,11 @@ impl Call {
                             if let Some(ref error_msg) = tx_result.error_message {
                                 error!("Transaction failed: {}", error_msg);
                             }
-                        } else {
-                            // Post-process result: if it contains a changeset with created_objects,
-                            // try to populate a uid field when it's null by deriving from the
-                            // canonical id (many canonical ids are just the UID address hex).
-                            let mut pretty_print = result.clone();
-                            if let serde_json::Value::Object(ref mut root_map) = pretty_print
-                                && let Some(changeset_val) = root_map.get_mut("changeset")
-                                && let serde_json::Value::Object(cs_map) = changeset_val
-                                && let Some(created_val) = cs_map.get_mut("created_objects")
-                                && let serde_json::Value::Array(arr) = created_val
-                            {
-                                for entry in arr.iter_mut() {
-                                    // Expect entry to be [id, obj]
-                                    if let serde_json::Value::Array(pair) = entry
-                                        && pair.len() == 2
-                                    {
-                                        // Clone the id value so we can take a mutable
-                                        // reference to the object element without
-                                        // violating the borrow checker.
-                                        let id_clone = pair[0].clone();
-                                        if let serde_json::Value::Object(obj_map) = &mut pair[1] {
-                                            let need_uid = matches!(
-                                                obj_map.get("uid"),
-                                                Some(serde_json::Value::Null) | None
-                                            );
-                                            if need_uid && let Some(id_s) = id_clone.as_str() {
-                                                // If id looks like a hex account (0x...), use it
-                                                if id_s.starts_with("0x") && id_s.len() >= 4 {
-                                                    obj_map.insert(
-                                                        "uid".to_string(),
-                                                        serde_json::json!({ "Object ID": id_s }),
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                        }
 
-                            match serde_json::to_string_pretty(&pretty_print) {
-                                Ok(s) => eprintln!("RPC result:\n{}", s),
-                                Err(_) => eprintln!("RPC result: {}", pretty_print),
-                            }
+                        match serde_json::to_string_pretty(&result) {
+                            Ok(s) => eprintln!("RPC result:\n{}", s),
+                            Err(_) => eprintln!("RPC result: {}", result),
                         }
                     } else {
                         eprintln!("RPC response has no result and no error");
@@ -317,167 +229,20 @@ impl Call {
         Ok(())
     }
 
-    /// Parse a single type argument
-    fn parse_type_arg(&self, type_arg: &str) -> Result<TypeTag> {
-        let type_arg = type_arg.trim();
-
-        // Parse type tag
-        let type_tag = parser::parse_type_tag(type_arg)
-            .with_context(|| format!("Failed to parse type argument: {}", type_arg))?;
-
-        Ok(type_tag)
-    }
-
     /// Flexible parser for a single argument supporting typed syntax and JSON arrays
     fn parse_arg_flexible(&self, arg: &str) -> Result<Vec<u8>> {
         let s = arg.trim();
 
-        // If JSON array, try to parse homogeneous elements and BCS-encode a Vec<T>
-        if s.starts_with('[') && s.ends_with(']') {
-            let v: serde_json::Value = serde_json::from_str(s)
-                .with_context(|| format!("Failed to parse JSON array arg: {}", s))?;
-            if let serde_json::Value::Array(arr) = v {
-                if arr.is_empty() {
-                    return Ok(bcs::to_bytes::<Vec<u8>>(&vec![])?);
-                }
-
-                // All numbers -> Vec<u64>
-                if arr.iter().all(|e| e.is_u64()) {
-                    let mut vec_n = Vec::new();
-                    for e in arr {
-                        vec_n.push(e.as_u64().unwrap());
-                    }
-                    return Ok(bcs::to_bytes(&vec_n)?);
-                }
-
-                // All bools -> Vec<bool>
-                if arr.iter().all(|e| e.is_boolean()) {
-                    let mut vec_b = Vec::new();
-                    for e in arr {
-                        vec_b.push(e.as_bool().unwrap());
-                    }
-                    return Ok(bcs::to_bytes(&vec_b)?);
-                }
-
-                // All hex addresses (strings starting with 0x) -> Vec<AccountAddress>
-                if arr
-                    .iter()
-                    .all(|e| e.is_string() && e.as_str().unwrap().starts_with("0x"))
-                {
-                    let mut vec_addr = Vec::new();
-                    for e in arr {
-                        let saddr = e.as_str().unwrap();
-                        let hex = if saddr.starts_with("0x") || saddr.starts_with("0X") {
-                            &saddr[2..]
-                        } else {
-                            saddr
-                        };
-                        let padded = format!("{:0>64}", hex);
-                        let a = AccountAddress::from_hex_literal(&format!("0x{}", padded))
-                            .with_context(|| {
-                                format!("Failed to parse address in array: {}", saddr)
-                            })?;
-                        vec_addr.push(a);
-                    }
-                    return Ok(bcs::to_bytes(&vec_addr)?);
-                }
-
-                // All strings -> Vec<String>
-                if arr.iter().all(|e| e.is_string()) {
-                    let mut vec_s = Vec::new();
-                    for e in arr {
-                        vec_s.push(e.as_str().unwrap().to_string());
-                    }
-                    return Ok(bcs::to_bytes(&vec_s)?);
-                }
-
-                // Unsupported or mixed-type arrays are rejected
-                anyhow::bail!(
-                    "Unsupported or mixed-type array: all elements must be u64, bool, hex addresses (\"0x...\"), or plain strings. Got: {:?}",
-                    arr
-                );
-            }
+        // Try using the standard Move parser first (handles u8, u64, u128, bool, address, vector<u8> hex)
+        if let Ok(txn_arg) = parser::parse_transaction_argument(s) {
+            let move_val = MoveValue::from(txn_arg);
+            return move_val
+                .simple_serialize()
+                .ok_or_else(|| anyhow::anyhow!("Failed to serialize parsed argument: {}", s));
         }
 
-        // Typed form: "type:value"
-        if let Some(pos) = s.find(':') {
-            let (ty, val) = s.split_at(pos);
-            let val = &val[1..];
-            match ty {
-                "u64" => {
-                    let n: u64 = val
-                        .parse()
-                        .with_context(|| format!("Invalid u64: {}", val))?;
-                    return Ok(bcs::to_bytes(&n)?);
-                }
-                "u128" => {
-                    let n: u128 = val
-                        .parse()
-                        .with_context(|| format!("Invalid u128: {}", val))?;
-                    return Ok(bcs::to_bytes(&n)?);
-                }
-                "bool" => {
-                    let b = match val {
-                        "true" => true,
-                        "false" => false,
-                        _ => return Err(anyhow::anyhow!("Invalid bool: {}", val)),
-                    };
-                    return Ok(bcs::to_bytes(&b)?);
-                }
-                "address" => {
-                    let hex = if val.starts_with("0x") || val.starts_with("0X") {
-                        &val[2..]
-                    } else {
-                        val
-                    };
-                    let padded = format!("{:0>64}", hex);
-                    let addr = AccountAddress::from_hex_literal(&format!("0x{}", padded))
-                        .with_context(|| format!("Failed to parse address: {}", val))?;
-                    return Ok(bcs::to_bytes(&addr)?);
-                }
-                "hex" => {
-                    let hv = if val.starts_with("0x") || val.starts_with("0X") {
-                        &val[2..]
-                    } else {
-                        val
-                    };
-                    return hex::decode(hv)
-                        .with_context(|| format!("Failed to parse hex: {}", val));
-                }
-                _ => {
-                    // fallthrough to auto-detect
-                }
-            }
-        }
-
-        // Auto-detect (legacy): hex addresses/bytes, numbers, bools, string
-        let arg = s;
-        if let Some(hex_str) = arg.strip_prefix("0x") {
-            if hex_str.len() <= 64 && hex_str.chars().all(|c| c.is_ascii_hexdigit()) {
-                // Treat as address (pad to 32 bytes)
-                let padded = format!("{:0>64}", hex_str);
-                let addr = AccountAddress::from_hex_literal(&format!(r"0x{}", padded))
-                    .with_context(|| format!("Failed to parse address: {}", arg))?;
-                return bcs::to_bytes(&addr)
-                    .with_context(|| format!("Failed to encode address: {}", arg));
-            }
-            // raw hex bytes
-            return hex::decode(hex_str).with_context(|| format!("Failed to parse hex: {}", arg));
-        }
-
-        if let Ok(num) = arg.parse::<u64>() {
-            return Ok(bcs::to_bytes(&num)?);
-        }
-
-        if let Ok(num) = arg.parse::<u128>() {
-            return Ok(bcs::to_bytes(&num)?);
-        }
-
-        if arg == "true" || arg == "false" {
-            let b = arg == "true";
-            return Ok(bcs::to_bytes(&b)?);
-        }
-
-        Ok(bcs::to_bytes(arg)?)
+        // Fallback: treat as String (UTF-8 bytes)
+        // This allows passing string arguments directly
+        Ok(bcs::to_bytes(&s.to_string())?)
     }
 }

@@ -30,14 +30,6 @@ pub struct Publish {
     #[clap(long = "gas-price", default_value = "100")]
     pub gas_price: u64,
 
-    /// Account address publishing the module (from wallet)
-    #[clap(long = "sender")]
-    pub sender: String,
-
-    /// Wallet password (required for signing)
-    #[clap(long = "password")]
-    pub password: Option<String>,
-
     /// RPC endpoint
     #[clap(long = "rpc")]
     pub rpc_endpoint: Option<String>,
@@ -51,7 +43,7 @@ impl Publish {
         let rpc = get_rpc_endpoint(self.rpc_endpoint.clone());
 
         // Normalize and validate sender address
-        let sender_normalized = resolve_sender(Some(self.sender.clone()))?;
+        let sender_normalized = resolve_sender(None)?;
 
         eprintln!("Building Move package...");
 
@@ -101,7 +93,7 @@ impl Publish {
 
         // Load wallet (signing is required).
         let wallet = {
-            let w = load_wallet_for(&sender_normalized, self.password.clone())?;
+            let w = load_wallet_for(&sender_normalized, None)?;
             eprintln!(
                 "   Wallet loaded: {} (curve: {})",
                 sender_normalized, w.curve_type
@@ -228,12 +220,12 @@ impl Publish {
                                     if let Some(ref error_msg) = tx_result.error_message {
                                         error!("     Transaction failed: {}", error_msg);
                                     }
-                                } else {
-                                    // Fallback to pretty-print JSON
-                                    match serde_json::to_string_pretty(&result) {
-                                        Ok(s) => eprintln!("     RPC result:\n{}", s),
-                                        Err(_) => eprintln!("     RPC result: {}", result),
-                                    }
+                                }
+
+                                // Always print the RPC result to show any side effects (like created objects)
+                                match serde_json::to_string_pretty(&result) {
+                                    Ok(s) => eprintln!("     RPC result:\n{}", s),
+                                    Err(_) => eprintln!("     RPC result: {}", result),
                                 }
                             } else {
                                 eprintln!("     RPC response has no result and no error");
