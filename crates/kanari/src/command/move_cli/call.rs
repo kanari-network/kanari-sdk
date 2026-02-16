@@ -119,10 +119,8 @@ impl Call {
             eprintln!("   Arguments: {} args provided", parsed_args.len());
         }
 
-        // Estimate gas using runtime `ContractCall` which accounts for function name length
-        let operation = GasOperation::ContractCall {
-            function_name_len: self.function.len(),
-        };
+        // Estimate gas using runtime `ExecuteFunction`
+        let operation = GasOperation::ExecuteFunction { complexity: 1 };
         let estimate = GasEstimate::from_operation(operation, self.gas_price);
         eprintln!("Gas estimation:");
         eprintln!("   Estimated: {} units", estimate.gas_units);

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
-use tracing::{info, warn};
+use tracing::info;
 
 /// Persistent peer information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,31 +120,6 @@ impl PeerStore {
                 },
             );
         }
-    }
-
-    /// Remove a peer
-    #[allow(dead_code)]
-    pub fn remove_peer(&mut self, peer_id: &PeerId) {
-        let peer_id_str = peer_id.to_string();
-        self.peers.remove(&peer_id_str);
-    }
-
-    /// Get all known peer addresses for reconnection
-    #[allow(dead_code)]
-    pub fn get_peer_addresses(&self) -> Vec<Multiaddr> {
-        let mut addresses = Vec::new();
-
-        for peer_info in self.peers.values() {
-            for addr_str in &peer_info.addresses {
-                if let Ok(addr) = addr_str.parse::<Multiaddr>() {
-                    addresses.push(addr);
-                } else {
-                    warn!("Failed to parse peer address: {}", addr_str);
-                }
-            }
-        }
-
-        addresses
     }
 
     /// Clean up old peers (not seen in last 7 days)

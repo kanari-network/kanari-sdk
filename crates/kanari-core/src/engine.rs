@@ -4,9 +4,7 @@
 use anyhow::{Context, Result};
 use centauri::blockchain::Blockchain;
 use centauri::consensus::{Checkpoint, PersistentDagState};
-use kanari_move_runtime::ContractABI;
 use kanari_move_runtime::changeset::ChangeSet;
-use kanari_move_runtime::contract::{ContractInfo, ContractRegistry};
 use kanari_move_runtime::gas::{GasMeter, GasOperation};
 use kanari_move_runtime::move_runtime::MoveRuntime;
 use kanari_move_runtime::state::StateManager;
@@ -75,7 +73,6 @@ pub struct BlockchainEngine {
     pub blockchain: Arc<RwLock<Blockchain>>,
     pub state: Arc<RwLock<StateManager>>,
     pub pending_txs: Arc<RwLock<Vec<SignedTransaction>>>,
-    pub contract_registry: Arc<RwLock<ContractRegistry>>,
     pub persistent_store: Option<Arc<PersistentStore>>,
     // Reusable pool of MoveRuntime instances for parallel execution
     pub runtime_pool: Vec<Arc<std::sync::Mutex<kanari_move_runtime::move_runtime::MoveRuntime>>>,
@@ -233,7 +230,6 @@ impl BlockchainEngine {
 
         // Note: treasuries are loaded above when StateManager is initialized
         let pending_txs = Arc::new(RwLock::new(Vec::new()));
-        let contract_registry = Arc::new(RwLock::new(ContractRegistry::new()));
 
         // Initialize LRU cache for merkle proofs (cache up to 1000 proofs)
         let proof_cache = Arc::new(RwLock::new(LruCache::new(
@@ -250,7 +246,6 @@ impl BlockchainEngine {
             blockchain,
             state,
             pending_txs,
-            contract_registry,
             persistent_store,
             runtime_pool,
             proof_cache,
@@ -727,7 +722,6 @@ impl BlockchainEngine {
             blockchain: self.blockchain.clone(),
             state: self.state.clone(),
             pending_txs: self.pending_txs.clone(),
-            contract_registry: self.contract_registry.clone(),
             persistent_store: self.persistent_store.clone(),
             runtime_pool: self.runtime_pool.clone(),
             proof_cache: self.proof_cache.clone(),
@@ -880,49 +874,6 @@ impl BlockchainEngine {
         KanariAddress::from_str(addr)
             .map(|a| a.to_hex())
             .unwrap_or_else(|_| addr.trim_start_matches("0x").to_lowercase())
-    }
-
-    /// Deploy a contract (publish Move module).
-    /// Expects a `SignedTransaction` containing a `PublishModule` transaction.
-    pub fn deploy_contract(&self, signed_tx: SignedTransaction) -> Result<Vec<u8>> {
-        // Submit the signed transaction (will verify signature)
-        let tx_hash = self.submit_transaction(signed_tx.clone())?;
-
-        // Extract deployment info from the transaction and register the contract
-        if let Transaction::PublishModule {
-            sender,
-            module_bytes,
-            module_name,
-            ..
-        } = signed_tx.transaction
-        {
-            let block_height = self.blockchain.read().unwrap().height();
-            let contract_info = ContractInfo {
-                address: sender,
-                module_name,
-                bytecode: module_bytes,
-                deployment_tx: tx_hash.clone(),
-                deployed_at: block_height,
-                abi: ContractABI::new(),
-                metadata: kanari_move_runtime::contract::ContractMetadata::new(
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                ),
-            };
-
-            self.contract_registry
-                .write()
-                .unwrap()
-                .register(contract_info);
-        }
-
-        Ok(tx_hash)
-    }
-
-    /// Call a contract function using a pre-signed `SignedTransaction`.
-    pub fn call_contract(&self, signed_tx: SignedTransaction) -> Result<Vec<u8>> {
-        self.submit_transaction(signed_tx)
     }
 
     /// Get module bytecode from Move storage

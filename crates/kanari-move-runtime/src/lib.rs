@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod changeset;
-pub mod contract;
 
 pub mod gas;
 pub mod move_runtime;
@@ -14,10 +13,6 @@ pub mod storage;
 // mod tests;
 
 pub use changeset::{AccountChange, ChangeSet};
-pub use contract::{
-    ContractABI, ContractCall, ContractDeployment, ContractInfo, ContractMetadata,
-    ContractRegistry, FieldInfo, FunctionSignature, ParameterInfo, StructSignature,
-};
 
 pub use gas::{GasConfig, GasError, GasEstimate, GasMeter, GasOperation, TransactionGas};
 pub use kanari_crypto::keys::CurveType;

@@ -30,13 +30,6 @@ impl super::MoveRuntime {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
-    /// Delete object from storage
-    pub fn delete_object(&mut self, object_id: &str) -> Result<()> {
-        self.object_storage
-            .delete_object(object_id)
-            .map_err(|e| anyhow::anyhow!(e))
-    }
-
     /// Get object storage count
     pub fn get_object_count(&self) -> usize {
         self.object_storage.count()

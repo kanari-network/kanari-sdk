@@ -38,9 +38,6 @@ pub struct MoveRuntime {
     pub(crate) vm: MoveVM,
     pub(crate) storage: InMemoryStorage,
     pub(crate) state: MoveVMState,
-    /// Whether to use gas metering in VM sessions
-    #[allow(dead_code)]
-    pub(crate) enable_gas_metering: bool,
     /// Index of published modules for faster listing
     pub(crate) published_modules: HashSet<ModuleId>,
     /// Persistent object storage for transferred objects
@@ -51,14 +48,13 @@ impl MoveRuntime {
     /// Open the runtime using the default persistent DB path (see README).
     /// Initializes VM without custom natives (for basic usage).
     pub fn new() -> Result<Self> {
-        Self::new_with_natives(vec![], false)
+        Self::new_with_natives(vec![])
     }
 
     /// Create a new MoveRuntime with custom native functions.
     ///
     /// # Arguments
     /// * `natives` - Native function tables for custom functions (e.g., crypto operations)
-    /// * `enable_gas_metering` - Whether to enable gas metering in VM sessions
     ///
     /// # Example
     /// ```ignore
@@ -67,11 +63,10 @@ impl MoveRuntime {
     ///
     /// let system_addr = AccountAddress::from_hex_literal("0x2").unwrap();
     /// let natives = move_natives::all_natives(system_addr);
-    /// let runtime = MoveRuntime::new_with_natives(vec![natives], true)?;
+    /// let runtime = MoveRuntime::new_with_natives(vec![natives])?;
     /// ```
     pub fn new_with_natives(
         natives: Vec<NativeFunctionTable>,
-        enable_gas_metering: bool,
     ) -> Result<Self> {
         let state = if cfg!(miri) {
             MoveVMState::new_in_memory()?
@@ -126,7 +121,6 @@ impl MoveRuntime {
             vm,
             storage,
             state,
-            enable_gas_metering,
             published_modules,
             object_storage,
         })
@@ -166,7 +160,6 @@ impl MoveRuntime {
                 tx_context_natives,
                 object_natives,
             ],
-            true,
         )?;
 
         // Load pre-compiled Kanari system modules (skip under Miri to avoid
@@ -241,25 +234,6 @@ impl MoveRuntime {
         // Then load Kanari system modules (0x2::*)
         self.load_kanari_system()?;
 
-        Ok(())
-    }
-
-    /// Manually update object storage with a created object.
-    pub fn update_object_storage(
-        &mut self,
-        object_id: &str,
-        object: &crate::changeset::CreatedObject,
-    ) -> Result<()> {
-        let stored = crate::storage::object_storage::StoredObject {
-            id: object_id.to_string(),
-            owner: object.owner,
-            type_name: object.type_.clone(),
-            data: object.data.clone(),
-            version: object.version,
-        };
-        self.object_storage
-            .store_object(stored)
-            .map_err(|e| anyhow::anyhow!(e))?;
         Ok(())
     }
 

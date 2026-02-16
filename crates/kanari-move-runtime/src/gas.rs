@@ -39,15 +39,6 @@ pub enum GasOperation {
     PublishModule { module_size: usize },
     /// Execute a Move function
     ExecuteFunction { complexity: u32 },
-    /// Call a contract function
-    ContractCall { function_name_len: usize },
-    /// Deploy a contract with metadata
-    ContractDeployment {
-        module_size: usize,
-        metadata_size: usize,
-    },
-    /// Query contract information
-    ContractQuery,
     /// Create new account
     CreateAccount,
     /// Update account state
@@ -67,18 +58,6 @@ impl GasOperation {
                 // Base cost + complexity multiplier
                 30_000 + (*complexity as u64 * 1_000)
             }
-            GasOperation::ContractCall { function_name_len } => {
-                // Base cost for contract call + name length overhead
-                35_000 + (*function_name_len as u64 * 100)
-            }
-            GasOperation::ContractDeployment {
-                module_size,
-                metadata_size,
-            } => {
-                // Higher cost for full contract deployment with registry
-                60_000 + (*module_size as u64 * 10) + (*metadata_size as u64 * 5)
-            }
-            GasOperation::ContractQuery => 1_000,
             GasOperation::CreateAccount => 25_000,
             GasOperation::UpdateAccount => 5_000,
         }
@@ -90,9 +69,6 @@ impl GasOperation {
             GasOperation::Transfer => "Transfer",
             GasOperation::PublishModule { .. } => "PublishModule",
             GasOperation::ExecuteFunction { .. } => "ExecuteFunction",
-            GasOperation::ContractCall { .. } => "ContractCall",
-            GasOperation::ContractDeployment { .. } => "ContractDeployment",
-            GasOperation::ContractQuery => "ContractQuery",
             GasOperation::CreateAccount => "CreateAccount",
             GasOperation::UpdateAccount => "UpdateAccount",
         }
@@ -294,16 +270,8 @@ mod tests {
         let publish = GasOperation::PublishModule { module_size: 1000 };
         assert_eq!(publish.gas_units(), 60_000); // 50_000 + 1000*10
 
-        let contract_call = GasOperation::ContractCall {
-            function_name_len: 10,
-        };
-        assert_eq!(contract_call.gas_units(), 36_000); // 35_000 + 10*100
-
-        let deployment = GasOperation::ContractDeployment {
-            module_size: 1000,
-            metadata_size: 200,
-        };
-        assert_eq!(deployment.gas_units(), 71_000); // 60_000 + 1000*10 + 200*5
+        let execute = GasOperation::ExecuteFunction { complexity: 10 };
+        assert_eq!(execute.gas_units(), 40_000); // 30_000 + 10 * 1_000
     }
 
     #[test]

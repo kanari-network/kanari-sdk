@@ -77,7 +77,6 @@ pub trait ObjectStore: Send + Sync {
     fn store_object(&self, obj: StoredObject) -> Result<(), ObjectStorageError>;
     fn get_object(&self, id: &str) -> Option<StoredObject>;
     fn get_objects_by_owner(&self, owner: &AccountAddress) -> Vec<StoredObject>;
-    fn delete_object(&self, id: &str) -> Result<(), ObjectStorageError>;
     fn transfer_object(
         &self,
         id: &str,
@@ -272,42 +271,6 @@ impl ObjectStorage {
             .collect()
     }
 
-    /// Delete object by ID
-    pub fn delete_object(&self, id: &str) -> Result<(), ObjectStorageError> {
-        // Remove from memory
-        {
-            let mut state = self.state.write().map_err(|e| {
-                ObjectStorageError::LockError(format!("Failed to acquire write lock: {}", e))
-            })?;
-
-            let obj = state.objects.remove(id);
-            if let Some(ref o) = obj {
-                // Remove from owner index
-                if let Some(ids) = state.owner_index.get_mut(&o.owner) {
-                    ids.retain(|oid| oid != id);
-                }
-            }
-        };
-
-        // Always try to remove from persistent store if enabled
-        // (Even if it wasn't in memory, it might be on disk)
-        if let Some(store) = &self.persistent {
-            // delete object key
-            store.delete(&format!("object:{}", id))?;
-
-            // update index
-            let mut ids = store
-                .load::<Vec<String>>(Self::OBJECT_INDEX_KEY)?
-                .unwrap_or_default();
-            if ids.contains(&id.to_string()) {
-                ids.retain(|x| x != id);
-                store.save(Self::OBJECT_INDEX_KEY, &ids)?;
-            }
-        }
-
-        Ok(())
-    }
-
     /// Update object ownership
     pub fn transfer_object(
         &self,
@@ -397,10 +360,6 @@ impl ObjectStore for ObjectStorage {
 
     fn get_objects_by_owner(&self, owner: &AccountAddress) -> Vec<StoredObject> {
         ObjectStorage::get_objects_by_owner(self, owner)
-    }
-
-    fn delete_object(&self, id: &str) -> Result<(), ObjectStorageError> {
-        ObjectStorage::delete_object(self, id)
     }
 
     fn transfer_object(

@@ -60,11 +60,6 @@ erDiagram
     GasMeter }o--|| GasConfig : configured_by
     GasMeter }o--|| GasEstimate : produces
 
-    ContractRegistry ||--o{ ContractInfo : registers
-    ContractInfo ||--o{ FunctionSignature : exposes
-    ContractCall ||--|| ContractInfo : targets
-    ContractDeployment ||--|| ContractRegistry : updates
-
     MoveRuntime ||--|| MoveRuntimeExtensions : integrates
     MoveRuntimeExtensions ||--|| parsers : helpers
 
@@ -89,10 +84,6 @@ erDiagram
 - `ObjectStore` trait: [src/storage/object_storage.rs#L15](src/storage/object_storage.rs#L15)
 - `StoredObject`: [src/storage/object_storage.rs#L27](src/storage/object_storage.rs#L27)
 - `ObjectStorage`: [src/storage/object_storage.rs#L36](src/storage/object_storage.rs#L36)
-- `ContractInfo`: [src/contract.rs#L15](src/contract.rs#L15)
-- `ContractRegistry`: [src/contract.rs#L183](src/contract.rs#L183)
-- `ContractCall`: [src/contract.rs#L257](src/contract.rs#L257)
-- `ContractDeployment`: [src/contract.rs#L333](src/contract.rs#L333)
 - `GasConfig`: [src/gas.rs#L8](src/gas.rs#L8)
 - `GasOperation`: [src/gas.rs#L35](src/gas.rs#L35)
 - `GasMeter`: [src/gas.rs#L104](src/gas.rs#L104)
