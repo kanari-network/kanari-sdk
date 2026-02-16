@@ -617,6 +617,7 @@ impl BlockchainEngine {
                     module_bytes.clone(),
                     KanariAddress::parse_to_account_address(sender)?,
                     Some((tx.gas_limit(), tx.gas_price())),
+                    timestamp,
                 ) {
                     Ok(move_cs) => changeset.merge(move_cs),
                     Err(e) => {

@@ -255,10 +255,13 @@ impl ChangeSet {
         data: Vec<u8>,
         version: u64,
         uid: Option<UIDRecord>,
+        object_id: Option<String>,
     ) {
-        // Compute canonical id first: prefer UID address when present, otherwise
-        // derive deterministic id from owner+type+data via blake3.
-        let canonical_id = if let Some(ref u) = uid {
+        // Compute canonical id first: prefer explicit object_id, then UID address,
+        // otherwise derive deterministic id from owner+type+data via blake3.
+        let canonical_id = if let Some(id) = object_id {
+            id
+        } else if let Some(ref u) = uid {
             format!("{:#x}", u.address())
         } else {
             let mut input = Vec::new();

@@ -88,7 +88,7 @@ impl super::MoveRuntime {
         for module_file in module_order {
             let module_path = modules_dir.join(module_file);
             if let Ok(module_bytes) = std::fs::read(&module_path) {
-                match self.publish_module(module_bytes, std_addr, None) {
+                match self.publish_module(module_bytes, std_addr, None, None) {
                     Ok(_) => count += 1,
                     Err(e) => {
                         // Silently skip already loaded modules
@@ -193,7 +193,7 @@ impl super::MoveRuntime {
 
             if let Ok(module_bytes) = std::fs::read(&module_path) {
                 // Publish module silently (no gas accounting for system modules)
-                match self.publish_module(module_bytes.clone(), system_addr, None) {
+                match self.publish_module(module_bytes.clone(), system_addr, None, None) {
                     Ok(_) => count += 1,
                     Err(e) => {
                         // Silently skip already loaded modules

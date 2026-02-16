@@ -100,6 +100,7 @@ module kanari_system::collection {
         assert!(cap.remaining > 0, E_NO_SUPPLY);
         cap.issued_counter = cap.issued_counter + 1;
         cap.remaining = cap.remaining - 1;
+        object::save_object(cap);
     }
 
     /// Return one supply unit to cap (used on burn).
@@ -107,6 +108,7 @@ module kanari_system::collection {
         cap.remaining = cap.remaining + 1;
         // Note: issued_counter is intentionally not decremented; it records how many
         // items have been minted historically.
+        object::save_object(cap);
     }
 
     /// Get the creator of a collection.

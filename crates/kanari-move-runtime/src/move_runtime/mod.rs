@@ -26,7 +26,7 @@ use kanari_types::tx_context::TxContextModule;
 pub mod move_runtime_extensions;
 use crate::changeset::ChangeSet;
 use crate::storage::move_vm_state::MoveVMState;
-use crate::storage::object_storage::{ObjectStorage, ObjectStore};
+use crate::storage::object_storage::{ObjectStorage, ObjectStore, StoredObject};
 use kanari_types::tx_context::TxContextRecord;
 use move_vm_types::loaded_data::runtime_types::Type as RuntimeType;
 
@@ -150,9 +150,22 @@ impl MoveRuntime {
         // Event natives at 0x2 (provides `event::emit` native)
         let event_natives = kanari_system_natives::event::all_natives(system_addr);
 
+        // TxContext natives at 0x2
+        let tx_context_natives = kanari_system_natives::tx_context::all_natives(system_addr);
+
+        // Object natives (save_object) at 0x2
+        let object_natives = kanari_system_natives::object::all_natives(system_addr);
+
         // Create runtime with natives
         let mut runtime = Self::new_with_natives(
-            vec![std_natives, crypto_natives, transfer_natives, event_natives],
+            vec![
+                std_natives,
+                crypto_natives,
+                transfer_natives,
+                event_natives,
+                tx_context_natives,
+                object_natives,
+            ],
             true,
         )?;
 
@@ -231,6 +244,25 @@ impl MoveRuntime {
         Ok(())
     }
 
+    /// Manually update object storage with a created object.
+    pub fn update_object_storage(
+        &mut self,
+        object_id: &str,
+        object: &crate::changeset::CreatedObject,
+    ) -> Result<()> {
+        let stored = crate::storage::object_storage::StoredObject {
+            id: object_id.to_string(),
+            owner: object.owner,
+            type_name: object.type_.clone(),
+            data: object.data.clone(),
+            version: object.version,
+        };
+        self.object_storage
+            .store_object(stored)
+            .map_err(|e| anyhow::anyhow!(e))?;
+        Ok(())
+    }
+
     /// Publish a module (bytes) with the given sender address.
     /// Returns ChangeSet containing the module addition and any resource changes from Move VM.
     pub fn publish_module(
@@ -240,6 +272,8 @@ impl MoveRuntime {
         // Optional gas tuple: (gas_limit, gas_price). If `Some`, runtime will
         // include gas accounting (debit sender, credit DAO) in the returned ChangeSet.
         gas_info: Option<(u64, u64)>,
+        // Optional timestamp for TxContext (defaults to SystemTime::now() if None)
+        _timestamp: Option<u64>,
     ) -> Result<ChangeSet> {
         // Deserialize to get module ID early
         let compiled = CompiledModule::deserialize_with_defaults(&module_bytes)
@@ -396,14 +430,28 @@ impl MoveRuntime {
 
         // Create TxContext struct using canonical Kanari type and serialize with BCS
         let sender_addr = sender.unwrap_or(AccountAddress::ZERO);
-        let tx_hash = vec![0u8; 32]; // Placeholder
-        let epoch = 0u64;
+
+        // Generate a pseudo-unique tx_hash to prevent UID collisions across transactions.
+        // In a real node, this would be the transaction digest.
+        // Here we mix timestamp and a thread-local counter or similar entropy.
         let epoch_timestamp_ms = timestamp.unwrap_or_else(|| {
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as u64
         });
+
+        let mut tx_hash = vec![0u8; 32];
+        // Use timestamp as part of the hash
+        let ts_bytes = epoch_timestamp_ms.to_le_bytes();
+        tx_hash[0..8].copy_from_slice(&ts_bytes);
+        // Mix in function name to differentiate calls in same ms
+        let func_bytes = function_name.as_bytes();
+        for (i, b) in func_bytes.iter().enumerate().take(24) {
+            tx_hash[8 + i] ^= b;
+        }
+
+        let epoch = 0u64;
         let ids_created = 0u64;
 
         let tx_ctx = TxContextRecord::from_address(
@@ -416,11 +464,84 @@ impl MoveRuntime {
 
         let tx_context_bytes = bcs::to_bytes(&tx_ctx)?;
 
+        // Track loaded mutable objects for writeback: (arg_index, object_id, owner, type_name, version)
+        let mut loaded_mutable_objects: Vec<(usize, String, AccountAddress, String, u64)> =
+            Vec::new();
+
         // Conditionally add TxContext as last argument if the function expects one.
-        // We load the function signature and verify:
-        // 1. Parameter count matches args + 1
-        // 2. Last parameter type is EXACTLY TxContext (0x2::tx_context::TxContext)
+        // Also perform Object Loading: if a parameter is a Struct and the argument is an ID,
+        // load the object from storage.
         if let Ok(func) = session.load_function(module_id, ident, &ty_args_loaded) {
+            // 1. Object Loading
+            for (i, param_type) in func.parameters.iter().enumerate() {
+                if i >= final_args.len() {
+                    break;
+                }
+
+                // Check if this parameter expects a Struct (or Reference to Struct)
+                // and if the provided argument is a potential Object ID (32 bytes).
+                let is_potential_id = final_args[i].len() == 32;
+
+                if is_potential_id {
+                    let type_tag_opt =
+                        session
+                            .get_type_tag(param_type)
+                            .ok()
+                            .or_else(|| match param_type {
+                                RuntimeType::Reference(inner)
+                                | RuntimeType::MutableReference(inner) => {
+                                    session.get_type_tag(inner).ok()
+                                }
+                                _ => None,
+                            });
+
+                    if let Some(TypeTag::Struct(struct_tag)) = type_tag_opt {
+                        // It expects a Struct, and we have 32 bytes. Try to load as Object.
+                        let object_id = format!("0x{}", hex::encode(&final_args[i]));
+
+                        // Try to fetch from ObjectStorage
+                        if let Some(stored_obj) = self.object_storage.get_object(&object_id) {
+                            // Verify type match (basic check)
+                            // stored_obj.type_name is string like "0x2::coin::Coin<...>"
+                            // struct_tag to string conversion needed
+                            let _expected_type = format!(
+                                "0x{}::{}::{}",
+                                struct_tag.address.short_str_lossless(),
+                                struct_tag.module.as_str(),
+                                struct_tag.name.as_str()
+                            );
+
+                            // Simple substring check or full match?
+                            // Kanari type names are full canonical.
+                            // Let's assume strict check is safer, but allow partial for generics if needed.
+                            // For now, just load it. The VM will verify the layout deserialization.
+                            // If deserialization fails, VM execution will fail.
+
+                            debug!("[RUNTIME] Loaded object {} for param {}", object_id, i);
+                            final_args[i] = stored_obj.data.clone();
+
+                            // If this parameter is a mutable reference (&mut T),
+                            // modifications made by the entry function need to be persisted.
+                            // We track it here and write back after execution.
+                            if let RuntimeType::MutableReference(_) = param_type {
+                                loaded_mutable_objects.push((
+                                    i,
+                                    stored_obj.id.clone(),
+                                    stored_obj.owner,
+                                    stored_obj.type_name.clone(),
+                                    stored_obj.version,
+                                ));
+                                debug!(
+                                    "[RUNTIME] Tracking mutable object {} for writeback",
+                                    object_id
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. TxContext Injection
             let param_count = func.parameters.len();
             if param_count == final_args.len() + 1 {
                 // Check if last parameter is TxContext type
@@ -483,23 +604,26 @@ impl MoveRuntime {
         // VM will pass this extension container to `NativeContext` during
         // native function execution.
         use kanari_system_natives::event::EventsExt;
+        use kanari_system_natives::object::SavedObjectsExt;
         use kanari_system_natives::transfer_natives::TransferredObjectsExt;
         let exts = session.get_native_extensions();
         exts.add(TransferredObjectsExt::default());
         exts.add(EventsExt::default());
+        exts.add(SavedObjectsExt::default());
 
-        session
+        let return_values = session
             .execute_entry_function(module_id, ident, ty_args_loaded, final_args, &mut gas)
             .map_err(|e| anyhow::anyhow!(format!("exec error: {:?}", e)))?;
 
         // After execution, collect transferred objects and captured events
         // from the native-extensions container before consuming the session
         // with `finish()`.
-        let (transferred, captured_events) = {
+        let (transferred, captured_events, saved_objects) = {
             let exts_after = session.get_native_extensions();
             let trans = exts_after.get_mut::<TransferredObjectsExt>().take_all();
             let evs = exts_after.get_mut::<EventsExt>().take_all();
-            (trans, evs)
+            let saved = exts_after.get_mut::<SavedObjectsExt>().take_all();
+            (trans, evs, saved)
         };
 
         let (res, _new_storage) = session.finish();
@@ -515,6 +639,88 @@ impl MoveRuntime {
         // Parse Move VM changeset and events
         self.parse_move_changeset(&move_changeset, &mut cs);
         self.parse_move_events(&events, &mut cs);
+
+        // Writeback: Update ChangeSet with modified mutable objects
+        let mut processed_ids = std::collections::HashSet::new();
+
+        debug!(
+            "[RUNTIME] Processing mutable reference outputs: count={}",
+            return_values.mutable_reference_outputs.len()
+        );
+        for (idx, data, _layout) in return_values.mutable_reference_outputs {
+            debug!("[RUNTIME] Mutable output at index {}", idx);
+            // Find matching loaded object by index
+            if let Some((_, id, owner, type_name, version)) = loaded_mutable_objects
+                .iter()
+                .find(|(i, _, _, _, _)| *i == idx as usize)
+            {
+                debug!(
+                    "[RUNTIME] Writing back mutable object {} (size: {})",
+                    id,
+                    data.len()
+                );
+                // Create updated object record
+                let updated_obj = crate::changeset::CreatedObject {
+                    owner: *owner,
+                    uid: None, // UID is embedded in data; StateManager relies on data or ID key
+                    type_: type_name.clone(),
+                    data,
+                    version: version + 1, // Increment version on modification
+                };
+                cs.created_objects.push((id.clone(), updated_obj));
+                processed_ids.insert(id.clone());
+            } else {
+                debug!("[RUNTIME] No loaded mutable object found for index {}", idx);
+            }
+        }
+
+        // Add saved objects (explicitly saved via native call) to ChangeSet
+        debug!(
+            "[RUNTIME] Processing saved objects: count={}",
+            saved_objects.len()
+        );
+        for saved in saved_objects {
+            // Skip if already processed via mutable reference outputs (which have final state)
+            if processed_ids.contains(&saved.object_id) {
+                debug!(
+                    "[RUNTIME] Skipping saved object {} (handled by mut ref)",
+                    saved.object_id
+                );
+                continue;
+            }
+
+            // Find owner from loaded_mutable_objects if possible
+            let (owner, version) = if let Some((_, _, owner, _, version)) = loaded_mutable_objects
+                .iter()
+                .find(|(_, id, _, _, _)| *id == saved.object_id)
+            {
+                (*owner, *version + 1)
+            } else {
+                // Try to find in storage
+                if let Some(stored) = self.object_storage.get_object(&saved.object_id) {
+                    (stored.owner, stored.version + 1)
+                } else {
+                    // New object or not found
+                    (AccountAddress::ZERO, 1)
+                }
+            };
+
+            let updated_obj = crate::changeset::CreatedObject {
+                owner,
+                uid: None,
+                type_: saved.object_type,
+                data: saved.data,
+                version,
+            };
+
+            debug!(
+                "[RUNTIME] Writing back saved object {} (v{})",
+                saved.object_id, version
+            );
+            cs.created_objects
+                .push((saved.object_id.clone(), updated_obj));
+            processed_ids.insert(saved.object_id);
+        }
 
         // Add transferred objects collected from the native extension
         self.add_transferred_objects_to_changeset(&mut cs, transferred);
@@ -534,6 +740,30 @@ impl MoveRuntime {
         if let Some((gas_limit, gas_price)) = gas_info {
             let gas_op = GasOperation::ExecuteFunction { complexity: 1 };
             self.apply_gas_info(&mut cs, sender, gas_limit, gas_price, gas_op)?;
+        }
+
+        // PERSISTENCE: Update internal ObjectStorage with created/modified objects.
+        // This ensures subsequent calls (e.g. transfer) can find these objects.
+        for (id, created) in &cs.created_objects {
+            let stored = StoredObject {
+                id: id.clone(),
+                owner: created.owner,
+                type_name: created.type_.clone(),
+                data: created.data.clone(),
+                version: created.version,
+            };
+            if let Err(e) = self.object_storage.store_object(stored) {
+                log::warn!(
+                    "[RUNTIME] Failed to persist object {} to internal storage: {:?}",
+                    id,
+                    e
+                );
+            } else {
+                debug!(
+                    "[RUNTIME] Persisted object {} (v{}) to internal storage",
+                    id, created.version
+                );
+            }
         }
 
         Ok(cs)

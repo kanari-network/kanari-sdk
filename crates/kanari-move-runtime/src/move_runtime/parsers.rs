@@ -145,6 +145,7 @@ impl super::MoveRuntime {
                                 bytes.to_vec(),
                                 0,
                                 uid_opt,
+                                None, // No explicit object ID; derive from UID or hash
                             );
                             debug!(
                                 "[PARSER] Created object detected: owner={} type={}",

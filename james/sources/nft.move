@@ -112,7 +112,7 @@ module james::nft {
     }
     
     /// The mint function mints a new KariKid NFT with the given properties.
-    public fun mint(
+    public entry fun mint(
         cap: &mut collection::NftCap,
         name: vector<u8>,
         description: vector<u8>,

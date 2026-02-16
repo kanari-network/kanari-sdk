@@ -46,6 +46,11 @@ module kanari_system::object {
         signer::address_to_bytes(u.addr)
     }
 
+    // --- Native Persistence ---
+    // Explicitly request the runtime to persist changes to a mutable object reference.
+    // This is required because entry functions do not automatically write back modified arguments.
+    public native fun save_object<T: key>(obj: &T);
+
     // --- Tests ---
     // Note: Since `tx_context` is external, we cannot fully test `new` here,
     // but we can test the getters on a hardcoded address.

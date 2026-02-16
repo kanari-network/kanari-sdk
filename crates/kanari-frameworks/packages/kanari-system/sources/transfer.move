@@ -78,11 +78,14 @@ module kanari_system::transfer {
         assert!(get_amount(&t) == 500, 2);
     }
 
-    /// Minimal helper to 'freeze' a metadata object returned by currency creation.
-    /// This implementation is a no-op placeholder that consumes the object.
-    public fun public_freeze_object<T: drop>(_obj: T) {
-        // In a full implementation this would mark the metadata as immutable
-        // or store it in a global registry. Here we simply accept the object.
+    /// Freeze an object (make it immutable).
+    /// The object must have `key` and `store`.
+    public native fun freeze_object<T: key + store>(obj: T);
+
+    /// Helper to 'freeze' a metadata object returned by currency creation.
+    /// Redirects to `freeze_object` native.
+    public fun public_freeze_object<T: key + store>(obj: T) {
+        freeze_object(obj)
     }
 
     /// DEPRECATED: Transfer function that doesn't properly track objects

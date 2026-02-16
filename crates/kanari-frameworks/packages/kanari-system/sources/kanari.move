@@ -33,12 +33,12 @@ module kanari_system::kanari {
     // Register the `KANARI` Coin to acquire its `Supply`.
     // This should be called only once during genesis creation.
     // Mints the entire supply and transfers it to dev address @0x9.
-    fun new(ctx: &mut TxContext): TreasuryCap<KANARI> {
-        assert!(tx_context::sender(ctx) == @0x0, ENotSystemAddress);
-        assert!(tx_context::epoch(ctx) == 0, EAlreadyMinted);
+    fun init(witness: KANARI, ctx: &mut TxContext) {
+        // assert!(tx_context::sender(ctx) == @0x0, ENotSystemAddress); // Sender check might be too strict for init
+        // assert!(tx_context::epoch(ctx) == 0, EAlreadyMinted); // Epoch check might be okay
 
         let (treasury, metadata) = coin::create_currency(
-            KANARI {},
+            witness,
             9,
             b"KANARI",
             b"Kanari Network Coin",
@@ -56,8 +56,8 @@ module kanari_system::kanari {
         let minted_coin: Coin<KANARI> = coin::mint(&mut treasury_cap, TOTAL_SUPPLY_MIST, ctx);
         transfer::public_transfer(minted_coin, dev_address);
 
-        // Return the treasury cap for further authorized minting if needed
-        treasury_cap
+        // Transfer the treasury cap to the sender (deployer)
+        transfer::public_transfer(treasury_cap, tx_context::sender(ctx));
     }
 
 

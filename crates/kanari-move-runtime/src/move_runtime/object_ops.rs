@@ -68,10 +68,9 @@ impl super::MoveRuntime {
                 data.len()
             );
 
-            // Compute canonical id used by ChangeSet so persisted object id
-            // matches the id stored in the ChangeSet. This prevents lookup
-            // mismatches between persisted Store and state.objects.
-            let canonical_id = ChangeSet::compute_canonical_id(&owner, &obj_type, &data, &None);
+            // Use the object ID provided by the native function (which is the real UID or a hash)
+            // Do NOT recompute it here, as that would break the link to the on-chain UID.
+            let canonical_id = id.clone();
 
             // Persist to ObjectStorage first if flagged (before changeset)
             if should_persist {
@@ -95,8 +94,8 @@ impl super::MoveRuntime {
             }
 
             // Add to created_objects in changeset (after storage to avoid double clone)
-            // Use `None` for UID for transferred/native objects.
-            cs.add_created_object(owner, obj_type, data, 1, None);
+            // Pass the explicit ID to ensure ChangeSet uses the same ID as ObjectStorage.
+            cs.add_created_object(owner, obj_type, data, 1, None, Some(canonical_id));
         }
 
         if count > 0 {
