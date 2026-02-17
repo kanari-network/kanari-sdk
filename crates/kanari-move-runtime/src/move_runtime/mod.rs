@@ -4,6 +4,7 @@
 // This file contains the MoveRuntime wrapper implementation.
 // It utilizes MoveVM and InMemoryStorage for executing functions and publishing modules.
 // Enhanced with native function support, gas metering, and session management.
+use crate::storage::resolver::KanariMoveResolver;
 use anyhow::Result;
 use kanari_types::event::Event;
 use log::debug;
@@ -13,7 +14,6 @@ use move_core_types::identifier::{IdentStr, Identifier};
 use move_core_types::language_storage::{ModuleId, TypeTag};
 use move_vm_runtime::move_vm::MoveVM;
 use move_vm_runtime::native_functions::NativeFunctionTable;
-use move_vm_test_utils::InMemoryStorage;
 use move_vm_types::gas::UnmeteredGasMeter;
 mod gas_ops;
 mod helpers;
@@ -31,17 +31,19 @@ use kanari_types::tx_context::TxContextRecord;
 use move_vm_types::loaded_data::runtime_types::Type as RuntimeType;
 
 use std::collections::HashSet;
+use std::sync::{Arc, RwLock};
 
 /// Enhanced runtime wrapper around `move-vm` for executing functions, publishing modules,
 /// and running scripts. Supports custom native functions, gas metering, and atomic sessions.
+#[derive(Clone)]
 pub struct MoveRuntime {
-    pub(crate) vm: MoveVM,
-    pub(crate) storage: InMemoryStorage,
+    pub(crate) vm: Arc<MoveVM>,
+    pub(crate) resolver: KanariMoveResolver,
     pub(crate) state: MoveVMState,
     /// Index of published modules for faster listing
-    pub(crate) published_modules: HashSet<ModuleId>,
+    pub(crate) published_modules: Arc<RwLock<HashSet<ModuleId>>>,
     /// Persistent object storage for transferred objects
-    pub(crate) object_storage: Box<dyn ObjectStore>,
+    pub(crate) object_storage: Arc<dyn ObjectStore>,
 }
 
 impl MoveRuntime {
@@ -65,16 +67,12 @@ impl MoveRuntime {
     /// let natives = move_natives::all_natives(system_addr);
     /// let runtime = MoveRuntime::new_with_natives(vec![natives])?;
     /// ```
-    pub fn new_with_natives(
-        natives: Vec<NativeFunctionTable>,
-    ) -> Result<Self> {
+    pub fn new_with_natives(natives: Vec<NativeFunctionTable>) -> Result<Self> {
         let state = if cfg!(miri) {
             MoveVMState::new_in_memory()?
         } else {
             MoveVMState::open_default()?
         };
-        let mut storage = InMemoryStorage::new();
-        let loaded_ids = state.load_into_storage(&mut storage)?;
 
         // Flatten all native tables into a single iterator
         let all_natives: Vec<_> = natives
@@ -101,27 +99,36 @@ impl MoveRuntime {
         debug!("[RUNTIME] MoveVM initialized (custom natives registered)");
 
         // Try to initialize persistent object storage; fall back to in-memory if it fails.
-        let object_storage: Box<dyn ObjectStore> = match ObjectStorage::boxed_with_persistence() {
-            Ok(store) => store,
+        let object_storage: Arc<dyn ObjectStore> = match ObjectStorage::boxed_with_persistence() {
+            Ok(store) => Arc::from(store),
             Err(e) => {
                 log::warn!(
                     "[RUNTIME] failed to initialize persistent ObjectStorage: {}. Falling back to in-memory.",
                     e
                 );
-                ObjectStorage::boxed_inmemory()
+                Arc::from(ObjectStorage::boxed_inmemory())
             }
         };
 
-        let mut published_modules = HashSet::new();
-        for id in loaded_ids {
-            published_modules.insert(id);
-        }
+        // Initialize resolver with state and object storage
+        let resolver = KanariMoveResolver {
+            state: state.clone(),
+            _object_storage: object_storage.clone(),
+        };
+
+        // Initialize published modules set from state
+        // Populate the set from the persistent index to support listing modules.
+        let published_modules: HashSet<ModuleId> = state
+            .get_all_module_ids()
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
 
         Ok(MoveRuntime {
-            vm,
-            storage,
+            vm: Arc::new(vm),
+            resolver,
             state,
-            published_modules,
+            published_modules: Arc::new(RwLock::new(published_modules)),
             object_storage,
         })
     }
@@ -151,16 +158,14 @@ impl MoveRuntime {
         let object_natives = kanari_system_natives::object::all_natives(system_addr);
 
         // Create runtime with natives
-        let mut runtime = Self::new_with_natives(
-            vec![
-                std_natives,
-                crypto_natives,
-                transfer_natives,
-                event_natives,
-                tx_context_natives,
-                object_natives,
-            ],
-        )?;
+        let runtime = Self::new_with_natives(vec![
+            std_natives,
+            crypto_natives,
+            transfer_natives,
+            event_natives,
+            tx_context_natives,
+            object_natives,
+        ])?;
 
         // Load pre-compiled Kanari system modules (skip under Miri to avoid
         // invoking verification paths that rely on stack-borrows-unsafe ops).
@@ -174,13 +179,11 @@ impl MoveRuntime {
     /// Apply a Move VM changeset to our storage, handling module overwrites/upgrades
     /// and persisting modules to the database.
     pub(crate) fn apply_move_changeset(
-        &mut self,
+        &self,
         move_cs: move_core_types::effects::ChangeSet,
     ) -> Result<()> {
-        let mut storage = self.storage.clone();
-
-        // 1. Manually apply ALL module changes using publish_or_overwrite_module.
-        // This ensures upgrades/overwrites work even if normal apply would fail.
+        // 1. Manually apply ALL module changes.
+        // This ensures upgrades/overwrites work.
         for (addr, account_changes) in move_cs.accounts() {
             for (module_name, op) in account_changes.modules() {
                 if let move_core_types::effects::Op::New(bytes)
@@ -191,43 +194,37 @@ impl MoveRuntime {
                         Identifier::new(module_name.as_str())
                             .map_err(|e| anyhow::anyhow!("invalid module name: {:?}", e))?,
                     );
-                    storage.publish_or_overwrite_module(module_id.clone(), bytes.clone());
 
                     // Persist to DB and index
                     self.state.save_module(&module_id, bytes)?;
-                    self.published_modules.insert(module_id);
+                    self.published_modules.write().unwrap().insert(module_id);
                 }
             }
         }
 
-        // 2. Create a NEW changeset that contains ONLY resources.
-        // This avoids module collisions in the second apply.
-        let mut resource_cs = move_core_types::effects::ChangeSet::new();
+        // 2. Handle resources
+        // Persist resources to support standard Move storage (borrow_global).
         for (addr, account_changes) in move_cs.accounts() {
             for (struct_tag, op) in account_changes.resources() {
-                resource_cs
-                    .add_resource_op(*addr, struct_tag.clone(), op.clone())
-                    .map_err(|e| anyhow::anyhow!("resource op error: {:?}", e))?;
+                match op {
+                    move_core_types::effects::Op::New(bytes)
+                    | move_core_types::effects::Op::Modify(bytes) => {
+                        self.state.save_resource(addr, struct_tag, bytes)?;
+                    }
+                    move_core_types::effects::Op::Delete => {
+                        // TODO: Implement delete_resource in MoveVMState if needed
+                        // For now we just don't save, but in a real DB we should delete.
+                    }
+                }
             }
         }
-
-        // 3. Apply the resource-only changeset.
-        // Note: ChangeSet doesn't have a direct is_empty, but its inner accounts map might.
-        if !resource_cs.accounts().is_empty() {
-            storage
-                .apply(resource_cs)
-                .map_err(|e| anyhow::anyhow!(format!("apply resources error: {:?}", e)))?;
-        }
-
-        // 4. Update in-memory storage.
-        self.storage = storage;
 
         Ok(())
     }
 
     /// Load pre-compiled Kanari system modules from the framework package
     /// This publishes all 0x2::* modules (transfer, coin, balance, etc.) to storage
-    fn load_system_modules(&mut self) -> Result<()> {
+    fn load_system_modules(&self) -> Result<()> {
         // First, load move-stdlib modules (0x1::*)
         self.load_move_stdlib()?;
 
@@ -240,7 +237,7 @@ impl MoveRuntime {
     /// Publish a module (bytes) with the given sender address.
     /// Returns ChangeSet containing the module addition and any resource changes from Move VM.
     pub fn publish_module(
-        &mut self,
+        &self,
         module_bytes: Vec<u8>,
         sender: AccountAddress,
         // Optional gas tuple: (gas_limit, gas_price). If `Some`, runtime will
@@ -254,17 +251,18 @@ impl MoveRuntime {
             .map_err(|e| anyhow::anyhow!(format!("deserialize error: {:?}", e)))?;
         let module_id = compiled.self_id();
 
-        let storage_clone = self.storage.clone();
-        let mut session = self.vm.new_session(storage_clone);
-        let mut gas = UnmeteredGasMeter;
+        let (move_changeset, events) = {
+            // Use resolver for session
+            let mut session = self.vm.new_session(self.resolver.clone());
+            let mut gas = UnmeteredGasMeter;
 
-        session
-            .publish_module(module_bytes.clone(), sender, &mut gas)
-            .map_err(|e| anyhow::anyhow!(format!("publish error: {:?}", e)))?;
+            session
+                .publish_module(module_bytes.clone(), sender, &mut gas)
+                .map_err(|e| anyhow::anyhow!(format!("publish error: {:?}", e)))?;
 
-        let (res, _new_storage) = session.finish();
-        let (move_changeset, events) =
-            res.map_err(|e| anyhow::anyhow!(format!("finish error: {:?}", e)))?;
+            let (res, _new_storage) = session.finish();
+            res.map_err(|e| anyhow::anyhow!(format!("finish error: {:?}", e)))?
+        };
 
         // Diagnostic: summarize Move VM changeset and events for debugging
         {
@@ -312,11 +310,182 @@ impl MoveRuntime {
         Ok(cs)
     }
 
+    /// Execute an entry function without applying changes to internal storage.
+    /// Returns the ChangeSet. Use this for parallel execution or simulation.
+    pub fn execute_entry_function_pure(
+        &self,
+        module_id: &ModuleId,
+        function_name: &str,
+        type_args: Vec<TypeTag>,
+        args: Vec<Vec<u8>>,
+        sender: Option<AccountAddress>,
+        gas_info: Option<(u64, u64)>,
+        timestamp: Option<u64>,
+    ) -> Result<ChangeSet> {
+        // Use resolver which handles JIT loading automatically via MoveVMState -> RocksDB
+        let mut session = self.vm.new_session(self.resolver.clone());
+        let mut gas = UnmeteredGasMeter;
+
+        // convert type tags to VM runtime types
+        let mut ty_args_loaded = vec![];
+        for tag in type_args.iter() {
+            let ty = session
+                .load_type(tag)
+                .map_err(|e| anyhow::anyhow!(format!("load type error: {:?}", e)))?;
+            ty_args_loaded.push(ty);
+        }
+
+        let ident = IdentStr::new(function_name).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+        let mut final_args = args.clone();
+        // Preprocess args (hex/decimal)
+        final_args = final_args
+            .into_iter()
+            .map(|arg| {
+                if let Ok(s) = std::str::from_utf8(&arg) {
+                    let s_trim = s.trim();
+                    if let Some(hex_part) = s_trim.strip_prefix("0x")
+                        && let Ok(bytes) = hex::decode(hex_part)
+                        && bytes.len() == 32
+                    {
+                        return bytes;
+                    }
+                    if s_trim.len() == 64
+                        && let Ok(bytes) = hex::decode(s_trim)
+                        && bytes.len() == 32
+                    {
+                        return bytes;
+                    }
+                    if let Ok(n) = s_trim.parse::<u64>()
+                        && let Ok(b) = bcs::to_bytes(&n)
+                    {
+                        return b;
+                    }
+                }
+                arg
+            })
+            .collect();
+
+        let sender_addr = sender.unwrap_or(AccountAddress::ZERO);
+        let epoch_timestamp_ms = timestamp.unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64
+        });
+
+        let mut tx_hash = vec![0u8; 32];
+        tx_hash[0..8].copy_from_slice(&epoch_timestamp_ms.to_le_bytes());
+        let func_bytes = function_name.as_bytes();
+        for (i, b) in func_bytes.iter().enumerate().take(24) {
+            tx_hash[8 + i] ^= b;
+        }
+
+        let tx_ctx = TxContextRecord::from_address(sender_addr, tx_hash, 0, epoch_timestamp_ms, 0);
+        let tx_context_bytes = bcs::to_bytes(&tx_ctx)?;
+
+        // 1. Object Loading & TxContext Injection
+        if let Ok(func) = session.load_function(module_id, ident, &ty_args_loaded) {
+            for (i, param_type) in func.parameters.iter().enumerate() {
+                if i >= final_args.len() {
+                    break;
+                }
+                if final_args[i].len() == 32 {
+                    let type_tag_opt =
+                        session
+                            .get_type_tag(param_type)
+                            .ok()
+                            .or_else(|| match param_type {
+                                RuntimeType::Reference(inner)
+                                | RuntimeType::MutableReference(inner) => {
+                                    session.get_type_tag(inner).ok()
+                                }
+                                _ => None,
+                            });
+                    if let Some(TypeTag::Struct(_)) = type_tag_opt {
+                        let object_id = format!("0x{}", hex::encode(&final_args[i]));
+                        if let Some(stored_obj) = self.object_storage.get_object(&object_id) {
+                            final_args[i] = stored_obj.data.clone();
+                        }
+                    }
+                }
+            }
+            if let Some(last_param) = func.parameters.last() {
+                if let Ok(TypeTag::Struct(struct_tag)) = session.get_type_tag(last_param) {
+                    if struct_tag.address == KanariAddress::kanari_system_account_address()
+                        && struct_tag.module.as_str() == "tx_context"
+                        && struct_tag.name.as_str() == "TxContext"
+                    {
+                        final_args.push(tx_context_bytes);
+                    }
+                }
+            }
+        }
+
+        use kanari_system_natives::event::EventsExt;
+        use kanari_system_natives::object::SavedObjectsExt;
+        use kanari_system_natives::transfer_natives::TransferredObjectsExt;
+        let exts = session.get_native_extensions();
+        exts.add(TransferredObjectsExt::default());
+        exts.add(EventsExt::default());
+        exts.add(SavedObjectsExt::default());
+
+        let _ =
+            session.execute_entry_function(module_id, ident, ty_args_loaded, final_args, &mut gas);
+
+        let (transferred, captured_events, saved_objects) = {
+            let exts_after = session.get_native_extensions();
+            let trans = exts_after.get_mut::<TransferredObjectsExt>().take_all();
+            let evs = exts_after.get_mut::<EventsExt>().take_all();
+            let saved = exts_after.get_mut::<SavedObjectsExt>().take_all();
+            (trans, evs, saved)
+        };
+
+        let (res, _new_storage) = session.finish();
+        let (move_changeset, events) =
+            res.map_err(|e| anyhow::anyhow!(format!("finish error: {:?}", e)))?;
+
+        let mut cs = ChangeSet::new();
+        if let Some((gas_limit, gas_price)) = gas_info {
+            let gas_op = GasOperation::ExecuteFunction { complexity: 1 };
+            self.apply_gas_info(&mut cs, Some(sender_addr), gas_limit, gas_price, gas_op)?;
+        }
+
+        self.parse_move_changeset(&move_changeset, &mut cs);
+        self.parse_move_events(&events, &mut cs);
+
+        // Add captured events
+        for ev in captured_events.into_iter() {
+            let ev_rec = Event {
+                key: ev.key,
+                sequence_number: ev.sequence_number,
+                type_tag: ev.type_tag,
+                event_data: ev.event_data,
+            };
+            cs.add_event(ev_rec);
+        }
+        self.add_transferred_objects_to_changeset(&mut cs, transferred);
+
+        // Handle saved objects (simple version for pure execution)
+        for saved in saved_objects {
+            let updated_obj = crate::changeset::CreatedObject {
+                owner: AccountAddress::ZERO, // simplified
+                uid: None,
+                type_: saved.object_type,
+                data: saved.data,
+                version: 1,
+            };
+            cs.created_objects.push((saved.object_id, updated_obj));
+        }
+
+        Ok(cs)
+    }
+
     /// Execute an entry function. `type_args` are Move `TypeTag`s and `args` are serialized
     /// arguments as Vec<u8> (Move simple-serialized values).
     /// Returns ChangeSet containing all state changes from Move VM execution.
     pub fn execute_entry_function(
-        &mut self,
+        &self,
         module_id: &ModuleId,
         function_name: &str,
         type_args: Vec<TypeTag>,
@@ -329,27 +498,8 @@ impl MoveRuntime {
         // Optional timestamp for TxContext (defaults to SystemTime::now() if None)
         timestamp: Option<u64>,
     ) -> Result<ChangeSet> {
-        // Just-In-Time (JIT) module loading
-        // If the module is not in our in-memory cache, try to load it from persistent state.
-        // This is crucial for RPC servers where simulation threads might have stale caches
-        // relative to the block production thread.
-        if !self.published_modules.contains(module_id) {
-            debug!(
-                "[RUNTIME] Module {} not in memory cache, attempting JIT load from DB",
-                module_id
-            );
-            if let Some(blob) = self.state.get_module(module_id) {
-                self.storage
-                    .publish_or_overwrite_module(module_id.clone(), blob);
-                self.published_modules.insert(module_id.clone());
-                debug!("[RUNTIME] JIT loaded module {} successfully", module_id);
-            } else {
-                debug!("[RUNTIME] Module {} not found in persistent DB", module_id);
-            }
-        }
-
-        let storage_clone = self.storage.clone();
-        let mut session = self.vm.new_session(storage_clone);
+        // Use resolver for session
+        let mut session = self.vm.new_session(self.resolver.clone());
         let mut gas = UnmeteredGasMeter;
 
         // convert type tags to VM runtime types

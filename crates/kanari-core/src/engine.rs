@@ -75,7 +75,7 @@ pub struct BlockchainEngine {
     pub pending_txs: Arc<RwLock<Vec<SignedTransaction>>>,
     pub persistent_store: Option<Arc<PersistentStore>>,
     // Reusable pool of MoveRuntime instances for parallel execution
-    pub runtime_pool: Vec<Arc<std::sync::Mutex<kanari_move_runtime::move_runtime::MoveRuntime>>>,
+    pub runtime_pool: Vec<kanari_move_runtime::move_runtime::MoveRuntime>,
     // LRU cache for frequently requested merkle proofs
     // Cache key: (block_height, tx_index), Value: (tx_hash, proof)
     pub proof_cache: Arc<RwLock<ProofCache>>,
@@ -215,17 +215,18 @@ impl BlockchainEngine {
         // Initialize runtime pool (mandatory: one runtime per CPU)
         let workers = num_cpus::get().max(1);
         let mut runtime_pool = Vec::new();
-        for i in 0..workers {
-            match MoveRuntime::new_with_kanari_natives() {
-                Ok(rt) => runtime_pool.push(Arc::new(std::sync::Mutex::new(rt))),
-                Err(e) => {
-                    error!(
-                        "FATAL: Failed to initialize runtime pool worker {}: {}",
-                        i, e
-                    );
-                    anyhow::bail!("Failed to initialize runtime pool: {}", e);
-                }
+
+        // Create base runtime with shared state
+        let base_runtime = match MoveRuntime::new_with_kanari_natives() {
+            Ok(rt) => rt,
+            Err(e) => {
+                error!("FATAL: Failed to initialize base MoveRuntime: {}", e);
+                anyhow::bail!("Failed to initialize runtime pool: {}", e);
             }
+        };
+
+        for _ in 0..workers {
+            runtime_pool.push(base_runtime.clone());
         }
 
         // Note: treasuries are loaded above when StateManager is initialized
@@ -495,9 +496,8 @@ impl BlockchainEngine {
             let state_arc = Arc::new(RwLock::new(state_snapshot));
 
             // Use a runtime from the pool for execution
-            let runtime_arc = &self.runtime_pool[0];
-            let mut runtime = runtime_arc.lock().unwrap();
-            self.execute_transaction_with_runtime(&tx, &mut runtime, &state_arc, None)?
+            let runtime = &self.runtime_pool[0];
+            self.execute_transaction_with_runtime(&tx, runtime, &state_arc, None)?
         };
 
         Ok((tx_hash, changeset))
@@ -510,7 +510,7 @@ impl BlockchainEngine {
     fn execute_transaction_with_runtime(
         &self,
         tx: &Transaction,
-        runtime: &mut kanari_move_runtime::move_runtime::MoveRuntime,
+        runtime: &kanari_move_runtime::move_runtime::MoveRuntime,
         state_arc: &Arc<RwLock<StateManager>>,
         timestamp: Option<u64>,
     ) -> Result<ChangeSet> {
@@ -522,7 +522,7 @@ impl BlockchainEngine {
     fn execute_transaction_with_runtime_skip_seq(
         &self,
         tx: &Transaction,
-        runtime: &mut kanari_move_runtime::move_runtime::MoveRuntime,
+        runtime: &kanari_move_runtime::move_runtime::MoveRuntime,
         state_arc: &Arc<RwLock<StateManager>>,
         timestamp: Option<u64>,
     ) -> Result<ChangeSet> {
@@ -533,7 +533,7 @@ impl BlockchainEngine {
     fn execute_transaction_with_runtime_internal(
         &self,
         tx: &Transaction,
-        runtime: &mut kanari_move_runtime::move_runtime::MoveRuntime,
+        runtime: &kanari_move_runtime::move_runtime::MoveRuntime,
         state_arc: &Arc<RwLock<StateManager>>,
         validate_sequence: bool,
         timestamp: Option<u64>,
@@ -648,7 +648,7 @@ impl BlockchainEngine {
                     .filter_map(|s| parse_type_tag(s.as_str()))
                     .collect();
 
-                match runtime.execute_entry_function(
+                match runtime.execute_entry_function_pure(
                     &module_id,
                     function,
                     type_tags,
@@ -891,13 +891,13 @@ impl BlockchainEngine {
         };
 
         let module_id = ModuleId::new(addr, ident);
-        let runtime = self.runtime_pool[0].lock().unwrap();
+        let runtime = &self.runtime_pool[0];
         runtime.get_module_bytes(&module_id)
     }
 
     /// List all published modules in Move storage
     pub fn list_all_modules(&self) -> Vec<(String, String)> {
-        let runtime = self.runtime_pool[0].lock().unwrap();
+        let runtime = &self.runtime_pool[0];
         runtime
             .list_modules()
             .into_iter()
@@ -1084,12 +1084,11 @@ impl BlockchainEngine {
                 .enumerate()
                 .map(|(i, signed_tx)| {
                     let pool_idx = i % self.runtime_pool.len();
-                    let runtime_arc = &self.runtime_pool[pool_idx];
-                    let mut runtime = runtime_arc.lock().unwrap();
+                    let runtime = &self.runtime_pool[pool_idx];
 
                     self.execute_transaction_with_runtime_skip_seq(
                         &signed_tx.transaction,
-                        &mut runtime,
+                        runtime,
                         &state_arc,
                         Some(checkpoint.timestamp),
                     )

@@ -68,7 +68,7 @@ fn main() {
         return;
     }
 
-    let mut runtime = match MoveRuntime::new_with_kanari_natives() {
+    let runtime = match MoveRuntime::new_with_kanari_natives() {
         Ok(r) => r,
         Err(e) => {
             eprintln!("Failed to init MoveRuntime: {:?}", e);

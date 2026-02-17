@@ -2,7 +2,7 @@ use kanari_move_runtime::move_runtime::MoveRuntime;
 
 #[test]
 fn publish_module_upgrade_preserves_storage() {
-    let mut runtime = MoveRuntime::new_with_kanari_natives().expect("init runtime");
+    let runtime = MoveRuntime::new_with_kanari_natives().expect("init runtime");
     let modules = runtime.list_modules();
     assert!(!modules.is_empty(), "expected at least one system module");
 

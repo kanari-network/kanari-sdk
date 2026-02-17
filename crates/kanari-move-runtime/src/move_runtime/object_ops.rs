@@ -21,7 +21,7 @@ impl super::MoveRuntime {
 
     /// Transfer object ownership
     pub fn transfer_object_ownership(
-        &mut self,
+        &self,
         object_id: &str,
         new_owner: AccountAddress,
     ) -> Result<()> {
@@ -38,7 +38,7 @@ impl super::MoveRuntime {
     /// Add transferred objects from native function tracking to changeset
     /// Also persists objects to ObjectStorage for later retrieval
     pub(crate) fn add_transferred_objects_to_changeset(
-        &mut self,
+        &self,
         cs: &mut ChangeSet,
         transferred: Vec<TransferredObject>,
     ) {

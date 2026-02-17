@@ -13,6 +13,7 @@ use std::sync::Arc;
 use crate::storage::persistent_store::PersistentStore;
 
 /// Simple persistent store wrapper for published modules using `PersistentStore`.
+#[derive(Clone)]
 pub struct MoveVMState {
     store: Arc<PersistentStore>,
 }
@@ -92,6 +93,25 @@ impl MoveVMState {
         Ok(loaded_modules)
     }
 
+    /// Get all module IDs from the persistent index.
+    pub fn get_all_module_ids(&self) -> Result<Vec<ModuleId>> {
+        let mut modules = Vec::new();
+        if let Ok(Some(index)) = self.store.load::<Vec<String>>("module_index") {
+            for s in index {
+                let parts: Vec<&str> = s.splitn(3, ':').collect();
+                if parts.len() == 3 {
+                    if let (Some(addr), Some(name)) = (
+                        AccountAddress::from_hex_literal(parts[1]).ok(),
+                        Identifier::new(parts[2]).ok(),
+                    ) {
+                        modules.push(ModuleId::new(addr, name));
+                    }
+                }
+            }
+        }
+        Ok(modules)
+    }
+
     /// Get module bytecode from persistent storage
     pub fn get_module(&self, module_id: &ModuleId) -> Option<Vec<u8>> {
         let key = format!(
@@ -99,6 +119,27 @@ impl MoveVMState {
             module_id.address().to_hex_literal(),
             module_id.name().as_str()
         );
+        self.store.load::<Vec<u8>>(&key).ok().flatten()
+    }
+
+    /// Save a resource blob keyed by address and struct tag.
+    pub fn save_resource(
+        &self,
+        address: &AccountAddress,
+        tag: &move_core_types::language_storage::StructTag,
+        blob: &[u8],
+    ) -> Result<()> {
+        let key = format!("resource:{}:{}", address.to_hex_literal(), tag.to_string());
+        self.store.save(&key, blob).map_err(|e| anyhow::anyhow!(e))
+    }
+
+    /// Get resource blob from persistent storage
+    pub fn get_resource(
+        &self,
+        address: &AccountAddress,
+        tag: &move_core_types::language_storage::StructTag,
+    ) -> Option<Vec<u8>> {
+        let key = format!("resource:{}:{}", address.to_hex_literal(), tag.to_string());
         self.store.load::<Vec<u8>>(&key).ok().flatten()
     }
 

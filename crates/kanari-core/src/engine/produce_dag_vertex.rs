@@ -286,13 +286,12 @@ impl DagEngine {
                     .enumerate()
                     .map(|(i, signed_tx)| {
                         let pool_idx = i % self.engine.runtime_pool.len();
-                        let runtime_arc = &self.engine.runtime_pool[pool_idx];
-                        let mut runtime = runtime_arc.lock().unwrap();
+                        let runtime = &self.engine.runtime_pool[pool_idx];
 
                         // Execute using the pooled runtime
                         self.engine.execute_transaction_with_runtime_skip_seq(
                             &signed_tx.transaction,
-                            &mut runtime,
+                            runtime,
                             &state_arc,
                             Some(timestamp),
                         )
@@ -534,12 +533,11 @@ impl DagEngine {
                         .enumerate()
                         .map(|(i, signed_tx)| {
                             let pool_idx = i % self.engine.runtime_pool.len();
-                            let runtime_arc = &self.engine.runtime_pool[pool_idx];
-                            let mut runtime = runtime_arc.lock().unwrap();
+                            let runtime = &self.engine.runtime_pool[pool_idx];
 
                             self.engine.execute_transaction_with_runtime_skip_seq(
                                 &signed_tx.transaction,
-                                &mut runtime,
+                                runtime,
                                 &state_arc,
                                 Some(vertex.timestamp),
                             )

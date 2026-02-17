@@ -8,7 +8,6 @@ use kanari_types::address::Address as KanariAddress;
 use move_binary_format::file_format::CompiledModule;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::ModuleId;
-use move_vm_test_utils::InMemoryStorage;
 
 use crate::move_runtime::MoveRuntime;
 
@@ -55,8 +54,7 @@ impl MoveRuntime {
 
     /// Check if a module is available in storage
     pub fn has_module(&self, module_id: &ModuleId) -> bool {
-        // InMemoryStorage doesn't expose get_module directly
-        // We check by assuming stdlib/system modules are always available
+        // Check by assuming stdlib/system modules are always available
         let addr = module_id.address();
         if addr == &AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS).unwrap()
             || addr
@@ -64,13 +62,9 @@ impl MoveRuntime {
         {
             return true;
         }
-        // For other modules, check the runtime's published_modules index
-        self.published_modules.contains(module_id)
-    }
 
-    /// Get the current storage state (for debugging/inspection)
-    pub fn get_storage(&self) -> &InMemoryStorage {
-        &self.storage
+        // Check if module exists in persistent storage
+        self.state.get_module(module_id).is_some()
     }
 
     /// Get module bytecode if available
@@ -82,13 +76,12 @@ impl MoveRuntime {
     /// List all published modules in storage
     pub fn list_modules(&self) -> Vec<ModuleId> {
         // Return modules from our maintained index
-        self.published_modules.iter().cloned().collect()
-    }
-
-    /// Get a reference to the storage for direct queries
-    /// This allows advanced users to query the storage directly
-    pub fn storage_ref(&self) -> &InMemoryStorage {
-        &self.storage
+        self.published_modules
+            .read()
+            .unwrap()
+            .iter()
+            .cloned()
+            .collect()
     }
 }
 

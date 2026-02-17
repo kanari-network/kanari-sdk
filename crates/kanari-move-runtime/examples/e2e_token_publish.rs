@@ -54,7 +54,7 @@ fn main() {
 
     // Initialize runtime with Kanari natives and preload system modules (stdlib + kanari-system).
     // This ensures modules like `0x1::string` are available for linking/verifier.
-    let mut runtime = match MoveRuntime::new_with_kanari_natives() {
+    let runtime = match MoveRuntime::new_with_kanari_natives() {
         Ok(r) => r,
         Err(e) => {
             eprintln!("Failed to init MoveRuntime: {:?}", e);
