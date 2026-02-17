@@ -9,8 +9,10 @@
 
 use anyhow::Result;
 use kanari_core::engine::{BlockchainEngine, DagEngine};
+use kanari_core::kanari_move_runtime::state::Account;
 use kanari_crypto::keys::CurveType;
 use kanari_types::transaction::{SignedTransaction, Transaction};
+use move_core_types::account_address::AccountAddress;
 use std::sync::Arc;
 
 fn main() -> Result<()> {
@@ -18,17 +20,18 @@ fn main() -> Result<()> {
 
     // 1. Create base blockchain engine
     println!("1. Creating blockchain engine...");
-    let engine = Arc::new(BlockchainEngine::new()?);
+    let temp_dir = tempfile::Builder::new()
+        .prefix("kanari_dag_demo")
+        .tempdir()?;
+    let db_path = temp_dir.path().to_str().unwrap();
+    // let _ = std::fs::remove_dir_all(db_path); // Clean up previous run - handled by tempfile
+    let engine = Arc::new(BlockchainEngine::new_dir(db_path)?);
     println!("   ✓ Engine created\n");
 
     // 2. Setup authorities (validators)
     println!("2. Setting up authorities...");
-    let authorities = vec![
-        "0xAUTH1".to_string(),
-        "0xAUTH2".to_string(),
-        "0xAUTH3".to_string(),
-        "0xAUTH4".to_string(),
-    ];
+    // For this demo, we use a single authority to satisfy quorum (100% of 1 = 1)
+    let authorities = vec!["0xAUTH1".to_string()];
     println!("   ✓ {} authorities configured\n", authorities.len());
 
     // 3. Create DAG engine (optimized for high throughput)
@@ -68,7 +71,23 @@ fn main() -> Result<()> {
     let sender_address = keypair.address.clone();
     let private_key = keypair.private_key.to_string();
 
+    // Fund the sender account manually for the demo
+    {
+        let mut state = engine.state.write().unwrap();
+        let addr = AccountAddress::from_hex_literal(&sender_address)?;
+        let account = state
+            .accounts
+            .entry(addr)
+            .or_insert_with(|| Account::new(addr, 0));
+        account.balance = 10_000_000_000_000;
+        println!(
+            "   ✓ Funded sender {} with {} MIST",
+            sender_address, account.balance
+        );
+    }
+
     let mut transactions = Vec::new();
+    let mut next_seq_num = 0;
     for i in 0..10 {
         let tx = Transaction::Transfer {
             from: sender_address.clone(),
@@ -76,8 +95,9 @@ fn main() -> Result<()> {
             amount: 1000 * (i + 1),
             gas_limit: 100_000,
             gas_price: 1000,
-            sequence_number: i,
+            sequence_number: next_seq_num,
         };
+        next_seq_num += 1;
 
         let mut signed_tx = SignedTransaction::new(tx);
         signed_tx.sign(&private_key, CurveType::Ed25519)?;
@@ -111,8 +131,9 @@ fn main() -> Result<()> {
                     amount: 2000 * (i + 1),
                     gas_limit: 100_000,
                     gas_price: 1000,
-                    sequence_number: i, // Reset to 0 for each new account
+                    sequence_number: next_seq_num, // Use next sequence number
                 };
+                next_seq_num += 1;
 
                 let mut signed_tx = SignedTransaction::new(tx);
                 signed_tx.sign(&private_key, CurveType::Ed25519)?;

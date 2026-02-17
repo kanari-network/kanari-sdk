@@ -211,11 +211,11 @@ codegen-units = 16               # Increase codegen units for potentially faster
 opt-level = 1                    # Moderate optimization level for a balance of speed and performance.
 
 [profile.release]                # Profile for release builds.
-opt-level = 'z'                  # Optimize for size.
+opt-level = 3                    # Optimize for speed.
 debug = false                    # Disable debug information for release binaries.
 debug-assertions = false         # Disable debug assertions for release builds.
 overflow-checks = false          # Disable overflow checks for release builds.
-lto = true                       # Enable full Link-Time Optimization for maximum performance and smaller binaries.
+lto = true                       # Enable full Link-Time Optimization for maximum performance.
 panic = 'abort'                  # Remove unwinding code for panic handling.
-codegen-units = 1                # Reduce codegen units to improve LTO effectiveness.
+codegen-units = 1                # Maximize optimization at the cost of compile time.
 strip = true                     # Strip debug symbols from the final binary to reduce size.

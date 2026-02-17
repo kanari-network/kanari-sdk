@@ -409,11 +409,11 @@ impl DagStore {
     pub fn with_config(authorities: Vec<AuthorityId>, config: CheckpointConfig) -> Self {
         let genesis_checkpoint = Checkpoint::genesis();
 
-        // Backpressure limit: high-throughput mode allows 100K pending, default 10K
-        let max_pending = if config.min_vertices >= 5000 {
-            100_000 // High-throughput mode (500K TPS)
+        // Backpressure limit: high-throughput mode allows 1M pending, default 100K
+        let max_pending = if config.min_vertices >= 1000 {
+            1_000_000 // High-throughput mode (500K TPS)
         } else {
-            10_000 // Default mode
+            100_000 // Default mode
         };
 
         Self {

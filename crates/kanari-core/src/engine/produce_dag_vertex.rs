@@ -6,7 +6,11 @@
 
 use anyhow::Result;
 use centauri::consensus::{DagConsensus, VertexId};
+use kanari_move_runtime::TransactionScheduler;
+use lru::LruCache;
+use rayon::prelude::*;
 use log::info;
+use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
 
 use super::*;
@@ -43,6 +47,10 @@ pub struct DagEngine {
 
     /// This node's authority ID
     authority_id: String,
+
+    /// Cache for execution results to avoid re-execution in apply_checkpoint
+    /// Maps VertexId -> Post-execution State
+    state_cache: Arc<RwLock<LruCache<Vec<u8>, Arc<RwLock<StateManager>>>>>,
 }
 
 impl DagEngine {
@@ -76,6 +84,9 @@ impl DagEngine {
             engine,
             consensus: Arc::new(RwLock::new(consensus)),
             authority_id,
+            state_cache: Arc::new(RwLock::new(LruCache::new(
+                NonZeroUsize::new(10).unwrap(),
+            ))),
         })
     }
 
@@ -123,6 +134,9 @@ impl DagEngine {
             engine,
             consensus,
             authority_id,
+            state_cache: Arc::new(RwLock::new(LruCache::new(
+                NonZeroUsize::new(10).unwrap(),
+            ))),
         })
     }
 
@@ -155,6 +169,9 @@ impl DagEngine {
             engine,
             consensus,
             authority_id,
+            state_cache: Arc::new(RwLock::new(LruCache::new(
+                NonZeroUsize::new(10).unwrap(),
+            ))),
         })
     }
 
@@ -193,8 +210,8 @@ impl DagEngine {
             let mut to_include = Vec::new();
             let mut to_remove = Vec::new();
 
-            // Limit transactions per vertex (e.g., 1000)
-            for tx in pending.iter().take(1000) {
+            // Limit transactions per vertex (e.g., 200,000 for max throughput)
+            for tx in pending.iter().take(200_000) {
                 let hash = tx.hash();
                 let hash_hex = hex::encode(&hash);
 
@@ -234,13 +251,13 @@ impl DagEngine {
             .unwrap_or(0);
 
         // 3. Create a state snapshot and apply history + current transactions sequentially
-        let (_state_arc_clone, state_root, executed, failed) = {
+        let (executed_state, state_root, executed, failed) = {
             let state_clone = self.engine.state.read().unwrap().clone();
             let chain = self.engine.blockchain.read().unwrap();
             let consensus = self.consensus.read().unwrap();
             let state_arc = Arc::new(RwLock::new(state_clone));
 
-            let mut seen_tx_hashes = std::collections::BTreeSet::new();
+            let mut seen_tx_hashes = std::collections::HashSet::with_capacity(transactions.len());
             let mut executed_count = 0usize;
             let mut failed_count = 0usize;
 
@@ -271,18 +288,19 @@ impl DagEngine {
                 }
             }
 
-            // Partition into parallel waves
-            let waves = partition_into_waves(&all_to_execute);
+            // Partition into parallel waves using scheduler
+            let tx_count = all_to_execute.len();
+            let waves = TransactionScheduler::schedule(all_to_execute);
             log::info!(
                 "[DAG] Executing {} transactions in {} parallel waves",
-                all_to_execute.len(),
+                tx_count,
                 waves.len()
             );
 
             for wave in waves {
                 // Execute all waves in parallel using the runtime pool
                 let results: Vec<Result<ChangeSet>> = wave
-                    .iter()
+                    .par_iter()
                     .enumerate()
                     .map(|(i, signed_tx)| {
                         let pool_idx = i % self.engine.runtime_pool.len();
@@ -299,15 +317,18 @@ impl DagEngine {
                     .collect();
 
                 // Apply results sequentially to maintain determinism
-                for res in results {
-                    match res {
-                        Ok(cs) => {
-                            let _ = state_arc.write().unwrap().apply_changeset(&cs);
-                            executed_count += 1;
-                        }
-                        Err(e) => {
-                            log::warn!("[DAG] Parallel execution failed: {}", e);
-                            failed_count += 1;
+                {
+                    let mut state_guard = state_arc.write().unwrap();
+                    for res in results {
+                        match res {
+                            Ok(cs) => {
+                                let _ = state_guard.apply_changeset(&cs);
+                                executed_count += 1;
+                            }
+                            Err(e) => {
+                                log::warn!("[DAG] Parallel execution failed: {}", e);
+                                failed_count += 1;
+                            }
                         }
                     }
                 }
@@ -331,6 +352,12 @@ impl DagEngine {
             );
             v
         };
+
+        // Cache the executed state for this vertex to avoid re-execution
+        {
+            let mut cache = self.state_cache.write().unwrap();
+            cache.put(vertex.id.to_vec(), executed_state);
+        }
 
         // Success! Transaction removal from pending will happen automatically
         // once they are executed and committed to the blockchain state in apply_checkpoint.
@@ -367,7 +394,26 @@ impl DagEngine {
             if let Some(checkpoint) = checkpoint {
                 // Apply checkpoint using the unified engine path (updates state & blockchain)
                 // We drop the consensus lock before calling apply_checkpoint to avoid lock inversion deadlocks.
-                self.engine.apply_checkpoint(checkpoint.clone())?;
+                let mut applied = false;
+                
+                // OPTIMIZATION: Check if we have a pre-computed state for this checkpoint
+                if checkpoint.vertices.len() == 1 {
+                    let v_id = checkpoint.vertices[0];
+                    let cached_state = {
+                        let mut cache = self.state_cache.write().unwrap();
+                        cache.get(&v_id.to_vec()).cloned()
+                    };
+
+                    if let Some(state) = cached_state {
+                        if let Ok(()) = self.engine.apply_checkpoint_optimized(checkpoint.clone(), state) {
+                            applied = true;
+                        }
+                    }
+                }
+                
+                if !applied {
+                     self.engine.apply_checkpoint(checkpoint.clone())?;
+                }
 
                 // CRITICAL: Also add to consensus store to advance its state
                 // Otherwise it will keep trying to produce the same checkpoint
@@ -518,18 +564,19 @@ impl DagEngine {
                     );
                 }
 
-                // Partition into parallel waves
-                let waves = partition_into_waves(&all_to_execute);
+                // Partition into parallel waves using scheduler
+                let tx_count = all_to_execute.len();
+                let waves = TransactionScheduler::schedule(all_to_execute);
                 log::info!(
                     "[DAG SYNC] Validating {} transactions in {} parallel waves for vertex round {}",
-                    all_to_execute.len(),
+                    tx_count,
                     waves.len(),
                     vertex.round
                 );
 
                 for wave in waves {
                     let results: Vec<Result<ChangeSet>> = wave
-                        .iter()
+                        .par_iter()
                         .enumerate()
                         .map(|(i, signed_tx)| {
                             let pool_idx = i % self.engine.runtime_pool.len();

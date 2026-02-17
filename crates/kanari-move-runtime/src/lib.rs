@@ -1,6 +1,9 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod scheduler;
+pub use scheduler::TransactionScheduler;
+
 pub mod changeset;
 
 pub mod gas;

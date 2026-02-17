@@ -25,6 +25,7 @@ bcs = { workspace = true }
 num_cpus = { workspace = true }
 log = { workspace = true }
 lru = { workspace = true }
+rayon = { workspace = true }
 
 centauri = { workspace = true }
 
