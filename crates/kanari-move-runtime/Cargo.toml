@@ -32,8 +32,12 @@ kanari-system-natives = { workspace = true }
 kanari-types = { workspace = true }
 kanari-crypto = { workspace = true }
 log = { workspace = true }
+rayon = { workspace = true }
+num_cpus = { workspace = true }
+
 
 [dev-dependencies]
 kanari-frameworks = { workspace = true }
 move-package = { workspace = true }
 tempfile = { workspace = true }
+kanari-types = { workspace = true }

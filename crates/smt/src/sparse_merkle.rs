@@ -24,6 +24,7 @@ static DEFAULT_HASHES: Lazy<Vec<[u8; 32]>> = Lazy::new(|| {
 /// - Leaf hash: H(0x00 || key_hash || value)
 /// - Node hash: H(0x01 || left || right)
 ///   Stores only non-default nodes in RocksDB under keys `smt:node:<depth>:<prefix_bytes>`.
+#[derive(Debug)]
 pub struct SparseMerkleTree {
     db: std::sync::Arc<rocksdb::DB>,
     default_hashes: &'static [[u8; 32]],

@@ -185,7 +185,7 @@ fn main() {
     println!("Call token_balance_sets: {:?}", call_cs.token_balance_sets);
 
     // Apply ChangeSets to StateManager to observe state changes (supply, balances)
-    let mut state = StateManager::new();
+    let mut state = StateManager::new_in_memory();
     if !publish_cs.is_empty() {
         state
             .apply_changeset(&publish_cs)
@@ -197,18 +197,22 @@ fn main() {
             .expect("apply call changeset");
     }
 
-    println!("State token supplies: {:?}", state.token_supplies);
-    println!("State token treasuries: {:?}", state.token_treasuries);
+    // StateManager in DB mode doesn't expose public maps anymore.
+    // Use getters or inspect DB for verification.
+    println!("State total supply: {:?}", state.total_supply);
+
+    // println!("State token supplies: {:?}", state.token_supplies);
+    // println!("State token treasuries: {:?}", state.token_treasuries);
 
     // Print balances for any accounts touched
-    for (addr, account) in state.accounts.iter() {
-        if !account.token_balances.is_empty() {
-            println!(
-                "Account {:#x} token balances: {:?}",
-                addr, account.token_balances
-            );
-        }
-    }
+    // for (addr, account) in state.accounts.iter() {
+    //     if !account.token_balances.is_empty() {
+    //         println!(
+    //             "Account {:#x} token balances: {:?}",
+    //             addr, account.token_balances
+    //         );
+    //     }
+    // }
 
     // If the call produced created objects or treasuries, try to find a TreasuryCap
     let mut found_treasury_id: Option<String> = None;
@@ -376,18 +380,6 @@ fn main() {
                         let mut coin_data = fake_uid_addr.to_vec();
                         let balance_bytes = bcs::to_bytes(&mint_amount).unwrap();
                         coin_data.extend(balance_bytes);
-
-                        let coin_type = format!("0x2::coin::Coin<{}>", tt);
-
-                        let fake_coin = kanari_move_runtime::changeset::CreatedObject {
-                            owner: recipient_move,
-                            uid: None,
-                            type_: coin_type,
-                            data: coin_data,
-                            version: 1,
-                        };
-
-                        state.objects.insert(coin_id.clone(), fake_coin.clone());
                     }
 
                     if !coin_id.is_empty() {
@@ -466,7 +458,7 @@ fn main() {
                                 }
 
                                 // Verify Writeback: Check if source Coin version incremented and balance updated
-                                if let Some(updated_coin) = state.objects.get(&coin_id) {
+                                if let Ok(Some(updated_coin)) = state.get_object(&coin_id) {
                                     println!(
                                         "Source Coin version after transfer: {}",
                                         updated_coin.version
@@ -518,7 +510,7 @@ fn main() {
                             Ok(b_cs) => {
                                 println!("Burn successful!");
                                 state.apply_changeset(&b_cs).expect("apply burn changeset");
-                                if let Some(updated_coin) = state.objects.get(&coin_id) {
+                                if let Ok(Some(updated_coin)) = state.get_object(&coin_id) {
                                     println!(
                                         "Source Coin version after burn: {}",
                                         updated_coin.version
@@ -551,7 +543,7 @@ fn main() {
                     }
 
                     // Final State Dump
-                    println!("\nFinal State - Token Supplies: {:?}", state.token_supplies);
+                    // println!("\nFinal State - Token Supplies: {:?}", state.token_supplies);
                 }
                 Err(e) => eprintln!("Mint failed: {:?}", e),
             }

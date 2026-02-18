@@ -65,12 +65,8 @@ fn native_save_object(
     let obj_val = obj_ref.read_ref()?;
 
     let mut obj_data = Vec::new();
-    if let Ok(layout_opt) = context.type_to_type_layout(&ty_args[0]) {
-        if let Some(layout) = layout_opt {
-            if let Some(serialized) = obj_val.simple_serialize(&layout) {
-                obj_data = serialized;
-            }
-        }
+    if let Some(layout) = context.type_to_type_layout(&ty_args[0])? {
+        obj_data = obj_val.simple_serialize(&layout).unwrap_or_default();
     }
 
     // Extract ID (first 32 bytes)

@@ -1000,7 +1000,7 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                                     && let Some(id) = obj_map.get("id").and_then(|v| v.as_str())
                                 {
                                     // try direct lookup in persisted objects
-                                    if let Some(stored) = state_guard.objects.get(id) {
+                                    if let Ok(Some(stored)) = state_guard.get_object(id) {
                                         obj_map.insert(
                                             "type".to_string(),
                                             serde_json::Value::String(stored.type_.clone()),
@@ -1008,7 +1008,7 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                                     } else {
                                         // try without 0x prefix
                                         let id_norm = id.trim_start_matches("0x");
-                                        if let Some(stored2) = state_guard.objects.get(id_norm) {
+                                        if let Ok(Some(stored2)) = state_guard.get_object(id_norm) {
                                             obj_map.insert(
                                                 "type".to_string(),
                                                 serde_json::Value::String(stored2.type_.clone()),
@@ -1039,11 +1039,13 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                             poison.into_inner()
                         }
                     };
-                    if let Some(ids) = state_guard.owned_objects.get(&a) {
+                    if let Ok(ids) = state_guard.get_owned_objects(&a)
+                        && !ids.is_empty()
+                    {
                         // Build array of created objects from state.objects
                         let mut objs = Vec::new();
                         for uid in ids.iter().rev().take(10) {
-                            if let Some(co) = state_guard.objects.get(uid) {
+                            if let Ok(Some(co)) = state_guard.get_object(uid) {
                                 let o = serde_json::json!({
                                     "id": uid.clone(),
                                     "type": co.type_.clone(),

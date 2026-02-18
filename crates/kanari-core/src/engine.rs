@@ -148,7 +148,7 @@ impl BlockchainEngine {
     }
 
     pub fn new() -> Result<Self> {
-        let persistent_store = Self::try_open_store(|| PersistentStore::open_default(), "default");
+        let persistent_store = Self::try_open_store(PersistentStore::open_default, "default");
         Self::init(persistent_store)
     }
 
@@ -177,20 +177,38 @@ impl BlockchainEngine {
         let state = Self::load_state(&persistent_store);
 
         // Initialize runtime pool (mandatory: one runtime per CPU)
+        // OPTIMIZATION: Use multiple independent MoveVM instances to avoid lock contention.
+        // We use `spawn_worker` to create new VMs that share the underlying RocksDB/State
+        // so they can read modules/objects but don't block each other on VM locks.
         let workers = num_cpus::get().max(1);
         let mut runtime_pool = Vec::new();
 
-        // Create base runtime with shared state
+        // Create base runtime with shared state (connected to RocksDB)
         let base_runtime = match MoveRuntime::new_with_kanari_natives() {
             Ok(rt) => rt,
             Err(e) => {
-                error!("FATAL: Failed to initialize base MoveRuntime: {}", e);
+                log::error!("FATAL: Failed to initialize base MoveRuntime: {}", e);
                 anyhow::bail!("Failed to initialize runtime pool: {}", e);
             }
         };
 
-        for _ in 0..workers {
-            runtime_pool.push(base_runtime.clone());
+        log::info!(
+            "Initializing runtime pool with {} workers (independent VMs sharing DB)",
+            workers
+        );
+
+        // Add base runtime as first worker
+        runtime_pool.push(base_runtime.clone());
+
+        // Spawn remaining workers sharing state with base runtime
+        for i in 1..workers {
+            match base_runtime.spawn_worker() {
+                Ok(rt) => runtime_pool.push(rt),
+                Err(e) => {
+                    log::error!("Failed to spawn worker runtime #{}: {}", i, e);
+                    anyhow::bail!("Failed to initialize runtime pool: {}", e);
+                }
+            }
         }
 
         // Note: treasuries are loaded above when StateManager is initialized
@@ -223,7 +241,7 @@ impl BlockchainEngine {
 
     fn load_blockchain(store: &Option<Arc<PersistentStore>>) -> Arc<RwLock<Blockchain>> {
         if let Some(store) = store {
-            match store.load::<Blockchain>("blockchain") {
+            match store.load::<Blockchain>(b"blockchain") {
                 Ok(Some(mut b)) => {
                     info!(
                         "Successfully loaded blockchain from persistent store (height: {}, checkpoints: {})",
@@ -255,56 +273,17 @@ impl BlockchainEngine {
     }
 
     fn load_state(store: &Option<Arc<PersistentStore>>) -> Arc<RwLock<StateManager>> {
-        if let Some(store) = store {
-            match store.load::<StateManager>("state_manager") {
-                Ok(Some(s)) => {
-                    info!(
-                        "Successfully loaded state manager from persistent store (accounts: {}, objects: {})",
-                        s.accounts.len(),
-                        s.objects.len()
-                    );
-                    Arc::new(RwLock::new(s))
-                }
-                Ok(None) => {
-                    info!(
-                        "No persisted StateManager found — creating fresh and populating from MoveVMState."
-                    );
-                    // No persisted StateManager found — create fresh and populate
-                    // token supplies from any persisted MoveVM treasuries so token
-                    // state survives restarts.
-                    let mut sm = StateManager::new();
-                    if let Ok(mvs) =
-                        kanari_move_runtime::storage::move_vm_state::MoveVMState::open_default()
-                        && let Ok(treas) = mvs.load_treasuries()
-                    {
-                        info!(
-                            "Populating StateManager from {} MoveVM treasuries",
-                            treas.len()
-                        );
-                        for (owner, token_type, cap) in treas.into_iter() {
-                            sm.token_supplies.insert(token_type.clone(), cap.clone());
-                            sm.token_treasuries.insert(token_type, owner);
-                        }
-                    }
-                    Arc::new(RwLock::new(sm))
-                }
-                Err(e) => {
-                    error!(
-                        "FATAL ERROR loading state manager from persistent store: {}. Falling back to fresh state.",
-                        e
-                    );
-                    Arc::new(RwLock::new(StateManager::new()))
-                }
-            }
-        } else {
-            info!("Running in-memory mode: No persistent store provided for state.");
-            Arc::new(RwLock::new(StateManager::new()))
-        }
+        let store = store
+            .clone()
+            .unwrap_or_else(|| Arc::new(PersistentStore::open_in_memory().unwrap()));
+
+        info!("Initializing StateManager with persistent store support (RocksDB)");
+        Arc::new(RwLock::new(StateManager::new(store)))
     }
 
     fn load_dag_state(store: &Option<Arc<PersistentStore>>) -> Option<PersistentDagState> {
         if let Some(store) = store {
-            match store.load::<PersistentDagState>("dag_state") {
+            match store.load::<PersistentDagState>(b"dag_state") {
                 Ok(Some(s)) => {
                     info!("Successfully loaded DAG consensus state from persistent store");
                     Some(s)
@@ -348,7 +327,7 @@ impl BlockchainEngine {
         if let Some(store) = &self.persistent_store {
             info!("[ENGINE] Persisting DAG consensus state...");
             store
-                .save("dag_state", &state)
+                .save(b"dag_state", &state)
                 .context("Failed to persist DAG state")?;
             info!("[ENGINE] DAG state persisted successfully");
         }
@@ -444,15 +423,15 @@ impl BlockchainEngine {
             let mut state_snapshot = { self.state.read().unwrap().clone() };
 
             // Adjust the cloned snapshot to account for any pending transactions
-            // from the same sender. This ensures that sequence validation during
-            // the simulated execution reflects the expected sequence number once
-            // pending transactions are included, preventing spurious rejections.
-            self.for_each_pending_tx_from_sender(tx.sender_address(), |ptx| {
-                if let Ok(addr) =
-                    KanariAddress::parse_to_account_address(ptx.transaction.sender_address())
-                {
-                    let acct = state_snapshot.get_or_create_account(addr);
+            // from the same sender that haven't been committed yet.
+            // This is needed for correct sequence number validation.
+            let sender_addr = tx.sender_address();
+            let addr = KanariAddress::parse_to_account_address(sender_addr)?;
+
+            self.for_each_pending_tx_from_sender(sender_addr, |_| {
+                if let Some(mut acct) = state_snapshot.get_account(&addr) {
                     acct.increment_sequence();
+                    state_snapshot.save_account(&acct).unwrap();
                 }
             });
             let state_arc = Arc::new(RwLock::new(state_snapshot));
@@ -491,8 +470,7 @@ impl BlockchainEngine {
         self.execute_transaction_with_runtime_internal(tx, runtime, state_arc, false, timestamp)
     }
 
-    /// Internal transaction execution with optional sequence validation
-    fn execute_transaction_with_runtime_internal(
+    pub(crate) fn execute_transaction_with_runtime_internal(
         &self,
         tx: &Transaction,
         runtime: &kanari_move_runtime::move_runtime::MoveRuntime,
@@ -750,15 +728,11 @@ impl BlockchainEngine {
         state.get_account_by_hex(address).map(|acc| {
             debug!("[ENGINE] Found account {} in state", address);
             // collect owned object ids for this account and map to ObjectInfo
-            let owned_ids = state
-                .owned_objects
-                .get(&acc.address)
-                .cloned()
-                .unwrap_or_default();
+            let owned_ids = state.get_owned_objects(&acc.address).unwrap_or_default();
 
             let mut owned_objs: Vec<ObjectInfo> = Vec::new();
             for id in owned_ids {
-                if let Some(obj) = state.objects.get(&id) {
+                if let Ok(Some(obj)) = state.get_object(&id) {
                     owned_objs.push(ObjectInfo {
                         id: id.clone(),
                         owner: format!("{:#x}", obj.owner),
@@ -1006,43 +980,6 @@ impl BlockchainEngine {
         Ok(())
     }
 
-    /// Persist all engine state (blockchain, state manager, DAG state) to disk
-    pub(crate) fn persist_all_state(&self) -> Result<()> {
-        if let Some(store) = &self.persistent_store {
-            let chain = self.blockchain.read().unwrap();
-            let height = chain.height();
-            info!("[ENGINE] Persisting blockchain at height {}...", height);
-            store
-                .save("blockchain", &*chain)
-                .context("Failed to persist blockchain")?;
-            drop(chain);
-
-            let state_guard = self.state.read().unwrap();
-            info!("[ENGINE] Persisting state manager...");
-            store
-                .save("state_manager", &*state_guard)
-                .context("Failed to persist state manager")?;
-            drop(state_guard);
-
-            // Also persist DAG state if it exists
-            if let Ok(dag_engine_guard) = self.dag_engine.read()
-                && let Some(dag_engine) = &*dag_engine_guard
-                && let Ok(consensus) = dag_engine.consensus().read()
-                && let Ok(dag_state) = consensus.save_state()
-            {
-                let _ = self.persist_dag_state(dag_state);
-            }
-
-            info!(
-                "[ENGINE] Persistence completed successfully for height {}",
-                height
-            );
-        } else {
-            warn!("[ENGINE] Running in-memory mode, data will NOT be persisted!");
-        }
-        Ok(())
-    }
-
     /// Get state root for a specific block height or latest if None.
     pub fn get_state_root(&self, height: Option<u64>) -> Option<String> {
         let chain = self.blockchain.read().unwrap();
@@ -1065,54 +1002,11 @@ impl BlockchainEngine {
         seen.insert("KANARI".to_string());
         out.push(("KANARI".to_string(), state.total_supply));
 
-        // Include registered treasuries (known supplies)
-        for (k, v) in state.token_supplies.iter() {
-            if seen.insert(k.clone()) {
-                out.push((k.clone(), v.total_supply()));
-            }
-        }
-
-        // Best-effort: scan stored objects for coin/treasury/metadata types
-        for (_id, obj) in state.objects.iter() {
-            let t = &obj.type_;
-            // Look for generics like ::coin::Coin<...> or ::coin::TreasuryCap<...>
-            if t.contains("::coin::")
-                && t.contains('<')
-                && t.contains('>')
-                && let Some(start) = t.find('<')
-                && let Some(end) = t.rfind('>')
-                && end > start + 1
-            {
-                let inner = t[start + 1..end].trim().to_string();
-                if !inner.is_empty() && seen.insert(inner.clone()) {
-                    // supply if known, else attempt to compute by summing coin objects
-                    let mut supply = state
-                        .token_supplies
-                        .get(&inner)
-                        .map(|cap| cap.total_supply())
-                        .unwrap_or(0u64);
-
-                    if supply == 0 {
-                        // Sum all Coin<inner> object values in state.objects
-                        let mut sum_u128: u128 = 0;
-                        for (_oid, o2) in state.objects.iter() {
-                            if o2.type_.contains("::coin::Coin<")
-                                && o2.type_.contains(&inner)
-                                && o2.data.len() >= 8
-                                && let Ok(bytes) = o2.data[o2.data.len() - 8..].try_into()
-                            {
-                                let v = u64::from_le_bytes(bytes) as u128;
-                                sum_u128 = sum_u128.saturating_add(v);
-                            }
-                        }
-                        if sum_u128 > u128::from(u64::MAX) {
-                            supply = u64::MAX;
-                        } else {
-                            supply = sum_u128 as u64;
-                        }
-                    }
-
-                    out.push((inner, supply));
+        // Include registered treasuries (known supplies from RocksDB index)
+        if let Ok(treasuries) = state.load_treasuries() {
+            for (_owner, token_type, cap) in treasuries {
+                if seen.insert(token_type.clone()) {
+                    out.push((token_type, cap.total_supply));
                 }
             }
         }

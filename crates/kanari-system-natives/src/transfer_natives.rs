@@ -218,13 +218,9 @@ fn native_freeze_object(
 
     // Serialize object data
     let mut obj_data: Vec<u8> = Vec::new();
-    if let Ok(layout_opt) = context.type_to_type_layout(&ty_args[0]) {
-        if let Some(layout) = layout_opt {
-            if let Some(serialized) = obj_val.simple_serialize(&layout) {
-                obj_data = serialized;
-            } else {
-                obj_data.extend_from_slice(type_str.as_bytes());
-            }
+    if let Ok(Some(layout)) = context.type_to_type_layout(&ty_args[0]) {
+        if let Some(serialized) = obj_val.simple_serialize(&layout) {
+            obj_data = serialized;
         } else {
             obj_data.extend_from_slice(type_str.as_bytes());
         }

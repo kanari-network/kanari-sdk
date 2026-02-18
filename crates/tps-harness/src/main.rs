@@ -40,8 +40,11 @@ fn main() -> Result<()> {
         let mut state = engine.state.write().unwrap();
         for kp in &senders {
             if let Ok(addr) = AccountAddress::from_hex_literal(kp.address.as_str()) {
-                let acc = state.get_or_create_account(addr);
+                let mut acc = state.get_account(&addr).unwrap_or_else(|| {
+                    kanari_core::kanari_move_runtime::state::Account::new(addr, 0)
+                });
                 acc.balance = 1_000_000_000_000; // large balance
+                state.save_account(&acc).expect("Failed to save account");
             }
         }
     }

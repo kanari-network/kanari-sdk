@@ -51,6 +51,44 @@ pub fn open_or_get_db(path_opt: Option<PathBuf>) -> Result<Arc<DB>> {
 
     let mut opts = Options::default();
     opts.create_if_missing(true);
+    opts.create_missing_column_families(true);
+
+    // Optimize for high throughput (100k+ TPS target)
+    // 1. Increase parallelism for background flushes/compactions
+    let parallelism = std::thread::available_parallelism()
+        .map(|n| n.get() as i32)
+        .unwrap_or(4);
+    opts.increase_parallelism(parallelism);
+    opts.set_max_background_jobs(std::cmp::max(4, parallelism));
+
+    // 2. Optimize BlockBasedTable (Block Cache & Bloom Filter)
+    let mut block_opts = rocksdb::BlockBasedOptions::default();
+    // 512MB Block Cache
+    block_opts.set_block_cache(&rocksdb::Cache::new_lru_cache(512 * 1024 * 1024));
+    // Bloom filter: 10 bits per key
+    block_opts.set_bloom_filter(10.0, false);
+    // Cache index and filter blocks in block cache to save memory/IO
+    block_opts.set_cache_index_and_filter_blocks(true);
+    block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
+    opts.set_block_based_table_factory(&block_opts);
+
+    // 3. MemTable & Compaction Tuning
+    // 64MB MemTable size
+    opts.set_write_buffer_size(64 * 1024 * 1024);
+    // Keep up to 4 memtables in memory before blocking
+    opts.set_max_write_buffer_number(4);
+    // Target file size for L1 (same as MemTable)
+    opts.set_target_file_size_base(64 * 1024 * 1024);
+    // Level multiplier (default 10)
+    opts.set_max_bytes_for_level_base(256 * 1024 * 1024);
+
+    // 4. Compression
+    // LZ4 is good balance of speed/compression for bottom levels
+    opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
+
+    // 5. Bytes per sync (smoother IO)
+    opts.set_bytes_per_sync(1024 * 1024); // 1MB
+
     let db = DB::open(&opts, &path).context("Failed to open RocksDB for kanari")?;
 
     GLOBAL_DB_PATH.set(path.clone()).ok();

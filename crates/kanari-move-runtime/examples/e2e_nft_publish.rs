@@ -347,26 +347,28 @@ fn main() {
                     }
 
                     // Persist/apply: apply ChangeSet to StateManager and show state
-                    let mut state = StateManager::new();
+                    let mut state = StateManager::new_in_memory();
                     if !m_cs.is_empty() {
                         state.apply_changeset(&m_cs).expect("apply mint changeset");
                     }
-                    println!(
-                        "After mint - State token supplies: {:?}",
-                        state.token_supplies
-                    );
-                    println!(
-                        "After mint - State token treasuries: {:?}",
-                        state.token_treasuries
-                    );
-                    for (addr, account) in state.accounts.iter() {
-                        if !account.token_balances.is_empty() {
-                            println!(
-                                "Account {:#x} token balances: {:?}",
-                                addr, account.token_balances
-                            );
-                        }
-                    }
+
+                    // StateManager DB mode doesn't expose public maps
+                    // println!(
+                    //     "After mint - State token supplies: {:?}",
+                    //     state.token_supplies
+                    // );
+                    // println!(
+                    //     "After mint - State token treasuries: {:?}",
+                    //     state.token_treasuries
+                    // );
+                    // for (addr, account) in state.accounts.iter() {
+                    //     if !account.token_balances.is_empty() {
+                    //         println!(
+                    //             "Account {:#x} token balances: {:?}",
+                    //             addr, account.token_balances
+                    //         );
+                    //     }
+                    // }
                 }
                 Err(e) => {
                     eprintln!("mint call failed: {:?}", e);

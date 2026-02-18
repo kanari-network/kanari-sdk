@@ -75,11 +75,11 @@ fn main() -> Result<()> {
     {
         let mut state = engine.state.write().unwrap();
         let addr = AccountAddress::from_hex_literal(&sender_address)?;
-        let account = state
-            .accounts
-            .entry(addr)
-            .or_insert_with(|| Account::new(addr, 0));
+        let mut account = state
+            .get_account(&addr)
+            .unwrap_or_else(|| Account::new(addr, 0));
         account.balance = 10_000_000_000_000;
+        state.save_account(&account).unwrap();
         println!(
             "   ✓ Funded sender {} with {} MIST",
             sender_address, account.balance

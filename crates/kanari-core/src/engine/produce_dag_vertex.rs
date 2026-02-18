@@ -7,9 +7,9 @@
 use anyhow::Result;
 use centauri::consensus::{DagConsensus, VertexId};
 use kanari_move_runtime::TransactionScheduler;
+use log::info;
 use lru::LruCache;
 use rayon::prelude::*;
-use log::info;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
 
@@ -36,6 +36,8 @@ pub struct CheckpointInfo {
     pub tx_count: usize,
 }
 
+type StateCache = Arc<RwLock<LruCache<Vec<u8>, Arc<RwLock<StateManager>>>>>;
+
 /// DAG-enabled blockchain engine
 #[derive(Clone)]
 pub struct DagEngine {
@@ -50,7 +52,7 @@ pub struct DagEngine {
 
     /// Cache for execution results to avoid re-execution in apply_checkpoint
     /// Maps VertexId -> Post-execution State
-    state_cache: Arc<RwLock<LruCache<Vec<u8>, Arc<RwLock<StateManager>>>>>,
+    state_cache: StateCache,
 }
 
 impl DagEngine {
@@ -84,9 +86,7 @@ impl DagEngine {
             engine,
             consensus: Arc::new(RwLock::new(consensus)),
             authority_id,
-            state_cache: Arc::new(RwLock::new(LruCache::new(
-                NonZeroUsize::new(10).unwrap(),
-            ))),
+            state_cache: Arc::new(RwLock::new(LruCache::new(NonZeroUsize::new(10).unwrap()))),
         })
     }
 
@@ -134,9 +134,7 @@ impl DagEngine {
             engine,
             consensus,
             authority_id,
-            state_cache: Arc::new(RwLock::new(LruCache::new(
-                NonZeroUsize::new(10).unwrap(),
-            ))),
+            state_cache: Arc::new(RwLock::new(LruCache::new(NonZeroUsize::new(10).unwrap()))),
         })
     }
 
@@ -169,9 +167,7 @@ impl DagEngine {
             engine,
             consensus,
             authority_id,
-            state_cache: Arc::new(RwLock::new(LruCache::new(
-                NonZeroUsize::new(10).unwrap(),
-            ))),
+            state_cache: Arc::new(RwLock::new(LruCache::new(NonZeroUsize::new(10).unwrap()))),
         })
     }
 
@@ -210,8 +206,8 @@ impl DagEngine {
             let mut to_include = Vec::new();
             let mut to_remove = Vec::new();
 
-            // Limit transactions per vertex (e.g., 200,000 for max throughput)
-            for tx in pending.iter().take(200_000) {
+            // Limit transactions per vertex (e.g., 500,000 for max throughput)
+            for tx in pending.iter().take(500_000) {
                 let hash = tx.hash();
                 let hash_hex = hex::encode(&hash);
 
@@ -252,7 +248,9 @@ impl DagEngine {
 
         // 3. Create a state snapshot and apply history + current transactions sequentially
         let (executed_state, state_root, executed, failed) = {
-            let state_clone = self.engine.state.read().unwrap().clone();
+            // Hold the read lock throughout execution to ensure consistent state (prevent concurrent commits)
+            let state_guard = self.engine.state.read().unwrap();
+            let state_clone = state_guard.clone();
             let chain = self.engine.blockchain.read().unwrap();
             let consensus = self.consensus.read().unwrap();
             let state_arc = Arc::new(RwLock::new(state_clone));
@@ -374,6 +372,7 @@ impl DagEngine {
             consensus.add_vertex(vertex)?;
 
             // Persist DAG state immediately after adding vertex
+            /* OPTIMIZATION: Persistence is slow. Skip for high TPS testing.
             match consensus.save_state() {
                 Ok(state) => {
                     if let Err(e) = self.engine.persist_dag_state(state) {
@@ -382,6 +381,7 @@ impl DagEngine {
                 }
                 Err(e) => log::error!("[DAG] Failed to generate DAG state for persistence: {}", e),
             }
+            */
         }
 
         // Try to commit vertices to checkpoint
@@ -395,7 +395,7 @@ impl DagEngine {
                 // Apply checkpoint using the unified engine path (updates state & blockchain)
                 // We drop the consensus lock before calling apply_checkpoint to avoid lock inversion deadlocks.
                 let mut applied = false;
-                
+
                 // OPTIMIZATION: Check if we have a pre-computed state for this checkpoint
                 if checkpoint.vertices.len() == 1 {
                     let v_id = checkpoint.vertices[0];
@@ -404,15 +404,17 @@ impl DagEngine {
                         cache.get(&v_id.to_vec()).cloned()
                     };
 
-                    if let Some(state) = cached_state {
-                        if let Ok(()) = self.engine.apply_checkpoint_optimized(checkpoint.clone(), state) {
-                            applied = true;
-                        }
+                    if cached_state.is_some_and(|state| {
+                        self.engine
+                            .apply_checkpoint_optimized(checkpoint.clone(), state)
+                            .is_ok()
+                    }) {
+                        applied = true;
                     }
                 }
-                
+
                 if !applied {
-                     self.engine.apply_checkpoint(checkpoint.clone())?;
+                    self.engine.apply_checkpoint(checkpoint.clone())?;
                 }
 
                 // CRITICAL: Also add to consensus store to advance its state

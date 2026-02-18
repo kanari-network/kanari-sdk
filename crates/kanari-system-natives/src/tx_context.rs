@@ -33,7 +33,7 @@ fn native_derive_id(
     // Hash(tx_hash || ids_created)
     let mut hasher = Sha3_256::new();
     hasher.update(&tx_hash);
-    hasher.update(&ids_created.to_le_bytes());
+    hasher.update(ids_created.to_le_bytes());
     let hash = hasher.finalize();
 
     // Convert hash to address (take first 32 bytes)

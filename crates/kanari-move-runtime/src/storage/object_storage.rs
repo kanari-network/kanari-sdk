@@ -122,11 +122,18 @@ impl ObjectStorage {
         }
     }
 
-    /// Return a boxed in-memory `ObjectStore` trait object.
     pub fn boxed_inmemory() -> Box<dyn ObjectStore> {
         Box::new(Self::new())
     }
+}
 
+impl Default for ObjectStorage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ObjectStorage {
     /// Create a new ObjectStorage backed by RocksDB persistence (uses `PersistentStore::open_default`).
     pub fn new_with_persistence() -> Result<Self> {
         let store = PersistentStore::open_default()?;
@@ -135,9 +142,11 @@ impl ObjectStorage {
         // Load object index (list of ids) if present and rebuild in-memory maps
         let mut objects_map: BTreeMap<String, StoredObject> = BTreeMap::new();
 
-        if let Ok(Some(ids)) = store.load::<Vec<String>>(Self::OBJECT_INDEX_KEY) {
+        if let Ok(Some(ids)) = store.load::<Vec<String>>(Self::OBJECT_INDEX_KEY.as_bytes()) {
             for id in ids.into_iter() {
-                if let Ok(Some(obj)) = store.load::<StoredObject>(&format!("object:{}", id)) {
+                if let Ok(Some(obj)) =
+                    store.load::<StoredObject>(format!("object:{}", id).as_bytes())
+                {
                     objects_map.insert(id.clone(), obj);
                 }
             }
@@ -205,16 +214,16 @@ impl ObjectStorage {
         // Persist to DB if available
         if let Some(store) = &self.persistent {
             // save object
-            store.save(&format!("object:{}", id.clone()), &obj)?;
+            store.save(format!("object:{}", id).as_bytes(), &obj)?;
 
             // update object index
             let mut ids = store
-                .load::<Vec<String>>(Self::OBJECT_INDEX_KEY)?
+                .load::<Vec<String>>(Self::OBJECT_INDEX_KEY.as_bytes())?
                 .unwrap_or_default();
 
             if !ids.iter().any(|x| x == &id) {
                 ids.push(id.clone());
-                store.save(Self::OBJECT_INDEX_KEY, &ids)?;
+                store.save(Self::OBJECT_INDEX_KEY.as_bytes(), &ids)?;
             }
         }
 
@@ -224,31 +233,37 @@ impl ObjectStorage {
     /// Get object by ID
     pub fn get_object(&self, id: &str) -> Option<StoredObject> {
         // Prefer in-memory
-        if let Ok(state) = self.state.read() {
-            if let Some(obj) = state.objects.get(id) {
-                return Some(obj.clone());
-            }
+        if let Some(obj) = self
+            .state
+            .read()
+            .ok()
+            .and_then(|state| state.objects.get(id).cloned())
+        {
+            return Some(obj);
         }
 
         // If not present and persistent enabled, try loading from DB
-        if let Some(store) = &self.persistent {
-            if let Ok(Some(obj)) = store.load::<StoredObject>(&format!("object:{}", id)) {
-                // populate in-memory caches
-                if let Ok(mut state) = self.state.write() {
-                    // Double check if it was added while we were loading
-                    if let Some(existing) = state.objects.get(id) {
-                        return Some(existing.clone());
-                    }
-
-                    state.objects.insert(id.to_string(), obj.clone());
-                    state
-                        .owner_index
-                        .entry(obj.owner)
-                        .or_default()
-                        .push(id.to_string());
+        if let Some(obj) = self.persistent.as_ref().and_then(|store| {
+            store
+                .load::<StoredObject>(format!("object:{}", id).as_bytes())
+                .ok()
+                .flatten()
+        }) {
+            // populate in-memory caches
+            if let Ok(mut state) = self.state.write() {
+                // Double check if it was added while we were loading
+                if let Some(existing) = state.objects.get(id) {
+                    return Some(existing.clone());
                 }
-                return Some(obj);
+
+                state.objects.insert(id.to_string(), obj.clone());
+                state
+                    .owner_index
+                    .entry(obj.owner)
+                    .or_default()
+                    .push(id.to_string());
             }
+            return Some(obj);
         }
         None
     }
@@ -320,7 +335,7 @@ impl ObjectStorage {
 
         // Persist updated object if available
         if let Some(store) = &self.persistent {
-            store.save(&format!("object:{}", id), &obj_to_persist)?;
+            store.save(format!("object:{}", id).as_bytes(), &obj_to_persist)?;
         }
 
         Ok(())

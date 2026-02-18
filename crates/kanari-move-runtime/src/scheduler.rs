@@ -1,8 +1,8 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
 use kanari_types::transaction::SignedTransaction;
+use std::collections::HashMap;
 
 /// Transaction Scheduler for parallel execution
 /// Organizes transactions into "waves" where transactions in the same wave can be executed in parallel.
@@ -27,16 +27,17 @@ impl TransactionScheduler {
         // Map: Conflict Key -> Index of the last wave that touched this key
         // We use isize here to represent "no wave yet" as -1, so the first wave is 0.
         // Actually, let's just use usize and 0-based indexing.
-        let mut key_last_wave: HashMap<String, usize> = HashMap::with_capacity(transactions.len() * 2);
+        let mut key_last_wave: HashMap<String, usize> =
+            HashMap::with_capacity(transactions.len() * 2);
 
         for tx in transactions {
             let keys = tx.transaction.get_conflict_keys();
-            
+
             // Find the earliest wave this transaction can be placed in
             // It must be AFTER the latest wave of any of its dependencies.
             // If a key has been used in wave N, this tx must be in wave N+1.
             let mut target_wave_idx = 0;
-            
+
             for key in &keys {
                 if let Some(&last_wave) = key_last_wave.get(key) {
                     // Conflict found in `last_wave`. Must schedule in `last_wave + 1`
@@ -45,21 +46,21 @@ impl TransactionScheduler {
                     }
                 }
             }
-            
+
             // Ensure the wave exists
             while waves.len() <= target_wave_idx {
                 waves.push(Vec::new());
             }
-            
+
             // Add transaction to the wave
             waves[target_wave_idx].push(tx);
-            
+
             // Update the last wave index for all keys
             for key in keys {
                 key_last_wave.insert(key, target_wave_idx);
             }
         }
-        
+
         waves
     }
 }
@@ -101,20 +102,20 @@ mod tests {
         // Tx2: B -> uses Obj2
         // Tx3: C -> uses Obj1
         // Tx4: D -> uses Obj2
-        
+
         // Expected:
         // Wave 0: Tx1, Tx2 (independent)
         // Wave 1: Tx3 (conflicts with Tx1), Tx4 (conflicts with Tx2)
-        
+
         // We use different modules to avoid module-level conflicts
         let tx1 = create_dummy_tx("A", "M1", Some("Obj1"));
         let tx2 = create_dummy_tx("B", "M2", Some("Obj2"));
         let tx3 = create_dummy_tx("C", "M3", Some("Obj1"));
         let tx4 = create_dummy_tx("D", "M4", Some("Obj2"));
-        
+
         let txs = vec![tx1, tx2, tx3, tx4];
         let waves = TransactionScheduler::schedule(txs);
-        
+
         assert_eq!(waves.len(), 2);
         assert_eq!(waves[0].len(), 2); // Tx1, Tx2
         assert_eq!(waves[1].len(), 2); // Tx3, Tx4
@@ -125,20 +126,20 @@ mod tests {
         // Tx1: A
         // Tx2: A (depends on Tx1)
         // Tx3: A (depends on Tx2)
-        
+
         let tx1 = create_dummy_tx("A", "M1", None);
         let tx2 = create_dummy_tx("A", "M2", None);
         let tx3 = create_dummy_tx("A", "M3", None);
-        
+
         let txs = vec![tx1, tx2, tx3];
         let waves = TransactionScheduler::schedule(txs);
-        
+
         assert_eq!(waves.len(), 3);
         assert_eq!(waves[0].len(), 1);
         assert_eq!(waves[1].len(), 1);
         assert_eq!(waves[2].len(), 1);
     }
-    
+
     #[test]
     fn test_schedule_complex() {
         // Tx1: A (Obj1)
@@ -146,21 +147,21 @@ mod tests {
         // Tx3: C (Obj2) -> Independent
         // Tx4: D (Obj1) -> Conflicts with Tx2
         // Tx5: E (Obj2) -> Conflicts with Tx3
-        
+
         // Expected:
         // Wave 0: Tx1, Tx3
         // Wave 1: Tx2, Tx5
         // Wave 2: Tx4
-        
+
         let tx1 = create_dummy_tx("A", "M1", Some("Obj1"));
         let tx2 = create_dummy_tx("B", "M2", Some("Obj1"));
         let tx3 = create_dummy_tx("C", "M3", Some("Obj2"));
         let tx4 = create_dummy_tx("D", "M4", Some("Obj1"));
         let tx5 = create_dummy_tx("E", "M5", Some("Obj2"));
-        
+
         let txs = vec![tx1, tx2, tx3, tx4, tx5];
         let waves = TransactionScheduler::schedule(txs);
-        
+
         assert_eq!(waves.len(), 3);
         assert_eq!(waves[0].len(), 2); // Tx1, Tx3
         assert_eq!(waves[1].len(), 2); // Tx2, Tx5

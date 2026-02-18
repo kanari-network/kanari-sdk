@@ -73,7 +73,17 @@ impl MoveRuntime {
         } else {
             MoveVMState::open_default()?
         };
+        Self::new_internal(natives, state)
+    }
 
+    /// Create a new MoveRuntime with custom native functions and in-memory state.
+    /// Useful for creating multiple runtime instances in parallel without DB lock contention.
+    pub fn new_with_natives_in_memory(natives: Vec<NativeFunctionTable>) -> Result<Self> {
+        let state = MoveVMState::new_in_memory()?;
+        Self::new_internal(natives, state)
+    }
+
+    fn new_internal(natives: Vec<NativeFunctionTable>, state: MoveVMState) -> Result<Self> {
         // Flatten all native tables into a single iterator
         let all_natives: Vec<_> = natives
             .into_iter()
@@ -99,14 +109,19 @@ impl MoveRuntime {
         debug!("[RUNTIME] MoveVM initialized (custom natives registered)");
 
         // Try to initialize persistent object storage; fall back to in-memory if it fails.
-        let object_storage: Arc<dyn ObjectStore> = match ObjectStorage::boxed_with_persistence() {
-            Ok(store) => Arc::from(store),
-            Err(e) => {
-                log::warn!(
-                    "[RUNTIME] failed to initialize persistent ObjectStorage: {}. Falling back to in-memory.",
-                    e
-                );
-                Arc::from(ObjectStorage::boxed_inmemory())
+        // If state is in-memory, prefer in-memory object storage too.
+        let object_storage: Arc<dyn ObjectStore> = if cfg!(miri) {
+            Arc::from(ObjectStorage::boxed_inmemory())
+        } else {
+            match ObjectStorage::boxed_with_persistence() {
+                Ok(store) => Arc::from(store),
+                Err(e) => {
+                    log::warn!(
+                        "[RUNTIME] failed to initialize persistent ObjectStorage: {}. Falling back to in-memory.",
+                        e
+                    );
+                    Arc::from(ObjectStorage::boxed_inmemory())
+                }
             }
         };
 
@@ -136,6 +151,30 @@ impl MoveRuntime {
     /// Create runtime with Kanari system natives (crypto + stdlib + object + tx_context)
     /// Also loads pre-compiled Kanari system modules (0x2::*)
     pub fn new_with_kanari_natives() -> Result<Self> {
+        let natives = Self::get_kanari_natives_list();
+        let runtime = Self::new_with_natives(natives)?;
+
+        // Load pre-compiled Kanari system modules (skip under Miri to avoid
+        // invoking verification paths that rely on stack-borrows-unsafe ops).
+        if !cfg!(miri) {
+            runtime.load_system_modules()?;
+        }
+
+        Ok(runtime)
+    }
+
+    /// Create runtime with Kanari system natives but using in-memory state.
+    pub fn new_with_kanari_natives_in_memory() -> Result<Self> {
+        let natives = Self::get_kanari_natives_list();
+        let runtime = Self::new_with_natives_in_memory(natives)?;
+
+        // Load pre-compiled Kanari system modules
+        runtime.load_system_modules()?;
+
+        Ok(runtime)
+    }
+
+    fn get_kanari_natives_list() -> Vec<NativeFunctionTable> {
         // Standard library natives at 0x1
         let std_addr = KanariAddress::std_account_address();
         let std_natives =
@@ -157,23 +196,40 @@ impl MoveRuntime {
         // Object natives (save_object) at 0x2
         let object_natives = kanari_system_natives::object::all_natives(system_addr);
 
-        // Create runtime with natives
-        let runtime = Self::new_with_natives(vec![
+        vec![
             std_natives,
             crypto_natives,
             transfer_natives,
             event_natives,
             tx_context_natives,
             object_natives,
-        ])?;
+        ]
+    }
 
-        // Load pre-compiled Kanari system modules (skip under Miri to avoid
-        // invoking verification paths that rely on stack-borrows-unsafe ops).
-        if !cfg!(miri) {
-            runtime.load_system_modules()?;
-        }
+    /// Create a new worker runtime that shares the same state/storage as this runtime
+    /// but has its own independent MoveVM instance.
+    /// This is crucial for parallel execution to avoid VM lock contention while sharing data.
+    pub fn spawn_worker(&self) -> Result<Self> {
+        // Create new VM with same natives
+        // Note: We assume Kanari natives here. If custom natives were used, this might be incorrect,
+        // but for now we only support Kanari natives in the pool.
+        let natives = Self::get_kanari_natives_list();
+        let all_natives: Vec<_> = natives
+            .into_iter()
+            .flat_map(|table| table.into_iter())
+            .collect();
 
-        Ok(runtime)
+        let vm = MoveVM::new(all_natives)
+            .map_err(|e| anyhow::anyhow!(format!("Worker VM init error: {:?}", e)))?;
+
+        // Clone shared components (Arc-wrapped)
+        Ok(MoveRuntime {
+            vm: Arc::new(vm),
+            resolver: self.resolver.clone(),
+            state: self.state.clone(),
+            published_modules: self.published_modules.clone(),
+            object_storage: self.object_storage.clone(),
+        })
     }
 
     /// Apply a Move VM changeset to our storage, handling module overwrites/upgrades
@@ -411,13 +467,18 @@ impl MoveRuntime {
                 }
             }
             if let Some(last_param) = func.parameters.last() {
-                if let Ok(TypeTag::Struct(struct_tag)) = session.get_type_tag(last_param) {
-                    if struct_tag.address == KanariAddress::kanari_system_account_address()
-                        && struct_tag.module.as_str() == "tx_context"
-                        && struct_tag.name.as_str() == "TxContext"
-                    {
-                        final_args.push(tx_context_bytes);
+                let is_ctx = session.get_type_tag(last_param).ok().is_some_and(|tag| {
+                    if let TypeTag::Struct(s) = tag {
+                        s.address == KanariAddress::kanari_system_account_address()
+                            && s.module.as_str() == "tx_context"
+                            && s.name.as_str() == "TxContext"
+                    } else {
+                        false
                     }
+                });
+
+                if is_ctx {
+                    final_args.push(tx_context_bytes);
                 }
             }
         }
