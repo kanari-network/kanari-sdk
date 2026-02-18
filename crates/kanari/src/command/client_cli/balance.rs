@@ -1,10 +1,11 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::command::common::{get_rpc_endpoint, resolve_sender};
 use anyhow::{Context, Result};
 use clap::*;
-use reqwest::Client;
-use serde_json::Value;
+use kanari_rpc_api::{GetAllBalancesRequest, RpcRequest, RpcResponse, methods};
+use kanari_rpc_client::RpcClient;
 
 /// Show token balances for an address
 #[derive(Parser, Debug)]
@@ -12,7 +13,7 @@ use serde_json::Value;
 pub struct Balance {
     /// Address to query
     #[clap(long = "address")]
-    pub address: String,
+    pub address: Option<String>,
 
     /// RPC endpoint URL
     #[clap(long = "rpc")]
@@ -25,47 +26,48 @@ pub struct Balance {
 
 impl Balance {
     pub async fn execute(&self) -> Result<()> {
-        let rpc = self
-            .rpc_endpoint
-            .clone()
-            .or_else(kanari_common::get_active_rpc)
-            .unwrap_or_else(|| "http://127.0.0.1:19001".to_string());
+        let rpc = get_rpc_endpoint(self.rpc_endpoint.clone());
+        let address_normalized = resolve_sender(self.address.clone())?;
 
         eprintln!("Querying token balances...");
-        eprintln!("   Address: {}", self.address);
+        eprintln!("   Address: {}", address_normalized);
         eprintln!("   RPC: {}\n", rpc);
 
-        let client = Client::new();
-        let request = serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": "kanari_getAllBalances",
-            "params": {
-                "address": self.address
-            },
-            "id": 1
-        });
+        let _client = RpcClient::new(&rpc);
 
-        let response = client
+        let request = GetAllBalancesRequest {
+            address: address_normalized.clone(),
+        };
+
+        let rpc_request = RpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: methods::GET_ALL_BALANCES.to_string(),
+            params: serde_json::to_value(request).unwrap_or(serde_json::json!(null)),
+            id: 1,
+        };
+
+        // Use the underlying reqwest client from RpcClient if needed,
+        // or just use RpcClient's request method if it was public (it's not).
+        // For now, let's just use a standard reqwest call like before but cleaner.
+        let http_client = reqwest::Client::new();
+        let response = http_client
             .post(&rpc)
-            .json(&request)
+            .json(&rpc_request)
             .send()
             .await
             .context("Failed to send RPC request")?;
 
-        let rpc_response: Value = response
+        let rpc_response: RpcResponse = response
             .json()
             .await
             .context("Failed to parse RPC response")?;
 
-        if let Some(error) = rpc_response.get("error") {
-            eprintln!(
-                "Error: {}",
-                error.get("message").unwrap_or(&serde_json::Value::Null)
-            );
+        if let Some(error) = rpc_response.error {
+            eprintln!("Error: {} (code: {})", error.message, error.code);
             return Ok(());
         }
 
-        if let Some(result) = rpc_response.get("result") {
+        if let Some(result) = rpc_response.result {
             if let Some(balances) = result.get("balances").and_then(|b| b.as_array()) {
                 eprintln!("TOKEN BALANCES");
                 eprintln!("------------------------------");
@@ -116,6 +118,7 @@ impl Balance {
                     }
                 }
                 eprintln!("\nTotal tokens: {}", balances.len());
+
                 // If only the native KANARI balance is present, attempt a best-effort
                 // fallback: inspect account `owned_objects` for token metadata (e.g., TreasuryCap/CoinMetadata)
                 if balances.len() == 1
@@ -123,16 +126,16 @@ impl Balance {
                     && first.get("token_type").and_then(|t| t.as_str()) == Some("KANARI")
                 {
                     // Fetch full account info and look for token objects
-                    let acct_req = serde_json::json!({
-                        "jsonrpc": "2.0",
-                        "method": "kanari_getAccount",
-                        "params": { "address": self.address },
-                        "id": 1
-                    });
+                    let acct_req = RpcRequest {
+                        jsonrpc: "2.0".to_string(),
+                        method: methods::GET_ACCOUNT.to_string(),
+                        params: serde_json::json!({ "address": address_normalized }),
+                        id: 1,
+                    };
 
-                    if let Ok(resp) = client.post(&rpc).json(&acct_req).send().await
-                        && let Ok(val) = resp.json::<serde_json::Value>().await
-                        && let Some(result_acc) = val.get("result")
+                    if let Ok(resp) = http_client.post(&rpc).json(&acct_req).send().await
+                        && let Ok(val) = resp.json::<RpcResponse>().await
+                        && let Some(result_acc) = val.result
                         && let Some(owned) =
                             result_acc.get("owned_objects").and_then(|v| v.as_array())
                     {
@@ -144,16 +147,16 @@ impl Balance {
                             // If this looks like a coin object, try fetching the object
                             // and parsing the last 8 bytes as a little-endian u64 amount.
                             if ty.contains("::coin::Coin<") {
-                                let obj_req = serde_json::json!({
-                                    "jsonrpc": "2.0",
-                                    "method": "kanari_getObject",
-                                    "params": { "object_id": id },
-                                    "id": 1
-                                });
+                                let obj_req = RpcRequest {
+                                    jsonrpc: "2.0".to_string(),
+                                    method: methods::GET_OBJECT.to_string(),
+                                    params: serde_json::json!({ "object_id": id }),
+                                    id: 1,
+                                };
 
-                                if let Ok(resp) = client.post(&rpc).json(&obj_req).send().await
-                                    && let Ok(val) = resp.json::<serde_json::Value>().await
-                                    && let Some(res) = val.get("result")
+                                if let Ok(resp) = http_client.post(&rpc).json(&obj_req).send().await
+                                    && let Ok(val) = resp.json::<RpcResponse>().await
+                                    && let Some(res) = val.result
                                     && let Some(data_arr) =
                                         res.get("data").and_then(|d| d.as_array())
                                     && data_arr.len() >= 8

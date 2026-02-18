@@ -8,53 +8,75 @@ use kanari_types::transaction::{SignedTransaction, Transaction};
 use move_core_types::account_address::AccountAddress;
 use std::time::Instant;
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() -> Result<()> {
     // Simple harness: create engine, pre-fund accounts, submit N transfers into pending_txs,
     // call produce_block() once and measure duration.
     let args: Vec<String> = std::env::args().collect();
-    let n: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(2000);
+    let n: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(50_000);
 
     eprintln!("TPS harness: creating engine and preparing {} txs", n);
-    let engine = BlockchainEngine::new()?;
+    let temp_dir = tempfile::Builder::new().prefix("kanari_tps").tempdir()?;
+    let engine = BlockchainEngine::new_dir(temp_dir.path().to_str().unwrap())?;
 
-    // Generate keypairs for senders and recipients, pre-fund senders,
-    // sign each transaction and push into pending_txs.
-    let mut senders: Vec<_> = Vec::with_capacity(n);
-    let mut recipients: Vec<_> = Vec::with_capacity(n);
-    for _ in 0..n {
-        senders.push(generate_keypair(CurveType::Ed25519)?);
-    }
-    for _ in 0..n {
-        recipients.push(generate_keypair(CurveType::Ed25519)?);
-    }
+    // Warmup the engine and DAG
+    eprintln!("Warming up engine...");
+    engine.produce_block()?;
+
+    // Generate keypairs for senders and recipients in parallel
+    eprintln!("Generating keypairs...");
+    let senders: Vec<_> = (0..n)
+        .map(|_| generate_keypair(CurveType::Ed25519).unwrap())
+        .collect();
+    let recipients: Vec<_> = (0..n)
+        .map(|_| generate_keypair(CurveType::Ed25519).unwrap())
+        .collect();
 
     // Pre-fund sender accounts
+    eprintln!("Funding accounts...");
     {
         let mut state = engine.state.write().unwrap();
         for kp in &senders {
             if let Ok(addr) = AccountAddress::from_hex_literal(kp.address.as_str()) {
-                let acc = state.get_or_create_account(addr);
+                let mut acc = state.get_account(&addr).unwrap_or_else(|| {
+                    kanari_core::kanari_move_runtime::state::Account::new(addr, 0)
+                });
                 acc.balance = 1_000_000_000_000; // large balance
+                state.save_account(&acc).expect("Failed to save account");
             }
         }
     }
 
     // Prepare transactions and push signed transactions to pending_txs
+    eprintln!("Signing transactions...");
+    let signed_txs: Vec<_> = senders
+        .iter()
+        .zip(recipients.iter())
+        .map(|(sender, recipient)| {
+            let from = sender.address.clone();
+            let to = recipient.address.clone();
+            let _sender_addr = AccountAddress::from_hex_literal(&from).unwrap();
+
+            // Note: In a real scenario, we'd query sequence number from state.
+            // Here we know it's 0 (or 1 if warmup used it, but we used empty warmup)
+            // But wait, if warmup used 0 txs, seq is 0.
+            // If we reuse senders, seq might be > 0. But we generated new senders.
+            let sequence_number = 0;
+
+            let tx = Transaction::new_transfer(from, to, 1, sequence_number);
+            let mut signed_tx = SignedTransaction::new(tx);
+            signed_tx
+                .sign(&sender.private_key, sender.curve_type)
+                .unwrap();
+            signed_tx
+        })
+        .collect();
+
     {
         let mut pending = engine.pending_txs.write().unwrap();
-        let state = engine.state.read().unwrap();
-        for i in 0..n {
-            let from = senders[i].address.clone();
-            let to = recipients[i].address.clone();
-            let sender_addr = AccountAddress::from_hex_literal(&from)?;
-            let sequence_number = state
-                .get_account(&sender_addr)
-                .map_or(0, |acc| acc.sequence_number);
-            let tx = Transaction::new_transfer(from.clone(), to, 1, sequence_number);
-            let mut signed_tx = SignedTransaction::new(tx);
-            signed_tx.sign(&senders[i].private_key, senders[i].curve_type)?;
-            pending.push(signed_tx);
-        }
+        pending.extend(signed_txs);
     }
 
     eprintln!("Starting produce_block() for {} txs...", n);

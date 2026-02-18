@@ -2,7 +2,7 @@ use kanari_move_runtime::move_runtime::MoveRuntime;
 
 #[test]
 fn publish_module_upgrade_preserves_storage() {
-    let mut runtime = MoveRuntime::new_with_kanari_natives().expect("init runtime");
+    let runtime = MoveRuntime::new_with_kanari_natives().expect("init runtime");
     let modules = runtime.list_modules();
     assert!(!modules.is_empty(), "expected at least one system module");
 
@@ -16,7 +16,7 @@ fn publish_module_upgrade_preserves_storage() {
     };
 
     runtime
-        .publish_module(module_bytes.clone(), *module_id.address(), None)
+        .publish_module(module_bytes.clone(), *module_id.address(), None, None)
         .expect("publish (upgrade) should succeed");
 
     // Ensure storage contains the module bytes after publish
@@ -30,7 +30,7 @@ fn publish_module_upgrade_preserves_storage() {
     assert!(listed.iter().any(|m| m == &module_id));
 
     runtime
-        .publish_module(module_bytes.clone(), *module_id.address(), None)
+        .publish_module(module_bytes.clone(), *module_id.address(), None, None)
         .expect("second publish should succeed");
 
     let stored2 = runtime

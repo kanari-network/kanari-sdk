@@ -1,13 +1,14 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::command::common::{
+    check_node_connection, get_rpc_endpoint, get_sender_for_tx, load_wallet_for, normalize_addr,
+    resolve_sender, sign_and_submit_transaction,
+};
 use anyhow::{Context, Result};
 use clap::Parser;
-use kanari_crypto::wallet::load_wallet;
-use kanari_rpc_api::SignedTransactionData;
 use kanari_rpc_client::RpcClient;
-use kanari_types::transaction::{SignedTransaction, Transaction};
-use log::error;
+use kanari_types::transaction::Transaction;
 
 #[derive(Parser, Debug)]
 pub struct Transfer {
@@ -31,47 +32,24 @@ pub struct Transfer {
 
 impl Transfer {
     pub async fn execute(&self) -> Result<()> {
-        let rpc = self
-            .rpc_endpoint
-            .clone()
-            .or_else(kanari_common::get_active_rpc)
-            .unwrap_or_else(|| "http://127.0.0.1:19001".to_string());
-
-        // Determine sender: prefer explicit `--from`, otherwise use selected wallet
-        let from_addr = if let Some(f) = self.from.clone() {
-            f
-        } else {
-            kanari_crypto::wallet::get_selected_wallet().ok_or_else(|| {
-                anyhow::anyhow!("No sender provided and no selected wallet set. Use --from or run `kanari keytool load-wallet` to select one.")
-            })?
-        };
-
-        let wallet =
-            load_wallet(&from_addr, &self.password).context("Failed to load sender wallet")?;
+        let rpc = get_rpc_endpoint(self.rpc_endpoint.clone());
+        let from_addr = resolve_sender(self.from.clone())?;
+        let to_addr = normalize_addr(&self.to)?;
+        let wallet = load_wallet_for(&from_addr, Some(self.password.clone()))?;
 
         eprintln!("Transferring Kanari tokens...");
         eprintln!("  From: {}", from_addr);
-        eprintln!("  To: {}", self.to);
+        eprintln!("  To: {}", to_addr);
         eprintln!("  Amount: {} KANARI", self.amount);
 
         // Convert Kanari to Mist (1 KANARI = 10^9 Mist)
         const MIST_PER_KANARI: f64 = 1_000_000_000.0;
-        let amount_mist_f = self.amount * MIST_PER_KANARI;
-        let amount_mist = amount_mist_f.round() as u64;
+        let amount_mist = (self.amount * MIST_PER_KANARI).round() as u64;
         eprintln!("  Amount (Mist): {}", amount_mist);
 
         // Connect to RPC server
         let client = RpcClient::new(&rpc);
-
-        // Get current block height to verify connection
-        match client.get_block_height().await {
-            Ok(height) => eprintln!("  Connected to node (height: {})", height),
-            Err(_) => {
-                error!("  Cannot connect to RPC server at {}", rpc);
-                error!("  Please start the node first: cargo run --bin kanari-node");
-                return Err(anyhow::anyhow!("RPC server not available"));
-            }
-        }
+        check_node_connection(&client, &rpc).await?;
 
         // Get account to get sequence number
         let account = client
@@ -79,53 +57,26 @@ impl Transfer {
             .await
             .context("Failed to get sender account")?;
 
-        // Create and sign transaction
+        let sender_tagged = get_sender_for_tx(&wallet, &from_addr)?;
+
         let tx = Transaction::Transfer {
-            from: from_addr.clone(),
-            to: self.to.clone(),
+            from: sender_tagged.clone(),
+            to: to_addr.clone(),
             amount: amount_mist,
             gas_limit: 100_000,
             gas_price: 1000,
             sequence_number: account.sequence_number,
         };
 
-        eprintln!("  Gas Limit: {}", tx.gas_limit());
-        eprintln!("  Gas Price: {} Mist/gas", tx.gas_price());
-
-        let mut signed_tx = SignedTransaction::new(tx);
-        signed_tx
-            .sign(&wallet.private_key, wallet.curve_type)
-            .context("Failed to sign transaction")?;
-        eprintln!("  Transaction signed");
-
-        eprintln!("  Submitting transaction to node...");
-
-        let tx_data = SignedTransactionData {
-            sender: from_addr.clone(),
-            recipient: Some(self.to.clone()),
-            amount: Some(amount_mist),
-            gas_limit: signed_tx.transaction.gas_limit(),
-            gas_price: signed_tx.transaction.gas_price(),
-            sequence_number: account.sequence_number,
-            signature: Some(signed_tx.signature.clone()),
-        };
-
-        match client.submit_transaction(tx_data).await {
-            Ok(status) => {
-                eprintln!("  Transaction submitted successfully");
-                eprintln!("  Transaction hash: {}", status.hash);
-                eprintln!("  Status: {}", status.status);
-                eprintln!("  Waiting for block confirmation...");
-                eprintln!(
-                    "  Check balance with: kanari client balance --address {}",
-                    self.to
-                );
-            }
-            Err(e) => {
-                error!("  Failed to submit transaction: {}", e);
-                return Err(e);
-            }
-        }
+        sign_and_submit_transaction(
+            &client,
+            tx,
+            &wallet,
+            sender_tagged,
+            Some(to_addr),
+            Some(amount_mist),
+        )
+        .await?;
 
         Ok(())
     }

@@ -76,6 +76,8 @@ pub struct ChangeSet {
     pub token_balance_sets: Vec<(AccountAddress, String, BalanceRecord)>,
     /// Objects created during execution. Each entry is (object_id, CreatedObject)
     pub created_objects: Vec<(String, CreatedObject)>,
+    /// Objects deleted during execution. Each entry is object_id
+    pub deleted_objects: Vec<String>,
     pub gas_used: u64,
     pub success: bool,
     pub error_message: Option<String>,
@@ -90,6 +92,7 @@ impl ChangeSet {
             nft_caps: Vec::new(),
             token_balance_sets: Vec::new(),
             created_objects: Vec::new(),
+            deleted_objects: Vec::new(),
             gas_used: 0,
             success: true,
             error_message: None,
@@ -104,6 +107,7 @@ impl ChangeSet {
             nft_caps: Vec::new(),
             token_balance_sets: Vec::new(),
             created_objects: Vec::new(),
+            deleted_objects: Vec::new(),
             gas_used,
             success: true,
             error_message: None,
@@ -118,6 +122,7 @@ impl ChangeSet {
             nft_caps: Vec::new(),
             token_balance_sets: Vec::new(),
             created_objects: Vec::new(),
+            deleted_objects: Vec::new(),
             gas_used,
             success: false,
             error_message: Some(error),
@@ -180,6 +185,7 @@ impl ChangeSet {
             && self.treasuries.is_empty()
             && self.token_balance_sets.is_empty()
             && self.created_objects.is_empty()
+            && self.deleted_objects.is_empty()
             && self.gas_used == 0
             && self.success
             && self.error_message.is_none()
@@ -207,6 +213,7 @@ impl ChangeSet {
         self.nft_caps.extend(other.nft_caps);
         self.token_balance_sets.extend(other.token_balance_sets);
         self.created_objects.extend(other.created_objects);
+        self.deleted_objects.extend(other.deleted_objects);
         self.gas_used += other.gas_used;
         if !other.success {
             self.success = false;
@@ -216,6 +223,10 @@ impl ChangeSet {
 
     pub fn add_event(&mut self, event: Event) {
         self.events.push(event);
+    }
+
+    pub fn add_deleted_object(&mut self, object_id: String) {
+        self.deleted_objects.push(object_id);
     }
 
     /// Record an NftCap creation/update for a given token type
@@ -255,10 +266,13 @@ impl ChangeSet {
         data: Vec<u8>,
         version: u64,
         uid: Option<UIDRecord>,
+        object_id: Option<String>,
     ) {
-        // Compute canonical id first: prefer UID address when present, otherwise
-        // derive deterministic id from owner+type+data via blake3.
-        let canonical_id = if let Some(ref u) = uid {
+        // Compute canonical id first: prefer explicit object_id, then UID address,
+        // otherwise derive deterministic id from owner+type+data via blake3.
+        let canonical_id = if let Some(id) = object_id {
+            id
+        } else if let Some(ref u) = uid {
             format!("{:#x}", u.address())
         } else {
             let mut input = Vec::new();
@@ -296,6 +310,9 @@ impl ChangeSet {
             existing_obj.owner = owner;
             existing_obj.data = data;
             existing_obj.version = version;
+            if let Some(u) = uid {
+                existing_obj.uid = Some(u);
+            }
         } else {
             let created = CreatedObject {
                 owner,

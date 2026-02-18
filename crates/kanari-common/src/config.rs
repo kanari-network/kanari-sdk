@@ -132,9 +132,7 @@ pub fn create_default_envs() -> Value {
 
     let env_list = [
         ("local", "http://127.0.0.1:6767"),
-        ("dev", "http://127.0.0.1:19001"),
-        // ("test", "https://test-seed.rooch.network"),
-        // ("main", "https://main-seed.kanari.network"),
+        ("dev", "http://192.168.1.101:19001"),
     ];
 
     for (alias, rpc) in env_list {

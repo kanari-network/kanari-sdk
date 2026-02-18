@@ -17,6 +17,8 @@ kanari-core = { workspace = true }
 move-core-types = { workspace = true }
 kanari-crypto = { workspace = true }
 anyhow = { workspace = true }
+tempfile = { workspace = true }
+mimalloc = { version = "0.1", default-features = false }
 
 [profile.dev]
 opt-level = 0

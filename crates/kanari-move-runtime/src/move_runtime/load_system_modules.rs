@@ -9,7 +9,7 @@ use move_core_types::account_address::AccountAddress;
 /// Load move-stdlib and kanari-system modules as methods on `MoveRuntime`
 impl super::MoveRuntime {
     /// Load move-stdlib modules (0x1::*)
-    pub fn load_move_stdlib(&mut self) -> Result<()> {
+    pub fn load_move_stdlib(&self) -> Result<()> {
         // Determine stdlib path. Allow override via MOVE_STDLIB_PATH env var.
         let modules_dir = if let Ok(path_str) = std::env::var("MOVE_STDLIB_PATH") {
             std::path::PathBuf::from(path_str)
@@ -88,7 +88,7 @@ impl super::MoveRuntime {
         for module_file in module_order {
             let module_path = modules_dir.join(module_file);
             if let Ok(module_bytes) = std::fs::read(&module_path) {
-                match self.publish_module(module_bytes, std_addr, None) {
+                match self.publish_module(module_bytes, std_addr, None, None) {
                     Ok(_) => count += 1,
                     Err(e) => {
                         // Silently skip already loaded modules
@@ -105,7 +105,7 @@ impl super::MoveRuntime {
     }
 
     /// Load Kanari system modules (0x2::*)
-    pub fn load_kanari_system(&mut self) -> Result<()> {
+    pub fn load_kanari_system(&self) -> Result<()> {
         // Path to pre-compiled Kanari system modules
         // Determine kanari system framework path (allow override via KANARI_FRAMEWORK_PATH).
         let modules_dir = if let Ok(path_str) = std::env::var("KANARI_FRAMEWORK_PATH") {
@@ -193,7 +193,7 @@ impl super::MoveRuntime {
 
             if let Ok(module_bytes) = std::fs::read(&module_path) {
                 // Publish module silently (no gas accounting for system modules)
-                match self.publish_module(module_bytes.clone(), system_addr, None) {
+                match self.publish_module(module_bytes.clone(), system_addr, None, None) {
                     Ok(_) => count += 1,
                     Err(e) => {
                         // Silently skip already loaded modules

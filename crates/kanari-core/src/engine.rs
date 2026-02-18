@@ -4,9 +4,7 @@
 use anyhow::{Context, Result};
 use centauri::blockchain::Blockchain;
 use centauri::consensus::{Checkpoint, PersistentDagState};
-use kanari_move_runtime::ContractABI;
 use kanari_move_runtime::changeset::ChangeSet;
-use kanari_move_runtime::contract::{ContractInfo, ContractRegistry};
 use kanari_move_runtime::gas::{GasMeter, GasOperation};
 use kanari_move_runtime::move_runtime::MoveRuntime;
 use kanari_move_runtime::state::StateManager;
@@ -26,45 +24,9 @@ use num_cpus;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
 
-/// Partition transactions into waves of non-conflicting transactions
-pub(crate) fn partition_into_waves(
-    transactions: &[SignedTransaction],
-) -> Vec<Vec<SignedTransaction>> {
-    let mut waves = Vec::new();
-    let mut current_wave = Vec::new();
-    let mut current_wave_keys = std::collections::HashSet::new();
-
-    for tx in transactions {
-        let keys = tx.transaction.get_conflict_keys();
-        let mut conflicts_with_current = false;
-        for k in &keys {
-            if current_wave_keys.contains(k) {
-                conflicts_with_current = true;
-                break;
-            }
-        }
-
-        if conflicts_with_current {
-            if !current_wave.is_empty() {
-                waves.push(current_wave);
-            }
-            current_wave = vec![tx.clone()];
-            current_wave_keys = keys.into_iter().collect();
-        } else {
-            for k in &keys {
-                current_wave_keys.insert(k.clone());
-            }
-            current_wave.push(tx.clone());
-        }
-    }
-    if !current_wave.is_empty() {
-        waves.push(current_wave);
-    }
-    waves
-}
-
 type ProofCache = LruCache<(u64, usize), (String, Vec<Vec<u8>>)>;
 
+mod apply_checkpoint;
 mod produce_dag_vertex;
 pub use produce_dag_vertex::{CheckpointInfo, DagBlockInfo, DagEngine};
 
@@ -75,10 +37,9 @@ pub struct BlockchainEngine {
     pub blockchain: Arc<RwLock<Blockchain>>,
     pub state: Arc<RwLock<StateManager>>,
     pub pending_txs: Arc<RwLock<Vec<SignedTransaction>>>,
-    pub contract_registry: Arc<RwLock<ContractRegistry>>,
     pub persistent_store: Option<Arc<PersistentStore>>,
     // Reusable pool of MoveRuntime instances for parallel execution
-    pub runtime_pool: Vec<Arc<std::sync::Mutex<kanari_move_runtime::move_runtime::MoveRuntime>>>,
+    pub runtime_pool: Vec<kanari_move_runtime::move_runtime::MoveRuntime>,
     // LRU cache for frequently requested merkle proofs
     // Cache key: (block_height, tx_index), Value: (tx_hash, proof)
     pub proof_cache: Arc<RwLock<ProofCache>>,
@@ -149,7 +110,7 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
                 (name_and_generics.as_str(), None)
             };
 
-            let addr = AccountAddress::from_hex_literal(addr_str).ok()?;
+            let addr = KanariAddress::parse_to_account_address(addr_str).ok()?;
             let module_id = Identifier::new(module_str).ok()?;
             let name_id = Identifier::new(name_str).ok()?;
 
@@ -179,47 +140,108 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
 
 impl BlockchainEngine {
     pub fn new_dir(dir: &str) -> Result<Self> {
-        let persistent_store = if cfg!(miri) {
-            None
-        } else {
-            match PersistentStore::open_with_path(Some(std::path::PathBuf::from(dir))) {
-                Ok(s) => Some(Arc::new(s)),
-                Err(e) => {
-                    eprintln!(
-                        "WARN: Failed to open persistent store at '{}': {}. Falling back to in-memory mode.",
-                        dir, e
-                    );
-                    None
-                }
-            }
-        };
+        let persistent_store = Self::try_open_store(
+            || PersistentStore::open_with_path(Some(std::path::PathBuf::from(dir))),
+            &format!("at '{}'", dir),
+        );
         Self::init(persistent_store)
     }
 
     pub fn new() -> Result<Self> {
-        // Try to open a persistent store for state + blockchain. If unavailable,
-        // fall back to in-memory defaults. Under Miri, avoid opening disk-backed
-        // stores to prevent unsupported OS calls during isolation.
-        let persistent_store = if cfg!(miri) {
+        let persistent_store = Self::try_open_store(PersistentStore::open_default, "default");
+        Self::init(persistent_store)
+    }
+
+    fn try_open_store<F>(opener: F, context: &str) -> Option<Arc<PersistentStore>>
+    where
+        F: FnOnce() -> Result<PersistentStore>,
+    {
+        if cfg!(miri) {
             None
         } else {
-            match PersistentStore::open_default() {
+            match opener() {
                 Ok(s) => Some(Arc::new(s)),
                 Err(e) => {
                     eprintln!(
-                        "WARN: Failed to open default persistent store: {}. Falling back to in-memory mode.",
-                        e
+                        "WARN: Failed to open {} persistent store: {}. Falling back to in-memory mode.",
+                        context, e
                     );
                     None
                 }
             }
-        };
-        Self::init(persistent_store)
+        }
     }
 
     fn init(persistent_store: Option<Arc<PersistentStore>>) -> Result<Self> {
-        let blockchain = if let Some(store) = &persistent_store {
-            match store.load::<Blockchain>("blockchain") {
+        let blockchain = Self::load_blockchain(&persistent_store);
+        let state = Self::load_state(&persistent_store);
+
+        // Initialize runtime pool (mandatory: one runtime per CPU)
+        // OPTIMIZATION: Use multiple independent MoveVM instances to avoid lock contention.
+        // We use `spawn_worker` to create new VMs that share the underlying RocksDB/State
+        // so they can read modules/objects but don't block each other on VM locks.
+        let workers = num_cpus::get().max(1);
+        let mut runtime_pool = Vec::new();
+
+        // Create base runtime with shared state (connected to RocksDB)
+        let base_runtime = match MoveRuntime::new_with_kanari_natives() {
+            Ok(rt) => rt,
+            Err(e) => {
+                log::error!("FATAL: Failed to initialize base MoveRuntime: {}", e);
+                anyhow::bail!("Failed to initialize runtime pool: {}", e);
+            }
+        };
+
+        log::info!(
+            "Initializing runtime pool with {} workers (independent VMs sharing DB)",
+            workers
+        );
+
+        // Add base runtime as first worker
+        runtime_pool.push(base_runtime.clone());
+
+        // Spawn remaining workers sharing state with base runtime
+        for i in 1..workers {
+            match base_runtime.spawn_worker() {
+                Ok(rt) => runtime_pool.push(rt),
+                Err(e) => {
+                    log::error!("Failed to spawn worker runtime #{}: {}", i, e);
+                    anyhow::bail!("Failed to initialize runtime pool: {}", e);
+                }
+            }
+        }
+
+        // Note: treasuries are loaded above when StateManager is initialized
+        let pending_txs = Arc::new(RwLock::new(Vec::new()));
+
+        // Initialize LRU cache for merkle proofs (cache up to 1000 proofs)
+        let proof_cache = Arc::new(RwLock::new(LruCache::new(
+            NonZeroUsize::new(1000).expect("NonZeroUsize::new(1000) should never fail"),
+        )));
+
+        // Setup default authorities for DAG mode (single node by default)
+        let authority_id = "0xDEFAULT_AUTHORITY".to_string();
+        let authorities = vec![authority_id.clone()];
+
+        let persisted_dag_state = Self::load_dag_state(&persistent_store);
+
+        Ok(Self {
+            blockchain,
+            state,
+            pending_txs,
+            persistent_store,
+            runtime_pool,
+            proof_cache,
+            dag_engine: Arc::new(RwLock::new(None)),
+            authority_id,
+            authorities,
+            persisted_dag_state,
+        })
+    }
+
+    fn load_blockchain(store: &Option<Arc<PersistentStore>>) -> Arc<RwLock<Blockchain>> {
+        if let Some(store) = store {
+            match store.load::<Blockchain>(b"blockchain") {
                 Ok(Some(mut b)) => {
                     info!(
                         "Successfully loaded blockchain from persistent store (height: {}, checkpoints: {})",
@@ -247,85 +269,21 @@ impl BlockchainEngine {
         } else {
             info!("Running in-memory mode: No persistent store provided for blockchain.");
             Arc::new(RwLock::new(Blockchain::new()))
-        };
-
-        let state = if let Some(store) = &persistent_store {
-            match store.load::<StateManager>("state_manager") {
-                Ok(Some(s)) => {
-                    info!(
-                        "Successfully loaded state manager from persistent store (accounts: {}, objects: {})",
-                        s.accounts.len(),
-                        s.objects.len()
-                    );
-                    Arc::new(RwLock::new(s))
-                }
-                Ok(None) => {
-                    info!(
-                        "No persisted StateManager found — creating fresh and populating from MoveVMState."
-                    );
-                    // No persisted StateManager found — create fresh and populate
-                    // token supplies from any persisted MoveVM treasuries so token
-                    // state survives restarts.
-                    let mut sm = StateManager::new();
-                    if let Ok(mvs) =
-                        kanari_move_runtime::storage::move_vm_state::MoveVMState::open_default()
-                        && let Ok(treas) = mvs.load_treasuries()
-                    {
-                        info!(
-                            "Populating StateManager from {} MoveVM treasuries",
-                            treas.len()
-                        );
-                        for (owner, token_type, cap) in treas.into_iter() {
-                            sm.token_supplies.insert(token_type.clone(), cap.clone());
-                            sm.token_treasuries.insert(token_type, owner);
-                        }
-                    }
-                    Arc::new(RwLock::new(sm))
-                }
-                Err(e) => {
-                    error!(
-                        "FATAL ERROR loading state manager from persistent store: {}. Falling back to fresh state.",
-                        e
-                    );
-                    Arc::new(RwLock::new(StateManager::new()))
-                }
-            }
-        } else {
-            info!("Running in-memory mode: No persistent store provided for state.");
-            Arc::new(RwLock::new(StateManager::new()))
-        };
-
-        // Initialize runtime pool (mandatory: one runtime per CPU)
-        let workers = num_cpus::get().max(1);
-        let mut runtime_pool = Vec::new();
-        for i in 0..workers {
-            match MoveRuntime::new_with_kanari_natives() {
-                Ok(rt) => runtime_pool.push(Arc::new(std::sync::Mutex::new(rt))),
-                Err(e) => {
-                    error!(
-                        "FATAL: Failed to initialize runtime pool worker {}: {}",
-                        i, e
-                    );
-                    anyhow::bail!("Failed to initialize runtime pool: {}", e);
-                }
-            }
         }
+    }
 
-        // Note: treasuries are loaded above when StateManager is initialized
-        let pending_txs = Arc::new(RwLock::new(Vec::new()));
-        let contract_registry = Arc::new(RwLock::new(ContractRegistry::new()));
+    fn load_state(store: &Option<Arc<PersistentStore>>) -> Arc<RwLock<StateManager>> {
+        let store = store
+            .clone()
+            .unwrap_or_else(|| Arc::new(PersistentStore::open_in_memory().unwrap()));
 
-        // Initialize LRU cache for merkle proofs (cache up to 1000 proofs)
-        let proof_cache = Arc::new(RwLock::new(LruCache::new(
-            NonZeroUsize::new(1000).expect("NonZeroUsize::new(1000) should never fail"),
-        )));
+        info!("Initializing StateManager with persistent store support (RocksDB)");
+        Arc::new(RwLock::new(StateManager::new(store)))
+    }
 
-        // Setup default authorities for DAG mode (single node by default)
-        let authority_id = "0xDEFAULT_AUTHORITY".to_string();
-        let authorities = vec![authority_id.clone()];
-
-        let persisted_dag_state = if let Some(store) = &persistent_store {
-            match store.load::<PersistentDagState>("dag_state") {
+    fn load_dag_state(store: &Option<Arc<PersistentStore>>) -> Option<PersistentDagState> {
+        if let Some(store) = store {
+            match store.load::<PersistentDagState>(b"dag_state") {
                 Ok(Some(s)) => {
                     info!("Successfully loaded DAG consensus state from persistent store");
                     Some(s)
@@ -344,21 +302,7 @@ impl BlockchainEngine {
             }
         } else {
             None
-        };
-
-        Ok(Self {
-            blockchain,
-            state,
-            pending_txs,
-            contract_registry,
-            persistent_store,
-            runtime_pool,
-            proof_cache,
-            dag_engine: Arc::new(RwLock::new(None)),
-            authority_id,
-            authorities,
-            persisted_dag_state,
-        })
+        }
     }
 
     /// Apply gas deduction and increment sequence on a ChangeSet (static helper).
@@ -378,14 +322,12 @@ impl BlockchainEngine {
         Ok(())
     }
 
-    // gas/sequence helper removed — logic inlined in worker/helper paths to avoid borrow issues
-
     /// Persist DAG consensus state
     pub fn persist_dag_state(&self, state: PersistentDagState) -> Result<()> {
         if let Some(store) = &self.persistent_store {
             info!("[ENGINE] Persisting DAG consensus state...");
             store
-                .save("dag_state", &state)
+                .save(b"dag_state", &state)
                 .context("Failed to persist DAG state")?;
             info!("[ENGINE] DAG state persisted successfully");
         }
@@ -402,7 +344,6 @@ impl BlockchainEngine {
         let tx_hash = signed_tx.hash();
         let tx_hash_hex = hex::encode(&tx_hash);
         let sender_address = signed_tx.transaction.sender_address();
-        let normalized_sender = Self::normalize_addr(sender_address);
 
         // 1b. Validate sequence number (committed + pending)
         {
@@ -413,13 +354,7 @@ impl BlockchainEngine {
             }
 
             // Add pending count
-            if let Ok(pending) = self.pending_txs.read() {
-                for ptx in pending.iter() {
-                    if Self::normalize_addr(ptx.transaction.sender_address()) == normalized_sender {
-                        expected_seq += 1;
-                    }
-                }
-            }
+            self.for_each_pending_tx_from_sender(sender_address, |_| expected_seq += 1);
 
             let tx_seq = signed_tx.transaction.sequence_number();
             if tx_seq < expected_seq {
@@ -488,27 +423,22 @@ impl BlockchainEngine {
             let mut state_snapshot = { self.state.read().unwrap().clone() };
 
             // Adjust the cloned snapshot to account for any pending transactions
-            // from the same sender. This ensures that sequence validation during
-            // the simulated execution reflects the expected sequence number once
-            // pending transactions are included, preventing spurious rejections.
-            if let Ok(pending) = self.pending_txs.read() {
-                let normalized_sender = Self::normalize_addr(tx.sender_address());
-                for ptx in pending.iter() {
-                    if Self::normalize_addr(ptx.transaction.sender_address()) == normalized_sender
-                        && let Ok(addr) =
-                            AccountAddress::from_hex_literal(ptx.transaction.sender_address())
-                    {
-                        let acct = state_snapshot.get_or_create_account(addr);
-                        acct.increment_sequence();
-                    }
+            // from the same sender that haven't been committed yet.
+            // This is needed for correct sequence number validation.
+            let sender_addr = tx.sender_address();
+            let addr = KanariAddress::parse_to_account_address(sender_addr)?;
+
+            self.for_each_pending_tx_from_sender(sender_addr, |_| {
+                if let Some(mut acct) = state_snapshot.get_account(&addr) {
+                    acct.increment_sequence();
+                    state_snapshot.save_account(&acct).unwrap();
                 }
-            }
+            });
             let state_arc = Arc::new(RwLock::new(state_snapshot));
 
             // Use a runtime from the pool for execution
-            let runtime_arc = &self.runtime_pool[0];
-            let mut runtime = runtime_arc.lock().unwrap();
-            self.execute_transaction_with_runtime(&tx, &mut runtime, &state_arc, None)?
+            let runtime = &self.runtime_pool[0];
+            self.execute_transaction_with_runtime(&tx, runtime, &state_arc, None)?
         };
 
         Ok((tx_hash, changeset))
@@ -521,7 +451,7 @@ impl BlockchainEngine {
     fn execute_transaction_with_runtime(
         &self,
         tx: &Transaction,
-        runtime: &mut kanari_move_runtime::move_runtime::MoveRuntime,
+        runtime: &kanari_move_runtime::move_runtime::MoveRuntime,
         state_arc: &Arc<RwLock<StateManager>>,
         timestamp: Option<u64>,
     ) -> Result<ChangeSet> {
@@ -530,27 +460,26 @@ impl BlockchainEngine {
 
     /// Execute a transaction with option to skip sequence validation
     /// Used for syncing blocks where sequence is already validated by the original node
-    fn execute_transaction_with_runtime_skip_seq(
+    pub(crate) fn execute_transaction_with_runtime_skip_seq(
         &self,
         tx: &Transaction,
-        runtime: &mut kanari_move_runtime::move_runtime::MoveRuntime,
+        runtime: &kanari_move_runtime::move_runtime::MoveRuntime,
         state_arc: &Arc<RwLock<StateManager>>,
         timestamp: Option<u64>,
     ) -> Result<ChangeSet> {
         self.execute_transaction_with_runtime_internal(tx, runtime, state_arc, false, timestamp)
     }
 
-    /// Internal transaction execution with optional sequence validation
-    fn execute_transaction_with_runtime_internal(
+    pub(crate) fn execute_transaction_with_runtime_internal(
         &self,
         tx: &Transaction,
-        runtime: &mut kanari_move_runtime::move_runtime::MoveRuntime,
+        runtime: &kanari_move_runtime::move_runtime::MoveRuntime,
         state_arc: &Arc<RwLock<StateManager>>,
         validate_sequence: bool,
         timestamp: Option<u64>,
     ) -> Result<ChangeSet> {
         // 1. Pre-flight validation: Check sequence number (skip for synced transactions)
-        let sender_addr = AccountAddress::from_hex_literal(tx.sender_address())?;
+        let sender_addr = KanariAddress::parse_to_account_address(tx.sender_address())?;
         if validate_sequence {
             let state = state_arc.read().unwrap();
             state
@@ -562,93 +491,83 @@ impl BlockchainEngine {
         let mut gas_meter = GasMeter::new(tx.gas_limit(), tx.gas_price());
         let mut changeset = ChangeSet::new();
 
+        // Determine gas operation and required balance (amount + gas)
+        let (gas_op, required_amount) = match tx {
+            Transaction::PublishModule { module_bytes, .. } => (
+                GasOperation::PublishModule {
+                    module_size: module_bytes.len(),
+                },
+                0,
+            ),
+            Transaction::ExecuteFunction { .. } => {
+                (GasOperation::ExecuteFunction { complexity: 1 }, 0)
+            }
+            Transaction::Transfer { amount, .. } | Transaction::Burn { amount, .. } => {
+                (GasOperation::Transfer, *amount)
+            }
+        };
+
+        gas_meter.consume(gas_op.gas_units())?;
+        let gas_cost = gas_meter.total_cost();
+        let total_required = required_amount.saturating_add(gas_cost);
+
+        // Balance check
+        {
+            let state = state_arc.read().unwrap();
+            let balance = state
+                .get_account(&sender_addr)
+                .map(|acc| acc.balance)
+                .unwrap_or(0);
+            if balance < total_required {
+                let msg = if required_amount > 0 {
+                    format!(
+                        "Insufficient balance: need {} (amount: {}, gas: {}) but have {}",
+                        total_required, required_amount, gas_cost, balance
+                    )
+                } else {
+                    format!(
+                        "Insufficient balance for gas: need {}, have {}",
+                        gas_cost, balance
+                    )
+                };
+                changeset.mark_failed(msg);
+                Self::apply_gas_and_sequence(
+                    &mut changeset,
+                    sender_addr,
+                    gas_cost,
+                    gas_meter.gas_used,
+                )?;
+                return Ok(changeset);
+            }
+        }
+
+        // 3. Execute transaction logic
         match tx {
             Transaction::PublishModule {
                 sender,
                 module_bytes,
                 ..
             } => {
-                let gas_op = GasOperation::PublishModule {
-                    module_size: module_bytes.len(),
-                };
-                gas_meter.consume(gas_op.gas_units())?;
-
-                let addr = AccountAddress::from_hex_literal(sender)?;
-                let gas_cost = gas_meter.total_cost();
-
-                // balance check
-                {
-                    let state = state_arc.read().unwrap();
-                    let balance = state.get_account(&addr).map(|acc| acc.balance).unwrap_or(0);
-                    if balance < gas_cost {
-                        changeset.mark_failed(format!(
-                            "Insufficient balance for gas: need {}, have {}",
-                            gas_cost, balance
-                        ));
-                        Self::apply_gas_and_sequence(
-                            &mut changeset,
-                            addr,
-                            gas_cost,
-                            gas_meter.gas_used,
-                        )?;
-                        return Ok(changeset);
-                    }
-                }
-
                 match runtime.publish_module(
                     module_bytes.clone(),
-                    AccountAddress::from_hex_literal(sender)?,
-                    None,
+                    KanariAddress::parse_to_account_address(sender)?,
+                    Some((tx.gas_limit(), tx.gas_price())),
+                    timestamp,
                 ) {
                     Ok(move_cs) => changeset.merge(move_cs),
                     Err(e) => {
                         changeset.mark_failed(format!("Publish failed: {}", e));
                     }
                 }
-
-                let sender_addr2 = AccountAddress::from_hex_literal(sender)?;
-                Self::apply_gas_and_sequence(
-                    &mut changeset,
-                    sender_addr2,
-                    gas_cost,
-                    gas_meter.gas_used,
-                )?;
             }
 
             Transaction::ExecuteFunction {
-                sender,
                 module,
                 function,
                 type_args,
                 args,
                 ..
             } => {
-                let gas_op = GasOperation::ExecuteFunction { complexity: 1 };
-                gas_meter.consume(gas_op.gas_units())?;
-                let sender_addr = AccountAddress::from_hex_literal(sender)?;
-                let gas_cost = gas_meter.total_cost();
-
-                {
-                    let state = state_arc.read().unwrap();
-                    let balance = state
-                        .get_account(&sender_addr)
-                        .map(|acc| acc.balance)
-                        .unwrap_or(0);
-                    if balance < gas_cost {
-                        changeset.mark_failed(format!(
-                            "Insufficient balance for gas: need {}, have {}",
-                            gas_cost, balance
-                        ));
-                        Self::apply_gas_and_sequence(
-                            &mut changeset,
-                            sender_addr,
-                            gas_cost,
-                            gas_meter.gas_used,
-                        )?;
-                        return Ok(changeset);
-                    }
-                }
-
                 let parts: Vec<&str> = module.split("::").collect();
                 if parts.len() != 2 {
                     changeset.mark_failed(
@@ -658,7 +577,7 @@ impl BlockchainEngine {
                     return Ok(changeset);
                 }
 
-                let addr = AccountAddress::from_hex_literal(parts[0])?;
+                let addr = KanariAddress::parse_to_account_address(parts[0])?;
                 let module_id = ModuleId::new(
                     addr,
                     move_core_types::identifier::Identifier::new(parts[1])?,
@@ -669,13 +588,13 @@ impl BlockchainEngine {
                     .filter_map(|s| parse_type_tag(s.as_str()))
                     .collect();
 
-                match runtime.execute_entry_function(
+                match runtime.execute_entry_function_pure(
                     &module_id,
                     function,
                     type_tags,
                     args.clone(),
                     Some(sender_addr),
-                    None,
+                    Some((tx.gas_limit(), tx.gas_price())),
                     timestamp,
                 ) {
                     Ok(move_cs) => changeset.merge(move_cs),
@@ -683,92 +602,20 @@ impl BlockchainEngine {
                         changeset.mark_failed(format!("Execution failed: {}", e));
                     }
                 }
-
-                Self::apply_gas_and_sequence(
-                    &mut changeset,
-                    sender_addr,
-                    gas_cost,
-                    gas_meter.gas_used,
-                )?;
             }
 
-            Transaction::Transfer {
-                from, to, amount, ..
-            } => {
-                let gas_op = GasOperation::Transfer;
-                gas_meter.consume(gas_op.gas_units())?;
-                let from_addr = AccountAddress::from_hex_literal(from)?;
-                let to_addr = AccountAddress::from_hex_literal(to)?;
-                let gas_cost = gas_meter.total_cost();
-                let total_required = amount.saturating_add(gas_cost);
-
-                {
-                    let state = state_arc.read().unwrap();
-                    let balance = state
-                        .get_account(&from_addr)
-                        .map(|acc| acc.balance)
-                        .unwrap_or(0);
-                    if balance < total_required {
-                        changeset.mark_failed(format!(
-                            "Insufficient balance: need {} (amount: {}, gas: {}) but have {}",
-                            total_required, amount, gas_cost, balance
-                        ));
-                        Self::apply_gas_and_sequence(
-                            &mut changeset,
-                            from_addr,
-                            gas_cost,
-                            gas_meter.gas_used,
-                        )?;
-                        return Ok(changeset);
-                    }
-                }
-
-                changeset.transfer(from_addr, to_addr, *amount);
-                Self::apply_gas_and_sequence(
-                    &mut changeset,
-                    from_addr,
-                    gas_cost,
-                    gas_meter.gas_used,
-                )?;
+            Transaction::Transfer { to, amount, .. } => {
+                let to_addr = KanariAddress::parse_to_account_address(to)?;
+                changeset.transfer(sender_addr, to_addr, *amount);
             }
 
-            Transaction::Burn { from, amount, .. } => {
-                let gas_op = GasOperation::Transfer;
-                gas_meter.consume(gas_op.gas_units())?;
-                let from_addr = AccountAddress::from_hex_literal(from)?;
-                let gas_cost = gas_meter.total_cost();
-                let total_required = amount.saturating_add(gas_cost);
-
-                {
-                    let state = state_arc.read().unwrap();
-                    let balance = state
-                        .get_account(&from_addr)
-                        .map(|acc| acc.balance)
-                        .unwrap_or(0);
-                    if balance < total_required {
-                        changeset.mark_failed(format!(
-                            "Insufficient balance: need {} (burn: {}, gas: {}) but have {}",
-                            total_required, amount, gas_cost, balance
-                        ));
-                        Self::apply_gas_and_sequence(
-                            &mut changeset,
-                            from_addr,
-                            gas_cost,
-                            gas_meter.gas_used,
-                        )?;
-                        return Ok(changeset);
-                    }
-                }
-
-                changeset.burn(from_addr, *amount);
-                Self::apply_gas_and_sequence(
-                    &mut changeset,
-                    from_addr,
-                    gas_cost,
-                    gas_meter.gas_used,
-                )?;
+            Transaction::Burn { amount, .. } => {
+                changeset.burn(sender_addr, *amount);
             }
         }
+
+        // 4. Apply gas and sequence
+        Self::apply_gas_and_sequence(&mut changeset, sender_addr, gas_cost, gas_meter.gas_used)?;
 
         Ok(changeset)
     }
@@ -815,7 +662,6 @@ impl BlockchainEngine {
             blockchain: self.blockchain.clone(),
             state: self.state.clone(),
             pending_txs: self.pending_txs.clone(),
-            contract_registry: self.contract_registry.clone(),
             persistent_store: self.persistent_store.clone(),
             runtime_pool: self.runtime_pool.clone(),
             proof_cache: self.proof_cache.clone(),
@@ -882,15 +728,11 @@ impl BlockchainEngine {
         state.get_account_by_hex(address).map(|acc| {
             debug!("[ENGINE] Found account {} in state", address);
             // collect owned object ids for this account and map to ObjectInfo
-            let owned_ids = state
-                .owned_objects
-                .get(&acc.address)
-                .cloned()
-                .unwrap_or_default();
+            let owned_ids = state.get_owned_objects(&acc.address).unwrap_or_default();
 
             let mut owned_objs: Vec<ObjectInfo> = Vec::new();
             for id in owned_ids {
-                if let Some(obj) = state.objects.get(&id) {
+                if let Ok(Some(obj)) = state.get_object(&id) {
                     owned_objs.push(ObjectInfo {
                         id: id.clone(),
                         owner: format!("{:#x}", obj.owner),
@@ -902,16 +744,9 @@ impl BlockchainEngine {
             }
 
             let mut sequence_number = acc.sequence_number;
-            let normalized_target = Self::normalize_addr(address);
 
             // Add pending transactions count to sequence number
-            if let Ok(pending) = self.pending_txs.read() {
-                for ptx in pending.iter() {
-                    if Self::normalize_addr(ptx.transaction.sender_address()) == normalized_target {
-                        sequence_number += 1;
-                    }
-                }
-            }
+            self.for_each_pending_tx_from_sender(address, |_| sequence_number += 1);
 
             let info = AccountInfo {
                 address: format!("{:#x}", acc.address),
@@ -953,61 +788,35 @@ impl BlockchainEngine {
             .unwrap_or_default()
     }
 
-    /// Normalize address for comparison (lowercase, no 0x prefix)
-    fn normalize_addr(addr: &str) -> String {
-        addr.trim_start_matches("0x").to_lowercase()
-    }
-
-    /// Deploy a contract (publish Move module).
-    /// Expects a `SignedTransaction` containing a `PublishModule` transaction.
-    pub fn deploy_contract(&self, signed_tx: SignedTransaction) -> Result<Vec<u8>> {
-        // Submit the signed transaction (will verify signature)
-        let tx_hash = self.submit_transaction(signed_tx.clone())?;
-
-        // Extract deployment info from the transaction and register the contract
-        if let Transaction::PublishModule {
-            sender,
-            module_bytes,
-            module_name,
-            ..
-        } = signed_tx.transaction
-        {
-            let block_height = self.blockchain.read().unwrap().height();
-            let contract_info = ContractInfo {
-                address: sender,
-                module_name,
-                bytecode: module_bytes,
-                deployment_tx: tx_hash.clone(),
-                deployed_at: block_height,
-                abi: ContractABI::new(),
-                metadata: kanari_move_runtime::contract::ContractMetadata::new(
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                ),
-            };
-
-            self.contract_registry
-                .write()
-                .unwrap()
-                .register(contract_info);
+    /// Iterate over pending transactions from a specific sender
+    fn for_each_pending_tx_from_sender<F>(&self, sender: &str, mut f: F)
+    where
+        F: FnMut(&SignedTransaction),
+    {
+        if let Ok(pending) = self.pending_txs.read() {
+            let normalized_sender = Self::normalize_addr(sender);
+            for ptx in pending.iter() {
+                if Self::normalize_addr(ptx.transaction.sender_address()) == normalized_sender {
+                    f(ptx);
+                }
+            }
         }
-
-        Ok(tx_hash)
     }
 
-    /// Call a contract function using a pre-signed `SignedTransaction`.
-    pub fn call_contract(&self, signed_tx: SignedTransaction) -> Result<Vec<u8>> {
-        self.submit_transaction(signed_tx)
+    /// Normalize address for comparison (converts to raw hex address)
+    fn normalize_addr(addr: &str) -> String {
+        use std::str::FromStr;
+        // Use the central Address type to handle tagged addresses, public keys, and hex literals
+        KanariAddress::from_str(addr)
+            .map(|a| a.to_hex())
+            .unwrap_or_else(|_| addr.trim_start_matches("0x").to_lowercase())
     }
 
     /// Get module bytecode from Move storage
     pub fn get_module_bytecode(&self, address: &str, module_name: &str) -> Option<Vec<u8>> {
-        use move_core_types::{
-            account_address::AccountAddress, identifier::Identifier, language_storage::ModuleId,
-        };
+        use move_core_types::{identifier::Identifier, language_storage::ModuleId};
 
-        let addr = match AccountAddress::from_hex_literal(address) {
+        let addr = match KanariAddress::parse_to_account_address(address) {
             Ok(a) => a,
             Err(_) => return None,
         };
@@ -1018,13 +827,13 @@ impl BlockchainEngine {
         };
 
         let module_id = ModuleId::new(addr, ident);
-        let runtime = self.runtime_pool[0].lock().unwrap();
+        let runtime = &self.runtime_pool[0];
         runtime.get_module_bytes(&module_id)
     }
 
     /// List all published modules in Move storage
     pub fn list_all_modules(&self) -> Vec<(String, String)> {
-        let runtime = self.runtime_pool[0].lock().unwrap();
+        let runtime = &self.runtime_pool[0];
         runtime
             .list_modules()
             .into_iter()
@@ -1074,6 +883,21 @@ impl BlockchainEngine {
         })
     }
 
+    /// Helper to decode hex string (with optional 0x)
+    fn decode_hex(s: &str) -> Result<Vec<u8>> {
+        hex::decode(s.trim_start_matches("0x")).context("Invalid hex string")
+    }
+
+    /// Helper to decode hex string to 32-byte array
+    fn decode_hex_32(s: &str) -> [u8; 32] {
+        let bytes = Self::decode_hex(s).unwrap_or_default();
+        let mut arr = [0u8; 32];
+        if bytes.len() == 32 {
+            arr.copy_from_slice(&bytes);
+        }
+        arr
+    }
+
     /// Sync full block with transactions from network data
     /// This method executes all transactions to rebuild the state
     pub fn sync_full_block_from_data(&self, block_data: &FullBlockData) -> Result<()> {
@@ -1121,7 +945,7 @@ impl BlockchainEngine {
         }
 
         // Create a checkpoint from block data
-        let state_root = hex::decode(block_data.state_root.trim_start_matches("0x"))
+        let state_root = Self::decode_hex(&block_data.state_root)
             .context("Invalid state root format in block data")?;
 
         let prev_hash = {
@@ -1132,14 +956,7 @@ impl BlockchainEngine {
         let vertices: Vec<[u8; 32]> = block_data
             .vertices
             .iter()
-            .map(|v: &String| {
-                let bytes = hex::decode(v.trim_start_matches("0x")).unwrap_or_default();
-                let mut arr = [0u8; 32];
-                if bytes.len() == 32 {
-                    arr.copy_from_slice(&bytes);
-                }
-                arr
-            })
+            .map(|v| Self::decode_hex_32(v))
             .collect();
 
         let checkpoint = Checkpoint::new(
@@ -1163,180 +980,14 @@ impl BlockchainEngine {
         Ok(())
     }
 
-    /// Apply a committed checkpoint to the state.
-    /// This executes all transactions in the checkpoint and updates the canonical state.
-    pub fn apply_checkpoint(&self, mut checkpoint: Checkpoint) -> Result<()> {
-        info!(
-            "[ENGINE] Applying checkpoint {} with {} transactions, state_root: {}",
-            checkpoint.sequence,
-            checkpoint.transactions.len(),
-            hex::encode(&checkpoint.state_root)
-        );
-
-        // 1. Create a clone of the current state to work on
-        let state_snapshot = self.state.read().unwrap().clone();
-        let state_arc = Arc::new(RwLock::new(state_snapshot));
-
-        // 2. Filter transactions that are already executed
-        let mut to_execute = Vec::new();
-        let mut skipped_count = 0;
-
-        {
-            let chain = self.blockchain.read().unwrap();
-            for signed_tx in &checkpoint.transactions {
-                let tx_hash_hex = hex::encode(signed_tx.hash());
-                if chain.is_transaction_executed(&tx_hash_hex) {
-                    skipped_count += 1;
-                    continue;
-                }
-                to_execute.push(signed_tx.clone());
-            }
-        }
-
-        // 3. Partition and execute in parallel waves
-        let waves = partition_into_waves(&to_execute);
-        let mut executed_count = 0;
-
-        for wave in waves {
-            let results: Vec<Result<ChangeSet>> = wave
-                .iter()
-                .enumerate()
-                .map(|(i, signed_tx)| {
-                    let pool_idx = i % self.runtime_pool.len();
-                    let runtime_arc = &self.runtime_pool[pool_idx];
-                    let mut runtime = runtime_arc.lock().unwrap();
-
-                    self.execute_transaction_with_runtime_skip_seq(
-                        &signed_tx.transaction,
-                        &mut runtime,
-                        &state_arc,
-                        Some(checkpoint.timestamp),
-                    )
-                })
-                .collect();
-
-            for res in results {
-                match res {
-                    Ok(cs) => {
-                        let mut state_write = state_arc.write().unwrap();
-                        if let Err(e) = state_write.apply_changeset(&cs) {
-                            error!(
-                                "[ENGINE] Failed to apply changeset in checkpoint {}: {}",
-                                checkpoint.sequence, e
-                            );
-                            anyhow::bail!("Failed to apply changeset: {}", e);
-                        }
-                        executed_count += 1;
-                    }
-                    Err(e) => {
-                        error!(
-                            "[ENGINE] Fatal error executing transaction in checkpoint {}: {}",
-                            checkpoint.sequence, e
-                        );
-                        anyhow::bail!("Fatal error executing checkpoint transaction: {}", e);
-                    }
-                }
-            }
-        }
-
-        if skipped_count > 0 {
-            info!(
-                "[ENGINE] Checkpoint {} summary: {} executed, {} skipped (already in blockchain)",
-                checkpoint.sequence, executed_count, skipped_count
-            );
-        }
-
-        // 3. Verify the final state root
-        let verified_state = {
-            let state_read = state_arc.read().unwrap();
-            let computed_root = state_read.compute_state_root();
-            if computed_root != checkpoint.state_root {
-                let expected_hex = hex::encode(&checkpoint.state_root);
-                let computed_hex = hex::encode(&computed_root);
-
-                // In DAG mode, the checkpoint's state root might be from a leader vertex
-                // that didn't see the exact same history as the checkpoint's total order.
-                // We update to the computed root to ensure consistency.
-                warn!(
-                    "[ENGINE] State root mismatch in checkpoint {}! Updating to computed root.\n  Expected (from leader): {}\n  Computed (from execution): {}",
-                    checkpoint.sequence, expected_hex, computed_hex
-                );
-                checkpoint.state_root = computed_root;
-            }
-            state_read.clone()
-        };
-
-        // 4. Update canonical state by replacing it with the verified state
-        {
-            let mut state = self.state.write().unwrap();
-            *state = verified_state;
-        }
-
-        // 5. Update blockchain
-        {
-            let mut chain = self.blockchain.write().unwrap();
-            // Add checkpoint without strict validation (already validated locally)
-            chain.add_checkpoint_with_validation(checkpoint.clone(), false)?;
-        }
-
-        // 6. Remove committed transactions from pending pool
-        {
-            let mut pending = self.pending_txs.write().unwrap();
-            let committed_hashes: std::collections::HashSet<_> =
-                checkpoint.transactions.iter().map(|tx| tx.hash()).collect();
-            pending.retain(|tx| !committed_hashes.contains(&tx.hash()));
-        }
-
-        // 7. Persist blockchain and state
-        if let Some(store) = &self.persistent_store {
-            let state_guard = self.state.read().unwrap();
-            let chain = self.blockchain.read().unwrap();
-            let height = chain.height();
-            info!("[ENGINE] Persisting blockchain at height {}...", height);
-            store
-                .save("blockchain", &*chain)
-                .context("Failed to persist blockchain")?;
-            drop(chain);
-
-            info!("[ENGINE] Persisting state manager...");
-            store
-                .save("state_manager", &*state_guard)
-                .context("Failed to persist state manager")?;
-            drop(state_guard);
-
-            // Also persist DAG state if it exists
-            if let Ok(dag_engine_guard) = self.dag_engine.read()
-                && let Some(dag_engine) = &*dag_engine_guard
-                && let Ok(consensus) = dag_engine.consensus().read()
-                && let Ok(dag_state) = consensus.save_state()
-            {
-                info!("[ENGINE] Persisting DAG consensus state during checkpoint...");
-                let _ = store.save("dag_state", &dag_state);
-            }
-
-            info!(
-                "[ENGINE] Persistence completed successfully for height {}",
-                height
-            );
-        } else {
-            warn!("[ENGINE] Running in-memory mode, data will NOT be persisted!");
-        }
-
-        Ok(())
-    }
-
     /// Get state root for a specific block height or latest if None.
     pub fn get_state_root(&self, height: Option<u64>) -> Option<String> {
         let chain = self.blockchain.read().unwrap();
-        match height {
-            Some(h) => chain
-                .get_block(h)
-                .map(|b| hex::encode(&b.header.state_root)),
-            None => {
-                // latest state root
-                Some(hex::encode(&chain.latest_block().header.state_root))
-            }
-        }
+        let header = match height {
+            Some(h) => &chain.get_block(h)?.header,
+            None => &chain.latest_block().header,
+        };
+        Some(hex::encode(&header.state_root))
     }
 
     /// Return list of registered token types and their total supplies
@@ -1351,58 +1002,25 @@ impl BlockchainEngine {
         seen.insert("KANARI".to_string());
         out.push(("KANARI".to_string(), state.total_supply));
 
-        // Include registered treasuries (known supplies)
-        for (k, v) in state.token_supplies.iter() {
-            if seen.insert(k.clone()) {
-                out.push((k.clone(), v.total_supply()));
-            }
-        }
-
-        // Best-effort: scan stored objects for coin/treasury/metadata types
-        for (_id, obj) in state.objects.iter() {
-            let t = &obj.type_;
-            // Look for generics like ::coin::Coin<...> or ::coin::TreasuryCap<...>
-            if t.contains("::coin::")
-                && t.contains('<')
-                && t.contains('>')
-                && let Some(start) = t.find('<')
-                && let Some(end) = t.rfind('>')
-                && end > start + 1
-            {
-                let inner = t[start + 1..end].trim().to_string();
-                if !inner.is_empty() && seen.insert(inner.clone()) {
-                    // supply if known, else attempt to compute by summing coin objects
-                    let mut supply = state
-                        .token_supplies
-                        .get(&inner)
-                        .map(|cap| cap.total_supply())
-                        .unwrap_or(0u64);
-
-                    if supply == 0 {
-                        // Sum all Coin<inner> object values in state.objects
-                        let mut sum_u128: u128 = 0;
-                        for (_oid, o2) in state.objects.iter() {
-                            if o2.type_.contains("::coin::Coin<")
-                                && o2.type_.contains(&inner)
-                                && o2.data.len() >= 8
-                                && let Ok(bytes) = o2.data[o2.data.len() - 8..].try_into()
-                            {
-                                let v = u64::from_le_bytes(bytes) as u128;
-                                sum_u128 = sum_u128.saturating_add(v);
-                            }
-                        }
-                        if sum_u128 > u128::from(u64::MAX) {
-                            supply = u64::MAX;
-                        } else {
-                            supply = sum_u128 as u64;
-                        }
-                    }
-
-                    out.push((inner, supply));
+        // Include registered treasuries (known supplies from RocksDB index)
+        if let Ok(treasuries) = state.load_treasuries() {
+            for (_owner, token_type, cap) in treasuries {
+                if seen.insert(token_type.clone()) {
+                    out.push((token_type, cap.total_supply));
                 }
             }
         }
 
         out
+    }
+
+    /// Get token decimals
+    pub fn get_token_decimals(&self, token_type: &str) -> Option<u8> {
+        // Special case for native KANARI token
+        if token_type == "KANARI" {
+            return Some(9);
+        }
+        let state = self.state.read().unwrap();
+        state.get_token_decimals(token_type).unwrap_or(None)
     }
 }

@@ -64,7 +64,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.11.1';
 
   @override
-  int get rustContentHash => 284075310;
+  int get rustContentHash => -329284543;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -75,6 +75,8 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 }
 
 abstract class RustLibApi extends BaseApi {
+  Future<Uint8List> crateApiBlake3HashApi({required List<int> data});
+
   Future<KeyPairData> crateApiDeriveKeypairFromMnemonic({
     required String mnemonic,
     required String curveName,
@@ -127,6 +129,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   });
 
   @override
+  Future<Uint8List> crateApiBlake3HashApi({required List<int> data}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(data, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 1,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiBlake3HashApiConstMeta,
+        argValues: [data],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiBlake3HashApiConstMeta =>
+      const TaskConstMeta(debugName: "blake3_hash_api", argNames: ["data"]);
+
+  @override
   Future<KeyPairData> crateApiDeriveKeypairFromMnemonic({
     required String mnemonic,
     required String curveName,
@@ -140,7 +170,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 1,
+            funcId: 2,
             port: port_,
           );
         },
@@ -177,7 +207,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 2,
+            funcId: 3,
             port: port_,
           );
         },
@@ -216,7 +246,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 3,
+            funcId: 4,
             port: port_,
           );
         },
@@ -247,7 +277,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 5,
             port: port_,
           );
         },
@@ -277,7 +307,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 6,
             port: port_,
           );
         },
@@ -312,7 +342,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 7,
             port: port_,
           );
         },
@@ -342,7 +372,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 8,
             port: port_,
           );
         },
@@ -376,7 +406,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 8,
+            funcId: 9,
             port: port_,
           );
         },
@@ -414,7 +444,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 10,
             port: port_,
           );
         },
@@ -464,14 +494,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   KeyPairData dco_decode_key_pair_data(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 5)
-      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
     return KeyPairData(
       privateKey: dco_decode_String(arr[0]),
       publicKey: dco_decode_String(arr[1]),
       address: dco_decode_String(arr[2]),
-      rawPublicKey: dco_decode_list_prim_u_8_strict(arr[3]),
-      curveType: dco_decode_String(arr[4]),
+      taggedAddress: dco_decode_String(arr[3]),
+      rawPublicKey: dco_decode_list_prim_u_8_strict(arr[4]),
+      curveType: dco_decode_String(arr[5]),
     );
   }
 
@@ -551,12 +582,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_privateKey = sse_decode_String(deserializer);
     var var_publicKey = sse_decode_String(deserializer);
     var var_address = sse_decode_String(deserializer);
+    var var_taggedAddress = sse_decode_String(deserializer);
     var var_rawPublicKey = sse_decode_list_prim_u_8_strict(deserializer);
     var var_curveType = sse_decode_String(deserializer);
     return KeyPairData(
       privateKey: var_privateKey,
       publicKey: var_publicKey,
       address: var_address,
+      taggedAddress: var_taggedAddress,
       rawPublicKey: var_rawPublicKey,
       curveType: var_curveType,
     );
@@ -652,6 +685,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.privateKey, serializer);
     sse_encode_String(self.publicKey, serializer);
     sse_encode_String(self.address, serializer);
+    sse_encode_String(self.taggedAddress, serializer);
     sse_encode_list_prim_u_8_strict(self.rawPublicKey, serializer);
     sse_encode_String(self.curveType, serializer);
   }

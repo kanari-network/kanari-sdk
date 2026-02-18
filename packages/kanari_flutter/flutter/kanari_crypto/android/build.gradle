@@ -1,0 +1,61 @@
+def pubspecFile = new File(projectDir.parentFile, 'pubspec.yaml')
+def pubspecVersion = ''
+
+if (pubspecFile.exists()) {
+    def match = pubspecFile.text =~ /version:\s*([^\s+]+)/
+    if (match) {
+        pubspecVersion = match[0][1]
+    }
+}
+
+group 'com.kanari.kanari_crypto'
+version pubspecVersion
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.1.0'
+    }
+}
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+android {
+    namespace 'com.kanari.kanari_crypto'
+    compileSdk 34
+
+    defaultConfig {
+        minSdk 21
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs']
+        }
+    }
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22"
+}

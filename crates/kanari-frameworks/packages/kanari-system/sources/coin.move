@@ -123,6 +123,7 @@ module kanari_system::coin {
         let new_total = cap.total_supply + amount;
         assert!(new_total >= cap.total_supply, EOVERFLOW);
         cap.total_supply = new_total;
+        object::save_object(cap);
         Coin {
             id: object::new(ctx),
             balance: kanari_system::balance::create<T>(amount),
@@ -146,6 +147,7 @@ module kanari_system::coin {
         let value = kanari_system::balance::destroy<T>(balance);
         assert!(cap.total_supply >= value, EUNDERFLOW);
         cap.total_supply = cap.total_supply - value;
+        object::save_object(cap);
         value
     }
 
@@ -175,9 +177,11 @@ module kanari_system::coin {
 
     /// Split a coin into two. Returns the new coin with the specified amount.
     public fun split<T>(coin: &mut Coin<T>, amount: u64, ctx: &mut TxContext): Coin<T> {
+        let new_balance = kanari_system::balance::split(&mut coin.balance, amount);
+        object::save_object(coin);
         Coin {
             id: object::new(ctx),
-            balance: kanari_system::balance::split(&mut coin.balance, amount),
+            balance: new_balance,
         }
     }
 
@@ -185,6 +189,7 @@ module kanari_system::coin {
     public fun join<T>(coin: &mut Coin<T>, other: Coin<T>) {
         let Coin { id: _, balance } = other;
         kanari_system::balance::merge(&mut coin.balance, balance);
+        object::save_object(coin);
     }
     
     // --- Deprecated/Legacy functions ---

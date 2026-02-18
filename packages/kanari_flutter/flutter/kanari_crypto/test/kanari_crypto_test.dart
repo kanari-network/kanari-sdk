@@ -13,10 +13,16 @@ class MockRustApi extends RustLibApi {
     return KeyPairData(
       privateKey: 'priv_$curveName',
       publicKey: 'pub_$curveName',
-      address: 'addr_$curveName',
+      address: '0x_addr_$curveName',
+      taggedAddress: 'tagged_$curveName',
       rawPublicKey: Uint8List.fromList([]),
       curveType: curveName,
     );
+  }
+
+  @override
+  Future<Uint8List> crateApiBlake3HashApi({required List<int> data}) async {
+    return Uint8List.fromList([1, 2, 3]);
   }
 
   @override
@@ -113,7 +119,7 @@ void main() {
 
   test('generate keypair and sign/verify', () async {
     final kp = await generateKeypairApi(curveName: 'K256');
-    expect(kp.address, contains('addr_'));
+    expect(kp.address, startsWith('0x'));
 
     final sig = await signMessageApi(
       privateKey: kp.privateKey,
@@ -149,7 +155,7 @@ void main() {
     expect(sig, isNotEmpty);
 
     final verified = await verifySignatureApi(
-      address: kp.address,
+      address: kp.publicKey,
       message: 'dilithium'.codeUnits,
       signature: sig,
       curveName: 'Dilithium5',

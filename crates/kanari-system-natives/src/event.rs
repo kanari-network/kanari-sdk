@@ -11,6 +11,7 @@ use move_vm_runtime::native_functions::NativeContext;
 use move_vm_runtime::native_functions::make_table_from_iter;
 use move_vm_types::loaded_data::runtime_types::Type;
 use move_vm_types::natives::function::NativeResult;
+use move_vm_types::natives::function::PartialVMError;
 use move_vm_types::natives::function::PartialVMResult;
 use move_vm_types::values::Value;
 use smallvec::smallvec;
@@ -59,7 +60,10 @@ fn native_emit(
     let gas_used_now = context.gas_used();
 
     // Expect a single argument: the event value
-    let evt_val = arguments.pop_back().expect("Missing event argument");
+    let evt_val = arguments.pop_back().ok_or_else(|| {
+        PartialVMError::new(move_core_types::vm_status::StatusCode::INTERNAL_TYPE_ERROR)
+            .with_message("Missing event argument".to_string())
+    })?;
 
     if ty_args.is_empty() {
         // no type arg: we still attempt to serialize
@@ -90,6 +94,9 @@ fn native_emit(
         serialized = vec![];
     }
 
+    // Capture size for gas metering
+    let size = serialized.len() as u64;
+
     // Build a captured event and record it in the native-extensions container
     let exts = context.extensions_mut();
 
@@ -110,7 +117,9 @@ fn native_emit(
     }));
 
     // Small gas cost for event emission
-    let gas_cost = GasQuantity::new(500);
+    // Charge base cost + size-dependent cost
+    let cost = 500 + size;
+    let gas_cost = GasQuantity::new(cost);
 
     Ok(NR::ok(gas_used_now + gas_cost, smallvec![]))
 }

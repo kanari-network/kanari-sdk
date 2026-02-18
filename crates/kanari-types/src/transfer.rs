@@ -24,8 +24,8 @@ impl TransferRecord {
 
     /// Create transfer record from hex string literals (convenience)
     pub fn from_hex_literals(from_hex: &str, to_hex: &str, amount: u64) -> Result<Self> {
-        let from = AccountAddress::from_hex_literal(from_hex).context("Invalid from address")?;
-        let to = AccountAddress::from_hex_literal(to_hex).context("Invalid to address")?;
+        let from = Address::parse_to_account_address(from_hex).context("Invalid from address")?;
+        let to = Address::parse_to_account_address(to_hex).context("Invalid to address")?;
         Ok(Self::new(from, to, amount))
     }
 }

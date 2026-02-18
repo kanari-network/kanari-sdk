@@ -37,7 +37,7 @@ impl SignedTransaction {
         let signature = &self.signature;
 
         let tx_hash = self.transaction.hash();
-        let sender = self.transaction.sender_address();
+        let sender = self.transaction.sender();
 
         kanari_crypto::verify_signature(sender, &tx_hash, signature)
             .map_err(|e| anyhow::anyhow!("Signature verification failed: {}", e))

@@ -6,11 +6,9 @@ use kanari_move_runtime::changeset::ChangeSet;
 use kanari_move_runtime::move_runtime::MoveRuntime;
 use kanari_move_runtime::state::StateManager;
 use kanari_types::coin::CoinModule;
-use kanari_types::object::UIDRecord;
 use kanari_types::tx_context::TxContextRecord;
-use move_binary_format::file_format::CompiledModule;
+use move_binary_format::CompiledModule;
 use move_core_types::account_address::AccountAddress as MoveAccountAddress;
-use move_core_types::runtime_value::{MoveStruct, MoveValue};
 use std::env;
 use std::path::Path;
 use std::path::PathBuf;
@@ -56,7 +54,7 @@ fn main() {
 
     // Initialize runtime with Kanari natives and preload system modules (stdlib + kanari-system).
     // This ensures modules like `0x1::string` are available for linking/verifier.
-    let mut runtime = match MoveRuntime::new_with_kanari_natives() {
+    let runtime = match MoveRuntime::new_with_kanari_natives() {
         Ok(r) => r,
         Err(e) => {
             eprintln!("Failed to init MoveRuntime: {:?}", e);
@@ -88,7 +86,7 @@ fn main() {
     let publish_sender = *module_id.address();
 
     // Publish module (no gas accounting here) as the module address
-    let publish_cs = match runtime.publish_module(bytes.clone(), publish_sender, None) {
+    let publish_cs = match runtime.publish_module(bytes.clone(), publish_sender, None, None) {
         Ok(cs) => cs,
         Err(e) => {
             eprintln!("publish_module failed: {:?}", e);
@@ -187,7 +185,7 @@ fn main() {
     println!("Call token_balance_sets: {:?}", call_cs.token_balance_sets);
 
     // Apply ChangeSets to StateManager to observe state changes (supply, balances)
-    let mut state = StateManager::new();
+    let mut state = StateManager::new_in_memory();
     if !publish_cs.is_empty() {
         state
             .apply_changeset(&publish_cs)
@@ -199,18 +197,22 @@ fn main() {
             .expect("apply call changeset");
     }
 
-    println!("State token supplies: {:?}", state.token_supplies);
-    println!("State token treasuries: {:?}", state.token_treasuries);
+    // StateManager in DB mode doesn't expose public maps anymore.
+    // Use getters or inspect DB for verification.
+    println!("State total supply: {:?}", state.total_supply);
+
+    // println!("State token supplies: {:?}", state.token_supplies);
+    // println!("State token treasuries: {:?}", state.token_treasuries);
 
     // Print balances for any accounts touched
-    for (addr, account) in state.accounts.iter() {
-        if !account.token_balances.is_empty() {
-            println!(
-                "Account {:#x} token balances: {:?}",
-                addr, account.token_balances
-            );
-        }
-    }
+    // for (addr, account) in state.accounts.iter() {
+    //     if !account.token_balances.is_empty() {
+    //         println!(
+    //             "Account {:#x} token balances: {:?}",
+    //             addr, account.token_balances
+    //         );
+    //     }
+    // }
 
     // If the call produced created objects or treasuries, try to find a TreasuryCap
     let mut found_treasury_id: Option<String> = None;
@@ -303,102 +305,247 @@ fn main() {
 
         if let Some(tt) = token_type {
             // Attempt a real Move `mint` call by invoking the `mint` entry function.
-            // Build args: (&mut TreasuryCap) -> represented by UIDRecord, amount: u64, recipient: address
+            // Build args: (&mut TreasuryCap) -> represented by Object ID, amount: u64, recipient: address
             let mint_amount: u64 = 1_000_000_000; // demo amount
 
             // Use the same address as recipient for demo (publish_sender)
             let recipient_move: MoveAccountAddress = publish_sender;
 
-            // Build Move-style serialized arguments for (&mut TreasuryCap<T>, u64, address)
-            // TreasuryCap<T> layout: struct TreasuryCap { id: UID{ addr: address }, total_supply: u64 }
-            if let Ok(_uid) = UIDRecord::from_hex_literal(&tid) {
-                // Parse the object id address from the hex id string (0x...) for the UID.addr field
-                if let Ok(taddr) = MoveAccountAddress::from_hex_literal(&tid) {
-                    let uid_mv =
-                        MoveValue::Struct(MoveStruct::new(vec![MoveValue::Address(taddr)]));
-                    // Assume current total_supply is 0 for freshly created treasury
-                    let cap_mv =
-                        MoveValue::Struct(MoveStruct::new(vec![uid_mv, MoveValue::U64(0)]));
+            println!("Calling Move mint entry to mint {} of {}", mint_amount, tt);
 
-                    let arg0 = cap_mv.simple_serialize().expect("serialize treasury cap");
-                    let arg1 = MoveValue::U64(mint_amount)
-                        .simple_serialize()
-                        .expect("serialize amount");
-                    let arg2 = MoveValue::Address(recipient_move)
-                        .simple_serialize()
-                        .expect("serialize recipient");
+            // Prepare arguments:
+            // 1. TreasuryCap object ID (32 bytes)
+            // 2. Amount (u64 BCS)
+            // 3. Recipient (Address BCS)
 
-                    // If we built a recipient arg, call `mint_and_transfer`, otherwise call `mint`.
-                    println!("Calling Move mint entry to mint {} of {}", mint_amount, tt);
-                    // First try calling `mint` (by-value/mutable-ref). If the module
-                    // doesn't contain a matching entry, try the `mint_by_address`
-                    // wrapper which accepts an `address` for the treasury.
-                    let mut mint_args = vec![arg0.clone(), arg1.clone(), arg2.clone()];
-                    mint_args.push(tx_context_bytes.clone());
-                    let mint_call = runtime.execute_entry_function(
-                        &module_id,
-                        "mint",
-                        vec![],
-                        mint_args,
-                        Some(publish_sender),
-                        None,
-                        None,
+            let clean_tid = tid.strip_prefix("0x").unwrap_or(&tid);
+            let t_arg = hex::decode(clean_tid).expect("decode treasury id");
+
+            let amount_arg = bcs::to_bytes(&mint_amount).expect("serialize amount");
+            let recipient_arg = bcs::to_bytes(&recipient_move).expect("serialize recipient");
+
+            // Mint args
+            let mint_args = vec![t_arg.clone(), amount_arg, recipient_arg];
+
+            // Execute mint
+            let mint_result = runtime.execute_entry_function(
+                &module_id,
+                "mint",
+                vec![],
+                mint_args,
+                Some(publish_sender),
+                None,
+                None, // Create new TxContext
+            );
+
+            match mint_result {
+                Ok(m_cs) => {
+                    println!(
+                        "Mint successful! Changeset: {} created objects",
+                        m_cs.created_objects.len()
                     );
-                    match mint_call {
-                        Ok(m_cs) => {
-                            println!(
-                                "Mint call ChangeSet produced: accounts={}, treasuries={}, token_sets={}",
-                                m_cs.account_changes.len(),
-                                m_cs.treasuries.len(),
-                                m_cs.token_balance_sets.len()
-                            );
-                            // If VM produced no token changes, fall back to host-side simulated mint
-                            if m_cs.is_empty() {
-                                println!(
-                                    "VM produced no token ChangeSet — applying host-side simulated mint fallback"
-                                );
-                                let mut fallback_cs = ChangeSet::new();
-                                fallback_cs.add_treasury(publish_sender, tt.clone(), mint_amount);
-                                fallback_cs.add_token_balance_set(
-                                    recipient_move,
-                                    tt.clone(),
-                                    mint_amount,
-                                );
-                                fallback_cs.mint(recipient_move, mint_amount);
-                                state
-                                    .apply_changeset(&fallback_cs)
-                                    .expect("apply simulated mint changeset");
-                            } else {
-                                // Apply mint changeset to state
-                                state.apply_changeset(&m_cs).expect("apply mint changeset");
-                            }
+                    for (id, obj) in &m_cs.created_objects {
+                        println!(
+                            "Mint created object: id={} type={} owner={}",
+                            id, obj.type_, obj.owner
+                        );
+                    }
 
-                            println!(
-                                "After mint - State token supplies: {:?}",
-                                state.token_supplies
-                            );
-                            println!(
-                                "After mint - State token treasuries: {:?}",
-                                state.token_treasuries
-                            );
+                    state.apply_changeset(&m_cs).expect("apply mint changeset");
 
-                            // Print balances touched
-                            for (addr, account) in state.accounts.iter() {
-                                if !account.token_balances.is_empty() {
-                                    println!(
-                                        "Account {:#x} token balances: {:?}",
-                                        addr, account.token_balances
-                                    );
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("mint call failed: {:?}", e);
+                    // Find the coin object created for recipient
+                    let mut coin_id = String::new();
+                    for (id, obj) in &m_cs.created_objects {
+                        // Check if it's a Coin (simple check)
+                        if obj.owner == recipient_move && obj.type_.contains("Coin") {
+                            coin_id = id.clone();
+                            println!(
+                                "Found minted Coin object: {} (amount: {})",
+                                coin_id, mint_amount
+                            );
+                            break;
                         }
                     }
+
+                    if coin_id.is_empty() {
+                        println!(
+                            "WARNING: Mint did not return a Coin object (maybe transfer native issue). Creating a fake Coin for Transfer demo."
+                        );
+                        // Create a fake Coin object manually to test Writeback on Transfer
+                        let fake_uid_addr = MoveAccountAddress::random();
+                        let fake_id_hex = fake_uid_addr.to_hex_literal();
+                        coin_id = fake_id_hex.clone();
+
+                        // Construct Coin data: UID (32 bytes) + Balance (8 bytes)
+                        let mut coin_data = fake_uid_addr.to_vec();
+                        let balance_bytes = bcs::to_bytes(&mint_amount).unwrap();
+                        coin_data.extend(balance_bytes);
+                    }
+
+                    if !coin_id.is_empty() {
+                        // --- TRANSFER DEMO ---
+                        let transfer_amount = 100_000u64;
+                        let receiver_addr_str = "0x1234567890abcdef1234567890abcdef12345678";
+                        let receiver =
+                            MoveAccountAddress::from_hex_literal(receiver_addr_str).unwrap();
+
+                        println!(
+                            "\n--- TRANSFER DEMO: {} to {} ---",
+                            transfer_amount, receiver_addr_str
+                        );
+
+                        let clean_cid = coin_id.strip_prefix("0x").unwrap_or(&coin_id);
+                        let c_arg = hex::decode(clean_cid).expect("decode coin id");
+                        let t_amt_arg =
+                            bcs::to_bytes(&transfer_amount).expect("serialize transfer amount");
+                        let receiver_arg = bcs::to_bytes(&receiver).expect("serialize receiver");
+
+                        // transfer(coin: &mut Coin, amount: u64, recipient: address)
+                        let transfer_args = vec![c_arg.clone(), t_amt_arg, receiver_arg];
+
+                        let transfer_res = runtime.execute_entry_function(
+                            &module_id,
+                            "transfer_amount",
+                            vec![],
+                            transfer_args,
+                            Some(publish_sender),
+                            None,
+                            None,
+                        );
+
+                        match transfer_res {
+                            Ok(t_cs) => {
+                                println!("Transfer successful!");
+                                state
+                                    .apply_changeset(&t_cs)
+                                    .expect("apply transfer changeset");
+
+                                // Verify Recipient received the coin
+                                let mut recipient_coin_found = false;
+                                for (id, obj) in &t_cs.created_objects {
+                                    if obj.owner == receiver {
+                                        println!(
+                                            "Recipient {} received object: id={} type={}",
+                                            receiver_addr_str, id, obj.type_
+                                        );
+                                        if obj.type_.contains("Coin") {
+                                            // Extract balance from new coin
+                                            if obj.data.len() >= 8 {
+                                                let bal_bytes = &obj.data[obj.data.len() - 8..];
+                                                let val: u64 =
+                                                    bcs::from_bytes(bal_bytes).unwrap_or(0);
+                                                println!("Recipient Coin Balance: {}", val);
+                                                if val == transfer_amount {
+                                                    println!(
+                                                        "SUCCESS: Recipient received correct amount {}",
+                                                        val
+                                                    );
+                                                } else {
+                                                    eprintln!(
+                                                        "FAILURE: Recipient received wrong amount {}",
+                                                        val
+                                                    );
+                                                }
+                                                recipient_coin_found = true;
+                                            }
+                                        }
+                                    }
+                                }
+                                if !recipient_coin_found {
+                                    println!(
+                                        "WARNING: No Coin object found for recipient in ChangeSet created_objects"
+                                    );
+                                }
+
+                                // Verify Writeback: Check if source Coin version incremented and balance updated
+                                if let Ok(Some(updated_coin)) = state.get_object(&coin_id) {
+                                    println!(
+                                        "Source Coin version after transfer: {}",
+                                        updated_coin.version
+                                    );
+
+                                    // Check balance (last 8 bytes)
+                                    if updated_coin.data.len() >= 8 {
+                                        let balance_bytes =
+                                            &updated_coin.data[updated_coin.data.len() - 8..];
+                                        let balance: u64 =
+                                            bcs::from_bytes(balance_bytes).unwrap_or(0);
+                                        println!("Source Coin balance after transfer: {}", balance);
+                                        let expected = mint_amount - transfer_amount;
+                                        if balance == expected {
+                                            println!(
+                                                "SUCCESS: Source Balance updated correctly to {}",
+                                                balance
+                                            );
+                                        } else {
+                                            eprintln!(
+                                                "FAILURE: Balance mismatch! Expected {}, got {}",
+                                                expected, balance
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => eprintln!("Transfer failed: {:?}", e),
+                        }
+
+                        // --- BURN DEMO ---
+                        let burn_amount = 50_000u64;
+                        println!("\n--- BURN DEMO: {} ---", burn_amount);
+
+                        let b_amt_arg = bcs::to_bytes(&burn_amount).expect("serialize burn amount");
+                        // burn(treasury: &mut TreasuryCap, coin: &mut Coin, amount: u64)
+                        let burn_args = vec![t_arg.clone(), c_arg.clone(), b_amt_arg];
+
+                        let burn_res = runtime.execute_entry_function(
+                            &module_id,
+                            "burn_amount",
+                            vec![],
+                            burn_args,
+                            Some(publish_sender),
+                            None,
+                            None,
+                        );
+                        match burn_res {
+                            Ok(b_cs) => {
+                                println!("Burn successful!");
+                                state.apply_changeset(&b_cs).expect("apply burn changeset");
+                                if let Ok(Some(updated_coin)) = state.get_object(&coin_id) {
+                                    println!(
+                                        "Source Coin version after burn: {}",
+                                        updated_coin.version
+                                    );
+
+                                    // Check balance (last 8 bytes)
+                                    if updated_coin.data.len() >= 8 {
+                                        let balance_bytes =
+                                            &updated_coin.data[updated_coin.data.len() - 8..];
+                                        let balance: u64 =
+                                            bcs::from_bytes(balance_bytes).unwrap_or(0);
+                                        println!("Source Coin balance after burn: {}", balance);
+                                        let expected = mint_amount - transfer_amount - burn_amount;
+                                        if balance == expected {
+                                            println!(
+                                                "SUCCESS: Balance updated correctly to {}",
+                                                balance
+                                            );
+                                        } else {
+                                            eprintln!(
+                                                "FAILURE: Balance mismatch! Expected {}, got {}",
+                                                expected, balance
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => eprintln!("Burn failed: {:?}", e),
+                        }
+                    }
+
+                    // Final State Dump
+                    // println!("\nFinal State - Token Supplies: {:?}", state.token_supplies);
                 }
-            } else {
-                println!("Could not parse TreasuryCap id into UIDRecord; skipping real mint.");
+                Err(e) => eprintln!("Mint failed: {:?}", e),
             }
         } else {
             println!("Could not extract token type from TreasuryCap object; skipping auto-mint.");

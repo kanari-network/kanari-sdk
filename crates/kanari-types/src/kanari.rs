@@ -36,7 +36,7 @@ impl KanariModule {
     /// Get function names used in kanari module
     pub fn function_names() -> KanariFunctions {
         KanariFunctions {
-            new: "new",
+            init: "init",
             transfer: "transfer",
             burn: "burn",
         }
@@ -65,7 +65,7 @@ impl KanariModule {
 
 /// Kanari module function names
 pub struct KanariFunctions {
-    pub new: &'static str,
+    pub init: &'static str,
     pub transfer: &'static str,
     pub burn: &'static str,
 }

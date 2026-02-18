@@ -8,6 +8,37 @@ use crate::hash_node;
 
 type MerkleProofItem = (Vec<u8>, usize, Vec<Vec<u8>>);
 
+/// Optimized merkle root computation using fixed-size arrays to avoid allocation
+pub fn compute_merkle_root_optimized(hashes: Vec<[u8; 32]>) -> [u8; 32] {
+    if hashes.is_empty() {
+        return [0u8; 32];
+    }
+    if hashes.len() == 1 {
+        return hashes[0];
+    }
+
+    let mut current_level = hashes;
+
+    while current_level.len() > 1 {
+        // Pre-allocate next level
+        let next_len = current_level.len().div_ceil(2);
+        let mut next_level = Vec::with_capacity(next_len);
+
+        for chunk in current_level.chunks(2) {
+            if chunk.len() == 2 {
+                // hash_node expects &[u8; 32], chunk is &[u8; 32] slice
+                let hash = crate::hash::hash_node(&chunk[0], &chunk[1]);
+                next_level.push(hash);
+            } else {
+                next_level.push(chunk[0]);
+            }
+        }
+        current_level = next_level;
+    }
+
+    current_level[0]
+}
+
 /// Build a merkle tree from transaction hashes and return the merkle root
 /// Uses the same Blake3 hashing as the SMT for consistency
 pub fn compute_merkle_root(tx_hashes: &[Vec<u8>]) -> Vec<u8> {

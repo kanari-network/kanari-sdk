@@ -13,6 +13,7 @@ use std::sync::Arc;
 use crate::storage::persistent_store::PersistentStore;
 
 /// Simple persistent store wrapper for published modules using `PersistentStore`.
+#[derive(Clone)]
 pub struct MoveVMState {
     store: Arc<PersistentStore>,
 }
@@ -44,16 +45,16 @@ impl MoveVMState {
             module_id.name().as_str()
         );
         // Persist module blob
-        self.store.save(&key, blob)?;
+        self.store.save(key.as_bytes(), blob)?;
 
         // Update module index so `load_into_storage()` can discover modules
         let mut index = self
             .store
-            .load::<Vec<String>>("module_index")?
+            .load::<Vec<String>>(b"module_index")?
             .unwrap_or_default();
         if !index.iter().any(|x| x == &key) {
             index.push(key);
-            self.store.save("module_index", &index)?;
+            self.store.save(b"module_index", &index)?;
         }
 
         Ok(())
@@ -69,10 +70,10 @@ impl MoveVMState {
 
         let mut loaded_modules = Vec::new();
 
-        if let Ok(Some(bytes)) = self.store.load::<Vec<String>>("module_index") {
+        if let Ok(Some(bytes)) = self.store.load::<Vec<String>>(b"module_index") {
             for s in bytes.into_iter() {
                 // expected module keys in the index are full keys: module:addr:name
-                if let Ok(Some(blob)) = self.store.load::<Vec<u8>>(&s) {
+                if let Ok(Some(blob)) = self.store.load::<Vec<u8>>(s.as_bytes()) {
                     // parse key to reconstruct ModuleId
                     let parts: Vec<&str> = s.splitn(3, ':').collect();
                     if parts.len() != 3 {
@@ -92,6 +93,24 @@ impl MoveVMState {
         Ok(loaded_modules)
     }
 
+    /// Get all module IDs from the persistent index.
+    pub fn get_all_module_ids(&self) -> Result<Vec<ModuleId>> {
+        let mut modules = Vec::new();
+        if let Ok(Some(index)) = self.store.load::<Vec<String>>(b"module_index") {
+            for s in index {
+                let parts: Vec<&str> = s.splitn(3, ':').collect();
+                if let (3, Some(addr), Some(name)) = (
+                    parts.len(),
+                    AccountAddress::from_hex_literal(parts[1]).ok(),
+                    Identifier::new(parts[2]).ok(),
+                ) {
+                    modules.push(ModuleId::new(addr, name));
+                }
+            }
+        }
+        Ok(modules)
+    }
+
     /// Get module bytecode from persistent storage
     pub fn get_module(&self, module_id: &ModuleId) -> Option<Vec<u8>> {
         let key = format!(
@@ -99,7 +118,30 @@ impl MoveVMState {
             module_id.address().to_hex_literal(),
             module_id.name().as_str()
         );
-        self.store.load::<Vec<u8>>(&key).ok().flatten()
+        self.store.load::<Vec<u8>>(key.as_bytes()).ok().flatten()
+    }
+
+    /// Save a resource blob keyed by address and struct tag.
+    pub fn save_resource(
+        &self,
+        address: &AccountAddress,
+        tag: &move_core_types::language_storage::StructTag,
+        blob: &[u8],
+    ) -> Result<()> {
+        let key = format!("resource:{}:{}", address.to_hex_literal(), tag);
+        self.store
+            .save(key.as_bytes(), blob)
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    /// Get resource blob from persistent storage
+    pub fn get_resource(
+        &self,
+        address: &AccountAddress,
+        tag: &move_core_types::language_storage::StructTag,
+    ) -> Option<Vec<u8>> {
+        let key = format!("resource:{}:{}", address.to_hex_literal(), tag);
+        self.store.load::<Vec<u8>>(key.as_bytes()).ok().flatten()
     }
 
     /// Persist a treasury record (owner + total_supply) for a token type so it
@@ -117,16 +159,16 @@ impl MoveVMState {
         };
 
         // Save tuple (owner, cap)
-        self.store.save(&key, &(owner, cap))?;
+        self.store.save(key.as_bytes(), &(owner, cap))?;
 
         // Update index
         let mut index = self
             .store
-            .load::<Vec<String>>("treasury_index")?
+            .load::<Vec<String>>(b"treasury_index")?
             .unwrap_or_default();
         if !index.iter().any(|x| x == &key) {
             index.push(key);
-            self.store.save("treasury_index", &index)?;
+            self.store.save(b"treasury_index", &index)?;
         }
 
         Ok(())
@@ -135,10 +177,11 @@ impl MoveVMState {
     /// Load persisted treasuries as a vector of tuples (owner, token_type, TreasuryCap)
     pub fn load_treasuries(&self) -> Result<Vec<(AccountAddress, String, TreasuryCap)>> {
         let mut out = Vec::new();
-        if let Ok(Some(keys)) = self.store.load::<Vec<String>>("treasury_index") {
+        if let Ok(Some(keys)) = self.store.load::<Vec<String>>(b"treasury_index") {
             for key in keys.into_iter() {
-                if let Ok(Some((owner_addr, cap))) =
-                    self.store.load::<(AccountAddress, TreasuryCap)>(&key)
+                if let Ok(Some((owner_addr, cap))) = self
+                    .store
+                    .load::<(AccountAddress, TreasuryCap)>(key.as_bytes())
                 {
                     let token_type = key.strip_prefix("treasury:").unwrap_or(&key).to_string();
                     out.push((owner_addr, token_type, cap));

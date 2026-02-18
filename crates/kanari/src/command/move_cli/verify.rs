@@ -1,9 +1,9 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::command::common::{build_blocking_client, get_rpc_endpoint};
 use crate::command::move_cli::reroot_path;
 
-use super::common::build_blocking_client;
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use move_package::BuildConfig;
@@ -28,11 +28,7 @@ pub struct Verify {
 
 impl Verify {
     pub fn execute(self) -> Result<()> {
-        let rpc = self
-            .rpc_endpoint
-            .clone()
-            .or_else(kanari_common::get_active_rpc)
-            .unwrap_or_else(|| "http://127.0.0.1:19001".to_string());
+        let rpc = get_rpc_endpoint(self.rpc_endpoint.clone());
 
         // Build blocking client
         let client = build_blocking_client(30)?;

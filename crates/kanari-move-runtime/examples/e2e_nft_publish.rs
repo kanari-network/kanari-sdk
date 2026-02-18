@@ -8,31 +8,48 @@ use kanari_move_runtime::state::StateManager;
 use move_binary_format::file_format::CompiledModule;
 use move_core_types::account_address::AccountAddress as MoveAccountAddress;
 use move_core_types::runtime_value::{MoveStruct, MoveValue};
+use move_package::BuildConfig;
 use serde::Deserialize;
 use std::env;
 use std::path::Path;
 use std::path::PathBuf;
 
-fn find_nft_module() -> Option<std::path::PathBuf> {
-    let candidates = [
-        "james/build/james/bytecode_modules/nft.mv",
-        "../james/build/james/bytecode_modules/nft.mv",
-        "../../james/build/james/bytecode_modules/nft.mv",
-    ];
+fn compile_james_package() -> Option<PathBuf> {
+    let candidates = ["james", "../james", "../../james"];
+    let mut pkg_path = PathBuf::new();
     for p in candidates.iter() {
         let path = Path::new(p);
-        if path.exists() {
-            return Some(path.to_path_buf());
+        if path.join("Move.toml").exists() {
+            pkg_path = path.to_path_buf();
+            break;
         }
     }
-    None
+
+    if pkg_path.as_os_str().is_empty() {
+        return None;
+    }
+
+    println!("Compiling James package at {}...", pkg_path.display());
+
+    let config = BuildConfig {
+        install_dir: Some(pkg_path.clone()),
+        ..Default::default()
+    };
+
+    match config.compile_package(&pkg_path, &mut std::io::stdout()) {
+        Ok(_) => Some(pkg_path.join("build/james/bytecode_modules/nft.mv")),
+        Err(e) => {
+            eprintln!("Failed to compile James package: {}", e);
+            None
+        }
+    }
 }
 
 fn main() {
     println!("kanari-move-runtime E2E NFT example: publish + setup");
 
     let args: Vec<String> = env::args().collect();
-    let mut path = match find_nft_module() {
+    let mut path = match compile_james_package() {
         Some(p) => p,
         None => PathBuf::new(),
     };
@@ -51,7 +68,7 @@ fn main() {
         return;
     }
 
-    let mut runtime = match MoveRuntime::new_with_kanari_natives() {
+    let runtime = match MoveRuntime::new_with_kanari_natives() {
         Ok(r) => r,
         Err(e) => {
             eprintln!("Failed to init MoveRuntime: {:?}", e);
@@ -80,7 +97,7 @@ fn main() {
 
     let publish_sender = *module_id.address();
 
-    let publish_cs = match runtime.publish_module(bytes.clone(), publish_sender, None) {
+    let publish_cs = match runtime.publish_module(bytes.clone(), publish_sender, None, None) {
         Ok(cs) => cs,
         Err(e) => {
             eprintln!("publish_module failed: {:?}", e);
@@ -330,26 +347,28 @@ fn main() {
                     }
 
                     // Persist/apply: apply ChangeSet to StateManager and show state
-                    let mut state = StateManager::new();
+                    let mut state = StateManager::new_in_memory();
                     if !m_cs.is_empty() {
                         state.apply_changeset(&m_cs).expect("apply mint changeset");
                     }
-                    println!(
-                        "After mint - State token supplies: {:?}",
-                        state.token_supplies
-                    );
-                    println!(
-                        "After mint - State token treasuries: {:?}",
-                        state.token_treasuries
-                    );
-                    for (addr, account) in state.accounts.iter() {
-                        if !account.token_balances.is_empty() {
-                            println!(
-                                "Account {:#x} token balances: {:?}",
-                                addr, account.token_balances
-                            );
-                        }
-                    }
+
+                    // StateManager DB mode doesn't expose public maps
+                    // println!(
+                    //     "After mint - State token supplies: {:?}",
+                    //     state.token_supplies
+                    // );
+                    // println!(
+                    //     "After mint - State token treasuries: {:?}",
+                    //     state.token_treasuries
+                    // );
+                    // for (addr, account) in state.accounts.iter() {
+                    //     if !account.token_balances.is_empty() {
+                    //         println!(
+                    //             "Account {:#x} token balances: {:?}",
+                    //             addr, account.token_balances
+                    //         );
+                    //     }
+                    // }
                 }
                 Err(e) => {
                     eprintln!("mint call failed: {:?}", e);

@@ -55,9 +55,13 @@ fn lookup_module_functions(state: &RpcServerState, module_str: &str) -> Option<V
     }
 }
 
-// Normalize address strings for comparison (trim optional 0x and lowercase)
+// Normalize address strings for comparison (converts to raw hex address)
 fn normalize_addr(s: &str) -> String {
-    s.trim_start_matches("0x").to_lowercase()
+    use std::str::FromStr;
+    // Use the central Address type to handle tagged addresses, public keys, and hex literals
+    Address::from_str(s)
+        .map(|addr| addr.to_hex())
+        .unwrap_or_else(|_| s.trim_start_matches("0x").to_lowercase())
 }
 
 /// Handle submit transaction request
@@ -82,6 +86,7 @@ pub async fn handle_submit_transaction(
     };
 
     // Parse sender address
+    // Use Address::from_hex_literal which now handles tagged addresses and hashing
     let sender = match Address::from_hex_literal(&tx_data.sender) {
         Ok(addr) => addr,
         Err(e) => {
@@ -98,76 +103,73 @@ pub async fn handle_submit_transaction(
         }
     };
 
-    // Parse recipient address if present
-    let recipient = if let Some(ref recipient_str) = tx_data.recipient {
-        match Address::from_hex_literal(recipient_str) {
-            Ok(addr) => Some(addr),
-            Err(e) => {
-                error!("Invalid recipient address: {}", e);
+    // Create Transaction based on type
+    let transaction =
+        if let (Some(recipient_str), Some(amount)) = (&tx_data.recipient, tx_data.amount) {
+            // Parse recipient address
+            let recipient = match Address::from_hex_literal(recipient_str) {
+                Ok(addr) => addr,
+                Err(e) => {
+                    error!("Invalid recipient address: {}", e);
+                    return RpcResponse {
+                        jsonrpc: "2.0".to_string(),
+                        result: None,
+                        error: Some(RpcError::invalid_params(format!(
+                            "Invalid recipient address: {}",
+                            e
+                        ))),
+                        id: request.id,
+                    };
+                }
+            };
+
+            // Regular transfer
+            Transaction::Transfer {
+                from: tx_data.sender.clone(),
+                to: recipient.to_string(),
+                amount,
+                gas_limit: tx_data.gas_limit,
+                gas_price: tx_data.gas_price,
+                sequence_number: tx_data.sequence_number,
+            }
+        } else if let (None, Some(amount)) = (&tx_data.recipient, tx_data.amount) {
+            // Burn transaction (no recipient, amount provided)
+            // Restrict burns to system/admin addresses only
+            // Compare Address types directly instead of string hex to avoid formatting issues
+            let system_addr =
+                Address::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS).unwrap_or(Address::ZERO);
+            let dev_addr = Address::from_hex_literal(Address::DEV_ADDRESS).unwrap_or(Address::ZERO);
+            let allowed = sender == system_addr || sender == dev_addr;
+            if !allowed {
+                error!("Unauthorized burn attempt from {}", sender.to_hex_literal());
                 return RpcResponse {
                     jsonrpc: "2.0".to_string(),
                     result: None,
-                    error: Some(RpcError::invalid_params(format!(
-                        "Invalid recipient address: {}",
-                        e
-                    ))),
+                    error: Some(RpcError::invalid_params(
+                        "Burn transactions are restricted to system administrators",
+                    )),
                     id: request.id,
                 };
             }
-        }
-    } else {
-        None
-    };
 
-    // Create Transaction based on type
-    let transaction = if let (Some(recipient), Some(amount)) = (recipient, tx_data.amount) {
-        // Regular transfer
-        Transaction::Transfer {
-            from: sender.to_string(),
-            to: recipient.to_string(),
-            amount,
-            gas_limit: tx_data.gas_limit,
-            gas_price: tx_data.gas_price,
-            sequence_number: tx_data.sequence_number,
-        }
-    } else if let (None, Some(amount)) = (recipient, tx_data.amount) {
-        // Burn transaction (no recipient, amount provided)
-        // Restrict burns to system/admin addresses only
-        // Compare Address types directly instead of string hex to avoid formatting issues
-        let system_addr =
-            Address::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS).unwrap_or(Address::ZERO);
-        let dev_addr = Address::from_hex_literal(Address::DEV_ADDRESS).unwrap_or(Address::ZERO);
-        let allowed = sender == system_addr || sender == dev_addr;
-        if !allowed {
-            error!("Unauthorized burn attempt from {}", sender.to_hex_literal());
+            Transaction::Burn {
+                from: tx_data.sender.clone(),
+                amount,
+                gas_limit: tx_data.gas_limit,
+                gas_price: tx_data.gas_price,
+                sequence_number: tx_data.sequence_number,
+            }
+        } else {
+            error!("Invalid transaction type - only transfers and burns supported currently");
             return RpcResponse {
                 jsonrpc: "2.0".to_string(),
                 result: None,
                 error: Some(RpcError::invalid_params(
-                    "Burn transactions are restricted to system administrators",
+                    "Only transfer or burn transactions are supported",
                 )),
                 id: request.id,
             };
-        }
-
-        Transaction::Burn {
-            from: sender.to_string(),
-            amount,
-            gas_limit: tx_data.gas_limit,
-            gas_price: tx_data.gas_price,
-            sequence_number: tx_data.sequence_number,
-        }
-    } else {
-        error!("Invalid transaction type - only transfers and burns supported currently");
-        return RpcResponse {
-            jsonrpc: "2.0".to_string(),
-            result: None,
-            error: Some(RpcError::invalid_params(
-                "Only transfer or burn transactions are supported",
-            )),
-            id: request.id,
         };
-    };
 
     // Create SignedTransaction
     let mut signed_tx = SignedTransaction::new(transaction);
@@ -781,6 +783,7 @@ pub async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest)
     };
 
     // Validate sender address
+    // Use Address::from_hex_literal which now handles tagged addresses and hashing
     if let Err(e) = Address::from_hex_literal(&module_data.sender) {
         error!("Invalid sender address: {}", e);
         return RpcResponse {
@@ -910,6 +913,7 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
     };
 
     // Validate addresses
+    // Use Address::from_hex_literal which now handles tagged addresses and hashing
     if let Err(e) = Address::from_hex_literal(&call_data.sender) {
         error!("Invalid sender address: {}", e);
         return RpcResponse {
@@ -939,7 +943,7 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
     // Create transaction
     let transaction = Transaction::ExecuteFunction {
         sender: call_data.sender.clone(),
-        module: call_data.module.clone(),
+        module: format!("{}::{}", call_data.package, call_data.module),
         function: call_data.function,
         type_args: call_data.type_args,
         args: call_data.args,
@@ -996,7 +1000,7 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                                     && let Some(id) = obj_map.get("id").and_then(|v| v.as_str())
                                 {
                                     // try direct lookup in persisted objects
-                                    if let Some(stored) = state_guard.objects.get(id) {
+                                    if let Ok(Some(stored)) = state_guard.get_object(id) {
                                         obj_map.insert(
                                             "type".to_string(),
                                             serde_json::Value::String(stored.type_.clone()),
@@ -1004,7 +1008,7 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                                     } else {
                                         // try without 0x prefix
                                         let id_norm = id.trim_start_matches("0x");
-                                        if let Some(stored2) = state_guard.objects.get(id_norm) {
+                                        if let Ok(Some(stored2)) = state_guard.get_object(id_norm) {
                                             obj_map.insert(
                                                 "type".to_string(),
                                                 serde_json::Value::String(stored2.type_.clone()),
@@ -1025,12 +1029,8 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                     && let Ok(call_req) = serde_json::from_value::<
                         kanari_rpc_api::CallFunctionRequest,
                     >(request.params.clone())
-                    && let Ok(addr) =
-                        kanari_types::address::Address::from_hex_literal(&call_req.sender)
                     && let Ok(a) =
-                        move_core_types::account_address::AccountAddress::from_hex_literal(
-                            &addr.to_string(),
-                        )
+                        kanari_types::address::Address::parse_to_account_address(&call_req.sender)
                 {
                     let state_guard = match state.engine.state.read() {
                         Ok(g) => g,
@@ -1039,11 +1039,13 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                             poison.into_inner()
                         }
                     };
-                    if let Some(ids) = state_guard.owned_objects.get(&a) {
+                    if let Ok(ids) = state_guard.get_owned_objects(&a)
+                        && !ids.is_empty()
+                    {
                         // Build array of created objects from state.objects
                         let mut objs = Vec::new();
                         for uid in ids.iter().rev().take(10) {
-                            if let Some(co) = state_guard.objects.get(uid) {
+                            if let Ok(Some(co)) = state_guard.get_object(uid) {
                                 let o = serde_json::json!({
                                     "id": uid.clone(),
                                     "type": co.type_.clone(),

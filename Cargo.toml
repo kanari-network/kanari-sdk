@@ -109,7 +109,7 @@ rayon = "1.11.0"
 blake3 = { version = "1.8.3" }
 
 # CLI / tooling / utilities
-clap = { version = "4.5.57", features = ["derive"] }
+clap = { version = "4.5.59", features = ["derive"] }
 dirs = "6.0.0"
 walkdir = "2.5.0"
 tempfile = "3.24.0"
@@ -211,11 +211,11 @@ codegen-units = 16               # Increase codegen units for potentially faster
 opt-level = 1                    # Moderate optimization level for a balance of speed and performance.
 
 [profile.release]                # Profile for release builds.
-opt-level = 'z'                  # Optimize for size.
+opt-level = 3                    # Optimize for speed.
 debug = false                    # Disable debug information for release binaries.
 debug-assertions = false         # Disable debug assertions for release builds.
 overflow-checks = false          # Disable overflow checks for release builds.
-lto = true                       # Enable full Link-Time Optimization for maximum performance and smaller binaries.
+lto = false                      # Disable LTO to avoid compiler crash/OOM.
 panic = 'abort'                  # Remove unwinding code for panic handling.
-codegen-units = 1                # Reduce codegen units to improve LTO effectiveness.
+codegen-units = 256              # Maximize parallelism to avoid single-thread memory spikes.
 strip = true                     # Strip debug symbols from the final binary to reduce size.

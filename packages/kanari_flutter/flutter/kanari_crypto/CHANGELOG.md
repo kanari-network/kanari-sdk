@@ -1,3 +1,20 @@
+## 0.2.5
+
+- Added: Official Windows support with CMake configuration and automated native library loading.
+
+## 0.2.4
+
+- Fixed: Android build error caused by missing `kotlin-android` plugin.
+- Fixed: Android compilation error where `KanariCryptoPlugin` class was not found.
+- Improvement: Optimized `build.gradle` to fetch version from `pubspec.yaml` using Regex (removing SnakeYAML dependency).
+
+## 0.2.3
+
+- Added: Mobile support for Android and iOS.
+- Fixed: "flutter_rust_bridge has not been initialized" error on mobile devices.
+- Infrastructure: Added native library loading for Windows, Android (.so), and iOS (.a).
+- Automation: Versioning in `build.gradle` and `podspec` is now synced automatically with `pubspec.yaml`.
+
 ## 0.2.2
 
 - Added: `deriveMultipleAddressesApi` for HD Wallet address generation using path templates.

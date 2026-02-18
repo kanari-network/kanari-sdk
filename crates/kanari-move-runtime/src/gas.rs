@@ -17,6 +17,12 @@ pub struct GasConfig {
 
     /// Minimum gas price (in Mist)
     pub min_gas_price: u64,
+
+    /// Cost per byte of storage written (in Mist)
+    pub storage_price_per_byte: u64,
+
+    /// Percentage of storage fee refunded when data is deleted (0-100)
+    pub storage_rebate_rate: u8,
 }
 
 impl Default for GasConfig {
@@ -26,6 +32,8 @@ impl Default for GasConfig {
             max_gas_per_tx: 100_000,      // 100K gas per transaction
             max_gas_per_block: 1_000_000, // 1M gas per block
             min_gas_price: 10,            // 10 Mist minimum
+            storage_price_per_byte: 100,  // 100 Mist per byte
+            storage_rebate_rate: 99,      // 99% rebate (Sui-like)
         }
     }
 }
@@ -39,15 +47,6 @@ pub enum GasOperation {
     PublishModule { module_size: usize },
     /// Execute a Move function
     ExecuteFunction { complexity: u32 },
-    /// Call a contract function
-    ContractCall { function_name_len: usize },
-    /// Deploy a contract with metadata
-    ContractDeployment {
-        module_size: usize,
-        metadata_size: usize,
-    },
-    /// Query contract information
-    ContractQuery,
     /// Create new account
     CreateAccount,
     /// Update account state
@@ -67,18 +66,6 @@ impl GasOperation {
                 // Base cost + complexity multiplier
                 30_000 + (*complexity as u64 * 1_000)
             }
-            GasOperation::ContractCall { function_name_len } => {
-                // Base cost for contract call + name length overhead
-                35_000 + (*function_name_len as u64 * 100)
-            }
-            GasOperation::ContractDeployment {
-                module_size,
-                metadata_size,
-            } => {
-                // Higher cost for full contract deployment with registry
-                60_000 + (*module_size as u64 * 10) + (*metadata_size as u64 * 5)
-            }
-            GasOperation::ContractQuery => 1_000,
             GasOperation::CreateAccount => 25_000,
             GasOperation::UpdateAccount => 5_000,
         }
@@ -90,9 +77,6 @@ impl GasOperation {
             GasOperation::Transfer => "Transfer",
             GasOperation::PublishModule { .. } => "PublishModule",
             GasOperation::ExecuteFunction { .. } => "ExecuteFunction",
-            GasOperation::ContractCall { .. } => "ContractCall",
-            GasOperation::ContractDeployment { .. } => "ContractDeployment",
-            GasOperation::ContractQuery => "ContractQuery",
             GasOperation::CreateAccount => "CreateAccount",
             GasOperation::UpdateAccount => "UpdateAccount",
         }
@@ -110,6 +94,12 @@ pub struct GasMeter {
 
     /// Maximum gas allowed
     pub gas_limit: u64,
+
+    /// Storage bytes written in this transaction
+    pub storage_bytes_written: u64,
+
+    /// Storage bytes deleted in this transaction
+    pub storage_bytes_deleted: u64,
 }
 
 impl GasMeter {
@@ -118,7 +108,34 @@ impl GasMeter {
             gas_used: 0,
             gas_price,
             gas_limit,
+            storage_bytes_written: 0,
+            storage_bytes_deleted: 0,
         }
+    }
+
+    /// Charge for storage bytes written
+    pub fn charge_storage(&mut self, bytes: u64, config: &GasConfig) -> Result<(), GasError> {
+        self.storage_bytes_written += bytes;
+        // Storage is charged in Mist directly, not gas units, but we can convert for simplicity
+        // or just track it separately. Here we convert to gas units based on price ratio.
+        let mist_cost = bytes * config.storage_price_per_byte;
+        let gas_cost = mist_cost / self.gas_price.max(1); // Avoid division by zero
+        self.consume(gas_cost)
+    }
+
+    /// Record storage rebate (refund)
+    pub fn rebate_storage(&mut self, bytes: u64) {
+        self.storage_bytes_deleted += bytes;
+    }
+
+    /// Calculate net storage fee in Mist
+    pub fn net_storage_fee(&self, config: &GasConfig) -> i64 {
+        let cost = self.storage_bytes_written as i64 * config.storage_price_per_byte as i64;
+        let rebate = (self.storage_bytes_deleted as i64
+            * config.storage_price_per_byte as i64
+            * config.storage_rebate_rate as i64)
+            / 100;
+        cost - rebate
     }
 
     /// Consume gas for an operation
@@ -294,16 +311,8 @@ mod tests {
         let publish = GasOperation::PublishModule { module_size: 1000 };
         assert_eq!(publish.gas_units(), 60_000); // 50_000 + 1000*10
 
-        let contract_call = GasOperation::ContractCall {
-            function_name_len: 10,
-        };
-        assert_eq!(contract_call.gas_units(), 36_000); // 35_000 + 10*100
-
-        let deployment = GasOperation::ContractDeployment {
-            module_size: 1000,
-            metadata_size: 200,
-        };
-        assert_eq!(deployment.gas_units(), 71_000); // 60_000 + 1000*10 + 200*5
+        let execute = GasOperation::ExecuteFunction { complexity: 10 };
+        assert_eq!(execute.gas_units(), 40_000); // 30_000 + 10 * 1_000
     }
 
     #[test]

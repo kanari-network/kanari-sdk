@@ -8,7 +8,9 @@ use move_vm_types::natives::function::{NativeResult, PartialVMResult};
 
 pub mod crypto;
 pub mod event;
+pub mod object;
 pub mod transfer_natives;
+pub mod tx_context;
 
 // Build a NativeFunction easily
 fn make_native<F>(f: F) -> NativeFunction

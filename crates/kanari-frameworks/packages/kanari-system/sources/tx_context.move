@@ -74,22 +74,10 @@ module kanari_system::tx_context {
         self.ids_created
     }
 
-    /// Derive an object id. Original design used a VM native to hash
-    /// `tx_hash || ids_created`. For tests and to avoid requiring a
-    /// VM native, provide a deterministic Move-side fallback that maps
-    /// the `ids_created` counter into one of a few constant addresses.
-    public fun derive_id(_tx_hash: vector<u8>, ids_created: u64): address {
-        let rem = ids_created % 4;
-        if (rem == 0) {
-            @0x1
-        } else if (rem == 1) {
-            @0x2
-        } else if (rem == 2) {
-            @0x3
-        } else {
-            @0x4
-        }
-    }
+    /// Derive an object id.
+    /// Hashes `tx_hash || ids_created` to produce a unique object address.
+    native public fun derive_id(tx_hash: vector<u8>, ids_created: u64): address;
+
 
     // ==== test-only functions ====
 

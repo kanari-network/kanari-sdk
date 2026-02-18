@@ -357,7 +357,7 @@ fn sign_message_ed25519(private_key_hex: &str, message: &[u8]) -> Result<Vec<u8>
 /// This function attempts to parse tagged addresses (e.g., "K256:0xabc...") first.
 /// If the address is not tagged, it falls back to trying all classical curve types.
 ///
-/// For maximum reliability, use tagged addresses or `verify_signature_safe()`.
+/// For maximum reliability, use tagged addresses.
 /// For best performance when curve type is known, use `verify_signature_with_curve()`.
 pub fn verify_signature(
     address: &str,
@@ -381,32 +381,6 @@ pub fn verify_signature(
 
     // Fallback: Try all classical curves (safe but slower)
     debug!("No tagged address found, trying all curve types");
-    verify_signature_safe(address, message, signature)
-}
-
-/// Safely verify a signature by trying all supported classical curve types
-///
-/// This function tries all curve types, making it slower but more reliable.
-/// Returns true if verification succeeds with any curve.
-///
-/// **Security:** This is the safest option when curve type is unknown.
-/// **Performance:** Slower than `verify_signature_with_curve()` but more reliable.
-///
-/// For PQC/hybrid schemes, use `verify_signature_with_curve()` with explicit curve type.
-pub fn verify_signature_safe(
-    address: &str,
-    message: &[u8],
-    signature: &[u8],
-) -> Result<bool, SignatureError> {
-    if signature.is_empty() {
-        return Err(SignatureError::InvalidFormat("Empty signature".to_string()));
-    }
-    if signature.len() > MAX_SIGNATURE_SIZE {
-        return Err(SignatureError::InvalidFormat(
-            "Signature too large".to_string(),
-        ));
-    }
-
     let clean_address = address.trim_start_matches("0x");
 
     // Try all classical curves without early return to prevent timing attacks
@@ -1438,7 +1412,7 @@ mod tests {
             let signature = sign_message(&keypair.private_key, message, curve).unwrap();
 
             // verify_signature_safe should work without knowing the curve
-            let result = verify_signature_safe(&keypair.address, message, &signature).unwrap();
+            let result = verify_signature(&keypair.address, message, &signature).unwrap();
             assert!(result, "Safe verification failed for {:?}", curve);
         }
     }
@@ -1555,7 +1529,7 @@ mod tests {
         let signature = sign_message(&keypair.private_key, message1, CurveType::K256).unwrap();
 
         // Verify with wrong message should fail
-        let result = verify_signature_safe(&keypair.address, message2, &signature).unwrap();
+        let result = verify_signature(&keypair.address, message2, &signature).unwrap();
 
         assert!(!result, "Safe verification should reject wrong message");
     }
