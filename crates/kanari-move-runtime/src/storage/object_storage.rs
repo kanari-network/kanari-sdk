@@ -82,6 +82,7 @@ pub trait ObjectStore: Send + Sync {
         id: &str,
         new_owner: AccountAddress,
     ) -> Result<(), ObjectStorageError>;
+    fn delete_object(&self, id: &str) -> Result<(), ObjectStorageError>;
     fn count(&self) -> usize;
     fn clear(&self) -> Result<(), ObjectStorageError>;
 }
@@ -341,6 +342,44 @@ impl ObjectStorage {
         Ok(())
     }
 
+    /// Delete object
+    pub fn delete_object(&self, id: &str) -> Result<(), ObjectStorageError> {
+        // Atomic update in memory
+        let _ = {
+            let mut state = self.state.write().map_err(|e| {
+                ObjectStorageError::LockError(format!("Failed to acquire write lock: {}", e))
+            })?;
+
+            if let Some(obj) = state.objects.remove(id) {
+                // Remove from owner index
+                if let Some(ids) = state.owner_index.get_mut(&obj.owner) {
+                    ids.retain(|oid| oid != id);
+                }
+                Some(obj.owner)
+            } else {
+                None
+            }
+        };
+
+        // Persist deletion if available
+        if let Some(store) = &self.persistent {
+            // delete object
+            store.delete(format!("object:{}", id).as_bytes())?;
+
+            // update object index
+            let mut ids = store
+                .load::<Vec<String>>(Self::OBJECT_INDEX_KEY.as_bytes())?
+                .unwrap_or_default();
+
+            if let Some(pos) = ids.iter().position(|x| x == id) {
+                ids.remove(pos);
+                store.save(Self::OBJECT_INDEX_KEY.as_bytes(), &ids)?;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Get total number of objects
     pub fn count(&self) -> usize {
         self.state.read().map(|s| s.objects.len()).unwrap_or(0)
@@ -383,6 +422,10 @@ impl ObjectStore for ObjectStorage {
         new_owner: AccountAddress,
     ) -> Result<(), ObjectStorageError> {
         ObjectStorage::transfer_object(self, id, new_owner)
+    }
+
+    fn delete_object(&self, id: &str) -> Result<(), ObjectStorageError> {
+        ObjectStorage::delete_object(self, id)
     }
 
     fn count(&self) -> usize {

@@ -33,11 +33,76 @@ impl SavedObjectsExt {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct DeletedObject {
+    pub object_id: String,
+}
+
+#[derive(Tid, Default)]
+pub struct DeletedObjectsExt {
+    pub objects: Vec<DeletedObject>,
+}
+
+impl DeletedObjectsExt {
+    pub fn record(&mut self, obj: DeletedObject) {
+        self.objects.push(obj);
+    }
+    pub fn take_all(&mut self) -> Vec<DeletedObject> {
+        std::mem::take(&mut self.objects)
+    }
+}
+
 pub fn all_natives(
     move_addr: AccountAddress,
 ) -> move_vm_runtime::native_functions::NativeFunctionTable {
-    let natives = vec![("object", "save_object", make_native(native_save_object))];
+    let natives = vec![
+        ("object", "save_object", make_native(native_save_object)),
+        ("object", "delete_impl", make_native(native_delete_object)),
+    ];
     make_table_from_iter(move_addr, natives)
+}
+
+fn native_delete_object(
+    context: &mut NativeContext,
+    _ty_args: Vec<move_vm_types::loaded_data::runtime_types::Type>,
+    mut arguments: VecDeque<move_vm_types::values::Value>,
+) -> PartialVMResult<NativeResult> {
+    use move_core_types::runtime_value::{MoveStructLayout, MoveTypeLayout};
+    use move_core_types::vm_status::StatusCode;
+    use move_vm_types::natives::function::NativeResult as NR;
+    use move_vm_types::natives::function::PartialVMError;
+
+    let gas_used_now = context.gas_used();
+
+    // Arguments: uid (UID) - passed by value
+    // UID struct layout: struct UID { addr: address }
+    let uid_val = arguments.pop_back().ok_or_else(|| {
+        PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)
+            .with_message("Missing uid argument".to_string())
+    })?;
+
+    // Construct layout for UID: Struct { addr: Address }
+    // We manually construct the layout since we know the structure of UID
+    let uid_layout = MoveTypeLayout::Struct(MoveStructLayout::new(vec![MoveTypeLayout::Address]));
+
+    // Serialize to get the address bytes
+    let uid_bytes = uid_val.simple_serialize(&uid_layout).ok_or_else(|| {
+        PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)
+            .with_message("Failed to serialize UID".to_string())
+    })?;
+
+    let object_id = format!("0x{}", hex::encode(&uid_bytes));
+
+    // Record the deleted object
+    let exts = context.extensions_mut();
+    let ext = exts.get_mut::<DeletedObjectsExt>();
+    ext.record(DeletedObject { object_id });
+
+    // Gas cost
+    let cost = 1000;
+    let gas_cost = GasQuantity::new(cost);
+
+    Ok(NR::ok(gas_used_now + gas_cost, smallvec![]))
 }
 
 fn native_save_object(

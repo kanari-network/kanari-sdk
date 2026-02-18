@@ -51,6 +51,14 @@ module kanari_system::object {
     // This is required because entry functions do not automatically write back modified arguments.
     public native fun save_object<T: key>(obj: &T);
 
+    /// Delete an object by consuming its UID.
+    /// This removes the object from storage and potentially triggers a storage rebate.
+    public fun delete(id: UID) {
+        delete_impl(id);
+    }
+
+    native fun delete_impl(id: UID);
+
     // --- Tests ---
     // Note: Since `tx_context` is external, we cannot fully test `new` here,
     // but we can test the getters on a hardcoded address.

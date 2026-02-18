@@ -59,7 +59,16 @@ impl BlockchainEngine {
         }
 
         // 5. Persist blockchain and state
-        // OPTIMIZATION: Persistence is slow (O(N)). Skip for high TPS testing.
+        if let Some(store) = &self.persistent_store {
+            let chain = self.blockchain.read().unwrap();
+            // We persist the full blockchain struct.
+            // Note: In a production environment with millions of blocks,
+            // we should store blocks individually in the DB (e.g., block_height -> block_data)
+            // and only keep the head metadata in the "blockchain" key.
+            if let Err(e) = store.save(b"blockchain", &*chain) {
+                error!("Failed to persist blockchain: {}", e);
+            }
+        }
 
         Ok(())
     }
@@ -191,11 +200,16 @@ impl BlockchainEngine {
         }
 
         // 7. Persist blockchain and state
-        // OPTIMIZATION: Persistence is slow (O(N)). Skip for high TPS testing.
-
-        // Only ensure state is committed (already done above in step 4)
-        // We skip saving the full blockchain struct to disk to avoid O(N) serialization overhead.
-        // In a production system, we would append blocks to a log/DB instead.
+        if let Some(store) = &self.persistent_store {
+            let chain = self.blockchain.read().unwrap();
+            // We persist the full blockchain struct.
+            // Note: In a production environment with millions of blocks,
+            // we should store blocks individually in the DB (e.g., block_height -> block_data)
+            // and only keep the head metadata in the "blockchain" key.
+            if let Err(e) = store.save(b"blockchain", &*chain) {
+                error!("Failed to persist blockchain: {}", e);
+            }
+        }
 
         Ok(())
     }

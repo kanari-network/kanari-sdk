@@ -188,8 +188,6 @@ impl StateManager {
         self.store.apply_batch(batch)?;
 
         // Update SMT if available
-        // OPTIMIZATION: Skip SMT update for high TPS testing
-        /*
         if let Some(smt) = &self.smt {
             if !updates.is_empty() {
                 smt.insert(&updates)?;
@@ -198,7 +196,6 @@ impl StateManager {
                 smt.delete(&deletes)?;
             }
         }
-        */
 
         self.overlay.clear();
         Ok(())
@@ -391,14 +388,57 @@ impl StateManager {
 
         // Persist created objects
         for (obj_id, created) in &changeset.created_objects {
+            let obj_key = Self::object_key(obj_id);
+
+            // Check if object exists and handle ownership transfer
+            // This is crucial: if an object is transferred, we must remove it from the old owner's list
+            if let Ok(Some(existing)) = self.load_internal::<CreatedObject>(&obj_key) {
+                if existing.owner != created.owner {
+                    // Remove from old owner's list
+                    let old_owner_key = Self::owned_objects_key(&existing.owner);
+                    if let Ok(Some(mut old_owned)) =
+                        self.load_internal::<Vec<String>>(&old_owner_key)
+                    {
+                        if let Some(pos) = old_owned.iter().position(|x| x == obj_id) {
+                            old_owned.remove(pos);
+                            self.save_internal(&old_owner_key, &old_owned)?;
+                        }
+                    }
+                }
+            }
+
             // Store the object
-            self.save_internal(&Self::object_key(obj_id), created)?;
+            self.save_internal(&obj_key, created)?;
 
             // Update owned objects list
             let owner_key = Self::owned_objects_key(&created.owner);
             let mut owned: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
-            owned.push(obj_id.clone());
-            self.save_internal(&owner_key, &owned)?;
+            // Avoid duplicates
+            if !owned.contains(obj_id) {
+                owned.push(obj_id.clone());
+                self.save_internal(&owner_key, &owned)?;
+            }
+        }
+
+        // Process deleted objects
+        for obj_id in &changeset.deleted_objects {
+            // Remove the object
+            let obj_key = Self::object_key(obj_id);
+            // We need to know the owner to remove it from their owned list.
+            // Since we are deleting, we first load the object to get the owner.
+            if let Some(obj_data) = self.load_internal::<CreatedObject>(&obj_key)? {
+                // Remove from owner's list
+                let owner_key = Self::owned_objects_key(&obj_data.owner);
+                if let Some(mut owned) = self.load_internal::<Vec<String>>(&owner_key)? {
+                    if let Some(pos) = owned.iter().position(|x| x == obj_id) {
+                        owned.remove(pos);
+                        self.save_internal(&owner_key, &owned)?;
+                    }
+                }
+            }
+
+            // Delete from storage (overlay -> DB)
+            self.overlay.insert(obj_key, None);
         }
 
         // Persist events emitted by Move VM into state event store

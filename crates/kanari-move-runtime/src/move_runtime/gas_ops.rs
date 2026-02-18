@@ -108,7 +108,16 @@ impl super::MoveRuntime {
             written += obj.type_.len() as u64 + 32;
         }
 
-        // 3. Events (Events consume storage/log space)
+        // 3. Kanari Objects (Deleted)
+        // We look up the object in storage to find its size for the rebate.
+        for obj_id in &kanari_cs.deleted_objects {
+            if let Some(obj) = self.object_storage.get_object(obj_id) {
+                deleted += obj.data.len() as u64;
+                deleted += obj.type_name.len() as u64 + 32;
+            }
+        }
+
+        // 4. Events (Events consume storage/log space)
         for event in &kanari_cs.events {
             written += event.event_data.len() as u64;
             written += event.type_tag.len() as u64;

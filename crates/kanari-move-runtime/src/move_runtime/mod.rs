@@ -449,6 +449,10 @@ impl MoveRuntime {
         let tx_ctx = TxContextRecord::from_address(sender_addr, tx_hash, 0, epoch_timestamp_ms, 0);
         let tx_context_bytes = bcs::to_bytes(&tx_ctx)?;
 
+        // Track loaded mutable objects for writeback: (arg_index, object_id, owner, type_name, version)
+        let mut loaded_mutable_objects: Vec<(usize, String, AccountAddress, String, u64)> =
+            Vec::new();
+
         // 1. Object Loading & TxContext Injection
         if let Ok(func) = session.load_function(module_id, ident, &ty_args_loaded) {
             for (i, param_type) in func.parameters.iter().enumerate() {
@@ -471,12 +475,41 @@ impl MoveRuntime {
                         let object_id = format!("0x{}", hex::encode(&final_args[i]));
                         if let Some(stored_obj) = self.object_storage.get_object(&object_id) {
                             final_args[i] = stored_obj.data.clone();
+
+                            // If this parameter is a mutable reference (&mut T),
+                            // modifications made by the entry function need to be persisted.
+                            // We track it here and write back after execution.
+                            if let RuntimeType::MutableReference(_) = param_type {
+                                loaded_mutable_objects.push((
+                                    i,
+                                    stored_obj.id.clone(),
+                                    stored_obj.owner,
+                                    stored_obj.type_name.clone(),
+                                    stored_obj.version,
+                                ));
+                                debug!(
+                                    "[RUNTIME] Tracking mutable object {} for writeback",
+                                    object_id
+                                );
+                            }
                         }
                     }
                 }
             }
             if let Some(last_param) = func.parameters.last() {
-                let is_ctx = session.get_type_tag(last_param).ok().is_some_and(|tag| {
+                let type_tag_opt =
+                    session
+                        .get_type_tag(last_param)
+                        .ok()
+                        .or_else(|| match last_param {
+                            RuntimeType::Reference(inner)
+                            | RuntimeType::MutableReference(inner) => {
+                                session.get_type_tag(inner).ok()
+                            }
+                            _ => None,
+                        });
+
+                let is_ctx = type_tag_opt.is_some_and(|tag| {
                     if let TypeTag::Struct(s) = tag {
                         s.address == KanariAddress::kanari_system_account_address()
                             && s.module.as_str() == "tx_context"
@@ -493,22 +526,26 @@ impl MoveRuntime {
         }
 
         use kanari_system_natives::event::EventsExt;
+        use kanari_system_natives::object::DeletedObjectsExt;
         use kanari_system_natives::object::SavedObjectsExt;
         use kanari_system_natives::transfer_natives::TransferredObjectsExt;
         let exts = session.get_native_extensions();
         exts.add(TransferredObjectsExt::default());
         exts.add(EventsExt::default());
         exts.add(SavedObjectsExt::default());
+        exts.add(DeletedObjectsExt::default());
 
-        let _ =
-            session.execute_entry_function(module_id, ident, ty_args_loaded, final_args, &mut gas);
+        let return_values = session
+            .execute_entry_function(module_id, ident, ty_args_loaded, final_args, &mut gas)
+            .map_err(|e| anyhow::anyhow!(format!("exec error: {:?}", e)))?;
 
-        let (transferred, captured_events, saved_objects) = {
+        let (transferred, captured_events, saved_objects, deleted_objects) = {
             let exts_after = session.get_native_extensions();
             let trans = exts_after.get_mut::<TransferredObjectsExt>().take_all();
             let evs = exts_after.get_mut::<EventsExt>().take_all();
             let saved = exts_after.get_mut::<SavedObjectsExt>().take_all();
-            (trans, evs, saved)
+            let deleted = exts_after.get_mut::<DeletedObjectsExt>().take_all();
+            (trans, evs, saved, deleted)
         };
 
         let (res, _new_storage) = session.finish();
@@ -519,6 +556,46 @@ impl MoveRuntime {
 
         self.parse_move_changeset(&move_changeset, &mut cs);
         self.parse_move_events(&events, &mut cs);
+
+        // Writeback: Update ChangeSet with modified mutable objects
+        let mut processed_ids = std::collections::HashSet::new();
+
+        debug!(
+            "[RUNTIME] Processing mutable reference outputs: count={}",
+            return_values.mutable_reference_outputs.len()
+        );
+        for (idx, data, _layout) in return_values.mutable_reference_outputs {
+            debug!("[RUNTIME] Mutable output at index {}", idx);
+            // Find matching loaded object by index
+            if let Some((_, id, owner, type_name, version)) = loaded_mutable_objects
+                .iter()
+                .find(|(i, _, _, _, _)| *i == idx as usize)
+            {
+                debug!(
+                    "[RUNTIME] Writing back mutable object {} (size: {})",
+                    id,
+                    data.len()
+                );
+                // Create updated object record
+                let uid = if let Ok(addr) = AccountAddress::from_hex_literal(id) {
+                    Some(kanari_types::object::UIDRecord::new(addr))
+                } else {
+                    None
+                };
+
+                let updated_obj = crate::changeset::CreatedObject {
+                    owner: *owner,
+                    uid,
+                    type_: type_name.clone(),
+                    data,
+                    version: version + 1, // Increment version on modification
+                };
+                cs.created_objects.push((id.clone(), updated_obj));
+                processed_ids.insert(id.clone());
+            } else {
+                debug!("[RUNTIME] No loaded mutable object found for index {}", idx);
+            }
+        }
 
         // Add captured events
         for ev in captured_events.into_iter() {
@@ -532,16 +609,49 @@ impl MoveRuntime {
         }
         self.add_transferred_objects_to_changeset(&mut cs, transferred);
 
-        // Handle saved objects (simple version for pure execution)
+        // Handle saved objects
         for saved in saved_objects {
+            // Skip if already processed via mutable reference outputs (which have final state)
+            if processed_ids.contains(&saved.object_id) {
+                continue;
+            }
+
+            // Find owner from loaded_mutable_objects if possible
+            let (owner, version) = if let Some((_, _, owner, _, version)) = loaded_mutable_objects
+                .iter()
+                .find(|(_, id, _, _, _)| *id == saved.object_id)
+            {
+                (*owner, *version + 1)
+            } else {
+                // Try to find in storage
+                if let Some(stored) = self.object_storage.get_object(&saved.object_id) {
+                    (stored.owner, stored.version + 1)
+                } else {
+                    // New object or not found
+                    (AccountAddress::ZERO, 1)
+                }
+            };
+
+            // Create updated object record
+            let uid = if let Ok(addr) = AccountAddress::from_hex_literal(&saved.object_id) {
+                Some(kanari_types::object::UIDRecord::new(addr))
+            } else {
+                None
+            };
+
             let updated_obj = crate::changeset::CreatedObject {
-                owner: AccountAddress::ZERO, // simplified
-                uid: None,
+                owner,
+                uid,
                 type_: saved.object_type,
                 data: saved.data,
-                version: 1,
+                version,
             };
             cs.created_objects.push((saved.object_id, updated_obj));
+        }
+
+        // Add deleted objects
+        for deleted_obj in deleted_objects {
+            cs.add_deleted_object(deleted_obj.object_id);
         }
 
         if let Some((gas_limit, gas_price)) = gas_info {
@@ -802,12 +912,14 @@ impl MoveRuntime {
         // VM will pass this extension container to `NativeContext` during
         // native function execution.
         use kanari_system_natives::event::EventsExt;
+        use kanari_system_natives::object::DeletedObjectsExt;
         use kanari_system_natives::object::SavedObjectsExt;
         use kanari_system_natives::transfer_natives::TransferredObjectsExt;
         let exts = session.get_native_extensions();
         exts.add(TransferredObjectsExt::default());
         exts.add(EventsExt::default());
         exts.add(SavedObjectsExt::default());
+        exts.add(DeletedObjectsExt::default());
 
         let return_values = session
             .execute_entry_function(module_id, ident, ty_args_loaded, final_args, &mut gas)
@@ -816,12 +928,13 @@ impl MoveRuntime {
         // After execution, collect transferred objects and captured events
         // from the native-extensions container before consuming the session
         // with `finish()`.
-        let (transferred, captured_events, saved_objects) = {
+        let (transferred, captured_events, saved_objects, deleted_objects) = {
             let exts_after = session.get_native_extensions();
             let trans = exts_after.get_mut::<TransferredObjectsExt>().take_all();
             let evs = exts_after.get_mut::<EventsExt>().take_all();
             let saved = exts_after.get_mut::<SavedObjectsExt>().take_all();
-            (trans, evs, saved)
+            let deleted = exts_after.get_mut::<DeletedObjectsExt>().take_all();
+            (trans, evs, saved, deleted)
         };
 
         let (res, _new_storage) = session.finish();
@@ -858,9 +971,15 @@ impl MoveRuntime {
                     data.len()
                 );
                 // Create updated object record
+                let uid = if let Ok(addr) = AccountAddress::from_hex_literal(id) {
+                    Some(kanari_types::object::UIDRecord::new(addr))
+                } else {
+                    None
+                };
+
                 let updated_obj = crate::changeset::CreatedObject {
                     owner: *owner,
-                    uid: None, // UID is embedded in data; StateManager relies on data or ID key
+                    uid,
                     type_: type_name.clone(),
                     data,
                     version: version + 1, // Increment version on modification
@@ -903,9 +1022,16 @@ impl MoveRuntime {
                 }
             };
 
+            // Create updated object record
+            let uid = if let Ok(addr) = AccountAddress::from_hex_literal(&saved.object_id) {
+                Some(kanari_types::object::UIDRecord::new(addr))
+            } else {
+                None
+            };
+
             let updated_obj = crate::changeset::CreatedObject {
                 owner,
-                uid: None,
+                uid,
                 type_: saved.object_type,
                 data: saved.data,
                 version,
@@ -932,6 +1058,11 @@ impl MoveRuntime {
                 event_data: ev.event_data,
             };
             cs.add_event(ev_rec);
+        }
+
+        // Add deleted objects
+        for deleted_obj in deleted_objects {
+            cs.add_deleted_object(deleted_obj.object_id);
         }
 
         // If gas accounting requested, include gas debit/credit in ChangeSet.
@@ -964,6 +1095,19 @@ impl MoveRuntime {
                     "[RUNTIME] Persisted object {} (v{}) to internal storage",
                     id, created.version
                 );
+            }
+        }
+
+        // Handle deleted objects for persistence
+        for obj_id in &cs.deleted_objects {
+            if let Err(e) = self.object_storage.delete_object(obj_id) {
+                log::warn!(
+                    "[RUNTIME] Failed to delete object {} from internal storage: {:?}",
+                    obj_id,
+                    e
+                );
+            } else {
+                debug!("[RUNTIME] Deleted object {} from internal storage", obj_id);
             }
         }
 

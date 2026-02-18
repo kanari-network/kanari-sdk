@@ -88,7 +88,13 @@ impl super::MoveRuntime {
 
             // Add to created_objects in changeset (after storage to avoid double clone)
             // Pass the explicit ID to ensure ChangeSet uses the same ID as ObjectStorage.
-            cs.add_created_object(owner, obj_type, data, 1, None, Some(canonical_id));
+            let uid = if let Ok(addr) = AccountAddress::from_hex_literal(&canonical_id) {
+                Some(kanari_types::object::UIDRecord::new(addr))
+            } else {
+                None
+            };
+            
+            cs.add_created_object(owner, obj_type, data, 2, uid, Some(canonical_id));
         }
 
         if count > 0 {
