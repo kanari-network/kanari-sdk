@@ -17,6 +17,12 @@ pub struct GasConfig {
 
     /// Minimum gas price (in Mist)
     pub min_gas_price: u64,
+
+    /// Cost per byte of storage written (in Mist)
+    pub storage_price_per_byte: u64,
+
+    /// Percentage of storage fee refunded when data is deleted (0-100)
+    pub storage_rebate_rate: u8,
 }
 
 impl Default for GasConfig {
@@ -26,6 +32,8 @@ impl Default for GasConfig {
             max_gas_per_tx: 100_000,      // 100K gas per transaction
             max_gas_per_block: 1_000_000, // 1M gas per block
             min_gas_price: 10,            // 10 Mist minimum
+            storage_price_per_byte: 100,  // 100 Mist per byte
+            storage_rebate_rate: 99,      // 99% rebate (Sui-like)
         }
     }
 }
@@ -86,6 +94,12 @@ pub struct GasMeter {
 
     /// Maximum gas allowed
     pub gas_limit: u64,
+
+    /// Storage bytes written in this transaction
+    pub storage_bytes_written: u64,
+
+    /// Storage bytes deleted in this transaction
+    pub storage_bytes_deleted: u64,
 }
 
 impl GasMeter {
@@ -94,7 +108,34 @@ impl GasMeter {
             gas_used: 0,
             gas_price,
             gas_limit,
+            storage_bytes_written: 0,
+            storage_bytes_deleted: 0,
         }
+    }
+
+    /// Charge for storage bytes written
+    pub fn charge_storage(&mut self, bytes: u64, config: &GasConfig) -> Result<(), GasError> {
+        self.storage_bytes_written += bytes;
+        // Storage is charged in Mist directly, not gas units, but we can convert for simplicity
+        // or just track it separately. Here we convert to gas units based on price ratio.
+        let mist_cost = bytes * config.storage_price_per_byte;
+        let gas_cost = mist_cost / self.gas_price.max(1); // Avoid division by zero
+        self.consume(gas_cost)
+    }
+
+    /// Record storage rebate (refund)
+    pub fn rebate_storage(&mut self, bytes: u64) {
+        self.storage_bytes_deleted += bytes;
+    }
+
+    /// Calculate net storage fee in Mist
+    pub fn net_storage_fee(&self, config: &GasConfig) -> i64 {
+        let cost = self.storage_bytes_written as i64 * config.storage_price_per_byte as i64;
+        let rebate = (self.storage_bytes_deleted as i64
+            * config.storage_price_per_byte as i64
+            * config.storage_rebate_rate as i64)
+            / 100;
+        cost - rebate
     }
 
     /// Consume gas for an operation

@@ -351,17 +351,26 @@ impl MoveRuntime {
         let mut cs = ChangeSet::new();
         cs.publish_module(sender, module_id.name().to_string());
 
+        // Parse Move VM changeset and events
+        self.parse_move_changeset(&move_changeset, &mut cs);
+        self.parse_move_events(&events, &mut cs);
+
         // If caller provided gas info, include gas accounting in the ChangeSet.
         if let Some((gas_limit, gas_price)) = gas_info {
             let gas_op = GasOperation::PublishModule {
                 module_size: module_bytes.len(),
             };
-            self.apply_gas_info(&mut cs, Some(sender), gas_limit, gas_price, gas_op)?;
+            let (written, deleted) = self.calculate_storage_impact(&move_changeset, &cs);
+            self.apply_gas_info(
+                &mut cs,
+                Some(sender),
+                gas_limit,
+                gas_price,
+                gas_op,
+                written,
+                deleted,
+            )?;
         }
-
-        // Parse Move VM changeset and events
-        self.parse_move_changeset(&move_changeset, &mut cs);
-        self.parse_move_events(&events, &mut cs);
 
         Ok(cs)
     }
@@ -507,10 +516,6 @@ impl MoveRuntime {
             res.map_err(|e| anyhow::anyhow!(format!("finish error: {:?}", e)))?;
 
         let mut cs = ChangeSet::new();
-        if let Some((gas_limit, gas_price)) = gas_info {
-            let gas_op = GasOperation::ExecuteFunction { complexity: 1 };
-            self.apply_gas_info(&mut cs, Some(sender_addr), gas_limit, gas_price, gas_op)?;
-        }
 
         self.parse_move_changeset(&move_changeset, &mut cs);
         self.parse_move_events(&events, &mut cs);
@@ -537,6 +542,14 @@ impl MoveRuntime {
                 version: 1,
             };
             cs.created_objects.push((saved.object_id, updated_obj));
+        }
+
+        if let Some((gas_limit, gas_price)) = gas_info {
+            let gas_op = GasOperation::ExecuteFunction { complexity: 1 };
+            let (written, deleted) = self.calculate_storage_impact(&move_changeset, &cs);
+            self.apply_gas_info(
+                &mut cs, sender, gas_limit, gas_price, gas_op, written, deleted,
+            )?;
         }
 
         Ok(cs)
@@ -924,7 +937,10 @@ impl MoveRuntime {
         // If gas accounting requested, include gas debit/credit in ChangeSet.
         if let Some((gas_limit, gas_price)) = gas_info {
             let gas_op = GasOperation::ExecuteFunction { complexity: 1 };
-            self.apply_gas_info(&mut cs, sender, gas_limit, gas_price, gas_op)?;
+            let (written, deleted) = self.calculate_storage_impact(&move_changeset, &cs);
+            self.apply_gas_info(
+                &mut cs, sender, gas_limit, gas_price, gas_op, written, deleted,
+            )?;
         }
 
         // PERSISTENCE: Update internal ObjectStorage with created/modified objects.

@@ -31,7 +31,7 @@ pub struct SparseMerkleTree {
 }
 
 fn node_key(depth: usize, prefix: &[u8]) -> Vec<u8> {
-    let mut out = b"smt:node:".to_vec();
+    let mut out = b"n:".to_vec();
     let d = (depth as u16).to_be_bytes();
     out.extend(&d);
     out.extend(prefix);
@@ -39,7 +39,7 @@ fn node_key(depth: usize, prefix: &[u8]) -> Vec<u8> {
 }
 
 fn data_key(key_hash: &[u8; 32]) -> Vec<u8> {
-    let mut out = b"smt:data:".to_vec();
+    let mut out = b"d:".to_vec();
     out.extend(key_hash);
     out
 }
@@ -66,7 +66,7 @@ impl SparseMerkleTree {
         for item in iter {
             let (k, v) = item?;
             let key = k.to_vec();
-            if key.starts_with(b"smt:") {
+            if key.starts_with(b"n:") || key.starts_with(b"d:") {
                 out.push((key, v.to_vec()));
             }
         }
@@ -211,7 +211,11 @@ impl SparseMerkleTree {
                 let parent_arr = parent;
 
                 let node_k = node_key(depth, &prefix);
-                batch.put(node_k.clone(), cur);
+                if cur == self.default_hashes[depth] {
+                    batch.delete(node_k.clone());
+                } else {
+                    batch.put(node_k.clone(), cur);
+                }
                 node_cache.insert(node_k, cur);
 
                 cur = parent_arr;
