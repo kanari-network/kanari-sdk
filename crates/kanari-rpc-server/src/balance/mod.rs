@@ -118,7 +118,7 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
                 balances.push(serde_json::json!({
                     "token_type": token_type,
                     "balance": amount,
-                    "decimals": 9,
+                    "decimals": get_token_decimals(&state.engine, token_type),
                     "symbol": symbol
                 }));
             }
@@ -165,7 +165,7 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
                 balances.push(serde_json::json!({
                     "token_type": token_type,
                     "balance": amount,
-                    "decimals": 9,
+                    "decimals": get_token_decimals(&state.engine, &token_type),
                     "symbol": symbol
                 }));
             }
@@ -187,6 +187,12 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
             id: request.id,
         },
     }
+}
+
+/// Helper to determine token decimals based on type
+pub fn get_token_decimals(engine: &kanari_core::engine::BlockchainEngine, token_type: &str) -> u8 {
+    // Try to get from engine (which checks DB index)
+    engine.get_token_decimals(token_type).unwrap_or(9)
 }
 
 /// Handle list tokens request
@@ -211,6 +217,7 @@ pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) ->
             serde_json::json!({
                 "token_type": token_type,
                 "total_supply": supply,
+                "decimals": get_token_decimals(&state.engine, &token_type),
                 "symbol": symbol,
             })
         })

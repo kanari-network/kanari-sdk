@@ -392,23 +392,37 @@ impl StateManager {
 
             // Check if object exists and handle ownership transfer
             // This is crucial: if an object is transferred, we must remove it from the old owner's list
-            if let Ok(Some(existing)) = self.load_internal::<CreatedObject>(&obj_key) {
-                if existing.owner != created.owner {
-                    // Remove from old owner's list
-                    let old_owner_key = Self::owned_objects_key(&existing.owner);
-                    if let Ok(Some(mut old_owned)) =
-                        self.load_internal::<Vec<String>>(&old_owner_key)
-                    {
-                        if let Some(pos) = old_owned.iter().position(|x| x == obj_id) {
-                            old_owned.remove(pos);
-                            self.save_internal(&old_owner_key, &old_owned)?;
-                        }
-                    }
+            if let Ok(Some(existing)) = self.load_internal::<CreatedObject>(&obj_key)
+                && existing.owner != created.owner
+            {
+                // Remove from old owner's list
+                let old_owner_key = Self::owned_objects_key(&existing.owner);
+                if let Ok(Some(mut old_owned)) = self.load_internal::<Vec<String>>(&old_owner_key)
+                    && let Some(pos) = old_owned.iter().position(|x| x == obj_id)
+                {
+                    old_owned.remove(pos);
+                    self.save_internal(&old_owner_key, &old_owned)?;
                 }
             }
 
             // Store the object
             self.save_internal(&obj_key, created)?;
+
+            // Index CoinMetadata decimals
+            // type_ format: "0x2::coin::CoinMetadata<token_type>"
+            if created.type_.contains("::coin::CoinMetadata<")
+                && let Some(start) = created.type_.find('<')
+                && let Some(end) = created.type_.rfind('>')
+            {
+                let token_type = &created.type_[start + 1..end];
+                // CoinMetadata layout: id (32 bytes), decimals (1 byte), ...
+                if created.data.len() > 32 {
+                    let decimals = created.data[32];
+                    let mut key = b"metadata_decimals:".to_vec();
+                    key.extend_from_slice(token_type.as_bytes());
+                    self.save_internal(&key, &decimals)?;
+                }
+            }
 
             // Update owned objects list
             let owner_key = Self::owned_objects_key(&created.owner);
@@ -429,11 +443,11 @@ impl StateManager {
             if let Some(obj_data) = self.load_internal::<CreatedObject>(&obj_key)? {
                 // Remove from owner's list
                 let owner_key = Self::owned_objects_key(&obj_data.owner);
-                if let Some(mut owned) = self.load_internal::<Vec<String>>(&owner_key)? {
-                    if let Some(pos) = owned.iter().position(|x| x == obj_id) {
-                        owned.remove(pos);
-                        self.save_internal(&owner_key, &owned)?;
-                    }
+                if let Some(mut owned) = self.load_internal::<Vec<String>>(&owner_key)?
+                    && let Some(pos) = owned.iter().position(|x| x == obj_id)
+                {
+                    owned.remove(pos);
+                    self.save_internal(&owner_key, &owned)?;
                 }
             }
 
@@ -512,6 +526,12 @@ impl StateManager {
 
     pub fn get_token_supply(&self, token_type: &str) -> Result<Option<u64>> {
         let mut key = b"supply:".to_vec();
+        key.extend_from_slice(token_type.as_bytes());
+        self.load_internal(&key)
+    }
+
+    pub fn get_token_decimals(&self, token_type: &str) -> Result<Option<u8>> {
+        let mut key = b"metadata_decimals:".to_vec();
         key.extend_from_slice(token_type.as_bytes());
         self.load_internal(&key)
     }

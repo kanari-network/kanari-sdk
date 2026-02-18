@@ -1013,4 +1013,14 @@ impl BlockchainEngine {
 
         out
     }
+
+    /// Get token decimals
+    pub fn get_token_decimals(&self, token_type: &str) -> Option<u8> {
+        // Special case for native KANARI token
+        if token_type == "KANARI" {
+            return Some(9);
+        }
+        let state = self.state.read().unwrap();
+        state.get_token_decimals(token_type).unwrap_or(None)
+    }
 }

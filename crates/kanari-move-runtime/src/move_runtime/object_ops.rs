@@ -93,7 +93,7 @@ impl super::MoveRuntime {
             } else {
                 None
             };
-            
+
             cs.add_created_object(owner, obj_type, data, 2, uid, Some(canonical_id));
         }
 
