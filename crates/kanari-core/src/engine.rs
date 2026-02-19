@@ -588,7 +588,7 @@ impl BlockchainEngine {
                     .filter_map(|s| parse_type_tag(s.as_str()))
                     .collect();
 
-                match runtime.execute_entry_function_pure(
+                match runtime.execute_entry_function(
                     &module_id,
                     function,
                     type_tags,
