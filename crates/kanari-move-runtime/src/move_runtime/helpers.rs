@@ -9,6 +9,11 @@ use kanari_types::collection::CollectionModule;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::{StructTag, TypeTag};
 
+/// Size of a Move object UID in bytes (address)
+const UID_SIZE: usize = 32;
+/// Size of a u64 field in bytes
+const U64_SIZE: usize = 8;
+
 impl super::MoveRuntime {
     /// Check if struct tag represents a balance/coin resource
     pub(crate) fn is_balance_resource(&self, struct_tag: &StructTag) -> bool {
@@ -37,18 +42,18 @@ impl super::MoveRuntime {
         // Balance<T> (no UID): just 8 bytes
         if module_name == BalanceModule::BALANCE_MODULE
             && struct_name == BalanceModule::BALANCE_STRUCT
-            && bytes.len() == 8
+            && bytes.len() == U64_SIZE
         {
-            let balance_bytes: [u8; 8] = bytes.try_into().ok()?;
+            let balance_bytes: [u8; U64_SIZE] = bytes.try_into().ok()?;
             return Some(u64::from_le_bytes(balance_bytes));
         }
 
-        // Coin<T> (with UID): [32-byte address][8-byte id][8-byte balance]
+        // Coin<T> (with UID): [32-byte address][8-byte balance]
         if module_name == CoinModule::COIN_MODULE
             && struct_name == CoinModule::COIN_STRUCT
-            && bytes.len() >= 48
+            && bytes.len() >= (UID_SIZE + U64_SIZE)
         {
-            let balance_bytes: [u8; 8] = bytes[40..48].try_into().ok()?;
+            let balance_bytes: [u8; U64_SIZE] = bytes[UID_SIZE..(UID_SIZE + U64_SIZE)].try_into().ok()?;
             return Some(u64::from_le_bytes(balance_bytes));
         }
 
@@ -57,9 +62,9 @@ impl super::MoveRuntime {
 
     /// Extract total supply from TreasuryCap bytes
     pub(crate) fn extract_treasury_total_from_bytes(&self, bytes: &[u8]) -> Option<u64> {
-        // TreasuryCap: [32-byte address][8-byte id][8-byte total_supply]
-        if bytes.len() >= 48 {
-            let supply_bytes: [u8; 8] = bytes[40..48].try_into().ok()?;
+        // TreasuryCap: [32-byte address][8-byte total_supply]
+        if bytes.len() >= (UID_SIZE + U64_SIZE) {
+            let supply_bytes: [u8; U64_SIZE] = bytes[UID_SIZE..(UID_SIZE + U64_SIZE)].try_into().ok()?;
             Some(u64::from_le_bytes(supply_bytes))
         } else {
             None

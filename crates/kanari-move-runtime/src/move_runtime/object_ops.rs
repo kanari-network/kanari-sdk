@@ -7,6 +7,8 @@ use anyhow::Result;
 use kanari_system_natives::transfer_natives::TransferredObject;
 use log::debug;
 use move_core_types::account_address::AccountAddress;
+use move_core_types::language_storage::StructTag;
+use std::str::FromStr;
 
 impl super::MoveRuntime {
     /// Get object by ID from ObjectStorage
@@ -93,6 +95,29 @@ impl super::MoveRuntime {
             } else {
                 None
             };
+
+            // Detect special objects (TreasuryCap, Coin) and add them to changeset
+            if let Ok(struct_tag) = StructTag::from_str(&obj_type) {
+                // Parse TreasuryCap resources
+                if self.is_treasury_resource(&struct_tag) {
+                    if let Some(total) = self.extract_treasury_total_from_bytes(&data) {
+                        if let Some(token_type) = self.token_type_from_struct_tag(&struct_tag) {
+                            cs.add_treasury(owner, token_type, total);
+                            debug!("Detected TreasuryCap object: supply={}", total);
+                        }
+                    }
+                }
+
+                // Parse Coin resources (Balance)
+                if self.is_balance_resource(&struct_tag) {
+                    if let Some(amount) = self.extract_balance_from_bytes(&data, &struct_tag) {
+                        if let Some(token_type) = self.token_type_from_struct_tag(&struct_tag) {
+                            cs.add_token_balance_set(owner, token_type, amount);
+                            debug!("Detected Coin object: amount={}", amount);
+                        }
+                    }
+                }
+            }
 
             cs.add_created_object(owner, obj_type, data, 2, uid, Some(canonical_id));
         }
