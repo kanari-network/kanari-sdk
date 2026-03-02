@@ -911,4 +911,21 @@ mod tests {
             assert!(signature.is_ok(), "Signing should work for {:?}", curve);
         }
     }
+
+    #[test]
+    fn test_legacy_wallet_toml_parse_without_compression() {
+        let keypair = generate_keypair(CurveType::K256).unwrap();
+        let address = AccountAddress::from_str(&keypair.address).unwrap();
+        let priv_key = {
+            let zk = keypair.export_private_key_secure();
+            zk.to_string()
+        };
+        let wallet = Wallet::new(address, priv_key, String::new(), None, CurveType::K256);
+        let toml_string = toml::to_string(&wallet).unwrap();
+        let encrypted =
+            encryption::encrypt_data(toml_string.as_bytes(), "StrongPassw0rd!").unwrap();
+        let decrypted = encryption::decrypt_data(&encrypted, "StrongPassw0rd!").unwrap();
+        let parsed: Wallet = toml::from_str(std::str::from_utf8(&decrypted).unwrap()).unwrap();
+        assert_eq!(parsed.curve_type, CurveType::K256);
+    }
 }
