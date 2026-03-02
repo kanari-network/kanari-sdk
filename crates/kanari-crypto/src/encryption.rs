@@ -130,6 +130,17 @@ impl EncryptedData {
     }
 }
 
+#[cfg(test)]
+pub fn make_invalid_encrypted_data_for_tests() -> EncryptedData {
+    EncryptedData {
+        ciphertext_array: Vec::new(),
+        ciphertext: String::new(),
+        nonce_array: Vec::new(),
+        nonce: String::new(),
+        salt: "invalid_salt".to_string(),
+    }
+}
+
 impl fmt::Display for EncryptedData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let cipher_len = if !self.ciphertext.is_empty() {

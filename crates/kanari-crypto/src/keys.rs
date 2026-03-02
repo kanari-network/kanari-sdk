@@ -1354,6 +1354,26 @@ mod tests {
     }
 
     #[test]
+    fn test_tagged_address_hybrid_ed25519_dilithium3_parsing() {
+        let keypair = generate_keypair(CurveType::Ed25519Dilithium3).unwrap();
+        let tagged = keypair.tagged_address();
+        let (curve_type, addr) = KeyPair::parse_tagged_address(&tagged).unwrap();
+        assert_eq!(curve_type, CurveType::Ed25519Dilithium3);
+        assert_eq!(addr, keypair.public_key);
+        assert_ne!(addr, keypair.address);
+    }
+
+    #[test]
+    fn test_tagged_address_hybrid_k256_dilithium3_parsing() {
+        let keypair = generate_keypair(CurveType::K256Dilithium3).unwrap();
+        let tagged = keypair.tagged_address();
+        let (curve_type, addr) = KeyPair::parse_tagged_address(&tagged).unwrap();
+        assert_eq!(curve_type, CurveType::K256Dilithium3);
+        assert_eq!(addr, keypair.public_key);
+        assert_ne!(addr, keypair.address);
+    }
+
+    #[test]
     fn test_signature_verification() {
         // Test that verify_signature works correctly even when curve type is ambiguous
 
@@ -1641,7 +1661,10 @@ mod tests {
             CurveType::Ed25519Dilithium3,
             "Parsed curve type must match"
         );
-        assert_eq!(parsed_address, keypair.address, "Parsed address must match");
+        assert_eq!(
+            parsed_address, keypair.public_key,
+            "Parsed address must equal combined public key"
+        );
     }
 
     #[test]

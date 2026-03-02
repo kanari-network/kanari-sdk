@@ -835,7 +835,43 @@ pub async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest)
                     Err(e) => error!("Failed to submit executed transaction: {}", e),
                 }
 
-                let cs_value = serde_json::to_value(&changeset).unwrap_or(serde_json::json!(null));
+                let mut cs_value =
+                    serde_json::to_value(&changeset).unwrap_or(serde_json::json!(null));
+                if let Some(map) = cs_value.as_object_mut()
+                    && let Some(created_val) = map.get_mut("created_objects")
+                    && let Some(arr) = created_val.as_array_mut()
+                {
+                    for entry in arr.iter_mut() {
+                        if let Some(obj) = entry.get_mut(1)
+                            && let Some(obj_map) = obj.as_object_mut()
+                            && let Some(data_val) = obj_map.get_mut("data")
+                            && let Some(data_arr) = data_val.as_array_mut()
+                        {
+                            let original_len = data_arr.len();
+                            let max_len = 32usize;
+                            let mut bytes: Vec<u8> = Vec::new();
+                            for v in data_arr.iter().take(max_len) {
+                                if let Some(n) = v.as_u64() {
+                                    bytes.push(n as u8);
+                                }
+                            }
+                            let hex_str = format!("0x{}", hex::encode(bytes));
+                            *data_val = serde_json::Value::String(hex_str);
+                            if original_len > max_len {
+                                obj_map.insert(
+                                    "data_truncated".to_string(),
+                                    serde_json::Value::Bool(true),
+                                );
+                                obj_map.insert(
+                                    "data_len".to_string(),
+                                    serde_json::Value::Number(serde_json::Number::from(
+                                        original_len as u64,
+                                    )),
+                                );
+                            }
+                        }
+                    }
+                }
                 return RpcResponse {
                     jsonrpc: "2.0".to_string(),
                     result: Some(serde_json::json!({
@@ -972,6 +1008,41 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                 // Serialize the ChangeSet first
                 let mut cs_value =
                     serde_json::to_value(&changeset).unwrap_or(serde_json::json!(null));
+                if let Some(map) = cs_value.as_object_mut()
+                    && let Some(created_val) = map.get_mut("created_objects")
+                    && let Some(arr) = created_val.as_array_mut()
+                {
+                    for entry in arr.iter_mut() {
+                        if let Some(obj) = entry.get_mut(1)
+                            && let Some(obj_map) = obj.as_object_mut()
+                            && let Some(data_val) = obj_map.get_mut("data")
+                            && let Some(data_arr) = data_val.as_array_mut()
+                        {
+                            let original_len = data_arr.len();
+                            let max_len = 32usize;
+                            let mut bytes: Vec<u8> = Vec::new();
+                            for v in data_arr.iter().take(max_len) {
+                                if let Some(n) = v.as_u64() {
+                                    bytes.push(n as u8);
+                                }
+                            }
+                            let hex_str = format!("0x{}", hex::encode(bytes));
+                            *data_val = serde_json::Value::String(hex_str);
+                            if original_len > max_len {
+                                obj_map.insert(
+                                    "data_truncated".to_string(),
+                                    serde_json::Value::Bool(true),
+                                );
+                                obj_map.insert(
+                                    "data_len".to_string(),
+                                    serde_json::Value::Number(serde_json::Number::from(
+                                        original_len as u64,
+                                    )),
+                                );
+                            }
+                        }
+                    }
+                }
 
                 // Normalize created object `type` fields: replace Move-VM debug strings
                 // like `StructInstantiation((CachedStructIndex...)` with a nicer stored

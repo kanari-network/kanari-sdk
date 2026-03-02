@@ -708,4 +708,13 @@ mod tests {
         let path = get_keystore_path();
         assert!(path.to_string_lossy().contains("kanari.keystore"));
     }
+
+    #[test]
+    fn test_validate_detects_corrupted_entry_via_helper() {
+        let mut keystore = Keystore::default();
+        let invalid = crate::encryption::make_invalid_encrypted_data_for_tests();
+        keystore.keys.insert("0xdeadbeef".to_string(), invalid);
+        let res = keystore.validate();
+        assert!(res.is_err());
+    }
 }
