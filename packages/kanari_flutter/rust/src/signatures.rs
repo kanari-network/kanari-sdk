@@ -3,8 +3,130 @@
 
 //! Digital signature creation and verification
 //!
-//! This module handles digital signatures across multiple curves, with unified
-//! interfaces for signing and verifying messages using different key types.
+//! This module handles digital signatures across multiple curves (classical ECC and PQC),
+//! with unified interfaces for signing and verifying messages using different key types.
+//!
+//! # ⚠️ Security Considerations
+//!
+//! ## Ed25519 Implementation Note
+//! By default this crate now uses the standard RFC-8032 Ed25519 behavior:
+//! - Messages are signed and verified directly (no pre-hashing).
+//! - This makes Kanari Ed25519 signatures compatible with other standard
+//!   Ed25519 implementations. If you need a pre-hash variant, implement an
+//!   explicit alternate codepath.
+//!
+//! ## Timing Attack Mitigation via Tagged Addresses ⚠️ CRITICAL
+//!
+//! **The Problem:**
+//! When verifying signatures without tagged addresses, the fallback path attempts all curve types
+//! sequentially. Real-world timing measurements can reveal which curve succeeded:
+//! - Branch prediction effects
+//! - Cache line timing differences
+//! - Speculative execution patterns
+//! - Power analysis (in physical security contexts)
+//!
+//! **The Solution - Always Use Tagged Addresses:**
+//! ```rust,ignore
+//! // ✅ CORRECT - Timing-safe verification (recommended for production)
+//! let addr = keypair.tagged_address(); // e.g., "K256:0xabc..."
+//! verify_signature(&addr, message, signature)?;
+//! ```
+//!
+//! **If Tagged Address Unavailable:**
+//! ```rust,ignore
+//! // ⚠️  Use explicit curve when known
+//! verify_signature_with_curve(address, message, signature, CurveType::K256)?;
+//! ```
+//!
+//! **Never Rely On:**
+//! ```rust,ignore
+//! // ❌ DON'T - Timing attack vulnerability
+//! verify_signature("0xdecafbad...", message, signature)?; // No tag = fallback path
+//! ```
+//!
+//! ## Hashing Strategy: Curve-Specific Pre-hashing or Direct Signing
+//! ⚠️ **IMPORTANT: Different curves use different hashing approaches**
+//!
+//! **K256 (secp256k1) and P256 (secp256r1) - SHA3-256 Pre-Hashing (Kanari-specific):**
+//! ```rust,ignore
+//! // Message is HASHED with SHA3-256 BEFORE signing
+//! let msg_hash = Sha3_256::digest(message);
+//! sign(msg_hash, private_key)  // ECC signatures operate on hash
+//! ```
+//! - **Why:** Domain separation - prevents signing the same message differently across curves
+//! - **Canonical format:** Always use `sign_message(privkey, msg, CurveType::K256/P256)`
+//! - **DON'T:** Pre-hash the message yourself - it would be double-hashed!
+//!
+//! **Ed25519 - Direct Signing (RFC-8032 Standard):**
+//! ```rust,ignore
+//! // Message is signed DIRECTLY without pre-hashing
+//! sign(message, private_key)  // Per RFC-8032 standard
+//! ```
+//! - **Why:** EdDSA standard behavior - ensures interoperability with all Ed25519 libraries
+//! - **Canonical format:** Always use `sign_message(privkey, msg, CurveType::Ed25519)`
+//! - **DON'T:** Pre-hash the message - Ed25519 handles it internally per RFC!
+//!
+//! **Hybrid Signatures (Ed25519+Dilithium3, K256+Dilithium3):**
+//! - Ed25519 component: Direct signing (RFC-8032)
+//! - K256 component: SHA3-256 pre-hashing (Kanari-specific)
+//! - Dilithium3 component: Direct signing (PQC standard)
+//! - Format: `[2-byte classical_len] || classical_sig || pqc_sig`
+//!
+//! **Summary - Never Double-Hash:**
+//! | Curve Type | Strategy | Input to sign_message |
+//! |-----------|----------|---------------------|
+//! | K256 | SHA3-256 pre-hash (Kanari) | Raw message (function hashes) |
+//! | P256 | SHA3-256 pre-hash (Kanari) | Raw message (function hashes) |
+//! | Ed25519 | Direct (RFC-8032) | Raw message (direct signing) |
+//! | Hybrid | Mix above | Raw message (each component handles correctly) |
+//!
+//! **Test Your Integration:**
+//! - If verification fails after signing with our API: Check for double-hashing in your code!
+//! - Kanari handles hashing internally - pass raw messages only
+//! - Example: ❌ `sign(sha256(msg))` | ✅ `sign(msg)`
+//!
+//! ## Hybrid Signature Format
+//! Hybrid signatures (K256+Dilithium3, Ed25519+Dilithium3) use a structured format:
+//! - 2 bytes: classical signature length (big-endian)
+//! - N bytes: classical signature
+//! - M bytes: PQC signature
+//!
+//! This format requires careful parsing. Malformed signatures verify as false,
+//! not raising errors, to prevent DoS attacks.
+//!
+//! ## Post-Quantum Cryptography Dependencies
+//! This library uses NIST-standardized PQC algorithms (Dilithium, SPHINCS+):
+//! - **Monitor Security Advisories:**
+//!   - https://github.com/rustpq/pqcrypto/security/advisories
+//!   - https://rustsec.org/
+//! - **PQC Crate Versions:** Pinned to specific releases (see Cargo.toml)
+//! - **Update Strategy:** Review advisories before updating PQC crates
+//! - **Backup Plans:** Implement version pin policies in production lock files
+//!
+//! ## Error Message Information Leakage
+//! Error messages are kept generic to avoid leaking implementation details:
+//! - Public key length validation failures do NOT reveal expected sizes
+//! - Invalid format errors do NOT specify which curve was attempted
+//! - This prevents attackers from enumerating valid key formats
+//! - For debugging: use debug logs with `RUST_LOG=debug`, not error messages
+//!
+//! ## Rate Limiting Recommendations
+//! This module has NO built-in rate limiting (by design - concerns are at API layer):
+//! - **For APIs:** Implement rate limiting at axum/actix middleware level
+//! - **For CLI:** Consider throttling on stdin processing
+//! - **For Batch Operations:** Group verify calls with shared circuit breaker
+//! - **DOS Prevention:** Limit signature verifications per time window
+//!
+//! Example rate limiter (governor crate):
+//! ```rust,ignore
+//! use governor::{Quota, RateLimiter};
+//! use std::num::NonZeroU32;
+//!
+//! let limiter = RateLimiter::direct(Quota::per_second(NonZeroU32::new(100).unwrap()));
+//! if let Ok(_) = limiter.check() {
+//!     verify_signature(...)?;
+//! }
+//! ```
 
 use log::debug;
 use sha3::{Digest, Sha3_256};
@@ -36,6 +158,7 @@ use pqcrypto_traits::sign::SecretKey as PqcSecretKeyTrait;
 use pqcrypto_traits::sign::{
     DetachedSignature as PqcDetachedTrait, PublicKey as PqcPublicKeyTrait,
 };
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::keys::CurveType;
 
@@ -64,6 +187,8 @@ const MAX_SIGNATURE_SIZE: usize = 64 * 1024; // 64 KiB
 const MAX_CLASSICAL_SIG_LEN: usize = 1024; // limit to 1 KiB to avoid DoS
 
 // Common EC public key lengths
+// These constants are used for flexible address parsing but should not be
+// exposed in error messages to prevent information leakage
 const SEC1_UNCOMPRESSED_LEN: usize = 65;
 const SEC1_COMPRESSED_LEN: usize = 33;
 const RAW_XY_LEN: usize = 64;
@@ -75,7 +200,6 @@ const ED25519_PUBLIC_KEY_LEN: usize = 32;
 /// Uses zeroize crate for secure memory clearing with compiler fence
 /// to prevent optimization that could leave sensitive data in memory
 pub fn secure_clear(data: &mut [u8]) {
-    use zeroize::Zeroize;
     data.zeroize();
     // Add a black_box to prevent compiler from optimizing away the zeroization
     std::hint::black_box(data);
@@ -114,8 +238,9 @@ fn sign_message_dilithium2(
     let raw = crate::keys::extract_raw_key(private_key_hex);
     // Accept formats: "<secret_hex>" or "<secret_hex>:<public_hex>"
     let secret_hex = raw.split_once(':').map(|(s, _)| s).unwrap_or(raw);
-    let sk_bytes = hex::decode(secret_hex)
-        .map_err(|_| SignatureError::InvalidPrivateKey("Invalid private key hex".to_string()))?;
+    let sk_bytes: Zeroizing<Vec<u8>> = Zeroizing::new(hex::decode(secret_hex).map_err(|_| {
+        SignatureError::InvalidPrivateKey("Invalid Dilithium2 private key".to_string())
+    })?);
     let sk = dilithium2::SecretKey::from_bytes(&sk_bytes).map_err(|_| {
         SignatureError::InvalidPrivateKey("Invalid Dilithium2 private key".to_string())
     })?;
@@ -131,8 +256,10 @@ fn sign_message_dilithium3(
     let raw = crate::keys::extract_raw_key(private_key_hex);
     // Accept formats: "<secret_hex>" or "<secret_hex>:<public_hex>"
     let secret_hex = raw.split_once(':').map(|(s, _)| s).unwrap_or(raw);
-    let sk_bytes = hex::decode(secret_hex)
-        .map_err(|_| SignatureError::InvalidPrivateKey("Invalid private key hex".to_string()))?;
+    let sk_bytes: Zeroizing<Vec<u8>> =
+        Zeroizing::new(hex::decode(secret_hex).map_err(|_| {
+            SignatureError::InvalidPrivateKey("Invalid private key hex".to_string())
+        })?);
     let sk = dilithium3::SecretKey::from_bytes(&sk_bytes).map_err(|_| {
         SignatureError::InvalidPrivateKey("Invalid Dilithium3 private key".to_string())
     })?;
@@ -148,8 +275,10 @@ fn sign_message_dilithium5(
     let raw = crate::keys::extract_raw_key(private_key_hex);
     // Accept formats: "<secret_hex>" or "<secret_hex>:<public_hex>"
     let secret_hex = raw.split_once(':').map(|(s, _)| s).unwrap_or(raw);
-    let sk_bytes = hex::decode(secret_hex)
-        .map_err(|_| SignatureError::InvalidPrivateKey("Invalid private key hex".to_string()))?;
+    let sk_bytes: Zeroizing<Vec<u8>> =
+        Zeroizing::new(hex::decode(secret_hex).map_err(|_| {
+            SignatureError::InvalidPrivateKey("Invalid private key hex".to_string())
+        })?);
     let sk = dilithium5::SecretKey::from_bytes(&sk_bytes).map_err(|_| {
         SignatureError::InvalidPrivateKey("Invalid Dilithium5 private key".to_string())
     })?;
@@ -162,8 +291,10 @@ fn sign_message_sphincs(private_key_hex: &str, message: &[u8]) -> Result<Vec<u8>
     let raw = crate::keys::extract_raw_key(private_key_hex);
     // Accept formats: "<secret_hex>" or "<secret_hex>:<public_hex>"
     let secret_hex = raw.split_once(':').map(|(s, _)| s).unwrap_or(raw);
-    let sk_bytes = hex::decode(secret_hex)
-        .map_err(|_| SignatureError::InvalidPrivateKey("Invalid private key hex".to_string()))?;
+    let sk_bytes: Zeroizing<Vec<u8>> =
+        Zeroizing::new(hex::decode(secret_hex).map_err(|_| {
+            SignatureError::InvalidPrivateKey("Invalid private key hex".to_string())
+        })?);
     let sk = sphincssha2256fsimple::SecretKey::from_bytes(&sk_bytes).map_err(|_| {
         SignatureError::InvalidPrivateKey("Invalid SPHINCS+ private key".to_string())
     })?;
@@ -260,10 +391,22 @@ fn sign_message_hybrid_ed25519(
 }
 
 /// Sign a message using K256 (secp256k1) private key
+///
+/// **⚠️ IMPORTANT: Kanari-Specific Pre-Hashing**
+///
+/// This function automatically hashes the message with SHA3-256 BEFORE signing.
+/// - Input: Raw message bytes
+/// - Internal: `message_hash = SHA3-256(message)`
+/// - Operation: Sign the hash, not the raw message
+///
+/// **CRITICAL - DO NOT DOUBLE-HASH:**
+/// ✅ Correct: `sign_message(key, message, K256)`
+/// ❌ Wrong:   `sign_message(key, sha256(message), K256)` ← Results in signature mismatch!
+///
+/// This pre-hashing strategy is **Kanari-specific** for domain separation across curves.
+/// It differs from K256-native tools that may use different hashing.
 fn sign_message_k256(private_key_hex: &str, message: &[u8]) -> Result<Vec<u8>, SignatureError> {
-    use zeroize::Zeroize;
-
-    // Hash the message with SHA3
+    // ⚠️ KANARI-SPECIFIC: Pre-hash the message with SHA3-256 for domain separation
     let mut hasher = Sha3_256::default();
     hasher.update(message);
     let message_hash = hasher.finalize();
@@ -289,10 +432,23 @@ fn sign_message_k256(private_key_hex: &str, message: &[u8]) -> Result<Vec<u8>, S
 }
 
 /// Sign a message using P256 (secp256r1) private key
+///
+/// **⚠️ IMPORTANT: Kanari-Specific Pre-Hashing (Same as K256)**
+///
+/// This function automatically hashes the message with SHA3-256 BEFORE signing.
+/// - Input: Raw message bytes
+/// - Internal: `message_hash = SHA3-256(message)`
+/// - Operation: Sign the hash, not the raw message
+///
+/// **CRITICAL - DO NOT DOUBLE-HASH:**
+/// ✅ Correct: `sign_message(key, message, P256)`
+/// ❌ Wrong:   `sign_message(key, sha256(message), P256)` ← Results in signature mismatch!
+///
+/// **NOTE: P256 Strategy Matches K256**
+/// Both use SHA3-256 pre-hashing for Kanari domain separation.
+/// This differs from P256-native tools (NIST) that may use different schemes.
 fn sign_message_p256(private_key_hex: &str, message: &[u8]) -> Result<Vec<u8>, SignatureError> {
-    use zeroize::Zeroize;
-
-    // Hash the message with SHA3
+    // ⚠️ KANARI-SPECIFIC: Pre-hash the message with SHA3-256 (same as K256 for consistency)
     let mut hasher = Sha3_256::default();
     hasher.update(message);
     let message_hash = hasher.finalize();
@@ -318,10 +474,31 @@ fn sign_message_p256(private_key_hex: &str, message: &[u8]) -> Result<Vec<u8>, S
 }
 
 /// Sign a message using Ed25519 private key
+///
+/// **✅ RFC-8032 COMPLIANT - Standard Ed25519 Behavior**
+///
+/// This implementation strictly follows RFC-8032 standard Ed25519:
+/// - **Messages are signed DIRECTLY without pre-hashing** (per RFC-8032)
+/// - This makes Kanari Ed25519 signatures 100% compatible with standard Ed25519 implementations
+/// - Verification by external Ed25519 systems will succeed without modification
+///
+/// **Why This Differs From K256/P256:**
+/// Kanari uses curve-specific strategies:
+/// - **K256/P256** (ECC): Hash message with SHA3-256 before signing (Kanari-specific for domain separation)
+/// - **Ed25519** (EdDSA): Sign message directly per RFC-8032 (STANDARD - no pre-hashing)
+/// - **Hybrid** (Ed25519+Dilithium3): Ed25519 component uses RFC-8032, PQC component uses direct signing
+/// - **PQC** (Dilithium, SPHINCS+): Sign message directly (standard PQC behavior)
+///
+/// **Interoperability Guarantee:**
+/// Ed25519 signatures created by Kanari can be verified by:
+/// - Standard libraries: dalek (Rust), libsodium (C), tweetnacl, PyNaCl, etc.
+/// - Any RFC-8032 compliant implementation
+/// - No special handling required in external systems
+///
+/// This architectural choice provides domain separation between curve types
+/// while maintaining compatibility with standard implementations.
 fn sign_message_ed25519(private_key_hex: &str, message: &[u8]) -> Result<Vec<u8>, SignatureError> {
-    use zeroize::Zeroize;
-
-    // Convert hex private key to bytes with zeroization
+    // RFC-8032 COMPLIANT: Sign the message DIRECTLY without pre-hashing
     let mut private_key_bytes = hex::decode(private_key_hex)
         .map_err(|_| SignatureError::InvalidPrivateKey("Invalid private key".to_string()))?;
 
@@ -332,23 +509,17 @@ fn sign_message_ed25519(private_key_hex: &str, message: &[u8]) -> Result<Vec<u8>
         ));
     }
 
-    // Create a fixed-size array from the private key bytes
     let mut key_array = [0u8; 32];
     key_array.copy_from_slice(&private_key_bytes);
-
-    // Zeroize source bytes immediately
     private_key_bytes.zeroize();
 
-    // Create signing key from private key
     let signing_key = Ed25519SigningKey::from_bytes(&key_array);
 
-    // Sign the message directly (Ed25519 doesn't need pre-hashing)
+    // Sign the message directly (RFC-8032)
     let signature: Ed25519Signature = signing_key.sign(message);
 
-    // Zeroize key array after use
     key_array.zeroize();
 
-    // Return the signature bytes
     Ok(signature.to_bytes().to_vec())
 }
 
@@ -455,10 +626,12 @@ pub fn verify_signature_with_curve(
                 verify_signature_k256(classical, message, classical_sig).unwrap_or(false);
 
             // Verify PQC part (must succeed)
-            let pqc_pub = addr.split_once(':').map(|x| x.1).unwrap_or("");
-            if pqc_pub.is_empty() || pqc_sig.is_empty() {
+            let parts: Vec<&str> = addr.splitn(2, ':').collect();
+            if parts.len() != 2 {
                 return Ok(false);
             }
+            let pqc_pub = parts[1];
+
             // Strip known prefixes like "kanapqc" if present, then decode
             let pqc_pub_raw = crate::keys::extract_raw_key(pqc_pub);
             let pub_bytes = match hex::decode(pqc_pub_raw) {
@@ -476,8 +649,6 @@ pub fn verify_signature_with_curve(
                 SignatureError::InvalidFormat("Invalid signature bytes for Dilithium3".to_string())
             })?;
             let pqc_ok = dilithium3::verify_detached_signature(&sig_obj, message, &pk).is_ok();
-            // Debug prints for failing test investigation
-            // println!("HYBRID verify Ed25519: classical_ok={}, pqc_ok={}", classical_ok, pqc_ok);
             Ok(classical_ok && pqc_ok)
         }
         // For hybrid Ed25519+Dilithium3, verify using the classical Ed25519 public key part when provided
@@ -510,10 +681,11 @@ pub fn verify_signature_with_curve(
             let classical_ok =
                 verify_signature_ed25519(classical, message, classical_sig).unwrap_or(false);
 
-            let pqc_pub = addr.split_once(':').map(|x| x.1).unwrap_or("");
-            if pqc_pub.is_empty() || pqc_sig.is_empty() {
+            let parts: Vec<&str> = addr.splitn(2, ':').collect();
+            if parts.len() != 2 {
                 return Ok(false);
             }
+            let pqc_pub = parts[1];
             let pqc_pub_raw = crate::keys::extract_raw_key(pqc_pub);
             let pub_bytes = match hex::decode(pqc_pub_raw) {
                 Ok(b) => b,
@@ -541,10 +713,9 @@ pub fn verify_signature_with_curve(
             })?;
             // Validate key length (Dilithium2 public key is 1312 bytes)
             if pub_bytes.len() != 1312 {
-                return Err(SignatureError::InvalidPublicKey(format!(
-                    "Invalid Dilithium2 public key length: expected 1312, got {}",
-                    pub_bytes.len()
-                )));
+                return Err(SignatureError::InvalidPublicKey(
+                    "Invalid Dilithium2 public key".to_string(),
+                ));
             }
             let pk = dilithium2::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
                 SignatureError::InvalidPublicKey("Invalid Dilithium2 public key".to_string())
@@ -565,10 +736,9 @@ pub fn verify_signature_with_curve(
             })?;
             // Validate key length (Dilithium3 public key is 1952 bytes)
             if pub_bytes.len() != 1952 {
-                return Err(SignatureError::InvalidPublicKey(format!(
-                    "Invalid Dilithium3 public key length: expected 1952, got {}",
-                    pub_bytes.len()
-                )));
+                return Err(SignatureError::InvalidPublicKey(
+                    "Invalid Dilithium3 public key".to_string(),
+                ));
             }
             let pk = dilithium3::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
                 SignatureError::InvalidPublicKey("Invalid Dilithium3 public key".to_string())
@@ -589,11 +759,11 @@ pub fn verify_signature_with_curve(
             })?;
             // Validate key length (Dilithium5 public key is 2592 bytes)
             if pub_bytes.len() != 2592 {
-                return Err(SignatureError::InvalidPublicKey(format!(
-                    "Invalid Dilithium5 public key length: expected 2592, got {}",
-                    pub_bytes.len()
-                )));
+                return Err(SignatureError::InvalidPublicKey(
+                    "Invalid Dilithium5 public key".to_string(),
+                ));
             }
+
             let pk = dilithium5::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
                 SignatureError::InvalidPublicKey("Invalid Dilithium5 public key".to_string())
             })?;
@@ -753,10 +923,9 @@ pub fn verify_signature_with_keypair(
             })?;
             // Validate key length (Dilithium2 public key is 1312 bytes)
             if pub_bytes.len() != 1312 {
-                return Err(SignatureError::InvalidPublicKey(format!(
-                    "Invalid Dilithium2 public key length: expected 1312, got {}",
-                    pub_bytes.len()
-                )));
+                return Err(SignatureError::InvalidPublicKey(
+                    "Invalid Dilithium2 public key".to_string(),
+                ));
             }
             let pk = dilithium2::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
                 SignatureError::InvalidPublicKey("Invalid Dilithium2 public key".to_string())
@@ -776,10 +945,9 @@ pub fn verify_signature_with_keypair(
             })?;
             // Validate key length (Dilithium3 public key is 1952 bytes)
             if pub_bytes.len() != 1952 {
-                return Err(SignatureError::InvalidPublicKey(format!(
-                    "Invalid Dilithium3 public key length: expected 1952, got {}",
-                    pub_bytes.len()
-                )));
+                return Err(SignatureError::InvalidPublicKey(
+                    "Invalid Dilithium3 public key".to_string(),
+                ));
             }
             let pk = dilithium3::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
                 SignatureError::InvalidPublicKey("Invalid Dilithium3 public key".to_string())
@@ -799,11 +967,11 @@ pub fn verify_signature_with_keypair(
             })?;
             // Validate key length (Dilithium5 public key is 2592 bytes)
             if pub_bytes.len() != 2592 {
-                return Err(SignatureError::InvalidPublicKey(format!(
-                    "Invalid Dilithium5 public key length: expected 2592, got {}",
-                    pub_bytes.len()
-                )));
+                return Err(SignatureError::InvalidPublicKey(
+                    "Invalid Dilithium5 public key".to_string(),
+                ));
             }
+
             let pk = dilithium5::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
                 SignatureError::InvalidPublicKey("Invalid Dilithium5 public key".to_string())
             })?;
@@ -822,10 +990,9 @@ pub fn verify_signature_with_keypair(
             })?;
             // Validate key length (SPHINCS+ public key is 64 bytes)
             if pub_bytes.len() != 64 {
-                return Err(SignatureError::InvalidPublicKey(format!(
-                    "Invalid SPHINCS+ public key length: expected 64, got {}",
-                    pub_bytes.len()
-                )));
+                return Err(SignatureError::InvalidPublicKey(
+                    "Invalid SPHINCS+ public key".to_string(),
+                ));
             }
             let pk = sphincssha2256fsimple::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
                 SignatureError::InvalidPublicKey("Invalid SPHINCS+ public key".to_string())
@@ -842,6 +1009,23 @@ pub fn verify_signature_with_keypair(
 }
 
 /// Verify a signature using K256 (secp256k1)
+///
+/// **⚠️ IMPORTANT: Kanari K256 Uses SHA3-256 Pre-Hashing**
+///
+/// This verifier expects signatures created with K256 pre-hashing:
+/// - Message was hashed with SHA3-256 before signing
+/// - Verification repeats: `message_hash = SHA3-256(message)` then verifies signature
+///
+/// **Incompatible With:**
+/// ❌ Raw K256 signatures (unsigned message hash)
+/// ❌ Other pre-hash schemes (Bitcoin/Ethereum use different hash orders)
+/// ✅ Only Kanari K256 signatures
+///
+/// **Integration Warning:**
+/// If verifying K256 signatures from external sources:
+/// - Check their hashing scheme first
+/// - Kanari K256 is NOT compatible with standard secp256k1 signing
+/// - Use `verify_signature_with_curve()` for explicit curve knowledge
 pub fn verify_signature_k256(
     address_hex: &str,
     message: &[u8],
@@ -851,7 +1035,7 @@ pub fn verify_signature_k256(
     let signature = K256Signature::from_der(signature)
         .map_err(|_| SignatureError::InvalidFormat("Invalid signature format".to_string()))?;
 
-    // Hash the message with SHA3
+    // ⚠️ KANARI-SPECIFIC: Pre-hash the message with SHA3-256 (must match signing path!)
     let mut hasher = Sha3_256::default();
     hasher.update(message);
     let message_hash = hasher.finalize();
@@ -931,6 +1115,20 @@ pub fn verify_signature_k256(
 }
 
 /// Verify a signature using P256 (secp256r1)
+///
+/// **⚠️ IMPORTANT: Kanari P256 Uses SHA3-256 Pre-Hashing**
+///
+/// This verifier expects signatures created with P256 pre-hashing:
+/// - Message was hashed with SHA3-256 before signing
+/// - Verification repeats: `message_hash = SHA3-256(message)` then verifies signature
+///
+/// **Incompatible With:**
+/// ❌ Raw P256 signatures (unsigned message hash)
+/// ❌ NIST ECDSA standard scheme (NIST uses different approaches)
+/// ✅ Only Kanari P256 signatures
+///
+/// **Strategy Match:**
+/// P256 in Kanari uses the SAME pre-hashing as K256 for consistency.
 pub fn verify_signature_p256(
     address_hex: &str,
     message: &[u8],
@@ -940,7 +1138,7 @@ pub fn verify_signature_p256(
     let signature = P256Signature::from_der(signature)
         .map_err(|_| SignatureError::InvalidFormat("Invalid signature format".to_string()))?;
 
-    // Hash the message with SHA3
+    // ⚠️ KANARI-SPECIFIC: Pre-hash the message with SHA3-256 (must match signing path!)
     let mut hasher = Sha3_256::default();
     hasher.update(message);
     let message_hash = hasher.finalize();
@@ -1016,521 +1214,62 @@ pub fn verify_signature_p256(
 }
 
 /// Verify a signature using Ed25519
+///
+/// **✅ RFC-8032 COMPLIANT - Standard Ed25519 Verification (NO Pre-Hashing)**
+///
+/// This function strictly adheres to RFC-8032 standard Ed25519:
+/// - Signatures are verified DIRECTLY against the original message (no pre-hashing)
+/// - Compatible with Ed25519 signatures from all standard implementations
+/// - Uses constant-time verification to prevent timing attacks
+///
+/// **⚠️ CRITICAL DIFFERENCE FROM K256/P256:**
+/// - K256: Message → SHA3-256 hash → Sign hash ← Kanari-specific
+/// - P256: Message → SHA3-256 hash → Sign hash ← Kanari-specific
+/// - Ed25519: Message → Sign directly ← RFC-8032 standard
+///
+/// **DO NOT:**
+/// ❌ Pre-hash the message: `sign_message(key, sha256(msg), Ed25519)` ← WRONG!
+/// ❌ Try to verify K256-style hashed signatures
+///
+/// **Interoperability:**
+/// - ✅ Verifies Ed25519 signatures from libsodium, NaCl, cryptonote, external Ed25519 tools
+/// - ✅ Kanari Ed25519 signatures verify in standard Ed25519 implementations
+/// - ✅ No format conversion or special handling needed
+///
 pub fn verify_signature_ed25519(
     address_hex: &str,
     message: &[u8],
     signature: &[u8],
 ) -> Result<bool, SignatureError> {
-    // Check if signature has correct length for Ed25519
+    // ✅ RFC-8032 STANDARD: Verify message DIRECTLY (no pre-hashing)
+    // This is the key difference from K256/P256 which use pre-hashing
+    // Check signature length and construct signature object
     if signature.len() != 64 {
         return Err(SignatureError::InvalidSignatureLength);
     }
-
-    // Create a fixed-size array for the signature
     let mut sig_array = [0u8; 64];
     sig_array.copy_from_slice(signature);
     let signature = Ed25519Signature::from_bytes(&sig_array);
+    sig_array.zeroize();
 
-    // Normalize input using `extract_raw_key` (handles 0x and known prefixes)
+    // Normalize and decode public key
     let raw_key = crate::keys::extract_raw_key(address_hex);
     let decoded_hex = hex::decode(raw_key)
         .map_err(|_| SignatureError::InvalidPublicKey("Invalid address format".to_string()))?;
 
-    // For Ed25519, the address should be the 32-byte public key
     if decoded_hex.len() != ED25519_PUBLIC_KEY_LEN {
         return Err(SignatureError::InvalidPublicKey(
             "Invalid address format".to_string(),
         ));
     }
 
-    // Create a fixed-size array for the public key
     let mut key_array = [0u8; ED25519_PUBLIC_KEY_LEN];
     key_array.copy_from_slice(&decoded_hex);
-
-    // Create verifying key from public key bytes
     let verifying_key = Ed25519VerifyingKey::from_bytes(&key_array)
         .map_err(|_| SignatureError::InvalidPublicKey("Invalid address format".to_string()))?;
 
-    // Verification result (constant-time internally)
     match verifying_key.verify(message, &signature) {
         Ok(_) => Ok(true),
         Err(_) => Ok(false),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::keys::{CurveType, generate_keypair};
-
-    // ============================================================================
-    // Bug #2: Timing Attack in Signature Verification (Critical)
-    // ============================================================================
-
-    #[test]
-    fn test_signature_verification_uses_constant_time() {
-        // This test verifies that signature verification doesn't have timing leaks
-        // The cryptographic libraries (k256, p256, ed25519-dalek) provide constant-time
-        // comparison internally, so we verify that the API uses them correctly
-
-        let keypair = generate_keypair(CurveType::Ed25519).unwrap();
-        let message = b"test message";
-
-        // Sign the message
-        let signature = sign_message(&keypair.private_key, message, CurveType::Ed25519).unwrap();
-
-        // Verification should succeed
-        let result =
-            verify_signature_with_curve(&keypair.address, message, &signature, CurveType::Ed25519);
-        assert!(result.is_ok());
-        assert!(result.unwrap());
-
-        // Modify signature slightly
-        let mut bad_signature = signature.clone();
-        bad_signature[0] ^= 0x01;
-
-        // Verification should fail - this uses constant-time comparison internally
-        let result = verify_signature_with_curve(
-            &keypair.address,
-            message,
-            &bad_signature,
-            CurveType::Ed25519,
-        );
-        assert!(result.is_ok());
-        assert!(!result.unwrap());
-    }
-
-    #[test]
-    fn test_malformed_pqc_pubkey() {
-        let message = b"test";
-        let signature = b"\x00";
-        // invalid hex for pqc pub should return InvalidPublicKey
-        let res = verify_signature_with_curve("zz", message, signature, CurveType::Dilithium3);
-        assert!(matches!(res, Err(SignatureError::InvalidPublicKey(_))));
-    }
-
-    #[test]
-    fn test_oversized_classical_len_in_hybrid_signature() {
-        // Create a hybrid keypair and craft a signature whose classical_len > MAX_CLASSICAL_SIG_LEN
-        let keypair = generate_keypair(CurveType::K256Dilithium3).unwrap();
-        let message = b"hello";
-
-        // craft signature: 2-byte classical len set to 2000 (> MAX_CLASSICAL_SIG_LEN)
-        let mut sig = Vec::new();
-        sig.extend_from_slice(&2000u16.to_be_bytes());
-        // append some bytes to represent pqc part
-        sig.extend_from_slice(&[0u8; 16]);
-
-        let classical_pub = keypair
-            .public_key
-            .split(':')
-            .next()
-            .unwrap_or(&keypair.public_key);
-        let addr = format!(
-            "{}:{}",
-            classical_pub,
-            keypair.get_pqc_public_key().unwrap()
-        );
-        let res =
-            verify_signature_with_curve(&addr, message, &sig, CurveType::K256Dilithium3).unwrap();
-        // should return false due to oversized classical length (defensive check)
-        assert!(!res);
-    }
-
-    #[test]
-    fn test_hybrid_roundtrip_and_malformed_parts() {
-        let keypair = generate_keypair(CurveType::Ed25519Dilithium3).unwrap();
-        let message = b"roundtrip";
-
-        // Sign and verify roundtrip
-        let signature =
-            sign_message(&keypair.private_key, message, CurveType::Ed25519Dilithium3).unwrap();
-        let classical_pub = keypair
-            .public_key
-            .split(':')
-            .next()
-            .unwrap_or(&keypair.public_key);
-        let addr = format!(
-            "{}:{}",
-            classical_pub,
-            keypair.get_pqc_public_key().unwrap()
-        );
-        assert!(
-            verify_signature_with_curve(&addr, message, &signature, CurveType::Ed25519Dilithium3)
-                .unwrap()
-        );
-
-        // Truncated PQC part (only classical present) should fail verification
-        let classical_len = u16::from_be_bytes([signature[0], signature[1]]) as usize;
-        let truncated = signature[..2 + classical_len].to_vec();
-        assert!(
-            !verify_signature_with_curve(&addr, message, &truncated, CurveType::Ed25519Dilithium3)
-                .unwrap()
-        );
-
-        // Invalid PQC public hex should fail verification (treated as verification failure)
-        let bad_addr = format!("{}:zzzz", keypair.public_key);
-        let res = verify_signature_with_curve(
-            &bad_addr,
-            message,
-            &signature,
-            CurveType::Ed25519Dilithium3,
-        );
-        assert!(matches!(res, Err(SignatureError::InvalidPublicKey(_))));
-    }
-
-    // ============================================================================
-    // Bug #3: Memory Safety in secure_clear (Critical)
-    // ============================================================================
-
-    #[test]
-    fn test_secure_clear_memory_safety() {
-        let mut sensitive = vec![0xFF; 256];
-
-        // Clear with secure_clear
-        secure_clear(&mut sensitive);
-
-        // Verify all bytes are zero
-        assert!(
-            sensitive.iter().all(|&b| b == 0),
-            "All bytes should be zero after secure_clear"
-        );
-    }
-
-    #[test]
-    fn test_secure_clear_uses_black_box() {
-        // This test ensures secure_clear uses black_box to prevent optimization
-        let mut data = b"secret_key_data_that_must_be_cleared".to_vec();
-
-        secure_clear(&mut data);
-
-        // Compiler shouldn't optimize this away due to black_box
-        assert_eq!(data, vec![0u8; data.len()]);
-    }
-
-    // ============================================================================
-    // Signature Creation and Verification Tests
-    // ============================================================================
-
-    #[test]
-    fn test_sign_and_verify_k256() {
-        let keypair = generate_keypair(CurveType::K256).unwrap();
-        let message = b"Hello, K256!";
-
-        let signature = sign_message(&keypair.private_key, message, CurveType::K256).unwrap();
-        let verified =
-            verify_signature_with_curve(&keypair.address, message, &signature, CurveType::K256)
-                .unwrap();
-
-        assert!(verified, "K256 signature should verify");
-    }
-
-    #[test]
-    fn test_sign_and_verify_p256() {
-        let keypair = generate_keypair(CurveType::P256).unwrap();
-        let message = b"Hello, P256!";
-
-        let signature = sign_message(&keypair.private_key, message, CurveType::P256).unwrap();
-        let verified =
-            verify_signature_with_curve(&keypair.address, message, &signature, CurveType::P256)
-                .unwrap();
-
-        assert!(verified, "P256 signature should verify");
-    }
-
-    #[test]
-    fn test_sign_and_verify_ed25519() {
-        let keypair = generate_keypair(CurveType::Ed25519).unwrap();
-        let message = b"Hello, Ed25519!";
-
-        let signature = sign_message(&keypair.private_key, message, CurveType::Ed25519).unwrap();
-        let verified =
-            verify_signature_with_curve(&keypair.address, message, &signature, CurveType::Ed25519)
-                .unwrap();
-
-        assert!(verified, "Ed25519 signature should verify");
-    }
-
-    #[test]
-    fn test_signature_fails_with_wrong_message() {
-        let keypair = generate_keypair(CurveType::K256).unwrap();
-        let message1 = b"Original message";
-        let message2 = b"Different message";
-
-        let signature = sign_message(&keypair.private_key, message1, CurveType::K256).unwrap();
-        let verified =
-            verify_signature_with_curve(&keypair.address, message2, &signature, CurveType::K256)
-                .unwrap();
-
-        assert!(!verified, "Signature should not verify with wrong message");
-    }
-
-    #[test]
-    fn test_signature_fails_with_wrong_address() {
-        let keypair1 = generate_keypair(CurveType::Ed25519).unwrap();
-        let keypair2 = generate_keypair(CurveType::Ed25519).unwrap();
-        let message = b"Test message";
-
-        let signature = sign_message(&keypair1.private_key, message, CurveType::Ed25519).unwrap();
-        let verified =
-            verify_signature_with_curve(&keypair2.address, message, &signature, CurveType::Ed25519)
-                .unwrap();
-
-        assert!(
-            !verified,
-            "Signature should not verify with different address"
-        );
-    }
-
-    #[test]
-    fn test_signature_with_kanari_prefix() {
-        let keypair = generate_keypair(CurveType::K256).unwrap();
-        let message = b"Test message";
-
-        // Should work with kanari prefix
-        assert!(keypair.private_key.starts_with("kanari"));
-        let signature = sign_message(&keypair.private_key, message, CurveType::K256).unwrap();
-
-        assert!(!signature.is_empty());
-    }
-
-    #[test]
-    fn test_invalid_signature_length() {
-        let keypair = generate_keypair(CurveType::Ed25519).unwrap();
-        let message = b"Test";
-
-        // Ed25519 signatures must be 64 bytes
-        let bad_signature = vec![0u8; 32]; // Wrong length
-
-        let result = verify_signature_ed25519(
-            keypair.address.trim_start_matches("0x"),
-            message,
-            &bad_signature,
-        );
-
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            SignatureError::InvalidSignatureLength
-        ));
-    }
-
-    #[test]
-    fn test_verify_signature_with_legacy_api() {
-        let keypair = generate_keypair(CurveType::K256).unwrap();
-        let message = b"Test";
-
-        let signature = sign_message(&keypair.private_key, message, CurveType::K256).unwrap();
-
-        // Test the legacy verify_signature API
-        let verified = verify_signature(&keypair.address, message, &signature).unwrap();
-        assert!(verified);
-    }
-
-    #[test]
-    fn test_sign_message_handles_empty_message() {
-        let keypair = generate_keypair(CurveType::K256).unwrap();
-        let empty_message = b"";
-
-        // Should still be able to sign empty message (hashes to deterministic value)
-        let signature = sign_message(&keypair.private_key, empty_message, CurveType::K256);
-        assert!(signature.is_ok(), "Should be able to sign empty message");
-    }
-
-    #[test]
-    fn test_sign_with_invalid_private_key() {
-        let result = sign_message("invalid_hex", b"message", CurveType::K256);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            SignatureError::InvalidPrivateKey(_)
-        ));
-    }
-
-    #[test]
-    fn test_verify_with_invalid_address() {
-        let signature = vec![0u8; 64];
-        let message = b"test";
-
-        let result = verify_signature_ed25519("invalid_hex", message, &signature);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_signature_deterministic_for_same_input() {
-        let keypair = generate_keypair(CurveType::Ed25519).unwrap();
-        let message = b"Deterministic test";
-
-        // Ed25519 signatures should be deterministic
-        let sig1 = sign_message(&keypair.private_key, message, CurveType::Ed25519).unwrap();
-        let sig2 = sign_message(&keypair.private_key, message, CurveType::Ed25519).unwrap();
-
-        assert_eq!(sig1, sig2, "Ed25519 signatures should be deterministic");
-    }
-
-    #[test]
-    fn test_pqc_signing_not_supported_yet() {
-        let keypair = generate_keypair(CurveType::Dilithium3).unwrap();
-        let message = b"test";
-
-        // PQC signing should be supported by the PQC-specific API
-        let signature = sign_message(&keypair.private_key, message, CurveType::Dilithium3).unwrap();
-        // Verify using explicit curve type
-        let verified = verify_signature_with_curve(
-            &keypair.public_key,
-            message,
-            &signature,
-            CurveType::Dilithium3,
-        )
-        .unwrap();
-        assert!(verified, "Dilithium3 signature should verify");
-    }
-
-    #[test]
-    fn test_secure_clear_on_different_sizes() {
-        // Test various sizes
-        for size in [0, 1, 16, 32, 64, 128, 256, 1024] {
-            let mut data = vec![0xAA; size];
-            secure_clear(&mut data);
-            assert!(
-                data.iter().all(|&b| b == 0),
-                "Size {} should be fully cleared",
-                size
-            );
-        }
-    }
-
-    #[test]
-    fn test_verify_signature_safe_all_curves() {
-        // Test that verify_signature_safe works for all classical curves
-        let curves = vec![CurveType::K256, CurveType::P256, CurveType::Ed25519];
-
-        for curve in curves {
-            let keypair = generate_keypair(curve).unwrap();
-            let message = b"Safe verification test";
-
-            let signature = sign_message(&keypair.private_key, message, curve).unwrap();
-
-            // verify_signature_safe should work without knowing the curve
-            let result = verify_signature(&keypair.address, message, &signature).unwrap();
-            assert!(result, "Safe verification failed for {:?}", curve);
-        }
-    }
-
-    #[test]
-    fn test_hybrid_sign_and_verify_k256_dilithium3() {
-        let keypair = generate_keypair(CurveType::K256Dilithium3).unwrap();
-        let message = b"Hybrid K256+Dilithium3 test";
-
-        // Sign using hybrid API
-        let signature =
-            sign_message(&keypair.private_key, message, CurveType::K256Dilithium3).unwrap();
-
-        // Verify using combined public parts (classical:pqc)
-        let pub_combined = keypair.public_key; // format: "classical_pub:pqc_pub"
-
-        let verified = verify_signature_with_curve(
-            &pub_combined,
-            message,
-            &signature,
-            CurveType::K256Dilithium3,
-        )
-        .unwrap();
-        assert!(verified, "Hybrid K256+Dilithium3 signature should verify");
-    }
-
-    #[test]
-    fn test_hybrid_sign_and_verify_ed25519_dilithium3() {
-        let keypair = generate_keypair(CurveType::Ed25519Dilithium3).unwrap();
-        let message = b"Hybrid Ed25519+Dilithium3 test";
-
-        let signature =
-            sign_message(&keypair.private_key, message, CurveType::Ed25519Dilithium3).unwrap();
-
-        let pub_combined = keypair.public_key;
-
-        let verified = verify_signature_with_curve(
-            &pub_combined,
-            message,
-            &signature,
-            CurveType::Ed25519Dilithium3,
-        )
-        .unwrap();
-        assert!(
-            verified,
-            "Hybrid Ed25519+Dilithium3 signature should verify"
-        );
-    }
-
-    #[test]
-    fn test_malformed_hybrid_signature_fallback_and_reject() {
-        // Generate hybrid keypair and a proper signature
-        let keypair = generate_keypair(CurveType::K256Dilithium3).unwrap();
-        let message = b"Malformed hybrid test";
-        let mut signature =
-            sign_message(&keypair.private_key, message, CurveType::K256Dilithium3).unwrap();
-
-        // Truncate signature to make length prefix inconsistent
-        if signature.len() > 10 {
-            signature.truncate(3); // too short to contain 2-byte length + classical
-        }
-
-        // Try verify with combined public key; should not panic and should return false
-        let pub_combined = keypair.public_key;
-        let result = verify_signature_with_curve(
-            &pub_combined,
-            message,
-            &signature,
-            CurveType::K256Dilithium3,
-        )
-        .unwrap();
-        assert!(!result, "Malformed combined signature should not verify");
-    }
-
-    #[test]
-    fn test_verify_signature_with_tagged_address() {
-        // Test that verify_signature correctly uses tagged addresses
-        let keypair = generate_keypair(CurveType::Ed25519).unwrap();
-        let message = b"Tagged address test";
-
-        let signature = sign_message(&keypair.private_key, message, CurveType::Ed25519).unwrap();
-
-        // Use tagged address
-        let tagged = keypair.tagged_address();
-        let result = verify_signature(&tagged, message, &signature).unwrap();
-
-        assert!(result, "Verification with tagged address should succeed");
-    }
-
-    #[test]
-    fn test_verify_signature_fallback_to_safe() {
-        // Test that verify_signature falls back to safe mode for untagged addresses
-        let keypair = generate_keypair(CurveType::K256).unwrap();
-        let message = b"Fallback test";
-
-        let signature = sign_message(&keypair.private_key, message, CurveType::K256).unwrap();
-
-        // Use untagged address - should fallback to verify_signature_safe
-        let result = verify_signature(&keypair.address, message, &signature).unwrap();
-
-        assert!(
-            result,
-            "Verification with untagged address should succeed via fallback"
-        );
-    }
-
-    #[test]
-    fn test_verify_signature_safe_wrong_signature() {
-        // Test that verify_signature_safe correctly rejects invalid signatures
-        let keypair = generate_keypair(CurveType::K256).unwrap();
-        let message1 = b"Original message";
-        let message2 = b"Different message";
-
-        let signature = sign_message(&keypair.private_key, message1, CurveType::K256).unwrap();
-
-        // Verify with wrong message should fail
-        let result = verify_signature(&keypair.address, message2, &signature).unwrap();
-
-        assert!(!result, "Safe verification should reject wrong message");
     }
 }

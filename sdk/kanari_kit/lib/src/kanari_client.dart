@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
-import 'package:kanari_kit/src/kanaricurve.dart';
 import 'models/rpc_response.dart';
 import 'models/health.dart';
 import 'models/account.dart';
@@ -282,21 +281,35 @@ class KanariClient {
   }
 
   String _getSenderForTx(KanariWallet wallet) {
-    final curve = KanariCurve.fromString(wallet.curveType);
-    if (curve.isPostQuantum || curve.isHybrid) {
-      return wallet.taggedAddress;
-    } else {
-      return _normalizeAddress(wallet.address);
-    }
+    // CRITICAL: Always use tagged address for ALL curve types
+    // This is required for timing-safe signature verification per security spec
+    // Format: CURVE:0xPUBKEY (e.g., 'K256:0xabc...', 'Ed25519:0x123...')
+    return wallet.taggedAddress;
   }
 
   /// Normalize address to 0x followed by 64 hex characters (32 bytes)
   /// This matches how the Rust Address type is serialized to String.
+  /// 
+  /// IMPORTANT: Address MUST be exactly 64 hex characters (excluding 0x prefix).
+  /// Addresses that are too short or too long will be rejected.
   String _normalizeAddress(String addr) {
     var clean = addr.startsWith('0x') ? addr.substring(2) : addr;
-    if (clean.length < 64) {
-      clean = clean.padLeft(64, '0');
+    
+    // Validate hex characters
+    if (!RegExp(r'^[0-9a-fA-F]+$').hasMatch(clean)) {
+      throw ArgumentError('Invalid hexadecimal characters in address: $clean');
     }
+    
+    // CRITICAL: Address MUST be exactly 64 hex characters (32 bytes)
+    // This prevents ambiguity and ensures compatibility with Rust backend
+    if (clean.length != 64) {
+      throw ArgumentError(
+        'Address must be exactly 64 hex characters (32 bytes). '
+        'Got ${clean.length} characters. '
+        'Example: 0x${'1'.padLeft(64, '0')}',
+      );
+    }
+    
     return '0x${clean.toLowerCase()}';
   }
 

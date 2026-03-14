@@ -260,7 +260,10 @@ class HomeScreen extends StatelessWidget {
               controller: recipientController,
               decoration: const InputDecoration(
                 labelText: 'Recipient Address',
+                hintText: '0x + 64 hex characters',
                 border: OutlineInputBorder(),
+                helperText:
+                    'Must be exactly 64 hex characters (e.g., 0x8af6...c4152)',
               ),
             ),
             const SizedBox(height: 12),
@@ -286,7 +289,71 @@ class HomeScreen extends StatelessWidget {
               final amountDouble = double.tryParse(amountStr) ?? 0.0;
               final amountMist = (amountDouble * 1000000000).round();
 
-              if (recipient.isEmpty || amountMist <= 0) return;
+              // Validate recipient address format
+              if (recipient.isEmpty) {
+                if (dialogContext.mounted) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(
+                      content: Text('❌ Recipient address is required'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+                return;
+              }
+
+              // Basic format validation before sending to client
+              // Address must be exactly 64 hex characters (with or without 0x prefix)
+              var cleanAddress = recipient.startsWith('0x')
+                  ? recipient.substring(2)
+                  : recipient;
+
+              if (!RegExp(r'^[0-9a-fA-F]+$').hasMatch(cleanAddress)) {
+                if (dialogContext.mounted) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        '❌ Invalid address format!\n\n'
+                        'Address must contain only hexadecimal characters (0-9, a-f)\n\n'
+                        'Example: 0x8af6f4c88e204c8d09ff8b416689ff402089938966d55eae2ca24f495efc4152',
+                      ),
+                      backgroundColor: Colors.red,
+                      duration: Duration(seconds: 5),
+                    ),
+                  );
+                }
+                return;
+              }
+
+              if (cleanAddress.length != 64) {
+                if (dialogContext.mounted) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        '❌ Invalid address length!\n\n'
+                        'Address must be exactly 64 hex characters (32 bytes).\n'
+                        'Current length: ${cleanAddress.length} characters.\n\n'
+                        'Example: 0x${'1'.padLeft(64, '0')}',
+                      ),
+                      backgroundColor: Colors.red,
+                      duration: Duration(seconds: 6),
+                    ),
+                  );
+                }
+                return;
+              }
+
+              if (amountMist <= 0) {
+                if (dialogContext.mounted) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(
+                      content: Text('❌ Amount must be greater than 0'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+                return;
+              }
 
               Navigator.pop(dialogContext);
               final result = await context.read<WalletState>().transfer(
@@ -295,7 +362,16 @@ class HomeScreen extends StatelessWidget {
               );
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(result ?? "Unknown error")),
+                  SnackBar(
+                    content: Text(
+                      result?.startsWith('Error:') == true
+                          ? '❌ $result'
+                          : '✅ $result',
+                    ),
+                    backgroundColor: result?.startsWith('Error:') == true
+                        ? Colors.red
+                        : Colors.green,
+                  ),
                 );
               }
             },
