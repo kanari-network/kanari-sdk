@@ -87,11 +87,13 @@ impl CreateWallet {
         .context("Failed to save wallet")?;
 
         eprintln!("Created wallet: {}", address_str);
-        if let Some(path) = derivation_path {
-            eprintln!("Derivation path: {}", path);
+        eprintln!("Private Key: {}", private_key);
+        eprintln!("Curve Type: {:?}", curve_type);
+        if let Some(path) = &derivation_path {
+            eprintln!("Derivation Path: {}", path);
         }
         if !seed_phrase.is_empty() {
-            eprintln!("Seed phrase: {}", seed_phrase);
+            eprintln!("Seed Phrase: {}", seed_phrase);
         }
 
         Ok(())

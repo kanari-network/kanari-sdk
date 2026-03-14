@@ -270,8 +270,8 @@ impl ChangeSet {
     ) {
         // Compute canonical id first: prefer explicit object_id, then UID address,
         // otherwise derive deterministic id from owner+type+data via blake3.
-        let canonical_id = if let Some(id) = object_id {
-            id
+        let mut canonical_id = if let Some(id) = &object_id {
+            id.clone()
         } else if let Some(ref u) = uid {
             format!("{:#x}", u.address())
         } else {
@@ -282,6 +282,35 @@ impl ChangeSet {
             let hash = hash_data_blake3(&input);
             format!("0x{}", hex::encode(&hash[0..32]))
         };
+
+        // Check if this object_id is already used in this changeset
+        // If so, generate a new unique ID to prevent collision
+        if self
+            .created_objects
+            .iter()
+            .any(|(id, _)| id == &canonical_id)
+        {
+            // Object ID already used - generate new unique ID by including version and timestamp
+            let mut input = Vec::new();
+            input.extend_from_slice(owner.as_ref());
+            input.extend_from_slice(type_.as_bytes());
+            input.extend_from_slice(&data);
+            input.extend_from_slice(&version.to_le_bytes());
+            // Add some entropy from current time
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos() as u64;
+            input.extend_from_slice(&timestamp.to_le_bytes());
+            let hash = hash_data_blake3(&input);
+            let new_id = format!("0x{}", hex::encode(&hash[0..32]));
+            log::warn!(
+                "Object ID collision detected for {}. Generated new unique ID: {}",
+                object_id.as_deref().unwrap_or("derived"),
+                new_id
+            );
+            canonical_id = new_id;
+        }
 
         // If an entry with the same canonical id already exists, update it.
         if let Some((existing_id, existing_obj)) = self

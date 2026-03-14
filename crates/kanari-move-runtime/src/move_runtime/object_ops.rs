@@ -99,23 +99,21 @@ impl super::MoveRuntime {
             // Detect special objects (TreasuryCap, Coin) and add them to changeset
             if let Ok(struct_tag) = StructTag::from_str(&obj_type) {
                 // Parse TreasuryCap resources
-                if self.is_treasury_resource(&struct_tag) {
-                    if let Some(total) = self.extract_treasury_total_from_bytes(&data) {
-                        if let Some(token_type) = self.token_type_from_struct_tag(&struct_tag) {
-                            cs.add_treasury(owner, token_type, total);
-                            debug!("Detected TreasuryCap object: supply={}", total);
-                        }
-                    }
+                if self.is_treasury_resource(&struct_tag)
+                    && let Some(total) = self.extract_treasury_total_from_bytes(&data)
+                    && let Some(token_type) = self.token_type_from_struct_tag(&struct_tag)
+                {
+                    cs.add_treasury(owner, token_type, total);
+                    debug!("Detected TreasuryCap object: supply={}", total);
                 }
 
                 // Parse Coin resources (Balance)
-                if self.is_balance_resource(&struct_tag) {
-                    if let Some(amount) = self.extract_balance_from_bytes(&data, &struct_tag) {
-                        if let Some(token_type) = self.token_type_from_struct_tag(&struct_tag) {
-                            cs.add_token_balance_set(owner, token_type, amount);
-                            debug!("Detected Coin object: amount={}", amount);
-                        }
-                    }
+                if self.is_balance_resource(&struct_tag)
+                    && let Some(amount) = self.extract_balance_from_bytes(&data, &struct_tag)
+                    && let Some(token_type) = self.token_type_from_struct_tag(&struct_tag)
+                {
+                    cs.add_token_balance_set(owner, token_type, amount);
+                    debug!("Detected Coin object: amount={}", amount);
                 }
             }
 

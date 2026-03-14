@@ -52,7 +52,7 @@ module kanari_system::kanari {
         let treasury_cap = treasury;
 
         // Mint the entire supply (in Mist) and transfer to dev @0x9
-        let dev_address: address = @0x72f651a238529a7f5a4416916a018cb55557091c291f050f75368afe87b272c9;
+        let dev_address: address = @0x8af6f4c88e204c8d09ff8b416689ff402089938966d55eae2ca24f495efc4152;
         let minted_coin: Coin<KANARI> = coin::mint(&mut treasury_cap, TOTAL_SUPPLY_MIST, ctx);
         transfer::public_transfer(minted_coin, dev_address);
 

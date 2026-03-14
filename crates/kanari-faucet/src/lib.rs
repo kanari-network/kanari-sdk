@@ -83,17 +83,12 @@ pub async fn request_from_dev(
     const MIST_PER_KANARI: f64 = 1_000_000_000.0;
     let amount_mist = (amount * MIST_PER_KANARI).round() as u64;
 
-    // If it's a PQC or Hybrid wallet, use the tagged address (Curve:PublicKey)
-    // for signing and sender identity to ensure the RPC server can verify it.
-    let sender_for_tx = if wallet.curve_type.is_post_quantum() || wallet.curve_type.is_hybrid() {
-        // Re-derive public key from private key to get the tagged address format
-        let keypair =
-            kanari_crypto::keys::keypair_from_private_key(&wallet.private_key, wallet.curve_type)
-                .context("Failed to derive public key from wallet")?;
-        format!("{:?}:{}", wallet.curve_type, keypair.public_key)
-    } else {
-        dev_address.clone()
-    };
+    // Re-derive keypair from private key to get the tagged address format
+    // Tagged addresses are required for signature verification
+    let keypair =
+        kanari_crypto::keys::keypair_from_private_key(&wallet.private_key, wallet.curve_type)
+            .context("Failed to derive public key from wallet")?;
+    let sender_for_tx = keypair.tagged_address();
 
     let tx = Transaction::Transfer {
         from: sender_for_tx.clone(),

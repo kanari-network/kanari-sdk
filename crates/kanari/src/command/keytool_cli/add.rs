@@ -4,7 +4,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use kanari_crypto::hd_wallet::derive_keypair_from_path;
-use kanari_crypto::keys::CurveType;
+use kanari_crypto::keys::{CurveType, ImportedWallet};
 use kanari_crypto::wallet::save_wallet;
 use move_core_types::account_address::AccountAddress;
 use std::str::FromStr;
@@ -53,17 +53,26 @@ impl AddWallet {
         }
 
         if let Some(pk) = &self.private_key {
-            let (privk, _pubk, address_str) =
+            let imported: ImportedWallet =
                 kanari_crypto::keys::import_from_private_key(pk, curve_type)
                     .map_err(|e| anyhow::anyhow!("Import from private key failed: {}", e))?;
 
             let address =
-                AccountAddress::from_str(&address_str).context("Generated invalid address")?;
+                AccountAddress::from_str(&imported.address).context("Generated invalid address")?;
 
-            save_wallet(&address, &privk, "", None, &self.password, curve_type)
-                .context("Failed to save imported private-key wallet")?;
+            save_wallet(
+                &address,
+                &imported.private_key,
+                "",
+                None,
+                &self.password,
+                curve_type,
+            )
+            .context("Failed to save imported private-key wallet")?;
 
-            eprintln!("Imported wallet from private key: {}", address_str);
+            eprintln!("Imported wallet from private key: {}", imported.address);
+            eprintln!("Private Key: {}", *imported.private_key);
+            eprintln!("Curve Type: {:?}", curve_type);
         } else if let Some(seed_phrase) = &self.seed {
             // Importing from BIP39 seed phrases only works for classical curves.
             if curve_type.is_post_quantum() || curve_type.is_hybrid() {
@@ -92,7 +101,10 @@ impl AddWallet {
             .context("Failed to save imported seed wallet")?;
 
             eprintln!("Imported wallet from seed phrase: {}", address_str);
-            eprintln!("Derivation path: {}", self.path);
+            eprintln!("Private Key: {}", privk);
+            eprintln!("Derivation Path: {}", self.path);
+            eprintln!("Curve Type: {:?}", curve_type);
+            eprintln!("Seed Phrase: {}", seed_phrase);
         }
 
         Ok(())

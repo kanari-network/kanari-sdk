@@ -1,3 +1,3 @@
 # Ignore local env and other local dev artifacts
-.env
+# .env
 target/

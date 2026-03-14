@@ -10,7 +10,11 @@ use kanari_crypto::{sign_message, verify_signature};
 fn main() {
     println!("🔐 Kanari Crypto v2.0 - Signing and Verification Example");
     println!("========================================================");
-    println!("\nℹ️  This example demonstrates both classical signatures");
+    println!("\nℹ️  This example demonstrates signing and verification across multiple curves");
+    println!("\n⚠️  SECURITY NOTE: This example uses tagged addresses (e.g., \"K256:0x...\") for");
+    println!("   signature verification. Tagged addresses prevent timing attacks by eliminating");
+    println!("   the need to try multiple curves. Always use tagged addresses in production!");
+    println!("   See SECURITY_ANALYSIS.md for details.");
 
     // Example 1: K256 (secp256k1) signing and verification
     println!("\n📝 Example 1: K256 Curve (Classical - NOT Quantum-Safe)");
@@ -27,6 +31,7 @@ fn main() {
 
     println!("Generated new K256 wallet:");
     println!("  Address: {}", keypair.address);
+    println!("  Tagged Address: {}", keypair.tagged_address());
     println!("  Private Key: {}", &*keypair.private_key);
     println!("  Public Key: {}", keypair.public_key);
 
@@ -45,17 +50,21 @@ fn main() {
         }
     };
 
-    // Verify the signature
+    // Verify the signature using tagged address (security best practice)
+    // Tagged addresses include the curve type to prevent timing attacks
     if !k256_signature.is_empty() {
-        match verify_signature(&keypair.address, message, &k256_signature) {
-            Ok(true) => println!("✅ Signature verification successful!"),
-            Ok(false) => println!("❌ Signature verification failed!"),
+        let tagged_addr = keypair.tagged_address();
+        println!("\n📌 Using tagged address: {}", tagged_addr);
+
+        match verify_signature(&tagged_addr, message, &k256_signature) {
+            Ok(true) => println!("✅ Signature verification successful (with tagged address)!"),
+            Ok(false) => println!("❌ Signature verification failed (with tagged address)!"),
             Err(e) => println!("Error verifying signature: {}", e),
         }
 
         // Try with wrong message
         let wrong_message = b"Wrong message!";
-        match verify_signature(&keypair.address, wrong_message, &k256_signature) {
+        match verify_signature(&tagged_addr, wrong_message, &k256_signature) {
             Ok(true) => println!("❌ Signature incorrectly verified with wrong message!"),
             Ok(false) => println!("✅ Signature correctly rejected for wrong message!"),
             Err(e) => println!("Error verifying signature: {}", e),
@@ -77,6 +86,7 @@ fn main() {
 
     println!("Generated new P256 wallet:");
     println!("  Address: {}", p256_keypair.address);
+    println!("  Tagged Address: {}", p256_keypair.tagged_address());
     println!("  Private Key: {}", &*p256_keypair.private_key);
     println!("  Public Key: {}", p256_keypair.public_key);
 
@@ -96,20 +106,17 @@ fn main() {
             }
         };
 
-    // Verify the signature
+    // Verify the signature using tagged address (security best practice)
     if !p256_signature.is_empty() {
-        // Try with the generic verify_signature function
-        match verify_signature(&p256_keypair.address, message_p256, &p256_signature) {
-            Ok(true) => println!("✅ Signature verification successful with generic function!"),
-            Ok(false) => println!("❌ Signature verification failed with generic function!"),
-            Err(e) => println!("Error verifying signature with generic function: {}", e),
-        }
+        let tagged_addr = p256_keypair.tagged_address();
+        println!("\n📌 Using tagged address: {}", tagged_addr);
 
-        // Try with verification using curve type
-        match verify_signature(&p256_keypair.address, message_p256, &p256_signature) {
-            Ok(true) => println!("✅ Signature verification successful!"),
-            Ok(false) => println!("❌ Signature verification failed!"),
-            Err(e) => println!("Error verifying signature: {}", e),
+        // Tagged addresses are the recommended approach - they prevent timing attacks
+        // by making it clear which curve should be used
+        match verify_signature(&tagged_addr, message_p256, &p256_signature) {
+            Ok(true) => println!("✅ Signature verification successful with tagged address!"),
+            Ok(false) => println!("❌ Signature verification failed with tagged address!"),
+            Err(e) => println!("Error verifying signature with tagged address: {}", e),
         }
     }
 
@@ -146,8 +153,8 @@ fn main() {
                         println!("❌ Signature from imported key differs from original!");
                     }
 
-                    // Verify the signature works
-                    match verify_signature(&imported_keypair.address, message, &sig) {
+                    // Verify the signature works using tagged address
+                    match verify_signature(&imported_keypair.tagged_address(), message, &sig) {
                         Ok(true) => println!("✅ Signature verification successful!"),
                         Ok(false) => println!("❌ Signature verification failed!"),
                         Err(e) => println!("Error verifying signature: {}", e),
@@ -188,8 +195,8 @@ fn main() {
                         println!("❌ Signature from imported key differs from original!");
                     }
 
-                    // Verify the signature works
-                    match verify_signature(&imported_keypair.address, message_p256, &sig) {
+                    // Verify the signature works using tagged address
+                    match verify_signature(&imported_keypair.tagged_address(), message_p256, &sig) {
                         Ok(true) => println!("✅ Signature verification successful!"),
                         Ok(false) => println!("❌ Signature verification failed!"),
                         Err(e) => println!("Error verifying signature: {}", e),
@@ -216,6 +223,7 @@ fn main() {
 
     println!("Generated new Ed25519 wallet:");
     println!("  Address: {}", ed25519_keypair.address);
+    println!("  Tagged Address: {}", ed25519_keypair.tagged_address());
     println!("  Private Key: {}", &*ed25519_keypair.private_key);
     println!("  Public Key: {}", ed25519_keypair.public_key);
 
@@ -241,17 +249,16 @@ fn main() {
         }
     };
 
-    // Verify the signature
+    // Verify the signature using tagged address (security best practice)
     if !ed25519_signature.is_empty() {
-        // Try with the generic verify_signature function
-        match verify_signature(
-            &ed25519_keypair.address,
-            message_ed25519,
-            &ed25519_signature,
-        ) {
-            Ok(true) => println!("✅ Signature verification successful with generic function!"),
-            Ok(false) => println!("❌ Signature verification failed with generic function!"),
-            Err(e) => println!("Error verifying signature with generic function: {}", e),
+        let tagged_addr = ed25519_keypair.tagged_address();
+        println!("\n📌 Using tagged address: {}", tagged_addr);
+
+        // Using tagged address prevents the fallback verification path
+        match verify_signature(&tagged_addr, message_ed25519, &ed25519_signature) {
+            Ok(true) => println!("✅ Signature verification successful with tagged address!"),
+            Ok(false) => println!("❌ Signature verification failed with tagged address!"),
+            Err(e) => println!("Error verifying signature with tagged address: {}", e),
         }
     }
 
@@ -288,8 +295,12 @@ fn main() {
                         println!("❌ Signature from imported key differs from original!");
                     }
 
-                    // Verify the signature works
-                    match verify_signature(&imported_keypair.address, message_ed25519, &sig) {
+                    // Verify the signature works using tagged address
+                    match verify_signature(
+                        &imported_keypair.tagged_address(),
+                        message_ed25519,
+                        &sig,
+                    ) {
                         Ok(true) => println!("✅ Signature verification successful!"),
                         Ok(false) => println!("❌ Signature verification failed!"),
                         Err(e) => println!("Error verifying signature: {}", e),
@@ -339,8 +350,12 @@ fn main() {
                     );
                     println!("  Signature (hex): {}", hex::encode(&sig));
 
-                    // Verify the signature
-                    match verify_signature(&mnemonic_keypair.address, message_mnemonic, &sig) {
+                    // Verify the signature using tagged address
+                    match verify_signature(
+                        &mnemonic_keypair.tagged_address(),
+                        message_mnemonic,
+                        &sig,
+                    ) {
                         Ok(true) => println!("✅ Signature verification successful!"),
                         Ok(false) => println!("❌ Signature verification failed!"),
                         Err(e) => println!("Error verifying signature: {}", e),

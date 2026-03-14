@@ -4,6 +4,7 @@
 use crate::changeset::{ChangeSet, CreatedObject};
 use crate::storage::persistent_store::PersistentStore;
 use anyhow::Result;
+use kanari_crypto::hash_data_blake3;
 use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::TreasuryCap;
 use kanari_types::kanari::KanariModule;
@@ -259,9 +260,9 @@ impl StateManager {
     }
 
     // Helper to construct DB key for owned objects
-    fn owned_objects_key(address: &AccountAddress) -> Vec<u8> {
-        let mut key = b"owned:".to_vec();
-        key.extend_from_slice(address.as_ref());
+    fn owned_objects_key(owner: &AccountAddress) -> Vec<u8> {
+        let mut key = b"owned_objects:".to_vec();
+        key.extend_from_slice(owner.as_ref());
         key
     }
 
@@ -389,24 +390,69 @@ impl StateManager {
         // Persist created objects
         for (obj_id, created) in &changeset.created_objects {
             let obj_key = Self::object_key(obj_id);
+            let mut final_obj_id = obj_id.clone();
 
-            // Check if object exists and handle ownership transfer
-            // This is crucial: if an object is transferred, we must remove it from the old owner's list
+            // Check if object exists and handle ownership transfer or ID collision
             if let Ok(Some(existing)) = self.load_internal::<CreatedObject>(&obj_key)
                 && existing.owner != created.owner
             {
-                // Remove from old owner's list
-                let old_owner_key = Self::owned_objects_key(&existing.owner);
-                if let Ok(Some(mut old_owned)) = self.load_internal::<Vec<String>>(&old_owner_key)
-                    && let Some(pos) = old_owned.iter().position(|x| x == obj_id)
-                {
-                    old_owned.remove(pos);
-                    self.save_internal(&old_owner_key, &old_owned)?;
+                // Different owner trying to use same ID
+                // Check if this looks like a transfer (similar data) or collision (different data)
+                let is_likely_transfer = existing.type_ == created.type_
+                    && existing.data.len() == created.data.len()
+                    && existing.version < created.version;
+
+                if is_likely_transfer {
+                    // This looks like a legitimate transfer - keep same ID
+                    eprintln!(
+                        "DEBUG: Transfer detected! {} changes owner from {:?} to {:?}",
+                        obj_id, existing.owner, created.owner
+                    );
+
+                    // Remove from old owner's list
+                    let old_owner_key = Self::owned_objects_key(&existing.owner);
+                    if let Ok(Some(mut old_owned)) =
+                        self.load_internal::<Vec<String>>(&old_owner_key)
+                        && let Some(pos) = old_owned.iter().position(|x| x == obj_id)
+                    {
+                        old_owned.remove(pos);
+                        self.save_internal(&old_owner_key, &old_owned)?;
+                    }
+                } else {
+                    // This looks like a collision - generate new ID
+                    let id_collision_data = format!(
+                        "object_id_collision:{}:{:?}:{}:{}",
+                        obj_id,
+                        created.owner,
+                        created.type_,
+                        hex::encode(&created.data)
+                    );
+                    let new_id_bytes = hash_data_blake3(id_collision_data.as_bytes());
+                    final_obj_id = format!("0x{}", hex::encode(&new_id_bytes[0..16]));
+
+                    eprintln!(
+                        "DEBUG: ID collision! {} belongs to {:?}, generated new ID {} for {:?}",
+                        obj_id, existing.owner, final_obj_id, created.owner
+                    );
+                    // Don't remove from old owner's list - original object stays
                 }
             }
+            // else: Same owner updating their own object - keep same ID
 
-            // Store the object
-            self.save_internal(&obj_key, created)?;
+            // Store the object with the final ID
+            let final_obj_key = Self::object_key(&final_obj_id);
+            self.save_internal(&final_obj_key, created)?;
+
+            // Update owned objects list with the final ID
+            let owner_key = Self::owned_objects_key(&created.owner);
+            let mut owned: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
+            // Remove if already exists (to avoid duplicates on update)
+            if let Some(pos) = owned.iter().position(|x| *x == final_obj_id) {
+                owned.remove(pos);
+            }
+            // Add to end of list (ensures it's present exactly once)
+            owned.push(final_obj_id.clone());
+            self.save_internal(&owner_key, &owned)?;
 
             // Index CoinMetadata decimals
             // type_ format: "0x2::coin::CoinMetadata<token_type>"
@@ -423,116 +469,87 @@ impl StateManager {
                     self.save_internal(&key, &decimals)?;
                 }
             }
-
-            // Update owned objects list
-            let owner_key = Self::owned_objects_key(&created.owner);
-            let mut owned: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
-            // Avoid duplicates
-            if !owned.contains(obj_id) {
-                owned.push(obj_id.clone());
-                self.save_internal(&owner_key, &owned)?;
-            }
         }
 
-        // Process deleted objects
-        for obj_id in &changeset.deleted_objects {
-            // Remove the object
-            let obj_key = Self::object_key(obj_id);
-            // We need to know the owner to remove it from their owned list.
-            // Since we are deleting, we first load the object to get the owner.
-            if let Some(obj_data) = self.load_internal::<CreatedObject>(&obj_key)? {
-                // Remove from owner's list
-                let owner_key = Self::owned_objects_key(&obj_data.owner);
-                if let Some(mut owned) = self.load_internal::<Vec<String>>(&owner_key)?
-                    && let Some(pos) = owned.iter().position(|x| x == obj_id)
-                {
-                    owned.remove(pos);
-                    self.save_internal(&owner_key, &owned)?;
+        Ok(())
+    }
+
+    /// Get all object IDs owned by an address
+    pub fn get_owned_objects(&self, owner: &AccountAddress) -> Result<Vec<String>> {
+        let owner_key = Self::owned_objects_key(owner);
+        Ok(self.load_internal(&owner_key)?.unwrap_or_default())
+    }
+
+    /// Get a specific object by ID
+    pub fn get_object(&self, object_id: &str) -> Result<Option<CreatedObject>> {
+        let obj_key = Self::object_key(object_id);
+        self.load_internal(&obj_key)
+    }
+
+    /// Compute the state root hash using SMT
+    pub fn compute_state_root(&self) -> Vec<u8> {
+        // If SMT is available, use it to compute state root
+        if let Some(smt) = &self.smt {
+            match smt.root_hash() {
+                Ok(root) => return root.to_vec(),
+                Err(e) => {
+                    eprintln!("Failed to compute SMT root: {}", e);
                 }
             }
-
-            // Delete from storage (overlay -> DB)
-            self.overlay.insert(obj_key, None);
         }
 
-        // Persist events emitted by Move VM into state event store
-        if !changeset.events.is_empty() {
-            self.events.extend(changeset.events.clone());
-            // Sort events by sequence number to ensure deterministic order
-            self.events
-                .sort_by_key(|e| (e.sequence_number, e.type_tag.to_string()));
-        }
-
-        Ok(())
+        // Fallback: Use default empty state root
+        // In production, you should populate SMT with account states
+        smt::default_hashes()[0].to_vec()
     }
 
-    /// Validate transaction sequence number before execution
-    pub fn validate_sequence(
-        &self,
-        address: &AccountAddress,
-        expected_sequence: u64,
-    ) -> Result<()> {
-        if let Some(account) = self.get_account(address) {
-            if account.sequence_number != expected_sequence {
+    /// Validate sequence number for an account
+    pub fn validate_sequence(&self, addr: &AccountAddress, expected_seq: u64) -> Result<()> {
+        let account_key = Self::account_key(addr);
+        if let Some(account) = self.load_internal::<Account>(&account_key)? {
+            if account.sequence_number != expected_seq {
                 anyhow::bail!(
-                    "Sequence number mismatch for {:#x}: expected {}, got {}",
-                    address,
-                    account.sequence_number,
-                    expected_sequence
+                    "Invalid sequence number: expected {}, got {}",
+                    expected_seq,
+                    account.sequence_number
                 );
             }
-        } else if expected_sequence != 0 {
-            anyhow::bail!(
-                "Account {:#x} does not exist, expected sequence must be 0",
-                address
-            );
-        }
-        Ok(())
-    }
-
-    pub fn get_balance(&self, address: &str) -> u64 {
-        // Use Address::parse_to_account_address which handles tagged addresses,
-        // tagged public keys (hashing), and regular 0x addresses.
-        if let Ok(addr) = kanari_types::address::Address::parse_to_account_address(address) {
-            self.get_account(&addr).map(|acc| acc.balance).unwrap_or(0)
+            Ok(())
         } else {
-            0
+            // Account doesn't exist, sequence should be 0
+            if expected_seq != 0 {
+                anyhow::bail!(
+                    "Account does not exist, sequence number must be 0, got {}",
+                    expected_seq
+                );
+            }
+            Ok(())
         }
     }
 
-    // Note: account_count() is expensive with DB, so removed or needs full scan.
-    // For now, removing it or returning 0.
+    /// Get the total number of accounts
     pub fn account_count(&self) -> usize {
-        0 // Not supported efficiently in DB mode
+        // Count all account keys in the overlay and DB
+        // This is a simplified implementation - in production you might want to cache this
+        let mut count = 0;
+        let prefix = b"account:";
+
+        // Count from overlay
+        for key in self.overlay.keys() {
+            if key.starts_with(prefix) {
+                count += 1;
+            }
+        }
+
+        // Note: For a complete count, you'd also need to scan the DB
+        // This simplified version just counts overlay entries
+        count
     }
 
-    pub fn compute_state_root(&self) -> Vec<u8> {
-        self.smt
-            .as_ref()
-            .and_then(|smt| smt.root_hash().ok())
-            .map(|root| root.to_vec())
-            .unwrap_or_else(|| vec![0u8; 32])
-    }
-
-    pub fn get_object(&self, id: &str) -> Result<Option<CreatedObject>> {
-        self.load_internal(&Self::object_key(id))
-    }
-
-    pub fn get_owned_objects(&self, address: &AccountAddress) -> Result<Vec<String>> {
-        Ok(self
-            .load_internal(&Self::owned_objects_key(address))?
-            .unwrap_or_default())
-    }
-
-    pub fn get_token_supply(&self, token_type: &str) -> Result<Option<u64>> {
-        let mut key = b"supply:".to_vec();
-        key.extend_from_slice(token_type.as_bytes());
-        self.load_internal(&key)
-    }
-
+    /// Get token decimals for a specific token type
     pub fn get_token_decimals(&self, token_type: &str) -> Result<Option<u8>> {
         let mut key = b"metadata_decimals:".to_vec();
         key.extend_from_slice(token_type.as_bytes());
-        self.load_internal(&key)
+        self.load_internal::<u8>(&key)
     }
 }

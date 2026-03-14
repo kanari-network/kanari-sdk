@@ -2,6 +2,18 @@ use super::{RpcError, RpcRequest, RpcResponse, RpcServerState, respond_with_seri
 use kanari_rpc_api::{GetAllBalancesRequest, GetTokenBalanceRequest};
 use serde_json;
 
+/// Helper to get token decimals from engine state
+fn get_token_decimals(engine: &kanari_core::engine::BlockchainEngine, token_type: &str) -> u8 {
+    // Try to get decimals from state manager
+    if let Ok(state) = engine.state.read()
+        && let Ok(Some(decimals)) = state.get_token_decimals(token_type)
+    {
+        return decimals;
+    }
+    // Default to 9 for most tokens (including JAMES)
+    9
+}
+
 /// Handle get account request
 pub async fn handle_get_account(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let address: String = match serde_json::from_value(request.params.clone()) {
@@ -111,33 +123,29 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
                 "symbol": "KANARI"
             })];
 
-            // Start with recorded token_balances (from state.account.token_balances)
-            for (token_type, amount) in info.token_balances.iter() {
-                let symbol = token_type.split("::").last().unwrap_or(token_type);
-
-                balances.push(serde_json::json!({
-                    "token_type": token_type,
-                    "balance": amount,
-                    "decimals": get_token_decimals(&state.engine, token_type),
-                    "symbol": symbol
-                }));
-            }
-
-            // Best-effort: inspect owned objects for coin objects and sum their values.
-            // Many Move coin implementations store the coin value as a u64 in the last 8 bytes.
+            // Aggregate all Coin objects by summing their balances
+            // This prevents showing duplicate entries when multiple mint operations created separate Coin objects
             use std::collections::BTreeMap;
             let mut coin_sums: BTreeMap<String, u128> = BTreeMap::new();
+
             if let Some(ref objects) = info.owned_objects {
                 for obj in objects {
                     if obj.type_.contains("::coin::Coin<") {
-                        // Try to parse last 8 bytes from obj.data (which is Vec<u8> in RPC types)
+                        // Extract the token type from Coin<TokenType>
+                        // e.g., "0x2::coin::Coin<james::james::JAMES>" -> "james::james::JAMES"
+                        let token_type = if let Some(start) = obj.type_.find('<')
+                            && let Some(end) = obj.type_.rfind('>')
+                        {
+                            obj.type_[start + 1..end].to_string()
+                        } else {
+                            obj.type_.clone()
+                        };
+
+                        // Try to parse balance from last 8 bytes (standard Move Coin layout)
                         if obj.data.len() >= 8 {
                             let n = obj.data.len();
                             if let Ok(bytes) = obj.data[n - 8..].try_into() {
                                 let amount = u64::from_le_bytes(bytes) as u128;
-                                // token_type = the generic type inside Coin<...>
-                                // We'll use the full object type as token_type for uniqueness
-                                let token_type = obj.type_.clone();
                                 *coin_sums.entry(token_type).or_insert(0) += amount;
                             }
                         }
@@ -145,23 +153,22 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
                 }
             }
 
+            // Add aggregated coin balances to response
+            // Only show coins that have non-zero balance
             for (token_type, amount128) in coin_sums.into_iter() {
-                // convert to u64 if safe, else cap
-                let amount = if amount128 > (u128::from(u64::MAX)) {
+                let amount = if amount128 > u128::from(u64::MAX) {
                     u64::MAX
                 } else {
                     amount128 as u64
                 };
-                let mut symbol = token_type
-                    .split("::")
-                    .last()
-                    .unwrap_or(&token_type)
-                    .to_string();
-                // Trim possible generic angle-brackets from the last segment (e.g. "JAMES>")
-                symbol = symbol
-                    .trim_start_matches('<')
-                    .trim_end_matches('>')
-                    .to_string();
+
+                // Skip zero-balance coins to avoid cluttering the response
+                if amount == 0 {
+                    continue;
+                }
+
+                let symbol = token_type.split("::").last().unwrap_or(&token_type);
+
                 balances.push(serde_json::json!({
                     "token_type": token_type,
                     "balance": amount,
@@ -183,16 +190,10 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
         None => RpcResponse {
             jsonrpc: "2.0".to_string(),
             result: None,
-            error: Some(RpcError::invalid_params("Account not found")),
+            error: Some(RpcError::internal_error("Account not found")),
             id: request.id,
         },
     }
-}
-
-/// Helper to determine token decimals based on type
-pub fn get_token_decimals(engine: &kanari_core::engine::BlockchainEngine, token_type: &str) -> u8 {
-    // Try to get from engine (which checks DB index)
-    engine.get_token_decimals(token_type).unwrap_or(9)
 }
 
 /// Handle list tokens request

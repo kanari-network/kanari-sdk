@@ -197,17 +197,25 @@ impl ObjectStorage {
             match old_owner {
                 Some(old) => {
                     if old != owner {
-                        // Owner changed: remove from old, add to new
+                        // Owner changed: remove from old owner's list first
                         if let Some(ids) = state.owner_index.get_mut(&old) {
                             ids.retain(|oid| oid != &id);
+                            log::debug!(
+                                "Removed object {} from old owner {:?} during transfer",
+                                id,
+                                old
+                            );
                         }
+                        // Add to new owner's list
                         state.owner_index.entry(owner).or_default().push(id.clone());
+                        log::debug!("Transferred object {} from {:?} to {:?}", id, old, owner);
                     }
                     // If owner is same, do nothing (id is already in the list)
                 }
                 None => {
                     // New object: add to owner index
                     state.owner_index.entry(owner).or_default().push(id.clone());
+                    log::debug!("Created new object {} for owner {:?}", id, owner);
                 }
             }
         }

@@ -53,7 +53,8 @@ impl super::MoveRuntime {
             && struct_name == CoinModule::COIN_STRUCT
             && bytes.len() >= (UID_SIZE + U64_SIZE)
         {
-            let balance_bytes: [u8; U64_SIZE] = bytes[UID_SIZE..(UID_SIZE + U64_SIZE)].try_into().ok()?;
+            let balance_bytes: [u8; U64_SIZE] =
+                bytes[UID_SIZE..(UID_SIZE + U64_SIZE)].try_into().ok()?;
             return Some(u64::from_le_bytes(balance_bytes));
         }
 
@@ -64,7 +65,8 @@ impl super::MoveRuntime {
     pub(crate) fn extract_treasury_total_from_bytes(&self, bytes: &[u8]) -> Option<u64> {
         // TreasuryCap: [32-byte address][8-byte total_supply]
         if bytes.len() >= (UID_SIZE + U64_SIZE) {
-            let supply_bytes: [u8; U64_SIZE] = bytes[UID_SIZE..(UID_SIZE + U64_SIZE)].try_into().ok()?;
+            let supply_bytes: [u8; U64_SIZE] =
+                bytes[UID_SIZE..(UID_SIZE + U64_SIZE)].try_into().ok()?;
             Some(u64::from_le_bytes(supply_bytes))
         } else {
             None

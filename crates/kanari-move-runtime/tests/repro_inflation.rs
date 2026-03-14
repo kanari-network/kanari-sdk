@@ -82,6 +82,162 @@ fn test_ownership_transfer() -> Result<()> {
 }
 
 #[test]
+fn test_object_id_single_use_no_reuse() -> Result<()> {
+    // Test that object_id can only be used once and subsequent uses get new IDs
+    let mut state = StateManager::new_in_memory();
+    let alice = AccountAddress::from_hex_literal("0x1111")?;
+    let bob = AccountAddress::from_hex_literal("0x2222")?;
+
+    // Create object with explicit ID
+    let object_id = "0xAAAA";
+    let object_data = vec![1, 2, 3];
+    let object_type = "0x2::coin::coin::Coin<0x2::kanari::KANARI>";
+
+    let created_obj = CreatedObject {
+        owner: alice,
+        uid: None,
+        type_: object_type.to_string(),
+        data: object_data.clone(),
+        version: 1,
+    };
+
+    let mut cs1 = ChangeSet::new();
+    cs1.created_objects
+        .push((object_id.to_string(), created_obj));
+    state.apply_changeset(&cs1)?;
+
+    // Verify Alice owns it
+    let alice_owned = state.get_owned_objects(&alice)?;
+    assert!(alice_owned.contains(&object_id.to_string()));
+
+    // Try to create another object with SAME ID - should get a different ID generated
+    let created_obj2 = CreatedObject {
+        owner: bob,
+        uid: None,
+        type_: object_type.to_string(),
+        data: vec![4, 5, 6], // Different data
+        version: 1,
+    };
+
+    let mut cs2 = ChangeSet::new();
+    // This should NOT overwrite the first object, but generate a new unique ID
+    cs2.created_objects
+        .push((object_id.to_string(), created_obj2));
+    state.apply_changeset(&cs2)?;
+
+    // Verify Alice still owns the original object
+    let alice_owned_after = state.get_owned_objects(&alice)?;
+    assert!(alice_owned_after.contains(&object_id.to_string()));
+    assert_eq!(
+        alice_owned_after.len(),
+        1,
+        "Alice should still own exactly 1 object"
+    );
+
+    // Verify Bob owns an object (should have gotten a new unique ID)
+    let bob_owned = state.get_owned_objects(&bob)?;
+    assert_eq!(bob_owned.len(), 1, "Bob should own 1 object");
+    // Bob's object should NOT have the same ID as Alice's
+    assert!(
+        !bob_owned.contains(&object_id.to_string()),
+        "Bob's object should have a different ID"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_object_transfer_removes_from_old_owner() -> Result<()> {
+    // Test that transferring an object removes it from old owner's list
+    let mut state = StateManager::new_in_memory();
+    let alice = AccountAddress::from_hex_literal("0x1111")?;
+    let bob = AccountAddress::from_hex_literal("0x2222")?;
+    let charlie = AccountAddress::from_hex_literal("0x3333")?;
+
+    // Create object owned by Alice
+    let object_id = "0xAAAA";
+    let object_data = vec![1, 2, 3];
+    let object_type = "0x2::coin::coin::Coin<0x2::kanari::KANARI>";
+
+    let created_obj = CreatedObject {
+        owner: alice,
+        uid: None,
+        type_: object_type.to_string(),
+        data: object_data.clone(),
+        version: 1,
+    };
+
+    let mut cs1 = ChangeSet::new();
+    cs1.created_objects
+        .push((object_id.to_string(), created_obj));
+    state.apply_changeset(&cs1)?;
+
+    // Verify initial state
+    let alice_owned_1 = state.get_owned_objects(&alice)?;
+    assert!(alice_owned_1.contains(&object_id.to_string()));
+    assert_eq!(alice_owned_1.len(), 1);
+
+    let bob_owned_1 = state.get_owned_objects(&bob)?;
+    assert_eq!(bob_owned_1.len(), 0, "Bob should own nothing initially");
+
+    // Transfer to Bob (update with new owner)
+    let transferred_obj = CreatedObject {
+        owner: bob,
+        uid: None,
+        type_: object_type.to_string(),
+        data: object_data.clone(),
+        version: 2,
+    };
+
+    let mut cs2 = ChangeSet::new();
+    cs2.created_objects
+        .push((object_id.to_string(), transferred_obj.clone()));
+    state.apply_changeset(&cs2)?;
+
+    // Verify transfer: Alice should NOT own it anymore
+    let alice_owned_2 = state.get_owned_objects(&alice)?;
+    assert!(
+        !alice_owned_2.contains(&object_id.to_string()),
+        "Alice should not own the object after transfer"
+    );
+    assert_eq!(alice_owned_2.len(), 0, "Alice should own 0 objects");
+
+    // Verify Bob owns it
+    let bob_owned_2 = state.get_owned_objects(&bob)?;
+    assert!(bob_owned_2.contains(&object_id.to_string()));
+    assert_eq!(bob_owned_2.len(), 1);
+
+    // Transfer again to Charlie
+    let transferred_obj2 = CreatedObject {
+        owner: charlie,
+        uid: None,
+        type_: object_type.to_string(),
+        data: object_data.clone(),
+        version: 3,
+    };
+
+    let mut cs3 = ChangeSet::new();
+    cs3.created_objects
+        .push((object_id.to_string(), transferred_obj2));
+    state.apply_changeset(&cs3)?;
+
+    // Verify second transfer: Bob should NOT own it anymore
+    let bob_owned_3 = state.get_owned_objects(&bob)?;
+    assert!(
+        !bob_owned_3.contains(&object_id.to_string()),
+        "Bob should not own the object after second transfer"
+    );
+    assert_eq!(bob_owned_3.len(), 0, "Bob should own 0 objects");
+
+    // Verify Charlie owns it
+    let charlie_owned = state.get_owned_objects(&charlie)?;
+    assert!(charlie_owned.contains(&object_id.to_string()));
+    assert_eq!(charlie_owned.len(), 1);
+
+    Ok(())
+}
+
+#[test]
 fn test_coin_split_inflation() -> Result<()> {
     // 1. Initialize StateManager
     let mut state = StateManager::new_in_memory();

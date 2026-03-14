@@ -161,19 +161,16 @@ pub fn get_account_sequence(
 }
 
 /// Determine the sender address string for a transaction.
-/// For PQC/Hybrid wallets, this returns the tagged address (Curve:PublicKey)
+/// For all wallets, this returns the tagged address (Curve:PublicKey)
 /// which is required for signature verification by the node.
 pub fn get_sender_for_tx(
     wallet: &kanari_crypto::wallet::Wallet,
-    address_normalized: &str,
+    _address_normalized: &str,
 ) -> Result<String> {
-    if wallet.curve_type.is_post_quantum() || wallet.curve_type.is_hybrid() {
-        // Re-derive public key from private key to get the tagged address format
-        let keypair =
-            kanari_crypto::keys::keypair_from_private_key(&wallet.private_key, wallet.curve_type)
-                .context("Failed to derive public key from wallet")?;
-        Ok(format!("{:?}:{}", wallet.curve_type, keypair.public_key))
-    } else {
-        Ok(address_normalized.to_string())
-    }
+    // Re-derive public key from private key to get the tagged address format
+    // Tagged addresses are required for signature verification in ALL scenarios
+    let keypair =
+        kanari_crypto::keys::keypair_from_private_key(&wallet.private_key, wallet.curve_type)
+            .context("Failed to derive public key from wallet")?;
+    Ok(keypair.tagged_address())
 }
