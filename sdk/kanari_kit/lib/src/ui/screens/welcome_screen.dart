@@ -48,7 +48,7 @@ class WelcomeScreen extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
-                if (state.hasSavedWallet) ...[
+                if (state.hasWallet) ...[
                   _buildActionButton(
                     context: context,
                     label: 'Unlock Saved Wallet',
@@ -58,9 +58,9 @@ class WelcomeScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
                   TextButton.icon(
-                    onPressed: () => state.deleteSavedWallet(),
+                    onPressed: () => state.deleteAllWallets(),
                     icon: const Icon(Icons.delete_outline, size: 18),
-                    label: const Text('Clear Saved Data'),
+                    label: const Text('Clear All Wallet Data'),
                     style: TextButton.styleFrom(
                       foregroundColor: theme.colorScheme.error.withOpacity(0.7),
                     ),
@@ -87,7 +87,7 @@ class WelcomeScreen extends StatelessWidget {
                   label: 'Create New Wallet',
                   icon: Icons.add_rounded,
                   onPressed: () => _showCreateDialog(context),
-                  isPrimary: !state.hasSavedWallet,
+                  isPrimary: !state.hasWallet,
                 ),
                 const SizedBox(height: 16),
                 _buildActionButton(
@@ -240,6 +240,8 @@ class WelcomeScreen extends StatelessWidget {
             ElevatedButton(
               onPressed: () {
                 if (passwordController.text.isNotEmpty) {
+                  // Note: In multi-wallet mode, password is stored as hash for verification
+                  // Wallet data is encrypted and stored in SharedPreferences
                   context.read<WalletState>().createNewWallet(
                     curve: selectedCurve,
                     password: passwordController.text,
@@ -326,10 +328,7 @@ class WelcomeScreen extends StatelessWidget {
                                     state.importFromPrivateKey(
                                       pkController.text,
                                       curve: selectedCurve,
-                                      password:
-                                          passwordController.text.isNotEmpty
-                                          ? passwordController.text
-                                          : null,
+                                      password: passwordController.text,
                                     );
                                     Navigator.pop(dialogContext);
                                   }
@@ -358,10 +357,7 @@ class WelcomeScreen extends StatelessWidget {
                                     state.importFromMnemonic(
                                       mnemonicController.text,
                                       curve: selectedCurve,
-                                      password:
-                                          passwordController.text.isNotEmpty
-                                          ? passwordController.text
-                                          : null,
+                                      password: passwordController.text,
                                     );
                                     Navigator.pop(dialogContext);
                                   }

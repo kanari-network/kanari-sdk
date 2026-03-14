@@ -12,6 +12,14 @@ class WalletInfoCard extends StatelessWidget {
     if (state.wallet == null) return const SizedBox.shrink();
 
     final theme = Theme.of(context);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 360;
+    
+    final iconSize = isSmallScreen ? 22.0 : 28.0;
+    final iconPadding = isSmallScreen ? 8.0 : 12.0;
+    final fontSize = isSmallScreen ? 11.0 : 12.0;
+    final cardPadding = isSmallScreen ? 12.0 : 20.0;
+    final spacing = isSmallScreen ? 10.0 : 16.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -19,36 +27,39 @@ class WalletInfoCard extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 12),
           child: Text(
-            'WALLET ADDRESS',
+            'Wallet Address',
             style: theme.textTheme.labelSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: theme.colorScheme.onSurface.withOpacity(0.5),
-              letterSpacing: 1.2,
+              fontWeight: FontWeight.w600,
+              color: theme.colorScheme.onSurface.withOpacity(0.4),
+              letterSpacing: 1.5,
             ),
           ),
         ),
         Container(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(cardPadding),
           decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: theme.colorScheme.outline.withOpacity(0.1)),
+            color: theme.colorScheme.surfaceVariant.withOpacity(0.2),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: theme.colorScheme.outline.withOpacity(0.08),
+              width: 1,
+            ),
           ),
           child: Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(10),
+                padding: EdgeInsets.all(iconPadding),
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.primary.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
+                  color: theme.colorScheme.primary.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(16),
                 ),
                 child: Icon(
                   Icons.account_circle_rounded,
                   color: theme.colorScheme.primary,
-                  size: 24,
+                  size: iconSize,
                 ),
               ),
-              const SizedBox(width: 16),
+              SizedBox(width: spacing),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -57,31 +68,41 @@ class WalletInfoCard extends StatelessWidget {
                       state.wallet!.address,
                       style: TextStyle(
                         fontFamily: 'monospace',
-                        fontSize: 13,
+                        fontSize: fontSize,
                         color: theme.colorScheme.onSurface,
-                        fontWeight: FontWeight.w500,
+                        fontWeight: FontWeight.w400,
+                        letterSpacing: 0.5,
+                        height: 1.4,
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
-              IconButton(
-                icon: const Icon(Icons.copy_rounded, size: 20),
-                onPressed: () {
-                  Clipboard.setData(ClipboardData(text: state.wallet!.address));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: const Text('Address copied to clipboard'),
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                  );
-                },
-                tooltip: 'Copy Address',
-                style: IconButton.styleFrom(
-                  backgroundColor: theme.colorScheme.surface,
-                  foregroundColor: theme.colorScheme.onSurfaceVariant,
+              SizedBox(width: isSmallScreen ? 2 : 4),
+              Container(
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: theme.colorScheme.outline.withOpacity(0.1),
+                  ),
+                ),
+                child: IconButton(
+                  icon: const Icon(Icons.copy_rounded, size: 20),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: state.wallet!.address));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: const Text('Address copied'),
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        backgroundColor: theme.colorScheme.onSurface.withOpacity(0.8),
+                      ),
+                    );
+                  },
+                  tooltip: 'Copy Address',
+                  color: theme.colorScheme.onSurfaceVariant,
+                  padding: EdgeInsets.all(isSmallScreen ? 6 : 8),
                 ),
               ),
             ],

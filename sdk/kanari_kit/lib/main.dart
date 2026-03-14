@@ -69,6 +69,7 @@ class _MainWrapperState extends State<MainWrapper> {
   @override
   void initState() {
     super.initState();
+    // Initialize wallet state on startup
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<WalletState>().initialize();
     });
@@ -78,11 +79,24 @@ class _MainWrapperState extends State<MainWrapper> {
   Widget build(BuildContext context) {
     final state = context.watch<WalletState>();
 
+    // Debug logging
+    debugPrint(' MainWrapper build:');
+    debugPrint('  - hasWallet: ${state.hasWallet}');
+    debugPrint('  - wallet: ${state.wallet != null ? "loaded" : "null"}');
+    debugPrint('  - wallets count: ${state.wallets.length}');
+    if (state.wallet != null) {
+      debugPrint('  - wallet address: ${state.wallet!.address}');
+    }
+
     // Switch between screens based on wallet state
-    if (state.wallet == null) {
+    // Check hasWallet instead of wallet null to ensure proper state management
+    // If wallet is loaded (hasWallet = true) and wallet is not null, show home screen
+    if (!state.hasWallet || state.wallet == null) {
+      debugPrint('📱 Showing Welcome Screen');
       return const WelcomeScreen();
     }
 
+    debugPrint('🏠 Showing Home Screen');
     return const HomeScreen();
   }
 }

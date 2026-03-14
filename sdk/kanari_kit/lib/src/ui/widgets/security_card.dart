@@ -18,81 +18,124 @@ class _SecurityCardState extends State<SecurityCard> {
     if (state.wallet == null) return const SizedBox.shrink();
 
     final theme = Theme.of(context);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 360;
 
-    return Card(
-      elevation: 0,
-      color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: theme.colorScheme.outline.withOpacity(0.1)),
+    final containerPadding = isSmallScreen ? 14.0 : 20.0;
+    final iconSize = isSmallScreen ? 20.0 : 24.0;
+    final iconPadding = isSmallScreen ? 8.0 : 10.0;
+    final titleSize = isSmallScreen ? 13.0 : 15.0;
+    final warningPadding = isSmallScreen ? 10.0 : 14.0;
+
+    return Container(
+      padding: EdgeInsets.all(containerPadding),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceVariant.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: theme.colorScheme.outline.withOpacity(0.06),
+          width: 1,
+        ),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ListTile(
+          GestureDetector(
             onTap: () => setState(() => _isExpanded = !_isExpanded),
-            leading: Icon(
-              Icons.security_rounded,
-              color: Colors.orangeAccent,
-            ),
-            title: const Text(
-              'Security Credentials',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-            ),
-            subtitle: const Text(
-              'Mnemonic & Private Key',
-              style: TextStyle(fontSize: 12),
-            ),
-            trailing: Icon(
-              _isExpanded ? Icons.expand_less : Icons.expand_more,
-              color: theme.colorScheme.onSurfaceVariant,
+            child: Row(
+              children: [
+                Container(
+                  padding: EdgeInsets.all(iconPadding),
+                  decoration: BoxDecoration(
+                    color: Colors.orangeAccent.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(
+                    Icons.security_rounded,
+                    color: Colors.orangeAccent,
+                    size: iconSize,
+                  ),
+                ),
+                SizedBox(width: isSmallScreen ? 10 : 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Security Credentials',
+                        style: TextStyle(
+                          fontSize: titleSize,
+                          fontWeight: FontWeight.w600,
+                          color: theme.colorScheme.onSurface,
+                        ),
+                      ),
+                      SizedBox(height: isSmallScreen ? 2 : 4),
+                      Text(
+                        'Mnemonic & Private Key',
+                        style: TextStyle(
+                          fontSize: isSmallScreen ? 10 : 12,
+                          color: theme.colorScheme.onSurface.withOpacity(0.5),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  _isExpanded
+                      ? Icons.keyboard_arrow_up
+                      : Icons.keyboard_arrow_down,
+                  color: theme.colorScheme.onSurface.withOpacity(0.4),
+                  size: 24,
+                ),
+              ],
             ),
           ),
-          if (_isExpanded)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+          if (_isExpanded) ...[
+            SizedBox(height: isSmallScreen ? 14 : 20),
+            const Divider(height: 1),
+            SizedBox(height: isSmallScreen ? 14 : 20),
+            _buildSecurityField(
+              context,
+              'Mnemonic Seed',
+              state.wallet!.mnemonic ?? 'Not available for this curve',
+            ),
+            SizedBox(height: isSmallScreen ? 12 : 16),
+            _buildSecurityField(
+              context,
+              'Private Key',
+              state.wallet!.privateKey,
+            ),
+            SizedBox(height: isSmallScreen ? 12 : 16),
+            Container(
+              padding: EdgeInsets.all(warningPadding),
+              decoration: BoxDecoration(
+                color: Colors.orangeAccent.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.orangeAccent.withOpacity(0.2)),
+              ),
+              child: Row(
                 children: [
-                  const Divider(),
-                  const SizedBox(height: 12),
-                  _buildSecurityField(
-                    context,
-                    'Mnemonic Seed',
-                    state.wallet!.mnemonic ?? 'Not available for this curve',
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    color: Colors.orangeAccent,
+                    size: isSmallScreen ? 18 : 20,
                   ),
-                  const SizedBox(height: 16),
-                  _buildSecurityField(
-                    context,
-                    'Private Key',
-                    state.wallet!.privateKey,
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.orangeAccent.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent, size: 16),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'NEVER share these with anyone. They grant full access to your funds.',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.orangeAccent.shade100,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ],
+                  SizedBox(width: isSmallScreen ? 8 : 12),
+                  Expanded(
+                    child: Text(
+                      'NEVER share these with anyone. They grant full access to your funds.',
+                      style: TextStyle(
+                        fontSize: isSmallScreen ? 10 : 12,
+                        color: Colors.orangeAccent.shade100,
+                        fontWeight: FontWeight.w500,
+                        height: 1.4,
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
+          ],
         ],
       ),
     );
@@ -100,31 +143,41 @@ class _SecurityCardState extends State<SecurityCard> {
 
   Widget _buildSecurityField(BuildContext context, String label, String value) {
     final theme = Theme.of(context);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 360;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
           style: TextStyle(
-            fontSize: 11,
-            color: theme.colorScheme.onSurfaceVariant.withOpacity(0.7),
-            fontWeight: FontWeight.bold,
+            fontSize: isSmallScreen ? 10 : 11,
+            color: theme.colorScheme.onSurface.withOpacity(0.4),
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.8,
           ),
         ),
-        const SizedBox(height: 6),
+        SizedBox(height: isSmallScreen ? 6 : 8),
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.all(12),
+          padding: EdgeInsets.all(isSmallScreen ? 10 : 14),
           decoration: BoxDecoration(
-            color: Colors.black26,
-            borderRadius: BorderRadius.circular(10),
+            color: theme.colorScheme.surface.withOpacity(0.5),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: theme.colorScheme.outline.withOpacity(0.08),
+            ),
           ),
           child: SelectableText(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: 'monospace',
-              fontSize: 12,
-              color: Colors.orangeAccent,
+              fontSize: isSmallScreen ? 10 : 11,
+              color: theme.colorScheme.onSurface,
+              fontWeight: FontWeight.w400,
+              letterSpacing: 0.3,
+              height: 1.5,
             ),
           ),
         ),
