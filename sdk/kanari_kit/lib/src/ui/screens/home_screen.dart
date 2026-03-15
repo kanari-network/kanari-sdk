@@ -20,10 +20,12 @@ class HomeScreen extends StatelessWidget {
     final screenWidth = MediaQuery.of(context).size.width;
     final isSmallScreen = screenWidth < 360;
     final isMediumScreen = screenWidth >= 360 && screenWidth < 600;
-    
+
     // Responsive padding
     final screenPadding = isSmallScreen ? 16.0 : (isMediumScreen ? 20.0 : 24.0);
-    final sectionSpacing = isSmallScreen ? 20.0 : (isMediumScreen ? 24.0 : 32.0);
+    final sectionSpacing = isSmallScreen
+        ? 20.0
+        : (isMediumScreen ? 24.0 : 32.0);
     final topSpacing = isSmallScreen ? 12.0 : (isMediumScreen ? 16.0 : 20.0);
 
     return Scaffold(
@@ -61,6 +63,35 @@ class HomeScreen extends StatelessWidget {
             ),
           ),
           SizedBox(width: isSmallScreen ? 4 : 8),
+          // Settings/Profile button
+          Container(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: theme.colorScheme.outline.withOpacity(0.1),
+              ),
+            ),
+            child: PopupMenuButton<String>(
+              icon: const Icon(Icons.settings_rounded),
+              onSelected: (value) {
+                if (value == 'change_password') {
+                  _showChangePasswordDialog(context, state);
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'change_password',
+                  child: ListTile(
+                    leading: Icon(Icons.lock_reset),
+                    title: Text('Change Password'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(width: isSmallScreen ? 4 : 8),
+          // Logout button
           Container(
             decoration: BoxDecoration(
               color: theme.colorScheme.error.withOpacity(0.1),
@@ -94,7 +125,9 @@ class HomeScreen extends StatelessWidget {
           ),
         ),
         child: state.isLoading
-            ? Center(child: SpinKitFadingCircle(color: theme.colorScheme.primary))
+            ? Center(
+                child: SpinKitFadingCircle(color: theme.colorScheme.primary),
+              )
             : RefreshIndicator(
                 onRefresh: () => state.refreshBalance(),
                 backgroundColor: theme.colorScheme.surface,
@@ -123,7 +156,9 @@ class HomeScreen extends StatelessWidget {
                               color: theme.colorScheme.primary.withOpacity(0.1),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: theme.colorScheme.primary.withOpacity(0.2),
+                                color: theme.colorScheme.primary.withOpacity(
+                                  0.2,
+                                ),
                               ),
                             ),
                             child: Row(
@@ -494,9 +529,13 @@ class HomeScreen extends StatelessWidget {
                     ScaffoldMessenger.of(dialogContext).showSnackBar(
                       SnackBar(
                         content: const Text('Recipient address is required'),
-                        backgroundColor: Theme.of(dialogContext).colorScheme.error,
+                        backgroundColor: Theme.of(
+                          dialogContext,
+                        ).colorScheme.error,
                         behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                       ),
                     );
                   }
@@ -513,10 +552,16 @@ class HomeScreen extends StatelessWidget {
                   if (dialogContext.mounted) {
                     ScaffoldMessenger.of(dialogContext).showSnackBar(
                       SnackBar(
-                        content: const Text('Invalid address format. Use hex characters only (0-9, a-f)'),
-                        backgroundColor: Theme.of(dialogContext).colorScheme.error,
+                        content: const Text(
+                          'Invalid address format. Use hex characters only (0-9, a-f)',
+                        ),
+                        backgroundColor: Theme.of(
+                          dialogContext,
+                        ).colorScheme.error,
                         behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                         duration: const Duration(seconds: 5),
                       ),
                     );
@@ -528,10 +573,16 @@ class HomeScreen extends StatelessWidget {
                   if (dialogContext.mounted) {
                     ScaffoldMessenger.of(dialogContext).showSnackBar(
                       SnackBar(
-                        content: Text('Address must be exactly 64 hex characters. Current: ${cleanAddress.length}'),
-                        backgroundColor: Theme.of(dialogContext).colorScheme.error,
+                        content: Text(
+                          'Address must be exactly 64 hex characters. Current: ${cleanAddress.length}',
+                        ),
+                        backgroundColor: Theme.of(
+                          dialogContext,
+                        ).colorScheme.error,
                         behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                         duration: const Duration(seconds: 6),
                       ),
                     );
@@ -544,9 +595,13 @@ class HomeScreen extends StatelessWidget {
                     ScaffoldMessenger.of(dialogContext).showSnackBar(
                       SnackBar(
                         content: const Text('Amount must be greater than 0'),
-                        backgroundColor: Theme.of(dialogContext).colorScheme.error,
+                        backgroundColor: Theme.of(
+                          dialogContext,
+                        ).colorScheme.error,
                         behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                       ),
                     );
                   }
@@ -570,7 +625,9 @@ class HomeScreen extends StatelessWidget {
                           ? Theme.of(context).colorScheme.error
                           : Theme.of(context).colorScheme.primary,
                       behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
                     ),
                   );
                 }
@@ -595,6 +652,128 @@ class HomeScreen extends StatelessWidget {
                 ),
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showChangePasswordDialog(BuildContext context, WalletState state) {
+    final oldPasswordController = TextEditingController();
+    final newPasswordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Change Password'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: oldPasswordController,
+                decoration: const InputDecoration(
+                  labelText: 'Old Password',
+                  border: OutlineInputBorder(),
+                ),
+                obscureText: true,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: newPasswordController,
+                decoration: const InputDecoration(
+                  labelText: 'New Password',
+                  border: OutlineInputBorder(),
+                ),
+                obscureText: true,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: confirmPasswordController,
+                decoration: const InputDecoration(
+                  labelText: 'Confirm New Password',
+                  border: OutlineInputBorder(),
+                ),
+                obscureText: true,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final oldPassword = oldPasswordController.text;
+              final newPassword = newPasswordController.text;
+              final confirmPassword = confirmPasswordController.text;
+
+              if (oldPassword.isEmpty ||
+                  newPassword.isEmpty ||
+                  confirmPassword.isEmpty) {
+                if (dialogContext.mounted) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    SnackBar(
+                      content: const Text('All fields are required'),
+                      backgroundColor: Theme.of(
+                        dialogContext,
+                      ).colorScheme.error,
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  );
+                }
+                return;
+              }
+
+              if (newPassword != confirmPassword) {
+                if (dialogContext.mounted) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    SnackBar(
+                      content: const Text('Passwords do not match'),
+                      backgroundColor: Theme.of(
+                        dialogContext,
+                      ).colorScheme.error,
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  );
+                }
+                return;
+              }
+
+              Navigator.pop(dialogContext);
+              final success = await state.changePassword(
+                oldPassword,
+                newPassword,
+              );
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      success
+                          ? 'Password changed successfully'
+                          : 'Failed to change password. Please check your old password.',
+                    ),
+                    backgroundColor: success
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.error,
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                );
+              }
+            },
+            child: const Text('Change Password'),
           ),
         ],
       ),

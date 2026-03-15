@@ -137,10 +137,10 @@ class WalletState extends ChangeNotifier {
   Future<void> addWallet(Map<String, dynamic> walletData, [String? password]) async {
     _wallets.add(walletData);
     
-    // Save password hash if provided (for new wallets)
-    if (password != null && password.isNotEmpty) {
+    // Save password hash if provided and it's the first wallet (master password)
+    if (password != null && password.isNotEmpty && _wallets.length == 1) {
       await WalletStorage.savePassword(password);
-      debugPrint('🔐 Password saved for wallet');
+      debugPrint('🔐 Master password saved');
     }
     
     await WalletStorage.saveAllWallets(_wallets);
@@ -201,26 +201,30 @@ class WalletState extends ChangeNotifier {
     _setLoading(true);
     _error = null;
     try {
-      debugPrint('🔓 Unlocking wallet...');
-      final data = await WalletStorage.loadWallet(password);
-      if (data == null) {
-        debugPrint('❌ Failed to load wallet - invalid password');
-        _error = "Invalid password or no saved wallet";
+      debugPrint('🔓 Unlocking wallet with master password...');
+      
+      // Verify master password
+      final isValid = await WalletStorage.verifyPassword(password);
+      if (!isValid) {
+        debugPrint('❌ Invalid master password');
+        _error = "Invalid password";
         _setLoading(false);
         notifyListeners();
         return;
       }
 
-      debugPrint('✅ Wallet loaded: ${data['name']}');
-      debugPrint('📦 Wallet ID: ${data['id']}');
-      debugPrint(' Wallet curve: ${data['curve']}');
+      debugPrint('✅ Password verified');
       
-      // Reload all wallets from storage to ensure _wallets list is populated
-      debugPrint('🔄 Loading all wallets...');
+      // Load all wallets
       await loadWallets();
-      debugPrint('✅ Wallets loaded: ${_wallets.length} wallet(s)');
-      debugPrint('✅ Active wallet: ${_wallet?.address ?? "none"}');
-      debugPrint('✅ Has wallet: ${hasWallet}');
+      
+      if (_wallets.isEmpty) {
+        debugPrint('❌ No wallets found');
+        _error = "No saved wallets";
+        _setLoading(false);
+        notifyListeners();
+        return;
+      }
       
       _error = null;
     } catch (e, stack) {
@@ -302,7 +306,7 @@ class WalletState extends ChangeNotifier {
 
   Future<void> deleteAllWallets() async {
     debugPrint('🗑️ Deleting all wallets...');
-    await WalletStorage.deleteWallet();
+    await WalletStorage.deleteAllWallets();
     _wallets = [];
     _wallet = null;
     _balance = 0;
@@ -391,5 +395,30 @@ class WalletState extends ChangeNotifier {
   void _setLoading(bool value) {
     _isLoading = value;
     notifyListeners();
+  }
+
+  /// Change the master password
+  Future<bool> changePassword(String oldPassword, String newPassword) async {
+    try {
+      // Verify old password
+      final isValid = await WalletStorage.verifyPassword(oldPassword);
+      if (!isValid) {
+        debugPrint('❌ Old password is incorrect');
+        return false;
+      }
+
+      // Save new password
+      await WalletStorage.savePassword(newPassword);
+      debugPrint('✅ Password changed successfully');
+      
+      // Re-save all wallets (they're not encrypted, but this maintains consistency)
+      await WalletStorage.saveAllWallets(_wallets);
+      
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('❌ Error changing password: $e');
+      return false;
+    }
   }
 }

@@ -5,7 +5,7 @@ import 'package:kanari_crypto/kanari_crypto.dart';
 import 'kanaricurve.dart';
 
 class WalletStorage {
-  static const _keyWallets = 'kanari_wallets_list';
+  static const _keyWalletData = 'kanari_wallet_data';
   static const _keyActiveWallet = 'kanari_active_wallet';
   static const _keyPasswordHash = 'kanari_wallet_password_hash';
   
@@ -14,7 +14,7 @@ class WalletStorage {
   static const _keyLegacyPassword = 'kanari_wallet_password';
 
   /// Save a single wallet (legacy support)
-  @Deprecated('Use saveWallet and savePassword instead')
+  @Deprecated('Use saveAllWallets and savePassword instead')
   static Future<void> saveWallet({
     String? mnemonic,
     required String privateKey,
@@ -35,25 +35,39 @@ class WalletStorage {
     await savePassword(password);
   }
 
-  /// Save all wallets
-  static Future<void> saveAllWallets(
-    List<Map<String, dynamic>> wallets,
-  ) async {
+  /// Save all wallets with a single master password
+  static Future<void> saveAllWallets(List<Map<String, dynamic>> wallets) async {
     final prefs = await SharedPreferences.getInstance();
-
-    // Encrypt and store wallets list
-    final walletsJson = jsonEncode(wallets.map((w) => w).toList());
-    await prefs.setString(_keyWallets, walletsJson);
+    final walletsJson = jsonEncode(wallets);
+    await prefs.setString(_keyWalletData, walletsJson);
+    debugPrint('💾 Saved ${wallets.length} wallets');
   }
 
-  /// Save password hash
+  /// Save password hash (master password for all wallets)
   static Future<void> savePassword(String password) async {
     final prefs = await SharedPreferences.getInstance();
     final passwordBytes = utf8.encode(password);
     final hash = await blake3HashApi(data: passwordBytes);
     final hashBase64 = base64Encode(hash);
     await prefs.setString(_keyPasswordHash, hashBase64);
-    debugPrint('🔐 Password hash saved');
+    debugPrint('🔐 Master password hash saved');
+  }
+
+  /// Verify password against stored hash
+  static Future<bool> verifyPassword(String password) async {
+    final prefs = await SharedPreferences.getInstance();
+    final storedHash = prefs.getString(_keyPasswordHash);
+    
+    if (storedHash == null) {
+      // No password set (legacy mode)
+      return true;
+    }
+    
+    final passwordBytes = utf8.encode(password);
+    final hash = await blake3HashApi(data: passwordBytes);
+    final hashBase64 = base64Encode(hash);
+    
+    return hashBase64 == storedHash;
   }
 
   /// Load all wallets with migration support
@@ -61,7 +75,7 @@ class WalletStorage {
     final prefs = await SharedPreferences.getInstance();
     
     // Try to load from new key first
-    final walletsStr = prefs.getString(_keyWallets);
+    final walletsStr = prefs.getString(_keyWalletData);
     if (walletsStr != null) {
       try {
         final List<dynamic> walletsList = jsonDecode(walletsStr);
@@ -89,25 +103,13 @@ class WalletStorage {
         };
         
         // Save in new format
-        final wallets = [migratedWallet];
-        final walletsJson = jsonEncode(wallets);
-        await prefs.setString(_keyWallets, walletsJson);
+        await saveAllWallets([migratedWallet]);
         
-        // Migrate password hash if exists
-        final oldPassword = prefs.getString(_keyLegacyPassword);
-        if (oldPassword != null) {
-          final passwordBytes = utf8.encode(oldPassword);
-          final hash = await blake3HashApi(data: passwordBytes);
-          final hashBase64 = base64Encode(hash);
-          await prefs.setString(_keyPasswordHash, hashBase64);
-          await prefs.remove(_keyLegacyPassword);
-        }
-        
-        // Remove legacy key after successful migration
+        // Clear legacy data
         await prefs.remove(_keyLegacyWallet);
         
-        debugPrint('Successfully migrated legacy wallet to new format');
-        return wallets;
+        debugPrint('✅ Migrated legacy wallet to new format');
+        return [migratedWallet];
       } catch (e) {
         debugPrint('Error migrating legacy wallet: $e');
         return [];
@@ -115,137 +117,6 @@ class WalletStorage {
     }
 
     return [];
-  }
-
-  /// Load wallet data if password matches
-  static Future<Map<String, dynamic>?> loadWallet(String password) async {
-    final prefs = await SharedPreferences.getInstance();
-    final savedHashBase64 = prefs.getString(_keyPasswordHash);
-
-    debugPrint('🔐 Loading wallet...');
-    debugPrint('  - Password hash saved: ${savedHashBase64 != null ? "yes" : "no"}');
-    
-    if (savedHashBase64 == null) {
-      debugPrint('  - No password hash, checking legacy...');
-      final oldPassword = prefs.getString('kanari_wallet_password');
-      if (oldPassword != null) {
-        debugPrint('  - Legacy password found: ${oldPassword.length} chars');
-        if (oldPassword != password) {
-          debugPrint('  - ❌ Legacy password mismatch');
-          return null;
-        }
-        final dataStr = prefs.getString(_keyWallets);
-        if (dataStr != null) {
-          final List<dynamic> walletsList = jsonDecode(dataStr);
-          if (walletsList.isNotEmpty) {
-            final data = walletsList.first as Map<String, dynamic>;
-            final curve = KanariCurve.values.firstWhere(
-              (c) => c.name == data['curve'],
-              orElse: () => KanariCurve.ed25519,
-            );
-            await saveWallet(
-              mnemonic: data['mnemonic'],
-              privateKey: data['privateKey'],
-              curve: curve,
-              password: password,
-            );
-            await prefs.remove('kanari_wallet_password');
-            debugPrint('  - ✅ Migrated from legacy format');
-          }
-        }
-      } else {
-        // No password hash and no legacy password
-        // Check if wallets exist - if yes, allow access without password
-        debugPrint('  - No password set, checking if wallets exist...');
-        final wallets = await loadAllWallets();
-        if (wallets.isNotEmpty) {
-          debugPrint('  - ✅ Wallets found (${wallets.length}), allowing access without password');
-          debugPrint('  - First wallet data: ${wallets.first}');
-          
-          // Return first wallet or active wallet
-          final activeWalletId = prefs.getString(_keyActiveWallet);
-          if (activeWalletId != null) {
-            final wallet = wallets.cast<Map<String, dynamic>?>().firstWhere(
-              (w) => w?['id'] == activeWalletId,
-              orElse: () => wallets.first as Map<String, dynamic>,
-            );
-            debugPrint('  - Returning active wallet: ${(wallet as Map<String, dynamic>)['name']}');
-            return wallet as Map<String, dynamic>;
-          }
-          
-          final firstWallet = wallets.first as Map<String, dynamic>;
-          debugPrint('  - Returning first wallet: ${firstWallet['name']}');
-          return firstWallet;
-        } else {
-          debugPrint('  - ❌ No wallets and no password');
-          return null;
-        }
-      }
-    } else {
-      debugPrint('  - Password hash found, validating...');
-      final passwordBytes = utf8.encode(password);
-      final hash = await blake3HashApi(data: passwordBytes);
-      final hashBase64 = base64Encode(hash);
-
-      debugPrint('  - Input hash: ${hashBase64.substring(0, 16)}...');
-      debugPrint('  - Saved hash: ${savedHashBase64.substring(0, 16)}...');
-      
-      if (savedHashBase64 != hashBase64) {
-        debugPrint('  - ❌ Password hash mismatch!');
-        return null;
-      }
-      debugPrint('  - ✅ Password validated');
-    }
-
-    final activeWalletId = prefs.getString(_keyActiveWallet);
-    final wallets = await loadAllWallets();
-
-    debugPrint('  - Wallets in storage: ${wallets.length}');
-    
-    if (wallets.isEmpty) return null;
-
-    // Return active wallet or first wallet
-    if (activeWalletId != null) {
-      final wallet = wallets.cast<Map<String, dynamic>?>().firstWhere(
-        (w) => w?['id'] == activeWalletId,
-        orElse: () => wallets.first as Map<String, dynamic>,
-      );
-      debugPrint('  - ✅ Returning wallet: ${(wallet as Map<String, dynamic>)['name']}');
-      return wallet as Map<String, dynamic>;
-    }
-
-    final firstWallet = wallets.first as Map<String, dynamic>;
-    debugPrint('  - ✅ Returning first wallet: ${firstWallet['name']}');
-    return firstWallet;
-  }
-
-  /// Check if a wallet is already saved
-  static Future<bool> hasWallet() async {
-    final wallets = await loadAllWallets();
-    return wallets.isNotEmpty;
-  }
-
-  /// Clear saved wallet
-  static Future<void> deleteWallet() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_keyWallets);
-    await prefs.remove(_keyActiveWallet);
-    await prefs.remove(_keyPasswordHash);
-    await prefs.remove('kanari_wallet_password');
-  }
-
-  /// Delete specific wallet by ID
-  static Future<void> deleteWalletById(String walletId) async {
-    final wallets = await loadAllWallets();
-    wallets.removeWhere((w) => w['id'] == walletId);
-    await saveAllWallets(wallets);
-
-    // Clear active wallet if it was deleted
-    final prefs = await SharedPreferences.getInstance();
-    final activeId = prefs.getString(_keyActiveWallet);
-    if (activeId == walletId) {
-      await prefs.remove(_keyActiveWallet);
-    }
   }
 
   /// Set active wallet
@@ -258,6 +129,21 @@ class WalletStorage {
   static Future<String?> getActiveWalletId() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_keyActiveWallet);
+  }
+
+  /// Delete wallet by ID
+  static Future<void> deleteWalletById(String walletId) async {
+    final wallets = await loadAllWallets();
+    wallets.removeWhere((w) => w['id'] == walletId);
+    await saveAllWallets(wallets);
+  }
+
+  /// Delete all wallets
+  static Future<void> deleteAllWallets() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_keyWalletData);
+    await prefs.remove(_keyActiveWallet);
+    debugPrint('🗑️ All wallets deleted');
   }
 
   /// Get wallet count

@@ -48,7 +48,7 @@ class WalletSelector extends StatelessWidget {
         ),
         onSelected: (walletId) async {
           debugPrint('🔘 Wallet selector clicked: $walletId');
-          
+
           if (walletId == 'add_new') {
             // Show create wallet dialog
             _showCreateDialog(context);
@@ -64,13 +64,13 @@ class WalletSelector extends StatelessWidget {
             // Switch to selected wallet
             debugPrint('🔄 Switching to wallet: $walletId');
             state.switchWallet(walletId);
-            
+
             // Show feedback
             final walletName = state.wallets.firstWhere(
               (w) => w['id'] == walletId,
               orElse: () => {'name': 'Unknown'},
             )['name'];
-            
+
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text('Switched to $walletName'),
@@ -81,7 +81,8 @@ class WalletSelector extends StatelessWidget {
         },
         itemBuilder: (context) {
           final wallets = state.wallets;
-          final activeId = state.activeWalletId; // Use the new getter instead of state.wallet?['id']
+          final activeId = state
+              .activeWalletId; // Use the new getter instead of state.wallet?['id']
 
           final items = wallets.map((wallet) {
             final isActive = wallet['id'] == activeId;
@@ -144,7 +145,10 @@ class WalletSelector extends StatelessWidget {
             PopupMenuItem(
               value: 'add_new',
               child: ListTile(
-                leading: Icon(Icons.add_circle_outline, color: theme.colorScheme.primary),
+                leading: Icon(
+                  Icons.add_circle_outline,
+                  color: theme.colorScheme.primary,
+                ),
                 title: Text(
                   'Add New Wallet',
                   style: TextStyle(color: theme.colorScheme.primary),
@@ -189,8 +193,9 @@ class WalletSelector extends StatelessWidget {
               TextField(
                 controller: passwordController,
                 decoration: const InputDecoration(
-                  labelText: 'Set Password',
+                  labelText: 'Set Master Password',
                   border: OutlineInputBorder(),
+                  helperText: 'This password will be used for all wallets',
                 ),
                 obscureText: true,
               ),
@@ -212,7 +217,7 @@ class WalletSelector extends StatelessWidget {
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Password is required'),
+                      content: Text('Master password is required'),
                       backgroundColor: Colors.red,
                     ),
                   );
