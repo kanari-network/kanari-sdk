@@ -22,173 +22,325 @@ class HomeScreen extends StatelessWidget {
     final isMediumScreen = screenWidth >= 360 && screenWidth < 600;
 
     // Responsive padding
-    final screenPadding = isSmallScreen ? 16.0 : (isMediumScreen ? 20.0 : 24.0);
+    final screenPadding = isSmallScreen ? 12.0 : (isMediumScreen ? 16.0 : 20.0);
     final sectionSpacing = isSmallScreen
-        ? 20.0
-        : (isMediumScreen ? 24.0 : 32.0);
-    final topSpacing = isSmallScreen ? 12.0 : (isMediumScreen ? 16.0 : 20.0);
+        ? 16.0
+        : (isMediumScreen ? 20.0 : 28.0);
 
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: Text(
-          'Kanari',
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.5,
-            color: theme.colorScheme.onSurface,
-          ),
-        ),
-        actions: [
-          const WalletSelector(),
-          SizedBox(width: isSmallScreen ? 4 : 8),
-          const NetworkSelector(),
-          SizedBox(width: isSmallScreen ? 4 : 8),
-          Container(
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: theme.colorScheme.outline.withOpacity(0.1),
-              ),
-            ),
-            child: IconButton(
-              icon: const Icon(Icons.refresh_rounded),
-              onPressed: state.isLoading ? null : () => state.refreshBalance(),
-              style: IconButton.styleFrom(
-                padding: EdgeInsets.all(isSmallScreen ? 8 : 10),
-              ),
-            ),
-          ),
-          SizedBox(width: isSmallScreen ? 4 : 8),
-          // Settings/Profile button
-          Container(
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: theme.colorScheme.outline.withOpacity(0.1),
-              ),
-            ),
-            child: PopupMenuButton<String>(
-              icon: const Icon(Icons.settings_rounded),
-              onSelected: (value) {
-                if (value == 'change_password') {
-                  _showChangePasswordDialog(context, state);
-                }
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem(
-                  value: 'change_password',
-                  child: ListTile(
-                    leading: Icon(Icons.lock_reset),
-                    title: Text('Change Password'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          SizedBox(width: isSmallScreen ? 4 : 8),
-          // Logout button
-          Container(
-            decoration: BoxDecoration(
-              color: theme.colorScheme.error.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: theme.colorScheme.error.withOpacity(0.2),
-              ),
-            ),
-            child: IconButton(
-              icon: const Icon(Icons.logout_rounded),
-              onPressed: () => state.logout(),
-              tooltip: 'Logout',
-              color: theme.colorScheme.error,
-              style: IconButton.styleFrom(
-                padding: EdgeInsets.all(isSmallScreen ? 8 : 10),
-              ),
-            ),
-          ),
-          SizedBox(width: isSmallScreen ? 12 : 16),
-        ],
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              theme.colorScheme.primary.withOpacity(0.03),
-              theme.colorScheme.secondary.withOpacity(0.02),
-            ],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        child: state.isLoading
-            ? Center(
-                child: SpinKitFadingCircle(color: theme.colorScheme.primary),
-              )
-            : RefreshIndicator(
-                onRefresh: () => state.refreshBalance(),
-                backgroundColor: theme.colorScheme.surface,
-                color: theme.colorScheme.primary,
-                child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: EdgeInsets.all(screenPadding),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      SizedBox(height: topSpacing),
-                      const BalanceCard(),
-                      SizedBox(height: sectionSpacing),
-                      const WalletInfoCard(),
-                      SizedBox(height: sectionSpacing),
-                      const SecurityCard(),
-                      SizedBox(height: isSmallScreen ? 28.0 : 48.0),
-                      Row(
-                        children: [
-                          Container(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: isSmallScreen ? 12 : 16,
-                              vertical: isSmallScreen ? 6 : 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.primary.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: theme.colorScheme.primary.withOpacity(
-                                  0.2,
-                                ),
+      backgroundColor: theme.colorScheme.surface,
+      body: state.isLoading
+          ? Center(child: SpinKitFadingCircle(color: theme.colorScheme.primary))
+          : RefreshIndicator(
+              onRefresh: () => state.refreshBalance(),
+              backgroundColor: theme.colorScheme.surface,
+              color: theme.colorScheme.primary,
+              child: CustomScrollView(
+                slivers: [
+                  // Modern Header with Gradient
+                  SliverToBoxAdapter(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            theme.colorScheme.primary,
+                            theme.colorScheme.primary.withOpacity(0.8),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: const BorderRadius.only(
+                          bottomLeft: Radius.circular(32),
+                          bottomRight: Radius.circular(32),
+                        ),
+                      ),
+                      child: SafeArea(
+                        child: Padding(
+                          padding: EdgeInsets.all(screenPadding),
+                          child: Column(
+                            children: [
+                              // Top Bar
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  // Logo/Title
+                                  Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withOpacity(0.2),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                        child: Icon(
+                                          Icons.hexagon,
+                                          color: Colors.white,
+                                          size: isSmallScreen ? 20 : 24,
+                                        ),
+                                      ),
+                                      SizedBox(width: isSmallScreen ? 8 : 12),
+                                      Text(
+                                        'Kanari',
+                                        style: theme.textTheme.titleLarge
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w800,
+                                              letterSpacing: -0.5,
+                                              color: Colors.white,
+                                              fontSize: isSmallScreen ? 18 : 22,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                  // Settings Menu
+                                  PopupMenuButton<String>(
+                                    icon: const Icon(
+                                      Icons.more_vert_rounded,
+                                      color: Colors.white,
+                                    ),
+                                    color: theme.colorScheme.surface,
+                                    onSelected: (value) {
+                                      if (value == 'change_password') {
+                                        _showChangePasswordDialog(
+                                          context,
+                                          state,
+                                        );
+                                      } else if (value == 'logout') {
+                                        state.logout();
+                                      }
+                                    },
+                                    itemBuilder: (context) => [
+                                      const PopupMenuItem(
+                                        value: 'change_password',
+                                        child: ListTile(
+                                          leading: Icon(
+                                            Icons.lock_reset,
+                                            color: Colors.blue,
+                                          ),
+                                          title: Text('Change Password'),
+                                        ),
+                                      ),
+                                      const PopupMenuItem(
+                                        value: 'logout',
+                                        child: ListTile(
+                                          leading: Icon(
+                                            Icons.logout_rounded,
+                                            color: Colors.red,
+                                          ),
+                                          title: Text('Logout'),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.bolt_rounded,
-                                  size: isSmallScreen ? 14 : 16,
-                                  color: theme.colorScheme.primary,
+                              SizedBox(height: sectionSpacing),
+
+                              // Balance Card - Integrated in header
+                              Container(
+                                padding: EdgeInsets.all(
+                                  isSmallScreen ? 16 : 20,
                                 ),
-                                SizedBox(width: isSmallScreen ? 6 : 8),
-                                Text(
-                                  'Quick Actions',
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: -0.3,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(24),
+                                  border: Border.all(
+                                    color: Colors.white.withOpacity(0.2),
                                   ),
                                 ),
-                              ],
-                            ),
+                                child: Column(
+                                  children: [
+                                    // Network & Wallet Selectors
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Container(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: isSmallScreen ? 12 : 16,
+                                            vertical: isSmallScreen ? 6 : 8,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white.withOpacity(
+                                              0.2,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.dns_rounded,
+                                                color: Colors.white,
+                                                size: isSmallScreen ? 14 : 16,
+                                              ),
+                                              const SizedBox(width: 6),
+                                              const NetworkSelector(),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: isSmallScreen ? 12 : 16,
+                                            vertical: isSmallScreen ? 6 : 8,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white.withOpacity(
+                                              0.2,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons
+                                                    .account_balance_wallet_rounded,
+                                                color: Colors.white,
+                                                size: isSmallScreen ? 14 : 16,
+                                              ),
+                                              const SizedBox(width: 6),
+                                              const WalletSelector(),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    SizedBox(height: isSmallScreen ? 16 : 20),
+
+                                    // Balance Amount
+                                    const Text(
+                                      'Total Balance',
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    SizedBox(height: isSmallScreen ? 4 : 8),
+                                    const BalanceCard(),
+
+                                    // Refresh Button
+                                    SizedBox(height: isSmallScreen ? 12 : 16),
+                                    Material(
+                                      color: Colors.white.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(12),
+                                        onTap: () => state.refreshBalance(),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: 8,
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.refresh_rounded,
+                                                color: Colors.white,
+                                                size: 16,
+                                              ),
+                                              const SizedBox(width: 6),
+                                              const Text(
+                                                'Refresh',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Wallet Address Card
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.all(screenPadding),
+                      child: const WalletInfoCard(),
+                    ),
+                  ),
+
+                  // Security Card
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: screenPadding),
+                      child: const SecurityCard(),
+                    ),
+                  ),
+
+                  // Quick Actions Section
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.all(screenPadding),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: isSmallScreen ? 12 : 16,
+                                  vertical: isSmallScreen ? 6 : 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.primaryContainer,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.bolt_rounded,
+                                      size: isSmallScreen ? 14 : 16,
+                                      color:
+                                          theme.colorScheme.onPrimaryContainer,
+                                    ),
+                                    SizedBox(width: isSmallScreen ? 6 : 8),
+                                    Text(
+                                      'Quick Actions',
+                                      style: theme.textTheme.titleMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w700,
+                                            letterSpacing: -0.3,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: isSmallScreen ? 16.0 : 20.0),
+                          _buildActionList(context, isSmallScreen),
                         ],
                       ),
-                      SizedBox(height: isSmallScreen ? 16.0 : 24.0),
-                      _buildActionList(context, isSmallScreen),
-                    ],
+                    ),
                   ),
-                ),
+
+                  // Bottom Spacing
+                  const SliverToBoxAdapter(child: SizedBox(height: 20)),
+                ],
               ),
-      ),
+            ),
     );
   }
 
@@ -258,6 +410,37 @@ class HomeScreen extends StatelessWidget {
         ],
       );
     }
+  }
+
+  Future<String?> _scanQRCode(BuildContext context) async {
+    // Placeholder for QR scanner - will be implemented with platform-specific code
+    // For now, show a message that this feature requires camera permission
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('QR Scanner'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.qr_code_scanner_rounded, size: 64, color: Colors.blue),
+            SizedBox(height: 16),
+            Text(
+              'QR Scanner requires camera access.\n\nThis feature will be available soon.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+
+    return null;
   }
 
   void _showExecuteDialog(BuildContext context) {
@@ -397,8 +580,8 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  void _showTransferDialog(BuildContext context) {
-    final recipientController = TextEditingController();
+  void _showTransferDialog(BuildContext context, {String? prefilledAddress}) {
+    final recipientController = TextEditingController(text: prefilledAddress);
     final amountController = TextEditingController();
     final screenWidth = MediaQuery.of(context).size.width;
     final isSmallScreen = screenWidth < 360;
@@ -451,6 +634,21 @@ class HomeScreen extends StatelessWidget {
                     horizontal: isSmallScreen ? 12 : 16,
                     vertical: isSmallScreen ? 12 : 16,
                   ),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.qr_code_scanner_rounded),
+                    onPressed: () async {
+                      Navigator.pop(dialogContext);
+                      final scannedAddress = await _scanQRCode(context);
+                      if (scannedAddress != null && dialogContext.mounted) {
+                        // Reopen dialog with scanned address
+                        _showTransferDialog(
+                          context,
+                          prefilledAddress: scannedAddress,
+                        );
+                      }
+                    },
+                    tooltip: 'Scan QR Code',
+                  ),
                 ),
               ),
               SizedBox(height: isSmallScreen ? 12 : 16),
@@ -473,6 +671,42 @@ class HomeScreen extends StatelessWidget {
                   prefixIcon: Icon(
                     Icons.account_balance_wallet_rounded,
                     size: isSmallScreen ? 20 : 24,
+                  ),
+                  suffixIcon: TextButton(
+                    onPressed: () {
+                      // Calculate max amount (balance in KANARI)
+                      final balanceMist =
+                          context.read<WalletState>().balance ?? 0;
+                      final balanceKanari = balanceMist / 1000000000;
+                      amountController.text = balanceKanari.toStringAsFixed(6);
+                    },
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isSmallScreen ? 8 : 12,
+                        vertical: isSmallScreen ? 4 : 8,
+                      ),
+                    ),
+                    child: Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isSmallScreen ? 8 : 12,
+                        vertical: isSmallScreen ? 4 : 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(
+                          dialogContext,
+                        ).colorScheme.primary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'MAX',
+                        style: TextStyle(
+                          fontSize: isSmallScreen ? 11 : 12,
+                          fontWeight: FontWeight.w700,
+                          color: Theme.of(dialogContext).colorScheme.primary,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
                   ),
                   contentPadding: EdgeInsets.symmetric(
                     horizontal: isSmallScreen ? 12 : 16,

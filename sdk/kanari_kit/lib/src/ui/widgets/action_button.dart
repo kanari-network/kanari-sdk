@@ -21,7 +21,9 @@ class ActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final effectiveColor = color ?? (isPrimary ? theme.colorScheme.primary : theme.colorScheme.secondary);
+    final effectiveColor =
+        color ??
+        (isPrimary ? theme.colorScheme.primary : theme.colorScheme.secondary);
 
     return InkWell(
       onTap: onPressed,
@@ -30,9 +32,7 @@ class ActionButton extends StatelessWidget {
         padding: const EdgeInsets.all(12), // Reduced padding
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: effectiveColor.withOpacity(0.3),
-          ),
+          border: Border.all(color: effectiveColor.withOpacity(0.3)),
           color: effectiveColor.withOpacity(0.05),
         ),
         child: Row(
@@ -43,7 +43,11 @@ class ActionButton extends StatelessWidget {
                 color: effectiveColor.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(icon, color: effectiveColor, size: 20), // Smaller icon
+              child: Icon(
+                icon,
+                color: effectiveColor,
+                size: 20,
+              ), // Smaller icon
             ),
             const SizedBox(width: 12), // Reduced spacing
             Expanded(
@@ -53,7 +57,8 @@ class ActionButton extends StatelessWidget {
                 children: [
                   Text(
                     label,
-                    style: theme.textTheme.titleSmall?.copyWith( // Smaller text style
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      // Smaller text style
                       fontWeight: FontWeight.bold,
                       color: effectiveColor,
                     ),

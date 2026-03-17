@@ -44,6 +44,7 @@ dependencies:
     path: ../../packages/kanari_flutter/flutter/kanari_crypto
   shared_preferences: ^2.3.5
   bcs: ^0.1.2
+  qr_flutter: ^4.1.0
 
 dev_dependencies:
   flutter_test:

@@ -289,17 +289,17 @@ class KanariClient {
 
   /// Normalize address to 0x followed by 64 hex characters (32 bytes)
   /// This matches how the Rust Address type is serialized to String.
-  /// 
+  ///
   /// IMPORTANT: Address MUST be exactly 64 hex characters (excluding 0x prefix).
   /// Addresses that are too short or too long will be rejected.
   String _normalizeAddress(String addr) {
     var clean = addr.startsWith('0x') ? addr.substring(2) : addr;
-    
+
     // Validate hex characters
     if (!RegExp(r'^[0-9a-fA-F]+$').hasMatch(clean)) {
       throw ArgumentError('Invalid hexadecimal characters in address: $clean');
     }
-    
+
     // CRITICAL: Address MUST be exactly 64 hex characters (32 bytes)
     // This prevents ambiguity and ensures compatibility with Rust backend
     if (clean.length != 64) {
@@ -309,7 +309,7 @@ class KanariClient {
         'Example: 0x${'1'.padLeft(64, '0')}',
       );
     }
-    
+
     return '0x${clean.toLowerCase()}';
   }
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../providers/wallet_provider.dart';
 import 'package:provider/provider.dart';
 
@@ -88,6 +89,25 @@ class WalletInfoCard extends StatelessWidget {
                   ),
                 ),
                 child: IconButton(
+                  icon: const Icon(Icons.qr_code_rounded, size: 20),
+                  onPressed: () {
+                    _showQRCodeDialog(context, state.wallet!.address);
+                  },
+                  tooltip: 'Show QR Code',
+                  color: theme.colorScheme.onSurfaceVariant,
+                  padding: EdgeInsets.all(isSmallScreen ? 6 : 8),
+                ),
+              ),
+              SizedBox(width: isSmallScreen ? 2 : 4),
+              Container(
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: theme.colorScheme.outline.withOpacity(0.1),
+                  ),
+                ),
+                child: IconButton(
                   icon: const Icon(Icons.copy_rounded, size: 20),
                   onPressed: () {
                     Clipboard.setData(ClipboardData(text: state.wallet!.address));
@@ -109,6 +129,116 @@ class WalletInfoCard extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+
+  void _showQRCodeDialog(BuildContext context, String address) {
+    final theme = Theme.of(context);
+    
+    showDialog(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Wallet QR Code',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: () => Navigator.pop(dialogContext),
+                    tooltip: 'Close',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: theme.colorScheme.outline.withOpacity(0.2),
+                    width: 2,
+                  ),
+                ),
+                child: QrImageView(
+                  data: address,
+                  version: QrVersions.auto,
+                  size: 200.0,
+                  backgroundColor: Colors.white,
+                  embeddedImageStyle: QrEmbeddedImageStyle(
+                    size: const Size(40, 40),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Scan to receive KANARI',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurface.withOpacity(0.6),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceVariant.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  address,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontFamily: 'monospace',
+                    fontSize: 10,
+                    color: theme.colorScheme.onSurface.withOpacity(0.7),
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: address));
+                    Navigator.pop(dialogContext);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: const Text('Address copied to clipboard'),
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        backgroundColor: theme.colorScheme.primary,
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.copy_rounded, size: 18),
+                  label: const Text('Copy Address'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
