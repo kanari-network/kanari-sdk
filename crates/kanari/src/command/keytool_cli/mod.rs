@@ -13,25 +13,25 @@ pub mod load;
 #[derive(Subcommand, Debug)]
 pub enum KeytoolCommand {
     /// Create a new wallet with kanari-crypto
-    CreateWallet(create::CreateWallet),
+    Create(create::CreateWallet),
     /// Load an existing wallet
-    LoadWallet(load::LoadWallet),
+    Load(load::LoadWallet),
     /// List all wallets with balances
-    ListWallets(list::ListWallets),
+    List(list::ListWallets),
     /// Show detailed wallet information
-    WalletInfo(info::WalletInfo),
+    Info(info::WalletInfo),
     /// Import an existing wallet from private key or seed phrase
-    AddWallet(add::AddWallet),
+    Import(add::AddWallet),
 }
 
 impl KeytoolCommand {
     pub fn execute(&self) -> Result<()> {
         match self {
-            KeytoolCommand::CreateWallet(cmd) => cmd.execute(),
-            KeytoolCommand::LoadWallet(cmd) => cmd.execute(),
-            KeytoolCommand::ListWallets(cmd) => cmd.execute(),
-            KeytoolCommand::WalletInfo(cmd) => cmd.execute(),
-            KeytoolCommand::AddWallet(cmd) => cmd.execute(),
+            KeytoolCommand::Create(cmd) => cmd.execute(),
+            KeytoolCommand::Load(cmd) => cmd.execute(),
+            KeytoolCommand::List(cmd) => cmd.execute(),
+            KeytoolCommand::Info(cmd) => cmd.execute(),
+            KeytoolCommand::Import(cmd) => cmd.execute(),
         }
     }
 }

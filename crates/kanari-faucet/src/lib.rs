@@ -24,6 +24,7 @@ use std::env;
 /// - `to`: optional recipient address; if None this function will use `active_address` from kanari config.
 /// - `amount`: amount in KANARI (not Mist).
 /// - `rpc_url`: RPC server URL.
+/// - `wait_for_confirmation`: optional flag to wait for transaction confirmation (default: false).
 ///
 /// Returns the `TransactionStatus` returned by the RPC server on success.
 pub async fn request_from_dev(
@@ -54,8 +55,15 @@ pub async fn request_from_dev(
         anyhow::bail!("Dev password not provided to library and KANARI_PASSWORD not set")
     };
 
-    // Determine recipient
+    // Determine recipient with validation
     let recipient = if let Some(r) = to {
+        // Validate recipient address format
+        if !r.starts_with("0x") || r.len() != 66 {
+            anyhow::bail!(
+                "Invalid recipient address format: {}. Expected 0x-prefixed 64 hex characters",
+                r
+            );
+        }
         r.to_string()
     } else if let Some(m) = get_main_wallet() {
         m
@@ -74,14 +82,41 @@ pub async fn request_from_dev(
         .await
         .context("Cannot connect to RPC server")?;
 
-    let account = client
-        .get_account(&dev_address)
-        .await
-        .context("Failed to fetch Dev account info")?;
+    // Check if dev account exists on-chain
+    let account = match client.get_account(&dev_address).await {
+        Ok(acct) => acct,
+        Err(e) => {
+            anyhow::bail!(
+                "Dev wallet account not found on-chain: {}\n\
+                 The dev wallet must be initialized first by receiving a transaction.\n\
+                 Error: {}",
+                dev_address,
+                e
+            );
+        }
+    };
 
-    // Convert amount to Mist
+    // Check dev wallet balance before transfer
     const MIST_PER_KANARI: f64 = 1_000_000_000.0;
     let amount_mist = (amount * MIST_PER_KANARI).round() as u64;
+    
+    // Estimate gas cost (transfer typically costs ~1000 mist/gas * 100000 gas = 100M mist = 0.1 KANARI)
+    let estimated_gas_cost = 100_000 * 1000;
+    let total_required = amount_mist + estimated_gas_cost;
+    
+    if account.balance < total_required {
+        anyhow::bail!(
+            "Insufficient balance in dev wallet: {} KANARI (required: {} KANARI)\n\
+             Available: {:.9} KANARI\n\
+             Required: {:.9} KANARI (transfer: {:.9} + gas: {:.9})",
+            account.balance as f64 / MIST_PER_KANARI,
+            total_required as f64 / MIST_PER_KANARI,
+            account.balance as f64 / MIST_PER_KANARI,
+            total_required as f64 / MIST_PER_KANARI,
+            amount_mist as f64 / MIST_PER_KANARI,
+            estimated_gas_cost as f64 / MIST_PER_KANARI
+        );
+    }
 
     // Re-derive keypair from private key to get the tagged address format
     // Tagged addresses are required for signature verification
@@ -106,7 +141,7 @@ pub async fn request_from_dev(
 
     let tx_data = SignedTransactionData {
         sender: sender_for_tx,
-        recipient: Some(recipient),
+        recipient: Some(recipient.clone()),
         amount: Some(amount_mist),
         gas_limit: signed_tx.transaction.gas_limit(),
         gas_price: signed_tx.transaction.gas_price(),
@@ -114,10 +149,18 @@ pub async fn request_from_dev(
         signature: Some(signed_tx.signature.clone()),
     };
 
+    eprintln!("Submitting faucet transaction...");
+    eprintln!("  From: {}", dev_address);
+    eprintln!("  To: {}", recipient);
+    eprintln!("  Amount: {:.9} KANARI", amount_mist as f64 / MIST_PER_KANARI);
+    
     let status = client
         .submit_transaction(tx_data)
         .await
         .context("Failed to submit transaction to RPC")?;
+
+    eprintln!("  Transaction hash: {}", status.hash);
+    eprintln!("  Status: {}", status.status);
 
     Ok(status)
 }

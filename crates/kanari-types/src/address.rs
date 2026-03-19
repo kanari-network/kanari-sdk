@@ -80,11 +80,11 @@ impl Address {
     /// Dev wallet address that receives initial token supply
     /// This matches the address in kanari.move genesis allocation
     pub const DEV_ADDRESS: &'static str =
-        "0x8af6f4c88e204c8d09ff8b416689ff402089938966d55eae2ca24f495efc4152";
+        "0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146";
 
     /// DAO address that receives all gas fees
     pub const DAO_ADDRESS: &'static str =
-        "0x818bc748209a6d5a6a6703d04976267936c2906e5eb81fb191da46370e6ef4b8";
+        "0x3141a487d7a5382bb435c0ad39a6060067765e60e45b50953a0050bcf24b03a3";
 
     /// Helper to get AccountAddress for STD (0x1) - cached at first use
     /// Uses lazy_static for zero-cost after initialization
