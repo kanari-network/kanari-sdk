@@ -99,11 +99,11 @@ pub async fn request_from_dev(
     // Check dev wallet balance before transfer
     const MIST_PER_KANARI: f64 = 1_000_000_000.0;
     let amount_mist = (amount * MIST_PER_KANARI).round() as u64;
-    
+
     // Estimate gas cost (transfer typically costs ~1000 mist/gas * 100000 gas = 100M mist = 0.1 KANARI)
     let estimated_gas_cost = 100_000 * 1000;
     let total_required = amount_mist + estimated_gas_cost;
-    
+
     if account.balance < total_required {
         anyhow::bail!(
             "Insufficient balance in dev wallet: {} KANARI (required: {} KANARI)\n\
@@ -152,8 +152,11 @@ pub async fn request_from_dev(
     eprintln!("Submitting faucet transaction...");
     eprintln!("  From: {}", dev_address);
     eprintln!("  To: {}", recipient);
-    eprintln!("  Amount: {:.9} KANARI", amount_mist as f64 / MIST_PER_KANARI);
-    
+    eprintln!(
+        "  Amount: {:.9} KANARI",
+        amount_mist as f64 / MIST_PER_KANARI
+    );
+
     let status = client
         .submit_transaction(tx_data)
         .await
