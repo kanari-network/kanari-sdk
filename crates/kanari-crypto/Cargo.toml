@@ -57,6 +57,7 @@ kanari-common.workspace = true
 move-core-types = { workspace = true }
 
 [dev-dependencies]
+proptest = "1.10.0"
 tempfile = { workspace = true }
 
 [features]

@@ -1,0 +1,58 @@
+[package]
+name = "kanari-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[workspace]
+# Separate workspace for fuzz targets to avoid conflicts with main workspace
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.kanari-crypto]
+path = ".."
+
+[[bin]]
+name = "fuzz_target_1"
+path = "fuzz_targets/fuzz_target_1.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "signature_verify"
+path = "fuzz_targets/signature_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "encryption_roundtrip"
+path = "fuzz_targets/encryption_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "key_generation"
+path = "fuzz_targets/key_generation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "password_hash"
+path = "fuzz_targets/password_hash.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+opt-level = 3
+debug = false
+lto = false
+debug-assertions = false

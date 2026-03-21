@@ -8,7 +8,8 @@ resolver = "2"                   # Use the version 2 feature resolver for more c
 # This can be useful for excluding third-party code or components 
 # that are not directly part of the workspace's build process.
 exclude = [
-    "third_party/move"           # Exclude the 'third_party/move' directory from workspace builds.
+    "third_party/move",           # Exclude the 'third_party/move' directory from workspace builds.
+    "crates/kanari-crypto/fuzz",  # Exclude fuzz targets from workspace builds (fuzzing uses separate Cargo.toml)
 ]
 
 # Members List: Crates that are part of this workspace.
