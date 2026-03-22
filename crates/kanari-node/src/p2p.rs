@@ -16,9 +16,15 @@ use libp2p::{
     tcp, yamux,
 };
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use std::{io::Write, time::Duration};
 use tokio::sync::mpsc;
 use tracing::{info, warn};
+
+// Add compression support
+use flate2::Compression;
+use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
+use std::io::Read;
 
 /// P2P message types
 #[derive(Debug, Clone, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
@@ -29,6 +35,9 @@ pub enum P2PMessage {
     BlockRequest(u64, u64), // (height, timestamp) - timestamp makes it unique
     BlockResponse(String),  // Full block data response with transactions
     PeerInfo(PeerInfoMsg),
+    // Add compressed message types for large data
+    CompressedBlock(Vec<u8>),     // Compressed full block data (gzip)
+    CompressedDagVertex(Vec<u8>), // Compressed DAG vertex (gzip)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
@@ -81,15 +90,22 @@ impl P2PNetwork {
             gossipsub::MessageId::from(hex::encode(hash))
         };
 
+        // Configure Gossipsub for large networks (200+ nodes)
+        // Reference: https://github.com/libp2p/specs/blob/master/pubsub/gossipsub/gossipsub-v1.1.md#recommended-parameters
         let gossipsub_config = gossipsub::ConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(1))
             .validation_mode(ValidationMode::Permissive)
             .message_id_fn(message_id_fn)
-            // Critical for small networks (2-3 nodes)
-            .mesh_n_low(1)
-            .mesh_n(2)
-            .mesh_n_high(4)
-            .do_px() // Enable peer exchange
+            // Parameters optimized for large networks (100-1000 nodes)
+            .mesh_n_low(6) // Maintain at least 6 peers in mesh
+            .mesh_n(12) // Target 12 peers in mesh
+            .mesh_n_high(24) // Allow up to 24 peers in mesh
+            .gossip_factor(0.25) // Gossip 25% of known messages to mesh peers
+            .heartbeat_initial_delay(Duration::from_millis(100))
+            .max_transmit_size(1_000_000) // Increase max message size to 1MB for block data
+            .do_px() // Enable peer exchange for better discovery
+            // Add flood publishing for critical messages (blocks, vertices)
+            .flood_publish(true)
             .build()
             .map_err(|e| anyhow::anyhow!("Gossipsub config error: {}", e))?;
 
@@ -188,6 +204,8 @@ impl P2PNetwork {
             P2PMessage::NewTransaction(_) => &self.topics.transactions,
             P2PMessage::PeerInfo(_) => &self.topics.peers,
             P2PMessage::NewDagVertex(_) => &self.topics.dag_vertices,
+            P2PMessage::CompressedBlock(_) => &self.topics.blocks,
+            P2PMessage::CompressedDagVertex(_) => &self.topics.dag_vertices,
         };
 
         // Log message publication for debugging
@@ -212,8 +230,37 @@ impl P2PNetwork {
             }
         }
 
+        // Handle compression for large messages
+        let final_msg = match msg {
+            P2PMessage::NewBlock(ref data) if data.len() > 100_000 => {
+                // Compress blocks larger than 100KB
+                let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+                encoder.write_all(data.as_bytes())?;
+                let compressed_data = encoder.finish()?;
+                info!(
+                    "[P2P] Compressed block from {} to {} bytes",
+                    data.len(),
+                    compressed_data.len()
+                );
+                P2PMessage::CompressedBlock(compressed_data)
+            }
+            P2PMessage::NewDagVertex(ref data) if data.len() > 100_000 => {
+                // Compress vertices larger than 100KB
+                let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+                encoder.write_all(data.as_bytes())?;
+                let compressed_data = encoder.finish()?;
+                info!(
+                    "[P2P] Compressed DAG vertex from {} to {} bytes",
+                    data.len(),
+                    compressed_data.len()
+                );
+                P2PMessage::CompressedDagVertex(compressed_data)
+            }
+            _ => msg,
+        };
+
         let config = bincode::config::standard();
-        let data = bincode::encode_to_vec(&msg, config)
+        let data = bincode::encode_to_vec(&final_msg, config)
             .map_err(|e| anyhow::anyhow!("Failed to encode message: {}", e))?;
 
         // Publish and handle duplicate gracefully
@@ -244,6 +291,22 @@ impl P2PNetwork {
             }
         }
     }
+}
+
+/// Decompress a compressed block message
+fn decompress_block(compressed_data: Vec<u8>) -> Result<String> {
+    let mut decoder = GzDecoder::new(&compressed_data[..]);
+    let mut decompressed = String::new();
+    decoder.read_to_string(&mut decompressed)?;
+    Ok(decompressed)
+}
+
+/// Decompress a compressed DAG vertex message
+fn decompress_dag_vertex(compressed_data: Vec<u8>) -> Result<String> {
+    let mut decoder = GzDecoder::new(&compressed_data[..]);
+    let mut decompressed = String::new();
+    decoder.read_to_string(&mut decompressed)?;
+    Ok(decompressed)
 }
 
 pub struct P2PEventHandler {
@@ -333,6 +396,54 @@ impl P2PEventHandler {
                                     propagation_source,
                                     data.len()
                                 );
+                            }
+                            P2PMessage::CompressedBlock(compressed_data) => {
+                                info!(
+                                    "[P2P] Received CompressedBlock from {} (size: {})",
+                                    propagation_source,
+                                    compressed_data.len()
+                                );
+                                // Decompress and convert to NewBlock
+                                match decompress_block(compressed_data.to_vec()) {
+                                    Ok(block_data) => {
+                                        let new_msg = P2PMessage::NewBlock(block_data);
+                                        if let Err(e) = self.message_tx.send(new_msg) {
+                                            warn!(
+                                                "[P2P] Failed to forward decompressed block: {}",
+                                                e
+                                            );
+                                        }
+                                        return; // Already sent, don't send original msg
+                                    }
+                                    Err(e) => {
+                                        warn!("[P2P] Failed to decompress block: {}", e);
+                                        return;
+                                    }
+                                }
+                            }
+                            P2PMessage::CompressedDagVertex(compressed_data) => {
+                                info!(
+                                    "[P2P] Received CompressedDagVertex from {} (size: {})",
+                                    propagation_source,
+                                    compressed_data.len()
+                                );
+                                // Decompress and convert to NewDagVertex
+                                match decompress_dag_vertex(compressed_data.to_vec()) {
+                                    Ok(vertex_data) => {
+                                        let new_msg = P2PMessage::NewDagVertex(vertex_data);
+                                        if let Err(e) = self.message_tx.send(new_msg) {
+                                            warn!(
+                                                "[P2P] Failed to forward decompressed vertex: {}",
+                                                e
+                                            );
+                                        }
+                                        return; // Already sent, don't send original msg
+                                    }
+                                    Err(e) => {
+                                        warn!("[P2P] Failed to decompress DAG vertex: {}", e);
+                                        return;
+                                    }
+                                }
                             }
                             P2PMessage::BlockRequest(h, t) => {
                                 info!(

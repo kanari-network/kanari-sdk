@@ -55,14 +55,6 @@ enum Commands {
         #[arg(long, default_value = "false")]
         relay_server: bool,
 
-        /// Enable moderate mode for 8-16 cores (10K-30K TPS)
-        #[arg(long, default_value = "false")]
-        moderate: bool,
-
-        /// Enable high-throughput mode for 500K+ TPS (requires 64+ cores, 32GB+ RAM)
-        #[arg(long, default_value = "false")]
-        high_throughput: bool,
-
         /// Authority ID for DAG consensus (e.g. 0x1)
         #[arg(long)]
         authority_id: Option<String>,
@@ -70,6 +62,10 @@ enum Commands {
         /// List of authority IDs for DAG consensus (comma-separated)
         #[arg(long, value_delimiter = ',')]
         authorities: Option<Vec<String>>,
+
+        /// Bootstrap peer multiaddr to connect to (can be specified multiple times)
+        #[arg(long, value_name = "MULTIADDR")]
+        bootstrap: Option<Vec<String>>,
     },
     /// Run a local-only node
     Local {},
@@ -156,10 +152,9 @@ async fn main() -> Result<()> {
             rpc_host,
             data_dir,
             relay_server,
-            moderate,
-            high_throughput,
             authority_id,
             authorities,
+            bootstrap,
         } => {
             let data_dir_path = data_dir.clone().unwrap_or_else(|| {
                 let home = std::env::var("HOME")
@@ -169,19 +164,6 @@ async fn main() -> Result<()> {
                     .join(".kanari")
                     .join("kanari-db")
             });
-
-            // Check for conflicting flags
-            if moderate && high_throughput {
-                anyhow::bail!("Cannot use both --moderate and --high-throughput flags");
-            }
-
-            if moderate {
-                tracing::info!("👍 MODERATE MODE ENABLED (10K-30K TPS target)");
-                tracing::info!("   Optimized for: 8-16 cores, 16-32GB RAM");
-            } else if high_throughput {
-                tracing::info!("🚀 HIGH-THROUGHPUT MODE ENABLED (500K+ TPS target)");
-                tracing::info!("   Ensure sufficient resources: 64+ cores, 32GB+ RAM, NVMe SSD");
-            }
 
             // If data_dir is provided, use it. Otherwise, use the default internal logic
             // which handles path resolution and directory creation correctly.
@@ -217,8 +199,7 @@ async fn main() -> Result<()> {
                 rpc_host,
                 data_dir_path,
                 relay_server,
-                moderate,
-                high_throughput,
+                bootstrap,
             )
             .await?;
             return Ok(());
@@ -246,8 +227,7 @@ async fn main() -> Result<()> {
                 rpc_host,
                 data_dir_path,
                 false,
-                false, // moderate
-                false, // high_throughput
+                None,
             )
             .await?;
             return Ok(());
@@ -275,8 +255,7 @@ async fn run_node(
     rpc_host: String,
     data_dir: std::path::PathBuf,
     relay_server: bool,
-    moderate: bool,
-    high_throughput: bool,
+    bootstrap_peers: Option<Vec<String>>,
 ) -> Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
@@ -285,20 +264,6 @@ async fn run_node(
 
     tracing::info!("Kanari blockchain node starting");
     tracing::info!("Network: Testnet, Move VM: Enabled");
-    if moderate {
-        tracing::info!("Mode: MODERATE (10K-30K TPS)");
-        tracing::info!("  - Parallel workers: up to 16 cores");
-        tracing::info!("  - Cache size: 10K vertices");
-        tracing::info!("  - Batch size: up to 1K");
-    } else if high_throughput {
-        tracing::info!("Mode: HIGH-THROUGHPUT (500K+ TPS)");
-        tracing::info!("  - Parallel workers: up to 128 cores");
-        tracing::info!("  - Cache size: 500K vertices");
-        tracing::info!("  - Batch size: up to 50K");
-    } else {
-        tracing::info!("Mode: Default (100K TPS)");
-    }
-
     tracing::info!("Initial blockchain height: {}", stats.height);
     let total_supply_str = KanariModule::format_kanari(stats.total_supply);
     tracing::info!(
@@ -308,14 +273,13 @@ async fn run_node(
     );
 
     // Get genesis/root object state from block 0 if available
-    let genesis_root = match engine.get_block(0) {
-        Some(b) => b.hash,
-        None => "unknown".to_string(),
-    };
-    let size_bytes = if genesis_root == "unknown" {
-        0
-    } else {
-        genesis_root.len() / 2
+    let (genesis_root, size_bytes) = match engine.get_block(0) {
+        Some(b) => {
+            let hash = b.hash;
+            let size = hash.len() / 2;
+            (hash, size)
+        }
+        None => ("unknown".to_string(), 0),
     };
     let dao_addr = KanariAddress::DAO_ADDRESS;
     tracing::info!(
@@ -328,9 +292,6 @@ async fn run_node(
     // Get RPC server sequencer / dev address from kanari-types constants
     let dev_addr = KanariAddress::DEV_ADDRESS;
     tracing::info!("RPC Server sequencer address: ({})", dev_addr);
-
-    tracing::info!("kanari_sequencer::actor::sequencer: Load latest sequencer order 0");
-    tracing::info!("kanari_sequencer::actor::sequencer: Load latest sequencer order 0");
 
     // Create channels for P2P message handling (used even in local mode, messages will be dropped)
     let (p2p_msg_tx, mut p2p_msg_rx) = tokio::sync::mpsc::unbounded_channel::<P2PMessage>();
@@ -362,12 +323,29 @@ async fn run_node(
         // Clean up old peers (older than 7 days)
         peer_store.cleanup_old_peers(7 * 24 * 60 * 60);
 
-        let p2p_network = P2PNetwork::new(keypair, p2p_port, relay_server)?;
+        let mut p2p_network = P2PNetwork::new(keypair, p2p_port, relay_server)?;
         tracing::info!("P2P network initialized on port {}", p2p_port);
         if relay_server {
             tracing::info!(
                 "Relay server mode: ENABLED - This node will help relay traffic for NAT'd peers"
             );
+        }
+
+        // Connect to bootstrap peers if provided
+        if let Some(bootstrap_list) = bootstrap_peers {
+            for bootstrap_addr in bootstrap_list {
+                match bootstrap_addr.parse::<libp2p::Multiaddr>() {
+                    Ok(addr) => {
+                        tracing::info!("Connecting to bootstrap peer: {}", addr);
+                        if let Err(e) = p2p_network.swarm.dial(addr.clone()) {
+                            tracing::warn!("Failed to dial bootstrap peer {}: {}", addr, e);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Invalid bootstrap multiaddr {}: {}", bootstrap_addr, e);
+                    }
+                }
+            }
         }
 
         // Wrap peer store in Arc<Mutex> for sharing
@@ -428,9 +406,7 @@ async fn run_node(
     sleep(Duration::from_millis(500)).await;
     tracing::info!("RPC server ready");
 
-    let mut _tick: u64 = 0;
     loop {
-        _tick += 1;
         let stats = engine.get_stats();
         let wallets = list_wallet_files().unwrap_or_default();
         tracing::info!(
@@ -442,7 +418,8 @@ async fn run_node(
             wallets.len()
         );
 
-        // Try to produce block if there are pending transactions
+        // Only produce blocks when there are pending transactions
+        // This avoids consensus validation issues with empty blocks in both local and networked modes
         if stats.pending_transactions > 0 {
             match engine.produce_block() {
                 Ok(block_info) => {
@@ -506,7 +483,7 @@ async fn run_node(
                 tracing::info!("Shutdown signal received. Cleaning up and exiting...");
                 break;
             }
-            _ = sleep(Duration::from_secs(5)) => {}
+            _ = sleep(Duration::from_secs(2)) => {} // Check every 2 seconds
         }
     }
 

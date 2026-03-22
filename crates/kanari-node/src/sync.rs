@@ -21,6 +21,8 @@ pub struct SyncManager {
     block_buffer: Mutex<std::collections::BTreeMap<u64, FullBlockData>>,
     /// Highest height seen in the network
     max_peer_height: AtomicU64,
+    /// Maximum number of blocks to keep in buffer to prevent memory exhaustion
+    max_buffer_size: usize,
 }
 
 impl SyncManager {
@@ -35,6 +37,7 @@ impl SyncManager {
             local_peer_id,
             block_buffer: Mutex::new(std::collections::BTreeMap::new()),
             max_peer_height: AtomicU64::new(0),
+            max_buffer_size: 1000, // Limit buffer to 1000 blocks for 200-node networks
         }
     }
 
@@ -91,6 +94,12 @@ impl SyncManager {
                 info!("[P2P] Received PeerInfo from {}", peer_info.peer_id);
                 self.handle_peer_info(peer_info).await;
             }
+            // Handle compressed messages (should be decompressed before reaching here)
+            P2PMessage::CompressedBlock(_) | P2PMessage::CompressedDagVertex(_) => {
+                warn!(
+                    "[P2P] Received compressed message in sync manager - should be decompressed already"
+                );
+            }
         }
     }
 
@@ -127,11 +136,20 @@ impl SyncManager {
                     // Buffer the block
                     {
                         let mut buffer = self.block_buffer.lock().unwrap();
+                        // Check if buffer is full
+                        if buffer.len() >= self.max_buffer_size {
+                            warn!(
+                                "[SYNC] Block buffer full (max: {}). Dropping block #{}",
+                                self.max_buffer_size, block_height
+                            );
+                            return;
+                        }
                         buffer.insert(block_height, block);
                         info!(
-                            "[SYNC] Buffered NewBlock #{}. Buffer size: {}",
+                            "[SYNC] Buffered NewBlock #{}. Buffer size: {}/{}",
                             block_height,
-                            buffer.len()
+                            buffer.len(),
+                            self.max_buffer_size
                         );
                     }
 
@@ -357,16 +375,24 @@ impl SyncManager {
                 );
 
                 if block.height > stats.height {
-                    // Buffer the block
+                    // Buffer the block with size limit check
                     let buffer_len = {
                         let mut buffer = self.block_buffer.lock().unwrap();
+                        // Check if buffer is full
+                        if buffer.len() >= self.max_buffer_size {
+                            warn!(
+                                "[SYNC] Block buffer full (max: {}). Dropping block #{}",
+                                self.max_buffer_size, block.height
+                            );
+                            return;
+                        }
                         buffer.insert(block.height, block.clone());
                         buffer.len()
                     };
 
                     info!(
-                        "[SYNC] Buffered block #{}. Buffer size: {}",
-                        block.height, buffer_len
+                        "[SYNC] Buffered block #{}. Buffer size: {}/{}",
+                        block.height, buffer_len, self.max_buffer_size
                     );
 
                     // Try to apply consecutive blocks
@@ -449,7 +475,8 @@ impl SyncManager {
             .as_secs();
 
         // Limit the number of blocks requested at once to avoid network congestion
-        let max_request = 50;
+        // Increased from 50 to 200 for better performance in large networks (200+ nodes)
+        let max_request = 200;
         let actual_to = to.min(from + max_request);
 
         for height in from..=actual_to {
