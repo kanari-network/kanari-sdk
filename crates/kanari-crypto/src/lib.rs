@@ -3,7 +3,10 @@
 
 //! Secure cryptographic primitives for the Kanari blockchain platform
 //!
-//! This crate provides cryptographic operations including:
+//! This crate provides comprehensive cryptographic operations supporting:
+//! - **Classical Elliptic Curve Cryptography (ECC)**: K256, P256, Ed25519
+//! - **Post-Quantum Cryptography (PQC)**: NIST-standardized Dilithium2/3/5, SPHINCS+
+//! - **Hybrid Cryptography**: Combined classical + PQC schemes for quantum-safe transition
 //! - Key generation and management
 //! - Digital signatures (RFC-8032 compliant Ed25519, ECC, PQC)
 //! - Encryption and decryption
@@ -11,6 +14,75 @@
 //! - Key rotation and lifecycle management
 //! - Security audit logging
 //! - Backup and restore functionality
+//!
+//! # 🌐 Multi-Algorithm Support Overview
+//!
+//! ## Classical ECC Algorithms
+//! - **K256 (secp256k1)**: Bitcoin/Ethereum compatible curve with SHA3-256 pre-hashing
+//! - **P256 (secp256r1)**: NIST P-256 curve with SHA3-256 pre-hashing  
+//! - **Ed25519**: Modern EdDSA scheme with RFC-8032 compliance (direct signing, no pre-hashing)
+//!
+//! ## Post-Quantum Cryptography (PQC) - NIST Standards
+//! - **Dilithium2**: Fast lattice-based signatures (~2.5KB), NIST Level 2 security
+//! - **Dilithium3**: Balanced lattice-based signatures (~4KB), NIST Level 3 security (Recommended)
+//! - **Dilithium5**: Maximum security lattice-based signatures (~5KB), NIST Level 5 security
+//! - **SPHINCS+**: Hash-based signatures (~50KB), ultra-secure against all known attacks
+//!
+//! ## Hybrid Schemes (Classical + PQC)
+//! - **Ed25519 + Dilithium3**: Best of both worlds - fast classical + quantum-safe PQC
+//! - **K256 + Dilithium3**: Bitcoin/Ethereum compatible + quantum-safe PQC
+//! - Format: `[2-byte classical_len] || classical_sig || pqc_sig`
+//!
+//! # 🔒 Security Features
+//!
+//! ## Quantum-Resistant Design
+//! - All hash functions use SHA3 family (quantum-resistant)
+//! - PQC algorithms follow NIST standardization
+//! - Hybrid schemes provide backward compatibility during quantum transition
+//!
+//! ## Secure Implementation
+//! - Automatic memory zeroization for sensitive data
+//! - Constant-time operations to prevent timing attacks
+//! - Tagged addresses for unambiguous algorithm identification
+//! - Comprehensive input validation and error handling
+//!
+//! # 📋 Usage Examples
+//!
+//! ## Generate Keys
+//! ```rust
+//! use kanari_crypto::{generate_keypair, CurveType};
+//! 
+//! // Classical ECC
+//! let k256_key = generate_keypair(CurveType::K256)?;
+//! let ed25519_key = generate_keypair(CurveType::Ed25519)?;
+//! 
+//! // Post-Quantum
+//! let dilithium3_key = generate_keypair(CurveType::Dilithium3)?;
+//! 
+//! // Hybrid
+//! let hybrid_key = generate_keypair(CurveType::Ed25519Dilithium3)?;
+//! ```
+//!
+//! ## Sign Messages
+//! ```rust
+//! use kanari_crypto::{sign_message, CurveType};
+//! 
+//! let message = b"Hello, quantum world!";
+//! let signature = sign_message(&private_key, message, CurveType::Dilithium3)?;
+//! ```
+//!
+//! ## Verify Signatures (Recommended: Use Tagged Addresses)
+//! ```rust
+//! use kanari_crypto::verify_signature;
+//! 
+//! // ✅ Secure: Use tagged address to avoid timing attacks
+//! let tagged_address = "Dilithium3:0xabc123..."; 
+//! let valid = verify_signature(tagged_address, message, &signature)?;
+//! 
+//! // ⚠️ Less secure: Fallback to trying all curves (timing attack risk)
+//! let bare_address = "0xabc123...";
+//! let valid = verify_signature(bare_address, message, &signature)?;
+//! ```
 //!
 //! # Compatibility & Standards
 //!
@@ -26,7 +98,7 @@
 //! - ✅ libsodium (crypto_sign_*)
 //! - ✅ NaCl / TweetNaCl
 //! - ✅ Python PyNaCl
-//! - ✅ Go ed25519 package
+//! - ✅ Go ed25619 package
 //! - ✅ Node.js TweetNaCl.js / tweetnacl-js
 //! - ✅ Any RFC-8032 compliant library
 //!
@@ -56,6 +128,8 @@ pub mod wallet;
 // Re-export signature functionality
 pub use signatures::{
     SignatureError, secure_clear, sign_message, verify_signature, verify_signature_with_curve,
+    verify_signature_dilithium2, verify_signature_dilithium3, verify_signature_dilithium5,
+    verify_signature_sphincs, verify_signature_k256, verify_signature_p256, verify_signature_ed25519,
 };
 
 // Re-export encryption functionality - now using actual functions from the module

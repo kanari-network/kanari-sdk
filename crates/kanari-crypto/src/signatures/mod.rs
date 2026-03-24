@@ -705,96 +705,12 @@ pub fn verify_signature_with_curve(
 
             Ok(classical_ok && pqc_ok)
         }
-        // PQC verification using pqcrypto crates
-        CurveType::Dilithium2 => {
-            let pqc_raw = crate::keys::extract_raw_key(address_hex);
-            let pub_bytes = hex::decode(pqc_raw).map_err(|_| {
-                SignatureError::InvalidPublicKey("Invalid public key hex".to_string())
-            })?;
-            // Validate key length (Dilithium2 public key is 1312 bytes)
-            if pub_bytes.len() != 1312 {
-                return Err(SignatureError::InvalidPublicKey(
-                    "Invalid Dilithium2 public key".to_string(),
-                ));
-            }
-            let pk = dilithium2::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
-                SignatureError::InvalidPublicKey("Invalid Dilithium2 public key".to_string())
-            })?;
-            let sig_obj = dilithium2::DetachedSignature::from_bytes(signature).map_err(|_| {
-                SignatureError::InvalidFormat("Invalid signature bytes for Dilithium2".to_string())
-            })?;
-            let res = dilithium2::verify_detached_signature(&sig_obj, message, &pk);
-            match res {
-                Ok(_) => Ok(true),
-                Err(_) => Ok(false),
-            }
-        }
-        CurveType::Dilithium3 => {
-            let pqc_raw = crate::keys::extract_raw_key(address_hex);
-            let pub_bytes = hex::decode(pqc_raw).map_err(|_| {
-                SignatureError::InvalidPublicKey("Invalid public key hex".to_string())
-            })?;
-            // Validate key length (Dilithium3 public key is 1952 bytes)
-            if pub_bytes.len() != 1952 {
-                return Err(SignatureError::InvalidPublicKey(
-                    "Invalid Dilithium3 public key".to_string(),
-                ));
-            }
-            let pk = dilithium3::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
-                SignatureError::InvalidPublicKey("Invalid Dilithium3 public key".to_string())
-            })?;
-            let sig_obj = dilithium3::DetachedSignature::from_bytes(signature).map_err(|_| {
-                SignatureError::InvalidFormat("Invalid signature bytes for Dilithium3".to_string())
-            })?;
-            let res = dilithium3::verify_detached_signature(&sig_obj, message, &pk);
-            match res {
-                Ok(_) => Ok(true),
-                Err(_) => Ok(false),
-            }
-        }
-        CurveType::Dilithium5 => {
-            let pqc_raw = crate::keys::extract_raw_key(address_hex);
-            let pub_bytes = hex::decode(pqc_raw).map_err(|_| {
-                SignatureError::InvalidPublicKey("Invalid public key hex".to_string())
-            })?;
-            // Validate key length (Dilithium5 public key is 2592 bytes)
-            if pub_bytes.len() != 2592 {
-                return Err(SignatureError::InvalidPublicKey(
-                    "Invalid Dilithium5 public key".to_string(),
-                ));
-            }
-
-            let pk = dilithium5::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
-                SignatureError::InvalidPublicKey("Invalid Dilithium5 public key".to_string())
-            })?;
-            let sig_obj = dilithium5::DetachedSignature::from_bytes(signature).map_err(|_| {
-                SignatureError::InvalidFormat("Invalid signature bytes for Dilithium5".to_string())
-            })?;
-            let res = dilithium5::verify_detached_signature(&sig_obj, message, &pk);
-            match res {
-                Ok(_) => Ok(true),
-                Err(_) => Ok(false),
-            }
-        }
+        // Pure PQC curves: address_hex contains the PQC public key
+        CurveType::Dilithium2 => verify_signature_dilithium2(address_hex, message, signature),
+        CurveType::Dilithium3 => verify_signature_dilithium3(address_hex, message, signature),
+        CurveType::Dilithium5 => verify_signature_dilithium5(address_hex, message, signature),
         CurveType::SphincsPlusSha256Robust => {
-            let pqc_raw = crate::keys::extract_raw_key(address_hex);
-            let pub_bytes = hex::decode(pqc_raw).map_err(|_| {
-                SignatureError::InvalidPublicKey("Invalid public key hex".to_string())
-            })?;
-            let pk = sphincssha2256fsimple::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
-                SignatureError::InvalidPublicKey("Invalid SPHINCS+ public key".to_string())
-            })?;
-            let sig_obj =
-                sphincssha2256fsimple::DetachedSignature::from_bytes(signature).map_err(|_| {
-                    SignatureError::InvalidFormat(
-                        "Invalid signature bytes for SPHINCS+".to_string(),
-                    )
-                })?;
-            let res = sphincssha2256fsimple::verify_detached_signature(&sig_obj, message, &pk);
-            match res {
-                Ok(_) => Ok(true),
-                Err(_) => Ok(false),
-            }
+            verify_signature_sphincs(address_hex, message, signature)
         }
     }
 }
@@ -917,93 +833,25 @@ pub fn verify_signature_with_keypair(
             let pqc_pub = keypair.get_pqc_public_key().ok_or_else(|| {
                 SignatureError::InvalidPublicKey("Missing PQC public key".to_string())
             })?;
-            let pqc_pub_raw = crate::keys::extract_raw_key(&pqc_pub);
-            let pub_bytes = hex::decode(pqc_pub_raw).map_err(|_| {
-                SignatureError::InvalidPublicKey("Invalid public key hex".to_string())
-            })?;
-            // Validate key length (Dilithium2 public key is 1312 bytes)
-            if pub_bytes.len() != 1312 {
-                return Err(SignatureError::InvalidPublicKey(
-                    "Invalid Dilithium2 public key".to_string(),
-                ));
-            }
-            let pk = dilithium2::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
-                SignatureError::InvalidPublicKey("Invalid Dilithium2 public key".to_string())
-            })?;
-            let sig_obj = dilithium2::DetachedSignature::from_bytes(signature).map_err(|_| {
-                SignatureError::InvalidFormat("Invalid signature bytes for Dilithium2".to_string())
-            })?;
-            Ok(dilithium2::verify_detached_signature(&sig_obj, message, &pk).is_ok())
+            verify_signature_dilithium2(&pqc_pub, message, signature)
         }
         CurveType::Dilithium3 => {
             let pqc_pub = keypair.get_pqc_public_key().ok_or_else(|| {
                 SignatureError::InvalidPublicKey("Missing PQC public key".to_string())
             })?;
-            let pqc_pub_raw = crate::keys::extract_raw_key(&pqc_pub);
-            let pub_bytes = hex::decode(pqc_pub_raw).map_err(|_| {
-                SignatureError::InvalidPublicKey("Invalid public key hex".to_string())
-            })?;
-            // Validate key length (Dilithium3 public key is 1952 bytes)
-            if pub_bytes.len() != 1952 {
-                return Err(SignatureError::InvalidPublicKey(
-                    "Invalid Dilithium3 public key".to_string(),
-                ));
-            }
-            let pk = dilithium3::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
-                SignatureError::InvalidPublicKey("Invalid Dilithium3 public key".to_string())
-            })?;
-            let sig_obj = dilithium3::DetachedSignature::from_bytes(signature).map_err(|_| {
-                SignatureError::InvalidFormat("Invalid signature bytes for Dilithium3".to_string())
-            })?;
-            Ok(dilithium3::verify_detached_signature(&sig_obj, message, &pk).is_ok())
+            verify_signature_dilithium3(&pqc_pub, message, signature)
         }
         CurveType::Dilithium5 => {
             let pqc_pub = keypair.get_pqc_public_key().ok_or_else(|| {
                 SignatureError::InvalidPublicKey("Missing PQC public key".to_string())
             })?;
-            let pqc_pub_raw = crate::keys::extract_raw_key(&pqc_pub);
-            let pub_bytes = hex::decode(pqc_pub_raw).map_err(|_| {
-                SignatureError::InvalidPublicKey("Invalid public key hex".to_string())
-            })?;
-            // Validate key length (Dilithium5 public key is 2592 bytes)
-            if pub_bytes.len() != 2592 {
-                return Err(SignatureError::InvalidPublicKey(
-                    "Invalid Dilithium5 public key".to_string(),
-                ));
-            }
-
-            let pk = dilithium5::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
-                SignatureError::InvalidPublicKey("Invalid Dilithium5 public key".to_string())
-            })?;
-            let sig_obj = dilithium5::DetachedSignature::from_bytes(signature).map_err(|_| {
-                SignatureError::InvalidFormat("Invalid signature bytes for Dilithium5".to_string())
-            })?;
-            Ok(dilithium5::verify_detached_signature(&sig_obj, message, &pk).is_ok())
+            verify_signature_dilithium5(&pqc_pub, message, signature)
         }
         CurveType::SphincsPlusSha256Robust => {
             let pqc_pub = keypair.get_pqc_public_key().ok_or_else(|| {
                 SignatureError::InvalidPublicKey("Missing PQC public key".to_string())
             })?;
-            let pqc_pub_raw = crate::keys::extract_raw_key(&pqc_pub);
-            let pub_bytes = hex::decode(pqc_pub_raw).map_err(|_| {
-                SignatureError::InvalidPublicKey("Invalid public key hex".to_string())
-            })?;
-            // Validate key length (SPHINCS+ public key is 64 bytes)
-            if pub_bytes.len() != 64 {
-                return Err(SignatureError::InvalidPublicKey(
-                    "Invalid SPHINCS+ public key".to_string(),
-                ));
-            }
-            let pk = sphincssha2256fsimple::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
-                SignatureError::InvalidPublicKey("Invalid SPHINCS+ public key".to_string())
-            })?;
-            let sig_obj =
-                sphincssha2256fsimple::DetachedSignature::from_bytes(signature).map_err(|_| {
-                    SignatureError::InvalidFormat(
-                        "Invalid signature bytes for SPHINCS+".to_string(),
-                    )
-                })?;
-            Ok(sphincssha2256fsimple::verify_detached_signature(&sig_obj, message, &pk).is_ok())
+            verify_signature_sphincs(&pqc_pub, message, signature)
         }
     }
 }
@@ -1269,6 +1117,167 @@ pub fn verify_signature_ed25519(
         .map_err(|_| SignatureError::InvalidPublicKey("Invalid address format".to_string()))?;
 
     match verifying_key.verify(message, &signature) {
+        Ok(_) => Ok(true),
+        Err(_) => Ok(false),
+    }
+}
+
+/// Verify a signature using Dilithium2 (PQC)
+///
+/// **✅ NIST STANDARD COMPLIANT - Direct Signing (NO Pre-Hashing)**
+///
+/// This function strictly adheres to Dilithium2 standard:
+/// - Signatures are verified DIRECTLY against the original message (no pre-hashing)
+/// - Compatible with Dilithium2 signatures from NIST-standard implementations
+/// - Uses constant-time verification where possible
+///
+/// **Public Key Format:**
+/// - Expected: 1312-byte public key in hex format
+/// - Address derivation: SHA3-256 of public key bytes
+pub fn verify_signature_dilithium2(
+    address_hex: &str,
+    message: &[u8],
+    signature: &[u8],
+) -> Result<bool, SignatureError> {
+    // Strip known prefixes (e.g., "kanapqc") then decode
+    let pqc_pub_raw = crate::keys::extract_raw_key(address_hex);
+    let pub_bytes = hex::decode(pqc_pub_raw)
+        .map_err(|_| SignatureError::InvalidPublicKey("Invalid public key hex".to_string()))?;
+    // Validate key length (Dilithium2 public key is 1312 bytes)
+    if pub_bytes.len() != 1312 {
+        return Err(SignatureError::InvalidPublicKey(
+            "Invalid Dilithium2 public key".to_string(),
+        ));
+    }
+    let pk = dilithium2::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
+        SignatureError::InvalidPublicKey("Invalid Dilithium2 public key".to_string())
+    })?;
+    let sig_obj = dilithium2::DetachedSignature::from_bytes(signature).map_err(|_| {
+        SignatureError::InvalidFormat("Invalid signature bytes for Dilithium2".to_string())
+    })?;
+    match dilithium2::verify_detached_signature(&sig_obj, message, &pk) {
+        Ok(_) => Ok(true),
+        Err(_) => Ok(false),
+    }
+}
+
+/// Verify a signature using Dilithium3 (PQC)
+///
+/// **✅ NIST STANDARD COMPLIANT - Direct Signing (NO Pre-Hashing)**
+///
+/// This function strictly adheres to Dilithium3 standard:
+/// - Signatures are verified DIRECTLY against the original message (no pre-hashing)
+/// - Compatible with Dilithium3 signatures from NIST-standard implementations
+/// - Uses constant-time verification where possible
+///
+/// **Public Key Format:**
+/// - Expected: 1952-byte public key in hex format
+/// - Address derivation: SHA3-256 of public key bytes
+pub fn verify_signature_dilithium3(
+    address_hex: &str,
+    message: &[u8],
+    signature: &[u8],
+) -> Result<bool, SignatureError> {
+    // Strip known prefixes (e.g., "kanapqc") then decode
+    let pqc_pub_raw = crate::keys::extract_raw_key(address_hex);
+    let pub_bytes = hex::decode(pqc_pub_raw)
+        .map_err(|_| SignatureError::InvalidPublicKey("Invalid public key hex".to_string()))?;
+    // Validate key length (Dilithium3 public key is 1952 bytes)
+    if pub_bytes.len() != 1952 {
+        return Err(SignatureError::InvalidPublicKey(
+            "Invalid Dilithium3 public key".to_string(),
+        ));
+    }
+    let pk = dilithium3::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
+        SignatureError::InvalidPublicKey("Invalid Dilithium3 public key".to_string())
+    })?;
+    let sig_obj = dilithium3::DetachedSignature::from_bytes(signature).map_err(|_| {
+        SignatureError::InvalidFormat("Invalid signature bytes for Dilithium3".to_string())
+    })?;
+    match dilithium3::verify_detached_signature(&sig_obj, message, &pk) {
+        Ok(_) => Ok(true),
+        Err(_) => Ok(false),
+    }
+}
+
+/// Verify a signature using Dilithium5 (PQC)
+///
+/// **✅ NIST STANDARD COMPLIANT - Direct Signing (NO Pre-Hashing)**
+///
+/// This function strictly adheres to Dilithium5 standard:
+/// - Signatures are verified DIRECTLY against the original message (no pre-hashing)
+/// - Compatible with Dilithium5 signatures from NIST-standard implementations
+/// - Uses constant-time verification where possible
+///
+/// **Public Key Format:**
+/// - Expected: 2592-byte public key in hex format
+/// - Address derivation: SHA3-256 of public key bytes
+pub fn verify_signature_dilithium5(
+    address_hex: &str,
+    message: &[u8],
+    signature: &[u8],
+) -> Result<bool, SignatureError> {
+    // Strip known prefixes (e.g., "kanapqc") then decode
+    let pqc_pub_raw = crate::keys::extract_raw_key(address_hex);
+    let pub_bytes = hex::decode(pqc_pub_raw)
+        .map_err(|_| SignatureError::InvalidPublicKey("Invalid public key hex".to_string()))?;
+    // Validate key length (Dilithium5 public key is 2592 bytes)
+    if pub_bytes.len() != 2592 {
+        return Err(SignatureError::InvalidPublicKey(
+            "Invalid Dilithium5 public key".to_string(),
+        ));
+    }
+    let pk = dilithium5::PublicKey::from_bytes(&pub_bytes).map_err(|_| {
+        SignatureError::InvalidPublicKey("Invalid Dilithium5 public key".to_string())
+    })?;
+    let sig_obj = dilithium5::DetachedSignature::from_bytes(signature).map_err(|_| {
+        SignatureError::InvalidFormat("Invalid signature bytes for Dilithium5".to_string())
+    })?;
+    match dilithium5::verify_detached_signature(&sig_obj, message, &pk) {
+        Ok(_) => Ok(true),
+        Err(_) => Ok(false),
+    }
+}
+
+/// Verify a signature using SPHINCS+ (PQC)
+///
+/// **✅ NIST STANDARD COMPLIANT - Direct Signing (NO Pre-Hashing)**
+///
+/// This function strictly adheres to SPHINCS+ standard:
+/// - Signatures are verified DIRECTLY against the original message (no pre-hashing)
+/// - Compatible with SPHINCS+ signatures from NIST-standard implementations
+/// - Uses constant-time verification where possible
+///
+/// **⚠️ CRITICAL DIFFERENCE FROM K256/P256:**
+/// - K256: Message → SHA3-256 hash → Sign hash ← Kanari-specific
+/// - P256: Message → SHA3-256 hash → Sign hash ← Kanari-specific  
+/// - SPHINCS+: Message → Sign directly ← NIST standard
+///
+/// **Public Key Format:**
+/// - Expected: 64-byte public key in hex format
+/// - Address derivation: SHA3-256 of public key bytes
+pub fn verify_signature_sphincs(
+    address_hex: &str,
+    message: &[u8],
+    signature: &[u8],
+) -> Result<bool, SignatureError> {
+    // Strip known prefixes (e.g., "kanapqc") then decode
+    let pqc_pub_raw = crate::keys::extract_raw_key(address_hex);
+    let pub_bytes = hex::decode(pqc_pub_raw)
+        .map_err(|_| SignatureError::InvalidPublicKey("Invalid public key hex".to_string()))?;
+    // Validate key length (SPHINCS+ public key is 64 bytes)
+    if pub_bytes.len() != 64 {
+        return Err(SignatureError::InvalidPublicKey(
+            "Invalid SPHINCS+ public key".to_string(),
+        ));
+    }
+    let pk = sphincssha2256fsimple::PublicKey::from_bytes(&pub_bytes)
+        .map_err(|_| SignatureError::InvalidPublicKey("Invalid SPHINCS+ public key".to_string()))?;
+    let sig_obj =
+        sphincssha2256fsimple::DetachedSignature::from_bytes(signature).map_err(|_| {
+            SignatureError::InvalidFormat("Invalid signature bytes for SPHINCS+".to_string())
+        })?;
+    match sphincssha2256fsimple::verify_detached_signature(&sig_obj, message, &pk) {
         Ok(_) => Ok(true),
         Err(_) => Ok(false),
     }

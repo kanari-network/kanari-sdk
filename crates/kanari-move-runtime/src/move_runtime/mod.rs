@@ -691,9 +691,27 @@ impl MoveRuntime {
                     owner: *owner,
                     uid,
                     type_: type_name.clone(),
-                    data,
+                    data: data.clone(), // Clone data for balance extraction below
                     version: version + 1, // Increment version on modification
                 };
+
+                // CRITICAL FIX: Extract balance from Coin/Balance resources for token_balance_sets
+                // When a Coin is modified (e.g., via split), we need to update the token balance
+                if let Ok(struct_tag) =
+                    type_name.parse::<move_core_types::language_storage::StructTag>()
+                {
+                    if self.is_balance_resource(&struct_tag)
+                        && let Some(amount) = self.extract_balance_from_bytes(&data, &struct_tag)
+                        && let Some(token_type) = self.token_type_from_struct_tag(&struct_tag)
+                    {
+                        cs.add_token_balance_set(*owner, token_type.clone(), amount);
+                        debug!(
+                            "[RUNTIME] Extracted balance from writeback object {}: {} = {}",
+                            id, token_type, amount
+                        );
+                    }
+                }
+
                 cs.created_objects.push((id.clone(), updated_obj));
                 processed_ids.insert(id.clone());
             } else {
@@ -739,6 +757,10 @@ impl MoveRuntime {
                 None
             };
 
+            // Clone data and type for balance extraction (before moving into updated_obj)
+            let saved_data_clone = saved.data.clone();
+            let saved_type_clone = saved.object_type.clone();
+
             let updated_obj = crate::changeset::CreatedObject {
                 owner,
                 uid,
@@ -751,6 +773,24 @@ impl MoveRuntime {
                 "[RUNTIME] Writing back saved object {} (v{})",
                 saved.object_id, version
             );
+
+            // CRITICAL FIX: Extract balance from Coin/Balance resources for token_balance_sets
+            if let Ok(struct_tag) =
+                saved_type_clone.parse::<move_core_types::language_storage::StructTag>()
+            {
+                if self.is_balance_resource(&struct_tag)
+                    && let Some(amount) =
+                        self.extract_balance_from_bytes(&saved_data_clone, &struct_tag)
+                    && let Some(token_type) = self.token_type_from_struct_tag(&struct_tag)
+                {
+                    cs.add_token_balance_set(owner, token_type.clone(), amount);
+                    debug!(
+                        "[RUNTIME] Extracted balance from saved object {}: {} = {}",
+                        saved.object_id, token_type, amount
+                    );
+                }
+            }
+
             cs.created_objects
                 .push((saved.object_id.clone(), updated_obj));
             processed_ids.insert(saved.object_id);
