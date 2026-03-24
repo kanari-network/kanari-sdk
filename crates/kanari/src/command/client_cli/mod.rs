@@ -10,12 +10,15 @@ pub mod burn;
 pub mod envs;
 pub mod faucet;
 pub mod stats;
+pub mod token_transfer;
 pub mod transfer;
 
 #[derive(Subcommand, Debug)]
 pub enum ClientCommand {
     /// Transfer Kanari tokens to another address
     Transfer(transfer::Transfer),
+    /// Transfer custom tokens (e.g., JAMES) to another address
+    TokenTransfer(token_transfer::TokenTransfer),
     /// Request tokens from the Dev faucet
     Faucet(faucet::Faucet),
     /// Burn Kanari tokens from a wallet (remove from total supply)
@@ -37,6 +40,7 @@ impl ClientCommand {
     pub async fn execute(&self) -> Result<()> {
         match self {
             ClientCommand::Transfer(cmd) => cmd.execute().await,
+            ClientCommand::TokenTransfer(cmd) => cmd.execute().await,
             ClientCommand::Faucet(cmd) => cmd.execute().await,
             ClientCommand::Burn(cmd) => cmd.execute().await,
             ClientCommand::Stats(cmd) => cmd.execute().await,

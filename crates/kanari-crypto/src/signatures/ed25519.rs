@@ -95,7 +95,10 @@ pub fn verify_signature_ed25519(
 ///
 /// This architectural choice provides domain separation between curve types
 /// while maintaining compatibility with standard implementations.
-pub fn sign_message_ed25519(private_key_hex: &str, message: &[u8]) -> Result<Vec<u8>, SignatureError> {
+pub fn sign_message_ed25519(
+    private_key_hex: &str,
+    message: &[u8],
+) -> Result<Vec<u8>, SignatureError> {
     // RFC-8032 COMPLIANT: Sign the message DIRECTLY without pre-hashing
     let mut private_key_bytes = hex::decode(private_key_hex)
         .map_err(|_| SignatureError::InvalidPrivateKey("Invalid private key".to_string()))?;
