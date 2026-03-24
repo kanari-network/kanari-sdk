@@ -6,8 +6,12 @@ mod tests {
     // ============================================================================
 
     use kanari_crypto::{
-        CurveType, SignatureError, generate_keypair, secure_clear, sign_message,
-        signatures::verify_signature_ed25519, verify_signature, verify_signature_with_curve,
+        CurveType, SignatureError, generate_keypair,
+        signatures::{
+            ed25519::verify_signature_ed25519, secure_clear, sign_message,
+            verify_signature_with_curve,
+        },
+        verify_signature,
     };
 
     #[test]

@@ -51,14 +51,14 @@
 //! ## Generate Keys
 //! ```rust
 //! use kanari_crypto::{generate_keypair, CurveType};
-//! 
+//!
 //! // Classical ECC
 //! let k256_key = generate_keypair(CurveType::K256)?;
 //! let ed25519_key = generate_keypair(CurveType::Ed25519)?;
-//! 
+//!
 //! // Post-Quantum
 //! let dilithium3_key = generate_keypair(CurveType::Dilithium3)?;
-//! 
+//!
 //! // Hybrid
 //! let hybrid_key = generate_keypair(CurveType::Ed25519Dilithium3)?;
 //! ```
@@ -66,7 +66,7 @@
 //! ## Sign Messages
 //! ```rust
 //! use kanari_crypto::{sign_message, CurveType};
-//! 
+//!
 //! let message = b"Hello, quantum world!";
 //! let signature = sign_message(&private_key, message, CurveType::Dilithium3)?;
 //! ```
@@ -74,11 +74,11 @@
 //! ## Verify Signatures (Recommended: Use Tagged Addresses)
 //! ```rust
 //! use kanari_crypto::verify_signature;
-//! 
+//!
 //! // ✅ Secure: Use tagged address to avoid timing attacks
-//! let tagged_address = "Dilithium3:0xabc123..."; 
+//! let tagged_address = "Dilithium3:0xabc123...";
 //! let valid = verify_signature(tagged_address, message, &signature)?;
-//! 
+//!
 //! // ⚠️ Less secure: Fallback to trying all curves (timing attack risk)
 //! let bare_address = "0xabc123...";
 //! let valid = verify_signature(bare_address, message, &signature)?;
@@ -126,11 +126,7 @@ pub mod signatures;
 pub mod wallet;
 
 // Re-export signature functionality
-pub use signatures::{
-    SignatureError, secure_clear, sign_message, verify_signature, verify_signature_with_curve,
-    verify_signature_dilithium2, verify_signature_dilithium3, verify_signature_dilithium5,
-    verify_signature_sphincs, verify_signature_k256, verify_signature_p256, verify_signature_ed25519,
-};
+pub use signatures::{SignatureError, verify_signature};
 
 // Re-export encryption functionality - now using actual functions from the module
 pub use encryption::{

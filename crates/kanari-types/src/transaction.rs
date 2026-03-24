@@ -1,7 +1,8 @@
 // Blockchain data structures and operations
 use anyhow::Result;
-use kanari_crypto::hash_data_blake3;
 use kanari_crypto::keys::CurveType;
+use kanari_crypto::verify_signature;
+use kanari_crypto::{hash_data_blake3, signatures::sign_message};
 use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
 use tracing::error;
@@ -23,7 +24,7 @@ impl SignedTransaction {
 
     pub fn sign(&mut self, private_key: &str, curve_type: CurveType) -> Result<()> {
         let tx_hash = self.transaction.hash();
-        let signature = kanari_crypto::sign_message(private_key, &tx_hash, curve_type)
+        let signature = sign_message(private_key, &tx_hash, curve_type)
             .map_err(|e| anyhow::anyhow!("Failed to sign transaction: {}", e))?;
         self.signature = signature;
         Ok(())
@@ -39,7 +40,7 @@ impl SignedTransaction {
         let tx_hash = self.transaction.hash();
         let sender = self.transaction.sender();
 
-        kanari_crypto::verify_signature(sender, &tx_hash, signature)
+        verify_signature(sender, &tx_hash, signature)
             .map_err(|e| anyhow::anyhow!("Signature verification failed: {}", e))
     }
 

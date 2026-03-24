@@ -3,7 +3,7 @@
 
 use kanari_crypto::{
     CurveType, decrypt_data, encrypt_data, generate_keypair, hash_data, is_password_strong,
-    sign_message, verify_signature,
+    signatures::{sign_message, verify_signature},
 };
 use proptest::prelude::*;
 

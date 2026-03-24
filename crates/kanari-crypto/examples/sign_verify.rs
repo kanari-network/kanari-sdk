@@ -5,7 +5,8 @@
 use kanari_crypto::keys::{
     CurveType, generate_keypair, generate_mnemonic, keypair_from_mnemonic, keypair_from_private_key,
 };
-use kanari_crypto::{sign_message, verify_signature};
+use kanari_crypto::signatures::sign_message;
+use kanari_crypto::verify_signature;
 
 fn main() {
     println!("🔐 Kanari Crypto v2.0 - Signing and Verification Example");
