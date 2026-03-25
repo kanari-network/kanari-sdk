@@ -162,7 +162,7 @@ impl DagEngine {
         // Capture timestamp for deterministic execution and vertex creation
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
+            .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
 
         // 3. Create a state snapshot and apply history + current transactions sequentially
@@ -238,10 +238,18 @@ impl DagEngine {
                     let mut state_guard = state_arc.write().unwrap();
                     for res in results {
                         match res {
-                            Ok(cs) => {
-                                let _ = state_guard.apply_changeset(&cs);
-                                executed_count += 1;
-                            }
+                            Ok(cs) => match state_guard.apply_changeset(&cs) {
+                                Ok(()) => {
+                                    executed_count += 1;
+                                }
+                                Err(e) => {
+                                    log::warn!(
+                                        "[DAG] apply_changeset failed during execution wave: {}",
+                                        e
+                                    );
+                                    failed_count += 1;
+                                }
+                            },
                             Err(e) => {
                                 log::warn!("[DAG] Parallel execution failed: {}", e);
                                 failed_count += 1;
@@ -514,10 +522,19 @@ impl DagEngine {
 
                     for res in results {
                         match res {
-                            Ok(cs) => {
-                                let _ = state_arc.write().unwrap().apply_changeset(&cs);
-                                executed += 1;
-                            }
+                            Ok(cs) => match state_arc.write().unwrap().apply_changeset(&cs) {
+                                Ok(()) => {
+                                    executed += 1;
+                                }
+                                Err(e) => {
+                                    log::warn!(
+                                        "[DAG SYNC] apply_changeset failed while validating vertex round {}: {}",
+                                        vertex.round,
+                                        e
+                                    );
+                                    failed += 1;
+                                }
+                            },
                             Err(e) => {
                                 log::warn!(
                                     "[DAG SYNC] Parallel validation failed for vertex round {}: {}",

@@ -24,7 +24,7 @@ pub fn normalize_addr(a: &str) -> Result<String> {
 pub fn get_rpc_endpoint(rpc_opt: Option<String>) -> String {
     rpc_opt
         .or_else(kanari_common::get_active_rpc)
-        .unwrap_or_else(|| "http://127.0.0.1:19001".to_string())
+        .unwrap_or_else(|| "http://127.0.0.1:6767".to_string())
 }
 
 /// Resolve the sender address from either an option or the selected wallet.
@@ -115,10 +115,18 @@ pub async fn sign_and_submit_transaction(
         .await
         .context("Failed to submit transaction")?;
 
+    // Guard against false-success UX when RPC returns failed/unknown statuses.
+    if status.status != "pending" && status.status != "executed" && status.status != "committed" {
+        bail!(
+            "Transaction was not successful (status: {}). Tx hash: {}",
+            status.status,
+            status.hash
+        );
+    }
+
     eprintln!("  Transaction submitted successfully");
     eprintln!("  Transaction hash: {}", status.hash);
     eprintln!("  Status: {}", status.status);
-    eprintln!("  Waiting for block confirmation...");
 
     Ok(status)
 }

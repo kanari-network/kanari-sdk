@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Helper functions for MoveRuntime resource parsing and object ID generation
-use kanari_types::address::Address;
 use kanari_types::balance::BalanceModule;
 use kanari_types::coin::CoinModule;
 use kanari_types::collection::CollectionModule;
@@ -105,11 +104,9 @@ impl super::MoveRuntime {
     /// Extract token type string from struct tag's type parameters
     pub(crate) fn token_type_from_struct_tag(&self, struct_tag: &StructTag) -> Option<String> {
         if let Some(TypeTag::Struct(st)) = struct_tag.type_params.first() {
-            // Use kanari_types::Address to format the address consistently
-            let addr = Address::from(st.address).to_hex();
-            let module = st.module.as_str().to_string();
-            let name = st.name.as_str().to_string();
-            return Some(format!("0x{}::{}::{}", addr, module, name));
+            // Normalize via Move's Display impl so all code paths use one canonical
+            // token type key (e.g. `0x2::kanari::KANARI`).
+            return Some(format!("{}", st));
         }
         None
     }

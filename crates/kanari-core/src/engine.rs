@@ -103,6 +103,9 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
             let name_and_generics = parts[2..].join("::").trim().to_string();
 
             let (name_str, generics_opt) = if let Some(idx) = name_and_generics.find('<') {
+                if !name_and_generics.ends_with('>') || idx + 1 >= name_and_generics.len() {
+                    return None;
+                }
                 let name = &name_and_generics[..idx];
                 let generics = &name_and_generics[idx + 1..name_and_generics.len() - 1];
                 (name.trim(), Some(generics))
@@ -136,6 +139,17 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod parse_type_tag_tests {
+    use super::parse_type_tag;
+
+    #[test]
+    fn parse_type_tag_rejects_unclosed_generic() {
+        assert!(parse_type_tag("0x1::m::T<").is_none());
+        assert!(parse_type_tag("0x1::m::T<u64").is_none());
+    }
 }
 
 impl BlockchainEngine {
@@ -183,8 +197,14 @@ impl BlockchainEngine {
         let workers = num_cpus::get().max(1);
         let mut runtime_pool = Vec::new();
 
-        // Create base runtime with shared state (connected to RocksDB)
-        let base_runtime = match MoveRuntime::new_with_kanari_natives() {
+        // Create base runtime:
+        // - persistent mode -> runtime backed by default persistent store
+        // - fallback mode   -> fully in-memory runtime
+        let base_runtime = match if persistent_store.is_some() {
+            MoveRuntime::new_with_kanari_natives()
+        } else {
+            MoveRuntime::new_with_kanari_natives_in_memory()
+        } {
             Ok(rt) => rt,
             Err(e) => {
                 log::error!("FATAL: Failed to initialize base MoveRuntime: {}", e);
@@ -455,7 +475,9 @@ impl BlockchainEngine {
         state_arc: &Arc<RwLock<StateManager>>,
         timestamp: Option<u64>,
     ) -> Result<ChangeSet> {
-        self.execute_transaction_with_runtime_internal(tx, runtime, state_arc, true, timestamp)
+        self.execute_transaction_with_runtime_internal(
+            tx, runtime, state_arc, true, timestamp, false,
+        )
     }
 
     /// Execute a transaction with option to skip sequence validation
@@ -467,7 +489,21 @@ impl BlockchainEngine {
         state_arc: &Arc<RwLock<StateManager>>,
         timestamp: Option<u64>,
     ) -> Result<ChangeSet> {
-        self.execute_transaction_with_runtime_internal(tx, runtime, state_arc, false, timestamp)
+        self.execute_transaction_with_runtime_internal(
+            tx, runtime, state_arc, false, timestamp, false,
+        )
+    }
+
+    pub(crate) fn execute_transaction_with_runtime_skip_seq_persist(
+        &self,
+        tx: &Transaction,
+        runtime: &kanari_move_runtime::move_runtime::MoveRuntime,
+        state_arc: &Arc<RwLock<StateManager>>,
+        timestamp: Option<u64>,
+    ) -> Result<ChangeSet> {
+        self.execute_transaction_with_runtime_internal(
+            tx, runtime, state_arc, false, timestamp, true,
+        )
     }
 
     pub(crate) fn execute_transaction_with_runtime_internal(
@@ -477,6 +513,7 @@ impl BlockchainEngine {
         state_arc: &Arc<RwLock<StateManager>>,
         validate_sequence: bool,
         timestamp: Option<u64>,
+        persist_runtime_state: bool,
     ) -> Result<ChangeSet> {
         // 1. Pre-flight validation: Check sequence number (skip for synced transactions)
         let sender_addr = KanariAddress::parse_to_account_address(tx.sender_address())?;
@@ -548,11 +585,11 @@ impl BlockchainEngine {
                 module_bytes,
                 ..
             } => {
-                match runtime.publish_module(
+                match runtime.publish_module_with_persistence(
                     module_bytes.clone(),
                     KanariAddress::parse_to_account_address(sender)?,
                     Some((tx.gas_limit(), tx.gas_price())),
-                    timestamp,
+                    persist_runtime_state,
                 ) {
                     Ok(move_cs) => changeset.merge(move_cs),
                     Err(e) => {
@@ -568,6 +605,28 @@ impl BlockchainEngine {
                 args,
                 ..
             } => {
+                // Synchronize object snapshots for object-id arguments (32-byte IDs)
+                // from canonical state into runtime object storage to avoid stale reads.
+                {
+                    let state = state_arc.read().unwrap();
+                    for arg in args.iter() {
+                        if arg.len() != 32 {
+                            continue;
+                        }
+                        let object_id = format!("0x{}", hex::encode(arg));
+                        if let Ok(Some(obj)) = state.get_object(&object_id) {
+                            // Best-effort sync; VM/state logic still validates semantics.
+                            let _ = runtime.preload_object_snapshot(
+                                &object_id,
+                                obj.owner,
+                                &obj.type_,
+                                obj.data.clone(),
+                                obj.version,
+                            );
+                        }
+                    }
+                }
+
                 let parts: Vec<&str> = module.split("::").collect();
                 if parts.len() != 2 {
                     changeset.mark_failed(
@@ -585,10 +644,13 @@ impl BlockchainEngine {
 
                 let type_tags: Vec<move_core_types::language_storage::TypeTag> = type_args
                     .iter()
-                    .filter_map(|s| parse_type_tag(s.as_str()))
-                    .collect();
+                    .map(|s| {
+                        parse_type_tag(s.as_str())
+                            .ok_or_else(|| anyhow::anyhow!("Invalid type argument: {}", s))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
 
-                match runtime.execute_entry_function(
+                match runtime.execute_entry_function_with_tx_hash_and_persistence(
                     &module_id,
                     function,
                     type_tags,
@@ -596,6 +658,8 @@ impl BlockchainEngine {
                     Some(sender_addr),
                     Some((tx.gas_limit(), tx.gas_price())),
                     timestamp,
+                    Some(tx.hash()),
+                    persist_runtime_state,
                 ) {
                     Ok(move_cs) => changeset.merge(move_cs),
                     Err(e) => {
@@ -743,6 +807,28 @@ impl BlockchainEngine {
                 }
             }
 
+            // Rebuild spendable token balances from owned Coin<T> objects so RPC output
+            // does not report stale non-spendable balances.
+            let mut coin_balances: std::collections::BTreeMap<String, u64> =
+                std::collections::BTreeMap::new();
+            for obj in &owned_objs {
+                if let Some(start) = obj.type_.find('<')
+                    && let Some(end) = obj.type_.rfind('>')
+                {
+                    let outer = &obj.type_[..start];
+                    if (outer.ends_with("::coin::Coin") || outer.ends_with("::coin::coin::Coin"))
+                        && obj.data.len() >= 40
+                    {
+                        let token_type = obj.type_[start + 1..end].to_string();
+                        let mut arr = [0u8; 8];
+                        arr.copy_from_slice(&obj.data[32..40]);
+                        let amount = u64::from_le_bytes(arr);
+                        let entry = coin_balances.entry(token_type).or_insert(0);
+                        *entry = entry.saturating_add(amount);
+                    }
+                }
+            }
+
             let mut sequence_number = acc.sequence_number;
 
             // Add pending transactions count to sequence number
@@ -753,11 +839,7 @@ impl BlockchainEngine {
                 balance: acc.balance,
                 sequence_number,
                 modules: acc.modules.iter().cloned().collect(),
-                token_balances: acc
-                    .token_balances
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.value()))
-                    .collect(),
+                token_balances: coin_balances,
                 owned_objects: Some(owned_objs),
             };
             debug!("[ENGINE] get_account_info completed for {}", address);

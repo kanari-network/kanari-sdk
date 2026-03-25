@@ -63,32 +63,49 @@ impl super::MoveRuntime {
                 data.len()
             );
 
+            if !should_persist {
+                debug!(
+                    "Skipping non-persistable transferred object {} (fallback payload)",
+                    id
+                );
+                continue;
+            }
+
             // Use the object ID provided by the native function (which is the real UID or a hash)
             // Do NOT recompute it here, as that would break the link to the on-chain UID.
             let canonical_id = id.clone();
+            let next_version = self
+                .object_storage
+                .get_object(&canonical_id)
+                .map(|existing| existing.version.saturating_add(1))
+                .unwrap_or(1);
 
-            // Persist to ObjectStorage first if flagged (before changeset)
-            if should_persist {
-                let stored_obj = StoredObject {
-                    id: canonical_id.clone(),
-                    owner,
-                    type_name: obj_type.clone(),
-                    data: data.clone(),
-                    version: 1,
-                };
+            // Persist to ObjectStorage first (before changeset)
+            let stored_obj = StoredObject {
+                id: canonical_id.clone(),
+                owner,
+                type_name: obj_type.clone(),
+                data: data.clone(),
+                version: next_version,
+            };
 
-                match self.object_storage.store_object(stored_obj) {
-                    Ok(_) => debug!("Object {} persisted to ObjectStorage", canonical_id),
-                    Err(e) => {
-                        debug!(
-                            "WARNING: Failed to persist object {} to storage: {}. Object remains in changeset.",
-                            canonical_id, e
-                        );
-                    }
+            match self.object_storage.store_object(stored_obj) {
+                Ok(_) => debug!("Object {} persisted to ObjectStorage", canonical_id),
+                Err(e) => {
+                    debug!(
+                        "WARNING: Failed to persist object {} to storage: {}. Object remains in changeset.",
+                        canonical_id, e
+                    );
                 }
             }
 
-            // Add to created_objects in changeset (after storage to avoid double clone)
+            // Upsert by object_id: a transferred object should represent the final owner/state.
+            // This avoids duplicate entries for the same id from mixed paths
+            // (e.g. mutable writeback + native transfer capture in the same tx).
+            cs.created_objects
+                .retain(|(existing_id, _)| existing_id != &canonical_id);
+
+            // Add to created_objects in changeset (after storage to avoid double clone).
             // Pass the explicit ID to ensure ChangeSet uses the same ID as ObjectStorage.
             let uid = if let Ok(addr) = AccountAddress::from_hex_literal(&canonical_id) {
                 Some(kanari_types::object::UIDRecord::new(addr))
@@ -117,7 +134,7 @@ impl super::MoveRuntime {
                 }
             }
 
-            cs.add_created_object(owner, obj_type, data, 2, uid, Some(canonical_id));
+            cs.add_created_object(owner, obj_type, data, next_version, uid, Some(canonical_id));
         }
 
         if count > 0 {

@@ -115,7 +115,7 @@ impl BlockchainEngine {
                     let pool_idx = i % self.runtime_pool.len();
                     let runtime = &self.runtime_pool[pool_idx];
 
-                    self.execute_transaction_with_runtime_skip_seq(
+                    self.execute_transaction_with_runtime_skip_seq_persist(
                         &signed_tx.transaction,
                         runtime,
                         &state_arc,

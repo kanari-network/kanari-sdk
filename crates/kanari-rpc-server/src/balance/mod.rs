@@ -1,6 +1,8 @@
 use super::{RpcError, RpcRequest, RpcResponse, RpcServerState, respond_with_serialize};
 use kanari_rpc_api::{GetAllBalancesRequest, GetTokenBalanceRequest};
+use move_core_types::language_storage::TypeTag;
 use serde_json;
+use std::str::FromStr;
 
 /// Helper to get token decimals from engine state
 fn get_token_decimals(engine: &kanari_core::engine::BlockchainEngine, token_type: &str) -> u8 {
@@ -12,6 +14,13 @@ fn get_token_decimals(engine: &kanari_core::engine::BlockchainEngine, token_type
     }
     // Default to 9 for most tokens (including JAMES)
     9
+}
+
+fn normalize_token_type(token_type: &str) -> String {
+    if let Ok(TypeTag::Struct(st)) = TypeTag::from_str(token_type) {
+        return format!("{}", st);
+    }
+    token_type.to_string()
 }
 
 /// Handle get account request
@@ -123,9 +132,16 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
                 "symbol": "KANARI"
             })];
 
-            // Aggregate all Coin objects by summing their balances
-            // This prevents showing duplicate entries when multiple mint operations created separate Coin objects
             use std::collections::BTreeMap;
+            // Source of truth: account token balances tracked by runtime state.
+            let mut token_sums: BTreeMap<String, u64> = info
+                .token_balances
+                .into_iter()
+                .map(|(k, v)| (normalize_token_type(&k), v))
+                .collect();
+
+            // Backward-compatible fallback: also aggregate Coin objects and only fill
+            // tokens that are currently missing from token_balances.
             let mut coin_sums: BTreeMap<String, u128> = BTreeMap::new();
 
             if let Some(ref objects) = info.owned_objects {
@@ -136,9 +152,9 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
                         let token_type = if let Some(start) = obj.type_.find('<')
                             && let Some(end) = obj.type_.rfind('>')
                         {
-                            obj.type_[start + 1..end].to_string()
+                            normalize_token_type(&obj.type_[start + 1..end])
                         } else {
-                            obj.type_.clone()
+                            normalize_token_type(&obj.type_)
                         };
 
                         // Try to parse balance from last 8 bytes (standard Move Coin layout)
@@ -153,15 +169,18 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
                 }
             }
 
-            // Add aggregated coin balances to response
-            // Only show coins that have non-zero balance
-            for (token_type, amount128) in coin_sums.into_iter() {
+            // Fill missing tokens from aggregated coin objects.
+            for (token_type, amount128) in coin_sums {
                 let amount = if amount128 > u128::from(u64::MAX) {
                     u64::MAX
                 } else {
                     amount128 as u64
                 };
+                token_sums.entry(token_type).or_insert(amount);
+            }
 
+            // Add token balances to response (non-zero only).
+            for (token_type, amount) in token_sums {
                 // Skip zero-balance coins to avoid cluttering the response
                 if amount == 0 {
                     continue;

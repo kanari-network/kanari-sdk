@@ -11,11 +11,13 @@ use kanari_types::kanari::KanariModule;
 use kanari_types::{address::Address as KanariAddress, event::Event};
 // use log::{debug, info};
 use move_core_types::account_address::AccountAddress;
+use move_core_types::language_storage::TypeTag;
 // use rayon::prelude::*;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use smt;
 use std::collections::{BTreeMap, BTreeSet};
+use std::str::FromStr;
 use std::sync::Arc;
 
 /// Account state in the blockchain
@@ -105,6 +107,66 @@ pub struct StateManager {
 }
 
 impl StateManager {
+    fn normalize_token_type(token_type: &str) -> String {
+        if let Ok(TypeTag::Struct(st)) = TypeTag::from_str(token_type) {
+            return format!("{}", st);
+        }
+        token_type.to_string()
+    }
+
+    fn object_id_matches_uid_prefix(object_id: &str, data: &[u8]) -> bool {
+        if data.len() < 32 {
+            return false;
+        }
+        if let Ok(addr) = AccountAddress::from_hex_literal(object_id) {
+            return data[0..32] == addr.to_vec();
+        }
+        false
+    }
+
+    fn coin_token_type(type_name: &str) -> Option<String> {
+        let marker = "::coin::Coin<";
+        if !type_name.contains(marker) {
+            return None;
+        }
+        let start = type_name.find('<')?;
+        let end = type_name.rfind('>')?;
+        if end <= start + 1 {
+            return None;
+        }
+        Some(Self::normalize_token_type(&type_name[start + 1..end]))
+    }
+
+    fn extract_coin_amount(data: &[u8]) -> Option<u64> {
+        if data.len() < 40 {
+            return None;
+        }
+        let mut arr = [0u8; 8];
+        arr.copy_from_slice(&data[32..40]);
+        Some(u64::from_le_bytes(arr))
+    }
+
+    fn recompute_coin_balance_for_owner(
+        &self,
+        owner: AccountAddress,
+        token_type: &str,
+    ) -> Result<BalanceRecord> {
+        let mut total = 0u64;
+        let owned_ids = self.get_owned_objects(&owner)?;
+        for object_id in owned_ids {
+            if let Some(obj) = self.get_object(&object_id)?
+                && let Some(obj_token_type) = Self::coin_token_type(&obj.type_)
+                && obj_token_type == token_type
+                && let Some(amount) = Self::extract_coin_amount(&obj.data)
+            {
+                total = total
+                    .checked_add(amount)
+                    .ok_or_else(|| anyhow::anyhow!("Token balance overflow while summing coins"))?;
+            }
+        }
+        Ok(BalanceRecord::new(total))
+    }
+
     /// Create a new in-memory state manager for testing
     pub fn new_in_memory() -> Self {
         let store =
@@ -299,6 +361,7 @@ impl StateManager {
     pub fn apply_changeset(&mut self, changeset: &ChangeSet) -> Result<()> {
         // Track total supply change (for mint/burn operations)
         let mut supply_delta: i64 = 0;
+        let mut coin_balance_recompute: BTreeSet<(AccountAddress, String)> = BTreeSet::new();
 
         for (address, change) in &changeset.account_changes {
             let mut account = self.load_account_or_default(*address)?;
@@ -383,8 +446,31 @@ impl StateManager {
         // Apply per-account token balance sets
         for (owner, token_type, amount) in &changeset.token_balance_sets {
             let mut account = self.load_account_or_default(*owner)?;
-            account.set_token_balance(token_type.clone(), amount.clone());
+            let normalized_token_type = Self::normalize_token_type(token_type);
+            account.set_token_balance(normalized_token_type.clone(), amount.clone());
             self.save_account(&account)?;
+            // Always schedule a coin-based recompute for this owner/token pair.
+            // This prevents stale/phantom balances when a parser path reports a balance
+            // but there is no spendable Coin<T> object owned by the account.
+            coin_balance_recompute.insert((*owner, normalized_token_type));
+        }
+
+        // Delete objects and detach them from owner indices.
+        for obj_id in &changeset.deleted_objects {
+            let obj_key = Self::object_key(obj_id);
+            if let Some(existing) = self.load_internal::<CreatedObject>(&obj_key)? {
+                if let Some(token_type) = Self::coin_token_type(&existing.type_) {
+                    coin_balance_recompute.insert((existing.owner, token_type));
+                }
+
+                let owner_key = Self::owned_objects_key(&existing.owner);
+                let mut owned: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
+                if let Some(pos) = owned.iter().position(|x| x == obj_id) {
+                    owned.remove(pos);
+                    self.save_internal(&owner_key, &owned)?;
+                }
+            }
+            self.overlay.insert(obj_key, None);
         }
 
         // Persist created objects
@@ -398,9 +484,18 @@ impl StateManager {
             {
                 // Different owner trying to use same ID
                 // Check if this looks like a transfer (similar data) or collision (different data)
+                let uid_consistent = if existing.data.len() >= 32 && created.data.len() >= 32 {
+                    Self::object_id_matches_uid_prefix(obj_id, &existing.data)
+                        && Self::object_id_matches_uid_prefix(obj_id, &created.data)
+                } else {
+                    // Keep legacy behavior for non-UID test fixtures / non-standard objects.
+                    true
+                };
+
                 let is_likely_transfer = existing.type_ == created.type_
                     && existing.data.len() == created.data.len()
-                    && existing.version < created.version;
+                    && (existing.version < created.version || existing.data == created.data)
+                    && uid_consistent;
 
                 if is_likely_transfer {
                     // This looks like a legitimate transfer - keep same ID
@@ -417,6 +512,11 @@ impl StateManager {
                     {
                         old_owned.remove(pos);
                         self.save_internal(&old_owner_key, &old_owned)?;
+                    }
+
+                    if let Some(token_type) = Self::coin_token_type(&existing.type_) {
+                        coin_balance_recompute.insert((existing.owner, token_type.clone()));
+                        coin_balance_recompute.insert((created.owner, token_type));
                     }
                 } else {
                     // This looks like a collision - generate new ID
@@ -442,6 +542,10 @@ impl StateManager {
             // Store the object with the final ID
             let final_obj_key = Self::object_key(&final_obj_id);
             self.save_internal(&final_obj_key, created)?;
+
+            if let Some(token_type) = Self::coin_token_type(&created.type_) {
+                coin_balance_recompute.insert((created.owner, token_type));
+            }
 
             // Update owned objects list with the final ID
             let owner_key = Self::owned_objects_key(&created.owner);
@@ -469,6 +573,15 @@ impl StateManager {
                     self.save_internal(&key, &decimals)?;
                 }
             }
+        }
+
+        // Recompute token balances from owned coin objects for affected owners/token types.
+        // This prevents overwrite bugs when a tx touches multiple coin objects.
+        for (owner, token_type) in coin_balance_recompute {
+            let recomputed = self.recompute_coin_balance_for_owner(owner, &token_type)?;
+            let mut account = self.load_account_or_default(owner)?;
+            account.set_token_balance(token_type, recomputed);
+            self.save_account(&account)?;
         }
 
         Ok(())

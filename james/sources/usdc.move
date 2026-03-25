@@ -42,15 +42,21 @@ module james::usdc {
 /// Mint new USDC tokens
     /// Only the holder of TreasuryCap can call this
     /// Usage: kanari move call --function mint --args <amount> <recipient>
+    /// 
+    /// This function mints tokens directly to the recipient's address
+    /// The runtime will automatically create or update the recipient's Coin object
     public entry fun mint(
     treasury_cap: &mut TreasuryCap<USDC>,
         amount: u64,
         recipient: address,
         ctx: &mut TxContext
     ) {
-        // Use `mint_and_transfer` to mint and credit the recipient in one
-        // operation. This updates the runtime token balances as expected.
-    coin::mint_and_transfer<USDC>(treasury_cap, amount, recipient, ctx);
+        // Mint a new Coin with the specified amount
+        let coin = coin::mint<USDC>(treasury_cap, amount, ctx);
+        
+        // Transfer the Coin to the recipient
+        // The runtime will merge Coins of the same type automatically
+        transfer::public_transfer(coin, recipient);
     }
 
 
@@ -78,5 +84,4 @@ module james::usdc {
         let to_burn = coin::split(c, amount, ctx);
         let _burned = coin::burn(treasury_cap, to_burn);
     }
-
 }

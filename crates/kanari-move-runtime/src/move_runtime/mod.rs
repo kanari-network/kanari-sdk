@@ -6,6 +6,7 @@
 // Enhanced with native function support, gas metering, and session management.
 use crate::storage::resolver::KanariMoveResolver;
 use anyhow::Result;
+use kanari_crypto::hash_data_blake3;
 use kanari_types::event::Event;
 use log::debug;
 use move_binary_format::file_format::CompiledModule;
@@ -45,6 +46,8 @@ pub struct MoveRuntime {
     /// Persistent object storage for transferred objects
     pub(crate) object_storage: Arc<dyn ObjectStore>,
 }
+
+type LoadedMutableObject = (usize, String, AccountAddress, String, u64);
 
 impl MoveRuntime {
     /// Open the runtime using the default persistent DB path (see README).
@@ -268,8 +271,7 @@ impl MoveRuntime {
                         self.state.save_resource(addr, struct_tag, bytes)?;
                     }
                     move_core_types::effects::Op::Delete => {
-                        // TODO: Implement delete_resource in MoveVMState if needed
-                        // For now we just don't save, but in a real DB we should delete.
+                        self.state.delete_resource(addr, struct_tag)?;
                     }
                 }
             }
@@ -301,6 +303,16 @@ impl MoveRuntime {
         gas_info: Option<(u64, u64)>,
         // Optional timestamp for TxContext (defaults to SystemTime::now() if None)
         _timestamp: Option<u64>,
+    ) -> Result<ChangeSet> {
+        self.publish_module_with_persistence(module_bytes, sender, gas_info, true)
+    }
+
+    pub fn publish_module_with_persistence(
+        &self,
+        module_bytes: Vec<u8>,
+        sender: AccountAddress,
+        gas_info: Option<(u64, u64)>,
+        persist_runtime_state: bool,
     ) -> Result<ChangeSet> {
         // Deserialize to get module ID early
         let compiled = CompiledModule::deserialize_with_defaults(&module_bytes)
@@ -345,7 +357,9 @@ impl MoveRuntime {
 
         // Apply changeset - if module exists, this will fail with "already exists"
         // In that case, we'll handle it as an upgrade
-        self.apply_move_changeset(move_changeset.clone())?;
+        if persist_runtime_state {
+            self.apply_move_changeset(move_changeset.clone())?;
+        }
 
         // Create ChangeSet from Move VM changeset
         let mut cs = ChangeSet::new();
@@ -375,6 +389,191 @@ impl MoveRuntime {
         Ok(cs)
     }
 
+    fn preprocess_entry_args(args: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+        args.into_iter()
+            .map(|arg| {
+                if let Ok(s) = std::str::from_utf8(&arg) {
+                    let s_trim = s.trim();
+
+                    if let Some(hex_part) = s_trim.strip_prefix("0x")
+                        && let Ok(bytes) = hex::decode(hex_part)
+                        && bytes.len() == 32
+                    {
+                        return bytes;
+                    }
+
+                    if s_trim.len() == 64
+                        && let Ok(bytes) = hex::decode(s_trim)
+                        && bytes.len() == 32
+                    {
+                        return bytes;
+                    }
+
+                    if let Ok(n) = s_trim.parse::<u64>()
+                        && let Ok(b) = bcs::to_bytes(&n)
+                    {
+                        return b;
+                    }
+                }
+                arg
+            })
+            .collect()
+    }
+
+    fn build_tx_context_bytes(
+        &self,
+        module_id: &ModuleId,
+        function_name: &str,
+        type_args: &[TypeTag],
+        args: &[Vec<u8>],
+        sender: Option<AccountAddress>,
+        timestamp: Option<u64>,
+        tx_hash: Option<&[u8]>,
+    ) -> Result<Vec<u8>> {
+        let sender_addr = sender.unwrap_or(AccountAddress::ZERO);
+        let epoch_timestamp_ms = timestamp.unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64
+        });
+
+        let tx_hash = if let Some(raw_tx_hash) = tx_hash {
+            if raw_tx_hash.len() == 32 {
+                raw_tx_hash.to_vec()
+            } else {
+                hash_data_blake3(raw_tx_hash).to_vec()
+            }
+        } else {
+            // Fallback for direct runtime calls (tests/examples without a chain tx):
+            // derive a deterministic synthetic digest from call inputs.
+            let mut input = Vec::new();
+            input.extend_from_slice(b"kanari-txctx-v1");
+            input.extend_from_slice(sender_addr.as_ref());
+            input.extend_from_slice(&epoch_timestamp_ms.to_le_bytes());
+            input.extend_from_slice(module_id.address().as_ref());
+            input.extend_from_slice(module_id.name().as_str().as_bytes());
+            input.extend_from_slice(function_name.as_bytes());
+            input.extend_from_slice(&bcs::to_bytes(type_args)?);
+            for arg in args {
+                input.extend_from_slice(&(arg.len() as u64).to_le_bytes());
+                input.extend_from_slice(arg);
+            }
+            hash_data_blake3(&input).to_vec()
+        };
+
+        let tx_ctx = TxContextRecord::from_address(sender_addr, tx_hash, 0, epoch_timestamp_ms, 0);
+        bcs::to_bytes(&tx_ctx).map_err(Into::into)
+    }
+
+    fn uid_from_object_id(object_id: &str) -> Option<kanari_types::object::UIDRecord> {
+        AccountAddress::from_hex_literal(object_id)
+            .ok()
+            .map(kanari_types::object::UIDRecord::new)
+    }
+
+    fn maybe_add_token_balance(
+        &self,
+        cs: &mut ChangeSet,
+        owner: AccountAddress,
+        type_name: &str,
+        data: &[u8],
+        object_id: &str,
+        source: &str,
+    ) {
+        if let Ok(struct_tag) = type_name.parse::<move_core_types::language_storage::StructTag>()
+            && self.is_balance_resource(&struct_tag)
+            && let Some(amount) = self.extract_balance_from_bytes(data, &struct_tag)
+            && let Some(token_type) = self.token_type_from_struct_tag(&struct_tag)
+        {
+            cs.add_token_balance_set(owner, token_type.clone(), amount);
+            debug!(
+                "[RUNTIME] Extracted balance from {} object {}: {} = {}",
+                source, object_id, token_type, amount
+            );
+        }
+    }
+
+    fn resolve_saved_owner_and_version(
+        &self,
+        loaded_mutable_objects: &[LoadedMutableObject],
+        object_id: &str,
+    ) -> (AccountAddress, u64) {
+        if let Some((_, _, owner, _, version)) = loaded_mutable_objects
+            .iter()
+            .find(|(_, id, _, _, _)| id == object_id)
+        {
+            return (*owner, *version + 1);
+        }
+
+        if let Some(stored) = self.object_storage.get_object(object_id) {
+            return (stored.owner, stored.version + 1);
+        }
+
+        (AccountAddress::ZERO, 1)
+    }
+
+    fn persist_created_objects(&self, cs: &ChangeSet) {
+        for (id, created) in &cs.created_objects {
+            let stored = StoredObject {
+                id: id.clone(),
+                owner: created.owner,
+                type_name: created.type_.clone(),
+                data: created.data.clone(),
+                version: created.version,
+            };
+            if let Err(e) = self.object_storage.store_object(stored) {
+                log::warn!(
+                    "[RUNTIME] Failed to persist object {} to internal storage: {:?}",
+                    id,
+                    e
+                );
+            } else {
+                debug!(
+                    "[RUNTIME] Persisted object {} (v{}) to internal storage",
+                    id, created.version
+                );
+            }
+        }
+    }
+
+    fn persist_deleted_objects(&self, cs: &ChangeSet) {
+        for obj_id in &cs.deleted_objects {
+            if let Err(e) = self.object_storage.delete_object(obj_id) {
+                log::warn!(
+                    "[RUNTIME] Failed to delete object {} from internal storage: {:?}",
+                    obj_id,
+                    e
+                );
+            } else {
+                debug!("[RUNTIME] Deleted object {} from internal storage", obj_id);
+            }
+        }
+    }
+
+    /// Preload an object snapshot into runtime object storage.
+    /// This is used by the engine to synchronize runtime object reads with
+    /// canonical StateManager objects before VM execution.
+    pub fn preload_object_snapshot(
+        &self,
+        object_id: &str,
+        owner: AccountAddress,
+        type_name: &str,
+        data: Vec<u8>,
+        version: u64,
+    ) -> Result<()> {
+        let stored = StoredObject {
+            id: object_id.to_string(),
+            owner,
+            type_name: type_name.to_string(),
+            data,
+            version,
+        };
+        self.object_storage
+            .store_object(stored)
+            .map_err(|e| anyhow::anyhow!(format!("preload object snapshot failed: {:?}", e)))
+    }
+
     /// Execute an entry function. `type_args` are Move `TypeTag`s and `args` are serialized
     /// arguments as Vec<u8> (Move simple-serialized values).
     /// Returns ChangeSet containing all state changes from Move VM execution.
@@ -392,6 +591,83 @@ impl MoveRuntime {
         // Optional timestamp for TxContext (defaults to SystemTime::now() if None)
         timestamp: Option<u64>,
     ) -> Result<ChangeSet> {
+        self.execute_entry_function_internal(
+            module_id,
+            function_name,
+            type_args,
+            args,
+            sender,
+            gas_info,
+            timestamp,
+            None,
+            true,
+        )
+    }
+
+    /// Execute entry function with optional canonical transaction hash.
+    /// When provided, `tx_hash` is used as TxContext digest source to ensure object IDs
+    /// are unique per transaction.
+    pub fn execute_entry_function_with_tx_hash(
+        &self,
+        module_id: &ModuleId,
+        function_name: &str,
+        type_args: Vec<TypeTag>,
+        args: Vec<Vec<u8>>,
+        sender: Option<AccountAddress>,
+        gas_info: Option<(u64, u64)>,
+        timestamp: Option<u64>,
+        tx_hash: Option<Vec<u8>>,
+    ) -> Result<ChangeSet> {
+        self.execute_entry_function_internal(
+            module_id,
+            function_name,
+            type_args,
+            args,
+            sender,
+            gas_info,
+            timestamp,
+            tx_hash,
+            true,
+        )
+    }
+
+    pub fn execute_entry_function_with_tx_hash_and_persistence(
+        &self,
+        module_id: &ModuleId,
+        function_name: &str,
+        type_args: Vec<TypeTag>,
+        args: Vec<Vec<u8>>,
+        sender: Option<AccountAddress>,
+        gas_info: Option<(u64, u64)>,
+        timestamp: Option<u64>,
+        tx_hash: Option<Vec<u8>>,
+        persist_runtime_state: bool,
+    ) -> Result<ChangeSet> {
+        self.execute_entry_function_internal(
+            module_id,
+            function_name,
+            type_args,
+            args,
+            sender,
+            gas_info,
+            timestamp,
+            tx_hash,
+            persist_runtime_state,
+        )
+    }
+
+    fn execute_entry_function_internal(
+        &self,
+        module_id: &ModuleId,
+        function_name: &str,
+        type_args: Vec<TypeTag>,
+        args: Vec<Vec<u8>>,
+        sender: Option<AccountAddress>,
+        gas_info: Option<(u64, u64)>,
+        timestamp: Option<u64>,
+        tx_hash: Option<Vec<u8>>,
+        persist_runtime_state: bool,
+    ) -> Result<ChangeSet> {
         // Use resolver for session
         let mut session = self.vm.new_session(self.resolver.clone());
         let mut gas = UnmeteredGasMeter;
@@ -408,88 +684,36 @@ impl MoveRuntime {
         let ident = IdentStr::new(function_name).map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
         // Auto-inject TxContext if function expects it as last parameter
-        let mut final_args = args.clone();
-
-        // Preprocess human-friendly argument encodings from callers (CLI/RPC):
-        // - hex addresses like `0x...` or 64-hex-digit strings -> decode to 32 raw bytes
-        // - decimal integers (ASCII) -> serialize as u64 via BCS
-        // Leave other binary inputs untouched.
-        final_args = final_args
-            .into_iter()
-            .map(|arg| {
-                if let Ok(s) = std::str::from_utf8(&arg) {
-                    let s_trim = s.trim();
-                    // hex with 0x
-                    if let Some(hex_part) = s_trim.strip_prefix("0x")
-                        && let Ok(bytes) = hex::decode(hex_part)
-                        && bytes.len() == 32
-                    {
-                        return bytes;
-                    }
-
-                    // pure hex without 0x
-                    if s_trim.len() == 64
-                        && let Ok(bytes) = hex::decode(s_trim)
-                        && bytes.len() == 32
-                    {
-                        return bytes;
-                    }
-
-                    // decimal integer -> serialize as u64 (common for amounts)
-                    if let Ok(n) = s_trim.parse::<u64>()
-                        && let Ok(b) = bcs::to_bytes(&n)
-                    {
-                        return b;
-                    }
-                }
-                arg
-            })
-            .collect();
-
-        // Create TxContext struct using canonical Kanari type and serialize with BCS
-        let sender_addr = sender.unwrap_or(AccountAddress::ZERO);
-
-        // Generate a pseudo-unique tx_hash to prevent UID collisions across transactions.
-        // In a real node, this would be the transaction digest.
-        // Here we mix timestamp and a thread-local counter or similar entropy.
-        let epoch_timestamp_ms = timestamp.unwrap_or_else(|| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64
-        });
-
-        let mut tx_hash = vec![0u8; 32];
-        // Use timestamp as part of the hash
-        let ts_bytes = epoch_timestamp_ms.to_le_bytes();
-        tx_hash[0..8].copy_from_slice(&ts_bytes);
-        // Mix in function name to differentiate calls in same ms
-        let func_bytes = function_name.as_bytes();
-        for (i, b) in func_bytes.iter().enumerate().take(24) {
-            tx_hash[8 + i] ^= b;
-        }
-
-        let epoch = 0u64;
-        let ids_created = 0u64;
-
-        let tx_ctx = TxContextRecord::from_address(
-            sender_addr,
-            tx_hash,
-            epoch,
-            epoch_timestamp_ms,
-            ids_created,
-        );
-
-        let tx_context_bytes = bcs::to_bytes(&tx_ctx)?;
+        let mut final_args = Self::preprocess_entry_args(args);
+        let tx_context_bytes = self.build_tx_context_bytes(
+            module_id,
+            function_name,
+            &type_args,
+            &final_args,
+            sender,
+            timestamp,
+            tx_hash.as_deref(),
+        )?;
 
         // Track loaded mutable objects for writeback: (arg_index, object_id, owner, type_name, version)
-        let mut loaded_mutable_objects: Vec<(usize, String, AccountAddress, String, u64)> =
-            Vec::new();
+        let mut loaded_mutable_objects: Vec<LoadedMutableObject> = Vec::new();
 
         // Conditionally add TxContext as last argument if the function expects one.
         // Also perform Object Loading: if a parameter is a Struct and the argument is an ID,
         // load the object from storage.
         if let Ok(func) = session.load_function(module_id, ident, &ty_args_loaded) {
+            let type_tag_for_param = |param_type: &RuntimeType| {
+                session
+                    .get_type_tag(param_type)
+                    .ok()
+                    .or_else(|| match param_type {
+                        RuntimeType::Reference(inner) | RuntimeType::MutableReference(inner) => {
+                            session.get_type_tag(inner).ok()
+                        }
+                        _ => None,
+                    })
+            };
+
             // 1. Object Loading
             for (i, param_type) in func.parameters.iter().enumerate() {
                 if i >= final_args.len() {
@@ -500,60 +724,31 @@ impl MoveRuntime {
                 // and if the provided argument is a potential Object ID (32 bytes).
                 let is_potential_id = final_args[i].len() == 32;
 
-                if is_potential_id {
-                    let type_tag_opt =
-                        session
-                            .get_type_tag(param_type)
-                            .ok()
-                            .or_else(|| match param_type {
-                                RuntimeType::Reference(inner)
-                                | RuntimeType::MutableReference(inner) => {
-                                    session.get_type_tag(inner).ok()
-                                }
-                                _ => None,
-                            });
+                if is_potential_id && let Some(TypeTag::Struct(_)) = type_tag_for_param(param_type)
+                {
+                    // It expects a Struct, and we have 32 bytes. Try to load as Object.
+                    let object_id = format!("0x{}", hex::encode(&final_args[i]));
 
-                    if let Some(TypeTag::Struct(struct_tag)) = type_tag_opt {
-                        // It expects a Struct, and we have 32 bytes. Try to load as Object.
-                        let object_id = format!("0x{}", hex::encode(&final_args[i]));
+                    // Try to fetch from ObjectStorage
+                    if let Some(stored_obj) = self.object_storage.get_object(&object_id) {
+                        debug!("[RUNTIME] Loaded object {} for param {}", object_id, i);
+                        final_args[i] = stored_obj.data.clone();
 
-                        // Try to fetch from ObjectStorage
-                        if let Some(stored_obj) = self.object_storage.get_object(&object_id) {
-                            // Verify type match (basic check)
-                            // stored_obj.type_name is string like "0x2::coin::Coin<...>"
-                            // struct_tag to string conversion needed
-                            let _expected_type = format!(
-                                "0x{}::{}::{}",
-                                struct_tag.address.short_str_lossless(),
-                                struct_tag.module.as_str(),
-                                struct_tag.name.as_str()
+                        // If this parameter is a mutable reference (&mut T),
+                        // modifications made by the entry function need to be persisted.
+                        // We track it here and write back after execution.
+                        if let RuntimeType::MutableReference(_) = param_type {
+                            loaded_mutable_objects.push((
+                                i,
+                                stored_obj.id.clone(),
+                                stored_obj.owner,
+                                stored_obj.type_name.clone(),
+                                stored_obj.version,
+                            ));
+                            debug!(
+                                "[RUNTIME] Tracking mutable object {} for writeback",
+                                object_id
                             );
-
-                            // Simple substring check or full match?
-                            // Kanari type names are full canonical.
-                            // Let's assume strict check is safer, but allow partial for generics if needed.
-                            // For now, just load it. The VM will verify the layout deserialization.
-                            // If deserialization fails, VM execution will fail.
-
-                            debug!("[RUNTIME] Loaded object {} for param {}", object_id, i);
-                            final_args[i] = stored_obj.data.clone();
-
-                            // If this parameter is a mutable reference (&mut T),
-                            // modifications made by the entry function need to be persisted.
-                            // We track it here and write back after execution.
-                            if let RuntimeType::MutableReference(_) = param_type {
-                                loaded_mutable_objects.push((
-                                    i,
-                                    stored_obj.id.clone(),
-                                    stored_obj.owner,
-                                    stored_obj.type_name.clone(),
-                                    stored_obj.version,
-                                ));
-                                debug!(
-                                    "[RUNTIME] Tracking mutable object {} for writeback",
-                                    object_id
-                                );
-                            }
                         }
                     }
                 }
@@ -566,20 +761,7 @@ impl MoveRuntime {
                 if let Some(last_param_type) = func.parameters.last() {
                     // Use the session loader to convert the runtime `Type` into a `TypeTag` and
                     // check whether the last parameter is the canonical `0x2::tx_context::TxContext`.
-                    // Try to get a TypeTag for the last parameter. If the parameter is a
-                    // reference, extract the inner type and convert that to a TypeTag.
-                    let type_tag_opt =
-                        session.get_type_tag(last_param_type).ok().or_else(
-                            || match last_param_type {
-                                RuntimeType::Reference(inner)
-                                | RuntimeType::MutableReference(inner) => {
-                                    session.get_type_tag(inner).ok()
-                                }
-                                _ => None,
-                            },
-                        );
-
-                    match type_tag_opt {
+                    match type_tag_for_param(last_param_type) {
                         Some(type_tag) => match &type_tag {
                             TypeTag::Struct(struct_tag) => {
                                 let system_addr = KanariAddress::kanari_system_account_address();
@@ -652,7 +834,9 @@ impl MoveRuntime {
             res.map_err(|e| anyhow::anyhow!(format!("exec error: {:?}", e)))?;
 
         // After successful execution, update our local storage and persist modules
-        self.apply_move_changeset(move_changeset.clone())?;
+        if persist_runtime_state {
+            self.apply_move_changeset(move_changeset.clone())?;
+        }
 
         // Create ChangeSet from Move VM execution
         let mut cs = ChangeSet::new();
@@ -680,12 +864,7 @@ impl MoveRuntime {
                     id,
                     data.len()
                 );
-                // Create updated object record
-                let uid = if let Ok(addr) = AccountAddress::from_hex_literal(id) {
-                    Some(kanari_types::object::UIDRecord::new(addr))
-                } else {
-                    None
-                };
+                let uid = Self::uid_from_object_id(id);
 
                 let updated_obj = crate::changeset::CreatedObject {
                     owner: *owner,
@@ -695,22 +874,7 @@ impl MoveRuntime {
                     version: version + 1, // Increment version on modification
                 };
 
-                // CRITICAL FIX: Extract balance from Coin/Balance resources for token_balance_sets
-                // When a Coin is modified (e.g., via split), we need to update the token balance
-                if let Ok(struct_tag) =
-                    type_name.parse::<move_core_types::language_storage::StructTag>()
-                {
-                    if self.is_balance_resource(&struct_tag)
-                        && let Some(amount) = self.extract_balance_from_bytes(&data, &struct_tag)
-                        && let Some(token_type) = self.token_type_from_struct_tag(&struct_tag)
-                    {
-                        cs.add_token_balance_set(*owner, token_type.clone(), amount);
-                        debug!(
-                            "[RUNTIME] Extracted balance from writeback object {}: {} = {}",
-                            id, token_type, amount
-                        );
-                    }
-                }
+                self.maybe_add_token_balance(&mut cs, *owner, type_name, &data, id, "writeback");
 
                 cs.created_objects.push((id.clone(), updated_obj));
                 processed_ids.insert(id.clone());
@@ -734,28 +898,11 @@ impl MoveRuntime {
                 continue;
             }
 
-            // Find owner from loaded_mutable_objects if possible
-            let (owner, version) = if let Some((_, _, owner, _, version)) = loaded_mutable_objects
-                .iter()
-                .find(|(_, id, _, _, _)| *id == saved.object_id)
-            {
-                (*owner, *version + 1)
-            } else {
-                // Try to find in storage
-                if let Some(stored) = self.object_storage.get_object(&saved.object_id) {
-                    (stored.owner, stored.version + 1)
-                } else {
-                    // New object or not found
-                    (AccountAddress::ZERO, 1)
-                }
-            };
+            let (owner, version) =
+                self.resolve_saved_owner_and_version(&loaded_mutable_objects, &saved.object_id);
 
             // Create updated object record
-            let uid = if let Ok(addr) = AccountAddress::from_hex_literal(&saved.object_id) {
-                Some(kanari_types::object::UIDRecord::new(addr))
-            } else {
-                None
-            };
+            let uid = Self::uid_from_object_id(&saved.object_id);
 
             // Clone data and type for balance extraction (before moving into updated_obj)
             let saved_data_clone = saved.data.clone();
@@ -774,22 +921,14 @@ impl MoveRuntime {
                 saved.object_id, version
             );
 
-            // CRITICAL FIX: Extract balance from Coin/Balance resources for token_balance_sets
-            if let Ok(struct_tag) =
-                saved_type_clone.parse::<move_core_types::language_storage::StructTag>()
-            {
-                if self.is_balance_resource(&struct_tag)
-                    && let Some(amount) =
-                        self.extract_balance_from_bytes(&saved_data_clone, &struct_tag)
-                    && let Some(token_type) = self.token_type_from_struct_tag(&struct_tag)
-                {
-                    cs.add_token_balance_set(owner, token_type.clone(), amount);
-                    debug!(
-                        "[RUNTIME] Extracted balance from saved object {}: {} = {}",
-                        saved.object_id, token_type, amount
-                    );
-                }
-            }
+            self.maybe_add_token_balance(
+                &mut cs,
+                owner,
+                &saved_type_clone,
+                &saved_data_clone,
+                &saved.object_id,
+                "saved",
+            );
 
             cs.created_objects
                 .push((saved.object_id.clone(), updated_obj));
@@ -826,39 +965,13 @@ impl MoveRuntime {
 
         // PERSISTENCE: Update internal ObjectStorage with created/modified objects.
         // This ensures subsequent calls (e.g. transfer) can find these objects.
-        for (id, created) in &cs.created_objects {
-            let stored = StoredObject {
-                id: id.clone(),
-                owner: created.owner,
-                type_name: created.type_.clone(),
-                data: created.data.clone(),
-                version: created.version,
-            };
-            if let Err(e) = self.object_storage.store_object(stored) {
-                log::warn!(
-                    "[RUNTIME] Failed to persist object {} to internal storage: {:?}",
-                    id,
-                    e
-                );
-            } else {
-                debug!(
-                    "[RUNTIME] Persisted object {} (v{}) to internal storage",
-                    id, created.version
-                );
-            }
+        if persist_runtime_state {
+            self.persist_created_objects(&cs);
         }
 
         // Handle deleted objects for persistence
-        for obj_id in &cs.deleted_objects {
-            if let Err(e) = self.object_storage.delete_object(obj_id) {
-                log::warn!(
-                    "[RUNTIME] Failed to delete object {} from internal storage: {:?}",
-                    obj_id,
-                    e
-                );
-            } else {
-                debug!("[RUNTIME] Deleted object {} from internal storage", obj_id);
-            }
+        if persist_runtime_state {
+            self.persist_deleted_objects(&cs);
         }
 
         Ok(cs)

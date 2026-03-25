@@ -113,6 +113,7 @@ fn native_transfer_with_uid(
     // arguments. If serialization fails, fall back to a minimal placeholder
     // (recipient + type) to preserve existing behavior.
     let mut obj_data: Vec<u8> = Vec::new();
+    let mut has_full_serialized_data = false;
 
     // Try to obtain the layout for the type and serialize the value.
     if let Ok(layout_opt) = context.type_to_type_layout(&ty_args[0]) {
@@ -120,6 +121,7 @@ fn native_transfer_with_uid(
             // `obj_val` is the moved Value; attempt simple_serialize
             if let Some(serialized) = obj_val.simple_serialize(&layout) {
                 obj_data = serialized;
+                has_full_serialized_data = true;
             } else {
                 // serialization failed - fall back to minimal placeholder
                 obj_data.extend_from_slice(recipient.as_ref());
@@ -143,7 +145,7 @@ fn native_transfer_with_uid(
     // In Kanari/Sui Move, objects with `key` have `UID` as the first field.
     // `UID` -> `ID` -> `address` (32 bytes).
     // So the first 32 bytes of the BCS serialized data represent the Object ID.
-    let object_id_hex = if obj_data.len() >= 32 {
+    let object_id_hex = if has_full_serialized_data && obj_data.len() >= 32 {
         let uid_bytes = &obj_data[0..32];
         format!("0x{}", hex::encode(uid_bytes))
     } else {
@@ -172,7 +174,7 @@ fn native_transfer_with_uid(
             object_type: type_str.clone(),
             recipient,
             data: obj_data,
-            should_persist: true,
+            should_persist: has_full_serialized_data,
             is_frozen: false,
         };
         ext.record(obj);
@@ -218,9 +220,11 @@ fn native_freeze_object(
 
     // Serialize object data
     let mut obj_data: Vec<u8> = Vec::new();
+    let mut has_full_serialized_data = false;
     if let Ok(Some(layout)) = context.type_to_type_layout(&ty_args[0]) {
         if let Some(serialized) = obj_val.simple_serialize(&layout) {
             obj_data = serialized;
+            has_full_serialized_data = true;
         } else {
             obj_data.extend_from_slice(type_str.as_bytes());
         }
@@ -232,7 +236,7 @@ fn native_freeze_object(
 
     // Extract real UID from object data (first 32 bytes)
     // Objects with `key` have `UID` as the first field.
-    let object_id_hex = if obj_data.len() >= 32 {
+    let object_id_hex = if has_full_serialized_data && obj_data.len() >= 32 {
         let uid_bytes = &obj_data[0..32];
         format!("0x{}", hex::encode(uid_bytes))
     } else {
@@ -255,7 +259,7 @@ fn native_freeze_object(
             object_type: type_str.clone(),
             recipient: AccountAddress::ZERO, // Frozen objects don't have a specific owner
             data: obj_data,
-            should_persist: true,
+            should_persist: has_full_serialized_data,
             is_frozen: true,
         };
         ext.record(obj);

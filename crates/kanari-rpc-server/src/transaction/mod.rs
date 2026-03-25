@@ -825,16 +825,6 @@ pub async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest)
                 let tx_hash_hex = hex::encode(&tx_hash);
                 info!("Module publish executed immediately: {}", tx_hash_hex);
 
-                // Try to submit for eventual commitment; log any failure but
-                // still return the execution result to the caller.
-                match state.engine.submit_transaction(submit_tx) {
-                    Ok(sub_hash) => info!(
-                        "Also submitted transaction for commitment: {}",
-                        hex::encode(&sub_hash)
-                    ),
-                    Err(e) => error!("Failed to submit executed transaction: {}", e),
-                }
-
                 let mut cs_value =
                     serde_json::to_value(&changeset).unwrap_or(serde_json::json!(null));
                 if let Some(map) = cs_value.as_object_mut()
@@ -872,6 +862,37 @@ pub async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest)
                         }
                     }
                 }
+                // If simulation failed, do not submit to mempool.
+                if !changeset.success {
+                    return RpcResponse {
+                        jsonrpc: "2.0".to_string(),
+                        result: Some(serde_json::json!({
+                            "hash": tx_hash_hex,
+                            "status": "failed",
+                            "action": "publish",
+                            "changeset": cs_value
+                        })),
+                        error: None,
+                        id: request.id,
+                    };
+                }
+
+                // Submit for eventual commitment only after successful simulation.
+                if let Err(e) = state.engine.submit_transaction(submit_tx) {
+                    error!("Failed to submit executed transaction: {}", e);
+                    return RpcResponse {
+                        jsonrpc: "2.0".to_string(),
+                        result: None,
+                        error: Some(RpcError::transaction_error(format!(
+                            "Immediate publish simulated successfully, but submission failed: {}. No on-chain state was committed.",
+                            e
+                        ))),
+                        id: request.id,
+                    };
+                } else {
+                    info!("Also submitted transaction for commitment: {}", tx_hash_hex);
+                }
+
                 return RpcResponse {
                     jsonrpc: "2.0".to_string(),
                     result: Some(serde_json::json!({
@@ -1137,13 +1158,39 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                     }
                 }
 
+                // If simulation failed, do not submit to mempool.
+                if !changeset.success {
+                    return RpcResponse {
+                        jsonrpc: "2.0".to_string(),
+                        result: Some(serde_json::json!({
+                            "hash": tx_hash_hex,
+                            "status": "failed",
+                            "action": "call",
+                            "changeset": cs_value
+                        })),
+                        error: None,
+                        id: request.id,
+                    };
+                }
+
                 // Attempt to submit executed transaction for commitment as well.
-                match state.engine.submit_transaction(submit_tx) {
-                    Ok(sub_hash) => info!(
+                // Immediate execution is simulation-only; submission failure means not committed.
+                if let Err(e) = state.engine.submit_transaction(submit_tx) {
+                    error!("Failed to submit executed transaction: {}", e);
+                    return RpcResponse {
+                        jsonrpc: "2.0".to_string(),
+                        result: None,
+                        error: Some(RpcError::transaction_error(format!(
+                            "Immediate call simulated successfully, but submission failed: {}. No on-chain state was committed.",
+                            e
+                        ))),
+                        id: request.id,
+                    };
+                } else {
+                    info!(
                         "Also submitted executed transaction for commitment: {}",
-                        hex::encode(&sub_hash)
-                    ),
-                    Err(e) => error!("Failed to submit executed transaction: {}", e),
+                        tx_hash_hex
+                    );
                 }
 
                 RpcResponse {

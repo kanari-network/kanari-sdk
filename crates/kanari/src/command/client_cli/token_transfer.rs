@@ -9,6 +9,38 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use kanari_rpc_api::CallFunctionRequest;
 use kanari_rpc_client::RpcClient;
+use move_core_types::language_storage::TypeTag;
+use std::str::FromStr;
+
+fn normalize_token_type(token: &str) -> String {
+    if let Ok(TypeTag::Struct(st)) = TypeTag::from_str(token) {
+        return format!("{}", st);
+    }
+    token.to_string()
+}
+
+fn coin_token_type_from_object_type(object_type: &str) -> Option<String> {
+    // Fast path for canonical/non-canonical stored strings.
+    if let Some(start) = object_type.find('<')
+        && let Some(end) = object_type.rfind('>')
+    {
+        let outer = &object_type[..start];
+        if outer.ends_with("::coin::Coin") || outer.ends_with("::coin::coin::Coin") {
+            return Some(normalize_token_type(&object_type[start + 1..end]));
+        }
+    }
+
+    // Parse path for fully canonical struct tags.
+    if let Ok(TypeTag::Struct(st)) = TypeTag::from_str(object_type)
+        && st.module.as_str() == "coin"
+        && st.name.as_str() == "Coin"
+        && let Some(TypeTag::Struct(inner)) = st.type_params.first()
+    {
+        return Some(format!("{}", inner));
+    }
+
+    None
+}
 
 #[derive(Parser, Debug)]
 pub struct TokenTransfer {
@@ -58,20 +90,40 @@ impl TokenTransfer {
             .context("Failed to get sender account")?;
 
         // Find coin objects of the specified token type
+        let wanted_token = normalize_token_type(&self.token);
         let mut coin_objects = Vec::new();
+        let mut seen_coin_types = std::collections::BTreeSet::new();
         if let Some(owned_objects) = &account.owned_objects {
             for obj in owned_objects {
-                if obj.type_.contains(&format!("::coin::Coin<{}>", self.token)) {
-                    coin_objects.push(obj.id.clone());
+                if let Some(obj_token) = coin_token_type_from_object_type(&obj.type_) {
+                    seen_coin_types.insert(obj_token.clone());
+                    if obj_token == wanted_token {
+                        coin_objects.push(obj.id.clone());
+                    }
                 }
             }
         }
 
         if coin_objects.is_empty() {
+            let state_balance = account
+                .token_balances
+                .iter()
+                .find(|(k, _)| normalize_token_type(k) == wanted_token)
+                .map(|(_, v)| *v)
+                .unwrap_or(0);
+
+            let available_coin_types = if seen_coin_types.is_empty() {
+                "none".to_string()
+            } else {
+                seen_coin_types.into_iter().collect::<Vec<_>>().join(", ")
+            };
+
             anyhow::bail!(
-                "No {} coin objects found for address {}. Check if you have this token.",
-                self.token,
-                from_addr
+                "No Coin<{}> objects found for address {}.\n  - token balance in account state: {}\n  - available coin object types: {}\nThis usually means your account has a tracked balance entry but no spendable Coin object for that token.",
+                wanted_token,
+                from_addr,
+                state_balance,
+                available_coin_types
             );
         }
 
