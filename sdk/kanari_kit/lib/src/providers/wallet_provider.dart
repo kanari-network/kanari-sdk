@@ -43,12 +43,24 @@ class WalletState extends ChangeNotifier {
 
   Future<void> setEnvironment(KanariEnvironment env) async {
     if (_environment == env) return;
+
     _environment = env;
     _updateClient();
+
     if (_wallet != null) {
-      await refreshBalance();
+      _setLoading(true); // 👉 1. โชว์สถานะโหลดเวลาสลับเครือข่าย
+
+      // 👉 2. เคลียร์ยอดเงินเก่าทิ้งทันที เพื่อไม่ให้ยอดของ Dev ไปโผล่ใน Local
+      _balance = 0;
+      _tokenBalances = [];
+      notifyListeners();
+
+      await refreshBalance(); // ดึงข้อมูลของเครือข่ายใหม่
+
+      _setLoading(false); // 👉 3. ปิดสถานะโหลด
+    } else {
+      notifyListeners();
     }
-    notifyListeners();
   }
 
   Future<void> loadWallets() async {
@@ -289,7 +301,13 @@ class WalletState extends ChangeNotifier {
         _error = null;
         notifyListeners();
       } catch (e) {
+        // 👉 4. ถ้าดึงข้อมูลไม่สำเร็จ (เช่น เซิร์ฟเวอร์ปิด) ต้องจับเคลียร์ค่าเป็น 0
+        _balance = 0;
+        _tokenBalances = [];
         _error = "Refresh balance failed: $e";
+        debugPrint(
+          _error,
+        ); // เช็คใน Console ได้เลยว่า Error เพราะเชื่อมต่อไม่ได้หรือไม่
         notifyListeners();
       }
     }

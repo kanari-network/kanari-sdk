@@ -1,4 +1,4 @@
-# Kanari (kanari-cp)
+# Kanari (kanari-sdk)
 
 Kanari is a Rust workspace that demonstrates integrating the Move VM with a Rust runtime and CLI. The repository includes Rust crates for types, crypto utilities, a Move runtime bridge, and Move packages that define the on-chain logic.
 
@@ -30,7 +30,7 @@ This README gives a concise developer quick-start, project layout, and common co
 cargo build -p kanari
 
 # Run the CLI and list wallets (this will perform a Rust-side genesis on first run)
-cargo run -p kanari -- list-wallets
+cargo run -p kanari -- keytool list
 ```
 
 Notes:
@@ -42,7 +42,7 @@ Notes:
 
 ```powershell
 # Show wallets
-cargo run -p kanari -- list-wallets
+cargo run -p kanari -- keytool list
 
 # Forward Move subcommands to the in-repo Move CLI (examples)
 cargo run -p kanari -- move new <package-name>
@@ -72,7 +72,7 @@ cargo test
 ## Development notes and suggested next tasks
 
 - Decide whether genesis should be executed inside the Move VM (preferred for Move-governed logic) or remain a Rust-side bootstrap. Currently the project seeds genesis from Rust when the DB is empty.
-- Add a `kanari status` command that prints total supply and non-zero balances in JSON for easier verification.
+- Add a `kanari client status` command that prints total supply and non-zero balances in JSON for easier verification.
 - Clean up markdown lint warnings in `DOCS/SYSTEM_ER.md` for clearer docs.
 
 ## Need help or want changes?

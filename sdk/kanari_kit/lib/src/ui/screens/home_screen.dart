@@ -7,6 +7,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:provider/provider.dart';
 
+// 👇 เพิ่ม Import สำหรับระบบสแกน QR Code แล้ว
+import 'package:mobile_scanner/mobile_scanner.dart';
+
 import 'package:kanari_kit/src/providers/wallet_provider.dart';
 import 'package:kanari_kit/kanari_kit.dart';
 import '../widgets/security_card.dart';
@@ -401,41 +404,59 @@ class _HomeScreenState extends State<HomeScreen> {
                   ? Icons.hexagon_rounded
                   : Icons.toll_rounded;
 
-              return ListTile(
-                contentPadding: EdgeInsets.symmetric(
+              return Padding(
+                padding: EdgeInsets.symmetric(
                   horizontal: isSmallScreen ? 16 : 20,
-                  vertical: isSmallScreen ? 4 : 8,
+                  vertical: isSmallScreen ? 12 : 16,
                 ),
-                leading: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: iconColor.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(iconData, color: iconColor, size: 20),
-                ),
-                title: Text(
-                  token.symbol,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                subtitle: isKanari
-                    ? null
-                    : Text(
-                        token.tokenType,
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: colorScheme.onSurface.withOpacity(0.4),
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: iconColor.withOpacity(0.1),
+                        shape: BoxShape.circle,
                       ),
-                trailing: Text(
-                  formattedAmount.toStringAsFixed(4),
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+                      child: Icon(iconData, color: iconColor, size: 20),
+                    ),
+                    SizedBox(width: isSmallScreen ? 12 : 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            token.symbol,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              height: 1.1,
+                            ),
+                          ),
+                          if (!isKanari) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              token.tokenType,
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: colorScheme.onSurface.withOpacity(0.4),
+                                height: 1.1,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      formattedAmount.toStringAsFixed(4),
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
               );
             },
@@ -532,7 +553,10 @@ class _HomeScreenState extends State<HomeScreen> {
     bool isSmallScreen,
   ) {
     return Container(
-      padding: EdgeInsets.all(isSmallScreen ? 16 : 24),
+      padding: EdgeInsets.symmetric(
+        horizontal: isSmallScreen ? 16 : 24,
+        vertical: isSmallScreen ? 16 : 24,
+      ),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [colorScheme.primary.withOpacity(0.85), colorScheme.primary],
@@ -558,15 +582,25 @@ class _HomeScreenState extends State<HomeScreen> {
               letterSpacing: 0.5,
             ),
           ),
-          const SizedBox(height: 8),
-          _buildIndexSpecificBalanceSection(
-            context,
-            colorScheme,
-            walletData,
-            isSmallScreen,
-            theme,
+
+          Expanded(
+            child: Center(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8.0),
+                  child: _buildIndexSpecificBalanceSection(
+                    context,
+                    colorScheme,
+                    walletData,
+                    isSmallScreen,
+                    theme,
+                  ),
+                ),
+              ),
+            ),
           ),
-          SizedBox(height: isSmallScreen ? 16 : 24),
+
           FilledButton.tonalIcon(
             onPressed: () {
               if (walletData['id'] ==
@@ -610,7 +644,7 @@ class _HomeScreenState extends State<HomeScreen> {
         color: colorScheme.onPrimary.withOpacity(0.08),
         borderRadius: BorderRadius.circular(24),
       ),
-      padding: EdgeInsets.symmetric(vertical: isSmallScreen ? 20.0 : 28.0),
+      padding: EdgeInsets.symmetric(vertical: isSmallScreen ? 16.0 : 28.0),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -622,7 +656,7 @@ class _HomeScreenState extends State<HomeScreen> {
               fontWeight: FontWeight.w500,
             ),
           ),
-          SizedBox(height: isSmallScreen ? 12 : 16),
+          SizedBox(height: isSmallScreen ? 8 : 16),
           FittedBox(
             fit: BoxFit.scaleDown,
             child: Padding(
@@ -639,7 +673,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
-          SizedBox(height: isSmallScreen ? 12 : 16),
+          SizedBox(height: isSmallScreen ? 8 : 16),
           Container(
             padding: EdgeInsets.symmetric(
               horizontal: isSmallScreen ? 12 : 16,
@@ -680,43 +714,48 @@ class _HomeScreenState extends State<HomeScreen> {
           width: 2,
         ),
       ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: colorScheme.primaryContainer,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.add_rounded,
-              size: 32,
-              color: colorScheme.onPrimaryContainer,
-            ),
+      child: Center(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: colorScheme.primaryContainer,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.add_rounded,
+                  size: 32,
+                  color: colorScheme.onPrimaryContainer,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Create New Wallet',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Swipe left to manage existing wallets\nor tap below to add a new one.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 24),
+              FilledButton.tonal(
+                onPressed: () => _showCreateDialog(context),
+                child: const Text('Add Wallet'),
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
-          Text(
-            'Create New Wallet',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: colorScheme.onSurface,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Swipe left to manage existing wallets\nor tap below to add a new one.',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 24),
-          FilledButton.tonal(
-            onPressed: () => _showCreateDialog(context),
-            child: const Text('Add Wallet'),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -952,25 +991,13 @@ class _TransferBottomSheetState extends State<_TransferBottomSheet> {
     super.dispose();
   }
 
+  // 👇 แก้ไขฟังก์ชันนี้ให้เปิดหน้ากล้อง
   Future<String?> _scanQRCode(BuildContext context) async {
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.qr_code_scanner_rounded, size: 32),
-        title: const Text('QR Scanner'),
-        content: const Text(
-          'QR Scanner requires camera access.\n\nThis feature will be available soon.',
-          textAlign: TextAlign.center,
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Understood'),
-          ),
-        ],
-      ),
+    final result = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (context) => const QRScannerScreen()),
     );
-    return null;
+    return result;
   }
 
   @override
@@ -1047,7 +1074,7 @@ class _TransferBottomSheetState extends State<_TransferBottomSheet> {
           SizedBox(height: isSmallScreen ? 12 : 16),
 
           DropdownButtonFormField<String>(
-            value: _selectedTokenType,
+            initialValue: _selectedTokenType,
             isExpanded: true,
             decoration: const InputDecoration(
               labelText: 'Asset to send',
@@ -1161,6 +1188,111 @@ class _TransferBottomSheetState extends State<_TransferBottomSheet> {
             child: const Text(
               'Send Assets',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// 👉 UI: หน้าต่างสแกน QR Code พร้อมกล้อง (สำหรับ Mobile Scanner v7+)
+// ============================================================================
+class QRScannerScreen extends StatefulWidget {
+  const QRScannerScreen({super.key});
+
+  @override
+  State<QRScannerScreen> createState() => _QRScannerScreenState();
+}
+
+class _QRScannerScreenState extends State<QRScannerScreen> {
+  late MobileScannerController cameraController;
+  bool isProcessing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    cameraController = MobileScannerController();
+  }
+
+  @override
+  void dispose() {
+    cameraController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
+        title: const Text('Scan QR Code'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.flashlight_on_rounded, color: Colors.yellow),
+            onPressed: () => cameraController.toggleTorch(),
+          ),
+          IconButton(
+            icon: const Icon(
+              Icons.flip_camera_android_rounded,
+              color: Colors.white,
+            ),
+            onPressed: () => cameraController.switchCamera(),
+          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          MobileScanner(
+            controller: cameraController,
+            onDetect: (capture) {
+              if (isProcessing) return;
+
+              final List<Barcode> barcodes = capture.barcodes;
+              for (final barcode in barcodes) {
+                if (barcode.rawValue != null) {
+                  setState(() => isProcessing = true);
+                  final String code = barcode.rawValue!;
+                  Navigator.pop(context, code);
+                  break;
+                }
+              }
+            },
+          ),
+          Center(
+            child: Container(
+              width: 250,
+              height: 250,
+              decoration: BoxDecoration(
+                border: Border.all(color: colorScheme.primary, width: 3),
+                borderRadius: BorderRadius.circular(24),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 48,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Text(
+                  'Align QR code within the frame',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
             ),
           ),
         ],
