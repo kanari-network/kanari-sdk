@@ -29,7 +29,8 @@ Map<String, dynamic> _$AccountInfoToJson(AccountInfo instance) =>
 
 TokenBalance _$TokenBalanceFromJson(Map<String, dynamic> json) => TokenBalance(
   tokenType: json['token_type'] as String,
-  amount: (json['amount'] as num).toInt(),
+  amount: (json['balance'] as num)
+      .toInt(), // 👈 2. เปลี่ยนจาก 'amount' เป็น 'balance'
   decimals: (json['decimals'] as num).toInt(),
   symbol: json['symbol'] as String,
 );
@@ -37,7 +38,7 @@ TokenBalance _$TokenBalanceFromJson(Map<String, dynamic> json) => TokenBalance(
 Map<String, dynamic> _$TokenBalanceToJson(TokenBalance instance) =>
     <String, dynamic>{
       'token_type': instance.tokenType,
-      'amount': instance.amount,
+      'balance': instance.amount, // 👈 3. เปลี่ยนจาก 'amount' เป็น 'balance'
       'decimals': instance.decimals,
       'symbol': instance.symbol,
     };

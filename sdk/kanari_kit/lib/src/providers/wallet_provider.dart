@@ -5,19 +5,27 @@ class WalletState extends ChangeNotifier {
   KanariClient? _client;
   KanariWallet? _wallet;
   List<Map<String, dynamic>> _wallets = [];
+
   int _balance = 0;
+  // 👉 1. เพิ่มตัวแปรเก็บ Token Balances
+  List<TokenBalance> _tokenBalances = [];
+
   bool _isLoading = false;
   String? _error;
   String? _activeWalletId; // Track active wallet ID
   KanariEnvironment _environment = KanariEnvironment.local;
 
-  // 👉 1. เพิ่มตัวแปรเช็คสถานะการปลดล็อกแอป
+  // 👉 เพิ่มตัวแปรเช็คสถานะการปลดล็อกแอป
   bool _isUnlocked = false;
 
   KanariClient? get client => _client;
   KanariWallet? get wallet => _wallet;
   List<Map<String, dynamic>> get wallets => _wallets;
+
   int get balance => _balance;
+  // 👉 2. เพิ่ม Getter สำหรับ tokenBalances
+  List<TokenBalance> get tokenBalances => _tokenBalances;
+
   bool get isLoading => _isLoading;
   String? get error => _error;
   String? get activeWalletId => _activeWalletId;
@@ -29,8 +37,7 @@ class WalletState extends ChangeNotifier {
 
   Future<void> initialize() async {
     _updateClient();
-    // 👉 2. แก้ไข: โหลดแค่ข้อมูลว่ามีกระเป๋าอะไรบ้าง (เพื่อให้หน้า Welcome รู้ว่าต้องโชว์ปุ่ม Unlock)
-    // แต่ "ไม่เรียก" _loadActiveWallet() เพื่อไม่ให้มันถอดรหัสและล็อกอินให้อัตโนมัติ
+    // โหลดแค่ข้อมูลว่ามีกระเป๋าอะไรบ้าง (เพื่อให้หน้า Welcome รู้ว่าต้องโชว์ปุ่ม Unlock)
     _wallets = await WalletStorage.loadAllWallets();
     notifyListeners();
   }
@@ -168,6 +175,7 @@ class WalletState extends ChangeNotifier {
     } else if (_wallets.isEmpty) {
       _wallet = null;
       _balance = 0;
+      _tokenBalances = []; // เคลียร์ token
     }
 
     notifyListeners();
@@ -194,7 +202,7 @@ class WalletState extends ChangeNotifier {
       };
 
       await addWallet(walletData, password);
-      _isUnlocked = true; // 👉 ปลดล็อกเมื่อสร้างเสร็จ
+      _isUnlocked = true; // ปลดล็อกเมื่อสร้างเสร็จ
       await refreshBalance();
     } catch (e, stack) {
       _error = "Creation failed: $e";
@@ -234,7 +242,7 @@ class WalletState extends ChangeNotifier {
         return;
       }
 
-      _isUnlocked = true; // 👉 3. ตั้งสถานะว่าปลดล็อกสำเร็จแล้ว
+      _isUnlocked = true; // ตั้งสถานะว่าปลดล็อกสำเร็จแล้ว
       _error = null;
     } catch (e, stack) {
       debugPrint('❌ Unlock error: $e');
@@ -268,7 +276,7 @@ class WalletState extends ChangeNotifier {
       };
 
       await addWallet(walletData, password);
-      _isUnlocked = true; // 👉 ปลดล็อกเมื่อนำเข้าเสร็จ
+      _isUnlocked = true; // ปลดล็อกเมื่อนำเข้าเสร็จ
       await refreshBalance();
     } catch (e) {
       _error = "Import PK failed: $e";
@@ -298,7 +306,7 @@ class WalletState extends ChangeNotifier {
       };
 
       await addWallet(walletData, password);
-      _isUnlocked = true; // 👉 ปลดล็อกเมื่อนำเข้าเสร็จ
+      _isUnlocked = true; // ปลดล็อกเมื่อนำเข้าเสร็จ
       await refreshBalance();
     } catch (e) {
       _error = "Import Mnemonic failed: $e";
@@ -311,8 +319,9 @@ class WalletState extends ChangeNotifier {
   void logout() {
     _wallet = null; // เคลียร์ Wallet ออกจาก Memory
     _balance = 0;
+    _tokenBalances = []; // 👉 3. เคลียร์ Token
     _error = null;
-    _isUnlocked = false; // 👉 4. ล็อกแอป
+    _isUnlocked = false; // ล็อกแอป
     notifyListeners();
   }
 
@@ -322,6 +331,7 @@ class WalletState extends ChangeNotifier {
     _wallets = [];
     _wallet = null;
     _balance = 0;
+    _tokenBalances = []; // 👉 เคลียร์ Token
     _error = null;
     _isUnlocked = false;
     notifyListeners();
@@ -330,7 +340,17 @@ class WalletState extends ChangeNotifier {
   Future<void> refreshBalance() async {
     if (_client != null && _wallet != null) {
       try {
+        // ดึงยอดเหรียญหลัก (KANARI)
         _balance = await _client!.getBalance(_wallet!.address);
+
+        // 👉 4. ดึงยอดเหรียญ Token อื่นๆ ทั้งหมดที่กระเป๋านี้มี
+        try {
+          _tokenBalances = await _client!.getAllBalances(_wallet!.address);
+        } catch (e) {
+          debugPrint("Failed to fetch token balances: $e");
+          _tokenBalances = [];
+        }
+
         _error = null;
         notifyListeners();
       } catch (e) {
@@ -341,7 +361,6 @@ class WalletState extends ChangeNotifier {
     }
   }
 
-  // ... (ฟังก์ชัน transfer, executeFunction, burn เหมือนเดิมทั้งหมด) ...
   Future<String?> transfer(String recipient, int amount) async {
     if (_client == null || _wallet == null) return "Client not initialized";
     _setLoading(true);
@@ -418,6 +437,29 @@ class WalletState extends ChangeNotifier {
       return true;
     } catch (e) {
       return false;
+    }
+  }
+
+  Future<String?> transferToken(
+    String recipient,
+    String tokenType,
+    int amount,
+  ) async {
+    if (_client == null || _wallet == null) return "Client not initialized";
+    _setLoading(true);
+    try {
+      final result = await _client!.transferToken(
+        wallet: _wallet!,
+        recipient: recipient,
+        tokenType: tokenType,
+        amount: amount,
+      );
+      await refreshBalance();
+      _setLoading(false);
+      return "Success: Hash ${result.hash}";
+    } catch (e) {
+      _setLoading(false);
+      return "Error: $e";
     }
   }
 }

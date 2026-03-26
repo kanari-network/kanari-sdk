@@ -40,11 +40,15 @@ class AccountInfo extends Equatable {
   ];
 }
 
+// ค้นหาคลาส TokenBalance ใน lib/src/models/account.dart
 @JsonSerializable()
 class TokenBalance extends Equatable {
   @JsonKey(name: 'token_type')
   final String tokenType;
+
+  @JsonKey(name: 'balance') // 👈 1. เพิ่มบรรทัดนี้
   final int amount;
+
   final int decimals;
   final String symbol;
 

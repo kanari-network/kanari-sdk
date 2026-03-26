@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:ui'; // สำหรับ PointerDeviceKind
+import 'dart:math' as math; // 👈 เพิ่มบรรทัดนี้
 import 'package:flutter/material.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:provider/provider.dart';
@@ -541,112 +542,220 @@ class _HomeScreenState extends State<HomeScreen> {
     final theme = Theme.of(context);
     final isSmallScreen = MediaQuery.of(context).size.width < 360;
 
+    // ดึง State ปัจจุบันมาใช้
+    final walletState = context.read<WalletState>();
+
+    // สถานะภายใน Dialog
+    // ใช้ string ว่าง ('') แทนการส่งเหรียญหลัก (KANARI)
+    String selectedTokenType = '';
+
     showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.send_rounded),
-        title: const Text('Transfer KANARI'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: recipientController,
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-                decoration: InputDecoration(
-                  labelText: 'Recipient Address',
-                  hintText: '0x...',
-                  helperText: 'Must be exactly 64 hex characters',
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.qr_code_scanner_rounded),
-                    onPressed: () async {
-                      Navigator.pop(dialogContext);
-                      final scannedAddress = await _scanQRCode(context);
-                      if (scannedAddress != null && dialogContext.mounted) {
-                        _showTransferDialog(
-                          context,
-                          prefilledAddress: scannedAddress,
-                        );
-                      }
-                    },
-                  ),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) {
+          // สร้าง List สำหรับ Dropdown (รวมเหรียญหลัก KANARI + Tokens ที่มี)
+          List<DropdownMenuItem<String>> tokenItems = [
+            DropdownMenuItem(
+              value: '',
+              child: Text(
+                'KANARI (${(walletState.balance / 1000000000).toStringAsFixed(4)})',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ];
+
+          // นำ Token ที่มีในกระเป๋ามาใส่ใน Dropdown
+          for (var token in walletState.tokenBalances) {
+            // 👈 เพิ่มบรรทัดนี้ เพื่อข้ามเหรียญ KANARI ที่เซิร์ฟเวอร์ส่งมาซ้ำ
+            if (token.tokenType == 'KANARI') continue;
+
+            final formattedAmount = token.amount / math.pow(10, token.decimals);
+            tokenItems.add(
+              DropdownMenuItem(
+                value: token.tokenType,
+                child: Text(
+                  '${token.symbol} (${formattedAmount.toStringAsFixed(4)})',
                 ),
               ),
-              SizedBox(height: isSmallScreen ? 12 : 16),
-              TextField(
-                controller: amountController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: InputDecoration(
-                  labelText: 'Amount (KANARI)',
-                  prefixIcon: const Icon(Icons.account_balance_wallet_rounded),
-                  suffixIcon: TextButton(
-                    onPressed: () {
-                      final balanceMist = context.read<WalletState>().balance;
-                      final balanceKanari = balanceMist / 1000000000;
-                      amountController.text = balanceKanari.toStringAsFixed(6);
-                    },
-                    child: const Text('MAX'),
+            );
+          }
+
+          return AlertDialog(
+            icon: const Icon(Icons.send_rounded),
+            title: const Text('Transfer Assets'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 1. ช่องกรอก Address
+                  TextField(
+                    controller: recipientController,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 13,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: 'Recipient Address',
+                      hintText: '0x...',
+                      helperText: 'Must be exactly 64 hex characters',
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.qr_code_scanner_rounded),
+                        onPressed: () async {
+                          Navigator.pop(dialogContext);
+                          final scannedAddress = await _scanQRCode(context);
+                          if (scannedAddress != null && dialogContext.mounted) {
+                            _showTransferDialog(
+                              context,
+                              prefilledAddress: scannedAddress,
+                            );
+                          }
+                        },
+                      ),
+                    ),
                   ),
-                ),
+                  SizedBox(height: isSmallScreen ? 12 : 16),
+
+                  // 2. Dropdown เลือก Token ที่จะส่ง
+                  DropdownButtonFormField<String>(
+                    value: selectedTokenType,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Asset to send',
+                      prefixIcon: Icon(Icons.toll_rounded),
+                    ),
+                    items: tokenItems,
+                    onChanged: (val) {
+                      setState(() {
+                        selectedTokenType = val!;
+                        amountController
+                            .clear(); // ล้างจำนวนเงินเมื่อเปลี่ยนเหรียญ
+                      });
+                    },
+                  ),
+                  SizedBox(height: isSmallScreen ? 12 : 16),
+
+                  // 3. ช่องกรอกจำนวนเงิน
+                  TextField(
+                    controller: amountController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: 'Amount',
+                      prefixIcon: const Icon(
+                        Icons.account_balance_wallet_rounded,
+                      ),
+                      suffixIcon: TextButton(
+                        onPressed: () {
+                          // คำนวณปุ่ม MAX ตามเหรียญที่เลือก
+                          if (selectedTokenType == '') {
+                            // MAX สำหรับ KANARI
+                            final balanceKanari =
+                                walletState.balance / 1000000000;
+                            amountController.text = balanceKanari
+                                .toStringAsFixed(6);
+                          } else {
+                            // MAX สำหรับ Token อื่นๆ
+                            final selectedToken = walletState.tokenBalances
+                                .firstWhere(
+                                  (t) => t.tokenType == selectedTokenType,
+                                );
+                            final maxAmount =
+                                selectedToken.amount /
+                                math.pow(10, selectedToken.decimals);
+                            amountController.text = maxAmount.toStringAsFixed(
+                              selectedToken.decimals < 6
+                                  ? selectedToken.decimals
+                                  : 6,
+                            );
+                          }
+                        },
+                        child: const Text('MAX'),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () async {
+                  final recipient = recipientController.text;
+                  final amountStr = amountController.text;
+                  final amountDouble = double.tryParse(amountStr) ?? 0.0;
+
+                  if (recipient.isEmpty || amountDouble <= 0) return;
+
+                  var cleanAddress = recipient.startsWith('0x')
+                      ? recipient.substring(2)
+                      : recipient;
+
+                  if (cleanAddress.length != 64 ||
+                      !RegExp(r'^[0-9a-fA-F]+$').hasMatch(cleanAddress)) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(
+                      SnackBar(
+                        content: const Text('Invalid address format.'),
+                        backgroundColor: theme.colorScheme.error,
+                      ),
+                    );
+                    return;
+                  }
+
+                  Navigator.pop(
+                    dialogContext,
+                  ); // ปิด Dialog ก่อนส่ง Transaction
+
+                  String? result;
+
+                  // ตรวจสอบว่าส่ง KANARI หรือ Token
+                  if (selectedTokenType == '') {
+                    // ส่ง KANARI ปกติ
+                    final amountMist = (amountDouble * 1000000000).round();
+                    result = await context.read<WalletState>().transfer(
+                      recipient,
+                      amountMist,
+                    );
+                  } else {
+                    // ส่ง Custom Token
+                    final selectedToken = walletState.tokenBalances.firstWhere(
+                      (t) => t.tokenType == selectedTokenType,
+                    );
+                    // คำนวณเป็นหน่วยย่อย (Base units) ของ Token นั้นๆ
+                    final amountBaseUnits =
+                        (amountDouble * math.pow(10, selectedToken.decimals))
+                            .round();
+
+                    result = await context.read<WalletState>().transferToken(
+                      recipient,
+                      selectedTokenType,
+                      amountBaseUnits,
+                    );
+                  }
+
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          result?.startsWith('Error:') == true
+                              ? result!
+                              : 'Transaction successful',
+                        ),
+                        backgroundColor: result?.startsWith('Error:') == true
+                            ? theme.colorScheme.error
+                            : theme.colorScheme.primary,
+                      ),
+                    );
+                  }
+                },
+                child: const Text('Send'),
               ),
             ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final recipient = recipientController.text;
-              final amountStr = amountController.text;
-              final amountDouble = double.tryParse(amountStr) ?? 0.0;
-              final amountMist = (amountDouble * 1000000000).round();
-
-              if (recipient.isEmpty || amountMist <= 0) return;
-
-              var cleanAddress = recipient.startsWith('0x')
-                  ? recipient.substring(2)
-                  : recipient;
-
-              if (cleanAddress.length != 64 ||
-                  !RegExp(r'^[0-9a-fA-F]+$').hasMatch(cleanAddress)) {
-                ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  SnackBar(
-                    content: const Text('Invalid address format.'),
-                    backgroundColor: theme.colorScheme.error,
-                  ),
-                );
-                return;
-              }
-
-              Navigator.pop(dialogContext);
-              final result = await context.read<WalletState>().transfer(
-                recipient,
-                amountMist,
-              );
-
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      result?.startsWith('Error:') == true
-                          ? result!
-                          : 'Transaction successful',
-                    ),
-                    backgroundColor: result?.startsWith('Error:') == true
-                        ? theme.colorScheme.error
-                        : theme.colorScheme.primary,
-                  ),
-                );
-              }
-            },
-            child: const Text('Send KANARI'),
-          ),
-        ],
+          );
+        },
       ),
     );
   }

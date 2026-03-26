@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data'; // 👈 เพิ่ม Import ตรงนี้
 
 import 'package:http/http.dart' as http;
 import 'models/rpc_response.dart';
@@ -130,9 +131,14 @@ class KanariClient {
     final resp = await _request(
       'kanari_getAllBalances',
       {'address': normalizedAddress},
-      (j) => (j as List)
-          .map((e) => TokenBalance.fromJson(e as Map<String, dynamic>))
-          .toList(),
+      (j) {
+        // 👈 แก้ไขตรงนี้: อ่านเป็น Map ก่อน แล้วค่อยดึง 'balances' ออกมา
+        final map = j as Map<String, dynamic>;
+        final balancesList = map['balances'] as List<dynamic>? ?? [];
+        return balancesList
+            .map((e) => TokenBalance.fromJson(e as Map<String, dynamic>))
+            .toList();
+      },
     );
     if (resp.error != null) throw Exception(resp.error!.message);
     return resp.result!;
@@ -513,5 +519,97 @@ class KanariClient {
 
   void close() {
     _client.close();
+  }
+
+  // --- Helpers สำหรับ Token Transfer ---
+
+  List<int> _hexToBytes(String hexStr) {
+    final clean = hexStr.startsWith('0x') ? hexStr.substring(2) : hexStr;
+    List<int> bytes = [];
+    for (int i = 0; i < clean.length; i += 2) {
+      bytes.add(int.parse(clean.substring(i, i + 2), radix: 16));
+    }
+    return bytes;
+  }
+
+  // แปลง int เป็น U64 Little Endian (BCS format)
+  List<int> _encodeU64Bcs(int value) {
+    final data = ByteData(8);
+    data.setUint64(0, value, Endian.little);
+    return data.buffer.asUint8List();
+  }
+
+  String? _coinTokenFromObjectType(String objectType) {
+    final start = objectType.indexOf('<');
+    final end = objectType.lastIndexOf('>');
+    if (start != -1 && end != -1) {
+      final outer = objectType.substring(0, start);
+      if (outer.endsWith('::coin::Coin') ||
+          outer.endsWith('::coin::coin::Coin')) {
+        return objectType.substring(start + 1, end);
+      }
+    }
+    return null;
+  }
+
+  /// Transfer Custom Token (เทียบเท่า TokenTransfer::execute ใน Rust)
+  Future<TransactionResult> transferToken({
+    required KanariWallet wallet,
+    required String recipient,
+    required String tokenType, // เช่น "0x...::james::JAMES"
+    required int amount,
+    int gasLimit = 100000,
+    int gasPrice = 1000,
+  }) async {
+    // 1. Get Account & Objects
+    final account = await getAccount(wallet.address);
+    final normalizedRecipient = _normalizeAddress(recipient);
+
+    // 2. Find the coin object ID matching the token type
+    String? coinObjectId;
+    if (account.ownedObjects != null) {
+      for (final obj in account.ownedObjects!) {
+        final objToken = _coinTokenFromObjectType(obj.type);
+        if (objToken == tokenType) {
+          coinObjectId = obj.id;
+          break; // เจอ Object ใบแรกที่ตรงก็ใช้เลย
+        }
+      }
+    }
+
+    if (coinObjectId == null) {
+      throw Exception(
+        "No Coin<$tokenType> objects found.\n"
+        "This usually means you don't have a spendable Coin object for this token.",
+      );
+    }
+
+    // 3. Parse token format: address::module::struct
+    final parts = tokenType.split('::');
+    if (parts.length < 3) {
+      throw ArgumentError(
+        "Invalid token format. Expected: address::module::struct",
+      );
+    }
+    final packageAddress = parts[0];
+    final moduleName = parts[1];
+
+    // 4. Prepare Arguments
+    final objectIdBytes = _hexToBytes(coinObjectId);
+    final amountBytes = _encodeU64Bcs(amount);
+    final recipientBytes = _hexToBytes(normalizedRecipient);
+
+    // 5. Submit transaction using ExecuteFunction
+    return await executeFunction(
+      wallet: wallet,
+      package: packageAddress, // 👈 แก้แล้ว
+      module: moduleName,
+      function: 'transfer_amount',
+      typeArgs: [],
+      args: [objectIdBytes, amountBytes, recipientBytes],
+      gasLimit: gasLimit,
+      gasPrice: gasPrice,
+      executeImmediate: true,
+    );
   }
 }
