@@ -12,6 +12,9 @@
 .swiftpm/
 migrate_working_dir/
 
+# Flutter specific log files
+flutter_*.log
+
 # IntelliJ related
 *.iml
 *.ipr

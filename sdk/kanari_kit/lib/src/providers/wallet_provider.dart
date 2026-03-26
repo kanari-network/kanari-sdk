@@ -11,19 +11,27 @@ class WalletState extends ChangeNotifier {
   String? _activeWalletId; // Track active wallet ID
   KanariEnvironment _environment = KanariEnvironment.local;
 
+  // 👉 1. เพิ่มตัวแปรเช็คสถานะการปลดล็อกแอป
+  bool _isUnlocked = false;
+
   KanariClient? get client => _client;
   KanariWallet? get wallet => _wallet;
   List<Map<String, dynamic>> get wallets => _wallets;
   int get balance => _balance;
   bool get isLoading => _isLoading;
   String? get error => _error;
-  String? get activeWalletId => _activeWalletId; // Getter for active wallet ID
+  String? get activeWalletId => _activeWalletId;
   bool get hasWallet => _wallets.isNotEmpty;
   KanariEnvironment get environment => _environment;
 
+  // 👉 Getter สำหรับสถานะปลดล็อก
+  bool get isUnlocked => _isUnlocked;
+
   Future<void> initialize() async {
     _updateClient();
-    await loadWallets();
+    // 👉 2. แก้ไข: โหลดแค่ข้อมูลว่ามีกระเป๋าอะไรบ้าง (เพื่อให้หน้า Welcome รู้ว่าต้องโชว์ปุ่ม Unlock)
+    // แต่ "ไม่เรียก" _loadActiveWallet() เพื่อไม่ให้มันถอดรหัสและล็อกอินให้อัตโนมัติ
+    _wallets = await WalletStorage.loadAllWallets();
     notifyListeners();
   }
 
@@ -64,13 +72,13 @@ class WalletState extends ChangeNotifier {
     }
 
     // If no active wallet or not found, use first wallet
-    activeWalletData ??= _wallets.isNotEmpty
-        ? _wallets.first as Map<String, dynamic>
-        : null;
+    activeWalletData ??= _wallets.isNotEmpty ? _wallets.first : null;
 
     if (activeWalletData != null) {
       await _instantiateWallet(activeWalletData);
-      debugPrint('✅ Loaded active wallet: ${activeWalletData['name']} (ID: $_activeWalletId)');
+      debugPrint(
+        '✅ Loaded active wallet: ${activeWalletData['name']} (ID: $_activeWalletId)',
+      );
     }
   }
 
@@ -98,7 +106,7 @@ class WalletState extends ChangeNotifier {
   /// Switch to a different wallet
   Future<void> switchWallet(String walletId) async {
     debugPrint('🔄 Switching to wallet ID: $walletId');
-    
+
     final walletData = _wallets.cast<Map<String, dynamic>?>().firstWhere(
       (w) => w?['id'] == walletId,
       orElse: () => null,
@@ -109,40 +117,39 @@ class WalletState extends ChangeNotifier {
       return;
     }
 
-    debugPrint('✅ Found wallet: ${walletData['name']} (ID: ${walletData['id']})');
-    
+    debugPrint(
+      '✅ Found wallet: ${walletData['name']} (ID: ${walletData['id']})',
+    );
+
     // Set active wallet in storage
     await WalletStorage.setActiveWallet(walletId);
-    
+
     // Update active wallet ID in state
     _activeWalletId = walletId;
     debugPrint(' Updated _activeWalletId to: $walletId');
-    
+
     // Instantiate the wallet with cryptographic data
     await _instantiateWallet(walletData);
-    
+
     debugPrint('✅ Wallet switched successfully');
-    debugPrint('   - Active wallet ID: $_activeWalletId');
-    debugPrint('   - Current wallet address: ${_wallet?.address}');
-    debugPrint('   - Total wallets: ${_wallets.length}');
-    debugPrint('   - Will notify listeners to rebuild UI');
-    
+
     // Notify listeners to rebuild UI with new active wallet
     notifyListeners();
-    
-    debugPrint('✅ Listeners notified - UI should rebuild now');
   }
 
   /// Add new wallet to the list
-  Future<void> addWallet(Map<String, dynamic> walletData, [String? password]) async {
+  Future<void> addWallet(
+    Map<String, dynamic> walletData, [
+    String? password,
+  ]) async {
     _wallets.add(walletData);
-    
+
     // Save password hash if provided and it's the first wallet (master password)
     if (password != null && password.isNotEmpty && _wallets.length == 1) {
       await WalletStorage.savePassword(password);
       debugPrint('🔐 Master password saved');
     }
-    
+
     await WalletStorage.saveAllWallets(_wallets);
     await switchWallet(walletData['id']);
     debugPrint('✅ Wallet added: ${walletData['name']}');
@@ -187,6 +194,7 @@ class WalletState extends ChangeNotifier {
       };
 
       await addWallet(walletData, password);
+      _isUnlocked = true; // 👉 ปลดล็อกเมื่อสร้างเสร็จ
       await refreshBalance();
     } catch (e, stack) {
       _error = "Creation failed: $e";
@@ -202,7 +210,7 @@ class WalletState extends ChangeNotifier {
     _error = null;
     try {
       debugPrint('🔓 Unlocking wallet with master password...');
-      
+
       // Verify master password
       final isValid = await WalletStorage.verifyPassword(password);
       if (!isValid) {
@@ -214,10 +222,10 @@ class WalletState extends ChangeNotifier {
       }
 
       debugPrint('✅ Password verified');
-      
-      // Load all wallets
+
+      // โหลดและถอดรหัสกระเป๋าตรงนี้แทน
       await loadWallets();
-      
+
       if (_wallets.isEmpty) {
         debugPrint('❌ No wallets found');
         _error = "No saved wallets";
@@ -225,7 +233,8 @@ class WalletState extends ChangeNotifier {
         notifyListeners();
         return;
       }
-      
+
+      _isUnlocked = true; // 👉 3. ตั้งสถานะว่าปลดล็อกสำเร็จแล้ว
       _error = null;
     } catch (e, stack) {
       debugPrint('❌ Unlock error: $e');
@@ -234,7 +243,7 @@ class WalletState extends ChangeNotifier {
     } finally {
       _setLoading(false);
       debugPrint('🔔 Notifying listeners...');
-      notifyListeners(); // Critical: Notify UI to navigate to home screen
+      notifyListeners();
     }
   }
 
@@ -259,6 +268,7 @@ class WalletState extends ChangeNotifier {
       };
 
       await addWallet(walletData, password);
+      _isUnlocked = true; // 👉 ปลดล็อกเมื่อนำเข้าเสร็จ
       await refreshBalance();
     } catch (e) {
       _error = "Import PK failed: $e";
@@ -288,6 +298,7 @@ class WalletState extends ChangeNotifier {
       };
 
       await addWallet(walletData, password);
+      _isUnlocked = true; // 👉 ปลดล็อกเมื่อนำเข้าเสร็จ
       await refreshBalance();
     } catch (e) {
       _error = "Import Mnemonic failed: $e";
@@ -298,9 +309,10 @@ class WalletState extends ChangeNotifier {
   }
 
   void logout() {
-    _wallet = null;
+    _wallet = null; // เคลียร์ Wallet ออกจาก Memory
     _balance = 0;
     _error = null;
+    _isUnlocked = false; // 👉 4. ล็อกแอป
     notifyListeners();
   }
 
@@ -311,12 +323,8 @@ class WalletState extends ChangeNotifier {
     _wallet = null;
     _balance = 0;
     _error = null;
-    debugPrint('✅ All wallets deleted');
-    debugPrint('  - _wallets: ${_wallets.length}');
-    debugPrint('  - _wallet: ${_wallet}');
-    debugPrint('  - hasWallet: ${hasWallet}');
+    _isUnlocked = false;
     notifyListeners();
-    debugPrint('🔔 Notified listeners');
   }
 
   Future<void> refreshBalance() async {
@@ -333,6 +341,7 @@ class WalletState extends ChangeNotifier {
     }
   }
 
+  // ... (ฟังก์ชัน transfer, executeFunction, burn เหมือนเดิมทั้งหมด) ...
   Future<String?> transfer(String recipient, int amount) async {
     if (_client == null || _wallet == null) return "Client not initialized";
     _setLoading(true);
@@ -397,27 +406,17 @@ class WalletState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Change the master password
   Future<bool> changePassword(String oldPassword, String newPassword) async {
     try {
-      // Verify old password
       final isValid = await WalletStorage.verifyPassword(oldPassword);
-      if (!isValid) {
-        debugPrint('❌ Old password is incorrect');
-        return false;
-      }
+      if (!isValid) return false;
 
-      // Save new password
       await WalletStorage.savePassword(newPassword);
-      debugPrint('✅ Password changed successfully');
-      
-      // Re-save all wallets (they're not encrypted, but this maintains consistency)
       await WalletStorage.saveAllWallets(_wallets);
-      
+
       notifyListeners();
       return true;
     } catch (e) {
-      debugPrint('❌ Error changing password: $e');
       return false;
     }
   }

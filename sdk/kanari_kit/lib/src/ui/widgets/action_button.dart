@@ -6,7 +6,6 @@ class ActionButton extends StatelessWidget {
   final String label;
   final String description;
   final bool isPrimary;
-  final Color? color;
 
   const ActionButton({
     super.key,
@@ -15,74 +14,62 @@ class ActionButton extends StatelessWidget {
     required this.label,
     required this.description,
     this.isPrimary = false,
-    this.color,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final effectiveColor =
-        color ??
-        (isPrimary ? theme.colorScheme.primary : theme.colorScheme.secondary);
+    final colorScheme = Theme.of(context).colorScheme;
 
-    return InkWell(
-      onTap: onPressed,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.all(12), // Reduced padding
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: effectiveColor.withOpacity(0.3)),
-          color: effectiveColor.withOpacity(0.05),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8), // Reduced padding
-              decoration: BoxDecoration(
-                color: effectiveColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
+    return Card(
+      elevation: 0,
+      color: isPrimary
+          ? colorScheme.primaryContainer
+          : colorScheme.surfaceVariant.withOpacity(0.3),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: isPrimary
+            ? BorderSide.none
+            : BorderSide(color: colorScheme.outlineVariant),
+      ),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: isPrimary ? colorScheme.primary : colorScheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  icon,
+                  color: isPrimary
+                      ? colorScheme.onPrimary
+                      : colorScheme.primary,
+                ),
               ),
-              child: Icon(
-                icon,
-                color: effectiveColor,
-                size: 20,
-              ), // Smaller icon
-            ),
-            const SizedBox(width: 12), // Reduced spacing
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    label,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      // Smaller text style
-                      fontWeight: FontWeight.bold,
-                      color: effectiveColor,
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    description,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      fontSize: 10, // Smaller description
-                      color: theme.colorScheme.onSurface.withOpacity(0.6),
+                    Text(
+                      description,
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            Icon(
-              Icons.chevron_right_rounded,
-              size: 16, // Smaller chevron
-              color: theme.colorScheme.onSurface.withOpacity(0.3),
-            ),
-          ],
+              const Icon(Icons.chevron_right_rounded),
+            ],
+          ),
         ),
       ),
     );

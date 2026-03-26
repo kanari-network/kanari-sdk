@@ -15,7 +15,7 @@ class WalletInfoCard extends StatelessWidget {
     final theme = Theme.of(context);
     final screenWidth = MediaQuery.of(context).size.width;
     final isSmallScreen = screenWidth < 360;
-    
+
     final iconSize = isSmallScreen ? 22.0 : 28.0;
     final iconPadding = isSmallScreen ? 8.0 : 12.0;
     final fontSize = isSmallScreen ? 11.0 : 12.0;
@@ -110,13 +110,18 @@ class WalletInfoCard extends StatelessWidget {
                 child: IconButton(
                   icon: const Icon(Icons.copy_rounded, size: 20),
                   onPressed: () {
-                    Clipboard.setData(ClipboardData(text: state.wallet!.address));
+                    Clipboard.setData(
+                      ClipboardData(text: state.wallet!.address),
+                    );
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: const Text('Address copied'),
                         behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        backgroundColor: theme.colorScheme.onSurface.withOpacity(0.8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        backgroundColor: theme.colorScheme.onSurface
+                            .withOpacity(0.8),
                       ),
                     );
                   },
@@ -134,13 +139,11 @@ class WalletInfoCard extends StatelessWidget {
 
   void _showQRCodeDialog(BuildContext context, String address) {
     final theme = Theme.of(context);
-    
+
     showDialog(
       context: context,
       builder: (dialogContext) => Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
@@ -149,10 +152,16 @@ class WalletInfoCard extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    'Wallet QR Code',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
+                  // 👈 1. หุ้ม Text ด้วย Expanded
+                  Expanded(
+                    child: Text(
+                      'Wallet QR Code',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                      maxLines: 1, // 👈 2. (Optional) จำกัด 1 บรรทัด
+                      overflow: TextOverflow
+                          .ellipsis, // 👈 3. (Optional) ถ้าล้นให้เป็นจุดไข่ปลา
                     ),
                   ),
                   IconButton(
@@ -192,7 +201,10 @@ class WalletInfoCard extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: theme.colorScheme.surfaceVariant.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
@@ -220,7 +232,9 @@ class WalletInfoCard extends StatelessWidget {
                       SnackBar(
                         content: const Text('Address copied to clipboard'),
                         behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                         backgroundColor: theme.colorScheme.primary,
                       ),
                     );

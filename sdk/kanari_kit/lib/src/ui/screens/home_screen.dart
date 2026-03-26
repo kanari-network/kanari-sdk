@@ -1,891 +1,650 @@
+import 'dart:async';
+import 'dart:ui'; // สำหรับ PointerDeviceKind
 import 'package:flutter/material.dart';
-import 'package:kanari_kit/src/providers/wallet_provider.dart';
-import 'package:provider/provider.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
+import 'package:provider/provider.dart';
 
+import 'package:kanari_kit/src/providers/wallet_provider.dart';
+import 'package:kanari_kit/kanari_kit.dart';
 import '../widgets/action_button.dart';
 import '../widgets/security_card.dart';
-import '../balance_card.dart';
 import '../network_selector.dart';
 import '../wallet_info_card.dart';
-import '../widgets/wallet_selector.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  late PageController _pageController;
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    final state = context.read<WalletState>();
+    int initialPage = 0;
+    if (state.activeWalletId != null) {
+      initialPage = state.wallets.indexWhere(
+        (w) => w['id'] == state.activeWalletId,
+      );
+      if (initialPage == -1) initialPage = 0;
+    }
+
+    _pageController = PageController(
+      initialPage: initialPage,
+      viewportFraction: 0.9,
+    );
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    _debounce?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<WalletState>();
     final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final screenWidth = MediaQuery.of(context).size.width;
     final isSmallScreen = screenWidth < 360;
     final isMediumScreen = screenWidth >= 360 && screenWidth < 600;
 
-    // Responsive padding
     final screenPadding = isSmallScreen ? 12.0 : (isMediumScreen ? 16.0 : 20.0);
-    final sectionSpacing = isSmallScreen
-        ? 16.0
-        : (isMediumScreen ? 20.0 : 28.0);
+    final wallets = state.wallets;
+    final pageCount = wallets.length + 1;
 
     return Scaffold(
-      backgroundColor: theme.colorScheme.surface,
+      backgroundColor: colorScheme.surface,
       body: state.isLoading
-          ? Center(child: SpinKitFadingCircle(color: theme.colorScheme.primary))
+          ? Center(child: SpinKitFadingCircle(color: colorScheme.primary))
           : RefreshIndicator(
               onRefresh: () => state.refreshBalance(),
-              backgroundColor: theme.colorScheme.surface,
-              color: theme.colorScheme.primary,
+              backgroundColor: colorScheme.surface,
+              color: colorScheme.primary,
               child: CustomScrollView(
                 slivers: [
-                  // Modern Header with Gradient
-                  SliverToBoxAdapter(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            theme.colorScheme.primary,
-                            theme.colorScheme.primary.withOpacity(0.8),
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
+                  // 1. Navbar แบบกล่องลอย (Floating Island) เลื่อนแล้วหาย
+                  SliverAppBar(
+                    floating: true, // ทำให้เวลาปัดขึ้น แถบจะแสดงทันที
+                    snap: true, // เด้งโชว์เต็มๆ ไม่มาแค่ครึ่งเดียว
+                    pinned: false, // เปลี่ยนเป็น false เพื่อให้ปัดลงแล้วหายไป
+                    backgroundColor: Colors.transparent,
+                    surfaceTintColor: Colors.transparent,
+                    elevation: 0,
+                    toolbarHeight: 88, // 👈 เพิ่มความสูงอีก 12 (จาก 76 เป็น 88)
+                    flexibleSpace: SafeArea(
+                      child: Container(
+                        // ใช้ margin เพื่อสร้างขอบรอบๆ Navbar
+                        margin: EdgeInsets.symmetric(
+                          horizontal: screenPadding,
+                          vertical: 12, // 👈 ปรับระยะห่างขอบบน-ล่างให้สมดุล
                         ),
-                        borderRadius: const BorderRadius.only(
-                          bottomLeft: Radius.circular(32),
-                          bottomRight: Radius.circular(32),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ), // 👈 เพิ่ม Padding ด้านในกันเนื้อหาชนขอบ
+                        decoration: BoxDecoration(
+                          color: colorScheme.surfaceContainerHigh.withOpacity(
+                            0.6,
+                          ),
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(
+                            color: colorScheme.outline.withOpacity(0.1),
+                          ),
                         ),
-                      ),
-                      child: SafeArea(
-                        child: Padding(
-                          padding: EdgeInsets.all(screenPadding),
-                          child: Column(
-                            children: [
-                              // Top Bar
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  // Logo/Title
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white.withOpacity(0.2),
-                                          borderRadius: BorderRadius.circular(
-                                            12,
-                                          ),
-                                        ),
-                                        child: Icon(
-                                          Icons.hexagon,
-                                          color: Colors.white,
-                                          size: isSmallScreen ? 20 : 24,
-                                        ),
-                                      ),
-                                      SizedBox(width: isSmallScreen ? 8 : 12),
-                                      Text(
-                                        'Kanari',
-                                        style: theme.textTheme.titleLarge
-                                            ?.copyWith(
-                                              fontWeight: FontWeight.w800,
-                                              letterSpacing: -0.5,
-                                              color: Colors.white,
-                                              fontSize: isSmallScreen ? 18 : 22,
-                                            ),
-                                      ),
-                                    ],
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            // ฝั่งซ้าย: โลโก้และชื่อ
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(
+                                    10,
+                                  ), // 👈 ขยายกรอบโลโก้นิดหน่อย
+                                  decoration: BoxDecoration(
+                                    color: colorScheme.primaryContainer,
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
-                                  // Settings Menu
-                                  PopupMenuButton<String>(
-                                    icon: const Icon(
-                                      Icons.more_vert_rounded,
-                                      color: Colors.white,
-                                    ),
-                                    color: theme.colorScheme.surface,
-                                    onSelected: (value) {
-                                      if (value == 'change_password') {
-                                        _showChangePasswordDialog(
-                                          context,
-                                          state,
-                                        );
-                                      } else if (value == 'logout') {
-                                        state.logout();
-                                      }
-                                    },
-                                    itemBuilder: (context) => [
-                                      const PopupMenuItem(
-                                        value: 'change_password',
-                                        child: ListTile(
-                                          leading: Icon(
-                                            Icons.lock_reset,
-                                            color: Colors.blue,
-                                          ),
-                                          title: Text('Change Password'),
-                                        ),
-                                      ),
-                                      const PopupMenuItem(
-                                        value: 'logout',
-                                        child: ListTile(
-                                          leading: Icon(
-                                            Icons.logout_rounded,
-                                            color: Colors.red,
-                                          ),
-                                          title: Text('Logout'),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                              SizedBox(height: sectionSpacing),
-
-                              // Balance Card - Integrated in header
-                              Container(
-                                padding: EdgeInsets.all(
-                                  isSmallScreen ? 16 : 20,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.15),
-                                  borderRadius: BorderRadius.circular(24),
-                                  border: Border.all(
-                                    color: Colors.white.withOpacity(0.2),
+                                  child: Icon(
+                                    Icons.hexagon_rounded,
+                                    color: colorScheme.onPrimaryContainer,
+                                    size: 20,
                                   ),
                                 ),
-                                child: Column(
-                                  children: [
-                                    // Network & Wallet Selectors
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Container(
-                                          padding: EdgeInsets.symmetric(
-                                            horizontal: isSmallScreen ? 12 : 16,
-                                            vertical: isSmallScreen ? 6 : 8,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: Colors.white.withOpacity(
-                                              0.2,
-                                            ),
-                                            borderRadius: BorderRadius.circular(
-                                              12,
-                                            ),
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(
-                                                Icons.dns_rounded,
-                                                color: Colors.white,
-                                                size: isSmallScreen ? 14 : 16,
-                                              ),
-                                              const SizedBox(width: 6),
-                                              const NetworkSelector(),
-                                            ],
-                                          ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  'Kanari',
+                                  style: theme.textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.5,
+                                    color: colorScheme.onSurface,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            // ฝั่งขวา: Network Selector & Menu
+                            Row(
+                              children: [
+                                const NetworkSelector(),
+                                const SizedBox(width: 4),
+                                PopupMenuButton<String>(
+                                  icon: Icon(
+                                    Icons.more_vert_rounded,
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                  color: colorScheme.surfaceContainer,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  onSelected: (value) {
+                                    if (value == 'change_password') {
+                                      _showChangePasswordDialog(context, state);
+                                    } else if (value == 'logout') {
+                                      state.logout();
+                                    }
+                                  },
+                                  itemBuilder: (context) => [
+                                    PopupMenuItem(
+                                      value: 'change_password',
+                                      child: ListTile(
+                                        leading: Icon(
+                                          Icons.lock_reset_rounded,
+                                          color: colorScheme.primary,
                                         ),
-                                        const SizedBox(width: 8),
-                                        Container(
-                                          padding: EdgeInsets.symmetric(
-                                            horizontal: isSmallScreen ? 12 : 16,
-                                            vertical: isSmallScreen ? 6 : 8,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: Colors.white.withOpacity(
-                                              0.2,
-                                            ),
-                                            borderRadius: BorderRadius.circular(
-                                              12,
-                                            ),
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(
-                                                Icons
-                                                    .account_balance_wallet_rounded,
-                                                color: Colors.white,
-                                                size: isSmallScreen ? 14 : 16,
-                                              ),
-                                              const SizedBox(width: 6),
-                                              const WalletSelector(),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    SizedBox(height: isSmallScreen ? 16 : 20),
-
-                                    // Balance Amount
-                                    const Text(
-                                      'Total Balance',
-                                      style: TextStyle(
-                                        color: Colors.white70,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w500,
+                                        title: const Text('Change Password'),
+                                        contentPadding: EdgeInsets.zero,
                                       ),
                                     ),
-                                    SizedBox(height: isSmallScreen ? 4 : 8),
-                                    const BalanceCard(),
-
-                                    // Refresh Button
-                                    SizedBox(height: isSmallScreen ? 12 : 16),
-                                    Material(
-                                      color: Colors.white.withOpacity(0.2),
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: InkWell(
-                                        borderRadius: BorderRadius.circular(12),
-                                        onTap: () => state.refreshBalance(),
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 16,
-                                            vertical: 8,
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(
-                                                Icons.refresh_rounded,
-                                                color: Colors.white,
-                                                size: 16,
-                                              ),
-                                              const SizedBox(width: 6),
-                                              const Text(
-                                                'Refresh',
-                                                style: TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: 13,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
+                                    PopupMenuItem(
+                                      value: 'logout',
+                                      child: ListTile(
+                                        leading: Icon(
+                                          Icons.logout_rounded,
+                                          color: colorScheme.error,
                                         ),
+                                        title: const Text('Logout'),
+                                        contentPadding: EdgeInsets.zero,
                                       ),
                                     ),
                                   ],
                                 ),
-                              ),
-                            ],
-                          ),
+                              ],
+                            ),
+                          ],
                         ),
                       ),
                     ),
                   ),
 
-                  // Wallet Address Card
+                  // 2. Swipable Wallet Carousel (พื้นที่ปัดการ์ด)
                   SliverToBoxAdapter(
                     child: Padding(
-                      padding: EdgeInsets.all(screenPadding),
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: SizedBox(
+                        height: isSmallScreen ? 280 : 340,
+                        child: PageView.builder(
+                          controller: _pageController,
+                          itemCount: pageCount,
+                          scrollDirection: Axis.horizontal,
+                          physics: const BouncingScrollPhysics(),
+                          scrollBehavior: const MaterialScrollBehavior()
+                              .copyWith(
+                                dragDevices: {
+                                  PointerDeviceKind.touch,
+                                  PointerDeviceKind.mouse,
+                                },
+                              ),
+                          onPageChanged: (index) {
+                            if (_debounce?.isActive ?? false) {
+                              _debounce!.cancel();
+                            }
+                            _debounce = Timer(
+                              const Duration(milliseconds: 300),
+                              () {
+                                if (mounted && index < wallets.length) {
+                                  final targetWalletId = wallets[index]['id'];
+                                  if (context
+                                          .read<WalletState>()
+                                          .activeWalletId !=
+                                      targetWalletId) {
+                                    context.read<WalletState>().switchWallet(
+                                      targetWalletId,
+                                    );
+                                  }
+                                }
+                              },
+                            );
+                          },
+                          itemBuilder: (context, index) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8.0,
+                                vertical: 8.0,
+                              ),
+                              child: (index < wallets.length)
+                                  ? _buildWalletCardPage(
+                                      context,
+                                      colorScheme,
+                                      wallets[index],
+                                      theme,
+                                      isSmallScreen,
+                                    )
+                                  : _buildCreateWalletCardPage(
+                                      context,
+                                      colorScheme,
+                                      theme,
+                                      isSmallScreen,
+                                    ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // 3. Wallet Address Section
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        screenPadding,
+                        24,
+                        screenPadding,
+                        0,
+                      ),
                       child: const WalletInfoCard(),
                     ),
                   ),
 
-                  // Security Card
+                  // 4. Security Card Section
                   SliverToBoxAdapter(
                     child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: screenPadding),
+                      padding: EdgeInsets.fromLTRB(
+                        screenPadding,
+                        20,
+                        screenPadding,
+                        0,
+                      ),
                       child: const SecurityCard(),
                     ),
                   ),
 
-                  // Quick Actions Section
+                  // 5. Quick Actions Section
                   SliverToBoxAdapter(
                     child: Padding(
-                      padding: EdgeInsets.all(screenPadding),
+                      padding: EdgeInsets.fromLTRB(
+                        screenPadding,
+                        20,
+                        screenPadding,
+                        40,
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: isSmallScreen ? 12 : 16,
-                                  vertical: isSmallScreen ? 6 : 8,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.primaryContainer,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.bolt_rounded,
-                                      size: isSmallScreen ? 14 : 16,
-                                      color:
-                                          theme.colorScheme.onPrimaryContainer,
-                                    ),
-                                    SizedBox(width: isSmallScreen ? 6 : 8),
-                                    Text(
-                                      'Quick Actions',
-                                      style: theme.textTheme.titleMedium
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w700,
-                                            letterSpacing: -0.3,
-                                          ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
+                          Text(
+                            'Quick Actions',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.onSurface,
+                            ),
                           ),
-                          SizedBox(height: isSmallScreen ? 16.0 : 20.0),
-                          _buildActionList(context, isSmallScreen),
+                          SizedBox(height: isSmallScreen ? 12.0 : 16.0),
+                          ActionButton(
+                            onPressed: () => _showTransferDialog(context),
+                            icon: Icons.send_rounded,
+                            label: 'Send KANARI',
+                            description: 'Transfer tokens to another address',
+                            isPrimary: true,
+                          ),
                         ],
                       ),
                     ),
                   ),
 
-                  // Bottom Spacing
-                  const SliverToBoxAdapter(child: SizedBox(height: 20)),
+                  const SliverToBoxAdapter(child: SizedBox(height: 40)),
                 ],
               ),
             ),
     );
   }
 
-  Widget _buildActionList(BuildContext context, bool isSmallScreen) {
-    if (isSmallScreen) {
-      // Stack buttons vertically on very small screens
-      return Column(
-        children: [
-          ActionButton(
-            onPressed: () => _showTransferDialog(context),
-            icon: Icons.send_rounded,
-            label: 'Send KANARI',
-            description: 'Transfer tokens',
-            isPrimary: true,
-          ),
-          const SizedBox(height: 12),
-          ActionButton(
-            onPressed: () => _showExecuteDialog(context),
-            icon: Icons.code_rounded,
-            label: 'Execute',
-            description: 'Move function',
-          ),
-          const SizedBox(height: 12),
-          ActionButton(
-            onPressed: () => _showBurnDialog(context),
-            icon: Icons.local_fire_department_rounded,
-            label: 'Burn',
-            description: 'Destroy tokens',
-            color: Colors.orangeAccent,
+  // --- Helper Methods ---
+
+  Widget _buildWalletCardPage(
+    BuildContext context,
+    ColorScheme colorScheme,
+    Map<String, dynamic> walletData,
+    ThemeData theme,
+    bool isSmallScreen,
+  ) {
+    return Container(
+      padding: EdgeInsets.all(isSmallScreen ? 16 : 24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [colorScheme.primary.withOpacity(0.85), colorScheme.primary],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(32),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.primary.withOpacity(0.2),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
           ),
         ],
-      );
-    } else {
-      // Use row layout for larger screens
-      return Column(
+      ),
+      child: Column(
         children: [
-          ActionButton(
-            onPressed: () => _showTransferDialog(context),
-            icon: Icons.send_rounded,
-            label: 'Send KANARI',
-            description: 'Transfer tokens',
-            isPrimary: true,
+          Text(
+            walletData['name'] ?? 'Wallet',
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: colorScheme.onPrimary.withOpacity(0.8),
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
+            ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: ActionButton(
-                  onPressed: () => _showExecuteDialog(context),
-                  icon: Icons.code_rounded,
-                  label: 'Execute',
-                  description: 'Move function',
-                ),
+          const SizedBox(height: 8),
+          _buildIndexSpecificBalanceSection(
+            context,
+            colorScheme,
+            walletData,
+            isSmallScreen,
+            theme,
+          ),
+          SizedBox(height: isSmallScreen ? 16 : 24),
+          FilledButton.tonalIcon(
+            onPressed: () {
+              if (walletData['id'] ==
+                  context.read<WalletState>().activeWalletId) {
+                context.read<WalletState>().refreshBalance();
+              }
+            },
+            icon: const Icon(Icons.refresh_rounded, size: 16),
+            label: const Text('Refresh'),
+            style: FilledButton.styleFrom(
+              backgroundColor: colorScheme.onPrimary.withOpacity(0.15),
+              foregroundColor: colorScheme.onPrimary,
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ActionButton(
-                  onPressed: () => _showBurnDialog(context),
-                  icon: Icons.local_fire_department_rounded,
-                  label: 'Burn',
-                  description: 'Destroy tokens',
-                  color: Colors.orangeAccent,
-                ),
-              ),
-            ],
+              elevation: 0,
+            ),
           ),
         ],
-      );
-    }
+      ),
+    );
+  }
+
+  Widget _buildIndexSpecificBalanceSection(
+    BuildContext context,
+    ColorScheme colorScheme,
+    Map<String, dynamic> walletData,
+    bool isSmallScreen,
+    ThemeData theme,
+  ) {
+    final state = context.watch<WalletState>();
+    final isActive = walletData['id'] == state.activeWalletId;
+    final displayBalance = isActive
+        ? (state.balance / 1000000000).toStringAsFixed(6)
+        : "---";
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: colorScheme.onPrimary.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      padding: EdgeInsets.symmetric(vertical: isSmallScreen ? 20.0 : 28.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Total Balance',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: colorScheme.onPrimary.withOpacity(0.7),
+              letterSpacing: 1.5,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          SizedBox(height: isSmallScreen ? 12 : 16),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Text(
+                displayBalance,
+                style: TextStyle(
+                  fontSize: isSmallScreen ? 40.0 : 52.0,
+                  fontWeight: FontWeight.w300,
+                  color: colorScheme.onPrimary,
+                  letterSpacing: -1.5,
+                  height: 1.0,
+                ),
+              ),
+            ),
+          ),
+          SizedBox(height: isSmallScreen ? 12 : 16),
+          Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: isSmallScreen ? 12 : 16,
+              vertical: isSmallScreen ? 4 : 6,
+            ),
+            decoration: BoxDecoration(
+              color: colorScheme.onPrimary.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              'KANARI',
+              style: TextStyle(
+                fontSize: isSmallScreen ? 10 : 11,
+                color: colorScheme.onPrimary,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 2,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCreateWalletCardPage(
+    BuildContext context,
+    ColorScheme colorScheme,
+    ThemeData theme,
+    bool isSmallScreen,
+  ) {
+    return Container(
+      padding: EdgeInsets.all(isSmallScreen ? 16 : 24),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceVariant.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(32),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withOpacity(0.5),
+          width: 2,
+        ),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: colorScheme.primaryContainer,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.add_rounded,
+              size: 32,
+              color: colorScheme.onPrimaryContainer,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Create New Wallet',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Swipe left to manage existing wallets\nor tap below to add a new one.',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 24),
+          FilledButton.tonal(
+            onPressed: () => _showCreateDialog(context),
+            child: const Text('Add Wallet'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<String?> _scanQRCode(BuildContext context) async {
-    // Placeholder for QR scanner - will be implemented with platform-specific code
-    // For now, show a message that this feature requires camera permission
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.qr_code_scanner_rounded, size: 32),
         title: const Text('QR Scanner'),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.qr_code_scanner_rounded, size: 64, color: Colors.blue),
-            SizedBox(height: 16),
-            Text(
-              'QR Scanner requires camera access.\n\nThis feature will be available soon.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14),
-            ),
-          ],
+        content: const Text(
+          'QR Scanner requires camera access.\n\nThis feature will be available soon.',
+          textAlign: TextAlign.center,
         ),
         actions: [
-          TextButton(
+          FilledButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('OK'),
+            child: const Text('Understood'),
           ),
         ],
       ),
     );
-
     return null;
-  }
-
-  void _showExecuteDialog(BuildContext context) {
-    final packageController = TextEditingController();
-    final moduleController = TextEditingController();
-    final functionController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Execute Move Function'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: packageController,
-                decoration: const InputDecoration(
-                  labelText: 'Package Address',
-                  hintText: '0x...',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: moduleController,
-                decoration: const InputDecoration(
-                  labelText: 'Module Name',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: functionController,
-                decoration: const InputDecoration(
-                  labelText: 'Function Name',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Note: Arguments and Type Args are currently limited to defaults in this UI.',
-                style: TextStyle(fontSize: 11, color: Colors.grey),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              if (packageController.text.isEmpty ||
-                  moduleController.text.isEmpty ||
-                  functionController.text.isEmpty)
-                return;
-
-              final pkg = packageController.text;
-              final mod = moduleController.text;
-              final fun = functionController.text;
-
-              Navigator.pop(dialogContext);
-              final result = await context.read<WalletState>().executeFunction(
-                packageAddress: pkg,
-                module: mod,
-                function: fun,
-              );
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(result ?? "Unknown error")),
-                );
-              }
-            },
-            child: const Text('Execute'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showBurnDialog(BuildContext context) {
-    final amountController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Burn KANARI'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Warning: This action will permanently destroy tokens. Only admins can perform this.',
-              style: TextStyle(color: Colors.orangeAccent, fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: amountController,
-              decoration: const InputDecoration(
-                labelText: 'Amount to Burn',
-                border: OutlineInputBorder(),
-              ),
-              keyboardType: TextInputType.number,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final amountStr = amountController.text;
-              final amountDouble = double.tryParse(amountStr) ?? 0.0;
-              final amountMist = (amountDouble * 1000000000).round();
-
-              if (amountMist <= 0) return;
-
-              Navigator.pop(dialogContext);
-              final result = await context.read<WalletState>().burn(amountMist);
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(result ?? "Unknown error")),
-                );
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orangeAccent,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Burn'),
-          ),
-        ],
-      ),
-    );
   }
 
   void _showTransferDialog(BuildContext context, {String? prefilledAddress}) {
     final recipientController = TextEditingController(text: prefilledAddress);
     final amountController = TextEditingController();
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isSmallScreen = screenWidth < 360;
+    final theme = Theme.of(context);
+    final isSmallScreen = MediaQuery.of(context).size.width < 360;
 
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: Padding(
-          padding: EdgeInsets.only(bottom: isSmallScreen ? 12 : 16),
-          child: Text(
-            'Transfer KANARI',
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.5,
-              fontSize: isSmallScreen ? 17 : 20,
-            ),
-          ),
-        ),
+        icon: const Icon(Icons.send_rounded),
+        title: const Text('Transfer KANARI'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              SizedBox(height: isSmallScreen ? 4 : 8),
               TextField(
                 controller: recipientController,
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: isSmallScreen ? 12 : 13,
-                  letterSpacing: 0.3,
-                ),
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
                 decoration: InputDecoration(
                   labelText: 'Recipient Address',
-                  hintText: '0x + 64 hex characters',
+                  hintText: '0x...',
                   helperText: 'Must be exactly 64 hex characters',
-                  helperStyle: TextStyle(
-                    fontSize: isSmallScreen ? 10 : 11,
-                    color: Theme.of(
-                      dialogContext,
-                    ).colorScheme.onSurface.withOpacity(0.5),
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  filled: true,
-                  fillColor: Theme.of(
-                    dialogContext,
-                  ).colorScheme.surfaceVariant.withOpacity(0.1),
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: isSmallScreen ? 12 : 16,
-                    vertical: isSmallScreen ? 12 : 16,
-                  ),
                   suffixIcon: IconButton(
                     icon: const Icon(Icons.qr_code_scanner_rounded),
                     onPressed: () async {
                       Navigator.pop(dialogContext);
                       final scannedAddress = await _scanQRCode(context);
                       if (scannedAddress != null && dialogContext.mounted) {
-                        // Reopen dialog with scanned address
                         _showTransferDialog(
                           context,
                           prefilledAddress: scannedAddress,
                         );
                       }
                     },
-                    tooltip: 'Scan QR Code',
                   ),
                 ),
               ),
               SizedBox(height: isSmallScreen ? 12 : 16),
               TextField(
                 controller: amountController,
-                style: TextStyle(
-                  fontSize: isSmallScreen ? 14 : 16,
-                  fontWeight: FontWeight.w600,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
                 ),
-                keyboardType: TextInputType.number,
                 decoration: InputDecoration(
                   labelText: 'Amount (KANARI)',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  filled: true,
-                  fillColor: Theme.of(
-                    dialogContext,
-                  ).colorScheme.surfaceVariant.withOpacity(0.1),
-                  prefixIcon: Icon(
-                    Icons.account_balance_wallet_rounded,
-                    size: isSmallScreen ? 20 : 24,
-                  ),
+                  prefixIcon: const Icon(Icons.account_balance_wallet_rounded),
                   suffixIcon: TextButton(
                     onPressed: () {
-                      // Calculate max amount (balance in KANARI)
-                      final balanceMist =
-                          context.read<WalletState>().balance ?? 0;
+                      final balanceMist = context.read<WalletState>().balance;
                       final balanceKanari = balanceMist / 1000000000;
                       amountController.text = balanceKanari.toStringAsFixed(6);
                     },
-                    style: TextButton.styleFrom(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: isSmallScreen ? 8 : 12,
-                        vertical: isSmallScreen ? 4 : 8,
-                      ),
-                    ),
-                    child: Container(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: isSmallScreen ? 8 : 12,
-                        vertical: isSmallScreen ? 4 : 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Theme.of(
-                          dialogContext,
-                        ).colorScheme.primary.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        'MAX',
-                        style: TextStyle(
-                          fontSize: isSmallScreen ? 11 : 12,
-                          fontWeight: FontWeight.w700,
-                          color: Theme.of(dialogContext).colorScheme.primary,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ),
-                  ),
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: isSmallScreen ? 12 : 16,
-                    vertical: isSmallScreen ? 12 : 16,
+                    child: const Text('MAX'),
                   ),
                 ),
               ),
-              SizedBox(height: isSmallScreen ? 4 : 8),
             ],
           ),
         ),
-        actionsPadding: EdgeInsets.all(isSmallScreen ? 12 : 16),
         actions: [
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Theme.of(dialogContext).colorScheme.onSurface,
-                side: BorderSide(
-                  color: Theme.of(
-                    dialogContext,
-                  ).colorScheme.outline.withOpacity(0.3),
-                ),
-                padding: EdgeInsets.symmetric(
-                  vertical: isSmallScreen ? 12 : 16,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-              child: Text(
-                'Cancel',
-                style: TextStyle(
-                  fontSize: isSmallScreen ? 13 : 15,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
           ),
-          SizedBox(height: isSmallScreen ? 8 : 12),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () async {
-                final recipient = recipientController.text;
-                final amountStr = amountController.text;
-                final amountDouble = double.tryParse(amountStr) ?? 0.0;
-                final amountMist = (amountDouble * 1000000000).round();
+          FilledButton(
+            onPressed: () async {
+              final recipient = recipientController.text;
+              final amountStr = amountController.text;
+              final amountDouble = double.tryParse(amountStr) ?? 0.0;
+              final amountMist = (amountDouble * 1000000000).round();
 
-                // Validate recipient address format
-                if (recipient.isEmpty) {
-                  if (dialogContext.mounted) {
-                    ScaffoldMessenger.of(dialogContext).showSnackBar(
-                      SnackBar(
-                        content: const Text('Recipient address is required'),
-                        backgroundColor: Theme.of(
-                          dialogContext,
-                        ).colorScheme.error,
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                    );
-                  }
-                  return;
-                }
+              if (recipient.isEmpty || amountMist <= 0) return;
 
-                // Basic format validation before sending to client
-                // Address must be exactly 64 hex characters (with or without 0x prefix)
-                var cleanAddress = recipient.startsWith('0x')
-                    ? recipient.substring(2)
-                    : recipient;
+              var cleanAddress = recipient.startsWith('0x')
+                  ? recipient.substring(2)
+                  : recipient;
 
-                if (!RegExp(r'^[0-9a-fA-F]+$').hasMatch(cleanAddress)) {
-                  if (dialogContext.mounted) {
-                    ScaffoldMessenger.of(dialogContext).showSnackBar(
-                      SnackBar(
-                        content: const Text(
-                          'Invalid address format. Use hex characters only (0-9, a-f)',
-                        ),
-                        backgroundColor: Theme.of(
-                          dialogContext,
-                        ).colorScheme.error,
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        duration: const Duration(seconds: 5),
-                      ),
-                    );
-                  }
-                  return;
-                }
-
-                if (cleanAddress.length != 64) {
-                  if (dialogContext.mounted) {
-                    ScaffoldMessenger.of(dialogContext).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Address must be exactly 64 hex characters. Current: ${cleanAddress.length}',
-                        ),
-                        backgroundColor: Theme.of(
-                          dialogContext,
-                        ).colorScheme.error,
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        duration: const Duration(seconds: 6),
-                      ),
-                    );
-                  }
-                  return;
-                }
-
-                if (amountMist <= 0) {
-                  if (dialogContext.mounted) {
-                    ScaffoldMessenger.of(dialogContext).showSnackBar(
-                      SnackBar(
-                        content: const Text('Amount must be greater than 0'),
-                        backgroundColor: Theme.of(
-                          dialogContext,
-                        ).colorScheme.error,
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                    );
-                  }
-                  return;
-                }
-
-                Navigator.pop(dialogContext);
-                final result = await context.read<WalletState>().transfer(
-                  recipient,
-                  amountMist,
+              if (cleanAddress.length != 64 ||
+                  !RegExp(r'^[0-9a-fA-F]+$').hasMatch(cleanAddress)) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  SnackBar(
+                    content: const Text('Invalid address format.'),
+                    backgroundColor: theme.colorScheme.error,
+                  ),
                 );
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        result?.startsWith('Error:') == true
-                            ? result!
-                            : 'Transaction successful',
-                      ),
-                      backgroundColor: result?.startsWith('Error:') == true
-                          ? Theme.of(context).colorScheme.error
-                          : Theme.of(context).colorScheme.primary,
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
+                return;
+              }
+
+              Navigator.pop(dialogContext);
+              final result = await context.read<WalletState>().transfer(
+                recipient,
+                amountMist,
+              );
+
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      result?.startsWith('Error:') == true
+                          ? result!
+                          : 'Transaction successful',
                     ),
-                  );
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(dialogContext).colorScheme.primary,
-                foregroundColor: Colors.white,
-                padding: EdgeInsets.symmetric(
-                  vertical: isSmallScreen ? 12 : 16,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                elevation: 0,
-              ),
-              child: Text(
-                'Send',
-                style: TextStyle(
-                  fontSize: isSmallScreen ? 13 : 15,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ),
+                    backgroundColor: result?.startsWith('Error:') == true
+                        ? theme.colorScheme.error
+                        : theme.colorScheme.primary,
+                  ),
+                );
+              }
+            },
+            child: const Text('Send KANARI'),
           ),
         ],
       ),
@@ -900,6 +659,7 @@ class HomeScreen extends StatelessWidget {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.password_rounded),
         title: const Text('Change Password'),
         content: SingleChildScrollView(
           child: Column(
@@ -907,29 +667,22 @@ class HomeScreen extends StatelessWidget {
             children: [
               TextField(
                 controller: oldPasswordController,
-                decoration: const InputDecoration(
-                  labelText: 'Old Password',
-                  border: OutlineInputBorder(),
-                ),
                 obscureText: true,
+                decoration: const InputDecoration(labelText: 'Old Password'),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: newPasswordController,
-                decoration: const InputDecoration(
-                  labelText: 'New Password',
-                  border: OutlineInputBorder(),
-                ),
                 obscureText: true,
+                decoration: const InputDecoration(labelText: 'New Password'),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: confirmPasswordController,
+                obscureText: true,
                 decoration: const InputDecoration(
                   labelText: 'Confirm New Password',
-                  border: OutlineInputBorder(),
                 ),
-                obscureText: true,
               ),
             ],
           ),
@@ -939,7 +692,7 @@ class HomeScreen extends StatelessWidget {
             onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancel'),
           ),
-          ElevatedButton(
+          FilledButton(
             onPressed: () async {
               final oldPassword = oldPasswordController.text;
               final newPassword = newPasswordController.text;
@@ -947,39 +700,13 @@ class HomeScreen extends StatelessWidget {
 
               if (oldPassword.isEmpty ||
                   newPassword.isEmpty ||
-                  confirmPassword.isEmpty) {
-                if (dialogContext.mounted) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    SnackBar(
-                      content: const Text('All fields are required'),
-                      backgroundColor: Theme.of(
-                        dialogContext,
-                      ).colorScheme.error,
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                  );
-                }
-                return;
-              }
-
-              if (newPassword != confirmPassword) {
-                if (dialogContext.mounted) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    SnackBar(
-                      content: const Text('Passwords do not match'),
-                      backgroundColor: Theme.of(
-                        dialogContext,
-                      ).colorScheme.error,
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                  );
-                }
+                  newPassword != confirmPassword) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  SnackBar(
+                    content: const Text('Invalid or mismatched passwords'),
+                    backgroundColor: Theme.of(dialogContext).colorScheme.error,
+                  ),
+                );
                 return;
               }
 
@@ -988,28 +715,92 @@ class HomeScreen extends StatelessWidget {
                 oldPassword,
                 newPassword,
               );
+
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(
                       success
-                          ? 'Password changed successfully'
-                          : 'Failed to change password. Please check your old password.',
+                          ? 'Password changed'
+                          : 'Failed to change password',
                     ),
                     backgroundColor: success
                         ? Theme.of(context).colorScheme.primary
                         : Theme.of(context).colorScheme.error,
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
                   ),
                 );
               }
             },
-            child: const Text('Change Password'),
+            child: const Text('Update'),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showCreateDialog(BuildContext context) {
+    KanariCurve selectedCurve = KanariCurve.ed25519;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Create New Wallet'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Select the cryptographic curve for your new wallet.',
+                style: TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<KanariCurve>(
+                value: selectedCurve,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Curve Type',
+                  border: OutlineInputBorder(),
+                ),
+                items: KanariCurve.values.map((curve) {
+                  return DropdownMenuItem(
+                    value: curve,
+                    child: Text(curve.name, overflow: TextOverflow.ellipsis),
+                  );
+                }).toList(),
+                onChanged: (val) => setState(() => selectedCurve = val!),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                await context.read<WalletState>().createNewWallet(
+                  curve: selectedCurve,
+                  password: '',
+                );
+
+                if (context.mounted) {
+                  Navigator.pop(dialogContext);
+
+                  Future.delayed(const Duration(milliseconds: 300), () {
+                    if (_pageController.hasClients) {
+                      _pageController.animateToPage(
+                        context.read<WalletState>().wallets.length - 1,
+                        duration: const Duration(milliseconds: 400),
+                        curve: Curves.easeOutCubic,
+                      );
+                    }
+                  });
+                }
+              },
+              child: const Text('Generate'),
+            ),
+          ],
+        ),
       ),
     );
   }

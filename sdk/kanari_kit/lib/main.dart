@@ -7,17 +7,21 @@ import 'src/ui/screens/welcome_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
   try {
-    // Initialize Kanari Crypto
     await initKanariCrypto();
-    debugPrint("Kanari Crypto initialized");
+    debugPrint("✅ Kanari Crypto initialized");
   } catch (e) {
-    debugPrint("Kanari Crypto init error: $e");
+    debugPrint("❌ Kanari Crypto init error: $e");
   }
 
   runApp(
     MultiProvider(
-      providers: [ChangeNotifierProvider(create: (_) => WalletState())],
+      providers: [
+        ChangeNotifierProvider(
+          create: (_) => WalletState()..initialize(),
+        ), // โหลดข้อมูลทันทีที่สร้าง
+      ],
       child: const KanariApp(),
     ),
   );
@@ -31,72 +35,85 @@ class KanariApp extends StatelessWidget {
     return MaterialApp(
       title: 'Kanari Wallet',
       debugShowCheckedModeBanner: false,
+      themeMode: ThemeMode.system, // รองรับทั้งโหมดมืดและสว่างตามระบบ
+      // --- Light Theme ---
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blueAccent,
-          brightness: Brightness.dark,
+          seedColor: Colors.deepPurple, // สีม่วงจะดูเป็น M3 มากกว่าน้ำเงินเดิม
+          brightness: Brightness.light,
         ),
         appBarTheme: const AppBarTheme(
-          centerTitle: false,
-          elevation: 0,
+          centerTitle: true,
+          scrolledUnderElevation: 0, // ป้องกันสี AppBar เปลี่ยนเมื่อไถหน้าจอ
           backgroundColor: Colors.transparent,
         ),
         cardTheme: CardThemeData(
           elevation: 0,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(24),
+          ),
+          color: const ColorScheme.light().surfaceVariant.withOpacity(
+            0.3,
+          ), // การใช้พื้นผิวแบบ M3
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 16,
+          ),
+        ),
+      ),
+
+      // --- Dark Theme ---
+      darkTheme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.deepPurple,
+          brightness: Brightness.dark,
+        ),
+        appBarTheme: const AppBarTheme(
+          centerTitle: true,
+          scrolledUnderElevation: 0,
+          backgroundColor: Colors.transparent,
+        ),
+        cardTheme: CardThemeData(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
           ),
         ),
         inputDecorationTheme: InputDecorationTheme(
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           filled: true,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
         ),
       ),
+
       home: const MainWrapper(),
     );
   }
 }
 
-class MainWrapper extends StatefulWidget {
+class MainWrapper extends StatelessWidget {
   const MainWrapper({super.key});
-
-  @override
-  State<MainWrapper> createState() => _MainWrapperState();
-}
-
-class _MainWrapperState extends State<MainWrapper> {
-  @override
-  void initState() {
-    super.initState();
-    // Initialize wallet state on startup
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<WalletState>().initialize();
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<WalletState>();
 
-    // Debug logging
-    debugPrint(' MainWrapper build:');
-    debugPrint('  - hasWallet: ${state.hasWallet}');
-    debugPrint('  - wallet: ${state.wallet != null ? "loaded" : "null"}');
-    debugPrint('  - wallets count: ${state.wallets.length}');
-    if (state.wallet != null) {
-      debugPrint('  - wallet address: ${state.wallet!.address}');
-    }
-
-    // Switch between screens based on wallet state
-    // Check hasWallet instead of wallet null to ensure proper state management
-    // If wallet is loaded (hasWallet = true) and wallet is not null, show home screen
-    if (!state.hasWallet || state.wallet == null) {
-      debugPrint('📱 Showing Welcome Screen');
+    // 👉 เช็คว่า "ถ้าแอปถูกล็อกอยู่ (isUnlocked = false) หรือ ไม่มีกระเป๋า" ให้ไปหน้า WelcomeScreen
+    if (!state.isUnlocked || state.wallet == null) {
       return const WelcomeScreen();
     }
 
-    debugPrint('🏠 Showing Home Screen');
     return const HomeScreen();
   }
 }

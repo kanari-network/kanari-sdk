@@ -8,10 +8,9 @@ class WalletStorage {
   static const _keyWalletData = 'kanari_wallet_data';
   static const _keyActiveWallet = 'kanari_active_wallet';
   static const _keyPasswordHash = 'kanari_wallet_password_hash';
-  
+
   // Legacy keys for migration
   static const _keyLegacyWallet = 'kanari_wallet_data';
-  static const _keyLegacyPassword = 'kanari_wallet_password';
 
   /// Save a single wallet (legacy support)
   @Deprecated('Use saveAllWallets and savePassword instead')
@@ -57,23 +56,23 @@ class WalletStorage {
   static Future<bool> verifyPassword(String password) async {
     final prefs = await SharedPreferences.getInstance();
     final storedHash = prefs.getString(_keyPasswordHash);
-    
+
     if (storedHash == null) {
       // No password set (legacy mode)
       return true;
     }
-    
+
     final passwordBytes = utf8.encode(password);
     final hash = await blake3HashApi(data: passwordBytes);
     final hashBase64 = base64Encode(hash);
-    
+
     return hashBase64 == storedHash;
   }
 
   /// Load all wallets with migration support
   static Future<List<Map<String, dynamic>>> loadAllWallets() async {
     final prefs = await SharedPreferences.getInstance();
-    
+
     // Try to load from new key first
     final walletsStr = prefs.getString(_keyWalletData);
     if (walletsStr != null) {
@@ -91,7 +90,7 @@ class WalletStorage {
     if (legacyDataStr != null) {
       try {
         final legacyData = jsonDecode(legacyDataStr) as Map<String, dynamic>;
-        
+
         // Migrate to new format
         final migratedWallet = {
           'id': DateTime.now().millisecondsSinceEpoch.toString(),
@@ -101,13 +100,13 @@ class WalletStorage {
           'curve': legacyData['curve'],
           'createdAt': DateTime.now().toIso8601String(),
         };
-        
+
         // Save in new format
         await saveAllWallets([migratedWallet]);
-        
+
         // Clear legacy data
         await prefs.remove(_keyLegacyWallet);
-        
+
         debugPrint('✅ Migrated legacy wallet to new format');
         return [migratedWallet];
       } catch (e) {
