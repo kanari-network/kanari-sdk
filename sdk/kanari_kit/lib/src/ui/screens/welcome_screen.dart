@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // 👈 นำเข้า Services สำหรับจัดการคีย์บอร์ดตัวเลข
+import 'package:flutter/services.dart';
 import 'package:kanari_kit/src/providers/wallet_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:kanari_kit/kanari_kit.dart';
@@ -137,139 +137,33 @@ class WelcomeScreen extends StatelessWidget {
     );
   }
 
-  // --- Dialogs ---
+  // --- Dialogs (อัปเดตเป็น Bottom Sheet ทั้งหมด) ---
 
   void _showUnlockDialog(BuildContext context) {
-    final controller = TextEditingController();
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        icon: const Icon(Icons.lock_outline_rounded),
-        title: const Text('Unlock Wallet'),
-        content: TextField(
-          controller: controller,
-          obscureText: true,
-          keyboardType: TextInputType.number, // 👈 แป้นพิมพ์ตัวเลข
-          inputFormatters: [
-            FilteringTextInputFormatter.digitsOnly,
-          ], // 👈 รับแค่ตัวเลข
-          maxLength: 6, // 👈 ล็อก 6 ตัว
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            letterSpacing: 8,
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-          ),
-          decoration: InputDecoration(
-            labelText: '6-Digit PIN',
-            counterText: '', // ซ่อนตัวนับ 0/6
-            filled: true,
-            fillColor: Theme.of(
-              context,
-            ).colorScheme.surfaceVariant.withOpacity(0.3),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (controller.text.length == 6) {
-                context.read<WalletState>().unlockWallet(controller.text);
-                Navigator.pop(context);
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Please enter exactly 6 digits'),
-                  ),
-                );
-              }
-            },
-            child: const Text('Unlock'),
-          ),
-        ],
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
       ),
+      builder: (context) => const _UnlockWalletSheet(),
     );
   }
 
   void _showCreateDialog(BuildContext context) {
-    final controller = TextEditingController();
-    KanariCurve selectedCurve = KanariCurve.ed25519;
-
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          icon: const Icon(Icons.account_balance_wallet_outlined),
-          title: const Text('New Wallet'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SegmentedButton<KanariCurve>(
-                segments: const [
-                  ButtonSegment(
-                    value: KanariCurve.ed25519,
-                    label: Text('Ed25519'),
-                  ),
-                  ButtonSegment(
-                    value: KanariCurve.k256,
-                    label: Text('Secp256k1'),
-                  ),
-                ],
-                selected: {selectedCurve},
-                onSelectionChanged: (val) =>
-                    setState(() => selectedCurve = val.first),
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: controller,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                maxLength: 6,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  letterSpacing: 8,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Set 6-Digit PIN',
-                  counterText: '',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (controller.text.length == 6) {
-                  context.read<WalletState>().createNewWallet(
-                    curve: selectedCurve,
-                    pin: controller.text, // 👈 ส่งค่า PIN
-                  );
-                  Navigator.pop(context);
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('PIN must be exactly 6 digits'),
-                    ),
-                  );
-                }
-              },
-              child: const Text('Generate'),
-            ),
-          ],
-        ),
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
       ),
+      builder: (context) => const _CreateWalletSheet(),
     );
   }
 
@@ -279,7 +173,11 @@ class WelcomeScreen extends StatelessWidget {
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
-      builder: (context) => _M3ImportSheet(),
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      ),
+      builder: (context) => const _M3ImportSheet(),
     );
   }
 
@@ -312,7 +210,232 @@ class WelcomeScreen extends StatelessWidget {
   }
 }
 
+// ============================================================================
+// UI: Unlock Wallet Sheet
+// ============================================================================
+class _UnlockWalletSheet extends StatefulWidget {
+  const _UnlockWalletSheet();
+
+  @override
+  State<_UnlockWalletSheet> createState() => _UnlockWalletSheetState();
+}
+
+class _UnlockWalletSheetState extends State<_UnlockWalletSheet> {
+  final _pinController = TextEditingController();
+
+  @override
+  void dispose() {
+    _pinController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        24,
+        8,
+        24,
+        MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Unlock Wallet',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          TextField(
+            controller: _pinController,
+            obscureText: true,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            maxLength: 6,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              letterSpacing: 8,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+            decoration: InputDecoration(
+              labelText: '6-Digit PIN',
+              counterText: '',
+              filled: true,
+              fillColor: colorScheme.surfaceVariant.withOpacity(0.3),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+          const SizedBox(height: 32),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(double.infinity, 56),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+            ),
+            onPressed: () {
+              if (_pinController.text.length == 6) {
+                context.read<WalletState>().unlockWallet(_pinController.text);
+                Navigator.pop(context);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text('Please enter exactly 6 digits'),
+                    backgroundColor: colorScheme.error,
+                  ),
+                );
+              }
+            },
+            child: const Text(
+              'Unlock',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// UI: Create Wallet Sheet
+// ============================================================================
+class _CreateWalletSheet extends StatefulWidget {
+  const _CreateWalletSheet();
+
+  @override
+  State<_CreateWalletSheet> createState() => _CreateWalletSheetState();
+}
+
+class _CreateWalletSheetState extends State<_CreateWalletSheet> {
+  final _pinController = TextEditingController();
+  KanariCurve _selectedCurve = KanariCurve.ed25519;
+
+  @override
+  void dispose() {
+    _pinController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        24,
+        8,
+        24,
+        MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'New Wallet',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Select the cryptographic curve and set a 6-digit PIN.',
+            style: TextStyle(fontSize: 13, color: Colors.grey),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          DropdownButtonFormField<KanariCurve>(
+            value: _selectedCurve,
+            isExpanded: true,
+            decoration: InputDecoration(
+              labelText: 'Curve Type',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            items: KanariCurve.values.map((curve) {
+              return DropdownMenuItem(
+                value: curve,
+                child: Text(curve.name, overflow: TextOverflow.ellipsis),
+              );
+            }).toList(),
+            onChanged: (val) => setState(() => _selectedCurve = val!),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _pinController,
+            obscureText: true,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            maxLength: 6,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              letterSpacing: 8,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+            decoration: InputDecoration(
+              labelText: 'Set 6-Digit PIN',
+              counterText: '',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+          const SizedBox(height: 32),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(double.infinity, 56),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+            ),
+            onPressed: () {
+              if (_pinController.text.length == 6) {
+                context.read<WalletState>().createNewWallet(
+                  curve: _selectedCurve,
+                  pin: _pinController.text,
+                );
+                Navigator.pop(context);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text('PIN must be exactly 6 digits'),
+                    backgroundColor: colorScheme.error,
+                  ),
+                );
+              }
+            },
+            child: const Text(
+              'Generate',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// UI: Import Wallet Sheet
+// ============================================================================
 class _M3ImportSheet extends StatefulWidget {
+  const _M3ImportSheet();
+
   @override
   State<_M3ImportSheet> createState() => _M3ImportSheetState();
 }
@@ -331,8 +454,18 @@ class _M3ImportSheetState extends State<_M3ImportSheet>
   }
 
   @override
+  void dispose() {
+    _tabController.dispose();
+    _pinController.dispose();
+    _dataController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Padding(
       padding: EdgeInsets.fromLTRB(
         24,
@@ -342,8 +475,15 @@ class _M3ImportSheetState extends State<_M3ImportSheet>
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('Import Wallet', style: theme.textTheme.headlineSmall),
+          Text(
+            'Import Wallet',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: 16),
           TabBar(
             controller: _tabController,
@@ -355,9 +495,11 @@ class _M3ImportSheetState extends State<_M3ImportSheet>
           const SizedBox(height: 24),
           DropdownButtonFormField<KanariCurve>(
             value: _curve,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Curve Type',
-              border: OutlineInputBorder(),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
             ),
             items: KanariCurve.values
                 .map((c) => DropdownMenuItem(value: c, child: Text(c.name)))
@@ -371,7 +513,7 @@ class _M3ImportSheetState extends State<_M3ImportSheet>
             decoration: InputDecoration(
               hintText: 'Enter your key or 12 words',
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(16),
               ),
             ),
           ),
@@ -388,21 +530,29 @@ class _M3ImportSheetState extends State<_M3ImportSheet>
               fontSize: 24,
               fontWeight: FontWeight.bold,
             ),
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Set 6-Digit PIN',
               counterText: '',
-              border: OutlineInputBorder(),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 32),
           FilledButton(
             style: FilledButton.styleFrom(
               minimumSize: const Size(double.infinity, 56),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
             ),
             onPressed: () {
               if (_pinController.text.length != 6) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('PIN must be exactly 6 digits')),
+                  SnackBar(
+                    content: const Text('PIN must be exactly 6 digits'),
+                    backgroundColor: colorScheme.error,
+                  ),
                 );
                 return;
               }
@@ -412,18 +562,21 @@ class _M3ImportSheetState extends State<_M3ImportSheet>
                 state.importFromPrivateKey(
                   _dataController.text,
                   curve: _curve,
-                  pin: _pinController.text, // 👈 ส่งค่า PIN
+                  pin: _pinController.text,
                 );
               } else {
                 state.importFromMnemonic(
                   _dataController.text,
                   curve: _curve,
-                  pin: _pinController.text, // 👈 ส่งค่า PIN
+                  pin: _pinController.text,
                 );
               }
               Navigator.pop(context);
             },
-            child: const Text('Import Now'),
+            child: const Text(
+              'Import Now',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),
