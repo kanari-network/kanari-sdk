@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // 👈 นำเข้า Services สำหรับจัดการคีย์บอร์ดตัวเลข
 import 'package:kanari_kit/src/providers/wallet_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:kanari_kit/kanari_kit.dart';
@@ -103,7 +104,7 @@ class WelcomeScreen extends StatelessWidget {
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(
         color: theme.colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(28), // M3 Extra Large Shape
+        borderRadius: BorderRadius.circular(28),
       ),
       child: Icon(
         Icons.blur_on_rounded,
@@ -136,7 +137,7 @@ class WelcomeScreen extends StatelessWidget {
     );
   }
 
-  // --- Dialogs ปรับเป็นสไตล์ M3 ---
+  // --- Dialogs ---
 
   void _showUnlockDialog(BuildContext context) {
     final controller = TextEditingController();
@@ -148,8 +149,20 @@ class WelcomeScreen extends StatelessWidget {
         content: TextField(
           controller: controller,
           obscureText: true,
+          keyboardType: TextInputType.number, // 👈 แป้นพิมพ์ตัวเลข
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly,
+          ], // 👈 รับแค่ตัวเลข
+          maxLength: 6, // 👈 ล็อก 6 ตัว
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            letterSpacing: 8,
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+          ),
           decoration: InputDecoration(
-            labelText: 'Password',
+            labelText: '6-Digit PIN',
+            counterText: '', // ซ่อนตัวนับ 0/6
             filled: true,
             fillColor: Theme.of(
               context,
@@ -164,8 +177,16 @@ class WelcomeScreen extends StatelessWidget {
           ),
           FilledButton(
             onPressed: () {
-              context.read<WalletState>().unlockWallet(controller.text);
-              Navigator.pop(context);
+              if (controller.text.length == 6) {
+                context.read<WalletState>().unlockWallet(controller.text);
+                Navigator.pop(context);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please enter exactly 6 digits'),
+                  ),
+                );
+              }
             },
             child: const Text('Unlock'),
           ),
@@ -206,8 +227,18 @@ class WelcomeScreen extends StatelessWidget {
               TextField(
                 controller: controller,
                 obscureText: true,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                maxLength: 6,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  letterSpacing: 8,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
                 decoration: const InputDecoration(
-                  labelText: 'Set Password',
+                  labelText: 'Set 6-Digit PIN',
+                  counterText: '',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -220,12 +251,18 @@ class WelcomeScreen extends StatelessWidget {
             ),
             FilledButton(
               onPressed: () {
-                if (controller.text.isNotEmpty) {
+                if (controller.text.length == 6) {
                   context.read<WalletState>().createNewWallet(
                     curve: selectedCurve,
-                    password: controller.text,
+                    pin: controller.text, // 👈 ส่งค่า PIN
                   );
                   Navigator.pop(context);
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('PIN must be exactly 6 digits'),
+                    ),
+                  );
                 }
               },
               child: const Text('Generate'),
@@ -237,9 +274,7 @@ class WelcomeScreen extends StatelessWidget {
   }
 
   void _showImportDialog(BuildContext context) {
-    // ใช้สไตล์คล้ายๆ กัน แต่ปรับ TabBar ให้เข้ากับ M3
     showModalBottomSheet(
-      // เปลี่ยนมาใช้ BottomSheet สำหรับการ Import เพื่อความสะดวก
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -277,7 +312,6 @@ class WelcomeScreen extends StatelessWidget {
   }
 }
 
-// Widget แยกสำหรับ Import Sheet สไตล์ M3
 class _M3ImportSheet extends StatefulWidget {
   @override
   State<_M3ImportSheet> createState() => _M3ImportSheetState();
@@ -286,7 +320,7 @@ class _M3ImportSheet extends StatefulWidget {
 class _M3ImportSheetState extends State<_M3ImportSheet>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final _passController = TextEditingController();
+  final _pinController = TextEditingController();
   final _dataController = TextEditingController();
   KanariCurve _curve = KanariCurve.ed25519;
 
@@ -332,15 +366,6 @@ class _M3ImportSheetState extends State<_M3ImportSheet>
           ),
           const SizedBox(height: 16),
           TextField(
-            controller: _passController,
-            obscureText: true,
-            decoration: const InputDecoration(
-              labelText: 'Set Password',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 16),
-          TextField(
             controller: _dataController,
             maxLines: 3,
             decoration: InputDecoration(
@@ -350,24 +375,50 @@ class _M3ImportSheetState extends State<_M3ImportSheet>
               ),
             ),
           ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _pinController,
+            obscureText: true,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            maxLength: 6,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              letterSpacing: 8,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+            decoration: const InputDecoration(
+              labelText: 'Set 6-Digit PIN',
+              counterText: '',
+              border: OutlineInputBorder(),
+            ),
+          ),
           const SizedBox(height: 24),
           FilledButton(
             style: FilledButton.styleFrom(
               minimumSize: const Size(double.infinity, 56),
             ),
             onPressed: () {
+              if (_pinController.text.length != 6) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('PIN must be exactly 6 digits')),
+                );
+                return;
+              }
+
               final state = context.read<WalletState>();
               if (_tabController.index == 0) {
                 state.importFromPrivateKey(
                   _dataController.text,
                   curve: _curve,
-                  password: _passController.text,
+                  pin: _pinController.text, // 👈 ส่งค่า PIN
                 );
               } else {
                 state.importFromMnemonic(
                   _dataController.text,
                   curve: _curve,
-                  password: _passController.text,
+                  pin: _pinController.text, // 👈 ส่งค่า PIN
                 );
               }
               Navigator.pop(context);

@@ -1,13 +1,14 @@
 import 'dart:async';
-import 'dart:ui'; // สำหรับ PointerDeviceKind
-import 'dart:math' as math; // 👈 เพิ่มบรรทัดนี้
+import 'dart:ui';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:provider/provider.dart';
 
 import 'package:kanari_kit/src/providers/wallet_provider.dart';
 import 'package:kanari_kit/kanari_kit.dart';
-import '../widgets/action_button.dart';
 import '../widgets/security_card.dart';
 import '../network_selector.dart';
 import '../wallet_info_card.dart';
@@ -21,7 +22,9 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late PageController _pageController;
+  late ScrollController _scrollController;
   Timer? _debounce;
+  bool _showBottomBar = true;
 
   @override
   void initState() {
@@ -39,11 +42,27 @@ class _HomeScreenState extends State<HomeScreen> {
       initialPage: initialPage,
       viewportFraction: 0.9,
     );
+
+    _scrollController = ScrollController();
+    _scrollController.addListener(() {
+      if (_scrollController.position.userScrollDirection ==
+          ScrollDirection.reverse) {
+        if (_showBottomBar) {
+          setState(() => _showBottomBar = false);
+        }
+      } else if (_scrollController.position.userScrollDirection ==
+          ScrollDirection.forward) {
+        if (!_showBottomBar) {
+          setState(() => _showBottomBar = true);
+        }
+      }
+    });
   }
 
   @override
   void dispose() {
     _pageController.dispose();
+    _scrollController.dispose();
     _debounce?.cancel();
     super.dispose();
   }
@@ -65,258 +84,445 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: colorScheme.surface,
       body: state.isLoading
           ? Center(child: SpinKitFadingCircle(color: colorScheme.primary))
-          : RefreshIndicator(
-              onRefresh: () => state.refreshBalance(),
-              backgroundColor: colorScheme.surface,
-              color: colorScheme.primary,
-              child: CustomScrollView(
-                slivers: [
-                  // 1. Navbar แบบกล่องลอย (Floating Island) เลื่อนแล้วหาย
-                  SliverAppBar(
-                    floating: true, // ทำให้เวลาปัดขึ้น แถบจะแสดงทันที
-                    snap: true, // เด้งโชว์เต็มๆ ไม่มาแค่ครึ่งเดียว
-                    pinned: false, // เปลี่ยนเป็น false เพื่อให้ปัดลงแล้วหายไป
-                    backgroundColor: Colors.transparent,
-                    surfaceTintColor: Colors.transparent,
-                    elevation: 0,
-                    toolbarHeight: 88, // 👈 เพิ่มความสูงอีก 12 (จาก 76 เป็น 88)
-                    flexibleSpace: SafeArea(
-                      child: Container(
-                        // ใช้ margin เพื่อสร้างขอบรอบๆ Navbar
-                        margin: EdgeInsets.symmetric(
-                          horizontal: screenPadding,
-                          vertical: 12, // 👈 ปรับระยะห่างขอบบน-ล่างให้สมดุล
-                        ),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ), // 👈 เพิ่ม Padding ด้านในกันเนื้อหาชนขอบ
-                        decoration: BoxDecoration(
-                          color: colorScheme.surfaceContainerHigh.withOpacity(
-                            0.6,
-                          ),
-                          borderRadius: BorderRadius.circular(24),
-                          border: Border.all(
-                            color: colorScheme.outline.withOpacity(0.1),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            // ฝั่งซ้าย: โลโก้และชื่อ
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(
-                                    10,
-                                  ), // 👈 ขยายกรอบโลโก้นิดหน่อย
-                                  decoration: BoxDecoration(
-                                    color: colorScheme.primaryContainer,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Icon(
-                                    Icons.hexagon_rounded,
-                                    color: colorScheme.onPrimaryContainer,
-                                    size: 20,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Text(
-                                  'Kanari',
-                                  style: theme.textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: -0.5,
-                                    color: colorScheme.onSurface,
-                                  ),
-                                ),
-                              ],
+          : Stack(
+              children: [
+                RefreshIndicator(
+                  onRefresh: () => state.refreshBalance(),
+                  backgroundColor: colorScheme.surface,
+                  color: colorScheme.primary,
+                  child: CustomScrollView(
+                    controller: _scrollController,
+                    slivers: [
+                      SliverAppBar(
+                        floating: true,
+                        snap: true,
+                        pinned: false,
+                        backgroundColor: Colors.transparent,
+                        surfaceTintColor: Colors.transparent,
+                        elevation: 0,
+                        toolbarHeight: 88,
+                        flexibleSpace: SafeArea(
+                          child: Container(
+                            margin: EdgeInsets.symmetric(
+                              horizontal: screenPadding,
+                              vertical: 12,
                             ),
-                            // ฝั่งขวา: Network Selector & Menu
-                            Row(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: colorScheme.surfaceContainerHigh
+                                  .withOpacity(0.6),
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(
+                                color: colorScheme.outline.withOpacity(0.1),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const NetworkSelector(),
-                                const SizedBox(width: 4),
-                                PopupMenuButton<String>(
-                                  icon: Icon(
-                                    Icons.more_vert_rounded,
-                                    color: colorScheme.onSurfaceVariant,
-                                  ),
-                                  color: colorScheme.surfaceContainer,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                  onSelected: (value) {
-                                    if (value == 'change_password') {
-                                      _showChangePasswordDialog(context, state);
-                                    } else if (value == 'logout') {
-                                      state.logout();
-                                    }
-                                  },
-                                  itemBuilder: (context) => [
-                                    PopupMenuItem(
-                                      value: 'change_password',
-                                      child: ListTile(
-                                        leading: Icon(
-                                          Icons.lock_reset_rounded,
-                                          color: colorScheme.primary,
-                                        ),
-                                        title: const Text('Change Password'),
-                                        contentPadding: EdgeInsets.zero,
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(10),
+                                      decoration: BoxDecoration(
+                                        color: colorScheme.primaryContainer,
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Icon(
+                                        Icons.hexagon_rounded,
+                                        color: colorScheme.onPrimaryContainer,
+                                        size: 20,
                                       ),
                                     ),
-                                    PopupMenuItem(
-                                      value: 'logout',
-                                      child: ListTile(
-                                        leading: Icon(
-                                          Icons.logout_rounded,
-                                          color: colorScheme.error,
-                                        ),
-                                        title: const Text('Logout'),
-                                        contentPadding: EdgeInsets.zero,
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      'Kanari',
+                                      style: theme.textTheme.titleLarge
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w800,
+                                            letterSpacing: -0.5,
+                                            color: colorScheme.onSurface,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                                Row(
+                                  children: [
+                                    const NetworkSelector(),
+                                    const SizedBox(width: 4),
+                                    PopupMenuButton<String>(
+                                      icon: Icon(
+                                        Icons.more_vert_rounded,
+                                        color: colorScheme.onSurfaceVariant,
                                       ),
+                                      color: colorScheme.surfaceContainer,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      onSelected: (value) {
+                                        if (value == 'change_pin') {
+                                          _showChangePinDialog(context, state);
+                                        } else if (value == 'logout') {
+                                          state.logout();
+                                        }
+                                      },
+                                      itemBuilder: (context) => [
+                                        PopupMenuItem(
+                                          value: 'change_pin',
+                                          child: ListTile(
+                                            leading: Icon(
+                                              Icons.pin_rounded,
+                                              color: colorScheme.primary,
+                                            ),
+                                            title: const Text('Change PIN'),
+                                            contentPadding: EdgeInsets.zero,
+                                          ),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'logout',
+                                          child: ListTile(
+                                            leading: Icon(
+                                              Icons.logout_rounded,
+                                              color: colorScheme.error,
+                                            ),
+                                            title: const Text('Logout'),
+                                            contentPadding: EdgeInsets.zero,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ],
                                 ),
                               ],
                             ),
-                          ],
+                          ),
                         ),
                       ),
-                    ),
-                  ),
 
-                  // 2. Swipable Wallet Carousel (พื้นที่ปัดการ์ด)
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 8.0),
-                      child: SizedBox(
-                        height: isSmallScreen ? 280 : 340,
-                        child: PageView.builder(
-                          controller: _pageController,
-                          itemCount: pageCount,
-                          scrollDirection: Axis.horizontal,
-                          physics: const BouncingScrollPhysics(),
-                          scrollBehavior: const MaterialScrollBehavior()
-                              .copyWith(
-                                dragDevices: {
-                                  PointerDeviceKind.touch,
-                                  PointerDeviceKind.mouse,
-                                },
-                              ),
-                          onPageChanged: (index) {
-                            if (_debounce?.isActive ?? false) {
-                              _debounce!.cancel();
-                            }
-                            _debounce = Timer(
-                              const Duration(milliseconds: 300),
-                              () {
-                                if (mounted && index < wallets.length) {
-                                  final targetWalletId = wallets[index]['id'];
-                                  if (context
-                                          .read<WalletState>()
-                                          .activeWalletId !=
-                                      targetWalletId) {
-                                    context.read<WalletState>().switchWallet(
-                                      targetWalletId,
-                                    );
-                                  }
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: SizedBox(
+                            height: isSmallScreen ? 280 : 340,
+                            child: PageView.builder(
+                              controller: _pageController,
+                              itemCount: pageCount,
+                              scrollDirection: Axis.horizontal,
+                              physics: const BouncingScrollPhysics(),
+                              scrollBehavior: const MaterialScrollBehavior()
+                                  .copyWith(
+                                    dragDevices: {
+                                      PointerDeviceKind.touch,
+                                      PointerDeviceKind.mouse,
+                                    },
+                                  ),
+                              onPageChanged: (index) {
+                                if (_debounce?.isActive ?? false) {
+                                  _debounce!.cancel();
                                 }
+                                _debounce = Timer(
+                                  const Duration(milliseconds: 300),
+                                  () {
+                                    if (mounted && index < wallets.length) {
+                                      final targetWalletId =
+                                          wallets[index]['id'];
+                                      if (context
+                                              .read<WalletState>()
+                                              .activeWalletId !=
+                                          targetWalletId) {
+                                        context
+                                            .read<WalletState>()
+                                            .switchWallet(targetWalletId);
+                                      }
+                                    }
+                                  },
+                                );
                               },
-                            );
-                          },
-                          itemBuilder: (context, index) {
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8.0,
-                                vertical: 8.0,
-                              ),
-                              child: (index < wallets.length)
-                                  ? _buildWalletCardPage(
-                                      context,
-                                      colorScheme,
-                                      wallets[index],
-                                      theme,
-                                      isSmallScreen,
-                                    )
-                                  : _buildCreateWalletCardPage(
-                                      context,
-                                      colorScheme,
-                                      theme,
-                                      isSmallScreen,
-                                    ),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  // 3. Wallet Address Section
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        screenPadding,
-                        24,
-                        screenPadding,
-                        0,
-                      ),
-                      child: const WalletInfoCard(),
-                    ),
-                  ),
-
-                  // 4. Security Card Section
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        screenPadding,
-                        20,
-                        screenPadding,
-                        0,
-                      ),
-                      child: const SecurityCard(),
-                    ),
-                  ),
-
-                  // 5. Quick Actions Section
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        screenPadding,
-                        20,
-                        screenPadding,
-                        40,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Quick Actions',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: colorScheme.onSurface,
+                              itemBuilder: (context, index) {
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8.0,
+                                    vertical: 8.0,
+                                  ),
+                                  child: (index < wallets.length)
+                                      ? _buildWalletCardPage(
+                                          context,
+                                          colorScheme,
+                                          wallets[index],
+                                          theme,
+                                          isSmallScreen,
+                                        )
+                                      : _buildCreateWalletCardPage(
+                                          context,
+                                          colorScheme,
+                                          theme,
+                                          isSmallScreen,
+                                        ),
+                                );
+                              },
                             ),
                           ),
-                          SizedBox(height: isSmallScreen ? 12.0 : 16.0),
-                          ActionButton(
-                            onPressed: () => _showTransferDialog(context),
-                            icon: Icons.send_rounded,
-                            label: 'Send KANARI',
-                            description: 'Transfer tokens to another address',
-                            isPrimary: true,
+                        ),
+                      ),
+
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            screenPadding,
+                            16,
+                            screenPadding,
+                            0,
                           ),
-                        ],
+                          child: _buildAssetsSection(
+                            context,
+                            theme,
+                            colorScheme,
+                            isSmallScreen,
+                          ),
+                        ),
+                      ),
+
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            screenPadding,
+                            24,
+                            screenPadding,
+                            0,
+                          ),
+                          child: const WalletInfoCard(),
+                        ),
+                      ),
+
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            screenPadding,
+                            20,
+                            screenPadding,
+                            0,
+                          ),
+                          child: const SecurityCard(),
+                        ),
+                      ),
+
+                      const SliverToBoxAdapter(child: SizedBox(height: 120)),
+                    ],
+                  ),
+                ),
+
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: AnimatedSlide(
+                    duration: const Duration(milliseconds: 300),
+                    offset: _showBottomBar ? Offset.zero : const Offset(0, 1.5),
+                    curve: Curves.easeOutCubic,
+                    child: SafeArea(
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          screenPadding,
+                          0,
+                          screenPadding,
+                          16,
+                        ),
+                        child: _buildFloatingActionBar(
+                          context,
+                          theme,
+                          colorScheme,
+                          isSmallScreen,
+                        ),
                       ),
                     ),
                   ),
-
-                  const SliverToBoxAdapter(child: SizedBox(height: 40)),
-                ],
-              ),
+                ),
+              ],
             ),
     );
   }
 
-  // --- Helper Methods ---
+  Widget _buildAssetsSection(
+    BuildContext context,
+    ThemeData theme,
+    ColorScheme colorScheme,
+    bool isSmallScreen,
+  ) {
+    final state = context.watch<WalletState>();
+    final tokens = state.tokenBalances;
+
+    if (tokens.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 12),
+          child: Text(
+            'Your Assets',
+            style: theme.textTheme.labelSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: theme.colorScheme.onSurface.withOpacity(0.4),
+              letterSpacing: 1.5,
+            ),
+          ),
+        ),
+        Container(
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceVariant.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: colorScheme.outline.withOpacity(0.06),
+              width: 1,
+            ),
+          ),
+          child: ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: tokens.length,
+            separatorBuilder: (context, index) => Divider(
+              height: 1,
+              indent: 16,
+              endIndent: 16,
+              color: colorScheme.outline.withOpacity(0.05),
+            ),
+            itemBuilder: (context, index) {
+              final token = tokens[index];
+              final formattedAmount =
+                  token.amount / math.pow(10, token.decimals);
+              final isKanari = token.tokenType == 'KANARI';
+
+              final iconColor = isKanari ? colorScheme.primary : Colors.teal;
+              final iconData = isKanari
+                  ? Icons.hexagon_rounded
+                  : Icons.toll_rounded;
+
+              return ListTile(
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: isSmallScreen ? 16 : 20,
+                  vertical: isSmallScreen ? 4 : 8,
+                ),
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: iconColor.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(iconData, color: iconColor, size: 20),
+                ),
+                title: Text(
+                  token.symbol,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                subtitle: isKanari
+                    ? null
+                    : Text(
+                        token.tokenType,
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: colorScheme.onSurface.withOpacity(0.4),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                trailing: Text(
+                  formattedAmount.toStringAsFixed(4),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFloatingActionBar(
+    BuildContext context,
+    ThemeData theme,
+    ColorScheme colorScheme,
+    bool isSmallScreen,
+  ) {
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHigh.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: colorScheme.outline.withOpacity(0.1)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.15),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(28),
+          onTap: () => _showTransferDialog(context),
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: isSmallScreen ? 16 : 20,
+              vertical: isSmallScreen ? 12 : 16,
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: EdgeInsets.all(isSmallScreen ? 10 : 14),
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Icon(
+                    Icons.send_rounded,
+                    color: colorScheme.onPrimary,
+                    size: isSmallScreen ? 20 : 24,
+                  ),
+                ),
+                SizedBox(width: isSmallScreen ? 12 : 16),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Send / Transfer',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: colorScheme.onSurface,
+                        ),
+                      ),
+                      Text(
+                        'Transfer assets to another address',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _buildWalletCardPage(
     BuildContext context,
@@ -515,282 +721,86 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<String?> _scanQRCode(BuildContext context) async {
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.qr_code_scanner_rounded, size: 32),
-        title: const Text('QR Scanner'),
-        content: const Text(
-          'QR Scanner requires camera access.\n\nThis feature will be available soon.',
-          textAlign: TextAlign.center,
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Understood'),
-          ),
-        ],
-      ),
-    );
-    return null;
-  }
-
   void _showTransferDialog(BuildContext context, {String? prefilledAddress}) {
-    final recipientController = TextEditingController(text: prefilledAddress);
-    final amountController = TextEditingController();
-    final theme = Theme.of(context);
-    final isSmallScreen = MediaQuery.of(context).size.width < 360;
-
-    // ดึง State ปัจจุบันมาใช้
-    final walletState = context.read<WalletState>();
-
-    // สถานะภายใน Dialog
-    // ใช้ string ว่าง ('') แทนการส่งเหรียญหลัก (KANARI)
-    String selectedTokenType = '';
-
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setState) {
-          // สร้าง List สำหรับ Dropdown (รวมเหรียญหลัก KANARI + Tokens ที่มี)
-          List<DropdownMenuItem<String>> tokenItems = [
-            DropdownMenuItem(
-              value: '',
-              child: Text(
-                'KANARI (${(walletState.balance / 1000000000).toStringAsFixed(4)})',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-          ];
-
-          // นำ Token ที่มีในกระเป๋ามาใส่ใน Dropdown
-          for (var token in walletState.tokenBalances) {
-            // 👈 เพิ่มบรรทัดนี้ เพื่อข้ามเหรียญ KANARI ที่เซิร์ฟเวอร์ส่งมาซ้ำ
-            if (token.tokenType == 'KANARI') continue;
-
-            final formattedAmount = token.amount / math.pow(10, token.decimals);
-            tokenItems.add(
-              DropdownMenuItem(
-                value: token.tokenType,
-                child: Text(
-                  '${token.symbol} (${formattedAmount.toStringAsFixed(4)})',
-                ),
-              ),
-            );
-          }
-
-          return AlertDialog(
-            icon: const Icon(Icons.send_rounded),
-            title: const Text('Transfer Assets'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // 1. ช่องกรอก Address
-                  TextField(
-                    controller: recipientController,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 13,
-                    ),
-                    decoration: InputDecoration(
-                      labelText: 'Recipient Address',
-                      hintText: '0x...',
-                      helperText: 'Must be exactly 64 hex characters',
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.qr_code_scanner_rounded),
-                        onPressed: () async {
-                          Navigator.pop(dialogContext);
-                          final scannedAddress = await _scanQRCode(context);
-                          if (scannedAddress != null && dialogContext.mounted) {
-                            _showTransferDialog(
-                              context,
-                              prefilledAddress: scannedAddress,
-                            );
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-                  SizedBox(height: isSmallScreen ? 12 : 16),
-
-                  // 2. Dropdown เลือก Token ที่จะส่ง
-                  DropdownButtonFormField<String>(
-                    value: selectedTokenType,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Asset to send',
-                      prefixIcon: Icon(Icons.toll_rounded),
-                    ),
-                    items: tokenItems,
-                    onChanged: (val) {
-                      setState(() {
-                        selectedTokenType = val!;
-                        amountController
-                            .clear(); // ล้างจำนวนเงินเมื่อเปลี่ยนเหรียญ
-                      });
-                    },
-                  ),
-                  SizedBox(height: isSmallScreen ? 12 : 16),
-
-                  // 3. ช่องกรอกจำนวนเงิน
-                  TextField(
-                    controller: amountController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: InputDecoration(
-                      labelText: 'Amount',
-                      prefixIcon: const Icon(
-                        Icons.account_balance_wallet_rounded,
-                      ),
-                      suffixIcon: TextButton(
-                        onPressed: () {
-                          // คำนวณปุ่ม MAX ตามเหรียญที่เลือก
-                          if (selectedTokenType == '') {
-                            // MAX สำหรับ KANARI
-                            final balanceKanari =
-                                walletState.balance / 1000000000;
-                            amountController.text = balanceKanari
-                                .toStringAsFixed(6);
-                          } else {
-                            // MAX สำหรับ Token อื่นๆ
-                            final selectedToken = walletState.tokenBalances
-                                .firstWhere(
-                                  (t) => t.tokenType == selectedTokenType,
-                                );
-                            final maxAmount =
-                                selectedToken.amount /
-                                math.pow(10, selectedToken.decimals);
-                            amountController.text = maxAmount.toStringAsFixed(
-                              selectedToken.decimals < 6
-                                  ? selectedToken.decimals
-                                  : 6,
-                            );
-                          }
-                        },
-                        child: const Text('MAX'),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () async {
-                  final recipient = recipientController.text;
-                  final amountStr = amountController.text;
-                  final amountDouble = double.tryParse(amountStr) ?? 0.0;
-
-                  if (recipient.isEmpty || amountDouble <= 0) return;
-
-                  var cleanAddress = recipient.startsWith('0x')
-                      ? recipient.substring(2)
-                      : recipient;
-
-                  if (cleanAddress.length != 64 ||
-                      !RegExp(r'^[0-9a-fA-F]+$').hasMatch(cleanAddress)) {
-                    ScaffoldMessenger.of(dialogContext).showSnackBar(
-                      SnackBar(
-                        content: const Text('Invalid address format.'),
-                        backgroundColor: theme.colorScheme.error,
-                      ),
-                    );
-                    return;
-                  }
-
-                  Navigator.pop(
-                    dialogContext,
-                  ); // ปิด Dialog ก่อนส่ง Transaction
-
-                  String? result;
-
-                  // ตรวจสอบว่าส่ง KANARI หรือ Token
-                  if (selectedTokenType == '') {
-                    // ส่ง KANARI ปกติ
-                    final amountMist = (amountDouble * 1000000000).round();
-                    result = await context.read<WalletState>().transfer(
-                      recipient,
-                      amountMist,
-                    );
-                  } else {
-                    // ส่ง Custom Token
-                    final selectedToken = walletState.tokenBalances.firstWhere(
-                      (t) => t.tokenType == selectedTokenType,
-                    );
-                    // คำนวณเป็นหน่วยย่อย (Base units) ของ Token นั้นๆ
-                    final amountBaseUnits =
-                        (amountDouble * math.pow(10, selectedToken.decimals))
-                            .round();
-
-                    result = await context.read<WalletState>().transferToken(
-                      recipient,
-                      selectedTokenType,
-                      amountBaseUnits,
-                    );
-                  }
-
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          result?.startsWith('Error:') == true
-                              ? result!
-                              : 'Transaction successful',
-                        ),
-                        backgroundColor: result?.startsWith('Error:') == true
-                            ? theme.colorScheme.error
-                            : theme.colorScheme.primary,
-                      ),
-                    );
-                  }
-                },
-                child: const Text('Send'),
-              ),
-            ],
-          );
-        },
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
       ),
+      builder: (context) =>
+          _TransferBottomSheet(prefilledAddress: prefilledAddress),
     );
   }
 
-  void _showChangePasswordDialog(BuildContext context, WalletState state) {
-    final oldPasswordController = TextEditingController();
-    final newPasswordController = TextEditingController();
-    final confirmPasswordController = TextEditingController();
+  void _showChangePinDialog(BuildContext context, WalletState state) {
+    final oldPinController = TextEditingController();
+    final newPinController = TextEditingController();
+    final confirmPinController = TextEditingController();
 
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.password_rounded),
-        title: const Text('Change Password'),
+        icon: const Icon(Icons.pin_rounded),
+        title: const Text('Change PIN'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
-                controller: oldPasswordController,
+                controller: oldPinController,
                 obscureText: true,
-                decoration: const InputDecoration(labelText: 'Old Password'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: newPasswordController,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'New Password'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: confirmPasswordController,
-                obscureText: true,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                maxLength: 6,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  letterSpacing: 8,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
                 decoration: const InputDecoration(
-                  labelText: 'Confirm New Password',
+                  labelText: 'Old PIN',
+                  counterText: '',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: newPinController,
+                obscureText: true,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                maxLength: 6,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  letterSpacing: 8,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'New PIN',
+                  counterText: '',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: confirmPinController,
+                obscureText: true,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                maxLength: 6,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  letterSpacing: 8,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Confirm New PIN',
+                  counterText: '',
                 ),
               ),
             ],
@@ -803,16 +813,16 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           FilledButton(
             onPressed: () async {
-              final oldPassword = oldPasswordController.text;
-              final newPassword = newPasswordController.text;
-              final confirmPassword = confirmPasswordController.text;
+              final oldPin = oldPinController.text;
+              final newPin = newPinController.text;
+              final confirmPin = confirmPinController.text;
 
-              if (oldPassword.isEmpty ||
-                  newPassword.isEmpty ||
-                  newPassword != confirmPassword) {
+              if (oldPin.length != 6 ||
+                  newPin.length != 6 ||
+                  newPin != confirmPin) {
                 ScaffoldMessenger.of(dialogContext).showSnackBar(
                   SnackBar(
-                    content: const Text('Invalid or mismatched passwords'),
+                    content: const Text('Invalid PIN or PINs do not match'),
                     backgroundColor: Theme.of(dialogContext).colorScheme.error,
                   ),
                 );
@@ -820,18 +830,15 @@ class _HomeScreenState extends State<HomeScreen> {
               }
 
               Navigator.pop(dialogContext);
-              final success = await state.changePassword(
-                oldPassword,
-                newPassword,
-              );
+              final success = await state.changePin(oldPin, newPin);
 
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(
                       success
-                          ? 'Password changed'
-                          : 'Failed to change password',
+                          ? 'PIN changed successfully'
+                          : 'Failed to change PIN (Old PIN incorrect?)',
                     ),
                     backgroundColor: success
                         ? Theme.of(context).colorScheme.primary
@@ -889,7 +896,7 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: () async {
                 await context.read<WalletState>().createNewWallet(
                   curve: selectedCurve,
-                  password: '',
+                  pin: '',
                 );
 
                 if (context.mounted) {
@@ -910,6 +917,253 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// โค้ดส่วน UI ของ Bottom Sheet สำหรับโอนเงิน
+// ============================================================================
+class _TransferBottomSheet extends StatefulWidget {
+  final String? prefilledAddress;
+  const _TransferBottomSheet({this.prefilledAddress});
+
+  @override
+  State<_TransferBottomSheet> createState() => _TransferBottomSheetState();
+}
+
+class _TransferBottomSheetState extends State<_TransferBottomSheet> {
+  late TextEditingController _recipientController;
+  late TextEditingController _amountController;
+  String _selectedTokenType = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _recipientController = TextEditingController(text: widget.prefilledAddress);
+    _amountController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _recipientController.dispose();
+    _amountController.dispose();
+    super.dispose();
+  }
+
+  Future<String?> _scanQRCode(BuildContext context) async {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.qr_code_scanner_rounded, size: 32),
+        title: const Text('QR Scanner'),
+        content: const Text(
+          'QR Scanner requires camera access.\n\nThis feature will be available soon.',
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Understood'),
+          ),
+        ],
+      ),
+    );
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isSmallScreen = MediaQuery.of(context).size.width < 360;
+    final walletState = context.watch<WalletState>();
+
+    List<DropdownMenuItem<String>> tokenItems = [
+      DropdownMenuItem(
+        value: '',
+        child: Text(
+          'KANARI (${(walletState.balance / 1000000000).toStringAsFixed(4)})',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+      ),
+    ];
+
+    for (var token in walletState.tokenBalances) {
+      if (token.tokenType == 'KANARI') continue;
+      final formattedAmount = token.amount / math.pow(10, token.decimals);
+      tokenItems.add(
+        DropdownMenuItem(
+          value: token.tokenType,
+          child: Text(
+            '${token.symbol} (${formattedAmount.toStringAsFixed(4)})',
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        24,
+        8,
+        24,
+        MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Transfer Assets',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: colorScheme.onSurface,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+
+          TextField(
+            controller: _recipientController,
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+            decoration: InputDecoration(
+              labelText: 'Recipient Address',
+              hintText: '0x...',
+              helperText: 'Must be exactly 64 hex characters',
+              suffixIcon: IconButton(
+                icon: const Icon(Icons.qr_code_scanner_rounded),
+                onPressed: () async {
+                  final scannedAddress = await _scanQRCode(context);
+                  if (scannedAddress != null) {
+                    setState(() {
+                      _recipientController.text = scannedAddress;
+                    });
+                  }
+                },
+              ),
+            ),
+          ),
+          SizedBox(height: isSmallScreen ? 12 : 16),
+
+          DropdownButtonFormField<String>(
+            value: _selectedTokenType,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              labelText: 'Asset to send',
+              prefixIcon: Icon(Icons.toll_rounded),
+            ),
+            items: tokenItems,
+            onChanged: (val) {
+              setState(() {
+                _selectedTokenType = val!;
+                _amountController.clear();
+              });
+            },
+          ),
+          SizedBox(height: isSmallScreen ? 12 : 16),
+
+          TextField(
+            controller: _amountController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(
+              labelText: 'Amount',
+              prefixIcon: const Icon(Icons.account_balance_wallet_rounded),
+              suffixIcon: TextButton(
+                onPressed: () {
+                  if (_selectedTokenType == '') {
+                    final balanceKanari = walletState.balance / 1000000000;
+                    _amountController.text = balanceKanari.toStringAsFixed(6);
+                  } else {
+                    final selectedToken = walletState.tokenBalances.firstWhere(
+                      (t) => t.tokenType == _selectedTokenType,
+                    );
+                    final maxAmount =
+                        selectedToken.amount /
+                        math.pow(10, selectedToken.decimals);
+                    _amountController.text = maxAmount.toStringAsFixed(
+                      selectedToken.decimals < 6 ? selectedToken.decimals : 6,
+                    );
+                  }
+                },
+                child: const Text('MAX'),
+              ),
+            ),
+          ),
+          const SizedBox(height: 32),
+
+          FilledButton(
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(double.infinity, 56),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+            ),
+            onPressed: () async {
+              final recipient = _recipientController.text;
+              final amountStr = _amountController.text;
+              final amountDouble = double.tryParse(amountStr) ?? 0.0;
+
+              if (recipient.isEmpty || amountDouble <= 0) return;
+
+              var cleanAddress = recipient.startsWith('0x')
+                  ? recipient.substring(2)
+                  : recipient;
+
+              if (cleanAddress.length != 64 ||
+                  !RegExp(r'^[0-9a-fA-F]+$').hasMatch(cleanAddress)) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text('Invalid address format.'),
+                    backgroundColor: colorScheme.error,
+                  ),
+                );
+                return;
+              }
+
+              Navigator.pop(context);
+
+              String? result;
+              final ws = context.read<WalletState>();
+
+              if (_selectedTokenType == '') {
+                final amountMist = (amountDouble * 1000000000).round();
+                result = await ws.transfer(recipient, amountMist);
+              } else {
+                final selectedToken = ws.tokenBalances.firstWhere(
+                  (t) => t.tokenType == _selectedTokenType,
+                );
+                final amountBaseUnits =
+                    (amountDouble * math.pow(10, selectedToken.decimals))
+                        .round();
+                result = await ws.transferToken(
+                  recipient,
+                  _selectedTokenType,
+                  amountBaseUnits,
+                );
+              }
+
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      result?.startsWith('Error:') == true
+                          ? result!
+                          : 'Transaction successful',
+                    ),
+                    backgroundColor: result?.startsWith('Error:') == true
+                        ? colorScheme.error
+                        : colorScheme.primary,
+                  ),
+                );
+              }
+            },
+            child: const Text(
+              'Send Assets',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
       ),
     );
   }

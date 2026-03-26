@@ -7,15 +7,13 @@ class WalletState extends ChangeNotifier {
   List<Map<String, dynamic>> _wallets = [];
 
   int _balance = 0;
-  // 👉 1. เพิ่มตัวแปรเก็บ Token Balances
   List<TokenBalance> _tokenBalances = [];
 
   bool _isLoading = false;
   String? _error;
-  String? _activeWalletId; // Track active wallet ID
+  String? _activeWalletId;
   KanariEnvironment _environment = KanariEnvironment.local;
 
-  // 👉 เพิ่มตัวแปรเช็คสถานะการปลดล็อกแอป
   bool _isUnlocked = false;
 
   KanariClient? get client => _client;
@@ -23,7 +21,6 @@ class WalletState extends ChangeNotifier {
   List<Map<String, dynamic>> get wallets => _wallets;
 
   int get balance => _balance;
-  // 👉 2. เพิ่ม Getter สำหรับ tokenBalances
   List<TokenBalance> get tokenBalances => _tokenBalances;
 
   bool get isLoading => _isLoading;
@@ -32,12 +29,10 @@ class WalletState extends ChangeNotifier {
   bool get hasWallet => _wallets.isNotEmpty;
   KanariEnvironment get environment => _environment;
 
-  // 👉 Getter สำหรับสถานะปลดล็อก
   bool get isUnlocked => _isUnlocked;
 
   Future<void> initialize() async {
     _updateClient();
-    // โหลดแค่ข้อมูลว่ามีกระเป๋าอะไรบ้าง (เพื่อให้หน้า Welcome รู้ว่าต้องโชว์ปุ่ม Unlock)
     _wallets = await WalletStorage.loadAllWallets();
     notifyListeners();
   }
@@ -56,19 +51,16 @@ class WalletState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Load all wallets from storage
   Future<void> loadWallets() async {
     _wallets = await WalletStorage.loadAllWallets();
     if (_wallets.isNotEmpty) {
-      // Load active wallet
       await _loadActiveWallet();
     }
   }
 
-  /// Load active wallet
   Future<void> _loadActiveWallet() async {
     final activeId = await WalletStorage.getActiveWalletId();
-    _activeWalletId = activeId; // Store active wallet ID
+    _activeWalletId = activeId;
     Map<String, dynamic>? activeWalletData;
 
     if (activeId != null) {
@@ -78,18 +70,14 @@ class WalletState extends ChangeNotifier {
       );
     }
 
-    // If no active wallet or not found, use first wallet
     activeWalletData ??= _wallets.isNotEmpty ? _wallets.first : null;
 
     if (activeWalletData != null) {
       await _instantiateWallet(activeWalletData);
-      debugPrint(
-        '✅ Loaded active wallet: ${activeWalletData['name']} (ID: $_activeWalletId)',
-      );
+      debugPrint('✅ Loaded active wallet: ${activeWalletData['name']}');
     }
   }
 
-  /// Instantiate wallet from data
   Future<void> _instantiateWallet(Map<String, dynamic> data) async {
     final curve = KanariCurve.values.firstWhere(
       (c) => c.name == data['curve'],
@@ -106,92 +94,60 @@ class WalletState extends ChangeNotifier {
         curve: curve,
       );
     }
-
     await refreshBalance();
   }
 
-  /// Switch to a different wallet
   Future<void> switchWallet(String walletId) async {
-    debugPrint('🔄 Switching to wallet ID: $walletId');
-
     final walletData = _wallets.cast<Map<String, dynamic>?>().firstWhere(
       (w) => w?['id'] == walletId,
       orElse: () => null,
     );
 
-    if (walletData == null) {
-      debugPrint('❌ Wallet not found: $walletId');
-      return;
-    }
+    if (walletData == null) return;
 
-    debugPrint(
-      '✅ Found wallet: ${walletData['name']} (ID: ${walletData['id']})',
-    );
-
-    // Set active wallet in storage
     await WalletStorage.setActiveWallet(walletId);
-
-    // Update active wallet ID in state
     _activeWalletId = walletId;
-    debugPrint(' Updated _activeWalletId to: $walletId');
-
-    // Instantiate the wallet with cryptographic data
     await _instantiateWallet(walletData);
-
-    debugPrint('✅ Wallet switched successfully');
-
-    // Notify listeners to rebuild UI with new active wallet
     notifyListeners();
   }
 
-  /// Add new wallet to the list
-  Future<void> addWallet(
-    Map<String, dynamic> walletData, [
-    String? password,
-  ]) async {
+  Future<void> addWallet(Map<String, dynamic> walletData, [String? pin]) async {
     _wallets.add(walletData);
 
-    // Save password hash if provided and it's the first wallet (master password)
-    if (password != null && password.isNotEmpty && _wallets.length == 1) {
-      await WalletStorage.savePassword(password);
-      debugPrint('🔐 Master password saved');
+    // บันทึกรหัส PIN ลง Storage สำหรับกระเป๋าใบแรกสุด
+    if (pin != null && pin.isNotEmpty && _wallets.length == 1) {
+      await WalletStorage.savePassword(pin);
+      debugPrint('🔐 Master PIN saved');
     }
 
     await WalletStorage.saveAllWallets(_wallets);
     await switchWallet(walletData['id']);
-    debugPrint('✅ Wallet added: ${walletData['name']}');
     notifyListeners();
   }
 
-  /// Remove wallet from the list
   Future<void> removeWallet(String walletId) async {
     _wallets.removeWhere((w) => w['id'] == walletId);
     await WalletStorage.saveAllWallets(_wallets);
 
-    // If removed wallet was active, switch to first available
     final activeId = await WalletStorage.getActiveWalletId();
     if (activeId == walletId && _wallets.isNotEmpty) {
       await switchWallet(_wallets.first['id']);
     } else if (_wallets.isEmpty) {
       _wallet = null;
       _balance = 0;
-      _tokenBalances = []; // เคลียร์ token
+      _tokenBalances = [];
     }
-
     notifyListeners();
   }
 
   Future<void> createNewWallet({
     KanariCurve curve = KanariCurve.ed25519,
-    required String password,
+    required String pin,
   }) async {
     _setLoading(true);
     _error = null;
     try {
-      debugPrint("Starting wallet generation with curve: ${curve.name}...");
       final wallet = await KanariWallet.generate(curve: curve);
-      debugPrint("Wallet generated: ${wallet.address}");
-
       final walletData = {
         'id': DateTime.now().millisecondsSinceEpoch.toString(),
         'name': 'Wallet ${_wallets.length + 1}',
@@ -201,56 +157,43 @@ class WalletState extends ChangeNotifier {
         'createdAt': DateTime.now().toIso8601String(),
       };
 
-      await addWallet(walletData, password);
-      _isUnlocked = true; // ปลดล็อกเมื่อสร้างเสร็จ
+      await addWallet(walletData, pin);
+      _isUnlocked = true;
       await refreshBalance();
-    } catch (e, stack) {
+    } catch (e) {
       _error = "Creation failed: $e";
-      debugPrint(_error);
-      debugPrint(stack.toString());
     } finally {
       _setLoading(false);
     }
   }
 
-  Future<void> unlockWallet(String password) async {
+  Future<void> unlockWallet(String pin) async {
     _setLoading(true);
     _error = null;
     try {
-      debugPrint('🔓 Unlocking wallet with master password...');
-
-      // Verify master password
-      final isValid = await WalletStorage.verifyPassword(password);
+      final isValid = await WalletStorage.verifyPassword(pin);
       if (!isValid) {
-        debugPrint('❌ Invalid master password');
-        _error = "Invalid password";
+        _error = "Invalid PIN";
         _setLoading(false);
         notifyListeners();
         return;
       }
 
-      debugPrint('✅ Password verified');
-
-      // โหลดและถอดรหัสกระเป๋าตรงนี้แทน
       await loadWallets();
 
       if (_wallets.isEmpty) {
-        debugPrint('❌ No wallets found');
         _error = "No saved wallets";
         _setLoading(false);
         notifyListeners();
         return;
       }
 
-      _isUnlocked = true; // ตั้งสถานะว่าปลดล็อกสำเร็จแล้ว
+      _isUnlocked = true;
       _error = null;
-    } catch (e, stack) {
-      debugPrint('❌ Unlock error: $e');
-      debugPrint(stack.toString());
+    } catch (e) {
       _error = "Unlock failed: $e";
     } finally {
       _setLoading(false);
-      debugPrint('🔔 Notifying listeners...');
       notifyListeners();
     }
   }
@@ -258,7 +201,7 @@ class WalletState extends ChangeNotifier {
   Future<void> importFromPrivateKey(
     String pk, {
     KanariCurve curve = KanariCurve.ed25519,
-    String? password,
+    String? pin,
   }) async {
     _setLoading(true);
     _error = null;
@@ -275,12 +218,11 @@ class WalletState extends ChangeNotifier {
         'createdAt': DateTime.now().toIso8601String(),
       };
 
-      await addWallet(walletData, password);
-      _isUnlocked = true; // ปลดล็อกเมื่อนำเข้าเสร็จ
+      await addWallet(walletData, pin);
+      _isUnlocked = true;
       await refreshBalance();
     } catch (e) {
       _error = "Import PK failed: $e";
-      debugPrint(_error);
     } finally {
       _setLoading(false);
     }
@@ -289,7 +231,7 @@ class WalletState extends ChangeNotifier {
   Future<void> importFromMnemonic(
     String mnemonic, {
     KanariCurve curve = KanariCurve.ed25519,
-    String? password,
+    String? pin,
   }) async {
     _setLoading(true);
     _error = null;
@@ -305,33 +247,31 @@ class WalletState extends ChangeNotifier {
         'createdAt': DateTime.now().toIso8601String(),
       };
 
-      await addWallet(walletData, password);
-      _isUnlocked = true; // ปลดล็อกเมื่อนำเข้าเสร็จ
+      await addWallet(walletData, pin);
+      _isUnlocked = true;
       await refreshBalance();
     } catch (e) {
       _error = "Import Mnemonic failed: $e";
-      debugPrint(_error);
     } finally {
       _setLoading(false);
     }
   }
 
   void logout() {
-    _wallet = null; // เคลียร์ Wallet ออกจาก Memory
+    _wallet = null;
     _balance = 0;
-    _tokenBalances = []; // 👉 3. เคลียร์ Token
+    _tokenBalances = [];
     _error = null;
-    _isUnlocked = false; // ล็อกแอป
+    _isUnlocked = false;
     notifyListeners();
   }
 
   Future<void> deleteAllWallets() async {
-    debugPrint('🗑️ Deleting all wallets...');
     await WalletStorage.deleteAllWallets();
     _wallets = [];
     _wallet = null;
     _balance = 0;
-    _tokenBalances = []; // 👉 เคลียร์ Token
+    _tokenBalances = [];
     _error = null;
     _isUnlocked = false;
     notifyListeners();
@@ -340,22 +280,16 @@ class WalletState extends ChangeNotifier {
   Future<void> refreshBalance() async {
     if (_client != null && _wallet != null) {
       try {
-        // ดึงยอดเหรียญหลัก (KANARI)
         _balance = await _client!.getBalance(_wallet!.address);
-
-        // 👉 4. ดึงยอดเหรียญ Token อื่นๆ ทั้งหมดที่กระเป๋านี้มี
         try {
           _tokenBalances = await _client!.getAllBalances(_wallet!.address);
         } catch (e) {
-          debugPrint("Failed to fetch token balances: $e");
           _tokenBalances = [];
         }
-
         _error = null;
         notifyListeners();
       } catch (e) {
         _error = "Refresh balance failed: $e";
-        debugPrint(_error);
         notifyListeners();
       }
     }
@@ -425,12 +359,13 @@ class WalletState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> changePassword(String oldPassword, String newPassword) async {
+  // 👉 แก้ไขให้เปลี่ยนเป็น changePin
+  Future<bool> changePin(String oldPin, String newPin) async {
     try {
-      final isValid = await WalletStorage.verifyPassword(oldPassword);
+      final isValid = await WalletStorage.verifyPassword(oldPin);
       if (!isValid) return false;
 
-      await WalletStorage.savePassword(newPassword);
+      await WalletStorage.savePassword(newPin);
       await WalletStorage.saveAllWallets(_wallets);
 
       notifyListeners();
