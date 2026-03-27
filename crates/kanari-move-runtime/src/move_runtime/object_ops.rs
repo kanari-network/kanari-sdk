@@ -71,9 +71,24 @@ impl super::MoveRuntime {
                 continue;
             }
 
-            // Use the object ID provided by the native function (which is the real UID or a hash)
-            // Do NOT recompute it here, as that would break the link to the on-chain UID.
-            let canonical_id = id.clone();
+            // 🚨 บังคับแปลง Object ID เป็นรูปแบบมาตรฐานเสมอ (0x + ตัวพิมพ์เล็ก 64 ตัวอักษร)
+            // เพื่อป้องกันปัญหา Case Sensitive ที่ทำให้ฐานข้อมูลหาเหรียญไม่เจอในรอบถัดไป
+            let canonical_id = {
+                let s_trim = id.trim();
+                let hex_str = if !s_trim.starts_with("0x") {
+                    format!("0x{}", s_trim)
+                } else {
+                    s_trim.to_string()
+                };
+
+                // ใช้ Move Core แปลงเป็นมาตรฐาน (ตัวพิมพ์เล็กและเติมศูนย์ให้ครบ 64 ตัว)
+                if let Ok(addr) = AccountAddress::from_hex_literal(&hex_str) {
+                    addr.to_hex_literal()
+                } else {
+                    hex_str.to_lowercase()
+                }
+            };
+
             let next_version = self
                 .object_storage
                 .get_object(&canonical_id)

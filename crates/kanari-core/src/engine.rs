@@ -605,24 +605,51 @@ impl BlockchainEngine {
                 args,
                 ..
             } => {
-                // Synchronize object snapshots for object-id arguments (32-byte IDs)
+                // Synchronize object snapshots for object-id arguments
                 // from canonical state into runtime object storage to avoid stale reads.
                 {
                     let state = state_arc.read().unwrap();
                     for arg in args.iter() {
-                        if arg.len() != 32 {
-                            continue;
+                        let mut possible_ids = Vec::new();
+
+                        // 1. กรณีเป็น Raw Bytes 32 bytes (BCS encoded AccountAddress)
+                        if arg.len() == 32 {
+                            if let Ok(addr) = AccountAddress::from_bytes(arg) {
+                                possible_ids.push(addr.to_hex_literal());
+                            }
                         }
-                        let object_id = format!("0x{}", hex::encode(arg));
-                        if let Ok(Some(obj)) = state.get_object(&object_id) {
-                            // Best-effort sync; VM/state logic still validates semantics.
-                            let _ = runtime.preload_object_snapshot(
-                                &object_id,
-                                obj.owner,
-                                &obj.type_,
-                                obj.data.clone(),
-                                obj.version,
-                            );
+
+                        // 2. กรณีส่งมาเป็น BCS String หรือ UTF-8 (แก้ปัญหาความยาว 67 bytes)
+                        let parsed_string = bcs::from_bytes::<String>(arg)
+                            .or_else(|_| std::str::from_utf8(arg).map(|s| s.to_string()));
+
+                        if let Ok(s) = parsed_string {
+                            let s_trim = s.trim();
+
+                            // บังคับเติม 0x ถ้ายังไม่มี
+                            let hex_str = if !s_trim.starts_with("0x") {
+                                format!("0x{}", s_trim)
+                            } else {
+                                s_trim.to_string()
+                            };
+
+                            // ใช้ from_hex_literal เพื่อจัดการ Address และเติม Padding ให้
+                            if let Ok(addr) = AccountAddress::from_hex_literal(&hex_str) {
+                                possible_ids.push(addr.to_hex_literal());
+                            }
+                        }
+
+                        // ป้อนข้อมูลล่าสุด (Fresh State) ให้ Move VM ทุก ID ที่แกะได้
+                        for object_id in possible_ids {
+                            if let Ok(Some(obj)) = state.get_object(&object_id) {
+                                let _ = runtime.preload_object_snapshot(
+                                    &object_id,
+                                    obj.owner,
+                                    &obj.type_,
+                                    obj.data.clone(),
+                                    obj.version,
+                                );
+                            }
                         }
                     }
                 }
@@ -789,45 +816,59 @@ impl BlockchainEngine {
     pub fn get_account_info(&self, address: &str) -> Option<AccountInfo> {
         debug!("[ENGINE] get_account_info called for {}", address);
         let state = self.state.read().unwrap();
+
         state.get_account_by_hex(address).map(|acc| {
             debug!("[ENGINE] Found account {} in state", address);
-            // collect owned object ids for this account and map to ObjectInfo
             let owned_ids = state.get_owned_objects(&acc.address).unwrap_or_default();
 
-            let mut owned_objs: Vec<ObjectInfo> = Vec::new();
+            // สร้างตัวแปรไว้เก็บข้อมูลเพื่อนำไปจัดเรียง
+            let mut coins_with_balance = Vec::new();
+            let mut other_objects = Vec::new();
+
             for id in owned_ids {
                 if let Ok(Some(obj)) = state.get_object(&id) {
-                    owned_objs.push(ObjectInfo {
+                    let info = ObjectInfo {
                         id: id.clone(),
                         owner: format!("{:#x}", obj.owner),
                         type_: obj.type_.clone(),
                         data: obj.data.clone(),
                         version: obj.version,
-                    });
-                }
-            }
+                    };
 
-            // Rebuild spendable token balances from owned Coin<T> objects so RPC output
-            // does not report stale non-spendable balances.
-            let mut coin_balances: std::collections::BTreeMap<String, u64> =
-                std::collections::BTreeMap::new();
-            for obj in &owned_objs {
-                if let Some(start) = obj.type_.find('<')
-                    && let Some(end) = obj.type_.rfind('>')
-                {
-                    let outer = &obj.type_[..start];
-                    if (outer.ends_with("::coin::Coin") || outer.ends_with("::coin::coin::Coin"))
-                        && obj.data.len() >= 40
-                    {
-                        let token_type = obj.type_[start + 1..end].to_string();
+                    // ตรวจสอบว่าเป็นเหรียญ (Coin) หรือไม่
+                    if obj.type_.contains("::coin::Coin<") && obj.data.len() >= 40 {
                         let mut arr = [0u8; 8];
                         arr.copy_from_slice(&obj.data[32..40]);
                         let amount = u64::from_le_bytes(arr);
-                        let entry = coin_balances.entry(token_type).or_insert(0);
-                        *entry = entry.saturating_add(amount);
+
+                        // 🚨 1. กรองเหรียญที่ยอดเป็น 0 ทิ้งไปเลย ไม่ส่งให้หน้าบ้าน
+                        if amount > 0 {
+                            coins_with_balance.push((amount, info));
+                        }
+                    } else {
+                        // Object ประเภทอื่น (เช่น NFT หรือเหรียญรูปแบบอื่น) ให้เก็บไว้ปกติ
+                        other_objects.push(info);
                     }
                 }
             }
+
+            // 🚨 2. เรียงลำดับเหรียญจาก "ยอดเงินมาก ไปหา ยอดเงินน้อย" (Descending)
+            // ทำให้ Flutter หยิบเหรียญกล่องที่ใหญ่ที่สุดไปใช้งานเสมอ!
+            coins_with_balance.sort_by(|a, b| b.0.cmp(&a.0));
+
+            // ประกอบร่างกลับคืน (เอาเหรียญที่เรียงแล้วขึ้นก่อน ตามด้วย Object อื่นๆ)
+            let mut final_owned_objects = Vec::new();
+            for (_, info) in coins_with_balance {
+                final_owned_objects.push(info);
+            }
+            final_owned_objects.extend(other_objects);
+
+            // ดึงข้อมูล token_balances ตามรูปแบบเดิมของคุณ (แปลงจาก BTreeMap)
+            let coin_balances = acc
+                .token_balances
+                .iter()
+                .map(|(k, v)| (k.clone(), v.value()))
+                .collect();
 
             let mut sequence_number = acc.sequence_number;
 
@@ -840,8 +881,9 @@ impl BlockchainEngine {
                 sequence_number,
                 modules: acc.modules.iter().cloned().collect(),
                 token_balances: coin_balances,
-                owned_objects: Some(owned_objs),
+                owned_objects: Some(final_owned_objects), // 🚨 ส่งตัวที่เรียงแล้วและไม่มีเศษ 0 ไปให้ Flutter
             };
+
             debug!("[ENGINE] get_account_info completed for {}", address);
             info
         })

@@ -392,27 +392,31 @@ impl MoveRuntime {
     fn preprocess_entry_args(args: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
         args.into_iter()
             .map(|arg| {
-                if let Ok(s) = std::str::from_utf8(&arg) {
+                // แกะ BCS String (67 bytes) หรือ UTF-8 ปกติ ให้เป็น String ที่อ่านได้
+                let parsed_string = bcs::from_bytes::<String>(&arg)
+                    .or_else(|_| std::str::from_utf8(&arg).map(|s| s.to_string()));
+
+                if let Ok(s) = parsed_string {
                     let s_trim = s.trim();
 
-                    if let Some(hex_part) = s_trim.strip_prefix("0x")
-                        && let Ok(bytes) = hex::decode(hex_part)
-                        && bytes.len() == 32
-                    {
-                        return bytes;
+                    // เติม 0x ถ้ายังไม่มี
+                    let hex_str = if !s_trim.starts_with("0x") {
+                        format!("0x{}", s_trim)
+                    } else {
+                        s_trim.to_string()
+                    };
+
+                    // ถ้าสตริงนี้คือ Object ID หรือ Address ให้แปลงเป็นไบต์มาตรฐาน 32 bytes
+                    // เพื่อให้ MoveVM มองเห็นและดึงข้อมูลมารันได้อย่างถูกต้อง
+                    if let Ok(addr) = AccountAddress::from_hex_literal(&hex_str) {
+                        return addr.into_bytes().to_vec();
                     }
 
-                    if s_trim.len() == 64
-                        && let Ok(bytes) = hex::decode(s_trim)
-                        && bytes.len() == 32
-                    {
-                        return bytes;
-                    }
-
-                    if let Ok(n) = s_trim.parse::<u64>()
-                        && let Ok(b) = bcs::to_bytes(&n)
-                    {
-                        return b;
+                    // ถ้ารูปแบบเป็นตัวเลข (เช่น จำนวนเหรียญ amount)
+                    if let Ok(n) = s_trim.parse::<u64>() {
+                        if let Ok(b) = bcs::to_bytes(&n) {
+                            return b;
+                        }
                     }
                 }
                 arg
@@ -731,6 +735,28 @@ impl MoveRuntime {
 
                     // Try to fetch from ObjectStorage
                     if let Some(stored_obj) = self.object_storage.get_object(&object_id) {
+                        // --- 🚨 OWNERSHIP VERIFICATION GUARD 🚨 ---
+                        // ป้องกันปัญหาการโอนรัวๆ และขโมยเหรียญ โดยบังคับให้ผู้ทำธุรกรรมต้องเป็นเจ้าของเหรียญจริงๆ
+                        if let Some(s_addr) = sender {
+                            let sys_addr = KanariAddress::kanari_system_account_address();
+                            let std_addr = KanariAddress::std_account_address();
+
+                            // อนุญาตเฉพาะ: เจ้าของเหรียญ, Shared Object (0x0), หรือ System Objects
+                            if stored_obj.owner != s_addr
+                                && stored_obj.owner != AccountAddress::ZERO
+                                && stored_obj.owner != sys_addr
+                                && stored_obj.owner != std_addr
+                            {
+                                return Err(anyhow::anyhow!(
+                                    "Object ownership verification failed: Sender {} cannot use object {} owned by {}",
+                                    s_addr,
+                                    object_id,
+                                    stored_obj.owner
+                                ));
+                            }
+                        }
+                        // ------------------------------------------
+
                         debug!("[RUNTIME] Loaded object {} for param {}", object_id, i);
                         final_args[i] = stored_obj.data.clone();
 

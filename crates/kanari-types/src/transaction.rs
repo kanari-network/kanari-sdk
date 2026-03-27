@@ -161,22 +161,62 @@ impl Transaction {
     /// Get conflict keys for this transaction.
     /// Transactions with overlapping conflict keys must be executed sequentially.
     pub fn get_conflict_keys(&self) -> Vec<String> {
-        let mut keys = vec![self.sender().to_string()];
+        // 1. บังคับ Normalize Sender (แปลงเป็น Address มาตรฐาน ตัวพิมพ์เล็ก มี 0x เสมอ)
+        let sender_norm = if let Ok(addr) = AccountAddress::from_hex_literal(self.sender()) {
+            addr.to_hex_literal()
+        } else {
+            let s = self.sender();
+            if !s.starts_with("0x") {
+                format!("0x{}", s)
+            } else {
+                s.to_string()
+            }
+        };
+
+        let mut keys = vec![sender_norm];
+
         match self {
             Transaction::Transfer { to, .. } => {
-                keys.push(to.clone());
+                // 2. บังคับ Normalize ปลายทาง
+                let to_norm = if let Ok(addr) = AccountAddress::from_hex_literal(to) {
+                    addr.to_hex_literal()
+                } else {
+                    if !to.starts_with("0x") {
+                        format!("0x{}", to)
+                    } else {
+                        to.to_string()
+                    }
+                };
+                keys.push(to_norm);
             }
-            Transaction::ExecuteFunction { module, args, .. } => {
-                // Include the module as a conflict key to ensure sequential execution
-                // of transactions affecting the same module's global state.
-                keys.push(module.clone());
-
-                // If any arguments look like addresses, they might be objects/accounts being modified
+            Transaction::ExecuteFunction { args, .. } => {
                 for arg in args {
-                    if arg.len() == 32
-                        && let Ok(addr) = AccountAddress::from_bytes(arg)
-                    {
-                        keys.push(addr.to_string());
+                    // 1. กรณีเป็น Raw Bytes 32 bytes (BCS encoded AccountAddress)
+                    if arg.len() == 32 {
+                        if let Ok(addr) = AccountAddress::from_bytes(arg) {
+                            keys.push(addr.to_hex_literal());
+                            continue; // ข้ามไปตัวถัดไปถ้าตรงเงื่อนไขแล้ว
+                        }
+                    }
+
+                    // 2. ดึง String ออกมาจาก Argument (รองรับทั้งแบบ BCS String และ Raw UTF-8)
+                    let parsed_string = bcs::from_bytes::<String>(arg)
+                        .or_else(|_| std::str::from_utf8(arg).map(|s| s.to_string()));
+
+                    if let Ok(s) = parsed_string {
+                        let s_trim = s.trim();
+
+                        // บังคับเติม 0x ถ้ายังไม่มี
+                        let hex_str = if !s_trim.starts_with("0x") {
+                            format!("0x{}", s_trim)
+                        } else {
+                            s_trim.to_string()
+                        };
+
+                        // ใช้ from_hex_literal เพื่อจัดการความยาวและแปลงเป็น Lowercase
+                        if let Ok(addr) = AccountAddress::from_hex_literal(&hex_str) {
+                            keys.push(addr.to_hex_literal());
+                        }
                     }
                 }
             }
@@ -184,9 +224,7 @@ impl Transaction {
                 keys.push(module_name.clone());
             }
             Transaction::Burn { .. } => {
-                // Burn only affects the sender (already added) and total_supply.
-                // Since total_supply is a global metric, we don't add a specific key for it
-                // to avoid sequentializing all burns, as the state application is locked.
+                // ไม่ต้องทำอะไรเพิ่มสำหรับ Burn
             }
         }
         keys

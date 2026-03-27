@@ -1,5 +1,5 @@
 export async function callRpc(method: string, params: any) {
-  const url = (process.env.NEXT_PUBLIC_RPC_URL as string) || "http://127.0.0.1:19001";
+  const url = (process.env.NEXT_PUBLIC_RPC_URL as string) || "http://192.168.1.103:19001";
   const body = {
     jsonrpc: "2.0",
     method,

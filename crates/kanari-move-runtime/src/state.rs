@@ -4,7 +4,6 @@
 use crate::changeset::{ChangeSet, CreatedObject};
 use crate::storage::persistent_store::PersistentStore;
 use anyhow::Result;
-use kanari_crypto::hash_data_blake3;
 use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::TreasuryCap;
 use kanari_types::kanari::KanariModule;
@@ -112,16 +111,6 @@ impl StateManager {
             return format!("{}", st);
         }
         token_type.to_string()
-    }
-
-    fn object_id_matches_uid_prefix(object_id: &str, data: &[u8]) -> bool {
-        if data.len() < 32 {
-            return false;
-        }
-        if let Ok(addr) = AccountAddress::from_hex_literal(object_id) {
-            return data[0..32] == addr.to_vec();
-        }
-        false
     }
 
     fn coin_token_type(type_name: &str) -> Option<String> {
@@ -476,98 +465,54 @@ impl StateManager {
         // Persist created objects
         for (obj_id, created) in &changeset.created_objects {
             let obj_key = Self::object_key(obj_id);
-            let mut final_obj_id = obj_id.clone();
+            let mut new_obj = created.clone();
 
-            // Check if object exists and handle ownership transfer or ID collision
-            if let Ok(Some(existing)) = self.load_internal::<CreatedObject>(&obj_key)
-                && existing.owner != created.owner
-            {
-                // Different owner trying to use same ID
-                // Check if this looks like a transfer (similar data) or collision (different data)
-                let uid_consistent = if existing.data.len() >= 32 && created.data.len() >= 32 {
-                    Self::object_id_matches_uid_prefix(obj_id, &existing.data)
-                        && Self::object_id_matches_uid_prefix(obj_id, &created.data)
-                } else {
-                    // Keep legacy behavior for non-UID test fixtures / non-standard objects.
-                    true
-                };
+            // เช็คว่าเหรียญนี้มีอยู่แล้วหรือไม่ ถ้ามี = การโอนเปลี่ยนมือ
+            if let Ok(Some(existing)) = self.load_internal::<CreatedObject>(&obj_key) {
+                new_obj.version = existing.version + 1;
 
-                let is_likely_transfer = existing.type_ == created.type_
-                    && existing.data.len() == created.data.len()
-                    && (existing.version < created.version || existing.data == created.data)
-                    && uid_consistent;
-
-                if is_likely_transfer {
-                    // This looks like a legitimate transfer - keep same ID
-                    eprintln!(
-                        "DEBUG: Transfer detected! {} changes owner from {:?} to {:?}",
-                        obj_id, existing.owner, created.owner
-                    );
-
-                    // Remove from old owner's list
+                // ถ้าย้ายเจ้าของ ให้ดึงออกจากกระเป๋าคนเดิม
+                if existing.owner != new_obj.owner {
                     let old_owner_key = Self::owned_objects_key(&existing.owner);
                     if let Ok(Some(mut old_owned)) =
                         self.load_internal::<Vec<String>>(&old_owner_key)
-                        && let Some(pos) = old_owned.iter().position(|x| x == obj_id)
                     {
-                        old_owned.remove(pos);
-                        self.save_internal(&old_owner_key, &old_owned)?;
+                        if let Some(pos) = old_owned.iter().position(|x| x == obj_id) {
+                            old_owned.remove(pos);
+                            self.save_internal(&old_owner_key, &old_owned)?;
+                        }
                     }
-
                     if let Some(token_type) = Self::coin_token_type(&existing.type_) {
-                        coin_balance_recompute.insert((existing.owner, token_type.clone()));
-                        coin_balance_recompute.insert((created.owner, token_type));
+                        coin_balance_recompute.insert((existing.owner, token_type));
                     }
-                } else {
-                    // This looks like a collision - generate new ID
-                    let id_collision_data = format!(
-                        "object_id_collision:{}:{:?}:{}:{}",
-                        obj_id,
-                        created.owner,
-                        created.type_,
-                        hex::encode(&created.data)
-                    );
-                    let new_id_bytes = hash_data_blake3(id_collision_data.as_bytes());
-                    final_obj_id = format!("0x{}", hex::encode(&new_id_bytes[0..16]));
-
-                    eprintln!(
-                        "DEBUG: ID collision! {} belongs to {:?}, generated new ID {} for {:?}",
-                        obj_id, existing.owner, final_obj_id, created.owner
-                    );
-                    // Don't remove from old owner's list - original object stays
                 }
-            }
-            // else: Same owner updating their own object - keep same ID
-
-            // Store the object with the final ID
-            let final_obj_key = Self::object_key(&final_obj_id);
-            self.save_internal(&final_obj_key, created)?;
-
-            if let Some(token_type) = Self::coin_token_type(&created.type_) {
-                coin_balance_recompute.insert((created.owner, token_type));
+            } else {
+                new_obj.version = 1; // เหรียญสร้างใหม่
             }
 
-            // Update owned objects list with the final ID
-            let owner_key = Self::owned_objects_key(&created.owner);
+            // เซฟข้อมูลเหรียญทับลงฐานข้อมูลด้วย ID เดิมเสมอ
+            self.save_internal(&obj_key, &new_obj)?;
+
+            if let Some(token_type) = Self::coin_token_type(&new_obj.type_) {
+                coin_balance_recompute.insert((new_obj.owner, token_type));
+            }
+
+            // เพิ่มเหรียญเข้ากระเป๋าคนรับ
+            let owner_key = Self::owned_objects_key(&new_obj.owner);
             let mut owned: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
-            // Remove if already exists (to avoid duplicates on update)
-            if let Some(pos) = owned.iter().position(|x| *x == final_obj_id) {
+            if let Some(pos) = owned.iter().position(|x| x == obj_id) {
                 owned.remove(pos);
             }
-            // Add to end of list (ensures it's present exactly once)
-            owned.push(final_obj_id.clone());
+            owned.push(obj_id.clone());
             self.save_internal(&owner_key, &owned)?;
 
-            // Index CoinMetadata decimals
-            // type_ format: "0x2::coin::CoinMetadata<token_type>"
-            if created.type_.contains("::coin::CoinMetadata<")
-                && let Some(start) = created.type_.find('<')
-                && let Some(end) = created.type_.rfind('>')
+            if new_obj.type_.contains("::coin::CoinMetadata<")
+                && let Some(start) = new_obj.type_.find('<')
+                && let Some(end) = new_obj.type_.rfind('>')
             {
-                let token_type = &created.type_[start + 1..end];
-                // CoinMetadata layout: id (32 bytes), decimals (1 byte), ...
-                if created.data.len() > 32 {
-                    let decimals = created.data[32];
+                let token_type = &new_obj.type_[start + 1..end];
+                if new_obj.data.len() > 32 {
+                    let decimals = new_obj.data[32];
                     let mut key = b"metadata_decimals:".to_vec();
                     key.extend_from_slice(token_type.as_bytes());
                     self.save_internal(&key, &decimals)?;
