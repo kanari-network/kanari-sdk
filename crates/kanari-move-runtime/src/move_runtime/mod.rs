@@ -763,9 +763,13 @@ impl MoveRuntime {
                                 if !merged_coin_types.contains(&merge_key) {
                                     merged_coin_types.insert(merge_key);
 
-                                    let all_coins = self
+                                    // 🚨 แก้ข้อ 3: จำกัดโควต้าดึงเหรียญสูงสุดแค่ 200 ก้อน ป้องกัน Node ค้าง
+                                    let all_coins: Vec<_> = self
                                         .object_storage
-                                        .get_coins_by_type_and_owner(s_addr, coin_t);
+                                        .get_coins_by_type_and_owner(s_addr, coin_t)
+                                        .into_iter()
+                                        .take(200)
+                                        .collect();
 
                                     if all_coins.len() > 1 {
                                         log::debug!(
@@ -774,24 +778,42 @@ impl MoveRuntime {
                                         );
 
                                         let mut total_balance: u64 = 0;
+                                        // 🚨 แก้ข้อ 1: สร้างคิวเก็บเฉพาะ ID ที่บวกเงินสำเร็จเท่านั้น
+                                        let mut successfully_merged_ids = Vec::new();
+
                                         for c in &all_coins {
                                             if c.data.len() == 40 {
                                                 let mut bal_bytes = [0u8; 8];
                                                 bal_bytes.copy_from_slice(&c.data[32..40]);
-                                                total_balance += u64::from_le_bytes(bal_bytes);
+
+                                                // 🚨 ใช้ checked_add ป้องกันบั๊กเงินล้น (Overflow)
+                                                if let Some(new_total) = total_balance
+                                                    .checked_add(u64::from_le_bytes(bal_bytes))
+                                                {
+                                                    total_balance = new_total;
+
+                                                    if c.id != stored_obj.id {
+                                                        successfully_merged_ids.push(c.id.clone());
+                                                    }
+                                                }
+                                            } else {
+                                                // ถ้าเจอเหรียญพัง ให้ข้ามไปเลย ไม่เอาไปลบ
+                                                log::warn!(
+                                                    "[RUNTIME] Skipped coin with invalid size: {}",
+                                                    c.id
+                                                );
                                             }
                                         }
 
+                                        // บันทึกยอดรวมกลับเข้าไปที่ก้อนหลัก
                                         if stored_obj.data.len() == 40 {
                                             let new_bal_bytes = total_balance.to_le_bytes();
                                             stored_obj.data[32..40].copy_from_slice(&new_bal_bytes);
                                         }
 
-                                        // 🚨 เปลี่ยนจากการลบตรงๆ เป็นเก็บ ID ไว้รอลบ
-                                        for c in all_coins {
-                                            if c.id != stored_obj.id {
-                                                auto_merged_coin_ids.push(c.id);
-                                            }
+                                        // เอา ID ที่บวกผ่านแล้ว โยนใส่ตัวแปรที่รอคำสั่งลบตอนจบ Transaction
+                                        for id in successfully_merged_ids {
+                                            auto_merged_coin_ids.push(id);
                                         }
                                     }
                                 }
