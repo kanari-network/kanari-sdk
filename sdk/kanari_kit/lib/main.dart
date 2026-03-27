@@ -40,7 +40,7 @@ class KanariApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.deepPurple, // สีม่วงจะดูเป็น M3 มากกว่าน้ำเงินเดิม
+          seedColor: Colors.blueAccent, // สีม่วงจะดูเป็น M3 มากกว่าน้ำเงินเดิม
           brightness: Brightness.light,
         ),
         appBarTheme: const AppBarTheme(
@@ -74,7 +74,7 @@ class KanariApp extends StatelessWidget {
       darkTheme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.deepPurple,
+          seedColor: Colors.blueAccent,
           brightness: Brightness.dark,
         ),
         appBarTheme: const AppBarTheme(

@@ -676,6 +676,10 @@ impl MoveRuntime {
         let mut session = self.vm.new_session(self.resolver.clone());
         let mut gas = UnmeteredGasMeter;
 
+        // 🚨 1. เพิ่มตัวแปรเก็บสถานะการ Merge ที่จุดเริ่มต้นของฟังก์ชัน
+        let mut auto_merged_coin_ids = Vec::new();
+        let mut merged_coin_types = std::collections::HashSet::new();
+
         // convert type tags to VM runtime types
         let mut ty_args_loaded = vec![];
         for tag in type_args.iter() {
@@ -728,41 +732,79 @@ impl MoveRuntime {
                 // and if the provided argument is a potential Object ID (32 bytes).
                 let is_potential_id = final_args[i].len() == 32;
 
-                if is_potential_id && let Some(TypeTag::Struct(_)) = type_tag_for_param(param_type)
+                if is_potential_id
+                    && let Some(TypeTag::Struct(struct_tag)) = type_tag_for_param(param_type)
                 {
                     // It expects a Struct, and we have 32 bytes. Try to load as Object.
                     let object_id = format!("0x{}", hex::encode(&final_args[i]));
 
                     // Try to fetch from ObjectStorage
-                    if let Some(stored_obj) = self.object_storage.get_object(&object_id) {
+                    if let Some(mut stored_obj) = self.object_storage.get_object(&object_id) {
                         // --- 🚨 OWNERSHIP VERIFICATION GUARD 🚨 ---
-                        // ป้องกันปัญหาการโอนรัวๆ และขโมยเหรียญ โดยบังคับให้ผู้ทำธุรกรรมต้องเป็นเจ้าของเหรียญจริงๆ
                         if let Some(s_addr) = sender {
                             let sys_addr = KanariAddress::kanari_system_account_address();
                             let std_addr = KanariAddress::std_account_address();
-
-                            // อนุญาตเฉพาะ: เจ้าของเหรียญ, Shared Object (0x0), หรือ System Objects
                             if stored_obj.owner != s_addr
                                 && stored_obj.owner != AccountAddress::ZERO
                                 && stored_obj.owner != sys_addr
                                 && stored_obj.owner != std_addr
                             {
-                                return Err(anyhow::anyhow!(
-                                    "Object ownership verification failed: Sender {} cannot use object {} owned by {}",
-                                    s_addr,
-                                    object_id,
-                                    stored_obj.owner
-                                ));
+                                return Err(anyhow::anyhow!("Ownership verification failed"));
                             }
                         }
-                        // ------------------------------------------
+
+                        // 🚨 --- [AUTO-MERGE COINS LOGIC] กวาดเหรียญมารวมอัตโนมัติ --- 🚨
+                        let is_coin = struct_tag.module.as_str() == "coin"
+                            && struct_tag.name.as_str() == "Coin";
+                        if is_coin && let Some(s_addr) = sender {
+                            if let Some(coin_t) = struct_tag.type_params.first() {
+                                // ป้องกันการ Merge ซ้ำซ้อนถ้ามีหลาย Parameter
+                                let merge_key = format!("{:?}_{}", s_addr, coin_t);
+                                if !merged_coin_types.contains(&merge_key) {
+                                    merged_coin_types.insert(merge_key);
+
+                                    let all_coins = self
+                                        .object_storage
+                                        .get_coins_by_type_and_owner(s_addr, coin_t);
+
+                                    if all_coins.len() > 1 {
+                                        log::debug!(
+                                            "[RUNTIME] Auto-merging {} coins for sender",
+                                            all_coins.len()
+                                        );
+
+                                        let mut total_balance: u64 = 0;
+                                        for c in &all_coins {
+                                            if c.data.len() == 40 {
+                                                let mut bal_bytes = [0u8; 8];
+                                                bal_bytes.copy_from_slice(&c.data[32..40]);
+                                                total_balance += u64::from_le_bytes(bal_bytes);
+                                            }
+                                        }
+
+                                        if stored_obj.data.len() == 40 {
+                                            let new_bal_bytes = total_balance.to_le_bytes();
+                                            stored_obj.data[32..40].copy_from_slice(&new_bal_bytes);
+                                        }
+
+                                        // 🚨 เปลี่ยนจากการลบตรงๆ เป็นเก็บ ID ไว้รอลบ
+                                        for c in all_coins {
+                                            if c.id != stored_obj.id {
+                                                auto_merged_coin_ids.push(c.id);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // 🚨 --------------------------------------------------------
 
                         debug!("[RUNTIME] Loaded object {} for param {}", object_id, i);
                         final_args[i] = stored_obj.data.clone();
 
+                        // 🚨 (ส่วนที่หายไปรอบที่แล้ว ต้องมีตรงนี้นะครับ!)
                         // If this parameter is a mutable reference (&mut T),
                         // modifications made by the entry function need to be persisted.
-                        // We track it here and write back after execution.
                         if let RuntimeType::MutableReference(_) = param_type {
                             loaded_mutable_objects.push((
                                 i,
@@ -978,6 +1020,11 @@ impl MoveRuntime {
         // Add deleted objects
         for deleted_obj in deleted_objects {
             cs.add_deleted_object(deleted_obj.object_id);
+        }
+
+        // 🚨 3. สั่งลบเศษเหรียญทิ้งเฉพาะตอนที่ Transaction สำเร็จแล้วเท่านั้น!
+        for merged_id in auto_merged_coin_ids {
+            cs.add_deleted_object(merged_id);
         }
 
         // If gas accounting requested, include gas debit/credit in ChangeSet.

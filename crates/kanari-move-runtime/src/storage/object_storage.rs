@@ -6,6 +6,7 @@ use anyhow::Result;
 /// Object Storage Layer for persistent object tracking
 /// Stores transferred objects that can be queried and used as function arguments
 use move_core_types::account_address::AccountAddress;
+use move_core_types::language_storage::TypeTag;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
@@ -85,6 +86,13 @@ pub trait ObjectStore: Send + Sync {
     fn delete_object(&self, id: &str) -> Result<(), ObjectStorageError>;
     fn count(&self) -> usize;
     fn clear(&self) -> Result<(), ObjectStorageError>;
+
+    // 🚨 เพิ่มบรรทัดนี้ลงไป เพื่อบอกให้ Interface รู้จักฟังก์ชันนี้
+    fn get_coins_by_type_and_owner(
+        &self,
+        owner: AccountAddress,
+        coin_type: &TypeTag,
+    ) -> Vec<StoredObject>;
 }
 
 /// Stored object with metadata
@@ -135,6 +143,32 @@ impl Default for ObjectStorage {
 }
 
 impl ObjectStorage {
+    /// ดึงรายการ Coin ทั้งหมดที่เป็นประเภทเดียวกัน (TypeTag) และเป็นของ Owner คนเดียวกัน
+    pub fn get_coins_by_type_and_owner(
+        &self,
+        owner: AccountAddress,
+        coin_type: &move_core_types::language_storage::TypeTag,
+    ) -> Vec<StoredObject> {
+        self.get_objects_by_owner(&owner)
+            .into_iter()
+            .filter(|obj| {
+                // Parse Type ของ Object เพื่อเช็คว่าเป็นเหรียญหรือไม่
+                if let Ok(struct_tag) = obj
+                    .type_name
+                    .parse::<move_core_types::language_storage::StructTag>()
+                {
+                    // เช็คว่าเป็น kanari_system::coin::Coin
+                    if struct_tag.module.as_str() == "coin" && struct_tag.name.as_str() == "Coin" {
+                        if let Some(tag) = struct_tag.type_params.first() {
+                            return tag == coin_type;
+                        }
+                    }
+                }
+                false
+            })
+            .collect()
+    }
+
     /// Create a new ObjectStorage backed by RocksDB persistence (uses `PersistentStore::open_default`).
     pub fn new_with_persistence() -> Result<Self> {
         let store = PersistentStore::open_default()?;
@@ -442,5 +476,14 @@ impl ObjectStore for ObjectStorage {
 
     fn clear(&self) -> Result<(), ObjectStorageError> {
         ObjectStorage::clear(self)
+    }
+
+    // 🚨 เพิ่มบล็อกนี้ต่อท้ายสุด (ก่อนปิดปีกกาของ impl)
+    fn get_coins_by_type_and_owner(
+        &self,
+        owner: AccountAddress,
+        coin_type: &TypeTag,
+    ) -> Vec<StoredObject> {
+        ObjectStorage::get_coins_by_type_and_owner(self, owner, coin_type)
     }
 }
