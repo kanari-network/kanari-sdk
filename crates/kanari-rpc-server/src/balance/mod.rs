@@ -33,7 +33,7 @@ fn extract_symbol(token_type: &str) -> String {
         .next_back() // <--- เปลี่ยนจาก .last() เป็น .next_back()
         .unwrap_or(token_type)
         .trim_end_matches('>');
-    
+
     // 2. Extract the final module/struct name
     inner.split("::").last().unwrap_or(inner).to_string()
 }
@@ -117,13 +117,56 @@ pub async fn handle_get_token_balance(state: &RpcServerState, request: &RpcReque
         }
     };
 
-    let balance = state
-        .engine
-        .get_token_balance(&req_data.address, &req_data.token_type);
+    // 🚨 FIX: กวาดจาก Objects จริงๆ แทนการเรียก engine.get_token_balance
+    let account_info = match state.engine.get_account_info(&req_data.address) {
+        Some(info) => info,
+        None => {
+            return RpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(RpcError::internal_error("Account not found")),
+                id: request.id,
+            };
+        }
+    };
+
+    let mut total_amount: u128 = 0;
+    let target_token = normalize_token_type(&req_data.token_type);
+
+    if let Some(ref objects) = account_info.owned_objects {
+        for obj in objects {
+            if obj.type_.contains("::coin::Coin<") {
+                let token_type = if let Some(start) = obj.type_.find('<')
+                    && let Some(end) = obj.type_.rfind('>')
+                {
+                    normalize_token_type(&obj.type_[start + 1..end])
+                } else {
+                    normalize_token_type(&obj.type_)
+                };
+
+                // ถ้าเป็นเหรียญที่เรากำลังตามหา ให้บวกยอดเงินเพิ่ม
+                if token_type == target_token && obj.data.len() >= 8 {
+                    let n = obj.data.len();
+                    if let Ok(bytes) = obj.data[n - 8..].try_into() {
+                        total_amount += u64::from_le_bytes(bytes) as u128;
+                    }
+                }
+            }
+        }
+    }
+
+    let final_balance = if total_amount > u128::from(u64::MAX) {
+        u64::MAX
+    } else {
+        total_amount as u64
+    };
 
     RpcResponse {
         jsonrpc: "2.0".into(),
-        result: Some(serde_json::json!({ "token_type": req_data.token_type, "balance": balance })),
+        result: Some(serde_json::json!({
+            "token_type": req_data.token_type,
+            "balance": final_balance
+        })),
         error: None,
         id: request.id,
     }
@@ -155,6 +198,7 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
         }
     };
 
+    // 1. Native KANARI balance (Account-based truth)
     let mut balances = vec![serde_json::json!({
         "token_type": "KANARI",
         "balance": account_info.balance,
@@ -162,16 +206,11 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
         "symbol": "KANARI"
     })];
 
-    // Source of truth: account token balances tracked by runtime state.
-    let mut token_sums: BTreeMap<String, u64> = account_info
-        .token_balances
-        .into_iter()
-        .map(|(k, v)| (normalize_token_type(&k), v))
-        .collect();
-
-    // Backward-compatible fallback: aggregate Coin objects
+    // 🚨 FIX: Create a fresh map. DO NOT load from account_info.token_balances.
+    // This prevents "Balance Desync" because we calculate directly from objects.
     let mut coin_sums: BTreeMap<String, u128> = BTreeMap::new();
 
+    // 2. Aggregate actual Coin objects (The only Source of Truth for tokens)
     if let Some(ref objects) = account_info.owned_objects {
         for obj in objects {
             if obj.type_.contains("::coin::Coin<") {
@@ -183,7 +222,7 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
                     normalize_token_type(&obj.type_)
                 };
 
-                // Try to parse balance from last 8 bytes
+                // Standard Move Coin layout: Balance is in the last 8 bytes (u64)
                 if obj.data.len() >= 8 {
                     let n = obj.data.len();
                     if let Ok(bytes) = obj.data[n - 8..].try_into() {
@@ -195,24 +234,21 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
         }
     }
 
-    // Fill missing tokens from aggregated coin objects.
+    // OPTIMIZATION: Acquire state lock exactly ONCE for decimal lookups
+    let state_guard = state.engine.state.read().unwrap_or_else(|p| p.into_inner());
+
+    // 3. Map calculated sums into response format
     for (token_type, amount128) in coin_sums {
+        if amount128 == 0 {
+            continue;
+        }
+
+        // Safety check for u64 overflow (blockchain standard)
         let amount = if amount128 > u128::from(u64::MAX) {
             u64::MAX
         } else {
             amount128 as u64
         };
-        token_sums.entry(token_type).or_insert(amount);
-    }
-
-    // OPTIMIZATION: Acquire lock exactly ONCE before the loop
-    let state_guard = state.engine.state.read().unwrap_or_else(|p| p.into_inner());
-
-    // Add token balances to response (non-zero only).
-    for (token_type, amount) in token_sums {
-        if amount == 0 {
-            continue;
-        }
 
         let symbol = extract_symbol(&token_type);
 

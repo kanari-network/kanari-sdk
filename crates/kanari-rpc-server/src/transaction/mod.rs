@@ -450,10 +450,20 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
 }
 
 /// Handle request to list all transactions (committed + pending)
+/// Optimized: Fetches latest transactions first and implements pagination (Limit)
 pub async fn handle_get_all_transactions(
     state: &RpcServerState,
     request: &RpcRequest,
 ) -> RpcResponse {
+    // 🚨 1. กำหนดค่า Limit (ดึงสูงสุดกี่รายการ) เพื่อป้องกันโหนดค้าง
+    // พยายามดึงจาก params["limit"] ถ้าไม่มีให้ใช้ค่าเริ่มต้นที่ 50 รายการ
+    let limit = request
+        .params
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(50) as usize;
+
+    // แกะที่อยู่กระเป๋า (Account) จาก Params (รองรับทั้งแบบ String และ Object)
     let account_norm = request
         .params
         .as_str()
@@ -467,43 +477,18 @@ pub async fn handle_get_all_transactions(
 
     let mut results: Vec<TransactionDetails> = Vec::new();
 
-    let chain = state.engine.blockchain.read().unwrap_or_else(|p| {
-        error!("blockchain lock poisoned while listing transactions; recovering");
-        p.into_inner()
-    });
-
-    for block in chain.blocks.iter() {
-        for tx in block.transactions.iter() {
-            if let Some(ref acct) = account_norm {
-                let matches = match &tx.transaction {
-                    Transaction::PublishModule { sender, .. }
-                    | Transaction::ExecuteFunction { sender, .. }
-                    | Transaction::Burn { from: sender, .. } => normalize_addr(sender) == *acct,
-                    Transaction::Transfer { from, to, .. } => {
-                        normalize_addr(from) == *acct || normalize_addr(to) == *acct
-                    }
-                };
-                if !matches {
-                    continue;
-                }
-            }
-            results.push(map_transaction_to_details(
-                state,
-                &tx.transaction,
-                &hex::encode(tx.hash()),
-                "committed",
-                Some(block.header.height),
-                Some(hex::encode(&block.header.state_root)),
-            ));
-        }
-    }
-
+    // 🚨 2. เริ่มดึงจาก "Pending Transactions" ก่อน (ธุรกรรมที่ใหม่ที่สุดที่กำลังรอเข้าบล็อก)
     let pending = state.engine.pending_txs.read().unwrap_or_else(|p| {
         error!("pending_txs lock poisoned while listing transactions; recovering");
         p.into_inner()
     });
 
-    for tx in pending.iter() {
+    // วนลูปจากหลังไปหน้า (Newest Pending First)
+    for tx in pending.iter().rev() {
+        if results.len() >= limit {
+            break;
+        }
+
         if let Some(ref acct) = account_norm {
             let matches = match &tx.transaction {
                 Transaction::PublishModule { sender, .. }
@@ -517,6 +502,7 @@ pub async fn handle_get_all_transactions(
                 continue;
             }
         }
+
         results.push(map_transaction_to_details(
             state,
             &tx.transaction,
@@ -525,6 +511,51 @@ pub async fn handle_get_all_transactions(
             None,
             None,
         ));
+    }
+
+    // 🚨 3. ถ้ายังไม่ครบ Limit ให้ไปดึงต่อจาก "Committed Transactions" (บล็อกที่คอนเฟิร์มแล้ว)
+    if results.len() < limit {
+        let chain = state.engine.blockchain.read().unwrap_or_else(|p| {
+            error!("blockchain lock poisoned while listing transactions; recovering");
+            p.into_inner()
+        });
+
+        // วนลูปบล็อกย้อนกลับ (Latest Blocks First)
+        for block in chain.blocks.iter().rev() {
+            if results.len() >= limit {
+                break;
+            }
+
+            // วนลูปธุรกรรมในบล็อกย้อนกลับ (Latest TX in block first)
+            for tx in block.transactions.iter().rev() {
+                if results.len() >= limit {
+                    break;
+                }
+
+                if let Some(ref acct) = account_norm {
+                    let matches = match &tx.transaction {
+                        Transaction::PublishModule { sender, .. }
+                        | Transaction::ExecuteFunction { sender, .. }
+                        | Transaction::Burn { from: sender, .. } => normalize_addr(sender) == *acct,
+                        Transaction::Transfer { from, to, .. } => {
+                            normalize_addr(from) == *acct || normalize_addr(to) == *acct
+                        }
+                    };
+                    if !matches {
+                        continue;
+                    }
+                }
+
+                results.push(map_transaction_to_details(
+                    state,
+                    &tx.transaction,
+                    &hex::encode(tx.hash()),
+                    "committed",
+                    Some(block.header.height),
+                    Some(hex::encode(&block.header.state_root)),
+                ));
+            }
+        }
     }
 
     respond_with_serialize(request.id, results)

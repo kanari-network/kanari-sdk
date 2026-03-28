@@ -530,7 +530,7 @@ impl MoveRuntime {
         (AccountAddress::ZERO, 1)
     }
 
-    fn persist_created_objects(&self, cs: &ChangeSet) {
+    pub fn persist_created_objects(&self, cs: &ChangeSet) {
         for (id, created) in &cs.created_objects {
             let stored = StoredObject {
                 id: id.clone(),
@@ -554,7 +554,7 @@ impl MoveRuntime {
         }
     }
 
-    fn persist_deleted_objects(&self, cs: &ChangeSet) {
+    pub fn persist_deleted_objects(&self, cs: &ChangeSet) {
         for obj_id in &cs.deleted_objects {
             if let Err(e) = self.object_storage.delete_object(obj_id) {
                 log::warn!(
