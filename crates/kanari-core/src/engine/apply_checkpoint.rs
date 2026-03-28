@@ -127,12 +127,14 @@ impl BlockchainEngine {
             for res in results {
                 match res {
                     Ok(cs) => {
+                        // 🚨 ค่อยมาเซฟ Object และอัปเดต State ทีละรายการอย่างปลอดภัยที่นี่
+                        let runtime = &self.runtime_pool[0];
+                        runtime.persist_created_objects(&cs);
+                        runtime.persist_deleted_objects(&cs);
+
                         let mut state_write = state_arc.write().unwrap();
                         if let Err(e) = state_write.apply_changeset(&cs) {
-                            error!(
-                                "[ENGINE] Failed to apply changeset in checkpoint {}: {}",
-                                checkpoint.sequence, e
-                            );
+                            error!("[ENGINE] Failed to apply changeset: {}", e);
                             anyhow::bail!("Failed to apply changeset: {}", e);
                         }
                         executed_count += 1;

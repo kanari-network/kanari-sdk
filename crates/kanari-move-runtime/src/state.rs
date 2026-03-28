@@ -15,7 +15,7 @@ use move_core_types::language_storage::TypeTag;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use smt;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -125,7 +125,25 @@ impl StateManager {
     ) -> Result<BalanceRecord> {
         let mut total = 0u64;
         let owned_ids = self.get_owned_objects(&owner)?;
+
+        let mut seen_ids = HashSet::new();
         for object_id in owned_ids {
+            // 🚨 [FIX 4]: จัดระเบียบ ID ก่อนเช็คซ้ำ (Normalization)
+            // ป้องกัน "0x1" และ "0x0...1" ถูกนับซ้ำพร้อมกัน
+            let normalized_id = if object_id.starts_with("0x") {
+                if let Ok(addr) = AccountAddress::from_hex_literal(&object_id) {
+                    format!("0x{}", hex::encode(addr.as_ref()))
+                } else {
+                    object_id.to_lowercase()
+                }
+            } else {
+                object_id.to_lowercase()
+            };
+
+            if !seen_ids.insert(normalized_id) {
+                continue;
+            }
+
             if let Some(obj) = self.get_object(&object_id)?
                 && let Some(obj_token_type) = Self::coin_token_type(&obj.type_)
                 && obj_token_type == token_type
@@ -422,12 +440,10 @@ impl StateManager {
             account.set_token_balance(normalized_token_type.clone(), amount.clone());
             self.save_account(&account)?;
             // Always schedule a coin-based recompute for this owner/token pair.
-            // This prevents stale/phantom balances when a parser path reports a balance
-            // but there is no spendable Coin<T> object owned by the account.
             coin_balance_recompute.insert((*owner, normalized_token_type));
         }
 
-        // Delete objects and detach them from owner indices.
+        // 1. จัดการลบ Object
         for obj_id in &changeset.deleted_objects {
             let obj_key = Self::object_key(obj_id);
             if let Some(existing) = self.load_internal::<CreatedObject>(&obj_key)? {
@@ -437,31 +453,29 @@ impl StateManager {
 
                 let owner_key = Self::owned_objects_key(&existing.owner);
                 let mut owned: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
-                if let Some(pos) = owned.iter().position(|x| x == obj_id) {
-                    owned.remove(pos);
-                    self.save_internal(&owner_key, &owned)?;
-                }
+
+                // 🚨 FIX: ล้าง ID นี้ออกจากกระเป๋าทุกตัวที่ซ้ำกันทิ้งให้หมด
+                owned.retain(|x| x != obj_id);
+                self.save_internal(&owner_key, &owned)?;
             }
             self.overlay.insert(obj_key, None);
         }
 
-        // Persist created objects
+        // 2. จัดการสร้าง/อัปเดต Object
         for (obj_id, created) in &changeset.created_objects {
             let obj_key = Self::object_key(obj_id);
             let mut new_obj = created.clone();
 
-            // เช็คว่าเหรียญนี้มีอยู่แล้วหรือไม่ ถ้ามี = การโอนเปลี่ยนมือ
             if let Ok(Some(existing)) = self.load_internal::<CreatedObject>(&obj_key) {
                 new_obj.version = existing.version + 1;
 
-                // ถ้าย้ายเจ้าของ ให้ดึงออกจากกระเป๋าคนเดิม
                 if existing.owner != new_obj.owner {
                     let old_owner_key = Self::owned_objects_key(&existing.owner);
                     if let Ok(Some(mut old_owned)) =
                         self.load_internal::<Vec<String>>(&old_owner_key)
-                        && let Some(pos) = old_owned.iter().position(|x| x == obj_id)
                     {
-                        old_owned.remove(pos);
+                        // 🚨 FIX: ล้าง ID ออกจากคนเก่าแบบหมดจด
+                        old_owned.retain(|x| x != obj_id);
                         self.save_internal(&old_owner_key, &old_owned)?;
                     }
                     if let Some(token_type) = Self::coin_token_type(&existing.type_) {
@@ -469,22 +483,20 @@ impl StateManager {
                     }
                 }
             } else {
-                new_obj.version = 1; // เหรียญสร้างใหม่
+                new_obj.version = 1;
             }
 
-            // เซฟข้อมูลเหรียญทับลงฐานข้อมูลด้วย ID เดิมเสมอ
             self.save_internal(&obj_key, &new_obj)?;
 
             if let Some(token_type) = Self::coin_token_type(&new_obj.type_) {
                 coin_balance_recompute.insert((new_obj.owner, token_type));
             }
 
-            // เพิ่มเหรียญเข้ากระเป๋าคนรับ
             let owner_key = Self::owned_objects_key(&new_obj.owner);
             let mut owned: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
-            if let Some(pos) = owned.iter().position(|x| x == obj_id) {
-                owned.remove(pos);
-            }
+
+            // 🚨 FIX: ทำความสะอาด ID เดิมที่อาจจะค้างอยู่ แล้วค่อยนำไปต่อท้ายใหม่ (การันตีไม่มีทางเบิ้ล)
+            owned.retain(|x| x != obj_id);
             owned.push(obj_id.clone());
             self.save_internal(&owner_key, &owned)?;
 
@@ -503,7 +515,6 @@ impl StateManager {
         }
 
         // Recompute token balances from owned coin objects for affected owners/token types.
-        // This prevents overwrite bugs when a tx touches multiple coin objects.
         for (owner, token_type) in coin_balance_recompute {
             let recomputed = self.recompute_coin_balance_for_owner(owner, &token_type)?;
             let mut account = self.load_account_or_default(owner)?;
@@ -517,7 +528,17 @@ impl StateManager {
     /// Get all object IDs owned by an address
     pub fn get_owned_objects(&self, owner: &AccountAddress) -> Result<Vec<String>> {
         let owner_key = Self::owned_objects_key(owner);
-        Ok(self.load_internal(&owner_key)?.unwrap_or_default())
+        let raw_ids: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
+
+        // 🚨 FIX: กรอง ID ซ้ำซ้อนก่อนส่งกลับให้ RPC
+        let mut unique = HashSet::new();
+        let mut clean = Vec::new();
+        for id in raw_ids {
+            if unique.insert(id.clone()) {
+                clean.push(id);
+            }
+        }
+        Ok(clean)
     }
 
     /// Get a specific object by ID
@@ -570,7 +591,6 @@ impl StateManager {
     /// Get the total number of accounts
     pub fn account_count(&self) -> usize {
         // Count all account keys in the overlay and DB
-        // This is a simplified implementation - in production you might want to cache this
         let mut count = 0;
         let prefix = b"account:";
 
@@ -580,9 +600,6 @@ impl StateManager {
                 count += 1;
             }
         }
-
-        // Note: For a complete count, you'd also need to scan the DB
-        // This simplified version just counts overlay entries
         count
     }
 

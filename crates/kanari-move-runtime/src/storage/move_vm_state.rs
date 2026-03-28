@@ -122,6 +122,7 @@ impl MoveVMState {
     }
 
     /// Save a resource blob keyed by address and struct tag.
+    /// 🚨 UPDATED: Added logic to sync with Kanari Objects to prevent inflation.
     pub fn save_resource(
         &self,
         address: &AccountAddress,
@@ -129,9 +130,35 @@ impl MoveVMState {
         blob: &[u8],
     ) -> Result<()> {
         let key = format!("resource:{}:{}", address.to_hex_literal(), tag);
+
+        // 1. บันทึกข้อมูลดิบลง Move Store ตามปกติ
         self.store
             .save(key.as_bytes(), blob)
-            .map_err(|e| anyhow::anyhow!(e))
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        // 2. 🚨 DEEP SYNC: ถ้า Resource นี้เป็น Coin (เหรียญ)
+        // เราต้องบังคับให้อัปเดตข้อมูลใน Object Storage ด้วย เพื่อให้ยอดเงินรวมถูกต้อง
+        if tag.module.as_str() == "coin" && tag.name.as_str() == "Coin" {
+            let object_id = address.to_hex_literal();
+            let obj_key = format!("object:{}", object_id);
+
+            // ดึงข้อมูล Object เดิมออกมาเพื่ออัปเดต Data (ยอดเงินใหม่)
+            if let Ok(Some(obj_bytes)) = self.store.load::<Vec<u8>>(obj_key.as_bytes()) {
+                // สมมติว่าโครงสร้าง CreatedObject ใน DB ของคุณใช้ BCS
+                // เราจะทำการเขียนทับเฉพาะส่วน Data ที่ MoveVM ส่งมาให้ใหม่
+                if let Ok(mut created_obj) =
+                    bcs::from_bytes::<crate::changeset::CreatedObject>(&obj_bytes)
+                {
+                    created_obj.data = blob.to_vec(); // อัปเดตยอดเงินที่ถูกหักแล้ว
+                    created_obj.version += 1;
+
+                    let updated_bytes = bcs::to_bytes(&created_obj)?;
+                    self.store.save(obj_key.as_bytes(), &updated_bytes)?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Get resource blob from persistent storage

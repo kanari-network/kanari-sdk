@@ -544,17 +544,25 @@ impl BlockchainEngine {
         let execution_results = self.execute_transactions_parallel(checkpoint_txs);
 
         let mut successful_txs = Vec::new();
+        let mut all_events_for_block = Vec::new(); // 🚨 เพิ่มตัวเก็บ Event
         let runtime = &self.runtime_pool[0];
 
-        // 🛡️ 2. Sequential State Commit (ป้องกัน Race Condition และ Deadlock ของ DB)
+        // 🛡️ 2. Sequential State Commit (ป้องกัน Race Condition)
         for (tx, result) in execution_results {
             match result {
                 Ok((_tx_hash, changeset)) => {
-                    // เขียน State Object ลง RocksDB จริงๆ ที่ตรงนี้อย่างปลอดภัย (Thread เดียว)
+                    // 🚨 บันทึก Object ลง RocksDB
                     runtime.persist_created_objects(&changeset);
                     runtime.persist_deleted_objects(&changeset);
 
-                    // ปล่อยให้ StateManager อัปเดต Balance (ถ้ามีการทำแบบเดิมใน apply_checkpoint)
+                    // 🚨 [FIX]: ต้องสั่งให้ StateManager อัปเดตยอดเงินและ Sequence ด้วย
+                    let mut state = self.state.write().unwrap();
+                    if let Err(e) = state.apply_changeset(&changeset) {
+                        error!("[DAG COMMIT] Failed to apply changeset to state: {}", e);
+                    }
+
+                    // 🚨 [FIX]: รวบรวม Events เข้าบล็อก
+                    all_events_for_block.extend(changeset.events.clone());
                     successful_txs.push(tx);
                 }
                 Err(e) => {
@@ -563,7 +571,7 @@ impl BlockchainEngine {
             }
         }
 
-        // 📦 3. บันทึก Checkpoint ลง Blockchain (สวิตช์เป็นแบบ DAG แท้ 100%)
+        // 📦 3. บันทึก Checkpoint ลง Blockchain
         let mut chain = self.blockchain.write().unwrap();
         let height = chain.blocks.len() as u64;
         let prev_hash = chain.blocks.last().map(|b| b.hash()).unwrap_or_default();
@@ -571,13 +579,13 @@ impl BlockchainEngine {
         let new_block = kanari_types::block::Block::new(
             height,
             prev_hash,
-            vec![0u8; 32],  // 3. State Root (Vec<u8>)
-            successful_txs, // 4. Transactions (Vec<SignedTransaction>)
-            vec![],         // 5. Events (Vec<Event>)
+            vec![0u8; 32], // State Root
+            successful_txs,
+            all_events_for_block, // 🚨 [FIX]: ใส่เหตุการณ์ลงในบล็อก
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_secs(), // 6. Timestamp (u64)
+                .as_secs(),
         );
         let block_hash = new_block.hash();
         chain.blocks.push(new_block);
@@ -940,15 +948,26 @@ impl BlockchainEngine {
         let state = self.state.read().unwrap();
 
         state.get_account_by_hex(address).map(|acc| {
-            let owned_ids = state.get_owned_objects(&acc.address).unwrap_or_default();
+            let raw_owned_ids = state.get_owned_objects(&acc.address).unwrap_or_default();
 
-            // 🚨 เริ่มการคำนวณยอดเงินใหม่จาก Objects จริงๆ เพื่อกัน Desync
+            // 🚨 FIX 2: กรอง Object ID ที่ซ้ำซ้อนออก (Deduplication)
+            // ป้องกันปัญหากระเป๋ามี ID เดียวกัน 2 ชิ้นแล้วบวกยอดเหรียญเบิ้ล
+            let mut unique_ids = std::collections::HashSet::new();
+            let mut owned_ids = Vec::new();
+            for id in raw_owned_ids {
+                if unique_ids.insert(id.clone()) {
+                    owned_ids.push(id);
+                }
+            }
+
             let mut actual_token_balances = std::collections::BTreeMap::new();
             let mut coins_with_balance = Vec::new();
             let mut other_objects = Vec::new();
 
+            // เปลี่ยนมาใช้ owned_ids ที่กรองของซ้ำออกแล้ว
             for id in owned_ids {
                 if let Ok(Some(obj)) = state.get_object(&id) {
+                    // ... (โค้ดเดิมที่เหลือปล่อยไว้เหมือนเดิมครับ) ...
                     let info = ObjectInfo {
                         id: id.clone(),
                         owner: format!("{:#x}", obj.owner),
@@ -963,10 +982,7 @@ impl BlockchainEngine {
                         let amount = u64::from_le_bytes(arr);
 
                         if amount > 0 {
-                            // 1. เก็บเพื่อส่งเป็น Object รายชิ้น
                             coins_with_balance.push((amount, info));
-
-                            // 2. บวกยอดรวมเข้ากลุ่มประเภทเหรียญ (Source of Truth สำหรับยอดรวม)
                             let type_tag = obj
                                 .type_
                                 .trim_start_matches("0x2::coin::Coin<")
@@ -1229,26 +1245,63 @@ impl BlockchainEngine {
 
     /// Return list of registered token types and their total supplies
     pub fn list_tokens(&self) -> Vec<(String, u64)> {
-        use std::collections::BTreeSet;
+        use std::collections::{BTreeMap, BTreeSet};
 
-        let state = self.state.read().unwrap();
-        let mut seen: BTreeSet<String> = BTreeSet::new();
-        let mut out: Vec<(String, u64)> = Vec::new();
+        let mut all_addresses = BTreeSet::new();
 
-        // Include native KANARI token (total supply tracked in state)
-        seen.insert("KANARI".to_string());
-        out.push(("KANARI".to_string(), state.total_supply));
+        // 1. รวบรวม Address ของผู้ใช้งาน "ทุกคน" ในระบบจากประวัติธุรกรรม
+        {
+            let chain = self.blockchain.read().unwrap();
+            for block in chain.blocks.iter() {
+                for tx in block.transactions.iter() {
+                    // เก็บกระเป๋าคนส่ง
+                    all_addresses.insert(tx.transaction.sender_address().to_string());
+                    // เก็บกระเป๋าคนรับ (กรณีโอน)
+                    if let kanari_types::transaction::Transaction::Transfer { to, .. } =
+                        &tx.transaction
+                    {
+                        all_addresses.insert(to.clone());
+                    }
+                }
+            }
 
-        // Include registered treasuries (known supplies from RocksDB index)
-        if let Ok(treasuries) = state.load_treasuries() {
-            for (_owner, token_type, cap) in treasuries {
-                if seen.insert(token_type.clone()) {
-                    out.push((token_type, cap.total_supply));
+            // เก็บ Address จากคิวที่กำลังรอประมวลผลด้วย
+            if let Ok(pending) = self.pending_txs.read() {
+                for tx in pending.iter() {
+                    all_addresses.insert(tx.transaction.sender_address().to_string());
                 }
             }
         }
 
-        out
+        let mut global_tokens: BTreeMap<String, u64> = BTreeMap::new();
+
+        // 2. ดึงข้อมูลเหรียญหลัก (Native) และเหรียญที่มีคลัง (Treasury)
+        {
+            let state = self.state.read().unwrap();
+            global_tokens.insert("KANARI".to_string(), state.total_supply);
+
+            if let Ok(treasuries) = state.load_treasuries() {
+                for (_owner, token_type, cap) in treasuries {
+                    global_tokens.insert(token_type, cap.total_supply);
+                }
+            }
+        } // 🚨 สำคัญ: เราจะปลด Lock ของ State ตรงนี้ เพื่อป้องกันการเกิด Deadlock ในขั้นตอนต่อไป
+
+        // 3. 🚨 DEEP SCAN: เปิดกระเป๋าทุกใบเพื่อค้นหาเหรียญที่ซ่อนอยู่ 100%!
+        for addr in all_addresses {
+            // get_account_info จะเข้าไปกวาด "วัตถุเหรียญ (Coin Objects)" ในกระเป๋านั้นจริงๆ
+            if let Some(acc_info) = self.get_account_info(&addr) {
+                for (token_type, balance) in acc_info.token_balances {
+                    if token_type != "KANARI" {
+                        // ถ้าเจอเหรียญ ให้เอาจำนวนไปบวกสะสมเป็นยอด Total Supply ทันที
+                        *global_tokens.entry(token_type).or_insert(0) += balance;
+                    }
+                }
+            }
+        }
+
+        // คืนค่ารายการเหรียญพร้อม Total Supply ทั้งหมดในระบบส่งให้ RPC
+        global_tokens.into_iter().collect()
     }
 
     /// Get token decimals

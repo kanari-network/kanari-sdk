@@ -2,9 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { callRpc } from "./lib/rpc";
 
 export default function Home() {
+  const router = useRouter();
+  const [searchQuery, setSearchQuery] = useState("");
+
   const [latestHeight, setLatestHeight] = useState<number | null>(null);
   const [blocks, setBlocks] = useState<any[]>([]);
   const [txs, setTxs] = useState<any[]>([]);
@@ -44,19 +48,15 @@ export default function Home() {
           else if (Array.isArray(b.transactions ?? b.result?.transactions)) txList.push(...(b.transactions ?? b.result?.transactions));
         }
         setTxs(txList.slice(0, 10));
-        // fetch stats and health
+
         try {
           const s = await callRpc("kanari_getStats", []);
           setStats(s?.result ?? s);
-        } catch (e) {
-          // ignore
-        }
+        } catch (e) { }
         try {
           const he = await callRpc("kanari_health", []);
           setHealth(he?.result ?? he);
-        } catch (e) {
-          // ignore
-        }
+        } catch (e) { }
       }
     } catch (e: any) {
       setErr(e.message || String(e));
@@ -64,6 +64,24 @@ export default function Home() {
       setLoading(false);
     }
   }
+
+  // 🚨 ระบบค้นหาอัจฉริยะ (Smart Search)
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = searchQuery.trim();
+    if (!q) return;
+
+    if (q.includes("::")) {
+      // ถ้ามี :: ให้มองว่าเป็น Token Type แล้วไปหน้า Coins
+      router.push(`/coins?token=${encodeURIComponent(q)}`);
+    } else if (/^\d+$/.test(q)) {
+      // ถ้าเป็นตัวเลขล้วน ให้แจ้งเตือนก่อน (เพราะเรายังไม่มีหน้า Block Details)
+      alert(`ระบบค้นหา Block ${q} กำลังอยู่ระหว่างการพัฒนา`);
+    } else {
+      // ค่าเริ่มต้นให้มองว่าเป็น Address กระเป๋า หรือ Tx Hash
+      router.push(`/account?address=${encodeURIComponent(q)}`);
+    }
+  };
 
   function short(x: string | number | undefined) {
     if (!x) return "--";
@@ -111,10 +129,18 @@ export default function Home() {
         <div className="bg-black rounded-lg p-10 text-white mb-8" style={{ backgroundImage: 'radial-gradient(circle at 10% 10%, rgba(96,165,250,0.06), transparent), linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01))' }}>
           <h2 className="text-2xl font-semibold mb-4">Kanari Testnet Explorer</h2>
           <div className="max-w-3xl">
-            <div className="relative">
-              <input placeholder="Search by Address / Txn Hash / Block / Token" className="w-full rounded-full border border-zinc-700 bg-transparent py-3 px-5 placeholder-zinc-400" />
-              <button className="absolute right-2 top-2 bottom-2 bg-blue-600 text-white px-4 rounded-full">Search</button>
-            </div>
+            {/* 🚨 เปลี่ยน Input เดิมให้เป็น Form ค้นหาที่กด Enter ได้ */}
+            <form onSubmit={handleSearch} className="relative">
+              <input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by Address / Block / Token (e.g. 0x...)"
+                className="w-full rounded-full border border-zinc-700 bg-transparent py-3 px-5 text-white placeholder-zinc-400 focus:outline-none focus:border-blue-500 transition-colors"
+              />
+              <button type="submit" className="absolute right-2 top-2 bottom-2 bg-blue-600 hover:bg-blue-700 text-white px-6 rounded-full transition-colors">
+                Search
+              </button>
+            </form>
           </div>
         </div>
 
@@ -124,27 +150,22 @@ export default function Home() {
               <div className="text-sm text-zinc-500">Height</div>
               <div className="text-2xl text-zinc-500 font-bold mt-2">{fmtNum(stats?.height ?? latestHeight)}</div>
             </div>
-
             <div className="bg-white rounded-lg p-6 shadow">
               <div className="text-sm text-zinc-500">Pending Tx</div>
               <div className="text-2xl text-zinc-500 font-bold mt-2">{fmtNum(stats?.pending_transactions)}</div>
             </div>
-
             <div className="bg-white rounded-lg p-6 shadow">
               <div className="text-sm text-zinc-500">Total Accounts</div>
               <div className="text-2xl text-zinc-500 font-bold mt-2">{fmtNum(stats?.total_accounts)}</div>
             </div>
-
             <div className="bg-white rounded-lg p-6 shadow">
               <div className="text-sm text-zinc-500">Total Blocks</div>
               <div className="text-2xl text-zinc-500 font-bold mt-2">{fmtNum(stats?.total_blocks)}</div>
             </div>
-
             <div className="bg-white rounded-lg p-6 shadow">
               <div className="text-sm text-zinc-500">Total Tx</div>
               <div className="text-2xl text-zinc-500 font-bold mt-2">{fmtNum(stats?.total_transactions)}</div>
             </div>
-
             <div className="bg-white rounded-lg p-6 shadow">
               <div className="text-sm text-zinc-500">Total Supply</div>
               <div className="text-2xl text-zinc-500 font-bold mt-2">{fmtSupplyWhole(stats?.total_supply)} kanari</div>

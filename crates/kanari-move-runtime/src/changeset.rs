@@ -268,9 +268,8 @@ impl ChangeSet {
         uid: Option<UIDRecord>,
         object_id: Option<String>,
     ) {
-        // Compute canonical id first: prefer explicit object_id, then UID address,
-        // otherwise derive deterministic id from owner+type+data via blake3.
-        let mut canonical_id = if let Some(id) = &object_id {
+        // 1. กำหนด ID หลักให้คงที่
+        let canonical_id = if let Some(id) = &object_id {
             id.clone()
         } else if let Some(ref u) = uid {
             format!("{:#x}", u.address())
@@ -278,79 +277,38 @@ impl ChangeSet {
             let mut input = Vec::new();
             input.extend_from_slice(owner.as_ref());
             input.extend_from_slice(type_.as_bytes());
-            input.extend_from_slice(&data);
             let hash = hash_data_blake3(&input);
             format!("0x{}", hex::encode(&hash[0..32]))
         };
 
-        // Check if this object_id is already used in this changeset
-        // If so, generate a new unique ID to prevent collision
-        if self
-            .created_objects
-            .iter()
-            .any(|(id, _)| id == &canonical_id)
-        {
-            // Object ID already used - generate new unique ID by including version and timestamp
-            let mut input = Vec::new();
-            input.extend_from_slice(owner.as_ref());
-            input.extend_from_slice(type_.as_bytes());
-            input.extend_from_slice(&data);
-            input.extend_from_slice(&version.to_le_bytes());
-            // Add some entropy from current time
-            let timestamp = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos() as u64;
-            input.extend_from_slice(&timestamp.to_le_bytes());
-            let hash = hash_data_blake3(&input);
-            let new_id = format!("0x{}", hex::encode(&hash[0..32]));
-            log::warn!(
-                "Object ID collision detected for {}. Generated new unique ID: {}",
-                object_id.as_deref().unwrap_or("derived"),
-                new_id
-            );
-            canonical_id = new_id;
-        }
+        // 🚨 [ลบช่วง if self...any ออกไปเลย ห้ามเหลือตามในไฟล์ที่ส่งมา]
 
-        // If an entry with the same canonical id already exists, update it.
-        if let Some((existing_id, existing_obj)) = self
+        // 2. ตรวจสอบและ Overwrite (Update) ทันที
+        if let Some((_, existing_obj)) = self
             .created_objects
             .iter_mut()
             .find(|(id, _)| id == &canonical_id)
         {
-            // If existing entry found, ensure type matches (safety)
-            if existing_obj.type_ != type_ {
-                log::error!(
-                    "Type mismatch for object {}: expected {}, got {}. Keeping existing object.",
-                    existing_id,
-                    existing_obj.type_,
-                    type_
-                );
-                return;
-            }
-
-            // Update existing object data/version and keep canonical id
-            log::debug!(
-                "Updating existing object {}: version {} -> {}",
-                existing_id,
-                existing_obj.version,
-                version
-            );
+            // ถ้าเจอ ID เดิม ให้เขียนทับยอดล่าสุดลงไป (ป้องกันเงินเบิ้ล)
             existing_obj.owner = owner;
             existing_obj.data = data;
             existing_obj.version = version;
+            existing_obj.type_ = type_;
             if let Some(u) = uid {
                 existing_obj.uid = Some(u);
             }
         } else {
-            let created = CreatedObject {
-                owner,
-                uid,
-                type_,
-                data,
-                version,
-            };
-            self.created_objects.push((canonical_id, created));
+            // ถ้ายังไม่มี ID นี้ ค่อยเพิ่มเข้าไป
+            self.created_objects.push((
+                canonical_id,
+                CreatedObject {
+                    owner,
+                    uid,
+                    type_,
+                    data,
+                    version,
+                },
+            ));
         }
     }
 
