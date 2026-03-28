@@ -12,7 +12,7 @@ use log::debug;
 use move_binary_format::file_format::CompiledModule;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::{IdentStr, Identifier};
-use move_core_types::language_storage::{ModuleId, TypeTag};
+use move_core_types::language_storage::{ModuleId, StructTag, TypeTag};
 use move_vm_runtime::move_vm::MoveVM;
 use move_vm_runtime::native_functions::NativeFunctionTable;
 use move_vm_types::gas::UnmeteredGasMeter;
@@ -45,6 +45,14 @@ pub struct MoveRuntime {
     pub(crate) published_modules: Arc<RwLock<HashSet<ModuleId>>>,
     /// Persistent object storage for transferred objects
     pub(crate) object_storage: Arc<dyn ObjectStore>,
+}
+
+// 🚨 เพิ่ม Struct สำหรับใบเสร็จไว้ด้านบนสุดของไฟล์
+#[derive(serde::Serialize)]
+struct AutoMergeReceiptData {
+    owner: AccountAddress,
+    merged_count: u64,
+    total_amount: u64,
 }
 
 type LoadedMutableObject = (usize, String, AccountAddress, String, u64);
@@ -256,7 +264,12 @@ impl MoveRuntime {
 
                     // Persist to DB and index
                     self.state.save_module(&module_id, bytes)?;
-                    self.published_modules.write().unwrap().insert(module_id);
+                    // ดึง Lock มาใช้ ถ้าพังก็บังคับดึงค่าออกมา (into_inner) โหนดจะไม่ดับ
+                    let mut modules = self
+                        .published_modules
+                        .write()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    modules.insert(module_id);
                 }
             }
         }
@@ -413,10 +426,10 @@ impl MoveRuntime {
                     }
 
                     // ถ้ารูปแบบเป็นตัวเลข (เช่น จำนวนเหรียญ amount)
-                    if let Ok(n) = s_trim.parse::<u64>() {
-                        if let Ok(b) = bcs::to_bytes(&n) {
-                            return b;
-                        }
+                    if let Ok(n) = s_trim.parse::<u64>()
+                        && let Ok(b) = bcs::to_bytes(&n)
+                    {
+                        return b;
                     }
                 }
                 arg
@@ -676,9 +689,11 @@ impl MoveRuntime {
         let mut session = self.vm.new_session(self.resolver.clone());
         let mut gas = UnmeteredGasMeter;
 
-        // 🚨 1. เพิ่มตัวแปรเก็บสถานะการ Merge ที่จุดเริ่มต้นของฟังก์ชัน
+        // 🚨 1. ตัวแปรความปลอดภัย ป้องกัน DDoS & Auto-Merge
         let mut auto_merged_coin_ids = Vec::new();
         let mut merged_coin_types = std::collections::HashSet::new();
+        let mut total_merge_reads: u64 = 0; // เก็บค่าเหนื่อยในการกวาดเหรียญ
+        let mut synthetic_events = Vec::new(); // <--- 🚨 เพิ่มตะกร้าเก็บใบเสร็จ
 
         // convert type tags to VM runtime types
         let mut ty_args_loaded = vec![];
@@ -753,68 +768,92 @@ impl MoveRuntime {
                             }
                         }
 
-                        // 🚨 --- [AUTO-MERGE COINS LOGIC] กวาดเหรียญมารวมอัตโนมัติ --- 🚨
+                        // 🚨 --- [ANTI-DDOS AUTO-MERGE LOGIC] กวาดเหรียญมารวมอัตโนมัติ --- 🚨
                         let is_coin = struct_tag.module.as_str() == "coin"
                             && struct_tag.name.as_str() == "Coin";
-                        if is_coin && let Some(s_addr) = sender {
-                            if let Some(coin_t) = struct_tag.type_params.first() {
-                                // ป้องกันการ Merge ซ้ำซ้อนถ้ามีหลาย Parameter
-                                let merge_key = format!("{:?}_{}", s_addr, coin_t);
-                                if !merged_coin_types.contains(&merge_key) {
-                                    merged_coin_types.insert(merge_key);
+                        if is_coin
+                            && let Some(s_addr) = sender
+                            && let Some(coin_t) = struct_tag.type_params.first()
+                        {
+                            // ป้องกันการ Merge ซ้ำซ้อนถ้ามีหลาย Parameter
+                            let merge_key = format!("{:?}_{}", s_addr, coin_t);
+                            if !merged_coin_types.contains(&merge_key) {
+                                merged_coin_types.insert(merge_key);
 
-                                    // 🚨 แก้ข้อ 3: จำกัดโควต้าดึงเหรียญสูงสุดแค่ 200 ก้อน ป้องกัน Node ค้าง
-                                    let all_coins: Vec<_> = self
-                                        .object_storage
-                                        .get_coins_by_type_and_owner(s_addr, coin_t)
-                                        .into_iter()
-                                        .take(200)
-                                        .collect();
+                                // 🚨 แก้ข้อ 3: จำกัดโควต้าดึงเหรียญสูงสุดแค่ 200 ก้อน ป้องกัน Node ค้าง
+                                let all_coins: Vec<_> = self
+                                    .object_storage
+                                    .get_coins_by_type_and_owner(s_addr, coin_t)
+                                    .into_iter()
+                                    .take(200)
+                                    .collect();
 
-                                    if all_coins.len() > 1 {
-                                        log::debug!(
-                                            "[RUNTIME] Auto-merging {} coins for sender",
-                                            all_coins.len()
-                                        );
+                                // 🚨 จดบันทึกว่าโหนดทำงานไปกี่ก้อน เพื่อเอาไปคิดค่า Gas ย้อนหลัง
+                                total_merge_reads += all_coins.len() as u64;
 
-                                        let mut total_balance: u64 = 0;
-                                        // 🚨 แก้ข้อ 1: สร้างคิวเก็บเฉพาะ ID ที่บวกเงินสำเร็จเท่านั้น
-                                        let mut successfully_merged_ids = Vec::new();
+                                if all_coins.len() > 1 {
+                                    log::debug!(
+                                        "[RUNTIME] Auto-merging {} coins for sender",
+                                        all_coins.len()
+                                    );
 
-                                        for c in &all_coins {
-                                            if c.data.len() == 40 {
-                                                let mut bal_bytes = [0u8; 8];
-                                                bal_bytes.copy_from_slice(&c.data[32..40]);
+                                    let mut total_balance: u64 = 0;
+                                    // 🚨 แก้ข้อ 1: สร้างคิวเก็บเฉพาะ ID ที่บวกเงินสำเร็จเท่านั้น
+                                    let mut successfully_merged_ids = Vec::new();
 
-                                                // 🚨 ใช้ checked_add ป้องกันบั๊กเงินล้น (Overflow)
-                                                if let Some(new_total) = total_balance
-                                                    .checked_add(u64::from_le_bytes(bal_bytes))
-                                                {
-                                                    total_balance = new_total;
+                                    for c in &all_coins {
+                                        if c.data.len() == 40 {
+                                            let mut bal_bytes = [0u8; 8];
+                                            bal_bytes.copy_from_slice(&c.data[32..40]);
 
-                                                    if c.id != stored_obj.id {
-                                                        successfully_merged_ids.push(c.id.clone());
-                                                    }
+                                            // 🚨 ใช้ checked_add ป้องกันบั๊กเงินล้น (Overflow)
+                                            if let Some(new_total) = total_balance
+                                                .checked_add(u64::from_le_bytes(bal_bytes))
+                                            {
+                                                total_balance = new_total;
+
+                                                if c.id != stored_obj.id {
+                                                    successfully_merged_ids.push(c.id.clone());
                                                 }
-                                            } else {
-                                                // ถ้าเจอเหรียญพัง ให้ข้ามไปเลย ไม่เอาไปลบ
-                                                log::warn!(
-                                                    "[RUNTIME] Skipped coin with invalid size: {}",
-                                                    c.id
-                                                );
                                             }
+                                        } else {
+                                            // ถ้าเจอเหรียญพัง ให้ข้ามไปเลย ไม่เอาไปลบ
+                                            log::warn!(
+                                                "[RUNTIME] Skipped coin with invalid size: {}",
+                                                c.id
+                                            );
                                         }
+                                    }
 
-                                        // บันทึกยอดรวมกลับเข้าไปที่ก้อนหลัก
-                                        if stored_obj.data.len() == 40 {
-                                            let new_bal_bytes = total_balance.to_le_bytes();
-                                            stored_obj.data[32..40].copy_from_slice(&new_bal_bytes);
-                                        }
+                                    // บันทึกยอดรวมกลับเข้าไปที่ก้อนหลัก
+                                    if stored_obj.data.len() == 40 {
+                                        let new_bal_bytes = total_balance.to_le_bytes();
+                                        stored_obj.data[32..40].copy_from_slice(&new_bal_bytes);
+                                    }
 
-                                        // เอา ID ที่บวกผ่านแล้ว โยนใส่ตัวแปรที่รอคำสั่งลบตอนจบ Transaction
-                                        for id in successfully_merged_ids {
-                                            auto_merged_coin_ids.push(id);
-                                        }
+                                    // เอา ID ที่บวกผ่านแล้ว โยนใส่ตัวแปรที่รอคำสั่งลบ
+                                    for id in &successfully_merged_ids {
+                                        // <--- เติม & ตรงนี้เพื่อขอยืม
+                                        auto_merged_coin_ids.push(id.clone()); // <--- เติม .clone() เพื่อก๊อปปี้ค่า
+                                    }
+                                    // 🚨 2. สร้างใบเสร็จใส่ตะกร้า (Synthetic Event)
+                                    let receipt_data = AutoMergeReceiptData {
+                                        owner: s_addr,
+                                        merged_count: successfully_merged_ids.len() as u64,
+                                        total_amount: total_balance,
+                                    };
+
+                                    // แปลงใบเสร็จเป็นไบต์ (BCS) และสร้าง TypeTag แจ้ง Explorer
+                                    if let Ok(event_bytes) = bcs::to_bytes(&receipt_data) {
+                                        let event_type = TypeTag::Struct(Box::new(StructTag {
+                                            address: KanariAddress::kanari_system_account_address(), // 0x2
+                                            module: Identifier::new("system_events").unwrap(),
+                                            name: Identifier::new("AutoMergeReceipt").unwrap(),
+                                            // ระบุว่าเหรียญที่รวมคือเหรียญอะไร (เช่น <0x2::james::JAMES>)
+                                            type_params: vec![TypeTag::Struct(struct_tag.clone())],
+                                        }));
+
+                                        synthetic_events.push((event_type, event_bytes));
                                     }
                                 }
                             }
@@ -851,39 +890,18 @@ impl MoveRuntime {
                 if let Some(last_param_type) = func.parameters.last() {
                     // Use the session loader to convert the runtime `Type` into a `TypeTag` and
                     // check whether the last parameter is the canonical `0x2::tx_context::TxContext`.
-                    match type_tag_for_param(last_param_type) {
-                        Some(type_tag) => match &type_tag {
-                            TypeTag::Struct(struct_tag) => {
-                                let system_addr = KanariAddress::kanari_system_account_address();
-                                if struct_tag.address == system_addr
-                                    && struct_tag.module.as_str()
-                                        == TxContextModule::TX_CONTEXT_MODULE
-                                    && struct_tag.name.as_str()
-                                        == TxContextModule::TX_CONTEXT_STRUCT
-                                {
-                                    final_args.push(tx_context_bytes);
-                                    debug!(
-                                        "[RUNTIME] Auto-injected TxContext for {}::{}",
-                                        module_id, function_name
-                                    );
-                                } else {
-                                    debug!(
-                                        "[RUNTIME] Skipped TxContext injection for {}::{} - last param type: {:?}",
-                                        module_id, function_name, type_tag
-                                    );
-                                }
-                            }
-                            other => {
-                                debug!(
-                                    "[RUNTIME] Skipped TxContext injection for {}::{} - last param not a struct: {:?}",
-                                    module_id, function_name, other
-                                );
-                            }
-                        },
-                        None => debug!(
-                            "[RUNTIME] Failed to convert last param type to TypeTag for {}::{}",
-                            module_id, function_name
-                        ),
+                    if let Some(TypeTag::Struct(struct_tag)) = type_tag_for_param(last_param_type) {
+                        let system_addr = KanariAddress::kanari_system_account_address();
+                        if struct_tag.address == system_addr
+                            && struct_tag.module.as_str() == TxContextModule::TX_CONTEXT_MODULE
+                            && struct_tag.name.as_str() == TxContextModule::TX_CONTEXT_STRUCT
+                        {
+                            final_args.push(tx_context_bytes);
+                            debug!(
+                                "[RUNTIME] Auto-injected TxContext for {}::{}",
+                                module_id, function_name
+                            );
+                        }
                     }
                 }
             }
@@ -897,178 +915,181 @@ impl MoveRuntime {
         use kanari_system_natives::object::DeletedObjectsExt;
         use kanari_system_natives::object::SavedObjectsExt;
         use kanari_system_natives::transfer_natives::TransferredObjectsExt;
+
         let exts = session.get_native_extensions();
         exts.add(TransferredObjectsExt::default());
         exts.add(EventsExt::default());
         exts.add(SavedObjectsExt::default());
         exts.add(DeletedObjectsExt::default());
 
-        let return_values = session
-            .execute_entry_function(module_id, ident, ty_args_loaded, final_args, &mut gas)
-            .map_err(|e| anyhow::anyhow!(format!("exec error: {:?}", e)))?;
+        // 🚨 สั่ง Execute และดักจับความล้มเหลวเพื่อหักค่า Gas
+        let execution_result =
+            session.execute_entry_function(module_id, ident, ty_args_loaded, final_args, &mut gas);
 
-        // After execution, collect transferred objects and captured events
-        // from the native-extensions container before consuming the session
-        // with `finish()`.
-        let (transferred, captured_events, saved_objects, deleted_objects) = {
-            let exts_after = session.get_native_extensions();
-            let trans = exts_after.get_mut::<TransferredObjectsExt>().take_all();
-            let evs = exts_after.get_mut::<EventsExt>().take_all();
-            let saved = exts_after.get_mut::<SavedObjectsExt>().take_all();
-            let deleted = exts_after.get_mut::<DeletedObjectsExt>().take_all();
-            (trans, evs, saved, deleted)
-        };
-
-        let (res, _new_storage) = session.finish();
-        let (move_changeset, events) =
-            res.map_err(|e| anyhow::anyhow!(format!("exec error: {:?}", e)))?;
-
-        // After successful execution, update our local storage and persist modules
-        if persist_runtime_state {
-            self.apply_move_changeset(move_changeset.clone())?;
-        }
-
-        // Create ChangeSet from Move VM execution
         let mut cs = ChangeSet::new();
 
-        // Parse Move VM changeset and events
-        self.parse_move_changeset(&move_changeset, &mut cs);
-        self.parse_move_events(&events, &mut cs);
-
-        // Writeback: Update ChangeSet with modified mutable objects
-        let mut processed_ids = std::collections::HashSet::new();
-
-        debug!(
-            "[RUNTIME] Processing mutable reference outputs: count={}",
-            return_values.mutable_reference_outputs.len()
-        );
-        for (idx, data, _layout) in return_values.mutable_reference_outputs {
-            debug!("[RUNTIME] Mutable output at index {}", idx);
-            // Find matching loaded object by index
-            if let Some((_, id, owner, type_name, version)) = loaded_mutable_objects
-                .iter()
-                .find(|(i, _, _, _, _)| *i == idx as usize)
-            {
-                debug!(
-                    "[RUNTIME] Writing back mutable object {} (size: {})",
-                    id,
-                    data.len()
-                );
-                let uid = Self::uid_from_object_id(id);
-
-                let updated_obj = crate::changeset::CreatedObject {
-                    owner: *owner,
-                    uid,
-                    type_: type_name.clone(),
-                    data: data.clone(), // Clone data for balance extraction below
-                    version: version + 1, // Increment version on modification
+        match execution_result {
+            Ok(return_values) => {
+                // 🟢 กรณีสำเร็จ (Success Path)
+                let (transferred, captured_events, saved_objects, deleted_objects) = {
+                    let exts_after = session.get_native_extensions();
+                    let trans = exts_after.get_mut::<TransferredObjectsExt>().take_all();
+                    let evs = exts_after.get_mut::<EventsExt>().take_all();
+                    let saved = exts_after.get_mut::<SavedObjectsExt>().take_all();
+                    let deleted = exts_after.get_mut::<DeletedObjectsExt>().take_all();
+                    (trans, evs, saved, deleted)
                 };
 
-                self.maybe_add_token_balance(&mut cs, *owner, type_name, &data, id, "writeback");
+                let (res, _new_storage) = session.finish();
+                let (move_changeset, events) =
+                    res.map_err(|e| anyhow::anyhow!(format!("exec error: {:?}", e)))?;
 
-                cs.created_objects.push((id.clone(), updated_obj));
-                processed_ids.insert(id.clone());
-            } else {
-                debug!("[RUNTIME] No loaded mutable object found for index {}", idx);
+                if persist_runtime_state {
+                    self.apply_move_changeset(move_changeset.clone())?;
+                }
+
+                self.parse_move_changeset(&move_changeset, &mut cs);
+                self.parse_move_events(&events, &mut cs);
+
+                let mut processed_ids = std::collections::HashSet::new();
+
+                for (idx, data, _layout) in return_values.mutable_reference_outputs {
+                    if let Some((_, id, owner, type_name, version)) = loaded_mutable_objects
+                        .iter()
+                        .find(|(i, _, _, _, _)| *i == idx as usize)
+                    {
+                        let uid = Self::uid_from_object_id(id);
+                        let updated_obj = crate::changeset::CreatedObject {
+                            owner: *owner,
+                            uid,
+                            type_: type_name.clone(),
+                            data: data.clone(),
+                            version: version + 1,
+                        };
+
+                        self.maybe_add_token_balance(
+                            &mut cs,
+                            *owner,
+                            type_name,
+                            &data,
+                            id,
+                            "writeback",
+                        );
+                        cs.created_objects.push((id.clone(), updated_obj));
+                        processed_ids.insert(id.clone());
+                    }
+                }
+
+                for saved in saved_objects {
+                    if processed_ids.contains(&saved.object_id) {
+                        continue;
+                    }
+
+                    let (owner, version) = self
+                        .resolve_saved_owner_and_version(&loaded_mutable_objects, &saved.object_id);
+
+                    let uid = Self::uid_from_object_id(&saved.object_id);
+                    let saved_data_clone = saved.data.clone();
+                    let saved_type_clone = saved.object_type.clone();
+
+                    let updated_obj = crate::changeset::CreatedObject {
+                        owner,
+                        uid,
+                        type_: saved.object_type,
+                        data: saved.data,
+                        version,
+                    };
+
+                    self.maybe_add_token_balance(
+                        &mut cs,
+                        owner,
+                        &saved_type_clone,
+                        &saved_data_clone,
+                        &saved.object_id,
+                        "saved",
+                    );
+
+                    cs.created_objects
+                        .push((saved.object_id.clone(), updated_obj));
+                    processed_ids.insert(saved.object_id);
+                }
+
+                self.add_transferred_objects_to_changeset(&mut cs, transferred);
+
+                for ev in captured_events.into_iter() {
+                    let ev_rec = Event {
+                        key: ev.key,
+                        sequence_number: ev.sequence_number,
+                        type_tag: ev.type_tag,
+                        event_data: ev.event_data,
+                    };
+                    cs.add_event(ev_rec);
+                }
+
+                for deleted_obj in deleted_objects {
+                    cs.add_deleted_object(deleted_obj.object_id);
+                }
+
+                for merged_id in auto_merged_coin_ids {
+                    cs.add_deleted_object(merged_id);
+                }
+
+                // 🚨 3. ยิง Event ใบเสร็จออกไปให้ Block Explorer รับทราบ
+                for (evt_type, evt_data) in synthetic_events {
+                    let ev_rec = Event {
+                        key: Default::default(), // ใช้ Default key (หลอกระบบว่าเป็น System Event)
+                        sequence_number: 0,
+                        type_tag: evt_type.to_string(),
+                        event_data: evt_data,
+                    };
+                    cs.add_event(ev_rec);
+                }
+
+                // 🚨 หักค่า Gas กรณีสำเร็จ (คิดรวมความเหนื่อยในการ Merge เหรียญ)
+                if let Some((gas_limit, gas_price)) = gas_info {
+                    let complexity = 1 + (total_merge_reads as u32 / 10);
+                    let gas_op = GasOperation::ExecuteFunction { complexity };
+                    let (written, deleted) = self.calculate_storage_impact(&move_changeset, &cs);
+                    self.apply_gas_info(
+                        &mut cs, sender, gas_limit, gas_price, gas_op, written, deleted,
+                    )?;
+                }
+
+                if persist_runtime_state {
+                    self.persist_created_objects(&cs);
+                    self.persist_deleted_objects(&cs);
+                }
+
+                Ok(cs)
             }
-        }
-
-        // Add saved objects (explicitly saved via native call) to ChangeSet
-        debug!(
-            "[RUNTIME] Processing saved objects: count={}",
-            saved_objects.len()
-        );
-        for saved in saved_objects {
-            // Skip if already processed via mutable reference outputs (which have final state)
-            if processed_ids.contains(&saved.object_id) {
-                debug!(
-                    "[RUNTIME] Skipping saved object {} (handled by mut ref)",
-                    saved.object_id
+            Err(e) => {
+                // 🔴 กรณีล้มเหลว (Security Guard Path)
+                // ทิ้ง Transaction แต่หักเงินค่า Gas อย่างหนักเพื่อลงโทษแฮ็กเกอร์
+                log::error!(
+                    "[SECURITY GUARD] Execution aborted! Applying Gas Penalty. Error: {}",
+                    e
                 );
-                continue;
+
+                if let Some((gas_limit, gas_price)) = gas_info {
+                    // ปรับความยากขึ้นเป็นทวีคูณถ้ายิงขยะเข้ามา + คิดค่าอ่าน DB
+                    let penalty_complexity = 5 + (total_merge_reads as u32);
+                    let gas_op = GasOperation::ExecuteFunction {
+                        complexity: penalty_complexity,
+                    };
+
+                    if let Err(gas_err) =
+                        self.apply_gas_info(&mut cs, sender, gas_limit, gas_price, gas_op, 0, 0)
+                    {
+                        log::error!("Failed to deduct penalty gas: {}", gas_err);
+                    }
+
+                    if persist_runtime_state {
+                        self.persist_created_objects(&cs);
+                    }
+                }
+
+                Err(anyhow::anyhow!(format!("exec error: {:?}", e)))
             }
-
-            let (owner, version) =
-                self.resolve_saved_owner_and_version(&loaded_mutable_objects, &saved.object_id);
-
-            // Create updated object record
-            let uid = Self::uid_from_object_id(&saved.object_id);
-
-            // Clone data and type for balance extraction (before moving into updated_obj)
-            let saved_data_clone = saved.data.clone();
-            let saved_type_clone = saved.object_type.clone();
-
-            let updated_obj = crate::changeset::CreatedObject {
-                owner,
-                uid,
-                type_: saved.object_type,
-                data: saved.data,
-                version,
-            };
-
-            debug!(
-                "[RUNTIME] Writing back saved object {} (v{})",
-                saved.object_id, version
-            );
-
-            self.maybe_add_token_balance(
-                &mut cs,
-                owner,
-                &saved_type_clone,
-                &saved_data_clone,
-                &saved.object_id,
-                "saved",
-            );
-
-            cs.created_objects
-                .push((saved.object_id.clone(), updated_obj));
-            processed_ids.insert(saved.object_id);
         }
-
-        // Add transferred objects collected from the native extension
-        self.add_transferred_objects_to_changeset(&mut cs, transferred);
-
-        // Add captured events recorded by event native functions
-        for ev in captured_events.into_iter() {
-            let ev_rec = Event {
-                key: ev.key,
-                sequence_number: ev.sequence_number,
-                type_tag: ev.type_tag,
-                event_data: ev.event_data,
-            };
-            cs.add_event(ev_rec);
-        }
-
-        // Add deleted objects
-        for deleted_obj in deleted_objects {
-            cs.add_deleted_object(deleted_obj.object_id);
-        }
-
-        // 🚨 3. สั่งลบเศษเหรียญทิ้งเฉพาะตอนที่ Transaction สำเร็จแล้วเท่านั้น!
-        for merged_id in auto_merged_coin_ids {
-            cs.add_deleted_object(merged_id);
-        }
-
-        // If gas accounting requested, include gas debit/credit in ChangeSet.
-        if let Some((gas_limit, gas_price)) = gas_info {
-            let gas_op = GasOperation::ExecuteFunction { complexity: 1 };
-            let (written, deleted) = self.calculate_storage_impact(&move_changeset, &cs);
-            self.apply_gas_info(
-                &mut cs, sender, gas_limit, gas_price, gas_op, written, deleted,
-            )?;
-        }
-
-        // PERSISTENCE: Update internal ObjectStorage with created/modified objects.
-        // This ensures subsequent calls (e.g. transfer) can find these objects.
-        if persist_runtime_state {
-            self.persist_created_objects(&cs);
-        }
-
-        // Handle deleted objects for persistence
-        if persist_runtime_state {
-            self.persist_deleted_objects(&cs);
-        }
-
-        Ok(cs)
     }
 }

@@ -57,23 +57,6 @@ impl Account {
             .unwrap_or(0)
     }
 
-    pub fn add_token(&mut self, token_type: String, amount: u64) {
-        let entry = self
-            .token_balances
-            .entry(token_type)
-            .or_insert_with(BalanceRecord::zero);
-        entry.increase(amount).unwrap();
-    }
-
-    pub fn sub_token(&mut self, token_type: &str, amount: u64) -> Result<()> {
-        if let Some(bal) = self.token_balances.get_mut(token_type) {
-            bal.decrease(amount)?;
-            Ok(())
-        } else {
-            anyhow::bail!("Insufficient token balance");
-        }
-    }
-
     pub fn to_hex_string(&self) -> String {
         format!("{:#x}", self.address)
     }
@@ -476,11 +459,10 @@ impl StateManager {
                     let old_owner_key = Self::owned_objects_key(&existing.owner);
                     if let Ok(Some(mut old_owned)) =
                         self.load_internal::<Vec<String>>(&old_owner_key)
+                        && let Some(pos) = old_owned.iter().position(|x| x == obj_id)
                     {
-                        if let Some(pos) = old_owned.iter().position(|x| x == obj_id) {
-                            old_owned.remove(pos);
-                            self.save_internal(&old_owner_key, &old_owned)?;
-                        }
+                        old_owned.remove(pos);
+                        self.save_internal(&old_owner_key, &old_owned)?;
                     }
                     if let Some(token_type) = Self::coin_token_type(&existing.type_) {
                         coin_balance_recompute.insert((existing.owner, token_type));

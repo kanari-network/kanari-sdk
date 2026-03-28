@@ -158,10 +158,11 @@ impl ObjectStorage {
                     .parse::<move_core_types::language_storage::StructTag>()
                 {
                     // เช็คว่าเป็น kanari_system::coin::Coin
-                    if struct_tag.module.as_str() == "coin" && struct_tag.name.as_str() == "Coin" {
-                        if let Some(tag) = struct_tag.type_params.first() {
-                            return tag == coin_type;
-                        }
+                    if struct_tag.module.as_str() == "coin"
+                        && struct_tag.name.as_str() == "Coin"
+                        && let Some(tag) = struct_tag.type_params.first()
+                    {
+                        return tag == coin_type;
                     }
                 }
                 false

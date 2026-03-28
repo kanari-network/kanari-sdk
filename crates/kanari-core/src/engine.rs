@@ -613,10 +613,10 @@ impl BlockchainEngine {
                         let mut possible_ids = Vec::new();
 
                         // 1. กรณีเป็น Raw Bytes 32 bytes (BCS encoded AccountAddress)
-                        if arg.len() == 32 {
-                            if let Ok(addr) = AccountAddress::from_bytes(arg) {
-                                possible_ids.push(addr.to_hex_literal());
-                            }
+                        if arg.len() == 32
+                            && let Ok(addr) = AccountAddress::from_bytes(arg)
+                        {
+                            possible_ids.push(addr.to_hex_literal());
                         }
 
                         // 2. กรณีส่งมาเป็น BCS String หรือ UTF-8 (แก้ปัญหาความยาว 67 bytes)

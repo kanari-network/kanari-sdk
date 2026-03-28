@@ -180,23 +180,20 @@ impl Transaction {
                 // 2. บังคับ Normalize ปลายทาง
                 let to_norm = if let Ok(addr) = AccountAddress::from_hex_literal(to) {
                     addr.to_hex_literal()
+                } else if !to.starts_with("0x") {
+                    format!("0x{}", to)
                 } else {
-                    if !to.starts_with("0x") {
-                        format!("0x{}", to)
-                    } else {
-                        to.to_string()
-                    }
+                    to.to_string()
                 };
                 keys.push(to_norm);
             }
             Transaction::ExecuteFunction { args, .. } => {
                 for arg in args {
-                    // 1. กรณีเป็น Raw Bytes 32 bytes (BCS encoded AccountAddress)
-                    if arg.len() == 32 {
-                        if let Ok(addr) = AccountAddress::from_bytes(arg) {
-                            keys.push(addr.to_hex_literal());
-                            continue; // ข้ามไปตัวถัดไปถ้าตรงเงื่อนไขแล้ว
-                        }
+                    if arg.len() == 32
+                        && let Ok(addr) = AccountAddress::from_bytes(arg)
+                    {
+                        keys.push(addr.to_hex_literal());
+                        continue; // ข้ามไปตัวถัดไปถ้าตรงเงื่อนไขแล้ว
                     }
 
                     // 2. ดึง String ออกมาจาก Argument (รองรับทั้งแบบ BCS String และ Raw UTF-8)
