@@ -28,16 +28,13 @@ impl super::MoveRuntime {
         );
 
         for (addr, account_changes) in move_cs.accounts() {
-            // 1. จัดการ Modules (เหมือนเดิม)
             for (module_name, op) in account_changes.modules() {
                 if matches!(op, MoveOp::New(_) | MoveOp::Modify(_)) {
                     kanari_cs.publish_module(*addr, module_name.to_string());
                 }
             }
 
-            // 2. จัดการ Resources (จุดที่มีปัญหา)
             for (struct_tag, op) in account_changes.resources() {
-                // 🚨 สร้าง ID มาตรฐานที่ใช้ร่วมกันทั้ง New และ Delete (Owner + Type)
                 let id_input = format!("0x{}::{}", hex::encode(addr.as_ref()), struct_tag);
                 let deterministic_id = format!(
                     "0x{}",
@@ -46,7 +43,6 @@ impl super::MoveRuntime {
 
                 match op {
                     MoveOp::New(bytes) | MoveOp::Modify(bytes) => {
-                        // (ส่วนอัปเดต balance_set เหมือนเดิม)
                         let uid_opt = if bytes.len() >= 32 {
                             let mut arr = [0u8; 32];
                             arr.copy_from_slice(&bytes[0..32]);
@@ -55,29 +51,31 @@ impl super::MoveRuntime {
                             None
                         };
 
+                        let final_object_id = if let Some(uid) = &uid_opt {
+                            uid.address().to_hex_literal()
+                        } else {
+                            deterministic_id.clone()
+                        };
+
                         kanari_cs.add_created_object(
                             *addr,
                             format!("{}", struct_tag),
                             bytes.to_vec(),
                             0,
                             uid_opt,
-                            Some(deterministic_id), // 🚨 ใช้ ID ที่คงที่นี้เท่านั้น
+                            Some(final_object_id),
                         );
                     }
                     MoveOp::Delete => {
-                        // 🚨 ใช้ ID เดียวกันเป๊ะกับตอนสร้าง เพื่อให้ลบเหรียญเก่าออกได้จริง
-                        kanari_cs.add_deleted_object(deterministic_id);
-
-                        if self.is_balance_resource(struct_tag)
-                            && let Some(token_type) = self.token_type_from_struct_tag(struct_tag)
-                        {
-                            kanari_cs.add_token_balance_set(*addr, token_type, 0);
-                        }
+                        // 🚨 FIX: ลบแค่ ID ปลอมเท่านั้น ห้ามบังคับเซ็ตยอด Token เป็น 0 เด็ดขาด!
+                        // ระบบ StateManager จะเป็นคนคำนวณยอดที่ถูกต้องเองในตอนท้าย
+                        kanari_cs.add_deleted_object(deterministic_id.clone());
                     }
                 }
             }
         }
     }
+
     /// Parse Move VM events and add to Kanari ChangeSet
     /// Events provide an audit trail of all state changes
     pub(crate) fn parse_move_events(

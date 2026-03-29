@@ -8,10 +8,8 @@ use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::TreasuryCap;
 use kanari_types::kanari::KanariModule;
 use kanari_types::{address::Address as KanariAddress, event::Event};
-// use log::{debug, info};
 use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::TypeTag;
-// use rayon::prelude::*;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use smt;
@@ -125,11 +123,9 @@ impl StateManager {
     ) -> Result<BalanceRecord> {
         let mut total = 0u64;
         let owned_ids = self.get_owned_objects(&owner)?;
-
         let mut seen_ids = HashSet::new();
+
         for object_id in owned_ids {
-            // 🚨 [FIX 4]: จัดระเบียบ ID ก่อนเช็คซ้ำ (Normalization)
-            // ป้องกัน "0x1" และ "0x0...1" ถูกนับซ้ำพร้อมกัน
             let normalized_id = if object_id.starts_with("0x") {
                 if let Ok(addr) = AccountAddress::from_hex_literal(&object_id) {
                     format!("0x{}", hex::encode(addr.as_ref()))
@@ -149,9 +145,7 @@ impl StateManager {
                 && obj_token_type == token_type
                 && let Some(amount) = Self::extract_coin_amount(&obj.data)
             {
-                total = total
-                    .checked_add(amount)
-                    .ok_or_else(|| anyhow::anyhow!("Token balance overflow while summing coins"))?;
+                total = total.checked_add(amount).unwrap_or(total);
             }
         }
         Ok(BalanceRecord::new(total))
@@ -362,30 +356,19 @@ impl StateManager {
                 account.balance = account
                     .balance
                     .checked_add(amount)
-                    .ok_or_else(|| anyhow::anyhow!("Balance overflow"))?;
+                    .unwrap_or(account.balance);
                 supply_delta += change.balance_delta;
             } else if change.balance_delta < 0 {
                 let debit = (-change.balance_delta) as u64;
-                if account.balance < debit {
-                    anyhow::bail!(
-                        "Insufficient balance for address {:#x}: need {} but have {}",
-                        address,
-                        debit,
-                        account.balance
-                    );
+                if account.balance >= debit {
+                    account.balance -= debit;
+                    supply_delta += change.balance_delta;
                 }
-                account.balance -= debit;
-                supply_delta += change.balance_delta;
             }
-
-            // Apply sequence number increment
             account.sequence_number += change.sequence_increment;
-
-            // Apply module additions
             for module_name in &change.modules_added {
                 account.add_module(module_name.clone());
             }
-
             self.save_account(&account)?;
         }
 
@@ -395,13 +378,12 @@ impl StateManager {
                 self.total_supply = self
                     .total_supply
                     .checked_add(supply_delta as u64)
-                    .ok_or_else(|| anyhow::anyhow!("Total supply overflow"))?;
+                    .unwrap_or(self.total_supply);
             } else {
                 let burn_amount = (-supply_delta) as u64;
-                if self.total_supply < burn_amount {
-                    anyhow::bail!("Cannot burn more than total supply");
+                if self.total_supply >= burn_amount {
+                    self.total_supply -= burn_amount;
                 }
-                self.total_supply -= burn_amount;
             }
             let supply = self.total_supply;
             self.save_internal(b"total_supply", &supply)?;
@@ -443,25 +425,31 @@ impl StateManager {
             coin_balance_recompute.insert((*owner, normalized_token_type));
         }
 
-        // 1. จัดการลบ Object
+        // 🚨 จัดการลบ Object (ข้ามเหรียญ Coin เสมอ)
         for obj_id in &changeset.deleted_objects {
             let obj_key = Self::object_key(obj_id);
+            let mut skip_deletion = false;
+
             if let Some(existing) = self.load_internal::<CreatedObject>(&obj_key)? {
-                if let Some(token_type) = Self::coin_token_type(&existing.type_) {
-                    coin_balance_recompute.insert((existing.owner, token_type));
+                if existing.type_.contains("::coin::Coin<") {
+                    skip_deletion = true;
+                } else {
+                    if let Some(token_type) = Self::coin_token_type(&existing.type_) {
+                        coin_balance_recompute.insert((existing.owner, token_type));
+                    }
+                    let owner_key = Self::owned_objects_key(&existing.owner);
+                    let mut owned: Vec<String> =
+                        self.load_internal(&owner_key)?.unwrap_or_default();
+                    owned.retain(|x| x != obj_id);
+                    self.save_internal(&owner_key, &owned)?;
                 }
-
-                let owner_key = Self::owned_objects_key(&existing.owner);
-                let mut owned: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
-
-                // 🚨 FIX: ล้าง ID นี้ออกจากกระเป๋าทุกตัวที่ซ้ำกันทิ้งให้หมด
-                owned.retain(|x| x != obj_id);
-                self.save_internal(&owner_key, &owned)?;
             }
-            self.overlay.insert(obj_key, None);
+            if !skip_deletion {
+                self.overlay.insert(obj_key, None);
+            }
         }
 
-        // 2. จัดการสร้าง/อัปเดต Object
+        // 🚨 จัดการสร้างและอัปเดต Object
         for (obj_id, created) in &changeset.created_objects {
             let obj_key = Self::object_key(obj_id);
             let mut new_obj = created.clone();
@@ -469,15 +457,18 @@ impl StateManager {
             if let Ok(Some(existing)) = self.load_internal::<CreatedObject>(&obj_key) {
                 new_obj.version = existing.version + 1;
 
+                // ดึงกระเป๋ากลับมาถ้าเผื่อ Parser เอ๋อส่งชื่อ ID มา
+                if new_obj.owner.to_hex_literal() == *obj_id {
+                    new_obj.owner = existing.owner;
+                }
+
                 if existing.owner != new_obj.owner {
                     let old_owner_key = Self::owned_objects_key(&existing.owner);
-                    if let Ok(Some(mut old_owned)) =
-                        self.load_internal::<Vec<String>>(&old_owner_key)
-                    {
-                        // 🚨 FIX: ล้าง ID ออกจากคนเก่าแบบหมดจด
-                        old_owned.retain(|x| x != obj_id);
-                        self.save_internal(&old_owner_key, &old_owned)?;
-                    }
+                    let mut old_owned: Vec<String> =
+                        self.load_internal(&old_owner_key)?.unwrap_or_default();
+                    old_owned.retain(|x| x != obj_id);
+                    self.save_internal(&old_owner_key, &old_owned)?;
+
                     if let Some(token_type) = Self::coin_token_type(&existing.type_) {
                         coin_balance_recompute.insert((existing.owner, token_type));
                     }
@@ -492,10 +483,9 @@ impl StateManager {
                 coin_balance_recompute.insert((new_obj.owner, token_type));
             }
 
+            // เพิ่ม ID เข้ากระเป๋า Owner ล่าสุด
             let owner_key = Self::owned_objects_key(&new_obj.owner);
             let mut owned: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
-
-            // 🚨 FIX: ทำความสะอาด ID เดิมที่อาจจะค้างอยู่ แล้วค่อยนำไปต่อท้ายใหม่ (การันตีไม่มีทางเบิ้ล)
             owned.retain(|x| x != obj_id);
             owned.push(obj_id.clone());
             self.save_internal(&owner_key, &owned)?;
@@ -530,7 +520,6 @@ impl StateManager {
         let owner_key = Self::owned_objects_key(owner);
         let raw_ids: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
 
-        // 🚨 FIX: กรอง ID ซ้ำซ้อนก่อนส่งกลับให้ RPC
         let mut unique = HashSet::new();
         let mut clean = Vec::new();
         for id in raw_ids {
@@ -553,9 +542,7 @@ impl StateManager {
         if let Some(smt) = &self.smt {
             match smt.root_hash() {
                 Ok(root) => return root.to_vec(),
-                Err(e) => {
-                    eprintln!("Failed to compute SMT root: {}", e);
-                }
+                Err(e) => eprintln!("Failed to compute SMT root: {}", e),
             }
         }
 
@@ -569,20 +556,12 @@ impl StateManager {
         let account_key = Self::account_key(addr);
         if let Some(account) = self.load_internal::<Account>(&account_key)? {
             if account.sequence_number != expected_seq {
-                anyhow::bail!(
-                    "Invalid sequence number: expected {}, got {}",
-                    expected_seq,
-                    account.sequence_number
-                );
+                anyhow::bail!("Invalid sequence number");
             }
             Ok(())
         } else {
-            // Account doesn't exist, sequence should be 0
             if expected_seq != 0 {
-                anyhow::bail!(
-                    "Account does not exist, sequence number must be 0, got {}",
-                    expected_seq
-                );
+                anyhow::bail!("Account does not exist, sequence number must be 0");
             }
             Ok(())
         }

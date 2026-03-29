@@ -60,14 +60,23 @@ module james::thb {
     }
 
 
-/// Transfer a specific `amount` of THB from a mutable Coin held by the caller
+    /// Transfer a specific `amount` of THB from a mutable Coin held by the caller
     /// Usage: provide the caller's coin, the amount to send, and the recipient
     public entry fun transfer_amount(
-    c: &mut coin::Coin<THB>,
+        c: &mut coin::Coin<THB>,
         amount: u64,
         recipient: address,
         ctx: &mut TxContext
     ) {
+        // 1. Check if sender is the same as recipient, if so, do nothing
+        let sender = kanari_system::tx_context::sender(ctx);
+
+       // 2. sender is not the same as recipient, proceed with transfer
+        if (sender == recipient) {
+            return
+        };
+
+        // 3. Split the specified amount from the sender's coin
         let split_coin = coin::split(c, amount, ctx);
         transfer::public_transfer(split_coin, recipient);
     }

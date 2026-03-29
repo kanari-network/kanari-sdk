@@ -68,10 +68,18 @@ module james::james {
         recipient: address,
         ctx: &mut TxContext
     ) {
+        // 1. Check if sender is the same as recipient, if so, do nothing
+        let sender = kanari_system::tx_context::sender(ctx);
+
+       // 2. sender is not the same as recipient, proceed with transfer
+        if (sender == recipient) {
+            return
+        };
+
+        // 3. Split the specified amount from the sender's coin
         let split_coin = coin::split(c, amount, ctx);
         transfer::public_transfer(split_coin, recipient);
     }
-
 
     /// Burn a specific `amount` of JAMES from a mutable Coin held by the caller
     /// Usage: provide the TreasuryCap, a mutable coin owned by caller, amount to burn, and tx context

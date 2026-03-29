@@ -654,17 +654,16 @@ impl MoveRuntime {
                 }
             }
 
-            if func.parameters.len() == final_args.len() + 1 {
-                if let Some(last_param_type) = func.parameters.last() {
-                    if let Some(TypeTag::Struct(struct_tag)) = type_tag_for_param(last_param_type) {
-                        let sys_addr = KanariAddress::kanari_system_account_address();
-                        if struct_tag.address == sys_addr
-                            && struct_tag.module.as_str() == TxContextModule::TX_CONTEXT_MODULE
-                            && struct_tag.name.as_str() == TxContextModule::TX_CONTEXT_STRUCT
-                        {
-                            final_args.push(tx_context_bytes);
-                        }
-                    }
+            if func.parameters.len() == final_args.len() + 1
+                && let Some(last_param_type) = func.parameters.last()
+                && let Some(TypeTag::Struct(struct_tag)) = type_tag_for_param(last_param_type)
+            {
+                let sys_addr = KanariAddress::kanari_system_account_address();
+                if struct_tag.address == sys_addr
+                    && struct_tag.module.as_str() == TxContextModule::TX_CONTEXT_MODULE
+                    && struct_tag.name.as_str() == TxContextModule::TX_CONTEXT_STRUCT
+                {
+                    final_args.push(tx_context_bytes);
                 }
             }
         }
@@ -717,7 +716,7 @@ impl MoveRuntime {
                             owner: *owner,
                             uid: Self::uid_from_object_id(id),
                             type_: type_name.clone(),
-                            data: data.clone(), // <--- ยอดที่ถูกหักแล้ว (900)
+                            data: data.clone(), // <--- ยอดที่ถูกหักแล้วอย่างถูกต้อง
                             version: version + 1,
                         };
 
@@ -730,9 +729,15 @@ impl MoveRuntime {
                             "writeback",
                         );
 
+                        // 🚨 [เพิ่มโค้ดป้องกัน Self-Transfer Bug]
+                        // ดีดเหรียญเดิม (ที่ถูกหักยอดแล้ว) ออกจากรายการ Auto-Merge ทิ้ง
+                        // เพื่อไม่ให้รันไทม์สับสนและดูดยอดเหรียญที่เพิ่งโอนเข้าตัวเองกลับไปจนข้อมูลพัง
+                        auto_merged_coin_ids.retain(|merged_id| merged_id != id);
+
                         // ล้าง Object เดิมที่มี ID นี้ออกจาก ChangeSet ก่อน เพื่อป้องกัน Stale Overwrite
                         cs.created_objects.retain(|(k, _)| k != id);
 
+                        // บันทึกยอดที่ถูกต้องลงระบบ
                         cs.created_objects.push((id.clone(), updated_obj));
                         processed_ids.insert(id.clone());
                     }

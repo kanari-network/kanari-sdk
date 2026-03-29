@@ -226,7 +226,12 @@ impl ChangeSet {
     }
 
     pub fn add_deleted_object(&mut self, object_id: String) {
-        self.deleted_objects.push(object_id);
+        let canonical_id = if let Ok(addr) = AccountAddress::from_hex_literal(&object_id) {
+            addr.to_hex_literal()
+        } else {
+            object_id
+        };
+        self.deleted_objects.push(canonical_id);
     }
 
     /// Record an NftCap creation/update for a given token type
@@ -241,8 +246,8 @@ impl ChangeSet {
 
     /// Record a treasury (TreasuryCap) creation/update for a given token type
     pub fn add_treasury(&mut self, owner: AccountAddress, token_type: String, total_supply: u64) {
-        let cap = TreasuryCap { total_supply };
-        self.treasuries.push((owner, token_type, cap));
+        self.treasuries
+            .push((owner, token_type, TreasuryCap { total_supply }));
     }
 
     /// Record an absolute token balance for an account (after execution)
@@ -252,8 +257,8 @@ impl ChangeSet {
         token_type: String,
         amount: u64,
     ) {
-        let bal = BalanceRecord::new(amount);
-        self.token_balance_sets.push((owner, token_type, bal));
+        self.token_balance_sets
+            .push((owner, token_type, BalanceRecord::new(amount)));
     }
 
     /// Record a created object discovered in Move write-sets
@@ -268,11 +273,14 @@ impl ChangeSet {
         uid: Option<UIDRecord>,
         object_id: Option<String>,
     ) {
-        // 1. กำหนด ID หลักให้คงที่
         let canonical_id = if let Some(id) = &object_id {
-            id.clone()
+            if let Ok(addr) = AccountAddress::from_hex_literal(id) {
+                addr.to_hex_literal()
+            } else {
+                id.clone()
+            }
         } else if let Some(ref u) = uid {
-            format!("{:#x}", u.address())
+            u.address().to_hex_literal()
         } else {
             let mut input = Vec::new();
             input.extend_from_slice(owner.as_ref());
@@ -281,16 +289,15 @@ impl ChangeSet {
             format!("0x{}", hex::encode(&hash[0..32]))
         };
 
-        // 🚨 [ลบช่วง if self...any ออกไปเลย ห้ามเหลือตามในไฟล์ที่ส่งมา]
-
-        // 2. ตรวจสอบและ Overwrite (Update) ทันที
         if let Some((_, existing_obj)) = self
             .created_objects
             .iter_mut()
             .find(|(id, _)| id == &canonical_id)
         {
-            // ถ้าเจอ ID เดิม ให้เขียนทับยอดล่าสุดลงไป (ป้องกันเงินเบิ้ล)
-            existing_obj.owner = owner;
+            // ป้องกัน Overwrite ชื่อ Owner ผิดพลาด
+            if owner.to_hex_literal() != canonical_id {
+                existing_obj.owner = owner;
+            }
             existing_obj.data = data;
             existing_obj.version = version;
             existing_obj.type_ = type_;
@@ -298,7 +305,6 @@ impl ChangeSet {
                 existing_obj.uid = Some(u);
             }
         } else {
-            // ถ้ายังไม่มี ID นี้ ค่อยเพิ่มเข้าไป
             self.created_objects.push((
                 canonical_id,
                 CreatedObject {
