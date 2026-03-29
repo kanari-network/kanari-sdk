@@ -6,7 +6,8 @@ module james::usdc {
 
     use std::option;
     use kanari_system::transfer;
-
+    use kanari_system::url;
+    
     /// Name of the coin
     struct USDC has drop {}
 
@@ -20,7 +21,7 @@ module james::usdc {
             b"USDC",
             b"USDC Token",
             b"",
-            option::none<kanari_system::url::Url>(),
+            option::some(url::new_unsafe_from_bytes(b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4")),
             ctx,
         );
         // Return both TreasuryCap and Metadata so callers can persist them.

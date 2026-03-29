@@ -13,7 +13,7 @@ use std::str::FromStr;
 /// Helper to get token decimals from engine state.
 /// OPTIMIZED: Requires an already acquired state guard to prevent lock contention in loops.
 fn get_token_decimals(state_guard: &StateManager, token_type: &str) -> u8 {
-    if token_type == "KANARI" {
+    if token_type.to_uppercase().contains("KANARI") {
         return 9;
     }
     if let Ok(Some(decimals)) = state_guard.get_token_decimals(token_type) {
@@ -30,7 +30,7 @@ fn extract_symbol(token_type: &str) -> String {
     // 1. Extract innermost generic if present
     let inner = token_type
         .split('<')
-        .next_back() // <--- เปลี่ยนจาก .last() เป็น .next_back()
+        .next_back()
         .unwrap_or(token_type)
         .trim_end_matches('>');
 
@@ -130,36 +130,14 @@ pub async fn handle_get_token_balance(state: &RpcServerState, request: &RpcReque
         }
     };
 
-    let mut total_amount: u128 = 0;
     let target_token = normalize_token_type(&req_data.token_type);
+    let mut final_balance = 0;
 
-    if let Some(ref objects) = account_info.owned_objects {
-        for obj in objects {
-            if obj.type_.contains("::coin::Coin<") {
-                let token_type = if let Some(start) = obj.type_.find('<')
-                    && let Some(end) = obj.type_.rfind('>')
-                {
-                    normalize_token_type(&obj.type_[start + 1..end])
-                } else {
-                    normalize_token_type(&obj.type_)
-                };
-
-                // ถ้าเป็นเหรียญที่เรากำลังตามหา ให้บวกยอดเงินเพิ่ม
-                if token_type == target_token && obj.data.len() >= 8 {
-                    let n = obj.data.len();
-                    if let Ok(bytes) = obj.data[n - 8..].try_into() {
-                        total_amount += u64::from_le_bytes(bytes) as u128;
-                    }
-                }
-            }
-        }
+    if target_token.to_uppercase() == "KANARI" || target_token.contains("::kanari::KANARI") {
+        final_balance = account_info.balance;
+    } else if let Some(record) = account_info.token_balances.get(&target_token) {
+        final_balance = *record;
     }
-
-    let final_balance = if total_amount > u128::from(u64::MAX) {
-        u64::MAX
-    } else {
-        total_amount as u64
-    };
 
     RpcResponse {
         jsonrpc: "2.0".into(),
@@ -198,65 +176,71 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
         }
     };
 
-    // 1. Native KANARI balance (Account-based truth)
-    let mut balances = vec![serde_json::json!({
-        "token_type": "KANARI",
-        "balance": account_info.balance,
-        "decimals": 9,
-        "symbol": "KANARI"
-    })];
-
-    // 🚨 FIX: Create a fresh map. DO NOT load from account_info.token_balances.
-    // This prevents "Balance Desync" because we calculate directly from objects.
     let mut coin_sums: BTreeMap<String, u128> = BTreeMap::new();
 
-    // 2. Aggregate actual Coin objects (The only Source of Truth for tokens)
-    if let Some(ref objects) = account_info.owned_objects {
-        for obj in objects {
-            if obj.type_.contains("::coin::Coin<") {
-                let token_type = if let Some(start) = obj.type_.find('<')
-                    && let Some(end) = obj.type_.rfind('>')
-                {
-                    normalize_token_type(&obj.type_[start + 1..end])
-                } else {
-                    normalize_token_type(&obj.type_)
-                };
+    // 1. นำยอด Native Balance มาตั้งต้นเป็นยอดของเหรียญ KANARI
+    coin_sums.insert("KANARI".to_string(), account_info.balance as u128);
 
-                // Standard Move Coin layout: Balance is in the last 8 bytes (u64)
-                if obj.data.len() >= 8 {
-                    let n = obj.data.len();
-                    if let Ok(bytes) = obj.data[n - 8..].try_into() {
-                        let amount = u64::from_le_bytes(bytes) as u128;
-                        *coin_sums.entry(token_type).or_insert(0) += amount;
-                    }
-                }
-            }
-        }
+    for (token_type, amount) in account_info.token_balances {
+        let normalized_key = if token_type.to_uppercase().contains("KANARI") {
+            "KANARI".to_string()
+        } else {
+            token_type
+        };
+        *coin_sums.entry(normalized_key).or_insert(0) += amount as u128;
     }
 
-    // OPTIMIZATION: Acquire state lock exactly ONCE for decimal lookups
     let state_guard = state.engine.state.read().unwrap_or_else(|p| p.into_inner());
+    let mut balances = Vec::new();
 
-    // 3. Map calculated sums into response format
     for (token_type, amount128) in coin_sums {
-        if amount128 == 0 {
+        if amount128 == 0 && token_type != "KANARI" {
             continue;
         }
 
-        // Safety check for u64 overflow (blockchain standard)
         let amount = if amount128 > u128::from(u64::MAX) {
             u64::MAX
         } else {
             amount128 as u64
         };
 
-        let symbol = extract_symbol(&token_type);
+        let db_symbol = state_guard.get_token_symbol(&token_type).unwrap_or(None);
+        let symbol = db_symbol.unwrap_or_else(|| extract_symbol(&token_type));
+
+        let name = state_guard
+            .get_token_name(&token_type)
+            .unwrap_or(None)
+            .unwrap_or_else(|| symbol.clone());
+
+        let is_kanari = token_type.to_uppercase().contains("KANARI");
+
+        // 🚨 นำ Description มาใช้ตรงนี้
+        let (final_name, final_symbol, description, icon_url) = if is_kanari {
+            (
+                "Kanari Network Coin".to_string(),
+                "KANARI".to_string(),
+                Some("The native token of Kanari Network".to_string()),
+                Some("https://avatars.githubusercontent.com/u/127471673?s=200&v=4".to_string()),
+            )
+        } else {
+            (
+                name,
+                symbol,
+                state_guard
+                    .get_token_description(&token_type)
+                    .unwrap_or(None),
+                state_guard.get_token_icon_url(&token_type).unwrap_or(None),
+            )
+        };
 
         balances.push(serde_json::json!({
             "token_type": token_type,
             "balance": amount,
             "decimals": get_token_decimals(&state_guard, &token_type),
-            "symbol": symbol
+            "symbol": final_symbol,
+            "name": final_name,
+            "description": description,
+            "icon_url": icon_url
         }));
     }
 
@@ -271,21 +255,48 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
 /// Handle list tokens request
 pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let tokens = state.engine.list_tokens();
-
-    // OPTIMIZATION: Acquire lock exactly ONCE to fetch decimals for all tokens
     let state_guard = state.engine.state.read().unwrap_or_else(|p| p.into_inner());
 
-    // Map into serializable objects { token_type, total_supply, decimals, symbol }
     let vals: Vec<serde_json::Value> = tokens
         .into_iter()
         .map(|(token_type, supply)| {
-            let symbol = extract_symbol(&token_type);
+            let db_symbol = state_guard.get_token_symbol(&token_type).unwrap_or(None);
+            let symbol = db_symbol.unwrap_or_else(|| extract_symbol(&token_type));
+
+            let name = state_guard
+                .get_token_name(&token_type)
+                .unwrap_or(None)
+                .unwrap_or_else(|| symbol.clone());
+
+            let is_kanari = token_type.to_uppercase().contains("KANARI");
+
+            // 🚨 นำ Description มาใช้ตรงนี้
+            let (final_name, final_symbol, description, icon_url) = if is_kanari {
+                (
+                    "Kanari Network Coin".to_string(),
+                    "KANARI".to_string(),
+                    Some("The native token of Kanari Network".to_string()),
+                    Some("https://avatars.githubusercontent.com/u/127471673?s=200&v=4".to_string()),
+                )
+            } else {
+                (
+                    name,
+                    symbol,
+                    state_guard
+                        .get_token_description(&token_type)
+                        .unwrap_or(None),
+                    state_guard.get_token_icon_url(&token_type).unwrap_or(None),
+                )
+            };
 
             serde_json::json!({
                 "token_type": token_type,
                 "total_supply": supply,
                 "decimals": get_token_decimals(&state_guard, &token_type),
-                "symbol": symbol,
+                "symbol": final_symbol,
+                "name": final_name,
+                "description": description,
+                "icon_url": icon_url
             })
         })
         .collect();

@@ -142,6 +142,7 @@ fn map_transaction_to_details(
         },
         Transaction::Transfer {
             from,
+            to,
             sequence_number,
             gas_limit,
             gas_price,
@@ -156,7 +157,7 @@ fn map_transaction_to_details(
             sequence_number: *sequence_number,
             gas_limit: *gas_limit,
             gas_price: *gas_price,
-            module: None,
+            module: Some(format!("To: {}", to)),
             function: None,
             module_functions: None,
         },

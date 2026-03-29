@@ -94,63 +94,6 @@ impl StateManager {
         token_type.to_string()
     }
 
-    fn coin_token_type(type_name: &str) -> Option<String> {
-        let marker = "::coin::Coin<";
-        if !type_name.contains(marker) {
-            return None;
-        }
-        let start = type_name.find('<')?;
-        let end = type_name.rfind('>')?;
-        if end <= start + 1 {
-            return None;
-        }
-        Some(Self::normalize_token_type(&type_name[start + 1..end]))
-    }
-
-    fn extract_coin_amount(data: &[u8]) -> Option<u64> {
-        if data.len() < 40 {
-            return None;
-        }
-        let mut arr = [0u8; 8];
-        arr.copy_from_slice(&data[32..40]);
-        Some(u64::from_le_bytes(arr))
-    }
-
-    fn recompute_coin_balance_for_owner(
-        &self,
-        owner: AccountAddress,
-        token_type: &str,
-    ) -> Result<BalanceRecord> {
-        let mut total = 0u64;
-        let owned_ids = self.get_owned_objects(&owner)?;
-        let mut seen_ids = HashSet::new();
-
-        for object_id in owned_ids {
-            let normalized_id = if object_id.starts_with("0x") {
-                if let Ok(addr) = AccountAddress::from_hex_literal(&object_id) {
-                    format!("0x{}", hex::encode(addr.as_ref()))
-                } else {
-                    object_id.to_lowercase()
-                }
-            } else {
-                object_id.to_lowercase()
-            };
-
-            if !seen_ids.insert(normalized_id) {
-                continue;
-            }
-
-            if let Some(obj) = self.get_object(&object_id)?
-                && let Some(obj_token_type) = Self::coin_token_type(&obj.type_)
-                && obj_token_type == token_type
-                && let Some(amount) = Self::extract_coin_amount(&obj.data)
-            {
-                total = total.checked_add(amount).unwrap_or(total);
-            }
-        }
-        Ok(BalanceRecord::new(total))
-    }
-
     /// Create a new in-memory state manager for testing
     pub fn new_in_memory() -> Self {
         let store =
@@ -343,14 +286,11 @@ impl StateManager {
     /// Apply ChangeSet from Move VM execution
     /// This is the ONLY way to modify state - all changes must come from Move VM
     pub fn apply_changeset(&mut self, changeset: &ChangeSet) -> Result<()> {
-        // Track total supply change (for mint/burn operations)
         let mut supply_delta: i64 = 0;
-        let mut coin_balance_recompute: BTreeSet<(AccountAddress, String)> = BTreeSet::new();
 
         for (address, change) in &changeset.account_changes {
             let mut account = self.load_account_or_default(*address)?;
 
-            // Apply balance delta
             if change.balance_delta > 0 {
                 let amount = change.balance_delta as u64;
                 account.balance = account
@@ -415,41 +355,29 @@ impl StateManager {
             self.save_internal(&key, &(*owner, nft_cap.clone()))?;
         }
 
-        // Apply per-account token balance sets
+        // 🚨 FIX 1: เชื่อถือยอด Token จาก Move VM ตรงๆ (ไม่ต้องสั่ง Recompute แล้ว)
         for (owner, token_type, amount) in &changeset.token_balance_sets {
             let mut account = self.load_account_or_default(*owner)?;
             let normalized_token_type = Self::normalize_token_type(token_type);
-            account.set_token_balance(normalized_token_type.clone(), amount.clone());
+            account.set_token_balance(normalized_token_type, amount.clone());
             self.save_account(&account)?;
-            // Always schedule a coin-based recompute for this owner/token pair.
-            coin_balance_recompute.insert((*owner, normalized_token_type));
         }
 
-        // 🚨 จัดการลบ Object (ข้ามเหรียญ Coin เสมอ)
+        // 🚨 FIX 2: ลบ Object ทิ้งจริงๆ ไม่อนุญาตให้เหรียญเป็นอมตะ (ลบ skip_deletion ทิ้ง)
         for obj_id in &changeset.deleted_objects {
             let obj_key = Self::object_key(obj_id);
-            let mut skip_deletion = false;
 
             if let Some(existing) = self.load_internal::<CreatedObject>(&obj_key)? {
-                if existing.type_.contains("::coin::Coin<") {
-                    skip_deletion = true;
-                } else {
-                    if let Some(token_type) = Self::coin_token_type(&existing.type_) {
-                        coin_balance_recompute.insert((existing.owner, token_type));
-                    }
-                    let owner_key = Self::owned_objects_key(&existing.owner);
-                    let mut owned: Vec<String> =
-                        self.load_internal(&owner_key)?.unwrap_or_default();
-                    owned.retain(|x| x != obj_id);
-                    self.save_internal(&owner_key, &owned)?;
-                }
+                let owner_key = Self::owned_objects_key(&existing.owner);
+                let mut owned: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
+                owned.retain(|x| x != obj_id);
+                self.save_internal(&owner_key, &owned)?;
             }
-            if !skip_deletion {
-                self.overlay.insert(obj_key, None);
-            }
+
+            // ลบออกจาก State จริงๆ
+            self.overlay.insert(obj_key, None);
         }
 
-        // 🚨 จัดการสร้างและอัปเดต Object
         for (obj_id, created) in &changeset.created_objects {
             let obj_key = Self::object_key(obj_id);
             let mut new_obj = created.clone();
@@ -457,7 +385,6 @@ impl StateManager {
             if let Ok(Some(existing)) = self.load_internal::<CreatedObject>(&obj_key) {
                 new_obj.version = existing.version + 1;
 
-                // ดึงกระเป๋ากลับมาถ้าเผื่อ Parser เอ๋อส่งชื่อ ID มา
                 if new_obj.owner.to_hex_literal() == *obj_id {
                     new_obj.owner = existing.owner;
                 }
@@ -468,10 +395,6 @@ impl StateManager {
                         self.load_internal(&old_owner_key)?.unwrap_or_default();
                     old_owned.retain(|x| x != obj_id);
                     self.save_internal(&old_owner_key, &old_owned)?;
-
-                    if let Some(token_type) = Self::coin_token_type(&existing.type_) {
-                        coin_balance_recompute.insert((existing.owner, token_type));
-                    }
                 }
             } else {
                 new_obj.version = 1;
@@ -479,11 +402,6 @@ impl StateManager {
 
             self.save_internal(&obj_key, &new_obj)?;
 
-            if let Some(token_type) = Self::coin_token_type(&new_obj.type_) {
-                coin_balance_recompute.insert((new_obj.owner, token_type));
-            }
-
-            // เพิ่ม ID เข้ากระเป๋า Owner ล่าสุด
             let owner_key = Self::owned_objects_key(&new_obj.owner);
             let mut owned: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
             owned.retain(|x| x != obj_id);
@@ -495,21 +413,64 @@ impl StateManager {
                 && let Some(end) = new_obj.type_.rfind('>')
             {
                 let token_type = &new_obj.type_[start + 1..end];
-                if new_obj.data.len() > 32 {
-                    let decimals = new_obj.data[32];
-                    let mut key = b"metadata_decimals:".to_vec();
-                    key.extend_from_slice(token_type.as_bytes());
-                    self.save_internal(&key, &decimals)?;
+
+                #[derive(Deserialize)]
+                struct MoveString {
+                    bytes: Vec<u8>,
+                }
+                #[derive(Deserialize)]
+                struct MoveUrl {
+                    inner: MoveString,
+                }
+                #[derive(Deserialize)]
+                struct ParsedCoinMetadata {
+                    _id: AccountAddress,
+                    decimals: u8,
+                    name: MoveString,
+                    symbol: MoveString,
+                    description: MoveString,
+                    icon_url: Option<MoveUrl>,
+                }
+
+                if let Ok(meta) = bcs::from_bytes::<ParsedCoinMetadata>(&new_obj.data) {
+                    let mut key_dec = b"metadata_decimals:".to_vec();
+                    key_dec.extend_from_slice(token_type.as_bytes());
+                    let _ = self.save_internal(&key_dec, &meta.decimals);
+
+                    if let Ok(name) = String::from_utf8(meta.name.bytes) {
+                        let mut key_name = b"metadata_name:".to_vec();
+                        key_name.extend_from_slice(token_type.as_bytes());
+                        let _ = self.save_internal(&key_name, &name);
+                    }
+
+                    if let Ok(symbol) = String::from_utf8(meta.symbol.bytes) {
+                        let mut key_sym = b"metadata_symbol:".to_vec();
+                        key_sym.extend_from_slice(token_type.as_bytes());
+                        let _ = self.save_internal(&key_sym, &symbol);
+                    }
+
+                    if let Ok(description) = String::from_utf8(meta.description.bytes) {
+                        let mut key_desc = b"metadata_description:".to_vec();
+                        key_desc.extend_from_slice(token_type.as_bytes());
+                        let _ = self.save_internal(&key_desc, &description);
+                    }
+
+                    if let Some(url_obj) = meta.icon_url
+                        && let Ok(url) = String::from_utf8(url_obj.inner.bytes)
+                    {
+                        let mut key_url = b"metadata_icon_url:".to_vec();
+                        key_url.extend_from_slice(token_type.as_bytes());
+                        let _ = self.save_internal(&key_url, &url);
+                    }
+                } else {
+                    if new_obj.data.len() > 32 {
+                        let decimals = new_obj.data[32];
+                        let mut key = b"metadata_decimals:".to_vec();
+                        key.extend_from_slice(token_type.as_bytes());
+                        self.save_internal(&key, &decimals)?;
+                    }
                 }
             }
-        }
-
-        // Recompute token balances from owned coin objects for affected owners/token types.
-        for (owner, token_type) in coin_balance_recompute {
-            let recomputed = self.recompute_coin_balance_for_owner(owner, &token_type)?;
-            let mut account = self.load_account_or_default(owner)?;
-            account.set_token_balance(token_type, recomputed);
-            self.save_account(&account)?;
         }
 
         Ok(())
@@ -587,5 +548,33 @@ impl StateManager {
         let mut key = b"metadata_decimals:".to_vec();
         key.extend_from_slice(token_type.as_bytes());
         self.load_internal::<u8>(&key)
+    }
+
+    ///  Get token name for a specific token type
+    pub fn get_token_name(&self, token_type: &str) -> Result<Option<String>> {
+        let mut key = b"metadata_name:".to_vec();
+        key.extend_from_slice(token_type.as_bytes());
+        self.load_internal::<String>(&key)
+    }
+
+    ///  Get token symbol for a specific token type
+    pub fn get_token_symbol(&self, token_type: &str) -> Result<Option<String>> {
+        let mut key = b"metadata_symbol:".to_vec();
+        key.extend_from_slice(token_type.as_bytes());
+        self.load_internal::<String>(&key)
+    }
+
+    /// Get token description for a specific token type
+    pub fn get_token_description(&self, token_type: &str) -> Result<Option<String>> {
+        let mut key = b"metadata_description:".to_vec();
+        key.extend_from_slice(token_type.as_bytes());
+        self.load_internal::<String>(&key)
+    }
+
+    /// Get token icon URL for a specific token type
+    pub fn get_token_icon_url(&self, token_type: &str) -> Result<Option<String>> {
+        let mut key = b"metadata_icon_url:".to_vec();
+        key.extend_from_slice(token_type.as_bytes());
+        self.load_internal::<String>(&key)
     }
 }
