@@ -268,7 +268,7 @@ impl DagEngine {
 
         // Create DAG vertex
         let vertex = {
-            let mut consensus = self.consensus.write().unwrap();
+            let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
             let v = consensus.create_vertex(transactions.clone(), state_root.clone(), timestamp)?;
             log::info!(
                 "[DAG] Created vertex for round {} with {} transactions",
@@ -295,7 +295,7 @@ impl DagEngine {
 
         // Add vertex to DAG
         {
-            let mut consensus = self.consensus.write().unwrap();
+            let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
             consensus.add_vertex(vertex)?;
 
             // Persist DAG state immediately after adding vertex
@@ -314,7 +314,7 @@ impl DagEngine {
         // Try to commit vertices to checkpoint
         let checkpoint_info = {
             let checkpoint = {
-                let mut consensus = self.consensus.write().unwrap();
+                let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
                 consensus.try_commit()?
             };
 
@@ -347,7 +347,7 @@ impl DagEngine {
                 // CRITICAL: Also add to consensus store to advance its state
                 // Otherwise it will keep trying to produce the same checkpoint
                 {
-                    let mut consensus = self.consensus.write().unwrap();
+                    let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
                     consensus.add_checkpoint(checkpoint.clone())?;
                 }
 
@@ -390,7 +390,7 @@ impl DagEngine {
 
     /// Sync a checkpoint from external source (e.g. block sync)
     pub fn sync_checkpoint(&self, checkpoint: centauri::consensus::Checkpoint) -> Result<()> {
-        let mut consensus = self.consensus.write().unwrap();
+        let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
         // Use add_checkpoint which handles sequence and prev_hash validation
         consensus.add_checkpoint(checkpoint)
     }
@@ -585,7 +585,7 @@ impl DagEngine {
 
         // Now add vertex to DAG consensus
         let checkpoint = {
-            let mut consensus = self.consensus.write().unwrap();
+            let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
             consensus.add_vertex(vertex)?;
 
             // Try to commit (follower side) - this ensures all nodes commit the same checkpoints
@@ -608,7 +608,7 @@ impl DagEngine {
                 );
             } else {
                 // Also add to consensus store to advance its state
-                let mut consensus = self.consensus.write().unwrap();
+                let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
                 let _ = consensus.add_checkpoint(checkpoint);
             }
         }

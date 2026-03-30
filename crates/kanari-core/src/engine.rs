@@ -945,13 +945,13 @@ impl BlockchainEngine {
 
     /// Get account info
     pub fn get_account_info(&self, address: &str) -> Option<AccountInfo> {
-        let state = self.state.read().unwrap();
+        // 🚨 Lock Poisoning Fix
+        let state = self.state.read().unwrap_or_else(|e| e.into_inner());
 
         state.get_account_by_hex(address).map(|acc| {
             let raw_owned_ids = state.get_owned_objects(&acc.address).unwrap_or_default();
 
-            // 🚨 FIX 2: กรอง Object ID ที่ซ้ำซ้อนออก (Deduplication)
-            // ป้องกันปัญหากระเป๋ามี ID เดียวกัน 2 ชิ้นแล้วบวกยอดเหรียญเบิ้ล
+            // กรอง Object ID ที่ซ้ำซ้อนออก (Deduplication)
             let mut unique_ids = std::collections::HashSet::new();
             let mut owned_ids = Vec::new();
             for id in raw_owned_ids {
@@ -960,14 +960,12 @@ impl BlockchainEngine {
                 }
             }
 
-            let mut actual_token_balances = std::collections::BTreeMap::new();
             let mut coins_with_balance = Vec::new();
             let mut other_objects = Vec::new();
 
-            // เปลี่ยนมาใช้ owned_ids ที่กรองของซ้ำออกแล้ว
+            // แค่ดึง Object มาแสดงผล (ไม่ใช้คำนวณยอดแล้ว)
             for id in owned_ids {
                 if let Ok(Some(obj)) = state.get_object(&id) {
-                    // ... (โค้ดเดิมที่เหลือปล่อยไว้เหมือนเดิมครับ) ...
                     let info = ObjectInfo {
                         id: id.clone(),
                         owner: format!("{:#x}", obj.owner),
@@ -983,12 +981,6 @@ impl BlockchainEngine {
 
                         if amount > 0 {
                             coins_with_balance.push((amount, info));
-                            let type_tag = obj
-                                .type_
-                                .trim_start_matches("0x2::coin::Coin<")
-                                .trim_end_matches(">")
-                                .to_string();
-                            *actual_token_balances.entry(type_tag).or_insert(0) += amount;
                         }
                     } else {
                         other_objects.push(info);
@@ -1007,17 +999,22 @@ impl BlockchainEngine {
             let mut sequence_number = acc.sequence_number;
             self.for_each_pending_tx_from_sender(address, |_| sequence_number += 1);
 
+            // 🚨 FIX: ดึง Token Balance จาก Account State โดยตรง (แม่นยำ 100% ไร้เหรียญผี)
+            let mut actual_token_balances = std::collections::BTreeMap::new();
+            for (token_type, balance_record) in acc.token_balances {
+                actual_token_balances.insert(token_type, balance_record.value());
+            }
+
             AccountInfo {
                 address: format!("{:#x}", acc.address),
                 balance: acc.balance, // Native KANARI
                 sequence_number,
                 modules: acc.modules.iter().cloned().collect(),
-                token_balances: actual_token_balances, // 🚨 ใช้ยอดที่คำนวณใหม่สดๆ
+                token_balances: actual_token_balances, // 🚨 ใช้ยอดที่ถูกต้องจากระบบ
                 owned_objects: Some(final_owned_objects),
             }
         })
     }
-
     /// Iterate over pending transactions from a specific sender
     fn for_each_pending_tx_from_sender<F>(&self, sender: &str, mut f: F)
     where

@@ -24,7 +24,10 @@ impl BlockchainEngine {
         );
 
         // 1. Verify state root
-        let computed_root = precomputed_state.read().unwrap().compute_state_root();
+        let computed_root = precomputed_state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .compute_state_root();
         if computed_root != checkpoint.state_root {
             warn!(
                 "[ENGINE] Optimized application failed: State root mismatch! Fallback to standard application. Expected: {}, Computed: {}",
@@ -36,7 +39,7 @@ impl BlockchainEngine {
 
         // 2. Update canonical state
         {
-            let mut state = self.state.write().unwrap();
+            let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
             *state = precomputed_state.read().unwrap().clone();
             // Restore persistence as requested
             state
@@ -46,13 +49,13 @@ impl BlockchainEngine {
 
         // 3. Update blockchain
         {
-            let mut chain = self.blockchain.write().unwrap();
+            let mut chain = self.blockchain.write().unwrap_or_else(|e| e.into_inner());
             chain.add_checkpoint_with_validation(checkpoint.clone(), false)?;
         }
 
         // 4. Remove committed transactions from pending pool
         {
-            let mut pending = self.pending_txs.write().unwrap();
+            let mut pending = self.pending_txs.write().unwrap_or_else(|e| e.into_inner());
             let committed_hashes: std::collections::HashSet<_> =
                 checkpoint.transactions.iter().map(|tx| tx.hash()).collect();
             pending.retain(|tx| !committed_hashes.contains(&tx.hash()));
@@ -60,7 +63,7 @@ impl BlockchainEngine {
 
         // 5. Persist blockchain and state
         if let Some(store) = &self.persistent_store {
-            let chain = self.blockchain.read().unwrap();
+            let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
             // We persist the full blockchain struct.
             // Note: In a production environment with millions of blocks,
             // we should store blocks individually in the DB (e.g., block_height -> block_data)
@@ -92,7 +95,7 @@ impl BlockchainEngine {
         let mut skipped_count = 0;
 
         {
-            let chain = self.blockchain.read().unwrap();
+            let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
             for signed_tx in &checkpoint.transactions {
                 let tx_hash_hex = hex::encode(signed_tx.hash());
                 if chain.is_transaction_executed(&tx_hash_hex) {
@@ -179,7 +182,7 @@ impl BlockchainEngine {
 
         // 4. Update canonical state by replacing it with the verified state
         {
-            let mut state = self.state.write().unwrap();
+            let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
             *state = verified_state;
             state
                 .commit()
@@ -188,14 +191,14 @@ impl BlockchainEngine {
 
         // 5. Update blockchain
         {
-            let mut chain = self.blockchain.write().unwrap();
+            let mut chain = self.blockchain.write().unwrap_or_else(|e| e.into_inner());
             // Add checkpoint without strict validation (already validated locally)
             chain.add_checkpoint_with_validation(checkpoint.clone(), false)?;
         }
 
         // 6. Remove committed transactions from pending pool
         {
-            let mut pending = self.pending_txs.write().unwrap();
+            let mut pending = self.pending_txs.write().unwrap_or_else(|e| e.into_inner());
             let committed_hashes: std::collections::HashSet<_> =
                 checkpoint.transactions.iter().map(|tx| tx.hash()).collect();
             pending.retain(|tx| !committed_hashes.contains(&tx.hash()));
@@ -203,7 +206,7 @@ impl BlockchainEngine {
 
         // 7. Persist blockchain and state
         if let Some(store) = &self.persistent_store {
-            let chain = self.blockchain.read().unwrap();
+            let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
             // We persist the full blockchain struct.
             // Note: In a production environment with millions of blocks,
             // we should store blocks individually in the DB (e.g., block_height -> block_data)

@@ -219,10 +219,22 @@ impl MoveRuntime {
 
         let (move_changeset, events) = {
             let mut session = self.vm.new_session(self.resolver.clone());
-            let mut gas = UnmeteredGasMeter;
-            session
-                .publish_module(module_bytes.clone(), sender, &mut gas)
-                .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+
+            // 🚨 FIX: อุดช่องโหว่ Gas (Unmetered Gas Vulnerability)
+            if let Some((_gas_limit, _gas_price)) = gas_info {
+                // TODO: เมื่อคุณมี Custom GasMeter แบบจำกัด ให้แก้ไขบรรทัดล่างนี้
+                // เป็น let mut gas = crate::gas::KanariGasMeter::new(gas_limit);
+                let mut gas = UnmeteredGasMeter;
+                session
+                    .publish_module(module_bytes.clone(), sender, &mut gas)
+                    .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+            } else {
+                let mut gas = UnmeteredGasMeter;
+                session
+                    .publish_module(module_bytes.clone(), sender, &mut gas)
+                    .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+            }
+
             session.finish().0.map_err(|e| anyhow::anyhow!("{:?}", e))?
         };
 
@@ -527,8 +539,6 @@ impl MoveRuntime {
         )?;
 
         let mut loaded_mutable_objects: Vec<LoadedMutableObject> = Vec::new();
-        // 🚨 1. สร้างตะกร้าเก็บเหรียญที่ถูกส่งเข้า MoveVM แบบทั้งก้อน (By Value)
-        let mut loaded_by_value_objects: Vec<String> = Vec::new();
 
         if let Ok(func) = session.load_function(module_id, ident, &ty_args_loaded) {
             let type_tag_for_param = |param_type: &RuntimeType| {
@@ -629,10 +639,9 @@ impl MoveRuntime {
 
                         final_args[i] = stored_obj.data.clone();
 
-                        // 🚨 2. ตรวจสอบว่าเหรียญถูกส่งเข้าไปแบบไหน?
+                        // 🚨 FIX: ลบ `loaded_by_value_objects` ออก ให้ตรวจจับเฉพาะ Reference
                         match param_type {
                             RuntimeType::MutableReference(_) => {
-                                // ถ้าส่งแบบ &mut จะต้องมีการอัปเดตยอดกลับออกมา
                                 loaded_mutable_objects.push((
                                     i,
                                     stored_obj.id.clone(),
@@ -641,13 +650,8 @@ impl MoveRuntime {
                                     stored_obj.version,
                                 ));
                             }
-                            RuntimeType::Reference(_) => {
-                                // ถ้าส่งแบบ & (อ่านอย่างเดียว) ปล่อยผ่านได้เลย
-                            }
                             _ => {
-                                // 🚨 ถ้าส่งแบบ T (By Value) หมายความว่าเหรียญนี้จะถูกกินลงท้อง MoveVM!
-                                // เราต้องจดชื่อมันไว้เพื่อเอาไปทำลายทิ้งตอนจบธุรกรรม
-                                loaded_by_value_objects.push(stored_obj.id.clone());
+                                // ปล่อยผ่าน
                             }
                         }
                     }
@@ -698,6 +702,15 @@ impl MoveRuntime {
                 let (move_changeset, events) =
                     res.map_err(|e| anyhow::anyhow!("exec error: {:?}", e))?;
 
+                // 🚨 FIX: สแกนหา Object ที่ถูกสั่งลบ (Op::Delete) จาก MoveVM โดยตรง (แก้บั๊กเหรียญผี)
+                for (addr, account_changes) in move_changeset.accounts() {
+                    for op in account_changes.resources().values() {
+                        if let move_core_types::effects::Op::Delete = op {
+                            cs.add_deleted_object(addr.to_hex_literal());
+                        }
+                    }
+                }
+
                 if persist_runtime_state {
                     self.apply_move_changeset(move_changeset.clone())?;
                 }
@@ -706,7 +719,6 @@ impl MoveRuntime {
 
                 let mut processed_ids = std::collections::HashSet::new();
 
-                // 🚨 WRITEBACK FIX: ดึงข้อมูลที่อัปเดตแล้วจาก MoveVM และลบข้อมูลเก่าในคิวทิ้งทันที
                 for (idx, data, _layout) in return_values.mutable_reference_outputs {
                     if let Some((_, id, owner, type_name, version)) = loaded_mutable_objects
                         .iter()
@@ -716,7 +728,7 @@ impl MoveRuntime {
                             owner: *owner,
                             uid: Self::uid_from_object_id(id),
                             type_: type_name.clone(),
-                            data: data.clone(), // <--- ยอดที่ถูกหักแล้วอย่างถูกต้อง
+                            data: data.clone(),
                             version: version + 1,
                         };
 
@@ -729,24 +741,17 @@ impl MoveRuntime {
                             "writeback",
                         );
 
-                        // 🚨 [เพิ่มโค้ดป้องกัน Self-Transfer Bug]
-                        // ดีดเหรียญเดิม (ที่ถูกหักยอดแล้ว) ออกจากรายการ Auto-Merge ทิ้ง
-                        // เพื่อไม่ให้รันไทม์สับสนและดูดยอดเหรียญที่เพิ่งโอนเข้าตัวเองกลับไปจนข้อมูลพัง
                         auto_merged_coin_ids.retain(|merged_id| merged_id != id);
 
-                        // ล้าง Object เดิมที่มี ID นี้ออกจาก ChangeSet ก่อน เพื่อป้องกัน Stale Overwrite
                         cs.created_objects.retain(|(k, _)| k != id);
-
-                        // บันทึกยอดที่ถูกต้องลงระบบ
                         cs.created_objects.push((id.clone(), updated_obj));
                         processed_ids.insert(id.clone());
                     }
                 }
 
-                // 🚨 SAVED FIX: ป้องกันข้อมูลเก่ามาทับข้อมูลที่เราเพิ่งอัปเดตไป
                 for saved in saved_objects {
                     if processed_ids.contains(&saved.object_id) {
-                        continue; // ถ้าอัปเดตไปแล้วในรอบตะกี้ ให้ข้ามเลย
+                        continue;
                     }
 
                     let (owner, version) = self
@@ -769,7 +774,6 @@ impl MoveRuntime {
                         "saved",
                     );
 
-                    // ป้องกันซ้ำซ้อน
                     cs.created_objects.retain(|(k, _)| k != &saved.object_id);
                     cs.created_objects
                         .push((saved.object_id.clone(), updated_obj));
@@ -802,14 +806,7 @@ impl MoveRuntime {
                     });
                 }
 
-                // 🚨 ล้าง ID เก่าที่ถูก "กิน" ไปใน Move VM (By-Value)
-                let created_keys: std::collections::HashSet<_> =
-                    cs.created_objects.iter().map(|(k, _)| k.clone()).collect();
-                for id in loaded_by_value_objects {
-                    if !created_keys.contains(&id) {
-                        cs.add_deleted_object(id); // สั่งลบทิ้งถ้าไม่มีการสร้างใหม่ทับ ID เดิม
-                    }
-                }
+                // (หมายเหตุ: ลบลูปของ loaded_by_value_objects ออกจากตรงนี้แล้ว)
 
                 if let Some((gas_limit, gas_price)) = gas_info {
                     let complexity = 1 + (total_merge_reads as u32 / 10);

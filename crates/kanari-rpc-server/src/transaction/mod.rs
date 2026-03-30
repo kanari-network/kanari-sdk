@@ -411,8 +411,8 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
         p.into_inner()
     });
 
-    for block in chain.blocks.iter() {
-        for tx in block.transactions.iter() {
+    for block in chain.blocks.iter().rev() {
+        for tx in block.transactions.iter().rev() {
             let tx_hash = hex::encode(tx.hash());
             if tx_hash.to_lowercase() == normalized {
                 let details = map_transaction_to_details(

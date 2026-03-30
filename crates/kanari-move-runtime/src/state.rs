@@ -21,7 +21,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Account {
     pub address: AccountAddress,
-    pub balance: u64, // Native KANARI balance in Mist
+    pub balance: u64,
     pub sequence_number: u64,
     pub modules: BTreeSet<String>,
     /// Token balances: token_type -> BalanceRecord
@@ -79,10 +79,11 @@ pub struct StateManager {
     // Cache for total supply to avoid frequent DB reads
     pub total_supply: u64,
 
+    // 🚨 NEW: ตัวแปรเก็บบน RAM สำหรับ Track ยอดเหรียญ Token ทั้งหมดในระบบแบบ Real-time!
+    pub global_token_supplies: BTreeMap<String, u64>,
+
     // SMT for state root calculation (Optional: requires DB backend)
     pub smt: Option<Arc<smt::SparseMerkleTree>>,
-
-    // Events are accumulated in memory per block and flushed elsewhere
     pub events: Vec<Event>,
 }
 
@@ -111,6 +112,12 @@ impl StateManager {
             .unwrap_or(None)
             .unwrap_or(0);
 
+        // 🚨 NEW: ดึง Global Token Supplies เก่าขึ้นมาจาก RocksDB
+        let global_token_supplies = store
+            .load::<BTreeMap<String, u64>>(b"global_token_supplies")
+            .unwrap_or(None)
+            .unwrap_or_default();
+
         // Initialize SMT if store is backed by RocksDB
         let smt = store
             .get_db()
@@ -120,6 +127,7 @@ impl StateManager {
             store,
             overlay: BTreeMap::new(),
             total_supply,
+            global_token_supplies, // 🚨 ใส่เข้า State
             smt,
             events: Vec::new(),
         };
@@ -355,26 +363,50 @@ impl StateManager {
             self.save_internal(&key, &(*owner, nft_cap.clone()))?;
         }
 
-        // 🚨 FIX 1: เชื่อถือยอด Token จาก Move VM ตรงๆ (ไม่ต้องสั่ง Recompute แล้ว)
+        // 🚨 FIX 1: O(1) Global Supply Tracking (ติดตามยอดรวมจากส่วนต่างของกระเป๋า)
         for (owner, token_type, amount) in &changeset.token_balance_sets {
             let mut account = self.load_account_or_default(*owner)?;
             let normalized_token_type = Self::normalize_token_type(token_type);
-            account.set_token_balance(normalized_token_type, amount.clone());
+
+            // 1. จำยอดเดิมก่อน
+            let old_balance = account.get_token_balance(&normalized_token_type);
+            let new_balance = amount.value();
+
+            // 2. อัปเดตยอดกระเป๋าผู้ใช้ปกติ
+            account.set_token_balance(normalized_token_type.clone(), amount.clone());
             self.save_account(&account)?;
+
+            // 3. เอาส่วนต่าง (Delta) ไปบวก/ลบในยอด Global รวมบน RAM
+            let current_supply = self
+                .global_token_supplies
+                .get(&normalized_token_type)
+                .copied()
+                .unwrap_or(0);
+            let updated_supply = if new_balance >= old_balance {
+                current_supply
+                    .checked_add(new_balance - old_balance)
+                    .unwrap_or(current_supply)
+            } else {
+                current_supply.saturating_sub(old_balance - new_balance)
+            };
+
+            // 4. เซฟกลับเข้า RAM และ RocksDB
+            self.global_token_supplies
+                .insert(normalized_token_type, updated_supply);
+
+            // 🚨 แก้ปัญหา Borrow Checker (Clone ข้อมูลออกมาก่อนเซฟ)
+            let supplies_clone = self.global_token_supplies.clone();
+            self.save_internal(b"global_token_supplies", &supplies_clone)?;
         }
 
-        // 🚨 FIX 2: ลบ Object ทิ้งจริงๆ ไม่อนุญาตให้เหรียญเป็นอมตะ (ลบ skip_deletion ทิ้ง)
         for obj_id in &changeset.deleted_objects {
             let obj_key = Self::object_key(obj_id);
-
             if let Some(existing) = self.load_internal::<CreatedObject>(&obj_key)? {
                 let owner_key = Self::owned_objects_key(&existing.owner);
                 let mut owned: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
                 owned.retain(|x| x != obj_id);
                 self.save_internal(&owner_key, &owned)?;
             }
-
-            // ลบออกจาก State จริงๆ
             self.overlay.insert(obj_key, None);
         }
 
@@ -384,11 +416,9 @@ impl StateManager {
 
             if let Ok(Some(existing)) = self.load_internal::<CreatedObject>(&obj_key) {
                 new_obj.version = existing.version + 1;
-
                 if new_obj.owner.to_hex_literal() == *obj_id {
                     new_obj.owner = existing.owner;
                 }
-
                 if existing.owner != new_obj.owner {
                     let old_owner_key = Self::owned_objects_key(&existing.owner);
                     let mut old_owned: Vec<String> =
@@ -478,7 +508,6 @@ impl StateManager {
     pub fn get_owned_objects(&self, owner: &AccountAddress) -> Result<Vec<String>> {
         let owner_key = Self::owned_objects_key(owner);
         let raw_ids: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
-
         let mut unique = HashSet::new();
         let mut clean = Vec::new();
         for id in raw_ids {

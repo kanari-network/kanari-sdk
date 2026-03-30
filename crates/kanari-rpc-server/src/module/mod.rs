@@ -134,7 +134,7 @@ pub async fn handle_get_object(state: &RpcServerState, request: &RpcRequest) -> 
 
     // Try to look up object in engine state
     let id = req.object_id;
-    let state_guard = state.engine.state.read().unwrap();
+    let state_guard = state.engine.state.read().unwrap_or_else(|e| e.into_inner());
 
     // Try both with and without 0x prefix
     let candidates = vec![id.clone(), id.trim_start_matches("0x").to_string()];
