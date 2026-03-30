@@ -410,19 +410,23 @@ async fn run_node(
         let stats = engine.get_stats();
         let wallets = list_wallet_files().unwrap_or_default();
         tracing::info!(
-            "Block height: {}, Transactions: {}, Pending: {}, Accounts: {}, Wallets: {}",
+            "Block height: {}, Transactions: {}, Pending: {}, Wallets: {}",
             stats.height,
             stats.total_transactions,
             stats.pending_transactions,
-            stats.total_accounts,
             wallets.len()
         );
+
+        // ✅ 1. เพิ่มตัวแปรเช็คสถานะว่ารอบนี้มีการสร้างบล็อกหรือไม่
+        let mut did_work = false;
 
         // Only produce blocks when there are pending transactions
         // This avoids consensus validation issues with empty blocks in both local and networked modes
         if stats.pending_transactions > 0 {
             match engine.produce_block() {
                 Ok(block_info) => {
+                    did_work = true; // ✅ 2. อัปเดตสถานะว่าเพิ่งทำงานเสร็จไป
+
                     tracing::info!(
                         "DAG Vertex (Round #{}) produced: {} txs ({} executed, {} failed)",
                         block_info.round,
@@ -473,17 +477,34 @@ async fn run_node(
                     }
                 }
                 Err(e) => {
-                    tracing::error!("Block production failed: {}", e);
+                    // ถ้ายังไม่พร้อม (รอ Quorum) มันจะพ่น Error "DAG not ready"
+                    // ซึ่งถือเป็นเรื่องปกติ ให้ปล่อยมันรอไป
+                    if !e.to_string().contains("DAG not ready") {
+                        tracing::error!("Block production failed: {}", e);
+                    }
                 }
             }
         }
 
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
+        // ✅ 3. โลจิกควบคุมความเร็ว (Throttle Control)
+        if !did_work {
+            // ถ้าไม่มีงานทำ ให้หลับรอ (ประหยัด CPU)
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    tracing::info!("Shutdown signal received. Cleaning up and exiting...");
+                    break;
+                }
+                _ = sleep(Duration::from_secs(1)) => {} 
+            }
+        } else {
+            // ถ้าเพิ่งมีงานทำเสร็จ ให้วนลูปทำงานรอบต่อไปทันทีโดยไม่ติด Sleep
+            // แต่ยังคงเช็คปุ่มปิดโปรแกรม (Ctrl+C) แบบ Non-blocking (ให้เวลาแค่ 1ms)
+            if let Ok(_) =
+                tokio::time::timeout(Duration::from_millis(1), tokio::signal::ctrl_c()).await
+            {
                 tracing::info!("Shutdown signal received. Cleaning up and exiting...");
                 break;
             }
-            _ = sleep(Duration::from_secs(2)) => {} // Check every 2 seconds
         }
     }
 

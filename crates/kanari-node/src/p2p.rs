@@ -36,8 +36,9 @@ pub enum P2PMessage {
     BlockResponse(String),  // Full block data response with transactions
     PeerInfo(PeerInfoMsg),
     // Add compressed message types for large data
-    CompressedBlock(Vec<u8>),     // Compressed full block data (gzip)
-    CompressedDagVertex(Vec<u8>), // Compressed DAG vertex (gzip)
+    CompressedBlock(Vec<u8>),         // Compressed full block data (gzip)
+    CompressedDagVertex(Vec<u8>),     // Compressed DAG vertex (gzip)
+    CompressedBlockResponse(Vec<u8>), // Compressed block response with transactions (gzip)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
@@ -206,6 +207,8 @@ impl P2PNetwork {
             P2PMessage::NewDagVertex(_) => &self.topics.dag_vertices,
             P2PMessage::CompressedBlock(_) => &self.topics.blocks,
             P2PMessage::CompressedDagVertex(_) => &self.topics.dag_vertices,
+            // ✅ FIX 2.1: เพิ่มการจัดการ Topic ให้กับ CompressedBlockResponse
+            P2PMessage::CompressedBlockResponse(_) => &self.topics.blocks,
         };
 
         // Log message publication for debugging
@@ -225,6 +228,10 @@ impl P2PNetwork {
             P2PMessage::BlockRequest(h, t) => {
                 info!("[P2P] Publishing BlockRequest: height={}, ts={}", h, t);
             }
+            // ✅ เพิ่ม Log สำหรับ BlockResponse ด้วย
+            P2PMessage::BlockResponse(data) => {
+                info!("[P2P] Publishing BlockResponse (size: {})", data.len());
+            }
             _ => {
                 tracing::debug!("[P2P] Publishing message: {:?}", msg);
             }
@@ -233,7 +240,6 @@ impl P2PNetwork {
         // Handle compression for large messages
         let final_msg = match msg {
             P2PMessage::NewBlock(ref data) if data.len() > 100_000 => {
-                // Compress blocks larger than 100KB
                 let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
                 encoder.write_all(data.as_bytes())?;
                 let compressed_data = encoder.finish()?;
@@ -245,7 +251,6 @@ impl P2PNetwork {
                 P2PMessage::CompressedBlock(compressed_data)
             }
             P2PMessage::NewDagVertex(ref data) if data.len() > 100_000 => {
-                // Compress vertices larger than 100KB
                 let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
                 encoder.write_all(data.as_bytes())?;
                 let compressed_data = encoder.finish()?;
@@ -255,6 +260,18 @@ impl P2PNetwork {
                     compressed_data.len()
                 );
                 P2PMessage::CompressedDagVertex(compressed_data)
+            }
+            // ✅ FIX 2.2: ทำการบีบอัด BlockResponse ที่มีขนาดใหญ่กว่า 100KB
+            P2PMessage::BlockResponse(ref data) if data.len() > 100_000 => {
+                let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+                encoder.write_all(data.as_bytes())?;
+                let compressed_data = encoder.finish()?;
+                info!(
+                    "[P2P] Compressed BlockResponse from {} to {} bytes",
+                    data.len(),
+                    compressed_data.len()
+                );
+                P2PMessage::CompressedBlockResponse(compressed_data)
             }
             _ => msg,
         };
@@ -294,7 +311,7 @@ impl P2PNetwork {
 }
 
 /// Decompress a compressed block message
-fn decompress_block(compressed_data: Vec<u8>) -> Result<String> {
+pub fn decompress_block(compressed_data: Vec<u8>) -> Result<String> {
     let mut decoder = GzDecoder::new(&compressed_data[..]);
     let mut decompressed = String::new();
     decoder.read_to_string(&mut decompressed)?;
@@ -302,7 +319,7 @@ fn decompress_block(compressed_data: Vec<u8>) -> Result<String> {
 }
 
 /// Decompress a compressed DAG vertex message
-fn decompress_dag_vertex(compressed_data: Vec<u8>) -> Result<String> {
+pub fn decompress_dag_vertex(compressed_data: Vec<u8>) -> Result<String> {
     let mut decoder = GzDecoder::new(&compressed_data[..]);
     let mut decompressed = String::new();
     decoder.read_to_string(&mut decompressed)?;

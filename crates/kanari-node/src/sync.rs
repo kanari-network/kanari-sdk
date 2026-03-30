@@ -1,7 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::p2p::{P2PMessage, PeerInfoMsg};
+use crate::p2p::{P2PMessage, PeerInfoMsg, decompress_block};
 use centauri::consensus::DagVertex;
 use kanari_core::{BlockchainEngine, FullBlockData, engine::DagEngine};
 use kanari_types::transaction::SignedTransaction;
@@ -99,6 +99,16 @@ impl SyncManager {
                 warn!(
                     "[P2P] Received compressed message in sync manager - should be decompressed already"
                 );
+            }
+            P2PMessage::CompressedBlockResponse(compressed_data) => {
+                match decompress_block(compressed_data.to_vec()) {
+                    Ok(data) => {
+                        let new_msg = P2PMessage::BlockResponse(data);
+                        let _ = self.network_tx.send(new_msg);
+                    }
+                    Err(_) => return,
+                }
+                return;
             }
         }
     }
