@@ -1018,29 +1018,6 @@ impl BlockchainEngine {
         })
     }
 
-    /// Get token balance for specific token type
-    pub fn get_token_balance(&self, address: &str, token_type: &str) -> u64 {
-        let state = self.state.read().unwrap();
-        state
-            .get_account_by_hex(address)
-            .map(|acc| acc.get_token_balance(token_type))
-            .unwrap_or(0)
-    }
-
-    /// Get all token balances for an address
-    pub fn get_all_token_balances(&self, address: &str) -> std::collections::BTreeMap<String, u64> {
-        let state = self.state.read().unwrap();
-        state
-            .get_account_by_hex(address)
-            .map(|acc| {
-                acc.token_balances
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.value()))
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
     /// Iterate over pending transactions from a specific sender
     fn for_each_pending_tx_from_sender<F>(&self, sender: &str, mut f: F)
     where
@@ -1231,86 +1208,5 @@ impl BlockchainEngine {
         );
 
         Ok(())
-    }
-
-    /// Get state root for a specific block height or latest if None.
-    pub fn get_state_root(&self, height: Option<u64>) -> Option<String> {
-        let chain = self.blockchain.read().unwrap();
-        let header = match height {
-            Some(h) => &chain.get_block(h)?.header,
-            None => &chain.latest_block().header,
-        };
-        Some(hex::encode(&header.state_root))
-    }
-
-    /// Return list of registered token types and their total supplies
-    pub fn list_tokens(&self) -> Vec<(String, u64)> {
-        use std::collections::{BTreeMap, BTreeSet};
-
-        let mut all_addresses = BTreeSet::new();
-
-        // 1. รวบรวม Address ของผู้ใช้งาน "ทุกคน" ในระบบจากประวัติธุรกรรม
-        {
-            let chain = self.blockchain.read().unwrap();
-            for block in chain.blocks.iter() {
-                for tx in block.transactions.iter() {
-                    // เก็บกระเป๋าคนส่ง
-                    all_addresses.insert(tx.transaction.sender_address().to_string());
-                    // เก็บกระเป๋าคนรับ (กรณีโอน)
-                    if let kanari_types::transaction::Transaction::Transfer { to, .. } =
-                        &tx.transaction
-                    {
-                        all_addresses.insert(to.clone());
-                    }
-                }
-            }
-
-            // เก็บ Address จากคิวที่กำลังรอประมวลผลด้วย
-            if let Ok(pending) = self.pending_txs.read() {
-                for tx in pending.iter() {
-                    all_addresses.insert(tx.transaction.sender_address().to_string());
-                }
-            }
-        }
-
-        let mut global_tokens: BTreeMap<String, u64> = BTreeMap::new();
-
-        // 2. ดึงข้อมูลเหรียญหลัก (Native) และเหรียญที่มีคลัง (Treasury)
-        {
-            let state = self.state.read().unwrap();
-            global_tokens.insert("KANARI".to_string(), state.total_supply);
-
-            if let Ok(treasuries) = state.load_treasuries() {
-                for (_owner, token_type, cap) in treasuries {
-                    global_tokens.insert(token_type, cap.total_supply);
-                }
-            }
-        } // 🚨 สำคัญ: เราจะปลด Lock ของ State ตรงนี้ เพื่อป้องกันการเกิด Deadlock ในขั้นตอนต่อไป
-
-        // 3. 🚨 DEEP SCAN: เปิดกระเป๋าทุกใบเพื่อค้นหาเหรียญที่ซ่อนอยู่ 100%!
-        for addr in all_addresses {
-            // get_account_info จะเข้าไปกวาด "วัตถุเหรียญ (Coin Objects)" ในกระเป๋านั้นจริงๆ
-            if let Some(acc_info) = self.get_account_info(&addr) {
-                for (token_type, balance) in acc_info.token_balances {
-                    if token_type != "KANARI" {
-                        // ถ้าเจอเหรียญ ให้เอาจำนวนไปบวกสะสมเป็นยอด Total Supply ทันที
-                        *global_tokens.entry(token_type).or_insert(0) += balance;
-                    }
-                }
-            }
-        }
-
-        // คืนค่ารายการเหรียญพร้อม Total Supply ทั้งหมดในระบบส่งให้ RPC
-        global_tokens.into_iter().collect()
-    }
-
-    /// Get token decimals
-    pub fn get_token_decimals(&self, token_type: &str) -> Option<u8> {
-        // Special case for native KANARI token
-        if token_type == "KANARI" {
-            return Some(9);
-        }
-        let state = self.state.read().unwrap();
-        state.get_token_decimals(token_type).unwrap_or(None)
     }
 }

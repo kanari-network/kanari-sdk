@@ -462,13 +462,11 @@ impl StateManager {
                         key_url.extend_from_slice(token_type.as_bytes());
                         let _ = self.save_internal(&key_url, &url);
                     }
-                } else {
-                    if new_obj.data.len() > 32 {
-                        let decimals = new_obj.data[32];
-                        let mut key = b"metadata_decimals:".to_vec();
-                        key.extend_from_slice(token_type.as_bytes());
-                        self.save_internal(&key, &decimals)?;
-                    }
+                } else if new_obj.data.len() > 32 {
+                    let decimals = new_obj.data[32];
+                    let mut key = b"metadata_decimals:".to_vec();
+                    key.extend_from_slice(token_type.as_bytes());
+                    self.save_internal(&key, &decimals)?;
                 }
             }
         }

@@ -117,7 +117,6 @@ pub async fn handle_get_token_balance(state: &RpcServerState, request: &RpcReque
         }
     };
 
-    // 🚨 FIX: กวาดจาก Objects จริงๆ แทนการเรียก engine.get_token_balance
     let account_info = match state.engine.get_account_info(&req_data.address) {
         Some(info) => info,
         None => {
@@ -181,13 +180,14 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
     // 1. นำยอด Native Balance มาตั้งต้นเป็นยอดของเหรียญ KANARI
     coin_sums.insert("KANARI".to_string(), account_info.balance as u128);
 
+    // 🚨 2. วนลูปดึงยอดจาก token_balances เฉพาะเหรียญที่ไม่ใช่ KANARI เพื่อป้องกันยอดเบิ้ล
     for (token_type, amount) in account_info.token_balances {
-        let normalized_key = if token_type.to_uppercase().contains("KANARI") {
-            "KANARI".to_string()
-        } else {
-            token_type
-        };
-        *coin_sums.entry(normalized_key).or_insert(0) += amount as u128;
+        // ถ้าเป็นเหรียญ KANARI ให้ข้ามไปเลย เพราะเราใช้ยอด Native Balance เป็นหลักแล้วในข้อ 1
+        if token_type.to_uppercase().contains("KANARI") {
+            continue;
+        }
+
+        *coin_sums.entry(token_type).or_insert(0) += amount as u128;
     }
 
     let state_guard = state.engine.state.read().unwrap_or_else(|p| p.into_inner());
@@ -212,23 +212,26 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
             .unwrap_or(None)
             .unwrap_or_else(|| symbol.clone());
 
+        let mut description = state_guard
+            .get_token_description(&token_type)
+            .unwrap_or(None);
+
         let is_kanari = token_type.to_uppercase().contains("KANARI");
 
-        // 🚨 นำ Description มาใช้ตรงนี้
-        let (final_name, final_symbol, description, icon_url) = if is_kanari {
+        let (final_name, final_symbol, icon_url) = if is_kanari {
+            // บังคับข้อมูลพื้นฐานของ KANARI ให้เป๊ะ
+            if description.is_none() {
+                description = Some("The native token of Kanari Network".to_string());
+            }
             (
                 "Kanari Network Coin".to_string(),
                 "KANARI".to_string(),
-                Some("The native token of Kanari Network".to_string()),
                 Some("https://avatars.githubusercontent.com/u/127471673?s=200&v=4".to_string()),
             )
         } else {
             (
                 name,
                 symbol,
-                state_guard
-                    .get_token_description(&token_type)
-                    .unwrap_or(None),
                 state_guard.get_token_icon_url(&token_type).unwrap_or(None),
             )
         };
@@ -254,8 +257,81 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
 
 /// Handle list tokens request
 pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let tokens = state.engine.list_tokens();
+    use std::collections::{BTreeMap, BTreeSet};
+    // 🚨 1. Import AccountAddress มาใช้เป็น Key เพื่อป้องกันปัญหา String ซ้ำซ้อน
+    use move_core_types::account_address::AccountAddress;
+
+    // 🚨 2. เปลี่ยนจากเก็บ String เป็นเก็บ AccountAddress เพื่อให้ 0x1 กับ 0x000...001 ถูกยุบเป็น Address เดียวกัน 100%
+    let mut unique_addresses: BTreeSet<AccountAddress> = BTreeSet::new();
+
+    // =====================================================================
+    // STEP 1: DEEP SCAN - รวบรวม Address แท้จริง และรวมยอด Total Supply
+    // =====================================================================
+
+    {
+        let chain = state.engine.blockchain.read().unwrap();
+        for block in chain.blocks.iter() {
+            for tx in block.transactions.iter() {
+                // ดึงและแปลงกระเป๋าคนส่งให้เป็น AccountAddress มาตรฐาน
+                if let Ok(addr) = kanari_types::address::Address::parse_to_account_address(
+                    tx.transaction.sender_address(),
+                ) {
+                    unique_addresses.insert(addr);
+                }
+                // ดึงและแปลงกระเป๋าคนรับ (กรณีโอน)
+                if let kanari_types::transaction::Transaction::Transfer { to, .. } = &tx.transaction
+                    && let Ok(addr) = kanari_types::address::Address::parse_to_account_address(to)
+                {
+                    unique_addresses.insert(addr);
+                }
+            }
+        }
+
+        if let Ok(pending) = state.engine.pending_txs.read() {
+            for tx in pending.iter() {
+                if let Ok(addr) = kanari_types::address::Address::parse_to_account_address(
+                    tx.transaction.sender_address(),
+                ) {
+                    unique_addresses.insert(addr);
+                }
+            }
+        }
+    }
+
+    let mut global_tokens: BTreeMap<String, u64> = BTreeMap::new();
     let state_guard = state.engine.state.read().unwrap_or_else(|p| p.into_inner());
+
+    // ดึงข้อมูลเหรียญหลัก (Native)
+    global_tokens.insert("KANARI".to_string(), state_guard.total_supply);
+
+    // สร้างลิสต์เหรียญตั้งต้นไว้ที่ 0
+    if let Ok(Some(keys)) = state_guard.store.load::<Vec<String>>(b"treasury_index") {
+        for key in keys {
+            let token_type = key.strip_prefix("treasury:").unwrap_or(&key).to_string();
+            if !token_type.to_uppercase().contains("KANARI") {
+                global_tokens.insert(token_type, 0);
+            }
+        }
+    }
+
+    // 1.3 เปิดกระเป๋าทุกใบเพื่อค้นหาเหรียญ
+    // 🚨 FIX: วนลูปตาม unique_addresses ที่การันตีว่าไม่มี Account ซ้ำซ้อนแน่นอน
+    for addr in unique_addresses {
+        // ใช้ get_account ตรงๆ ด้วย AccountAddress
+        if let Some(account) = state_guard.get_account(&addr) {
+            for (token_type, balance_record) in account.token_balances {
+                if !token_type.to_uppercase().contains("KANARI") {
+                    *global_tokens.entry(token_type).or_insert(0) += balance_record.value();
+                }
+            }
+        }
+    }
+
+    let tokens: Vec<(String, u64)> = global_tokens.into_iter().collect();
+
+    // =====================================================================
+    // STEP 2: METADATA & FORMATTING
+    // =====================================================================
 
     let vals: Vec<serde_json::Value> = tokens
         .into_iter()
@@ -268,23 +344,25 @@ pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) ->
                 .unwrap_or(None)
                 .unwrap_or_else(|| symbol.clone());
 
+            let mut description = state_guard
+                .get_token_description(&token_type)
+                .unwrap_or(None);
+
             let is_kanari = token_type.to_uppercase().contains("KANARI");
 
-            // 🚨 นำ Description มาใช้ตรงนี้
-            let (final_name, final_symbol, description, icon_url) = if is_kanari {
+            let (final_name, final_symbol, icon_url) = if is_kanari {
+                if description.is_none() {
+                    description = Some("The native token of Kanari Network".to_string());
+                }
                 (
                     "Kanari Network Coin".to_string(),
                     "KANARI".to_string(),
-                    Some("The native token of Kanari Network".to_string()),
                     Some("https://avatars.githubusercontent.com/u/127471673?s=200&v=4".to_string()),
                 )
             } else {
                 (
                     name,
                     symbol,
-                    state_guard
-                        .get_token_description(&token_type)
-                        .unwrap_or(None),
                     state_guard.get_token_icon_url(&token_type).unwrap_or(None),
                 )
             };

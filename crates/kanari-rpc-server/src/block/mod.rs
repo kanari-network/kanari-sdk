@@ -76,33 +76,6 @@ pub async fn handle_get_full_block(state: &RpcServerState, request: &RpcRequest)
     }
 }
 
-/// Handle get state root request
-pub async fn handle_get_state_root(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let req: kanari_rpc_api::GetStateRootRequest =
-        match serde_json::from_value(request.params.clone()) {
-            Ok(r) => r,
-            Err(e) => {
-                return RpcResponse {
-                    jsonrpc: "2.0".to_string(),
-                    result: None,
-                    error: Some(RpcError::invalid_params(e.to_string())),
-                    id: request.id,
-                };
-            }
-        };
-
-    let root = state.engine.get_state_root(req.height);
-    match root {
-        Some(r) => respond_with_serialize(request.id, serde_json::json!(r)),
-        None => RpcResponse {
-            jsonrpc: "2.0".to_string(),
-            result: None,
-            error: Some(RpcError::internal_error("State root not available")),
-            id: request.id,
-        },
-    }
-}
-
 /// Handle get block height request
 pub async fn handle_get_block_height(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let stats = state.engine.get_stats();

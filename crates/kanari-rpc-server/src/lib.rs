@@ -20,8 +20,8 @@ use crate::{
         handle_list_tokens,
     },
     block::{
-        handle_get_block, handle_get_block_height, handle_get_full_block, handle_get_state_root,
-        handle_get_stats, handle_produce_block,
+        handle_get_block, handle_get_block_height, handle_get_full_block, handle_get_stats,
+        handle_produce_block,
     },
     module::{handle_get_module, handle_get_object, handle_list_modules, handle_verify_module},
     transaction::{
@@ -109,7 +109,6 @@ async fn handle_rpc(
             transaction::handle_get_all_transactions(&state, &request).await
         }
         methods::PRODUCE_BLOCK => handle_produce_block(&state, &request).await,
-        methods::GET_STATE_ROOT => handle_get_state_root(&state, &request).await,
         methods::GET_BLOCK_HEIGHT => handle_get_block_height(&state, &request).await,
         methods::GET_STATS => handle_get_stats(&state, &request).await,
         methods::SUBMIT_TRANSACTION => handle_submit_transaction(&state, &request).await,
