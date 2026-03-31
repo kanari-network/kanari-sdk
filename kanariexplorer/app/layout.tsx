@@ -14,41 +14,50 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="dark">
-      <body className={`${inter.variable} ${mono.variable} font-sans bg-black text-zinc-100 min-h-screen flex flex-col selection:bg-zinc-800`}>
+      <body className={`${inter.variable} ${mono.variable} font-sans bg-[#09090b] text-zinc-300 min-h-screen flex flex-col selection:bg-emerald-500/30 selection:text-emerald-200 relative`}>
+        {/* Background Glow Effect */}
+        <div className="absolute top-0 inset-x-0 h-125 bg-linear-to-b from-emerald-500/5 via-cyan-500/5 to-transparent pointer-events-none z-0"></div>
+
         {/* Navbar */}
-        <header className="sticky top-0 z-50 bg-black/90 backdrop-blur-md border-b border-zinc-800">
+        <header className="sticky top-0 z-50 bg-[#09090b]/70 backdrop-blur-xl border-b border-white/5 shadow-sm">
           <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-3 group">
-              <div className="w-8 h-8 bg-zinc-100 rounded flex items-center justify-center text-black font-black text-xl">
+            <Link href="/" className="flex items-center gap-3 group relative z-10">
+              <div className="w-9 h-9 bg-linear-to-br from-emerald-400 to-cyan-500 rounded-xl flex items-center justify-center text-white font-black text-xl shadow-lg shadow-emerald-500/20 group-hover:shadow-emerald-500/40 transition-all">
                 K
               </div>
-              <span className="text-xl font-bold tracking-wide text-zinc-100 group-hover:text-white transition-colors">
-                KanariScan
+              <span className="text-xl font-bold tracking-tight text-white">
+                Kanari<span className="text-zinc-500 font-normal">Scan</span>
               </span>
             </Link>
-            <nav className="hidden md:flex space-x-1">
-              <Link href="/" className="px-3 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 rounded-md transition-all">Home</Link>
-              <Link href="/tx" className="px-3 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 rounded-md transition-all">Transactions</Link>
-              <Link href="/coins" className="px-3 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 rounded-md transition-all">Tokens</Link>
-              <Link href="/account" className="px-3 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 rounded-md transition-all">Accounts</Link>
-              <Link href="/nft" className="px-3 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 rounded-md transition-all">NFTs</Link>
+            <nav className="hidden md:flex items-center space-x-2 relative z-10">
+              {[
+                { name: 'Home', path: '/' },
+                { name: 'Transactions', path: '/tx' },
+                { name: 'Tokens', path: '/coins' },
+                { name: 'Accounts', path: '/account' },
+                { name: 'NFTs', path: '/nft' }
+              ].map((item) => (
+                <Link key={item.name} href={item.path} className="px-4 py-2 text-sm font-medium text-zinc-400 hover:text-white hover:bg-white/5 rounded-lg transition-all duration-200">
+                  {item.name}
+                </Link>
+              ))}
             </nav>
           </div>
         </header>
 
         {/* Main Content */}
-        <main className="flex-1 flex flex-col">
+        <main className="flex-1 flex flex-col relative z-10">
           {children}
         </main>
 
         {/* Footer */}
-        <footer className="bg-black py-8 border-t border-zinc-900 mt-auto">
-          <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-4 text-xs font-medium text-zinc-600">
+        <footer className="bg-[#09090b] py-8 border-t border-white/5 mt-auto relative z-10">
+          <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-4 text-sm font-medium text-zinc-500">
             <div>© {new Date().getFullYear()} Kanari Network. All rights reserved.</div>
-            <div className="flex gap-4">
-              <a href="#" className="hover:text-zinc-300 transition-colors">Twitter</a>
-              <a href="#" className="hover:text-zinc-300 transition-colors">Discord</a>
-              <a href="#" className="hover:text-zinc-300 transition-colors">GitHub</a>
+            <div className="flex gap-6">
+              <a href="#" className="hover:text-emerald-400 transition-colors">Twitter</a>
+              <a href="#" className="hover:text-emerald-400 transition-colors">Discord</a>
+              <a href="#" className="hover:text-emerald-400 transition-colors">GitHub</a>
             </div>
           </div>
         </footer>

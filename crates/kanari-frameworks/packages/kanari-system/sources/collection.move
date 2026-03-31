@@ -9,16 +9,19 @@ module kanari_system::collection {
     use kanari_system::object;
     use kanari_system::object::UID;
     use kanari_system::transfer;
+    use kanari_system::url::Url;
 
     /// A reusable Collection resource for NFTs and similar objects.
     struct Collection has key, store {
         id: UID,
         name: String,
         description: String,
+        banner_url: Url,   
+        website_url: Url,   
         creator: address,
         max_supply: u64,
     }
-
+    
     /// A capability resource that governs minting within a Collection.
     struct NftCap has key, store, drop {
         id: UID,
@@ -42,31 +45,40 @@ module kanari_system::collection {
         ctx: &mut TxContext,
         name: vector<u8>,
         description: vector<u8>,
-        max_supply: u64
+        banner_url: vector<u8>,
+        website_url: vector<u8>,
+        max_supply: u64,
     ): (Collection, NftCap) {
+        let id = object::new(ctx);
         let sender = tx_context::sender(ctx);
+        
+        let collection_addr = object::uid_address(&id);
 
-        let collection = Collection {
-            id: object::new(ctx),
+        let coll = Collection {
+            id,
             name: utf8(name),
             description: utf8(description),
+            banner_url: kanari_system::url::new_unsafe_from_bytes(banner_url),
+            website_url: kanari_system::url::new_unsafe_from_bytes(website_url),
             creator: sender,
-            max_supply: max_supply,
+            max_supply,
         };
 
         let cap = NftCap {
             id: object::new(ctx),
             remaining: max_supply,
             issued_counter: 0,
-            collection_id: object::uid_address(&collection.id),
+            collection_id: collection_addr, // ใช้ address ที่ดึงมา
         };
 
-        // Emit a lightweight event for off-chain indexing
-        let evt = CollectionCreated { collection_id: object::uid_address(&collection.id), creator: sender, max_supply: max_supply };
-        event::emit(evt);
+        event::emit(CollectionCreated { 
+            collection_id: collection_addr, 
+            creator: sender, 
+            max_supply 
+        });
 
-        (collection, cap)
-    }
+        (coll, cap) 
+    }  
 
     /// Returns the address (UID) of a `Collection`.
     public fun collection_id(_c: &Collection): address {
@@ -126,7 +138,14 @@ module kanari_system::collection {
         let ctx = tx_context::dummy();
 
         // create collection with small supply
-        let (coll, cap) = create_collection(&mut ctx, b"Test", b"Desc", 2);
+        let (coll, cap) = create_collection(
+            &mut ctx, 
+            b"Test Name",      // name
+            b"Test Desc",      // description
+            b"https://banner", // banner_url (ใหม่)
+            b"https://web",    // website_url (ใหม่)
+            2                  // max_supply
+        );
 
         // initial checks
         assert!(remaining(&cap) == 2, 0);

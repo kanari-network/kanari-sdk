@@ -1,6 +1,5 @@
-//Kanari Laps NFT Module
+// Kanari Labs NFT Module - Universal Standard Version
 module james::nft {
-    /// Import the necessary modules
     use std::string::{String, utf8};
     use kanari_system::tx_context::TxContext;
     use kanari_system::tx_context;
@@ -11,140 +10,91 @@ module james::nft {
     use kanari_system::collection;
     use kanari_system::event;
 
-    /// The KARIKID struct is an empty struct used for some kind of initialization.
-    struct NFT has drop {
-    }
+    /// โครงสร้างสำหรับระบุความเป็นเจ้าของ (One-Time Witness)
+    struct NFT has drop {}
 
-    /// The Attributes struct represents the attributes of a KariKid NFT.
-    struct Attributes has store, drop {
-        level: vector<String>,
-        rarity: vector<String>,
-        attack: vector<String>,
-        defense: vector<String>,
-    }
-
-    /// The KariKid struct represents an NFT with various properties.
+    /// โครงสร้าง NFT แบบมาตรฐานครอบจักรวาล
     struct KariKid has key, store {
-        /// The ID of the NFT
+        /// 1. ID ของวัตถุ (UID)
         id: UID,
-        /// The name of the NFT
+        /// 2. ชื่อของ NFT
         name: String,
-        /// The URL of the image of the NFT
+        /// 3. URL ของรูปภาพ
         image_url: url::Url,
-        /// The URL of the image of the NFT
+        /// 4. รายละเอียด (Description)
         description: String,
-        /// The number of the NFT
+        /// 5. รายการหัวข้อคุณสมบัติ (เช่น ["Level", "Attack"])
+        attribute_keys: vector<String>,
+        /// 6. รายการค่าของคุณสมบัติ (เช่น ["10", "150"])
+        attribute_values: vector<String>,
+
+        // --- ฟิลด์เสริมที่อยู่นอกเหนือมาตรฐาน ---
         number: String,
-        /// The collection this NFT belongs to
         collection_id: address,
-        /// The address of the creator of the NFT
         creator: address,
-        /// The attributes of the NFT
-        attributes: Attributes
     }
 
-    // The NftCap struct represents the capabilities of the NFT.
-    // NftCap is provided by `kanari_system::collection::NftCap`.
-
-    // Admin capability removed: minting no longer requires an AdminCap
-
-    /// The MAX_SUPPLY constant represents the maximum supply of the NFT.
-    const MAX_SUPPLY: u64 = 2000;
-
-    /// Error codes
-
-    /// The init function creates and returns a `(Collection, NftCap)`.
-    public fun init(_otw: NFT, ctx: &mut TxContext): (collection::Collection, collection::NftCap) {
-
-        let (coll, issuer) = collection::create_collection(ctx, b"default", b"", MAX_SUPPLY);
-
-
-        // Keys for the properties of the NFT
-        let _keys = vector[
-            // The name of the NFT
-            utf8(b"name"),
-            // The link to the NFT
-            utf8(b"link"),
-            // The URL of the image of the NFT
-            utf8(b"image_url"),
-            // The description of the NFT
-            utf8(b"description"),
-            // The URL of the project
-            utf8(b"project_url"),
-            // The address of the creator of the NFT
-            utf8(b"creator"),
-        ];
-
-        // Values for the properties of the NFT
-        let _values = vector[
-            // The name of the NFT
-            utf8(b"{names}"),
-            // The link to the NFT
-            utf8(b"{link}"),
-            // The URL of the image of the NFT
-            utf8(b"{image_url}"),
-            // The description of the NFT
-            utf8(b"{description}"),
-            // The URL of the project
-            utf8(b"https://art.kanari.network"),
-            // The address of the creator of the NFT
-            utf8(b"{creator}"),
-        ];
-
-        // Return the created collection and capability so callers can persist them.
-        (coll, issuer)
-
-    }
-
-    public entry fun setup(ctx: &mut TxContext) {
-        let witness = NFT {};
-        let (coll, issuer) = init(witness, ctx);
-        let sender = tx_context::sender(ctx);
-        transfer::public_transfer(issuer, sender);
-        transfer::public_transfer(coll, sender);
-    }
-
-    /// Lightweight mint log for off-chain indexing (copyable)
+    /// Event สำหรับการ Mint
     struct MintLog has copy, drop {
         object_id: address,
         creator: address,
         collection_id: address,
     }
-    
-    /// The mint function mints a new KariKid NFT with the given properties.
+
+    const MAX_SUPPLY: u64 = 2000;
+
+    /// ฟังก์ชันสร้างคอลเลกชัน (เรียกผ่าน setup หรือระบบ)
+    /// 🚨 แก้ไข: เพิ่ม Banner และ Website เข้าไปให้ครบ 6 อาร์กิวเมนต์
+    public fun init(_otw: NFT, ctx: &mut TxContext): (collection::Collection, collection::NftCap) {
+        let name = b"KariKid Collection";
+        let description = b"The first official standardized NFT on Kanari Network.";
+        let banner = b"https://jamesatomc.kanari.site/art_james.png"; // 🌐 ใส่ URL แบนเนอร์ที่นี่
+        let website = b"https://james-project.com";            // 🌐 ใส่ลิงก์เว็บที่นี่
+        
+        collection::create_collection(
+            ctx, 
+            name, 
+            description, 
+            banner, 
+            website, 
+            MAX_SUPPLY
+        )
+    }
+
+    /// ฟังก์ชันตั้งค่าเริ่มต้น (Setup)
+    /// 🚨 แก้ไข: เรียกฟังก์ชัน init ที่เราปรับปรุงแล้ว
+    public entry fun setup(ctx: &mut TxContext) {
+        let (coll, issuer) = init(NFT {}, ctx);
+        let sender = tx_context::sender(ctx);
+        transfer::public_transfer(issuer, sender);
+        transfer::public_transfer(coll, sender);
+    }
+
+    /// ฟังก์ชัน Mint ตามมาตรฐานสากล
     public entry fun mint(
         cap: &mut collection::NftCap,
         name: vector<u8>,
         description: vector<u8>,
-        number: vector<u8>,
         url_bytes: vector<u8>,
-        level: vector<String>,
-        rarity: vector<String>,
-        attack: vector<String>,
-        defense: vector<String>,
+        attribute_keys: vector<String>,
+        attribute_values: vector<String>,
+        number: vector<u8>,
         ctx: &mut TxContext
     ) {
-        // Use system collection API to consume supply
         collection::consume_for_mint(cap);
 
         let sender = tx_context::sender(ctx);
 
-        let attributes = Attributes {
-            level,
-            rarity,
-            attack,
-            defense,
-        };
-
         let nft = KariKid {
             id: object::new(ctx),
             name: utf8(name),
-            description: utf8(description),
-            number: utf8(number),
             image_url: url::new_unsafe_from_bytes(url_bytes),
+            description: utf8(description),
+            attribute_keys,
+            attribute_values,
+            number: utf8(number),
             collection_id: collection::cap_collection_id(cap),
             creator: sender,
-            attributes,
         };
 
         event::emit(MintLog {
@@ -156,49 +106,44 @@ module james::nft {
         transfer::public_transfer(nft, sender);
     }
 
-    /// Burn NFT
+    /// การทำลาย NFT (Burn)
     public entry fun burn(
         cap: &mut collection::NftCap,
         nft: KariKid,
         _: &mut TxContext
     ) {
-        // Return supply when an NFT is burned via system API
         collection::return_from_burn(cap);
-        let KariKid { id, name: _, description: _, number: _, image_url: _, collection_id: _, creator: _, attributes: _ } = nft;
-        // consuming `id` (UID) here drops the resource
-        let _ = id;
+        let KariKid { 
+            id, 
+            name: _, 
+            image_url: _, 
+            description: _, 
+            attribute_keys: _, 
+            attribute_values: _, 
+            number: _, 
+            collection_id: _, 
+            creator: _ 
+        } = nft;
+        object::delete(id);
     }
 
-    /// transfer Nft to Address
+    /// การโอน NFT
     public entry fun transfer(
-        nft: KariKid, recipient: address, _: &mut TxContext
+        nft: KariKid, 
+        recipient: address, 
+        _: &mut TxContext
     ) {
         transfer::public_transfer(nft, recipient)
     }
 
-    /// Update the `description` of `nft` to `new_description`
-    public entry fun update_description(
-        nft: &mut KariKid,
-        new_description: vector<u8>,
-        _: &mut TxContext
-    ) {
-        nft.description = utf8(new_description)
-    }
-
-    /// update the attributes of the NFT
+    /// อัปเดตคุณสมบัติ (Attributes)
     public entry fun update_attributes(
         nft: &mut KariKid,
-        level: vector<String>,
-        rarity: vector<String>,
-        attack: vector<String>,
-        defense: vector<String>,
+        attribute_keys: vector<String>,
+        attribute_values: vector<String>,
         _: &mut TxContext
     ) {
-        nft.attributes = Attributes {
-            level,
-            rarity,
-            attack,
-            defense,
-        };
+        nft.attribute_keys = attribute_keys;
+        nft.attribute_values = attribute_values;
     }
 }

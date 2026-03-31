@@ -12,7 +12,10 @@ function CoinsContent() {
 
   useEffect(() => { loadGlobalTokens(); }, []);
   useEffect(() => {
-    if (address.length > 10) { const t = setTimeout(() => fetchBalances(address), 500); return () => clearTimeout(t); }
+    if (address.length > 10) {
+      const t = setTimeout(() => fetchBalances(address), 500);
+      return () => clearTimeout(t);
+    }
     else if (!address) setBalances(globalTokens);
   }, [address, globalTokens]);
 
@@ -46,78 +49,114 @@ function CoinsContent() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-10 w-full">
-      <div className="flex flex-col md:flex-row md:items-end justify-between mb-6 gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Tokens</h1>
-        </div>
-        <div className="w-full md:w-100">
-          <div className="flex bg-[#111] border border-zinc-800 rounded-md focus-within:border-zinc-500 transition-colors p-1">
-            <input
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="Filter by Address (0x...)"
-              className="w-full bg-transparent text-white px-3 py-2 text-sm focus:outline-none font-mono placeholder:text-zinc-600"
-            />
+    <div className="max-w-7xl mx-auto px-6 py-12 w-full relative">
+
+      {/* 👤 Header Card Style - Emerald & Cyan Theme */}
+      <div className="mb-12 bg-[#111113]/60 backdrop-blur-md border border-white/5 p-8 rounded-[40px] shadow-lg relative overflow-hidden">
+        {/* Glow Effect */}
+        <div className="absolute -top-24 -right-24 w-64 h-64 bg-emerald-500/10 blur-[80px] rounded-full pointer-events-none"></div>
+
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 relative z-10">
+          <div className="flex items-center gap-6">
+            <div className="w-20 h-20 rounded-[28px] bg-linear-to-tr from-emerald-400 to-cyan-500 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+              <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.2em] mb-2">Network Assets</h2>
+              <h1 className="text-3xl md:text-4xl font-black text-white tracking-tighter">Token Explorer</h1>
+              <div className="mt-3 inline-flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 rounded-full text-[10px] font-mono text-zinc-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                {address ? `Viewing Balances for ${address.slice(0, 6)}...${address.slice(-4)}` : `${balances.length} Active Tokens In Registry`}
+              </div>
+            </div>
+          </div>
+
+          {/* Search Input - Emerald Focused */}
+          <div className="w-full md:w-100">
+            <div className="flex bg-black/40 backdrop-blur-md border border-white/10 rounded-2xl p-1.5 focus-within:border-emerald-500/50 transition-all shadow-inner">
+              <div className="pl-3 flex items-center justify-center">
+                <svg className="w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+              </div>
+              <input
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="Filter by Address (0x...)"
+                className="w-full bg-transparent text-white px-3 py-2 text-xs focus:outline-none font-mono placeholder:text-zinc-700"
+              />
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="bg-[#111] rounded-lg border border-zinc-800 overflow-hidden">
-        {loading && <div className="p-10 text-center text-zinc-600 font-mono text-sm">Loading...</div>}
-        {!loading && balances.length === 0 && <div className="p-10 text-center text-zinc-600 font-mono text-sm">No assets found.</div>}
-
-        <div className="overflow-x-auto">
-          {balances.length > 0 && (
-            <table className="w-full text-left border-collapse whitespace-nowrap">
-              <thead>
-                <tr className="bg-[#161616] border-b border-zinc-800 text-xs font-medium text-zinc-500">
-                  <th className="p-4 font-normal">ASSET</th>
-                  <th className="p-4 font-normal">TYPE</th>
-                  <th className="p-4 text-right font-normal">{address ? "BALANCE" : "TOTAL SUPPLY"}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-800/50 text-sm">
-                {balances.map((b, i) => {
-                  const symbol = b.symbol || "UNK";
-                  return (
-                    <tr key={i} className="hover:bg-[#1a1a1a] transition-colors">
-                      <td className="p-4">
-                        <div className="flex items-center gap-3">
-                          {b.icon_url ? (
-                            <img src={b.icon_url} alt="icon" className="w-8 h-8 rounded-full border border-zinc-700 bg-black" />
-                          ) : (
-                            <div className="w-8 h-8 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center font-bold text-xs">
-                              {symbol.charAt(0)}
-                            </div>
-                          )}
-                          <div>
-                            <div className="text-white font-medium">{b.name ?? symbol}</div>
-                            <div className="text-xs text-zinc-500">{symbol}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="p-4 font-mono text-zinc-400 text-xs">
+      {/* 📊 Token List - ใช้ 2-Column Grid Style แบบ Account Portfolio */}
+      <div className="bg-[#111113]/60 backdrop-blur-md rounded-4xl border border-white/5 overflow-hidden shadow-2xl">
+        {loading ? (
+          <div className="p-24 text-center text-zinc-500 font-mono text-sm flex flex-col items-center gap-4">
+            <div className="w-8 h-8 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
+            Syncing registry assets...
+          </div>
+        ) : balances.length === 0 ? (
+          <div className="p-24 text-center text-zinc-600 font-mono text-sm">No tokens found in this context.</div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-white/5">
+            {balances.map((b, i) => {
+              const symbol = b.symbol || "UNK";
+              return (
+                <div key={i} className="p-6 flex justify-between items-center hover:bg-white/2 transition-colors border-b border-white/5 group">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-linear-to-br from-zinc-800 to-zinc-900 border border-white/10 flex items-center justify-center overflow-hidden shadow-inner group-hover:border-emerald-500/30 transition-all duration-300">
+                      {b.icon_url ? (
+                        <img src={b.icon_url} className="w-full h-full object-cover" alt="icon" />
+                      ) : (
+                        <span className="text-sm font-bold text-zinc-600">{symbol.charAt(0)}</span>
+                      )}
+                    </div>
+                    <div>
+                      <div className="text-white text-sm font-bold group-hover:text-emerald-400 transition-colors">{b.name ?? symbol}</div>
+                      <div className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest mt-0.5">{symbol}</div>
+                      <div className="mt-2 text-[9px] px-2 py-0.5 bg-white/5 rounded-md text-zinc-600 inline-block font-mono truncate max-w-37.5">
                         {b.token_type ?? b.token}
-                      </td>
-                      <td className="p-4 text-right font-mono text-white">
-                        {fmtBalance(b.balance ?? b.total_supply, b.decimals)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-white font-mono font-bold text-lg group-hover:text-cyan-400 transition-colors">
+                      {fmtBalance(b.balance ?? b.total_supply, b.decimals)}
+                    </div>
+                    <div className="text-[9px] text-zinc-600 font-black uppercase tracking-tighter mt-1">
+                      {address ? "Confirmed Balance" : "Total Supply"}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
+
+      {/* 🛠 Developer Info - Emerald JSON Style */}
+      <details className="group mt-12 border-t border-white/5 pt-10">
+        <summary className="list-none cursor-pointer flex items-center gap-3 text-zinc-600 hover:text-emerald-400 transition-colors">
+          <div className="w-6 h-6 rounded-lg bg-white/5 flex items-center justify-center group-open:rotate-90 transition-transform">
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 5l7 7-7 7" /></svg>
+          </div>
+          <span className="text-[10px] font-black uppercase tracking-[0.3em]">Developer: Token Registry Data</span>
+        </summary>
+        <div className="mt-6 bg-[#09090b]/80 backdrop-blur-md rounded-3xl border border-white/5 p-8 max-h-100 overflow-auto custom-scrollbar shadow-inner">
+          <pre className="text-[11px] text-emerald-500/60 font-mono leading-relaxed">
+            {JSON.stringify(balances, null, 2)}
+          </pre>
+        </div>
+      </details>
     </div>
   );
 }
 
 export default function CoinsPage() {
   return (
-    <Suspense fallback={<div className="p-20 text-center font-mono text-zinc-600">Loading...</div>}>
+    <Suspense fallback={<div className="p-32 text-center font-mono text-zinc-600 animate-pulse">Loading Explorer...</div>}>
       <CoinsContent />
     </Suspense>
   );
