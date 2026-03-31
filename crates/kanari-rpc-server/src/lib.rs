@@ -24,6 +24,7 @@ use crate::{
         handle_produce_block,
     },
     module::{handle_get_module, handle_get_object, handle_list_modules, handle_verify_module},
+    nft::{handle_get_nfts_by_collection, handle_get_owned_nfts, handle_list_collections},
     transaction::{
         handle_call_function, handle_get_transaction, handle_publish_module,
         handle_submit_transaction,
@@ -33,6 +34,7 @@ use crate::{
 pub mod balance;
 pub mod block;
 pub mod module;
+pub mod nft;
 pub mod transaction;
 
 /// RPC server state
@@ -127,6 +129,13 @@ async fn handle_rpc(
 
         // Object queries
         methods::GET_OBJECT => handle_get_object(&state, &request).await,
+
+        // NFT queries
+        methods::GET_OWNED_NFTS => handle_get_owned_nfts(&state, &request).await,
+
+        // collection queries
+        methods::LIST_COLLECTIONS => handle_list_collections(&state, &request).await,
+        methods::GET_NFTS_BY_COLLECTION => handle_get_nfts_by_collection(&state, &request).await,
 
         _ => RpcResponse {
             jsonrpc: "2.0".to_string(),

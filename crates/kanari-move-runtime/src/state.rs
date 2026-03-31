@@ -88,6 +88,23 @@ pub struct StateManager {
 }
 
 impl StateManager {
+    /// ดึงรายการ Collection IDs ทั้งหมดจาก Index
+    pub fn get_all_collection_ids(&self) -> Vec<String> {
+        self.load_internal::<Vec<String>>(b"nft_collection_index")
+            .unwrap_or(None)
+            .unwrap_or_default()
+    }
+
+    /// ดึงรายการ NFT IDs ใน Collection นั้นๆ จาก Index
+    pub fn get_collection_nft_ids(&self, collection_id: &str) -> Vec<String> {
+        let mut key = b"collection_members:".to_vec();
+        key.extend_from_slice(collection_id.as_bytes());
+
+        self.load_internal::<Vec<String>>(&key)
+            .unwrap_or(None)
+            .unwrap_or_default()
+    }
+
     fn normalize_token_type(token_type: &str) -> String {
         if let Ok(TypeTag::Struct(st)) = TypeTag::from_str(token_type) {
             return format!("{}", st);
@@ -408,6 +425,45 @@ impl StateManager {
                 self.save_internal(&owner_key, &owned)?;
             }
             self.overlay.insert(obj_key, None);
+        }
+
+        // 1. ตรวจสอบการสร้าง Object ใหม่เพื่อดัชนี Collection
+        for (obj_id, created) in &changeset.created_objects {
+            // ถ้าเป็น Object ประเภท Collection ให้จดบันทึกลงดัชนีรวม
+            if created.type_.contains("::collection::Collection") {
+                let mut index: Vec<String> = self
+                    .load_internal(b"nft_collection_index")?
+                    .unwrap_or_default();
+                if !index.contains(obj_id) {
+                    index.push(obj_id.clone());
+                    self.save_internal(b"nft_collection_index", &index)?;
+                }
+            }
+        }
+
+        // 2. ตรวจสอบ Events เพื่อดัชนีความสัมพันธ์ NFT <-> Collection
+        for event in &changeset.events {
+            // ตรวจสอบว่าเป็น MintLog ของ james::nft หรือไม่
+            if event.type_tag.to_string().contains("::nft::MintLog") {
+                // ข้อมูล MintLog ใน nft.move มี: object_id(32), creator(32), collection_id(32)
+                if event.event_data.len() >= 96 {
+                    let nft_id_bytes = &event.event_data[0..32];
+                    let coll_id_bytes = &event.event_data[64..96];
+
+                    let nft_id = format!("0x{}", hex::encode(nft_id_bytes));
+                    let coll_id = format!("0x{}", hex::encode(coll_id_bytes));
+
+                    // บันทึกลงดัชนีสมาชิกของ Collection (O(1) Access)
+                    let mut key = b"collection_members:".to_vec();
+                    key.extend_from_slice(coll_id.as_bytes());
+
+                    let mut members: Vec<String> = self.load_internal(&key)?.unwrap_or_default();
+                    if !members.contains(&nft_id) {
+                        members.push(nft_id);
+                        self.save_internal(&key, &members)?;
+                    }
+                }
+            }
         }
 
         for (obj_id, created) in &changeset.created_objects {

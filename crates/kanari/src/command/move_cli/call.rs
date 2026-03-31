@@ -227,20 +227,50 @@ impl Call {
         Ok(())
     }
 
-    /// Flexible parser for a single argument supporting typed syntax and JSON arrays
+    /// 🛠️ ฟังก์ชันแก้ปัญหา Deserialization
     fn parse_arg_flexible(&self, arg: &str) -> Result<Vec<u8>> {
         let s = arg.trim();
 
-        // Try using the standard Move parser first (handles u8, u64, u128, bool, address, vector<u8> hex)
-        if let Ok(txn_arg) = parser::parse_transaction_argument(s) {
-            let move_val = MoveValue::from(txn_arg);
-            return move_val
+        // 1. จัดการ Vector (สำหรับ NFT Attributes: vector<String>)
+        if s.starts_with('[') && s.ends_with(']') {
+            let inner = s[1..s.len() - 1].trim();
+            let mut elements = Vec::new();
+            if !inner.is_empty() {
+                for part in inner.split(',') {
+                    let clean = part.trim().trim_matches('"').trim_matches('\'');
+                    // แปลงเป็น vector<u8> (BCS ของ String) แล้วยัดลง Vector ใหญ่
+                    elements.push(MoveValue::Vector(
+                        clean.as_bytes().iter().map(|&b| MoveValue::U8(b)).collect(),
+                    ));
+                }
+            }
+            // ผลลัพธ์คือ vector<vector<u8>> ซึ่งตรงกับ vector<String> ใน Move
+            return MoveValue::Vector(elements)
                 .simple_serialize()
-                .ok_or_else(|| anyhow::anyhow!("Failed to serialize parsed argument: {}", s));
+                .ok_or_else(|| anyhow::anyhow!("Fail to serialize vector<String>"));
         }
 
-        // Fallback: treat as String (UTF-8 bytes)
-        // This allows passing string arguments directly
-        Ok(bcs::to_bytes(&s.to_string())?)
+        // 2. จัดการ Address (Hex 0x...)
+        if s.starts_with("0x")
+            && s.len() > 10
+            && let Ok(addr) = parser::parse_transaction_argument(s)
+        {
+            return MoveValue::from(addr)
+                .simple_serialize()
+                .context("addr fail");
+        }
+
+        // 3. จัดการตัวเลข (u64)
+        // กรอง "001" ออกไปให้กลายเป็น String (Fallback)
+        if (!s.starts_with('0') || s == "0")
+            && let Ok(val) = s.parse::<u64>()
+        {
+            return MoveValue::U64(val).simple_serialize().context("u64 fail");
+        }
+
+        // 4. Fallback: ทุกอย่างที่เหลือให้มองเป็น vector<u8> (Move String)
+        // เช่น "KariKid #1", "First NFT", "001", "https://..."
+        let bytes = s.as_bytes().to_vec();
+        Ok(bcs::to_bytes(&bytes)?)
     }
 }

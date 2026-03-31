@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { getAccount, getAllBalances, getAllTransactions, getTransaction } from "../lib/rpc";
+import { getAccount, getAllBalances, getAllTransactions, getOwnedNfts, getTransaction } from "../lib/rpc";
 import Link from "next/link";
 
 function shortenHash(hash: string) {
@@ -27,6 +27,10 @@ function AccountContent() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
 
+  // 🚨 เพิ่ม State สำหรับ NFT
+  const [nfts, setNfts] = useState<any[]>([]);
+  const [nftLoading, setNftLoading] = useState(false);
+
   useEffect(() => {
     const q = searchParams.get("address");
     if (q) { setAddress(q); fetchAccountData(q); }
@@ -35,25 +39,25 @@ function AccountContent() {
   async function fetchAccountData(target: string) {
     if (!target) return;
     try {
-      setLoading(true); setTxLoading(true);
+      setLoading(true); setTxLoading(true); setNftLoading(true);
       const a = await getAccount(target);
       setAccount(a);
 
+      try { const b = await getAllBalances(target); setBalances(b ?? null); } catch (e) { }
       try {
-        const b = await getAllBalances(target);
-        setBalances(b ?? null);
-      } catch (e) { }
-
-      try {
-        // 🚨 1. เรียกใช้ handle_get_all_transactions จาก Backend
         const t = await getAllTransactions(50, target);
         setTxs(Array.isArray(t?.result) ? t.result : (Array.isArray(t) ? t : []));
-      } catch (e) {
-        setTxs([]);
-      } finally {
-        setTxLoading(false);
-      }
-    } catch (e: any) { } finally { setLoading(false); }
+      } catch (e) { setTxs([]); }
+
+      // 🚨 เรียกข้อมูล NFT
+      try {
+        const nftData = await getOwnedNfts(target);
+        setNfts(Array.isArray(nftData) ? nftData : []);
+      } catch (e) { console.error("NFT fetch failed", e); }
+
+    } catch (e: any) { } finally {
+      setLoading(false); setTxLoading(false); setNftLoading(false);
+    }
   }
 
   // 🚨 2. ฟังก์ชันเรียกใช้ handle_get_transaction เมื่อคลิกที่ Hash
@@ -152,6 +156,37 @@ function AccountContent() {
         </div>
       </div>
 
+      {/* แสดงผล NFT Gallery */}
+      <div className="lg:col-span-1">
+        <h3 className="text-zinc-400 font-medium mb-4 flex justify-between">
+          NFTs <span>{nfts.length}</span>
+        </h3>
+        <div className="bg-[#111] rounded-lg border border-zinc-800 p-4 max-h-100 overflow-y-auto custom-scrollbar">
+          {nftLoading ? (
+            <div className="text-center text-zinc-600 font-mono text-sm py-10">Loading NFTs...</div>
+          ) : nfts.length === 0 ? (
+            <div className="text-center text-zinc-600 font-mono text-sm py-10">No NFTs found</div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              {nfts.map((nft, i) => (
+                <div key={i} className="bg-zinc-900 rounded-lg border border-zinc-800 overflow-hidden group hover:border-zinc-500 transition-colors">
+                  <div className="aspect-square bg-black flex items-center justify-center relative">
+                    {/* หากมีระบบดึงรูปภาพ (image_url) สามารถใส่ <img> ตรงนี้ได้ */}
+                    <span className="text-[10px] text-zinc-600 font-mono">KariKid #{nft.object_id.slice(-4)}</span>
+                    <div className="absolute top-1 right-1 bg-emerald-500/10 text-emerald-500 text-[8px] px-1 rounded border border-emerald-500/20">NFT</div>
+                  </div>
+                  <div className="p-2">
+                    <div className="text-[10px] text-white font-mono truncate">{nft.object_id}</div>
+                    <div className="text-[8px] text-zinc-500 uppercase mt-0.5">{nft.type.split('::').pop()}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+
       {/* ตารางแสดงธุรกรรม (List) */}
       <div>
         <h3 className="text-zinc-400 font-medium mb-4">Recent Transactions</h3>
@@ -208,73 +243,75 @@ function AccountContent() {
       </div>
 
       {/* 🚨 Modal Popup แสดงรายละเอียดธุรกรรม 🚨 */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-[#111] border border-zinc-700 rounded-xl w-full max-w-3xl shadow-2xl flex flex-col max-h-[90vh]">
-            <div className="flex justify-between items-center p-6 border-b border-zinc-800">
-              <h3 className="text-lg font-bold text-white tracking-tight">Transaction Details</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-zinc-500 hover:text-white transition-colors">
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-            </div>
+      {
+        isModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-[#111] border border-zinc-700 rounded-xl w-full max-w-3xl shadow-2xl flex flex-col max-h-[90vh]">
+              <div className="flex justify-between items-center p-6 border-b border-zinc-800">
+                <h3 className="text-lg font-bold text-white tracking-tight">Transaction Details</h3>
+                <button onClick={() => setIsModalOpen(false)} className="text-zinc-500 hover:text-white transition-colors">
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
 
-            <div className="p-6 overflow-y-auto custom-scrollbar">
-              {modalLoading ? (
-                <div className="text-center text-zinc-500 font-mono py-10 animate-pulse">Fetching details from node...</div>
-              ) : selectedTx ? (
-                <div className="space-y-6">
-                  {/* แผงข้อมูลหลัก */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800">
-                      <div className="text-xs text-zinc-500 uppercase font-bold mb-1">Transaction Hash</div>
-                      <div className="text-sm font-mono text-blue-400 break-all">{selectedTx.hash}</div>
-                    </div>
-                    <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800">
-                      <div className="text-xs text-zinc-500 uppercase font-bold mb-1">Status</div>
-                      <div className={`text-sm font-bold uppercase ${selectedTx.status === 'pending' ? 'text-amber-400' : 'text-emerald-400'}`}>
-                        {selectedTx.status}
+              <div className="p-6 overflow-y-auto custom-scrollbar">
+                {modalLoading ? (
+                  <div className="text-center text-zinc-500 font-mono py-10 animate-pulse">Fetching details from node...</div>
+                ) : selectedTx ? (
+                  <div className="space-y-6">
+                    {/* แผงข้อมูลหลัก */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800">
+                        <div className="text-xs text-zinc-500 uppercase font-bold mb-1">Transaction Hash</div>
+                        <div className="text-sm font-mono text-blue-400 break-all">{selectedTx.hash}</div>
+                      </div>
+                      <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800">
+                        <div className="text-xs text-zinc-500 uppercase font-bold mb-1">Status</div>
+                        <div className={`text-sm font-bold uppercase ${selectedTx.status === 'pending' ? 'text-amber-400' : 'text-emerald-400'}`}>
+                          {selectedTx.status}
+                        </div>
+                      </div>
+                      <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800">
+                        <div className="text-xs text-zinc-500 uppercase font-bold mb-1">Sender</div>
+                        <div className="text-sm font-mono text-white break-all">{selectedTx.sender}</div>
+                      </div>
+                      <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800">
+                        <div className="text-xs text-zinc-500 uppercase font-bold mb-1">Sequence Number</div>
+                        <div className="text-sm font-mono text-white">{selectedTx.sequence_number}</div>
                       </div>
                     </div>
-                    <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800">
-                      <div className="text-xs text-zinc-500 uppercase font-bold mb-1">Sender</div>
-                      <div className="text-sm font-mono text-white break-all">{selectedTx.sender}</div>
-                    </div>
-                    <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800">
-                      <div className="text-xs text-zinc-500 uppercase font-bold mb-1">Sequence Number</div>
-                      <div className="text-sm font-mono text-white">{selectedTx.sequence_number}</div>
-                    </div>
-                  </div>
 
-                  {/* Gas & Exec Info */}
-                  <div className="flex gap-4">
-                    <div className="flex-1 bg-zinc-900/50 p-4 rounded-lg border border-zinc-800">
-                      <div className="text-xs text-zinc-500 uppercase font-bold mb-1">Type</div>
-                      <div className="text-sm font-mono text-white">{selectedTx.tx_type}</div>
+                    {/* Gas & Exec Info */}
+                    <div className="flex gap-4">
+                      <div className="flex-1 bg-zinc-900/50 p-4 rounded-lg border border-zinc-800">
+                        <div className="text-xs text-zinc-500 uppercase font-bold mb-1">Type</div>
+                        <div className="text-sm font-mono text-white">{selectedTx.tx_type}</div>
+                      </div>
+                      <div className="flex-1 bg-zinc-900/50 p-4 rounded-lg border border-zinc-800">
+                        <div className="text-xs text-zinc-500 uppercase font-bold mb-1">Gas Limit</div>
+                        <div className="text-sm font-mono text-white">{selectedTx.gas_limit}</div>
+                      </div>
                     </div>
-                    <div className="flex-1 bg-zinc-900/50 p-4 rounded-lg border border-zinc-800">
-                      <div className="text-xs text-zinc-500 uppercase font-bold mb-1">Gas Limit</div>
-                      <div className="text-sm font-mono text-white">{selectedTx.gas_limit}</div>
-                    </div>
-                  </div>
 
-                  {/* Raw JSON ก้อนเต็มเผื่อ Dev อยากดู */}
-                  <div>
-                    <div className="text-xs text-zinc-500 uppercase font-bold mb-2">Raw Data (JSON)</div>
-                    <div className="bg-[#0D1117] p-4 rounded-lg border border-zinc-800 overflow-x-auto">
-                      <pre className="text-xs text-emerald-400 font-mono">
-                        {JSON.stringify(selectedTx, null, 2)}
-                      </pre>
+                    {/* Raw JSON ก้อนเต็มเผื่อ Dev อยากดู */}
+                    <div>
+                      <div className="text-xs text-zinc-500 uppercase font-bold mb-2">Raw Data (JSON)</div>
+                      <div className="bg-[#0D1117] p-4 rounded-lg border border-zinc-800 overflow-x-auto">
+                        <pre className="text-xs text-emerald-400 font-mono">
+                          {JSON.stringify(selectedTx, null, 2)}
+                        </pre>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ) : (
-                <div className="text-center text-red-400 font-mono py-10">Transaction not found.</div>
-              )}
+                ) : (
+                  <div className="text-center text-red-400 font-mono py-10">Transaction not found.</div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+    </div >
   );
 }
 

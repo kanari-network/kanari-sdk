@@ -494,13 +494,14 @@ async fn run_node(
                     tracing::info!("Shutdown signal received. Cleaning up and exiting...");
                     break;
                 }
-                _ = sleep(Duration::from_secs(1)) => {} 
+                _ = sleep(Duration::from_secs(1)) => {}
             }
         } else {
             // ถ้าเพิ่งมีงานทำเสร็จ ให้วนลูปทำงานรอบต่อไปทันทีโดยไม่ติด Sleep
             // แต่ยังคงเช็คปุ่มปิดโปรแกรม (Ctrl+C) แบบ Non-blocking (ให้เวลาแค่ 1ms)
-            if let Ok(_) =
-                tokio::time::timeout(Duration::from_millis(1), tokio::signal::ctrl_c()).await
+            if tokio::time::timeout(Duration::from_millis(1), tokio::signal::ctrl_c())
+                .await
+                .is_ok()
             {
                 tracing::info!("Shutdown signal received. Cleaning up and exiting...");
                 break;

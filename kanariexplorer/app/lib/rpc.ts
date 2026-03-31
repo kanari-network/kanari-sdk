@@ -78,3 +78,16 @@ export async function getAllTransactions(limit: number = 50, account?: string) {
 export async function getTransaction(hash: string) {
   return callRpc("kanari_getTransaction", { hash });
 }
+
+
+export async function getOwnedNfts(address: string) {
+  return callRpc("kanari_getOwnedNfts", address);
+}
+
+export async function getCollections() {
+  return callRpc("kanari_listCollections", []);
+}
+
+export async function getNftsByCollection(collectionId: string) {
+  return callRpc("kanari_getNftsByCollection", collectionId);
+}

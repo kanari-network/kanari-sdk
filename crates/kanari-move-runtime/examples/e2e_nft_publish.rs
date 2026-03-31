@@ -153,7 +153,7 @@ fn main() {
 
     // Look for NftCap and Collection created objects
     let mut found_nftcap: Option<String> = None;
-    let mut found_collection: Option<String> = None;
+    let mut _found_collection: Option<String> = None;
     for (id, obj) in publish_cs
         .created_objects
         .iter()
@@ -162,9 +162,19 @@ fn main() {
         if obj.type_.contains("::NftCap") {
             println!("Found NftCap: id={} type={}", id, obj.type_);
             found_nftcap = Some(id.clone());
+
+            // Preload the NftCap object into the runtime's object storage
+            runtime
+                .preload_object_snapshot(&id, obj.owner, &obj.type_, obj.data.clone(), obj.version)
+                .unwrap_or_else(|e| eprintln!("Failed to preload NftCap: {:?}", e));
         } else if obj.type_.contains("::Collection") {
             println!("Found Collection: id={} type={}", id, obj.type_);
-            found_collection = Some(id.clone());
+            _found_collection = Some(id.clone());
+
+            // Preload the Collection object into the runtime's object storage
+            runtime
+                .preload_object_snapshot(&id, obj.owner, &obj.type_, obj.data.clone(), obj.version)
+                .unwrap_or_else(|e| eprintln!("Failed to preload Collection: {:?}", e));
         }
     }
 
@@ -179,26 +189,9 @@ fn main() {
 
         // Parse object id into address for UID.addr field
         if let Ok(naddr) = MoveAccountAddress::from_hex_literal(&nft_id) {
-            // Build NftCap Move value: struct NftCap { id: UID{addr}, remaining: u64, issued_counter: u64, collection_id: address }
-            let uid_n = MoveValue::Struct(MoveStruct::new(vec![MoveValue::Address(naddr)]));
-            // Determine collection_id from discovered created objects (fallback to sender address)
-            let collection_addr = if let Some(coll_id) = found_collection.clone() {
-                if let Ok(caddr) = MoveAccountAddress::from_hex_literal(&coll_id) {
-                    caddr
-                } else {
-                    publish_sender
-                }
-            } else {
-                publish_sender
-            };
-
-            let cap_mv = MoveValue::Struct(MoveStruct::new(vec![
-                uid_n,
-                // remaining: set to MAX_SUPPLY (2000) so mint can proceed in this demo
-                MoveValue::U64(2000),
-                MoveValue::U64(0),
-                MoveValue::Address(collection_addr),
-            ]));
+            // For mutable references like &mut NftCap, we only need to pass the object ID
+            // The Move VM will look up the full object from storage
+            let arg0 = naddr.into_bytes().to_vec(); // Just the 32-byte address, not the full struct
 
             // Demo string fields (as vector<u8>) — richer example values
             let name_bytes = b"Kari#42".to_vec();
@@ -206,55 +199,55 @@ fn main() {
             let number_bytes = b"42".to_vec();
             let url_bytes = b"https://kanari.example/nft/42.png".to_vec();
 
-            // Helper to convert Vec<u8> -> MoveValue::Vector of U8
+            // Simplified version with only basic types first
             let vec_u8_to_mv = |v: Vec<u8>| -> MoveValue {
                 MoveValue::Vector(v.into_iter().map(MoveValue::U8).collect())
             };
 
-            // Serialize the NftCap struct as the first argument (expected for `&mut NftCap`).
-            let arg0 = cap_mv.simple_serialize().expect("serialize cap");
-            let arg1 = vec_u8_to_mv(name_bytes)
-                .simple_serialize()
-                .expect("serialize name");
-            let arg2 = vec_u8_to_mv(desc_bytes)
-                .simple_serialize()
-                .expect("serialize desc");
-            let arg3 = vec_u8_to_mv(number_bytes)
-                .simple_serialize()
-                .expect("serialize number");
-            let arg4 = vec_u8_to_mv(url_bytes)
-                .simple_serialize()
-                .expect("serialize url");
+            // Basic type arguments (u8 vectors)
+            let arg1 = vec_u8_to_mv(name_bytes);
+            let arg1 = arg1.simple_serialize().expect("serialize name");
+            let arg2 = vec_u8_to_mv(desc_bytes);
+            let arg2 = arg2.simple_serialize().expect("serialize desc");
+            let arg3 = vec_u8_to_mv(number_bytes);
+            let arg3 = arg3.simple_serialize().expect("serialize number");
+            let arg4 = vec_u8_to_mv(url_bytes);
+            let arg4 = arg4.simple_serialize().expect("serialize url");
 
-            // Helper to build Move `vector<String>` as MoveValue::Vector of vector<u8>
+            // Helper to build Move `vector<String>` as MoveValue::Vector of MoveValue::Struct representing std::string::String
             let make_vec_string = |items: &[&str]| -> MoveValue {
                 let elems: Vec<MoveValue> = items
                     .iter()
                     .map(|s| {
-                        let bytes: Vec<MoveValue> =
-                            s.as_bytes().iter().map(|b| MoveValue::U8(*b)).collect();
-                        MoveValue::Vector(bytes)
+                        // Create a std::string::String struct: struct String(Vec<u8> data)
+                        // In Move, std::string::String has a field `bytes: vector<u8>`
+                        MoveValue::Struct(MoveStruct::new(vec![MoveValue::Vector(
+                            s.as_bytes()
+                                .to_vec()
+                                .into_iter()
+                                .map(MoveValue::U8)
+                                .collect(),
+                        )]))
                     })
                     .collect();
                 MoveValue::Vector(elems)
             };
 
-            let arg5 = make_vec_string(&["1"])
-                .simple_serialize()
-                .expect("serialize level");
-            let arg6 = make_vec_string(&["common"])
-                .simple_serialize()
-                .expect("serialize rarity");
-            let arg7 = make_vec_string(&["10"])
-                .simple_serialize()
-                .expect("serialize attack");
-            let arg8 = make_vec_string(&["5"])
-                .simple_serialize()
-                .expect("serialize defense");
+            // First, create the MoveValue for each vector<String>
+            let level_mv = make_vec_string(&["1"]);
+            let rarity_mv = make_vec_string(&["common"]);
+            let attack_mv = make_vec_string(&["10"]);
+            let defense_mv = make_vec_string(&["5"]);
+
+            // Then serialize each one properly using BCS to ensure correct Move type layout
+            let arg5 = bcs::to_bytes(&level_mv).expect("serialize level");
+            let arg6 = bcs::to_bytes(&rarity_mv).expect("serialize rarity");
+            let arg7 = bcs::to_bytes(&attack_mv).expect("serialize attack");
+            let arg8 = bcs::to_bytes(&defense_mv).expect("serialize defense");
 
             // Build args: cap, name, desc, number, url, level, rarity, attack, defense, tx_ctx
             let mut mint_args = vec![arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8];
-            // push tx context
+            // push tx context - add it back since the auto-add might not work as expected
             mint_args.push(tx_context_bytes.clone());
 
             println!("Calling Move mint entry with demo args...");

@@ -269,24 +269,31 @@ impl MoveRuntime {
     fn preprocess_entry_args(args: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
         args.into_iter()
             .map(|arg| {
-                let parsed_string = bcs::from_bytes::<String>(&arg)
-                    .or_else(|_| std::str::from_utf8(&arg).map(|s| s.to_string()));
-                if let Ok(s) = parsed_string {
+                // Only perform preprocessing for string-like inputs that are meant to be converted
+                // Skip preprocessing if the arg is already a properly serialized BCS value
+
+                // Check if this looks like a potential address string (hex string)
+                if let Ok(s) = std::str::from_utf8(&arg) {
                     let s_trim = s.trim();
-                    let hex_str = if !s_trim.starts_with("0x") {
-                        format!("0x{}", s_trim)
-                    } else {
-                        s_trim.to_string()
-                    };
-                    if let Ok(addr) = AccountAddress::from_hex_literal(&hex_str) {
-                        return addr.into_bytes().to_vec();
-                    }
-                    if let Ok(n) = s_trim.parse::<u64>()
-                        && let Ok(b) = bcs::to_bytes(&n)
-                    {
-                        return b;
+                    if s_trim.starts_with("0x") || s_trim.chars().all(|c| c.is_ascii_hexdigit()) {
+                        // This looks like a hex string that should be converted to bytes
+                        let clean_hex = s_trim.strip_prefix("0x").unwrap_or(s_trim);
+                        if let Ok(bytes) = hex::decode(clean_hex)
+                            && bytes.len() == AccountAddress::LENGTH
+                        {
+                            // This is a valid address hex string
+                            return bytes;
+                        }
+                    } else if s_trim.parse::<u64>().is_ok() {
+                        // This looks like a number string
+                        if let Ok(n) = s_trim.parse::<u64>() {
+                            return bcs::to_bytes(&n).unwrap_or(arg);
+                        }
                     }
                 }
+
+                // For all other cases, return the original arg without modification
+                // This prevents corrupting already-serialized BCS arguments
                 arg
             })
             .collect()

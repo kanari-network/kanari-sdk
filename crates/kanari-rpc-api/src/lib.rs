@@ -358,7 +358,6 @@ pub mod methods {
     pub const GET_ALL_TRANSACTIONS: &str = "kanari_getAllTransactions";
     pub const PRODUCE_BLOCK: &str = "kanari_produceBlock";
     pub const SUBMIT_TRANSACTION: &str = "kanari_submitTransaction";
-    pub const GET_STATE_ROOT: &str = "kanari_getStateRoot";
 
     // Stats & Info
     pub const GET_STATS: &str = "kanari_getStats";
@@ -376,4 +375,11 @@ pub mod methods {
 
     // Object queries
     pub const GET_OBJECT: &str = "kanari_getObject";
+
+    // NFT queries
+    pub const GET_OWNED_NFTS: &str = "kanari_getOwnedNfts";
+
+    // NFT collections
+    pub const LIST_COLLECTIONS: &str = "kanari_listCollections";
+    pub const GET_NFTS_BY_COLLECTION: &str = "kanari_getNftsByCollection";
 }
