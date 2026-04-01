@@ -68,13 +68,15 @@ fn main() -> Result<()> {
     // 4. Generate some test transactions
     println!("4. Generating test transactions...");
     let keypair = kanari_crypto::keys::generate_keypair(CurveType::Ed25519)?;
-    let sender_address = keypair.address.clone();
+    let sender_address = keypair.tagged_address();  // Use tagged address for proper signature verification
     let private_key = keypair.private_key.to_string();
 
     // Fund the sender account manually for the demo
     {
         let mut state = engine.state.write().unwrap();
-        let addr = AccountAddress::from_hex_literal(&sender_address)?;
+        // We still need the raw address for account lookup, extract it from the tagged address
+        let raw_address = keypair.address.clone(); // Just for funding purposes
+        let addr = AccountAddress::from_hex_literal(&raw_address)?;
         let mut account = state
             .get_account(&addr)
             .unwrap_or_else(|| Account::new(addr, 0));
@@ -82,7 +84,7 @@ fn main() -> Result<()> {
         state.save_account(&account).unwrap();
         println!(
             "   ✓ Funded sender {} with {} MIST",
-            sender_address, account.balance
+            raw_address, account.balance
         );
     }
 
@@ -90,7 +92,7 @@ fn main() -> Result<()> {
     let mut next_seq_num = 0;
     for i in 0..10 {
         let tx = Transaction::Transfer {
-            from: sender_address.clone(),
+            from: sender_address.clone(),  // Use the tagged address for the transaction
             to: format!("0x{:064x}", i + 100),
             amount: 1000 * (i + 1),
             gas_limit: 100_000,
@@ -280,7 +282,7 @@ mod tests {
 
         // Generate test transaction
         let keypair = kanari_crypto::keys::generate_keypair(CurveType::Ed25519)?;
-        let sender = keypair.address.clone();
+        let sender = keypair.tagged_address(); // Use tagged address
         let private_key = keypair.private_key.to_string();
 
         let tx = Transaction::Transfer {

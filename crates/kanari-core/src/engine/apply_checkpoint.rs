@@ -1,221 +1,111 @@
+// 📌 นำไปแก้ไขทับไฟล์ apply_checkpoint.rs
 use super::BlockchainEngine;
 use anyhow::{Context, Result};
 use centauri::consensus::Checkpoint;
-use kanari_move_runtime::TransactionScheduler;
-use kanari_move_runtime::changeset::ChangeSet;
 use kanari_move_runtime::state::StateManager;
 use kanari_types::transaction::SignedTransaction;
 use log::{error, info, warn};
-use rayon::prelude::*;
 use std::sync::{Arc, RwLock};
 
 impl BlockchainEngine {
-    /// Apply a committed checkpoint using a pre-computed state (Optimization)
-    /// This skips re-execution of transactions if we already have the resulting state.
+    /// Helper: ขั้นตอนร่วมสำหรับการสรุป Checkpoint ลงฐานข้อมูล
+    fn finalize_checkpoint(&self, checkpoint: Checkpoint, new_state: StateManager) -> Result<()> {
+        // 1. Update canonical state
+        {
+            let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+            *state = new_state;
+            state
+                .commit()
+                .context("Failed to commit state to RocksDB")?;
+        }
+
+        // 2. Update blockchain
+        {
+            let mut chain = self.blockchain.write().unwrap_or_else(|e| e.into_inner());
+            chain.add_checkpoint_with_validation(checkpoint.clone(), false)?;
+        }
+
+        // 3. Remove committed transactions from pending pool
+        {
+            let mut pending = self.pending_txs.write().unwrap_or_else(|e| e.into_inner());
+            let committed_hashes: std::collections::HashSet<_> =
+                checkpoint.transactions.iter().map(|tx| tx.hash()).collect();
+            pending.retain(|tx| !committed_hashes.contains(&tx.hash()));
+        }
+
+        // 4. Persist blockchain state
+        if let Some(store) = &self.persistent_store {
+            let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            if let Err(e) = store.save(b"blockchain", &*chain) {
+                error!("Failed to persist blockchain: {}", e);
+            }
+        }
+        Ok(())
+    }
+
     pub fn apply_checkpoint_optimized(
         &self,
         checkpoint: Checkpoint,
         precomputed_state: Arc<RwLock<StateManager>>,
     ) -> Result<()> {
         info!(
-            "[ENGINE] Applying checkpoint {} (OPTIMIZED) with {} transactions",
-            checkpoint.sequence,
-            checkpoint.transactions.len()
+            "[ENGINE] Applying checkpoint {} (OPTIMIZED)",
+            checkpoint.sequence
         );
 
-        // 1. Verify state root
         let computed_root = precomputed_state
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .compute_state_root();
         if computed_root != checkpoint.state_root {
-            warn!(
-                "[ENGINE] Optimized application failed: State root mismatch! Fallback to standard application. Expected: {}, Computed: {}",
-                hex::encode(&checkpoint.state_root),
-                hex::encode(&computed_root)
-            );
+            warn!("[ENGINE] State root mismatch! Fallback to standard application.");
             return self.apply_checkpoint(checkpoint);
         }
 
-        // 2. Update canonical state
-        {
-            let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
-            *state = precomputed_state.read().unwrap().clone();
-            // Restore persistence as requested
-            state
-                .commit()
-                .context("Failed to commit optimized state to RocksDB")?;
-        }
-
-        // 3. Update blockchain
-        {
-            let mut chain = self.blockchain.write().unwrap_or_else(|e| e.into_inner());
-            chain.add_checkpoint_with_validation(checkpoint.clone(), false)?;
-        }
-
-        // 4. Remove committed transactions from pending pool
-        {
-            let mut pending = self.pending_txs.write().unwrap_or_else(|e| e.into_inner());
-            let committed_hashes: std::collections::HashSet<_> =
-                checkpoint.transactions.iter().map(|tx| tx.hash()).collect();
-            pending.retain(|tx| !committed_hashes.contains(&tx.hash()));
-        }
-
-        // 5. Persist blockchain and state
-        if let Some(store) = &self.persistent_store {
-            let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
-            // We persist the full blockchain struct.
-            // Note: In a production environment with millions of blocks,
-            // we should store blocks individually in the DB (e.g., block_height -> block_data)
-            // and only keep the head metadata in the "blockchain" key.
-            if let Err(e) = store.save(b"blockchain", &*chain) {
-                error!("Failed to persist blockchain: {}", e);
-            }
-        }
-
-        Ok(())
+        // เรียกใช้งาน Helper
+        self.finalize_checkpoint(checkpoint, precomputed_state.read().unwrap().clone())
     }
 
-    /// Apply a committed checkpoint to the state.
-    /// This executes all transactions in the checkpoint and updates the canonical state.
     pub fn apply_checkpoint(&self, mut checkpoint: Checkpoint) -> Result<()> {
         info!(
-            "[ENGINE] Applying checkpoint {} with {} transactions, state_root: {}",
+            "[ENGINE] Applying checkpoint {} with {} txs",
             checkpoint.sequence,
-            checkpoint.transactions.len(),
-            hex::encode(&checkpoint.state_root)
+            checkpoint.transactions.len()
         );
 
-        // 1. Create a clone of the current state to work on
         let state_snapshot = self.state.read().unwrap().clone();
         let state_arc = Arc::new(RwLock::new(state_snapshot));
-
-        // 2. Filter transactions that are already executed
         let mut to_execute: Vec<SignedTransaction> = Vec::new();
-        let mut skipped_count = 0;
 
         {
             let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
             for signed_tx in &checkpoint.transactions {
-                let tx_hash_hex = hex::encode(signed_tx.hash());
-                if chain.is_transaction_executed(&tx_hash_hex) {
-                    skipped_count += 1;
-                    continue;
-                }
-                to_execute.push(signed_tx.clone());
-            }
-        }
-
-        // 3. Partition and execute in parallel waves
-        let waves = TransactionScheduler::schedule(to_execute);
-        let mut executed_count = 0;
-
-        for wave in waves {
-            let results: Vec<Result<ChangeSet>> = wave
-                .par_iter()
-                .enumerate()
-                .map(|(i, signed_tx)| {
-                    let pool_idx = i % self.runtime_pool.len();
-                    let runtime = &self.runtime_pool[pool_idx];
-
-                    self.execute_transaction_with_runtime_skip_seq_persist(
-                        &signed_tx.transaction,
-                        runtime,
-                        &state_arc,
-                        Some(checkpoint.timestamp),
-                    )
-                })
-                .collect();
-
-            for res in results {
-                match res {
-                    Ok(cs) => {
-                        // 🚨 ค่อยมาเซฟ Object และอัปเดต State ทีละรายการอย่างปลอดภัยที่นี่
-                        let runtime = &self.runtime_pool[0];
-                        runtime.persist_created_objects(&cs);
-                        runtime.persist_deleted_objects(&cs);
-
-                        let mut state_write = state_arc.write().unwrap();
-                        if let Err(e) = state_write.apply_changeset(&cs) {
-                            error!("[ENGINE] Failed to apply changeset: {}", e);
-                            anyhow::bail!("Failed to apply changeset: {}", e);
-                        }
-                        executed_count += 1;
-                    }
-                    Err(e) => {
-                        error!(
-                            "[ENGINE] Fatal error executing transaction in checkpoint {}: {}",
-                            checkpoint.sequence, e
-                        );
-                        anyhow::bail!("Fatal error executing checkpoint transaction: {}", e);
-                    }
+                if !chain.is_transaction_executed(&hex::encode(signed_tx.hash())) {
+                    to_execute.push(signed_tx.clone());
                 }
             }
         }
 
-        if skipped_count > 0 {
-            info!(
-                "[ENGINE] Checkpoint {} summary: {} executed, {} skipped (already in blockchain)",
-                checkpoint.sequence, executed_count, skipped_count
-            );
-        }
+        // 🚨 เรียกใช้งาน Helper จาก engine.rs แทนการเขียนลูป Par_iter ใหม่
+        let (_executed_count, _) = self.execute_tx_waves_parallel(
+            to_execute,
+            &state_arc,
+            Some(checkpoint.timestamp),
+            true, // persist_objects = true
+            true, // strict_mode = true (ล้มเหลวให้ Throw ทันที)
+        )?;
 
-        // 3. Verify the final state root
         let verified_state = {
             let state_read = state_arc.read().unwrap();
             let computed_root = state_read.compute_state_root();
             if computed_root != checkpoint.state_root {
-                let expected_hex = hex::encode(&checkpoint.state_root);
-                let computed_hex = hex::encode(&computed_root);
-
-                // In DAG mode, the checkpoint's state root might be from a leader vertex
-                // that didn't see the exact same history as the checkpoint's total order.
-                // We update to the computed root to ensure consistency.
-                warn!(
-                    "[ENGINE] State root mismatch in checkpoint {}! Updating to computed root.\n  Expected (from leader): {}\n  Computed (from execution): {}",
-                    checkpoint.sequence, expected_hex, computed_hex
-                );
+                warn!("[ENGINE] State root mismatch! Updating to computed root.");
                 checkpoint.state_root = computed_root;
             }
             state_read.clone()
         };
 
-        // 4. Update canonical state by replacing it with the verified state
-        {
-            let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
-            *state = verified_state;
-            state
-                .commit()
-                .context("Failed to commit state to RocksDB")?;
-        }
-
-        // 5. Update blockchain
-        {
-            let mut chain = self.blockchain.write().unwrap_or_else(|e| e.into_inner());
-            // Add checkpoint without strict validation (already validated locally)
-            chain.add_checkpoint_with_validation(checkpoint.clone(), false)?;
-        }
-
-        // 6. Remove committed transactions from pending pool
-        {
-            let mut pending = self.pending_txs.write().unwrap_or_else(|e| e.into_inner());
-            let committed_hashes: std::collections::HashSet<_> =
-                checkpoint.transactions.iter().map(|tx| tx.hash()).collect();
-            pending.retain(|tx| !committed_hashes.contains(&tx.hash()));
-        }
-
-        // 7. Persist blockchain and state
-        if let Some(store) = &self.persistent_store {
-            let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
-            // We persist the full blockchain struct.
-            // Note: In a production environment with millions of blocks,
-            // we should store blocks individually in the DB (e.g., block_height -> block_data)
-            // and only keep the head metadata in the "blockchain" key.
-            if let Err(e) = store.save(b"blockchain", &*chain) {
-                error!("Failed to persist blockchain: {}", e);
-            }
-        }
-
-        Ok(())
+        // เรียกใช้งาน Helper
+        self.finalize_checkpoint(checkpoint, verified_state)
     }
 }

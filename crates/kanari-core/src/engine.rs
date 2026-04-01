@@ -13,7 +13,7 @@ pub use kanari_rpc_api::{AccountInfo, BlockData, BlockchainStats, FullBlockData,
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::event::Event;
 use kanari_types::transaction::{SignedTransaction, Transaction};
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use lru::LruCache;
 use move_core_types::{
     account_address::AccountAddress,
@@ -61,8 +61,6 @@ pub struct BlockchainEngine {
 }
 
 // Basic recursive parser for simple type-argument strings used by RPC/tests.
-// Supports: bool, u8, u64, u128, address, vector<T>, and struct tags like
-// "0x1::Module::Name" or "0x1::Module::Name<address, u64, vector<u8>>".
 fn parse_type_tag(s: &str) -> Option<TypeTag> {
     fn split_top_level_commas(s: &str) -> Vec<&str> {
         let mut parts = Vec::new();
@@ -101,7 +99,6 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
         return parse_type_tag(inner).map(|t| TypeTag::Vector(Box::new(t)));
     }
 
-    // Attempt to parse struct: address::Module::Name or address::Module::Name<...>
     if s.contains("::") {
         let parts = s.split("::").collect::<Vec<_>>();
         if parts.len() >= 3 {
@@ -160,6 +157,176 @@ mod parse_type_tag_tests {
 }
 
 impl BlockchainEngine {
+    // =====================================================================
+    // 💡 HELPER FUNCTIONS (แยกโค้ดซ้ำและ Logic ยิบย่อยมาไว้ที่นี่)
+    // =====================================================================
+
+    /// Helper: ดึง Sequence Number ล่าสุด (รวมธุรกรรมที่รอใน Mempool)
+    pub fn get_expected_sequence(&self, address_hex: &str) -> u64 {
+        let mut seq = self
+            .state
+            .read()
+            .unwrap()
+            .get_account_by_hex(address_hex)
+            .map(|acc| acc.sequence_number)
+            .unwrap_or(0);
+
+        self.for_each_pending_tx_from_sender(address_hex, |_| seq += 1);
+        seq
+    }
+
+    /// Helper: เตรียม Object State ล่าสุดให้ Move VM ก่อนรัน Smart Contract
+    fn preload_objects_for_args(
+        args: &[Vec<u8>],
+        state: &StateManager,
+        runtime: &kanari_move_runtime::move_runtime::MoveRuntime,
+    ) {
+        for arg in args.iter() {
+            let mut possible_ids = Vec::new();
+
+            if arg.len() == 32
+                && let Ok(addr) = AccountAddress::from_bytes(arg)
+            {
+                possible_ids.push(addr.to_hex_literal());
+            }
+
+            if let Ok(s) = bcs::from_bytes::<String>(arg)
+                .or_else(|_| std::str::from_utf8(arg).map(|s| s.to_string()))
+            {
+                let s_trim = s.trim();
+                let hex_str = if !s_trim.starts_with("0x") {
+                    format!("0x{}", s_trim)
+                } else {
+                    s_trim.to_string()
+                };
+                if let Ok(addr) = AccountAddress::from_hex_literal(&hex_str) {
+                    possible_ids.push(addr.to_hex_literal());
+                }
+            }
+
+            for object_id in possible_ids {
+                if let Ok(Some(obj)) = state.get_object(&object_id) {
+                    let _ = runtime.preload_object_snapshot(
+                        &object_id,
+                        obj.owner,
+                        &obj.type_,
+                        obj.data.clone(),
+                        obj.version,
+                    );
+                }
+            }
+        }
+    }
+
+    /// Helper: จัดการและแยกประเภท Owned Objects สำหรับ Account Info
+    fn resolve_account_objects(
+        &self,
+        state: &StateManager,
+        owner_addr: &AccountAddress,
+    ) -> Vec<ObjectInfo> {
+        let raw_owned_ids = state.get_owned_objects(owner_addr).unwrap_or_default();
+        let unique_ids: std::collections::HashSet<_> = raw_owned_ids.into_iter().collect(); // ตัดตัวซ้ำอัตโนมัติ
+
+        let mut coins = Vec::new();
+        let mut others = Vec::new();
+
+        for id in unique_ids {
+            if let Ok(Some(obj)) = state.get_object(&id) {
+                let info = ObjectInfo {
+                    id: id.clone(),
+                    owner: format!("{:#x}", obj.owner),
+                    type_: obj.type_.clone(),
+                    data: obj.data.clone(),
+                    version: obj.version,
+                };
+
+                if obj.type_.contains("::coin::Coin<") && obj.data.len() >= 40 {
+                    let mut arr = [0u8; 8];
+                    arr.copy_from_slice(&obj.data[32..40]);
+                    let amount = u64::from_le_bytes(arr);
+                    if amount > 0 {
+                        coins.push((amount, info));
+                        continue;
+                    }
+                }
+                others.push(info);
+            }
+        }
+
+        // เรียงเหรียญจากมากไปน้อย แล้วนำ Object อื่นมาต่อท้าย
+        coins.sort_by(|a, b| b.0.cmp(&a.0));
+        coins
+            .into_iter()
+            .map(|(_, info)| info)
+            .chain(others)
+            .collect()
+    }
+
+    pub(crate) fn execute_tx_waves_parallel(
+        &self,
+        transactions: Vec<SignedTransaction>,
+        state_arc: &Arc<RwLock<StateManager>>,
+        timestamp: Option<u64>,
+        persist_objects: bool,
+        strict_mode: bool, // true = บังคับหยุดถ้า Error, false = นับเป็น failed แล้วทำต่อ
+    ) -> Result<(usize, usize)> {
+        let mut executed_count = 0;
+        let mut failed_count = 0;
+
+        let waves = kanari_move_runtime::TransactionScheduler::schedule(transactions);
+
+        for wave in waves {
+            let results: Vec<Result<ChangeSet>> = wave
+                .par_iter()
+                .enumerate()
+                .map(|(i, signed_tx)| {
+                    let runtime = &self.runtime_pool[i % self.runtime_pool.len()];
+                    self.execute_transaction_with_runtime_internal(
+                        &signed_tx.transaction,
+                        runtime,
+                        state_arc,
+                        false, // ไม่ต้องเช็ค Sequence อีกรอบเวลาทำ Batch
+                        timestamp,
+                        persist_objects,
+                    )
+                })
+                .collect();
+
+            let mut state_write = state_arc.write().unwrap();
+            for res in results {
+                match res {
+                    Ok(cs) => {
+                        // หากจำเป็นต้อง persist ให้ทำที่นี่แบบรวมศูนย์
+                        if persist_objects {
+                            let runtime = &self.runtime_pool[0];
+                            runtime.persist_created_objects(&cs);
+                            runtime.persist_deleted_objects(&cs);
+                        }
+
+                        if let Err(e) = state_write.apply_changeset(&cs) {
+                            if strict_mode {
+                                anyhow::bail!("Failed to apply changeset: {}", e);
+                            }
+                            log::warn!("apply_changeset failed: {}", e);
+                            failed_count += 1;
+                        } else {
+                            executed_count += 1;
+                        }
+                    }
+                    Err(e) => {
+                        if strict_mode {
+                            anyhow::bail!("Execution failed: {}", e);
+                        }
+                        log::warn!("Parallel execution failed: {}", e);
+                        failed_count += 1;
+                    }
+                }
+            }
+        }
+
+        Ok((executed_count, failed_count))
+    }
+
     pub fn new_dir(dir: &str) -> Result<Self> {
         let persistent_store = Self::try_open_store(
             || PersistentStore::open_with_path(Some(std::path::PathBuf::from(dir))),
@@ -197,16 +364,9 @@ impl BlockchainEngine {
         let blockchain = Self::load_blockchain(&persistent_store);
         let state = Self::load_state(&persistent_store);
 
-        // Initialize runtime pool (mandatory: one runtime per CPU)
-        // OPTIMIZATION: Use multiple independent MoveVM instances to avoid lock contention.
-        // We use `spawn_worker` to create new VMs that share the underlying RocksDB/State
-        // so they can read modules/objects but don't block each other on VM locks.
         let workers = num_cpus::get().max(1);
         let mut runtime_pool = Vec::new();
 
-        // Create base runtime:
-        // - persistent mode -> runtime backed by default persistent store
-        // - fallback mode   -> fully in-memory runtime
         let base_runtime = match if persistent_store.is_some() {
             MoveRuntime::new_with_kanari_natives()
         } else {
@@ -223,11 +383,8 @@ impl BlockchainEngine {
             "Initializing runtime pool with {} workers (independent VMs sharing DB)",
             workers
         );
-
-        // Add base runtime as first worker
         runtime_pool.push(base_runtime.clone());
 
-        // Spawn remaining workers sharing state with base runtime
         for i in 1..workers {
             match base_runtime.spawn_worker() {
                 Ok(rt) => runtime_pool.push(rt),
@@ -238,15 +395,11 @@ impl BlockchainEngine {
             }
         }
 
-        // Note: treasuries are loaded above when StateManager is initialized
         let pending_txs = Arc::new(RwLock::new(Vec::new()));
-
-        // Initialize LRU cache for merkle proofs (cache up to 1000 proofs)
         let proof_cache = Arc::new(RwLock::new(LruCache::new(
             NonZeroUsize::new(1000).expect("NonZeroUsize::new(1000) should never fail"),
         )));
 
-        // Setup default authorities for DAG mode (single node by default)
         let authority_id = "0xDEFAULT_AUTHORITY".to_string();
         let authorities = vec![authority_id.clone()];
         let persisted_dag_state = Self::load_dag_state(&persistent_store);
@@ -274,7 +427,6 @@ impl BlockchainEngine {
                         b.height(),
                         b.dag_checkpoints.len()
                     );
-                    // Rebuild transaction hash index after loading from disk
                     b.rebuild_tx_hash_index();
                     Arc::new(RwLock::new(b))
                 }
@@ -300,7 +452,6 @@ impl BlockchainEngine {
         let store = store
             .clone()
             .unwrap_or_else(|| Arc::new(PersistentStore::open_in_memory().unwrap()));
-
         info!("Initializing StateManager with persistent store support (RocksDB)");
         Arc::new(RwLock::new(StateManager::new(store)))
     }
@@ -326,7 +477,6 @@ impl BlockchainEngine {
         }
     }
 
-    /// Apply gas deduction and increment sequence on a ChangeSet (static helper).
     fn apply_gas_and_sequence(
         changeset: &mut ChangeSet,
         sender: AccountAddress,
@@ -343,7 +493,6 @@ impl BlockchainEngine {
         Ok(())
     }
 
-    /// Persist DAG consensus state
     pub fn persist_dag_state(&self, state: PersistentDagState) -> Result<()> {
         if let Some(store) = &self.persistent_store {
             store
@@ -357,26 +506,18 @@ impl BlockchainEngine {
     // 🛡️ 1. Mempool Security (Pre-validation & Anti-Spam)
     // =====================================================================
     pub fn submit_transaction(&self, signed_tx: SignedTransaction) -> Result<Vec<u8>> {
-        // 🚨 1. Anti-DDoS: เช็คว่าคิวเต็มหรือยัง ถ้าเกินให้เตะทิ้งทันที
         let pending_count = self.pending_txs.read().unwrap().len();
         if pending_count >= MAX_MEMPOOL_SIZE {
             log::warn!("[MEMPOOL] Rejecting transaction: Queue is full (Anti-DDoS active)");
             anyhow::bail!("Mempool is currently full. Please try again later.");
         }
 
-        // 🚨 2. Verify signature
         if !signed_tx.verify_signature()? {
             anyhow::bail!("Invalid or missing transaction signature");
         }
 
-        // 🚨 3. Spam Filter: เช็คค่า Gas ขั้นต่ำ
-        let gas_limit = match &signed_tx.transaction {
-            Transaction::ExecuteFunction { gas_limit, .. } => *gas_limit,
-            Transaction::PublishModule { gas_limit, .. } => *gas_limit,
-            Transaction::Transfer { gas_limit, .. } => *gas_limit,
-            Transaction::Burn { gas_limit, .. } => *gas_limit,
-        };
-
+        // 🚨 1. ลดรูปลอจิกการดึง Gas Limit
+        let gas_limit = signed_tx.transaction.gas_limit();
         if gas_limit < 1000 {
             anyhow::bail!("Gas limit is too low. Minimum required is 1000 MIST.");
         }
@@ -385,35 +526,25 @@ impl BlockchainEngine {
         let tx_hash_hex = hex::encode(&tx_hash);
         let sender_address = signed_tx.transaction.sender_address();
 
-        // 4. Validate sequence number (committed + pending)
-        {
-            let state = self.state.read().unwrap();
-            let mut expected_seq = 0;
-            if let Some(acc) = state.get_account_by_hex(sender_address) {
-                expected_seq = acc.sequence_number;
-            }
+        // 🚨 2. ใช้ Helper รวบยอด Sequence Validation
+        let expected_seq = self.get_expected_sequence(sender_address);
+        let tx_seq = signed_tx.transaction.sequence_number();
 
-            // Add pending count
-            self.for_each_pending_tx_from_sender(sender_address, |_| expected_seq += 1);
-
-            let tx_seq = signed_tx.transaction.sequence_number();
-            if tx_seq < expected_seq {
-                anyhow::bail!(
-                    "Sequence number too low: expected {}, got {}",
-                    expected_seq,
-                    tx_seq
-                );
-            }
-            if tx_seq > expected_seq {
-                anyhow::bail!(
-                    "Sequence number too high: expected {}, got {} (out-of-order execution not supported yet)",
-                    expected_seq,
-                    tx_seq
-                );
-            }
+        if tx_seq < expected_seq {
+            anyhow::bail!(
+                "Sequence number too low: expected {}, got {}",
+                expected_seq,
+                tx_seq
+            );
+        }
+        if tx_seq > expected_seq {
+            anyhow::bail!(
+                "Sequence number too high: expected {}, got {} (out-of-order execution not supported yet)",
+                expected_seq,
+                tx_seq
+            );
         }
 
-        // 5. Check if already executed in blockchain
         {
             let chain = self.blockchain.read().unwrap();
             if chain.is_transaction_executed(&tx_hash_hex) {
@@ -421,7 +552,6 @@ impl BlockchainEngine {
             }
         }
 
-        //Check if already in pending pool
         let mut pending = self.pending_txs.write().unwrap();
         for ptx in pending.iter() {
             if ptx.hash() == tx_hash {
@@ -437,16 +567,10 @@ impl BlockchainEngine {
         Ok(tx_hash)
     }
 
-    /// Execute transaction immediately and return both hash and changeset
-    /// Used by RPC to get object IDs created during execution
-    ///
-    /// In DAG mode: This will execute AND apply the changeset to state immediately,
-    /// bypassing DAG consensus. This is necessary for RPC calls/publishes to work.
     pub fn execute_transaction_immediate(
         &self,
         signed_tx: SignedTransaction,
     ) -> Result<(Vec<u8>, ChangeSet)> {
-        // Verify signature
         if !signed_tx.verify_signature()? {
             anyhow::bail!("Invalid transaction signature");
         }
@@ -454,20 +578,8 @@ impl BlockchainEngine {
         let tx_hash = signed_tx.hash();
         let tx = signed_tx.transaction;
 
-        // For immediate (RPC) execution, whether in DAG mode or not, we run
-        // the Move execution against a cloned snapshot of the current StateManager.
-        // This makes the call a read-only/simulated run: it returns the
-        // ChangeSet that would be applied, but it does NOT mutate the engine's
-        // canonical `state`. This is crucial because the same transaction is
-        // also submitted for consensus. Modifying the state here would cause
-        // validation to fail during consensus, leading to state divergence.
         let changeset = {
-            // Clone the current state for a safe simulation
             let mut state_snapshot = { self.state.read().unwrap().clone() };
-
-            // Adjust the cloned snapshot to account for any pending transactions
-            // from the same sender that haven't been committed yet.
-            // This is needed for correct sequence number validation.
             let sender_addr = tx.sender_address();
             let addr = KanariAddress::parse_to_account_address(sender_addr)?;
 
@@ -478,8 +590,6 @@ impl BlockchainEngine {
                 }
             });
             let state_arc = Arc::new(RwLock::new(state_snapshot));
-
-            // Use a runtime from the pool for execution
             let runtime = &self.runtime_pool[0];
             self.execute_transaction_with_runtime(&tx, runtime, &state_arc, None)?
         };
@@ -501,21 +611,18 @@ impl BlockchainEngine {
 
         let state_arc = &self.state;
 
-        // 🚨 เวทมนตร์ของ Rayon: ใช้ .into_par_iter() เพื่อกระจายธุรกรรมไปยัง CPU ทุก Core
         txs.into_par_iter()
             .map(|tx| {
-                // 1. เลือก Runtime จาก Pool แบบสุ่มตาม Thread ID เพื่อหลีกเลี่ยง Lock Contention
                 let thread_idx = rayon::current_thread_index().unwrap_or(0);
                 let runtime = &self.runtime_pool[thread_idx % self.runtime_pool.len()];
 
-                // 2. รันแบบจำลองบน Memory เพียวๆ ก่อน (persist_runtime_state = false)
                 let result = self.execute_transaction_with_runtime_internal(
                     &tx.transaction,
                     runtime,
                     state_arc,
-                    true,  // validate_sequence
-                    None,  // timestamp
-                    false, // 🚨 persist_runtime_state = false (เพื่อทำ Parallel)
+                    true,
+                    None,
+                    false,
                 );
 
                 let final_result = match result {
@@ -540,28 +647,23 @@ impl BlockchainEngine {
             checkpoint_txs.len()
         );
 
-        // ⚡ 1. โยนธุรกรรมที่ DAG โหวตเรียงลำดับมาแล้ว เข้าเครื่องยนต์ Parallel
         let execution_results = self.execute_transactions_parallel(checkpoint_txs);
 
         let mut successful_txs = Vec::new();
-        let mut all_events_for_block = Vec::new(); // 🚨 เพิ่มตัวเก็บ Event
+        let mut all_events_for_block = Vec::new();
         let runtime = &self.runtime_pool[0];
 
-        // 🛡️ 2. Sequential State Commit (ป้องกัน Race Condition)
         for (tx, result) in execution_results {
             match result {
                 Ok((_tx_hash, changeset)) => {
-                    // 🚨 บันทึก Object ลง RocksDB
                     runtime.persist_created_objects(&changeset);
                     runtime.persist_deleted_objects(&changeset);
 
-                    // 🚨 [FIX]: ต้องสั่งให้ StateManager อัปเดตยอดเงินและ Sequence ด้วย
                     let mut state = self.state.write().unwrap();
                     if let Err(e) = state.apply_changeset(&changeset) {
                         error!("[DAG COMMIT] Failed to apply changeset to state: {}", e);
                     }
 
-                    // 🚨 [FIX]: รวบรวม Events เข้าบล็อก
                     all_events_for_block.extend(changeset.events.clone());
                     successful_txs.push(tx);
                 }
@@ -571,7 +673,6 @@ impl BlockchainEngine {
             }
         }
 
-        // 📦 3. บันทึก Checkpoint ลง Blockchain
         let mut chain = self.blockchain.write().unwrap();
         let height = chain.blocks.len() as u64;
         let prev_hash = chain.blocks.last().map(|b| b.hash()).unwrap_or_default();
@@ -579,9 +680,9 @@ impl BlockchainEngine {
         let new_block = kanari_types::block::Block::new(
             height,
             prev_hash,
-            vec![0u8; 32], // State Root
+            vec![0u8; 32],
             successful_txs,
-            all_events_for_block, // 🚨 [FIX]: ใส่เหตุการณ์ลงในบล็อก
+            all_events_for_block,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -611,32 +712,6 @@ impl BlockchainEngine {
         )
     }
 
-    /// Execute a transaction with option to skip sequence validation
-    /// Used for syncing blocks where sequence is already validated by the original node
-    pub(crate) fn execute_transaction_with_runtime_skip_seq(
-        &self,
-        tx: &Transaction,
-        runtime: &kanari_move_runtime::move_runtime::MoveRuntime,
-        state_arc: &Arc<RwLock<StateManager>>,
-        timestamp: Option<u64>,
-    ) -> Result<ChangeSet> {
-        self.execute_transaction_with_runtime_internal(
-            tx, runtime, state_arc, false, timestamp, false,
-        )
-    }
-
-    pub(crate) fn execute_transaction_with_runtime_skip_seq_persist(
-        &self,
-        tx: &Transaction,
-        runtime: &kanari_move_runtime::move_runtime::MoveRuntime,
-        state_arc: &Arc<RwLock<StateManager>>,
-        timestamp: Option<u64>,
-    ) -> Result<ChangeSet> {
-        self.execute_transaction_with_runtime_internal(
-            tx, runtime, state_arc, false, timestamp, true,
-        )
-    }
-
     pub(crate) fn execute_transaction_with_runtime_internal(
         &self,
         tx: &Transaction,
@@ -646,7 +721,6 @@ impl BlockchainEngine {
         timestamp: Option<u64>,
         persist_runtime_state: bool,
     ) -> Result<ChangeSet> {
-        // 1. Pre-flight validation: Check sequence number (skip for synced transactions)
         let sender_addr = KanariAddress::parse_to_account_address(tx.sender_address())?;
         if validate_sequence {
             let state = state_arc.read().unwrap();
@@ -655,11 +729,9 @@ impl BlockchainEngine {
                 .context("Sequence number validation failed")?;
         }
 
-        // 2. Calculate gas and check balance
         let mut gas_meter = GasMeter::new(tx.gas_limit(), tx.gas_price());
         let mut changeset = ChangeSet::new();
 
-        // Determine gas operation and required balance (amount + gas)
         let (gas_op, required_amount) = match tx {
             Transaction::PublishModule { module_bytes, .. } => (
                 GasOperation::PublishModule {
@@ -679,7 +751,6 @@ impl BlockchainEngine {
         let gas_cost = gas_meter.total_cost();
         let total_required = required_amount.saturating_add(gas_cost);
 
-        // Balance check
         {
             let state = state_arc.read().unwrap();
             let balance = state
@@ -709,7 +780,6 @@ impl BlockchainEngine {
             }
         }
 
-        // 3. Execute transaction logic
         match tx {
             Transaction::PublishModule {
                 sender,
@@ -736,53 +806,10 @@ impl BlockchainEngine {
                 args,
                 ..
             } => {
-                // Synchronize object snapshots for object-id arguments
-                // from canonical state into runtime object storage to avoid stale reads.
+                // 🚨 ใช้ Helper ในการโหลด Object อย่างคลีนๆ บรรทัดเดียว
                 {
                     let state = state_arc.read().unwrap();
-                    for arg in args.iter() {
-                        let mut possible_ids = Vec::new();
-
-                        // 1. กรณีเป็น Raw Bytes 32 bytes (BCS encoded AccountAddress)
-                        if arg.len() == 32
-                            && let Ok(addr) = AccountAddress::from_bytes(arg)
-                        {
-                            possible_ids.push(addr.to_hex_literal());
-                        }
-
-                        // 2. กรณีส่งมาเป็น BCS String หรือ UTF-8 (แก้ปัญหาความยาว 67 bytes)
-                        let parsed_string = bcs::from_bytes::<String>(arg)
-                            .or_else(|_| std::str::from_utf8(arg).map(|s| s.to_string()));
-
-                        if let Ok(s) = parsed_string {
-                            let s_trim = s.trim();
-
-                            // บังคับเติม 0x ถ้ายังไม่มี
-                            let hex_str = if !s_trim.starts_with("0x") {
-                                format!("0x{}", s_trim)
-                            } else {
-                                s_trim.to_string()
-                            };
-
-                            // ใช้ from_hex_literal เพื่อจัดการ Address และเติม Padding ให้
-                            if let Ok(addr) = AccountAddress::from_hex_literal(&hex_str) {
-                                possible_ids.push(addr.to_hex_literal());
-                            }
-                        }
-
-                        // ป้อนข้อมูลล่าสุด (Fresh State) ให้ Move VM ทุก ID ที่แกะได้
-                        for object_id in possible_ids {
-                            if let Ok(Some(obj)) = state.get_object(&object_id) {
-                                let _ = runtime.preload_object_snapshot(
-                                    &object_id,
-                                    obj.owner,
-                                    &obj.type_,
-                                    obj.data.clone(),
-                                    obj.version,
-                                );
-                            }
-                        }
-                    }
+                    Self::preload_objects_for_args(args, &state, runtime);
                 }
 
                 let parts: Vec<&str> = module.split("::").collect();
@@ -836,22 +863,14 @@ impl BlockchainEngine {
             }
         }
 
-        // 4. Apply gas and sequence
         Self::apply_gas_and_sequence(&mut changeset, sender_addr, gas_cost, gas_meter.gas_used)?;
-
         Ok(changeset)
     }
 
-    /// Produce a new block with pending transactions using DAG-based consensus
-    ///
-    /// This method creates a DAG vertex and automatically commits checkpoints
-    /// when consensus is reached. Uses parallel transaction execution.
     pub fn produce_block(&self) -> Result<BlockInfo> {
-        // Lazy-initialize DAG engine on first use and enable DAG mode
-        {
+        let dag_engine = {
             let mut dag_engine_guard = self.dag_engine.write().unwrap();
             if dag_engine_guard.is_none() {
-                // Enable DAG mode on blockchain before initializing DAG engine
                 {
                     let mut chain = self.blockchain.write().unwrap();
                     if !chain.dag_mode {
@@ -859,26 +878,42 @@ impl BlockchainEngine {
                     }
                 }
 
-                let dag_engine = DagEngine::new(
+                let engine = DagEngine::new(
                     Arc::new(self.clone_for_dag()),
                     self.authority_id.clone(),
                     self.authorities.clone(),
                 )?;
-                *dag_engine_guard = Some(dag_engine);
+                *dag_engine_guard = Some(engine);
+            }
+            dag_engine_guard.as_ref().unwrap().clone()
+        };
+
+        {
+            let consensus_lock = dag_engine.consensus();
+            let consensus = consensus_lock.read().unwrap();
+            let store = consensus.store();
+            let current_round = store.current_round();
+            let num_authorities = store.num_authorities();
+
+            let f = (num_authorities - 1) / 3;
+            let quorum_needed = 2 * f + 1;
+
+            let parents_available = store.get_vertices_in_round(current_round).len();
+
+            if current_round > 0 && parents_available < quorum_needed {
+                anyhow::bail!(
+                    "SYNC_WAITING: have {}/{} vertices in round {} (need quorum for round {})",
+                    parents_available,
+                    quorum_needed,
+                    current_round,
+                    current_round + 1
+                );
             }
         }
 
-        // Produce DAG vertex
-        // We don't hold state/blockchain locks here because produce_vertex and
-        // apply_checkpoint will acquire them in the correct order.
-        let dag_engine = {
-            let guard = self.dag_engine.read().unwrap();
-            guard.as_ref().unwrap().clone()
-        };
         dag_engine.produce_vertex()
     }
 
-    /// Clone engine for DAG usage (internal helper)
     fn clone_for_dag(&self) -> BlockchainEngine {
         BlockchainEngine {
             blockchain: self.blockchain.clone(),
@@ -894,9 +929,7 @@ impl BlockchainEngine {
         }
     }
 
-    /// Configure authorities for DAG mode
     pub fn set_authorities(&mut self, authority_id: String, authorities: Vec<String>) {
-        // Normalize authority IDs to ensure consistency (ensure 0x prefix)
         fn normalize(s: String) -> String {
             if s.starts_with("0x") {
                 s
@@ -904,30 +937,23 @@ impl BlockchainEngine {
                 format!("0x{}", s)
             }
         }
-
         self.authority_id = normalize(authority_id);
         self.authorities = authorities.into_iter().map(normalize).collect();
-
-        // Reset DAG engine to use new authorities
         *self.dag_engine.write().unwrap() = None;
     }
 
-    /// Get current authority ID
     pub fn get_authority_id(&self) -> String {
         self.authority_id.clone()
     }
 
-    /// Get list of authorities
     pub fn get_authorities(&self) -> Vec<String> {
         self.authorities.clone()
     }
 
-    /// Get DAG engine if initialized (for vertex sync)
     pub fn get_dag_engine(&self) -> Option<Arc<RwLock<Option<DagEngine>>>> {
         Some(self.dag_engine.clone())
     }
 
-    /// Get blockchain stats
     pub fn get_stats(&self) -> BlockchainStats {
         let state = self.state.read().unwrap();
         let chain = self.blockchain.read().unwrap();
@@ -943,79 +969,33 @@ impl BlockchainEngine {
         }
     }
 
-    /// Get account info
     pub fn get_account_info(&self, address: &str) -> Option<AccountInfo> {
-        // 🚨 Lock Poisoning Fix
         let state = self.state.read().unwrap_or_else(|e| e.into_inner());
 
         state.get_account_by_hex(address).map(|acc| {
-            let raw_owned_ids = state.get_owned_objects(&acc.address).unwrap_or_default();
+            // 🚨 ใช้ Helper จัดการ Objects แบบคลีนๆ โดยไม่ต้องเขียนลูปยาว
+            let final_owned_objects = self.resolve_account_objects(&state, &acc.address);
 
-            // กรอง Object ID ที่ซ้ำซ้อนออก (Deduplication)
-            let mut unique_ids = std::collections::HashSet::new();
-            let mut owned_ids = Vec::new();
-            for id in raw_owned_ids {
-                if unique_ids.insert(id.clone()) {
-                    owned_ids.push(id);
-                }
-            }
+            // 🚨 ใช้ Helper จัดการ Sequence Number (รวม Mempool)
+            let sequence_number = self.get_expected_sequence(address);
 
-            let mut coins_with_balance = Vec::new();
-            let mut other_objects = Vec::new();
-
-            // แค่ดึง Object มาแสดงผล (ไม่ใช้คำนวณยอดแล้ว)
-            for id in owned_ids {
-                if let Ok(Some(obj)) = state.get_object(&id) {
-                    let info = ObjectInfo {
-                        id: id.clone(),
-                        owner: format!("{:#x}", obj.owner),
-                        type_: obj.type_.clone(),
-                        data: obj.data.clone(),
-                        version: obj.version,
-                    };
-
-                    if obj.type_.contains("::coin::Coin<") && obj.data.len() >= 40 {
-                        let mut arr = [0u8; 8];
-                        arr.copy_from_slice(&obj.data[32..40]);
-                        let amount = u64::from_le_bytes(arr);
-
-                        if amount > 0 {
-                            coins_with_balance.push((amount, info));
-                        }
-                    } else {
-                        other_objects.push(info);
-                    }
-                }
-            }
-
-            // เรียงลำดับเหรียญ
-            coins_with_balance.sort_by(|a, b| b.0.cmp(&a.0));
-            let mut final_owned_objects: Vec<_> = coins_with_balance
+            let actual_token_balances = acc
+                .token_balances
                 .into_iter()
-                .map(|(_, info)| info)
+                .map(|(k, v)| (k, v.value()))
                 .collect();
-            final_owned_objects.extend(other_objects);
-
-            let mut sequence_number = acc.sequence_number;
-            self.for_each_pending_tx_from_sender(address, |_| sequence_number += 1);
-
-            // 🚨 FIX: ดึง Token Balance จาก Account State โดยตรง (แม่นยำ 100% ไร้เหรียญผี)
-            let mut actual_token_balances = std::collections::BTreeMap::new();
-            for (token_type, balance_record) in acc.token_balances {
-                actual_token_balances.insert(token_type, balance_record.value());
-            }
 
             AccountInfo {
                 address: format!("{:#x}", acc.address),
-                balance: acc.balance, // Native KANARI
+                balance: acc.balance,
                 sequence_number,
                 modules: acc.modules.iter().cloned().collect(),
-                token_balances: actual_token_balances, // 🚨 ใช้ยอดที่ถูกต้องจากระบบ
+                token_balances: actual_token_balances,
                 owned_objects: Some(final_owned_objects),
             }
         })
     }
-    /// Iterate over pending transactions from a specific sender
+
     fn for_each_pending_tx_from_sender<F>(&self, sender: &str, mut f: F)
     where
         F: FnMut(&SignedTransaction),
@@ -1030,16 +1010,13 @@ impl BlockchainEngine {
         }
     }
 
-    /// Normalize address for comparison (converts to raw hex address)
     fn normalize_addr(addr: &str) -> String {
         use std::str::FromStr;
-        // Use the central Address type to handle tagged addresses, public keys, and hex literals
         KanariAddress::from_str(addr)
             .map(|a| a.to_hex())
             .unwrap_or_else(|_| addr.trim_start_matches("0x").to_lowercase())
     }
 
-    /// Get module bytecode from Move storage
     pub fn get_module_bytecode(&self, address: &str, module_name: &str) -> Option<Vec<u8>> {
         use move_core_types::{identifier::Identifier, language_storage::ModuleId};
 
@@ -1058,7 +1035,6 @@ impl BlockchainEngine {
         runtime.get_module_bytes(&module_id)
     }
 
-    /// List all published modules in Move storage
     pub fn list_all_modules(&self) -> Vec<(String, String)> {
         let runtime = &self.runtime_pool[0];
         runtime
@@ -1073,7 +1049,6 @@ impl BlockchainEngine {
             .collect()
     }
 
-    /// Get block by height
     pub fn get_block(&self, height: u64) -> Option<BlockData> {
         let chain = self.blockchain.read().unwrap();
         chain.get_block(height).map(|block| BlockData {
@@ -1087,7 +1062,6 @@ impl BlockchainEngine {
         })
     }
 
-    /// Get full block with transactions by height
     pub fn get_full_block(&self, height: u64) -> Option<FullBlockData> {
         let chain = self.blockchain.read().unwrap();
         let block = chain.get_block(height)?;
@@ -1110,12 +1084,10 @@ impl BlockchainEngine {
         })
     }
 
-    /// Helper to decode hex string (with optional 0x)
     fn decode_hex(s: &str) -> Result<Vec<u8>> {
         hex::decode(s.trim_start_matches("0x")).context("Invalid hex string")
     }
 
-    /// Helper to decode hex string to 32-byte array
     fn decode_hex_32(s: &str) -> [u8; 32] {
         let bytes = Self::decode_hex(s).unwrap_or_default();
         let mut arr = [0u8; 32];
@@ -1125,8 +1097,6 @@ impl BlockchainEngine {
         arr
     }
 
-    /// Sync full block with transactions from network data
-    /// This method executes all transactions to rebuild the state
     pub fn sync_full_block_from_data(&self, block_data: &FullBlockData) -> Result<()> {
         let stats = self.get_stats();
         info!(
@@ -1134,13 +1104,11 @@ impl BlockchainEngine {
             block_data.height, stats.height
         );
 
-        // Check if we already have this block
         if block_data.height <= stats.height {
             info!("[SYNC] Already have block #{}, skipping", block_data.height);
             return Ok(());
         }
 
-        // Verify this is the next block
         if block_data.height != stats.height + 1 {
             warn!(
                 "[SYNC] Block #{} is not consecutive (need {})",
@@ -1154,7 +1122,6 @@ impl BlockchainEngine {
             );
         }
 
-        // Verify all transaction signatures before executing
         info!(
             "[SYNC] Verifying {} transaction signatures from block #{}",
             block_data.transactions.len(),
@@ -1166,12 +1133,11 @@ impl BlockchainEngine {
                 anyhow::bail!(
                     "Invalid or missing signature for transaction {} in block #{}",
                     i + 1,
-                    block_data.height,
+                    block_data.height
                 );
             }
         }
 
-        // Create a checkpoint from block data
         let state_root = Self::decode_hex(&block_data.state_root)
             .context("Invalid state root format in block data")?;
 
@@ -1195,7 +1161,6 @@ impl BlockchainEngine {
             prev_hash,
         );
 
-        // Apply checkpoint using the unified atomic path
         self.apply_checkpoint(checkpoint)?;
 
         info!(
