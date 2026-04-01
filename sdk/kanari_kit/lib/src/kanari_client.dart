@@ -394,7 +394,7 @@ class KanariClient {
     List<String> typeArgs = const [],
     List<List<int>> args = const [],
     int gasLimit = 100000,
-    int gasPrice = 1000,
+    int gasPrice = 0,
     bool? executeImmediate,
   }) async {
     // 1. Get current sequence number
@@ -559,7 +559,7 @@ class KanariClient {
     required String tokenType, // เช่น "0x...::james::JAMES"
     required int amount,
     int gasLimit = 100000,
-    int gasPrice = 1000,
+    int gasPrice = 0,
   }) async {
     // 1. Get Account & Objects
     final account = await getAccount(wallet.address);

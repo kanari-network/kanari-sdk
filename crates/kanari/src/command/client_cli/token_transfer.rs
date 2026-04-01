@@ -160,7 +160,7 @@ impl TokenTransfer {
                 .context("Failed to serialize recipient address")?,
             ],
             gas_limit: 100_000,
-            gas_price: 1000,
+            gas_price: 0,
             sequence_number: account.sequence_number,
             signature: None, // Will be set after signing
             execute_immediate: Some(true),

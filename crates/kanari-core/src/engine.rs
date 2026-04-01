@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use centauri::blockchain::Blockchain;
 use centauri::consensus::{Checkpoint, PersistentDagState};
 use kanari_move_runtime::changeset::ChangeSet;
-use kanari_move_runtime::gas::{GasMeter, GasOperation};
+use kanari_move_runtime::gas_v2::{GasMeter, GasOperation};
 use kanari_move_runtime::move_runtime::MoveRuntime;
 use kanari_move_runtime::state::StateManager;
 use kanari_move_runtime::storage::persistent_store::PersistentStore;
@@ -516,11 +516,11 @@ impl BlockchainEngine {
             anyhow::bail!("Invalid or missing transaction signature");
         }
 
-        // 🚨 1. ลดรูปลอจิกการดึง Gas Limit
-        let gas_limit = signed_tx.transaction.gas_limit();
-        if gas_limit < 1000 {
-            anyhow::bail!("Gas limit is too low. Minimum required is 1000 MIST.");
-        }
+        // 🚨 1. ลดรูปลอจิกการดึง Gas Limit (คอมเมนต์การเช็คขั้นต่ำออก เพื่อให้ตั้ง 0 ได้)
+        let _gas_limit = signed_tx.transaction.gas_limit();
+        // if _gas_limit < 1000 {
+        //     anyhow::bail!("Gas limit is too low. Minimum required is 1000 MIST.");
+        // }
 
         let tx_hash = signed_tx.hash();
         let tx_hash_hex = hex::encode(&tx_hash);
