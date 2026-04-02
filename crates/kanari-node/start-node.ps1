@@ -6,7 +6,8 @@ param(
     [string]$BaseDataDir = "$env:USERPROFILE\.kanari\node-db",
     [int]$BasePeerPort = 19000,
     [int]$BaseRpcPort = 19001,
-    [string]$Authorities = ""
+    [string]$Authorities = "",
+    [string]$Bootstrap = "" 
 )
 
 $p2pPort = $BasePeerPort + (($NodeId - 1) * 10)
@@ -19,20 +20,15 @@ if (-not (Test-Path $dataDir)) {
     New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
 }
 
-# Detect LAN IPv4 address by preferring physical, Up interfaces (skip virtual/loopback)
+# Detect LAN IPv4 address
 $localIp = $null
-$adapters = Get-NetAdapter -ErrorAction SilentlyContinue |
-    Where-Object { $_.Status -eq 'Up' -and $_.InterfaceDescription -notmatch 'Virtual|vEthernet|Hyper-V|Docker|VMware|Loopback' }
+$adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' -and $_.InterfaceDescription -notmatch 'Virtual|vEthernet|Hyper-V|Docker|VMware|Loopback' }
 foreach ($a in $adapters) {
-    $ip = Get-NetIPAddress -InterfaceIndex $a.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-        Where-Object { $_.IPAddress -notmatch '^127\.' -and $_.IPAddress -notmatch '^169\.254\.' } |
-        Select-Object -First 1
+    $ip = Get-NetIPAddress -InterfaceIndex $a.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notmatch '^127\.' -and $_.IPAddress -notmatch '^169\.254\.' } | Select-Object -First 1
     if ($ip) { $localIp = $ip.IPAddress; break }
 }
 if (-not $localIp) {
-    $localIp = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-        Where-Object { $_.IPAddress -notmatch '^127\.' -and $_.IPAddress -notmatch '^169\.254\.' } |
-        Select-Object -First 1).IPAddress
+    $localIp = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notmatch '^127\.' -and $_.IPAddress -notmatch '^169\.254\.' } | Select-Object -First 1).IPAddress
 }
 
 Write-Host '========================================' -ForegroundColor Cyan
@@ -51,8 +47,6 @@ Write-Host ''
 
 # Find kanari-node executable
 $exePath = $null
-
-# Check if cargo target exists
 $releaseExe = "..\..\target\release\kanari-node.exe"
 $debugExe = "..\..\target\debug\kanari-node.exe"
 
@@ -67,21 +61,18 @@ if (Test-Path $releaseExe) {
     Write-Host 'Using kanari-node from PATH' -ForegroundColor Green
 } else {
     Write-Host 'Error: kanari-node executable not found!' -ForegroundColor Red
-    Write-Host 'Please build the project first:' -ForegroundColor Yellow
-    Write-Host '  cd ..\..' -ForegroundColor Gray
-    Write-Host '  cargo build --release' -ForegroundColor Gray
-    Write-Host ''
-    Write-Host 'Or use debug build:' -ForegroundColor Yellow
-    Write-Host '  cargo build' -ForegroundColor Gray
     exit 1
 }
 
 Write-Host ''
 
-# Start the node (bind RPC to all interfaces so it is reachable via the machine's IP)
+# Start the node (รองรับการใส่ Bootstrap)
 if ($Authorities -ne "") {
-    & $exePath start --p2p-port $p2pPort --rpc-port $rpcPort --rpc-host 0.0.0.0 --data-dir $dataDir --authority-id $authId --authorities $Authorities
+    if ($Bootstrap -ne "") {
+        & $exePath start --p2p-port $p2pPort --rpc-port $rpcPort --rpc-host 0.0.0.0 --data-dir $dataDir --authority-id $authId --authorities $Authorities --bootstrap $Bootstrap
+    } else {
+        & $exePath start --p2p-port $p2pPort --rpc-port $rpcPort --rpc-host 0.0.0.0 --data-dir $dataDir --authority-id $authId --authorities $Authorities
+    }
 } else {
     & $exePath start --p2p-port $p2pPort --rpc-port $rpcPort --rpc-host 0.0.0.0 --data-dir $dataDir
 }
-
