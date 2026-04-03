@@ -166,6 +166,9 @@ impl super::MoveRuntime {
         // Load system modules in dependency order. Note: some modules (coin) depend on transfer,
         // so transfer must be published before coin.
         let module_files = vec![
+            // math
+            "math.mv",
+            // Core system modules
             "tx_context.mv",
             "object.mv",
             "url.mv",

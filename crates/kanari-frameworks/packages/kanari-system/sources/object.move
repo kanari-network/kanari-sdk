@@ -5,13 +5,18 @@ module kanari_system::object {
     use kanari_system::tx_context;
     use kanari_system::tx_context::TxContext;
     use std::signer;
-    use std::vector;
 
     /// Simple UID wrapper used for resource IDs in this package.
     /// The UID contains an object-style address generated from the
     /// transaction context, ensuring it is unique per creation.
     struct UID has store, drop {
         addr: address,
+    }
+
+    /// ID is a copyable, storable identifier for an object.
+    /// It is used to reference objects without requiring ownership of the UID.
+    struct ID has copy, drop, store {
+        bytes: address,
     }
 
     // --- Public Creator ---
@@ -24,7 +29,29 @@ module kanari_system::object {
         UID { addr: tx_context::fresh_object_address(ctx) }
     }
 
-    // --- Public Getters ---
+    // --- ID Getters & Converters ---
+
+    /// Extract an `ID` from a `UID`.
+    public fun uid_to_inner(uid: &UID): ID {
+        ID { bytes: uid.addr }
+    }
+
+    /// Create an `ID` directly from an address.
+    public fun id_from_address(bytes: address): ID {
+        ID { bytes }
+    }
+
+    /// Get the underlying address of an `ID`.
+    public fun id_to_address(id: &ID): address {
+        id.bytes
+    }
+
+    /// Get the address of an `ID` as a byte vector.
+    public fun id_to_bytes(id: &ID): vector<u8> {
+        signer::address_to_bytes(id.bytes)
+    }
+
+    // --- UID Getters ---
 
     /// Return the underlying address for a UID.
     /// This is the canonical representation of the object's ID.
@@ -33,14 +60,16 @@ module kanari_system::object {
     }
 
     /// Return the object's address as a `u64` value.
-    /// This is useful for numerical operations or compatibility with systems
-    /// that require integer IDs, provided the address fits within u64.
-    /// Note: This relies on Move's standard casting behavior for `address` to `u64`.
-    public fun id_address_as_u64(u: &UID): u64 {
+    public fun uid_to_u64(u: &UID): u64 {
         signer::address_to_u64(u.addr)
     }
 
-    /// Return the object's address as a `vector<u8>` (32 bytes).
+    /// Return the object's address as a `vector<u8>`.
+    public fun uid_to_bytes(u: &UID): vector<u8> {
+        signer::address_to_bytes(u.addr)
+    }
+
+    /// Return the object's address as a `vector<u8>`.
     /// This is useful for serialization, hashing, and interoperability across modules.
     public fun id_bytes(u: &UID): vector<u8> {
         signer::address_to_bytes(u.addr)
@@ -60,27 +89,25 @@ module kanari_system::object {
     native fun delete_impl(id: UID);
 
     // --- Tests ---
-    // Note: Since `tx_context` is external, we cannot fully test `new` here,
-    // but we can test the getters on a hardcoded address.
-
     #[test]
-    fun test_uid_getters() {
+    fun test_uid_id_getters() {
         let test_addr = @0x1234;
         let test_u64 = signer::address_to_u64(test_addr);
-        let test_bytes = signer::address_to_bytes(test_addr);
 
         let uid = UID { addr: test_addr };
         
-        // 1. Check address
+        // 1. Check UID address
         assert!(uid_address(&uid) == test_addr, 0);
 
         // 2. Check u64 conversion
-        assert!(id_address_as_u64(&uid) == test_u64, 1);
+        assert!(uid_to_u64(&uid) == test_u64, 1);
 
-        // 3. Check bytes conversion
-        assert!(vector::length(&id_bytes(&uid)) == vector::length(&test_bytes), 2);
-        
-        let UID { addr: _ } = uid; // Consume resource
+        // 3. Test ID Extraction
+        let id = uid_to_inner(&uid);
+        assert!(id_to_address(&id) == test_addr, 2);
+
+        // 4. Test ID to Address mapping
+        let created_id = id_from_address(test_addr);
+        assert!(id_to_address(&created_id) == test_addr, 3);
     }
-
 }

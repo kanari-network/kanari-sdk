@@ -11,7 +11,7 @@ pub mod verify;
 
 use kanari_system_natives::event::EventsExt;
 use kanari_system_natives::transfer_natives::TransferredObjectsExt;
-use kanari_system_natives::{crypto, event, object, transfer_natives, tx_context};
+use kanari_system_natives::{crypto, event, math_calculate, object, transfer_natives, tx_context};
 use kanari_types::address::Address as KanariAddress;
 use move_core_types::{account_address::AccountAddress, identifier::Identifier};
 use move_package::source_package::layout::SourcePackageLayout;
@@ -75,6 +75,7 @@ impl MoveCommand {
                 let tx_context = tx_context::all_natives(system_addr).into_iter();
                 let event_natives = event::all_natives(system_addr).into_iter();
                 let object_natives = object::all_natives(system_addr).into_iter();
+                let math_calculate = math_calculate::all_natives(system_addr).into_iter();
                 // Register native-context extensions for the unit-test runner so
                 // extensions like event capture and transfer tracking are available.
                 set_extension_hook(Box::new(|exts| {
@@ -89,6 +90,7 @@ impl MoveCommand {
                     .chain(tx_context)
                     .chain(event_natives)
                     .chain(object_natives)
+                    .chain(math_calculate)
                     .collect();
                 t.execute(None, config, natives, None)
             }

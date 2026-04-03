@@ -8,6 +8,7 @@ use move_vm_types::natives::function::{NativeResult, PartialVMResult};
 
 pub mod crypto;
 pub mod event;
+pub mod math_calculate;
 pub mod object;
 pub mod transfer_natives;
 pub mod tx_context;

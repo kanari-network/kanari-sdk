@@ -148,7 +148,8 @@ pub async fn handle_list_collections(state: &RpcServerState, request: &RpcReques
             let mut max_supply = 0u64;
 
             if obj.type_.contains("::collection::Collection")
-                && let Ok(parsed) = bcs::from_bytes::<ParsedCollection>(&obj.data) {
+                && let Ok(parsed) = bcs::from_bytes::<ParsedCollection>(&obj.data)
+            {
                 name = move_str_to_string(&parsed.name);
                 description = move_str_to_string(&parsed.description);
                 banner_url = move_str_to_string(&parsed.banner_url.inner);

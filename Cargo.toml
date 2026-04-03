@@ -135,6 +135,8 @@ env_logger = "0.11.8"
 # Time
 chrono = "0.4.43"
 
+num-integer = { version = "0.1.46" }
+
 kanari-common = { path = "crates/kanari-common" }
 kanari-crypto = { path = "crates/kanari-crypto" }
 kanari-types = { path = "crates/kanari-types" }

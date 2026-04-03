@@ -137,6 +137,7 @@ impl MoveRuntime {
             kanari_system_natives::event::all_natives(sys_addr),
             kanari_system_natives::tx_context::all_natives(sys_addr),
             kanari_system_natives::object::all_natives(sys_addr),
+            kanari_system_natives::math_calculate::all_natives(sys_addr),
         ]
     }
 

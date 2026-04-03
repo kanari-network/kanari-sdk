@@ -14,7 +14,7 @@ description.workspace = true
 [dependencies]
 # The `move-core-types` crate contains the core types of the Move language.
 # Move dependencies
-move-core-types = { workspace = true}
+move-core-types = { workspace = true }
 move-vm-runtime = { workspace = true }
 move-vm-types = { workspace = true }
 
@@ -24,11 +24,11 @@ sha3 = { workspace = true }
 sha2 = { workspace = true }
 secp256k1 = { workspace = true }
 p256 = { workspace = true }
-k256 = { workspace = true  }
+k256 = { workspace = true }
 smallvec = { workspace = true }
 kanari-crypto = { workspace = true }
 # better_any is needed for NativeContextExtensions `Tid` derive
 better_any = { workspace = true }
-
+num-integer = { workspace = true }
 
 hex = { workspace = true }

@@ -68,7 +68,7 @@ fn main() -> Result<()> {
     // 4. Generate some test transactions
     println!("4. Generating test transactions...");
     let keypair = kanari_crypto::keys::generate_keypair(CurveType::Ed25519)?;
-    let sender_address = keypair.tagged_address();  // Use tagged address for proper signature verification
+    let sender_address = keypair.tagged_address(); // Use tagged address for proper signature verification
     let private_key = keypair.private_key.to_string();
 
     // Fund the sender account manually for the demo
@@ -92,7 +92,7 @@ fn main() -> Result<()> {
     let mut next_seq_num = 0;
     for i in 0..10 {
         let tx = Transaction::Transfer {
-            from: sender_address.clone(),  // Use the tagged address for the transaction
+            from: sender_address.clone(), // Use the tagged address for the transaction
             to: format!("0x{:064x}", i + 100),
             amount: 1000 * (i + 1),
             gas_limit: 100_000,
