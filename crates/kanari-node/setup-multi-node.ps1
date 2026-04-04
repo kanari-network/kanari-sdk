@@ -6,7 +6,7 @@ Write-Host ""
 $BaseDataDir = "$env:USERPROFILE\.kanari\node-db"
 $BasePeerPort = 19000
 $BaseRpcPort = 19001
-$NodeCount = 7
+$NodeCount = 3
 
 # 1. Clear old databases
 Write-Host "Clearing old databases to prevent state conflicts..." -ForegroundColor Yellow

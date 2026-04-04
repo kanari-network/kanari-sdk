@@ -8,48 +8,31 @@ use kanari_move_runtime::state::StateManager;
 use move_binary_format::file_format::CompiledModule;
 use move_core_types::account_address::AccountAddress as MoveAccountAddress;
 use move_core_types::runtime_value::{MoveStruct, MoveValue};
-use move_package::BuildConfig;
 use serde::Deserialize;
 use std::env;
 use std::path::Path;
 use std::path::PathBuf;
 
-fn compile_james_package() -> Option<PathBuf> {
-    let candidates = ["james", "../james", "../../james"];
-    let mut pkg_path = PathBuf::new();
+fn find_james_module() -> Option<std::path::PathBuf> {
+    let candidates = [
+        "example_move/james/build/james/bytecode_modules/nft.mv",
+        "../example_move/james/build/james/bytecode_modules/nft.mv",
+        "../../example_move/james/build/james/bytecode_modules/nft.mv",
+    ];
     for p in candidates.iter() {
         let path = Path::new(p);
-        if path.join("Move.toml").exists() {
-            pkg_path = path.to_path_buf();
-            break;
+        if path.exists() {
+            return Some(path.to_path_buf());
         }
     }
-
-    if pkg_path.as_os_str().is_empty() {
-        return None;
-    }
-
-    println!("Compiling James package at {}...", pkg_path.display());
-
-    let config = BuildConfig {
-        install_dir: Some(pkg_path.clone()),
-        ..Default::default()
-    };
-
-    match config.compile_package(&pkg_path, &mut std::io::stdout()) {
-        Ok(_) => Some(pkg_path.join("build/james/bytecode_modules/nft.mv")),
-        Err(e) => {
-            eprintln!("Failed to compile James package: {}", e);
-            None
-        }
-    }
+    None
 }
 
 fn main() {
     println!("kanari-move-runtime E2E NFT example: publish + setup");
 
     let args: Vec<String> = env::args().collect();
-    let mut path = match compile_james_package() {
+    let mut path = match find_james_module() {
         Some(p) => p,
         None => PathBuf::new(),
     };
@@ -245,10 +228,8 @@ fn main() {
             let arg7 = bcs::to_bytes(&attack_mv).expect("serialize attack");
             let arg8 = bcs::to_bytes(&defense_mv).expect("serialize defense");
 
-            // Build args: cap, name, desc, number, url, level, rarity, attack, defense, tx_ctx
-            let mut mint_args = vec![arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8];
-            // push tx context - add it back since the auto-add might not work as expected
-            mint_args.push(tx_context_bytes.clone());
+            // Build args: cap, name, desc, number, url, level, rarity, attack (omit defense to match function signature)
+            let mint_args = vec![arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7];
 
             println!("Calling Move mint entry with demo args...");
             // Debug: print arg lengths and hex to help diagnose deserialization failures

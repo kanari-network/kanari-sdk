@@ -44,6 +44,9 @@ module kanari_system::clock {
     public fun consensus_commit_prologue(clock: &mut Clock, timestamp_ms: u64, ctx: &TxContext) {
         // Requires that the call be made only through the System Validator.
         assert!(tx_context::sender(ctx) == @0x0, E_NOT_SYSTEM_ADDRESS);
+        // Ensure that the new timestamp is greater than or equal to the current one
+        // to maintain monotonicity of time on the blockchain
+        assert!(timestamp_ms >= clock.timestamp_ms, 1);
         clock.timestamp_ms = timestamp_ms;
     }
 

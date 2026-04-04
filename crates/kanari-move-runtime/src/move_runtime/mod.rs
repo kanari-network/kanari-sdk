@@ -231,20 +231,12 @@ impl MoveRuntime {
         let (move_changeset, events) = {
             let mut session = self.vm.new_session(self.resolver.clone());
 
-            // 🚨 FIX: อุดช่องโหว่ Gas (Unmetered Gas Vulnerability)
-            if let Some((_gas_limit, _gas_price)) = gas_info {
-                // TODO: เมื่อคุณมี Custom GasMeter แบบจำกัด ให้แก้ไขบรรทัดล่างนี้
-                // เป็น let mut gas = crate::gas::KanariGasMeter::new(gas_limit);
-                let mut gas = UnmeteredGasMeter;
-                session
-                    .publish_module(module_bytes.clone(), sender, &mut gas)
-                    .map_err(|e| anyhow::anyhow!("{:?}", e))?;
-            } else {
-                let mut gas = UnmeteredGasMeter;
-                session
-                    .publish_module(module_bytes.clone(), sender, &mut gas)
-                    .map_err(|e| anyhow::anyhow!("{:?}", e))?;
-            }
+            let provided_gas_limit = gas_info.map(|(limit, _)| limit).unwrap_or(1_000_000);
+            let mut metered_gas = crate::kanari_gas_meter::KanariGasMeter::new(provided_gas_limit);
+
+            session
+                .publish_module(module_bytes.clone(), sender, &mut metered_gas)
+                .map_err(|e| anyhow::anyhow!("{:?}", e))?;
 
             session.finish().0.map_err(|e| anyhow::anyhow!("{:?}", e))?
         };
@@ -633,7 +625,6 @@ impl MoveRuntime {
         } = options;
 
         let mut session = self.vm.new_session(self.resolver.clone());
-        let mut gas = UnmeteredGasMeter;
 
         let mut auto_merged_coin_ids = Vec::new();
         let mut merged_coin_types = std::collections::HashSet::new();
@@ -763,25 +754,18 @@ impl MoveRuntime {
 
                         final_args[i] = stored_obj.data.clone();
 
-                        // 🚨 FIX: ลบ `loaded_by_value_objects` ออก ให้ตรวจจับเฉพาะ Reference
-                        match param_type {
-                            RuntimeType::MutableReference(_) => {
-                                loaded_mutable_objects.push((
-                                    i,
-                                    stored_obj.id.clone(),
-                                    stored_obj.owner,
-                                    stored_obj.type_name.clone(),
-                                    stored_obj.version,
-                                ));
-                            }
-                            _ => {
-                                // ปล่อยผ่าน
-                            }
+                        if let RuntimeType::MutableReference(_) = param_type {
+                            loaded_mutable_objects.push((
+                                i,
+                                stored_obj.id.clone(),
+                                stored_obj.owner,
+                                stored_obj.type_name.clone(),
+                                stored_obj.version,
+                            ));
                         }
                     }
                 }
             }
-
             if func.parameters.len() == final_args.len() + 1
                 && let Some(last_param_type) = func.parameters.last()
                 && let Some(TypeTag::Struct(struct_tag)) = type_tag_for_param(last_param_type)
@@ -806,17 +790,28 @@ impl MoveRuntime {
         exts.add(SavedObjectsExt::default());
         exts.add(DeletedObjectsExt::default());
 
+        // 🚨 ใช้งาน KanariGasMeter ป้องกัน Infinite Loop อย่างสมบูรณ์
         let execution_result = if bypass_entry_check {
+            let mut unmetered_gas = UnmeteredGasMeter;
             session.execute_function_bypass_visibility(
                 module_id,
                 ident,
                 ty_args_loaded,
                 final_args,
-                &mut gas,
+                &mut unmetered_gas,
             )
         } else {
-            session.execute_entry_function(module_id, ident, ty_args_loaded, final_args, &mut gas)
+            let provided_gas_limit = gas_info.map(|(limit, _)| limit).unwrap_or(1_000_000);
+            let mut metered_gas = crate::kanari_gas_meter::KanariGasMeter::new(provided_gas_limit);
+            session.execute_entry_function(
+                module_id,
+                ident,
+                ty_args_loaded,
+                final_args,
+                &mut metered_gas,
+            )
         };
+
         let mut cs = ChangeSet::new();
 
         match execution_result {
@@ -835,7 +830,6 @@ impl MoveRuntime {
                 let (move_changeset, events) =
                     res.map_err(|e| anyhow::anyhow!("exec error: {:?}", e))?;
 
-                // 🚨 FIX: สแกนหา Object ที่ถูกสั่งลบ (Op::Delete) จาก MoveVM โดยตรง (แก้บั๊กเหรียญผี)
                 for (addr, account_changes) in move_changeset.accounts() {
                     for op in account_changes.resources().values() {
                         if let move_core_types::effects::Op::Delete = op {
@@ -985,11 +979,9 @@ impl MoveRuntime {
         state: &mut StateManager,
         timestamp_ms: u64,
     ) -> Result<()> {
-        // 1. ชี้เป้าไปที่ kanari_system::clock::consensus_commit_prologue
         let module_id = ClockModule::get_module_id()?;
         let func_name = ClockModule::function_names().consensus_commit_prologue;
 
-        // 2. เตรียม Parameter
         let mut args: Vec<Vec<u8>> = vec![];
         let clock_id = self.ensure_system_clock(state)?;
         args.push(bcs::to_bytes(&clock_id)?);
@@ -997,22 +989,20 @@ impl MoveRuntime {
 
         let system_sender = AccountAddress::ZERO;
 
-        // 3. สั่งรันผ่าน Move VM
         let result = self.execute_entry_function(
             &module_id,
             func_name,
-            vec![], // แก้ไข: โยน vec![] ว่างๆ เข้าไปตรงๆ เลย ไม่ต้องใส่ &
+            vec![],
             args,
-            Some(system_sender), // แก้ไข: ช่องที่ 5 คือ sender
-            None,                // System call: do not charge gas
-            Some(timestamp_ms),  // แก้ไข: ช่องที่ 7 คือ timestamp
+            Some(system_sender),
+            None,
+            Some(timestamp_ms),
         );
 
         match result {
-            Ok(_change_set) => {
-                // หมายเหตุ: อย่าลืมว่า execute_entry_function คืนค่าเป็น ChangeSet
-                // ถ้าระบบของคุณต้องการให้ State อัปเดตจริงๆ คุณอาจจะต้องสั่งเซฟ ChangeSet ลง DB ด้วย
-                // เช่น self.apply_changeset(_change_set);
+            Ok(change_set) => {
+                // Apply the changeset to persist state updates (e.g., clock timestamp change)
+                state.apply_changeset(&change_set)?;
                 Ok(())
             }
             Err(e) => {

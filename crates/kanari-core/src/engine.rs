@@ -146,14 +146,19 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
 
 impl BlockchainEngine {
     // =====================================================================
-    // ⏰ System Prologue (ตรรกะอัปเดตเวลา On-chain)
+    // ⏰ System Prologue
     // =====================================================================
     pub fn execute_system_prologue(&self, timestamp_ms: u64) -> Result<()> {
         let runtime = &self.runtime_pool[0];
 
-        let mut state_write = self.state.write().unwrap();
-        let clock_id = runtime.ensure_system_clock(&mut state_write)?;
+        // Get the clock ID first, before acquiring the write lock
+        let clock_id = runtime.ensure_system_clock(&mut self.state.write().unwrap())?;
+
+        // Execute the prologue function to get the changeset
         let changeset = runtime.execute_clock_consensus_commit_prologue(clock_id, timestamp_ms)?;
+
+        // Apply the changeset to the state
+        let mut state_write = self.state.write().unwrap();
         state_write.apply_changeset(&changeset)?;
         runtime.persist_created_objects(&changeset);
         runtime.persist_deleted_objects(&changeset);
@@ -632,6 +637,7 @@ impl BlockchainEngine {
     pub fn process_dag_checkpoint(
         &self,
         checkpoint_txs: Vec<SignedTransaction>,
+        consensus_timestamp_ms: Option<u64>, // Allow timestamp from consensus layer
     ) -> Result<Vec<u8>> {
         log::info!(
             "[DAG CONSENSUS] Applying new checkpoint with {} transactions",
@@ -641,10 +647,14 @@ impl BlockchainEngine {
         // =================================================================
         // 🚨 Update the time on the Blockchain before executing user transactions.
         // =================================================================
-        let current_timestamp_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        // Use timestamp from consensus layer to ensure all nodes have identical state
+        // Fallback to local time only if no consensus timestamp is provided (for backward compatibility)
+        let current_timestamp_ms = consensus_timestamp_ms.unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64
+        });
 
         if let Err(e) = self.execute_system_prologue(current_timestamp_ms) {
             log::error!(

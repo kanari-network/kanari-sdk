@@ -15,9 +15,9 @@ use std::path::PathBuf;
 
 fn find_james_module() -> Option<std::path::PathBuf> {
     let candidates = [
-        "james/build/james/bytecode_modules/james.mv",
-        "../james/build/james/bytecode_modules/james.mv",
-        "../../james/build/james/bytecode_modules/james.mv",
+        "example_move/james/build/james/bytecode_modules/james.mv",
+        "../example_move/james/build/james/bytecode_modules/james.mv",
+        "../../example_move/james/build/james/bytecode_modules/james.mv",
     ];
     for p in candidates.iter() {
         let path = Path::new(p);

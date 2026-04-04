@@ -7,6 +7,7 @@ pub use scheduler::TransactionScheduler;
 pub mod changeset;
 
 pub mod gas_v2;
+pub mod kanari_gas_meter;
 pub mod move_runtime;
 
 pub mod state;
