@@ -3,12 +3,14 @@
 
 // Native implementation for event emission capturing
 // via a Move native function `event::emit<T>(event: T)`
-use crate::make_native;
 use better_any::{Tid, TidAble};
 use move_core_types::account_address::AccountAddress;
-use move_core_types::gas_algebra::GasQuantity;
+use move_core_types::gas_algebra::{InternalGas, InternalGasPerByte, NumBytes};
+use move_vm_runtime::native_charge_gas_early_exit;
 use move_vm_runtime::native_functions::NativeContext;
-use move_vm_runtime::native_functions::make_table_from_iter;
+use move_vm_runtime::native_functions::{
+    NativeFunction, NativeFunctionTable, make_table_from_iter,
+};
 use move_vm_types::loaded_data::runtime_types::Type;
 use move_vm_types::natives::function::NativeResult;
 use move_vm_types::natives::function::PartialVMError;
@@ -16,6 +18,24 @@ use move_vm_types::natives::function::PartialVMResult;
 use move_vm_types::values::Value;
 use smallvec::smallvec;
 use std::collections::VecDeque;
+use std::sync::Arc;
+
+use crate::helpers::make_module_natives;
+
+#[derive(Debug, Clone)]
+pub struct GasParameters {
+    pub base: InternalGas,
+    pub per_byte: InternalGasPerByte,
+}
+
+impl GasParameters {
+    pub fn zeros() -> Self {
+        Self {
+            base: 0.into(),
+            per_byte: 0.into(),
+        }
+    }
+}
 
 /// A simple representation of an emitted event captured by the native.
 #[derive(Clone, Debug)]
@@ -42,22 +62,30 @@ impl EventsExt {
 }
 
 // Native registration
-pub fn all_natives(
-    move_addr: AccountAddress,
-) -> move_vm_runtime::native_functions::NativeFunctionTable {
-    let natives = vec![("event", "emit", make_native(native_emit))];
-    make_table_from_iter(move_addr, natives)
+pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, NativeFunction)> {
+    let emit: NativeFunction =
+        Arc::new(move |context, ty_args, args| native_emit(&gas_params, context, ty_args, args));
+    make_module_natives([("emit", emit)])
+}
+
+pub fn all_natives(move_addr: AccountAddress) -> NativeFunctionTable {
+    make_table_from_iter(
+        move_addr,
+        make_all(GasParameters::zeros())
+            .map(|(func_name, func)| ("event".to_string(), func_name, func)),
+    )
 }
 
 // native implementation for `event::emit<T: copy + drop>(event: T)`
 fn native_emit(
+    gas_params: &GasParameters,
     context: &mut NativeContext,
     ty_args: Vec<Type>,
     mut arguments: VecDeque<Value>,
 ) -> PartialVMResult<NativeResult> {
     use move_vm_types::natives::function::NativeResult as NR;
 
-    let gas_used_now = context.gas_used();
+    native_charge_gas_early_exit!(context, gas_params.base);
 
     // Expect a single argument: the event value
     let evt_val = arguments.pop_back().ok_or_else(|| {
@@ -98,8 +126,6 @@ fn native_emit(
     let size = serialized.len() as u64;
 
     // Build a captured event and record it in the native-extensions container
-    let exts = context.extensions_mut();
-
     let ev = CapturedEvent {
         key: vec![],
         sequence_number: 0,
@@ -107,21 +133,11 @@ fn native_emit(
         event_data: serialized,
     };
 
-    // Attempt to record into the runtime native-extensions container. In some hosts
-    // (for example the Move unit-test runner) the `EventsExt` may not be registered
-    // on the session. `get_mut::<EventsExt>()` will panic in that case, which would
-    // abort the whole test runner. To be robust, catch panics and skip recording
-    // when the extension is absent.
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        exts.get_mut::<EventsExt>().record(ev);
-    }));
+    native_charge_gas_early_exit!(context, gas_params.per_byte * NumBytes::new(size));
 
-    // Small gas cost for event emission
-    // Charge base cost + size-dependent cost
-    let cost = 500 + size;
-    let gas_cost = GasQuantity::new(cost);
+    crate::native_ext::with_ext_mut_or_default::<EventsExt, _>(context, |ext| ext.record(ev));
 
-    Ok(NR::ok(gas_used_now + gas_cost, smallvec![]))
+    Ok(NR::ok(context.gas_used(), smallvec![]))
 }
 
 #[cfg(test)]

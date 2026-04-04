@@ -1,10 +1,13 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::make_native;
 use move_core_types::account_address::AccountAddress;
+use move_core_types::gas_algebra::{InternalGas, InternalGasPerByte, NumBytes};
+use move_vm_runtime::native_charge_gas_early_exit;
 use move_vm_runtime::native_functions::NativeContext;
-use move_vm_runtime::native_functions::make_table_from_iter;
+use move_vm_runtime::native_functions::{
+    NativeFunction, NativeFunctionTable, make_table_from_iter,
+};
 use move_vm_types::loaded_data::runtime_types::Type;
 use move_vm_types::natives::function::{NativeResult, PartialVMError, PartialVMResult};
 use move_vm_types::pop_arg;
@@ -12,23 +15,66 @@ use move_vm_types::values::Value;
 use sha3::{Digest, Sha3_256};
 use smallvec::smallvec;
 use std::collections::VecDeque;
+use std::sync::Arc;
 
-pub fn all_natives(
-    move_addr: AccountAddress,
-) -> move_vm_runtime::native_functions::NativeFunctionTable {
-    let natives = vec![("tx_context", "derive_id", make_native(native_derive_id))];
-    make_table_from_iter(move_addr, natives)
+use crate::helpers::make_module_natives;
+
+#[derive(Debug, Clone)]
+pub struct GasParameters {
+    pub derive_id: DeriveIdGasParameters,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeriveIdGasParameters {
+    pub base: InternalGas,
+    pub per_byte: InternalGasPerByte,
+}
+
+impl GasParameters {
+    pub fn zeros() -> Self {
+        Self {
+            derive_id: DeriveIdGasParameters {
+                base: 0.into(),
+                per_byte: 0.into(),
+            },
+        }
+    }
+}
+
+pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, NativeFunction)> {
+    let derive_params = gas_params.derive_id;
+    let derive_id: NativeFunction = Arc::new(move |context, ty_args, args| {
+        native_derive_id(&derive_params, context, ty_args, args)
+    });
+    make_module_natives([("derive_id", derive_id)])
+}
+
+pub fn all_natives(move_addr: AccountAddress) -> NativeFunctionTable {
+    make_table_from_iter(
+        move_addr,
+        make_all(GasParameters::zeros())
+            .map(|(func_name, func)| ("tx_context".to_string(), func_name, func)),
+    )
 }
 
 fn native_derive_id(
-    _context: &mut NativeContext,
+    gas_params: &DeriveIdGasParameters,
+    context: &mut NativeContext,
     _ty_args: Vec<Type>,
     mut arguments: VecDeque<Value>,
 ) -> PartialVMResult<NativeResult> {
+    use move_vm_types::natives::function::NativeResult as NR;
+
     debug_assert!(arguments.len() == 2);
 
     let ids_created = pop_arg!(arguments, u64);
     let tx_hash = pop_arg!(arguments, Vec<u8>);
+
+    native_charge_gas_early_exit!(context, gas_params.base);
+    native_charge_gas_early_exit!(
+        context,
+        gas_params.per_byte * NumBytes::new(tx_hash.len() as u64)
+    );
 
     // Hash(tx_hash || ids_created)
     let mut hasher = Sha3_256::new();
@@ -54,9 +100,5 @@ fn native_derive_id(
             .with_message(format!("Failed to create address from hash: {}", e))
     })?;
 
-    // Charge a small amount of gas for the hashing
-    // In a real system, this should be proportional to input size (tx_hash is 32 bytes usually)
-    let cost = move_core_types::gas_algebra::GasQuantity::new(1000);
-
-    Ok(NativeResult::ok(cost, smallvec![Value::address(addr)]))
+    Ok(NR::ok(context.gas_used(), smallvec![Value::address(addr)]))
 }

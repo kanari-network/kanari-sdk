@@ -17,6 +17,8 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
 
+const SYSTEM_CLOCK_OBJECT_ID_KEY: &[u8] = b"system:clock_object_id";
+
 /// Account state in the blockchain
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Account {
@@ -278,6 +280,21 @@ impl StateManager {
         let mut key = b"owned_objects:".to_vec();
         key.extend_from_slice(owner.as_ref());
         key
+    }
+
+    pub fn get_system_clock_object_id(&self) -> Result<Option<AccountAddress>> {
+        let bytes_opt: Option<Vec<u8>> = self.load_internal(SYSTEM_CLOCK_OBJECT_ID_KEY)?;
+        match bytes_opt {
+            None => Ok(None),
+            Some(bytes) => {
+                let addr = AccountAddress::from_bytes(bytes)?;
+                Ok(Some(addr))
+            }
+        }
+    }
+
+    pub fn set_system_clock_object_id(&mut self, id: AccountAddress) -> Result<()> {
+        self.save_internal(SYSTEM_CLOCK_OBJECT_ID_KEY, &id.as_ref().to_vec())
     }
 
     pub fn load_account(&self, address: &AccountAddress) -> Result<Option<Account>> {

@@ -4,6 +4,7 @@
 use crate::storage::resolver::KanariMoveResolver;
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
+use kanari_types::clock::ClockModule;
 use kanari_types::event::Event;
 use log::debug;
 use move_binary_format::file_format::CompiledModule;
@@ -23,6 +24,7 @@ use kanari_types::address::Address as KanariAddress;
 use kanari_types::tx_context::TxContextModule;
 pub mod move_runtime_extensions;
 use crate::changeset::ChangeSet;
+use crate::state::StateManager;
 use crate::storage::move_vm_state::MoveVMState;
 use crate::storage::object_storage::{ObjectStorage, ObjectStore, StoredObject};
 use kanari_types::tx_context::TxContextRecord;
@@ -48,6 +50,16 @@ struct AutoMergeReceiptData {
 }
 
 type LoadedMutableObject = (usize, String, AccountAddress, String, u64);
+
+#[derive(Clone)]
+struct ExecutionOptions {
+    sender: Option<AccountAddress>,
+    gas_info: Option<(u64, u64)>,
+    timestamp: Option<u64>,
+    tx_hash: Option<Vec<u8>>,
+    persist_runtime_state: bool,
+    bypass_entry_check: bool,
+}
 
 impl MoveRuntime {
     pub fn new() -> Result<Self> {
@@ -132,12 +144,10 @@ impl MoveRuntime {
                 KanariAddress::std_account_address(),
                 move_stdlib_natives::GasParameters::zeros(),
             ),
-            kanari_system_natives::crypto::all_natives(sys_addr),
-            kanari_system_natives::transfer_natives::all_natives(sys_addr),
-            kanari_system_natives::event::all_natives(sys_addr),
-            kanari_system_natives::tx_context::all_natives(sys_addr),
-            kanari_system_natives::object::all_natives(sys_addr),
-            kanari_system_natives::math_calculate::all_natives(sys_addr),
+            kanari_system_natives::all_natives(
+                sys_addr,
+                kanari_system_natives::GasParameters::zeros(),
+            ),
         ]
     }
 
@@ -432,6 +442,70 @@ impl MoveRuntime {
             .map_err(|e| anyhow::anyhow!("{:?}", e))
     }
 
+    pub fn ensure_system_clock(&self, state: &mut StateManager) -> Result<AccountAddress> {
+        if let Some(id) = state.get_system_clock_object_id()? {
+            return Ok(id);
+        }
+
+        let module_id = ClockModule::get_module_id()?;
+        let func_name = ClockModule::function_names().create;
+
+        let system_sender = AccountAddress::ZERO;
+        let genesis_tx_hash = hash_data_blake3(b"KANARI::GENESIS::CLOCK").to_vec();
+
+        let cs = self.execute_system_function_with_tx_hash_and_persistence(
+            &module_id,
+            func_name,
+            vec![],
+            vec![],
+            Some(system_sender),
+            None,
+            Some(0),
+            Some(genesis_tx_hash),
+            false,
+        )?;
+
+        state.apply_changeset(&cs)?;
+        self.persist_created_objects(&cs);
+        self.persist_deleted_objects(&cs);
+
+        let (object_id, _) = cs
+            .created_objects
+            .iter()
+            .find(|(_, created)| created.type_.contains("::clock::Clock"))
+            .ok_or_else(|| anyhow::anyhow!("Clock object was not created by clock::create"))?;
+
+        let addr = AccountAddress::from_hex_literal(object_id)?;
+        state.set_system_clock_object_id(addr)?;
+        Ok(addr)
+    }
+
+    pub fn execute_clock_consensus_commit_prologue(
+        &self,
+        clock_id: AccountAddress,
+        timestamp_ms: u64,
+    ) -> Result<ChangeSet> {
+        let module_id = ClockModule::get_module_id()?;
+        let func_name = ClockModule::function_names().consensus_commit_prologue;
+
+        let args = vec![bcs::to_bytes(&clock_id)?, bcs::to_bytes(&timestamp_ms)?];
+
+        let system_sender = AccountAddress::ZERO;
+        let tx_hash = Some(vec![0u8; 32]);
+
+        self.execute_system_function_with_tx_hash_and_persistence(
+            &module_id,
+            func_name,
+            vec![],
+            args,
+            Some(system_sender),
+            None,
+            Some(timestamp_ms),
+            tx_hash,
+            false,
+        )
+    }
+
     pub fn execute_entry_function(
         &self,
         module_id: &ModuleId,
@@ -447,11 +521,14 @@ impl MoveRuntime {
             function_name,
             type_args,
             args,
-            sender,
-            gas_info,
-            timestamp,
-            None,
-            true,
+            ExecutionOptions {
+                sender,
+                gas_info,
+                timestamp,
+                tx_hash: None,
+                persist_runtime_state: true,
+                bypass_entry_check: false,
+            },
         )
     }
 
@@ -471,11 +548,14 @@ impl MoveRuntime {
             function_name,
             type_args,
             args,
-            sender,
-            gas_info,
-            timestamp,
-            tx_hash,
-            true,
+            ExecutionOptions {
+                sender,
+                gas_info,
+                timestamp,
+                tx_hash,
+                persist_runtime_state: true,
+                bypass_entry_check: false,
+            },
         )
     }
 
@@ -496,15 +576,18 @@ impl MoveRuntime {
             function_name,
             type_args,
             args,
-            sender,
-            gas_info,
-            timestamp,
-            tx_hash,
-            persist_runtime_state,
+            ExecutionOptions {
+                sender,
+                gas_info,
+                timestamp,
+                tx_hash,
+                persist_runtime_state,
+                bypass_entry_check: false,
+            },
         )
     }
 
-    fn execute_entry_function_internal(
+    fn execute_system_function_with_tx_hash_and_persistence(
         &self,
         module_id: &ModuleId,
         function_name: &str,
@@ -516,6 +599,39 @@ impl MoveRuntime {
         tx_hash: Option<Vec<u8>>,
         persist_runtime_state: bool,
     ) -> Result<ChangeSet> {
+        self.execute_entry_function_internal(
+            module_id,
+            function_name,
+            type_args,
+            args,
+            ExecutionOptions {
+                sender,
+                gas_info,
+                timestamp,
+                tx_hash,
+                persist_runtime_state,
+                bypass_entry_check: true,
+            },
+        )
+    }
+
+    fn execute_entry_function_internal(
+        &self,
+        module_id: &ModuleId,
+        function_name: &str,
+        type_args: Vec<TypeTag>,
+        args: Vec<Vec<u8>>,
+        options: ExecutionOptions,
+    ) -> Result<ChangeSet> {
+        let ExecutionOptions {
+            sender,
+            gas_info,
+            timestamp,
+            tx_hash,
+            persist_runtime_state,
+            bypass_entry_check,
+        } = options;
+
         let mut session = self.vm.new_session(self.resolver.clone());
         let mut gas = UnmeteredGasMeter;
 
@@ -690,8 +806,17 @@ impl MoveRuntime {
         exts.add(SavedObjectsExt::default());
         exts.add(DeletedObjectsExt::default());
 
-        let execution_result =
-            session.execute_entry_function(module_id, ident, ty_args_loaded, final_args, &mut gas);
+        let execution_result = if bypass_entry_check {
+            session.execute_function_bypass_visibility(
+                module_id,
+                ident,
+                ty_args_loaded,
+                final_args,
+                &mut gas,
+            )
+        } else {
+            session.execute_entry_function(module_id, ident, ty_args_loaded, final_args, &mut gas)
+        };
         let mut cs = ChangeSet::new();
 
         match execution_result {
@@ -851,6 +976,48 @@ impl MoveRuntime {
                     }
                 }
                 Err(anyhow::anyhow!("exec error: {:?}", e))
+            }
+        }
+    }
+
+    pub fn execute_block_prologue(
+        &self,
+        state: &mut StateManager,
+        timestamp_ms: u64,
+    ) -> Result<()> {
+        // 1. ชี้เป้าไปที่ kanari_system::clock::consensus_commit_prologue
+        let module_id = ClockModule::get_module_id()?;
+        let func_name = ClockModule::function_names().consensus_commit_prologue;
+
+        // 2. เตรียม Parameter
+        let mut args: Vec<Vec<u8>> = vec![];
+        let clock_id = self.ensure_system_clock(state)?;
+        args.push(bcs::to_bytes(&clock_id)?);
+        args.push(bcs::to_bytes(&timestamp_ms)?);
+
+        let system_sender = AccountAddress::ZERO;
+
+        // 3. สั่งรันผ่าน Move VM
+        let result = self.execute_entry_function(
+            &module_id,
+            func_name,
+            vec![], // แก้ไข: โยน vec![] ว่างๆ เข้าไปตรงๆ เลย ไม่ต้องใส่ &
+            args,
+            Some(system_sender), // แก้ไข: ช่องที่ 5 คือ sender
+            None,                // System call: do not charge gas
+            Some(timestamp_ms),  // แก้ไข: ช่องที่ 7 คือ timestamp
+        );
+
+        match result {
+            Ok(_change_set) => {
+                // หมายเหตุ: อย่าลืมว่า execute_entry_function คืนค่าเป็น ChangeSet
+                // ถ้าระบบของคุณต้องการให้ State อัปเดตจริงๆ คุณอาจจะต้องสั่งเซฟ ChangeSet ลง DB ด้วย
+                // เช่น self.apply_changeset(_change_set);
+                Ok(())
+            }
+            Err(e) => {
+                log::error!("[Block Prologue] Failed to update clock: {:?}", e);
+                Err(anyhow::anyhow!("Clock update failed: {}", e))
             }
         }
     }

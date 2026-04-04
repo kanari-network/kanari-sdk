@@ -1,3 +1,5 @@
+#![allow(clippy::print_stdout)]
+
 use anyhow::Result;
 use kanari_move_runtime::{
     state::{Account, StateManager},

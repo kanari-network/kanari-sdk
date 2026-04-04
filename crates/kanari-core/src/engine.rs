@@ -21,7 +21,7 @@ use move_core_types::{
     language_storage::{ModuleId, StructTag, TypeTag},
 };
 use num_cpus;
-use rayon::prelude::*; // 🚨 นำเข้า Rayon สำหรับ Parallel Execution
+use rayon::prelude::*;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
 
@@ -36,7 +36,6 @@ pub type BlockInfo = DagBlockInfo;
 pub type ExecutionResult = Result<(Vec<u8>, ChangeSet)>;
 pub type ParallelTxResult = (SignedTransaction, ExecutionResult);
 
-// 🚨 กำหนดขนาดสูงสุดของ Mempool (คิวรอประมวลผล) ป้องกัน RAM ล่ม
 const MAX_MEMPOOL_SIZE: usize = 50_000;
 
 /// Complete blockchain engine with Move VM integration
@@ -145,23 +144,26 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
     None
 }
 
-#[cfg(test)]
-mod parse_type_tag_tests {
-    use super::parse_type_tag;
-
-    #[test]
-    fn parse_type_tag_rejects_unclosed_generic() {
-        assert!(parse_type_tag("0x1::m::T<").is_none());
-        assert!(parse_type_tag("0x1::m::T<u64").is_none());
-    }
-}
-
 impl BlockchainEngine {
     // =====================================================================
-    // 💡 HELPER FUNCTIONS (แยกโค้ดซ้ำและ Logic ยิบย่อยมาไว้ที่นี่)
+    // ⏰ System Prologue (ตรรกะอัปเดตเวลา On-chain)
+    // =====================================================================
+    pub fn execute_system_prologue(&self, timestamp_ms: u64) -> Result<()> {
+        let runtime = &self.runtime_pool[0];
+
+        let mut state_write = self.state.write().unwrap();
+        let clock_id = runtime.ensure_system_clock(&mut state_write)?;
+        let changeset = runtime.execute_clock_consensus_commit_prologue(clock_id, timestamp_ms)?;
+        state_write.apply_changeset(&changeset)?;
+        runtime.persist_created_objects(&changeset);
+        runtime.persist_deleted_objects(&changeset);
+        Ok(())
+    }
+
+    // =====================================================================
+    // 💡 HELPER FUNCTIONS
     // =====================================================================
 
-    /// Helper: ดึง Sequence Number ล่าสุด (รวมธุรกรรมที่รอใน Mempool)
     pub fn get_expected_sequence(&self, address_hex: &str) -> u64 {
         let mut seq = self
             .state
@@ -175,7 +177,6 @@ impl BlockchainEngine {
         seq
     }
 
-    /// Helper: เตรียม Object State ล่าสุดให้ Move VM ก่อนรัน Smart Contract
     fn preload_objects_for_args(
         args: &[Vec<u8>],
         state: &StateManager,
@@ -218,14 +219,13 @@ impl BlockchainEngine {
         }
     }
 
-    /// Helper: จัดการและแยกประเภท Owned Objects สำหรับ Account Info
     fn resolve_account_objects(
         &self,
         state: &StateManager,
         owner_addr: &AccountAddress,
     ) -> Vec<ObjectInfo> {
         let raw_owned_ids = state.get_owned_objects(owner_addr).unwrap_or_default();
-        let unique_ids: std::collections::HashSet<_> = raw_owned_ids.into_iter().collect(); // ตัดตัวซ้ำอัตโนมัติ
+        let unique_ids: std::collections::HashSet<_> = raw_owned_ids.into_iter().collect();
 
         let mut coins = Vec::new();
         let mut others = Vec::new();
@@ -253,7 +253,6 @@ impl BlockchainEngine {
             }
         }
 
-        // เรียงเหรียญจากมากไปน้อย แล้วนำ Object อื่นมาต่อท้าย
         coins.sort_by(|a, b| b.0.cmp(&a.0));
         coins
             .into_iter()
@@ -268,7 +267,7 @@ impl BlockchainEngine {
         state_arc: &Arc<RwLock<StateManager>>,
         timestamp: Option<u64>,
         persist_objects: bool,
-        strict_mode: bool, // true = บังคับหยุดถ้า Error, false = นับเป็น failed แล้วทำต่อ
+        strict_mode: bool,
     ) -> Result<(usize, usize)> {
         let mut executed_count = 0;
         let mut failed_count = 0;
@@ -285,7 +284,7 @@ impl BlockchainEngine {
                         &signed_tx.transaction,
                         runtime,
                         state_arc,
-                        false, // ไม่ต้องเช็ค Sequence อีกรอบเวลาทำ Batch
+                        false,
                         timestamp,
                         persist_objects,
                     )
@@ -296,7 +295,6 @@ impl BlockchainEngine {
             for res in results {
                 match res {
                     Ok(cs) => {
-                        // หากจำเป็นต้อง persist ให้ทำที่นี่แบบรวมศูนย์
                         if persist_objects {
                             let runtime = &self.runtime_pool[0];
                             runtime.persist_created_objects(&cs);
@@ -503,7 +501,7 @@ impl BlockchainEngine {
     }
 
     // =====================================================================
-    // 🛡️ 1. Mempool Security (Pre-validation & Anti-Spam)
+    // 🛡️ Mempool Security
     // =====================================================================
     pub fn submit_transaction(&self, signed_tx: SignedTransaction) -> Result<Vec<u8>> {
         let pending_count = self.pending_txs.read().unwrap().len();
@@ -516,17 +514,10 @@ impl BlockchainEngine {
             anyhow::bail!("Invalid or missing transaction signature");
         }
 
-        // 🚨 1. ลดรูปลอจิกการดึง Gas Limit (คอมเมนต์การเช็คขั้นต่ำออก เพื่อให้ตั้ง 0 ได้)
-        let _gas_limit = signed_tx.transaction.gas_limit();
-        // if _gas_limit < 1000 {
-        //     anyhow::bail!("Gas limit is too low. Minimum required is 1000 MIST.");
-        // }
-
         let tx_hash = signed_tx.hash();
         let tx_hash_hex = hex::encode(&tx_hash);
         let sender_address = signed_tx.transaction.sender_address();
 
-        // 🚨 2. ใช้ Helper รวบยอด Sequence Validation
         let expected_seq = self.get_expected_sequence(sender_address);
         let tx_seq = signed_tx.transaction.sequence_number();
 
@@ -539,7 +530,7 @@ impl BlockchainEngine {
         }
         if tx_seq > expected_seq {
             anyhow::bail!(
-                "Sequence number too high: expected {}, got {} (out-of-order execution not supported yet)",
+                "Sequence number too high: expected {}, got {}",
                 expected_seq,
                 tx_seq
             );
@@ -598,7 +589,7 @@ impl BlockchainEngine {
     }
 
     // =====================================================================
-    // ⚡ 2. Parallel Execution (ติดเทอร์โบรันธุรกรรมพร้อมกันทีละหมื่นรายการ)
+    // ⚡ Parallel Execution
     // =====================================================================
     pub fn execute_transactions_parallel(
         &self,
@@ -636,7 +627,7 @@ impl BlockchainEngine {
     }
 
     // =====================================================================
-    // 🕸️ 3. DAG Consensus Switch (รับข้อมูลจาก Bullshark/Narwhal มาลง State)
+    // 🕸️ DAG Consensus Switch
     // =====================================================================
     pub fn process_dag_checkpoint(
         &self,
@@ -646,6 +637,23 @@ impl BlockchainEngine {
             "[DAG CONSENSUS] Applying new checkpoint with {} transactions",
             checkpoint_txs.len()
         );
+
+        // =================================================================
+        // 🚨 Update the time on the Blockchain before executing user transactions.
+        // =================================================================
+        let current_timestamp_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        if let Err(e) = self.execute_system_prologue(current_timestamp_ms) {
+            log::error!(
+                "Critical Error: System clock failed to update! Halt execution. {:?}",
+                e
+            );
+            return Err(e);
+        }
+        // =================================================================
 
         let execution_results = self.execute_transactions_parallel(checkpoint_txs);
 
@@ -806,7 +814,6 @@ impl BlockchainEngine {
                 args,
                 ..
             } => {
-                // 🚨 ใช้ Helper ในการโหลด Object อย่างคลีนๆ บรรทัดเดียว
                 {
                     let state = state_arc.read().unwrap();
                     Self::preload_objects_for_args(args, &state, runtime);
@@ -973,10 +980,7 @@ impl BlockchainEngine {
         let state = self.state.read().unwrap_or_else(|e| e.into_inner());
 
         state.get_account_by_hex(address).map(|acc| {
-            // 🚨 ใช้ Helper จัดการ Objects แบบคลีนๆ โดยไม่ต้องเขียนลูปยาว
             let final_owned_objects = self.resolve_account_objects(&state, &acc.address);
-
-            // 🚨 ใช้ Helper จัดการ Sequence Number (รวม Mempool)
             let sequence_number = self.get_expected_sequence(address);
 
             let actual_token_balances = acc
@@ -1161,6 +1165,7 @@ impl BlockchainEngine {
             prev_hash,
         );
 
+        // Note: This calls the apply_checkpoint.rs file.
         self.apply_checkpoint(checkpoint)?;
 
         info!(

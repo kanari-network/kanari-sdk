@@ -5,21 +5,111 @@ use better_any::{Tid, TidAble};
 /// Native functions for object transfer with proper tracking
 /// Uses per-execution native context extensions to track transferred objects
 use move_core_types::account_address::AccountAddress;
-use move_core_types::gas_algebra::GasQuantity;
+use move_core_types::gas_algebra::{InternalGas, InternalGasPerByte, NumBytes};
+use move_vm_runtime::native_charge_gas_early_exit;
 use move_vm_runtime::native_functions::NativeContext;
-use move_vm_runtime::native_functions::make_table_from_iter;
+use move_vm_runtime::native_functions::{
+    NativeFunction, NativeFunctionTable, make_table_from_iter,
+};
+use move_vm_types::loaded_data::runtime_types::Type;
 use move_vm_types::natives::function::NativeResult;
 use move_vm_types::natives::function::PartialVMError;
 use move_vm_types::natives::function::PartialVMResult;
 use move_vm_types::pop_arg;
 use smallvec::smallvec;
 use std::collections::VecDeque;
+use std::sync::Arc;
 
-use crate::make_native;
+use crate::helpers::make_module_natives;
 
 // Error codes returned by this native (keep values small and stable)
 const E_MISSING_TYPE_ARGUMENT: u64 = 1;
 const E_TYPE_NAME_TOO_LONG: u64 = 2;
+
+const TYPE_NAME_MAX_LEN: usize = 256;
+
+#[derive(Debug, Clone)]
+pub struct GasParameters {
+    pub transfer_with_uid: TransferWithUidGasParameters,
+    pub freeze_object: FreezeObjectGasParameters,
+}
+
+#[derive(Debug, Clone)]
+pub struct TransferWithUidGasParameters {
+    pub base: InternalGas,
+    pub per_byte: InternalGasPerByte,
+}
+
+#[derive(Debug, Clone)]
+pub struct FreezeObjectGasParameters {
+    pub base: InternalGas,
+    pub per_byte: InternalGasPerByte,
+}
+
+impl GasParameters {
+    pub fn zeros() -> Self {
+        Self {
+            transfer_with_uid: TransferWithUidGasParameters {
+                base: 0.into(),
+                per_byte: 0.into(),
+            },
+            freeze_object: FreezeObjectGasParameters {
+                base: 0.into(),
+                per_byte: 0.into(),
+            },
+        }
+    }
+}
+
+fn serialize_or_placeholder(
+    context: &NativeContext,
+    ty: &Type,
+    val: &move_vm_types::values::Value,
+    placeholder: impl FnOnce(&mut Vec<u8>),
+) -> (Vec<u8>, bool) {
+    if let Ok(Some(layout)) = context.type_to_type_layout(ty)
+        && let Some(bytes) = val.simple_serialize(&layout)
+    {
+        return (bytes, true);
+    }
+
+    let mut data = Vec::new();
+    placeholder(&mut data);
+    (data, false)
+}
+
+fn object_id_hex_from_data(
+    recipient: AccountAddress,
+    type_str: &str,
+    obj_data: &[u8],
+    has_full_serialized_data: bool,
+    hash_prefix: Option<&[u8]>,
+) -> String {
+    if has_full_serialized_data && obj_data.len() >= AccountAddress::LENGTH {
+        let uid_bytes = &obj_data[..AccountAddress::LENGTH];
+        return format!("0x{}", hex::encode(uid_bytes));
+    }
+
+    use kanari_crypto::hash_data_blake3;
+
+    let mut input = Vec::new();
+    if let Some(prefix) = hash_prefix {
+        input.extend_from_slice(prefix);
+    } else {
+        input.extend_from_slice(recipient.as_ref());
+    }
+    input.extend_from_slice(type_str.as_bytes());
+    input.extend_from_slice(obj_data);
+
+    let hash = hash_data_blake3(&input);
+    format!("0x{}", hex::encode(&hash[..AccountAddress::LENGTH]))
+}
+
+fn record_transferred_object(context: &mut NativeContext, obj: TransferredObject) {
+    crate::native_ext::with_ext_mut_or_default::<TransferredObjectsExt, _>(context, |ext| {
+        ext.record(obj)
+    });
+}
 
 /// Information about a transferred object with full data
 #[derive(Clone, Debug)]
@@ -49,37 +139,39 @@ impl TransferredObjectsExt {
 }
 
 /// Get all transfer native functions
-pub fn all_natives(
-    move_addr: AccountAddress,
-) -> move_vm_runtime::native_functions::NativeFunctionTable {
-    let natives = vec![
-        (
-            "transfer",
-            "transfer_with_uid",
-            make_native(native_transfer_with_uid),
-        ),
-        (
-            "transfer",
-            "freeze_object",
-            make_native(native_freeze_object),
-        ),
-    ];
+pub fn all_natives(move_addr: AccountAddress) -> NativeFunctionTable {
+    make_table_from_iter(
+        move_addr,
+        make_all(GasParameters::zeros())
+            .map(|(func_name, func)| ("transfer".to_string(), func_name, func)),
+    )
+}
 
-    make_table_from_iter(move_addr, natives)
+pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, NativeFunction)> {
+    let transfer_params = gas_params.transfer_with_uid;
+    let freeze_params = gas_params.freeze_object;
+
+    let transfer_with_uid: NativeFunction = Arc::new(move |context, ty_args, args| {
+        native_transfer_with_uid(&transfer_params, context, ty_args, args)
+    });
+    let freeze_object: NativeFunction = Arc::new(move |context, ty_args, args| {
+        native_freeze_object(&freeze_params, context, ty_args, args)
+    });
+    make_module_natives([
+        ("transfer_with_uid", transfer_with_uid),
+        ("freeze_object", freeze_object),
+    ])
 }
 
 // transfer::transfer_with_uid<T: key + store>(obj: T, recipient: address)
 // Tracks transferred objects in the transaction-local native context extensions
 fn native_transfer_with_uid(
+    gas_params: &TransferWithUidGasParameters,
     context: &mut NativeContext,
-    ty_args: Vec<move_vm_types::loaded_data::runtime_types::Type>,
+    ty_args: Vec<Type>,
     mut arguments: VecDeque<move_vm_types::values::Value>,
 ) -> PartialVMResult<NativeResult> {
     use move_vm_types::natives::function::NativeResult as NR;
-
-    // Snapshot gas used early to avoid borrowing `context` multiple times
-    // (prevents borrow conflicts when mutably accessing extensions).
-    let gas_used_now = context.gas_used();
 
     // Pop arguments: recipient (address), obj (generic T with key+store)
     let recipient = pop_arg!(arguments, AccountAddress);
@@ -88,21 +180,22 @@ fn native_transfer_with_uid(
             .with_message("Missing object argument".to_string())
     })?;
 
-    // Get type argument (the object type T)
-    if ty_args.is_empty() {
-        return Ok(NR::err(gas_used_now, E_MISSING_TYPE_ARGUMENT)); // Missing type argument
-    }
+    let Some(ty) = ty_args.first() else {
+        return Ok(NR::err(context.gas_used(), E_MISSING_TYPE_ARGUMENT));
+    };
 
     // Extract type information and convert runtime Type -> TypeTag -> human-readable string
-    let type_tag = context.type_to_type_tag(&ty_args[0])?;
+    let type_tag = context.type_to_type_tag(ty)?;
     let type_str = format!("{}", type_tag);
 
     // Guard against pathological type name lengths to avoid excessive native
     // memory usage. Typical Move type names are small; reject overly long
     // values (treat as Move-level error). Adjust threshold if needed.
-    if type_str.len() > 256 {
-        return Ok(NR::err(gas_used_now, E_TYPE_NAME_TOO_LONG));
+    if type_str.len() > TYPE_NAME_MAX_LEN {
+        return Ok(NR::err(context.gas_used(), E_TYPE_NAME_TOO_LONG));
     }
+
+    native_charge_gas_early_exit!(context, gas_params.base);
 
     // We DO NOT generate random object IDs or serialize full object data here.
     // Instead we record a deterministic identifier per-execution and leave full
@@ -112,94 +205,53 @@ fn native_transfer_with_uid(
     // callers (CLI/RPC) can fetch the object's bytes and use them as function
     // arguments. If serialization fails, fall back to a minimal placeholder
     // (recipient + type) to preserve existing behavior.
-    let mut obj_data: Vec<u8> = Vec::new();
-    let mut has_full_serialized_data = false;
-
-    // Try to obtain the layout for the type and serialize the value.
-    if let Ok(layout_opt) = context.type_to_type_layout(&ty_args[0]) {
-        if let Some(layout) = layout_opt {
-            // `obj_val` is the moved Value; attempt simple_serialize
-            if let Some(serialized) = obj_val.simple_serialize(&layout) {
-                obj_data = serialized;
-                has_full_serialized_data = true;
-            } else {
-                // serialization failed - fall back to minimal placeholder
-                obj_data.extend_from_slice(recipient.as_ref());
-                obj_data.extend_from_slice(type_str.as_bytes());
-            }
-        } else {
-            // No layout available -> fallback to placeholder
-            obj_data.extend_from_slice(recipient.as_ref());
-            obj_data.extend_from_slice(type_str.as_bytes());
-        }
-    } else {
-        // Failed to query layout -> fallback to placeholder
-        obj_data.extend_from_slice(recipient.as_ref());
-        obj_data.extend_from_slice(type_str.as_bytes());
-    }
+    let (obj_data, has_full_serialized_data) =
+        serialize_or_placeholder(context, ty, &obj_val, |d| {
+            d.extend_from_slice(recipient.as_ref());
+            d.extend_from_slice(type_str.as_bytes());
+        });
 
     // Capture data length for gas metering before moving obj_data
     let data_len = obj_data.len() as u64;
+    native_charge_gas_early_exit!(context, gas_params.per_byte * NumBytes::new(data_len));
 
     // Extract real UID from object data (first 32 bytes)
     // In Kanari/Sui Move, objects with `key` have `UID` as the first field.
     // `UID` -> `ID` -> `address` (32 bytes).
     // So the first 32 bytes of the BCS serialized data represent the Object ID.
-    let object_id_hex = if has_full_serialized_data && obj_data.len() >= 32 {
-        let uid_bytes = &obj_data[0..32];
-        format!("0x{}", hex::encode(uid_bytes))
-    } else {
-        // Fallback for non-standard objects or errors: compute hash
-        use kanari_crypto::hash_data_blake3;
-        let mut input = Vec::new();
-        input.extend_from_slice(recipient.as_ref());
-        input.extend_from_slice(type_str.as_bytes());
-        input.extend_from_slice(&obj_data);
-        let hash = hash_data_blake3(&input);
-        format!("0x{}", hex::encode(&hash[0..32]))
-    };
+    let object_id_hex = object_id_hex_from_data(
+        recipient,
+        &type_str,
+        &obj_data,
+        has_full_serialized_data,
+        None,
+    );
 
     // Store transfer in the transaction-local native context extension
     // Limit the mutable borrow of the extensions to a small scope to avoid
     // borrow conflicts with later calls on `context`.
-    {
-        // Access the native-extensions container mutably so we can record
-        // transferred objects. This borrows `context` mutably, which is why
-        // we snapshot gas earlier into `gas_used_now`.
-        let exts = context.extensions_mut();
-        let ext = exts.get_mut::<TransferredObjectsExt>();
+    let obj = TransferredObject {
+        object_id: object_id_hex,
+        object_type: type_str,
+        recipient,
+        data: obj_data,
+        should_persist: has_full_serialized_data,
+        is_frozen: false,
+    };
+    record_transferred_object(context, obj);
 
-        let obj = TransferredObject {
-            object_id: object_id_hex,
-            object_type: type_str.clone(),
-            recipient,
-            data: obj_data,
-            should_persist: has_full_serialized_data,
-            is_frozen: false,
-        };
-        ext.record(obj);
-    }
-
-    // Consume the object (it's been transferred)
-    drop(obj_val);
-
-    // Gas cost: 2000 gas units for transfer tracking + size-dependent cost
-    let cost = 2000 + (data_len * 10);
-    let gas_cost = GasQuantity::new(cost);
-
-    Ok(NR::ok(gas_used_now + gas_cost, smallvec![]))
+    Ok(NR::ok(context.gas_used(), smallvec![]))
 }
 
 // transfer::freeze_object<T: key + store>(obj: T)
 // Freezes the object (makes it immutable) and tracks it in native context
 fn native_freeze_object(
+    gas_params: &FreezeObjectGasParameters,
     context: &mut NativeContext,
-    ty_args: Vec<move_vm_types::loaded_data::runtime_types::Type>,
+    ty_args: Vec<Type>,
     mut arguments: VecDeque<move_vm_types::values::Value>,
 ) -> PartialVMResult<NativeResult> {
     use move_vm_types::natives::function::NativeResult as NR;
-
-    let gas_used_now = context.gas_used();
 
     // Pop argument: obj (generic T with key+store)
     let obj_val = arguments.pop_back().ok_or_else(|| {
@@ -207,68 +259,46 @@ fn native_freeze_object(
             .with_message("Missing object argument".to_string())
     })?;
 
-    if ty_args.is_empty() {
-        return Ok(NR::err(gas_used_now, E_MISSING_TYPE_ARGUMENT));
-    }
+    let Some(ty) = ty_args.first() else {
+        return Ok(NR::err(context.gas_used(), E_MISSING_TYPE_ARGUMENT));
+    };
 
-    let type_tag = context.type_to_type_tag(&ty_args[0])?;
+    let type_tag = context.type_to_type_tag(ty)?;
     let type_str = format!("{}", type_tag);
 
-    if type_str.len() > 256 {
-        return Ok(NR::err(gas_used_now, E_TYPE_NAME_TOO_LONG));
+    if type_str.len() > TYPE_NAME_MAX_LEN {
+        return Ok(NR::err(context.gas_used(), E_TYPE_NAME_TOO_LONG));
     }
 
-    // Serialize object data
-    let mut obj_data: Vec<u8> = Vec::new();
-    let mut has_full_serialized_data = false;
-    if let Ok(Some(layout)) = context.type_to_type_layout(&ty_args[0]) {
-        if let Some(serialized) = obj_val.simple_serialize(&layout) {
-            obj_data = serialized;
-            has_full_serialized_data = true;
-        } else {
-            obj_data.extend_from_slice(type_str.as_bytes());
-        }
-    } else {
-        obj_data.extend_from_slice(type_str.as_bytes());
-    }
+    native_charge_gas_early_exit!(context, gas_params.base);
+
+    let (obj_data, has_full_serialized_data) =
+        serialize_or_placeholder(context, ty, &obj_val, |d| {
+            d.extend_from_slice(type_str.as_bytes())
+        });
 
     let data_len = obj_data.len() as u64;
+    native_charge_gas_early_exit!(context, gas_params.per_byte * NumBytes::new(data_len));
 
     // Extract real UID from object data (first 32 bytes)
     // Objects with `key` have `UID` as the first field.
-    let object_id_hex = if has_full_serialized_data && obj_data.len() >= 32 {
-        let uid_bytes = &obj_data[0..32];
-        format!("0x{}", hex::encode(uid_bytes))
-    } else {
-        // Fallback
-        use kanari_crypto::hash_data_blake3;
-        let mut input = Vec::new();
-        input.extend_from_slice(b"Immutable");
-        input.extend_from_slice(type_str.as_bytes());
-        input.extend_from_slice(&obj_data);
-        let hash = hash_data_blake3(&input);
-        format!("0x{}", hex::encode(&hash[0..32]))
+    let object_id_hex = object_id_hex_from_data(
+        AccountAddress::ZERO,
+        &type_str,
+        &obj_data,
+        has_full_serialized_data,
+        Some(b"Immutable"),
+    );
+
+    let obj = TransferredObject {
+        object_id: object_id_hex,
+        object_type: type_str,
+        recipient: AccountAddress::ZERO, // Frozen objects don't have a specific owner
+        data: obj_data,
+        should_persist: has_full_serialized_data,
+        is_frozen: true,
     };
+    record_transferred_object(context, obj);
 
-    {
-        let exts = context.extensions_mut();
-        let ext = exts.get_mut::<TransferredObjectsExt>();
-
-        let obj = TransferredObject {
-            object_id: object_id_hex,
-            object_type: type_str.clone(),
-            recipient: AccountAddress::ZERO, // Frozen objects don't have a specific owner
-            data: obj_data,
-            should_persist: has_full_serialized_data,
-            is_frozen: true,
-        };
-        ext.record(obj);
-    }
-
-    drop(obj_val);
-
-    let cost = 2000 + (data_len * 10);
-    let gas_cost = GasQuantity::new(cost);
-
-    Ok(NR::ok(gas_used_now + gas_cost, smallvec![]))
+    Ok(NR::ok(context.gas_used(), smallvec![]))
 }

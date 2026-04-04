@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use move_core_types::gas_algebra::InternalGas;
+use move_vm_runtime::native_charge_gas_early_exit;
 use move_vm_runtime::native_functions::NativeContext;
 use move_vm_types::{
     loaded_data::runtime_types::Type,
@@ -9,7 +10,8 @@ use move_vm_types::{
     pop_arg,
     values::Value,
 };
-use num_integer::Roots; // 🚨 อย่าลืมใส่ num-integer = "0.1.45" ใน Cargo.toml
+use num_integer::Integer;
+use num_integer::Roots;
 use smallvec::smallvec;
 use std::collections::VecDeque;
 
@@ -24,85 +26,155 @@ const E_DIVIDE_BY_ZERO: u64 = 2;
 // =================================================================
 
 /// ถอดรากที่สองของ u128
+#[derive(Debug, Clone)]
+pub struct SqrtU128GasParameters {
+    pub base: InternalGas,
+}
+
+#[derive(Debug, Clone)]
+pub struct SqrtU64GasParameters {
+    pub base: InternalGas,
+}
+
+#[derive(Debug, Clone)]
+pub struct PowU64GasParameters {
+    pub base: InternalGas,
+}
+
+#[derive(Debug, Clone)]
+pub struct MulDivU128GasParameters {
+    pub base: InternalGas,
+}
+
+fn mul_div_u128_checked(x: u128, y: u128, z: u128) -> Result<u128, u64> {
+    if z == 0 {
+        return Err(E_DIVIDE_BY_ZERO);
+    }
+
+    // Reduce before multiplication to avoid intermediate overflow.
+    // (x * y) / z == (x' * y') / z' where we cancel common factors with z.
+    let mut x = x;
+    let mut y = y;
+    let mut z = z;
+
+    let g1 = x.gcd(&z);
+    x /= g1;
+    z /= g1;
+
+    let g2 = y.gcd(&z);
+    y /= g2;
+    z /= g2;
+
+    match x.checked_mul(y) {
+        Some(xy) => Ok(xy / z),
+        None => Err(E_OVERFLOW),
+    }
+}
+
 pub fn native_sqrt_u128(
-    _context: &mut NativeContext,
+    gas_params: &SqrtU128GasParameters,
+    context: &mut NativeContext,
     _ty_args: Vec<Type>,
     mut args: VecDeque<Value>,
 ) -> PartialVMResult<NativeResult> {
+    use move_vm_types::natives::function::NativeResult as NR;
+
     debug_assert!(args.len() == 1);
+    native_charge_gas_early_exit!(context, gas_params.base);
     let x: u128 = pop_arg!(args, u128);
     let result = x.sqrt();
 
-    Ok(NativeResult::ok(
-        InternalGas::new(10), // ค่า Gas
-        smallvec![Value::u128(result)],
-    ))
+    Ok(NR::ok(context.gas_used(), smallvec![Value::u128(result)]))
 }
 
 /// ถอดรากที่สองของ u64
 pub fn native_sqrt_u64(
-    _context: &mut NativeContext,
+    gas_params: &SqrtU64GasParameters,
+    context: &mut NativeContext,
     _ty_args: Vec<Type>,
     mut args: VecDeque<Value>,
 ) -> PartialVMResult<NativeResult> {
+    use move_vm_types::natives::function::NativeResult as NR;
+
     debug_assert!(args.len() == 1);
+    native_charge_gas_early_exit!(context, gas_params.base);
     let x: u64 = pop_arg!(args, u64);
     let result = x.sqrt();
 
-    Ok(NativeResult::ok(
-        InternalGas::new(10),
-        smallvec![Value::u64(result)],
-    ))
+    Ok(NR::ok(context.gas_used(), smallvec![Value::u64(result)]))
 }
 
 /// ยกกำลังสำหรับ u64 (base ^ exponent)
 pub fn native_pow_u64(
-    _context: &mut NativeContext,
+    gas_params: &PowU64GasParameters,
+    context: &mut NativeContext,
     _ty_args: Vec<Type>,
     mut args: VecDeque<Value>,
 ) -> PartialVMResult<NativeResult> {
+    use move_vm_types::natives::function::NativeResult as NR;
+
     debug_assert!(args.len() == 2);
+    native_charge_gas_early_exit!(context, gas_params.base);
     // Pop argument จากหลังมาหน้า (LIFO)
     let exponent: u8 = pop_arg!(args, u8);
     let base: u64 = pop_arg!(args, u64);
 
     // ใช้ checked_pow เพื่อป้องกัน Overflow เวลายกกำลังสูงๆ
     match base.checked_pow(exponent as u32) {
-        Some(result) => Ok(NativeResult::ok(
-            InternalGas::new(15),
-            smallvec![Value::u64(result)],
-        )),
-        None => Ok(NativeResult::err(InternalGas::new(15), E_OVERFLOW)),
+        Some(result) => Ok(NR::ok(context.gas_used(), smallvec![Value::u64(result)])),
+        None => Ok(NR::err(context.gas_used(), E_OVERFLOW)),
     }
 }
 
 /// คำนวณ (x * y) / z แบบปลอดภัยสำหรับ u128 ป้องกัน Overflow ระหว่างทาง
 pub fn native_mul_div_u128(
-    _context: &mut NativeContext,
+    gas_params: &MulDivU128GasParameters,
+    context: &mut NativeContext,
     _ty_args: Vec<Type>,
     mut args: VecDeque<Value>,
 ) -> PartialVMResult<NativeResult> {
+    use move_vm_types::natives::function::NativeResult as NR;
+
     debug_assert!(args.len() == 3);
+    native_charge_gas_early_exit!(context, gas_params.base);
     // Pop argument จากหลังมาหน้า (LIFO)
     let z: u128 = pop_arg!(args, u128);
     let y: u128 = pop_arg!(args, u128);
     let x: u128 = pop_arg!(args, u128);
 
     // ป้องกันหารด้วย 0
-    if z == 0 {
-        return Ok(NativeResult::err(InternalGas::new(10), E_DIVIDE_BY_ZERO));
-    }
-
     // คำนวณ x * y แบบเช็คขอบเขต (checked_mul)
     // หมายเหตุ: สำหรับ Production Scale ถ้า x*y เกินเพดาน u128 แนะนำให้ใช้ Type U256 ชั่วคราว (เช่น primitive_types::U256)
-    match x.checked_mul(y) {
-        Some(xy) => {
-            let result = xy / z;
-            Ok(NativeResult::ok(
-                InternalGas::new(20),
-                smallvec![Value::u128(result)],
-            ))
-        }
-        None => Ok(NativeResult::err(InternalGas::new(20), E_OVERFLOW)),
+    match mul_div_u128_checked(x, y, z) {
+        Ok(result) => Ok(NR::ok(context.gas_used(), smallvec![Value::u128(result)])),
+        Err(code) => Ok(NR::err(context.gas_used(), code)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mul_div_u128_avoids_intermediate_overflow() {
+        assert_eq!(mul_div_u128_checked(u128::MAX, 2, 2).unwrap(), u128::MAX);
+    }
+
+    #[test]
+    fn mul_div_u128_basic() {
+        assert_eq!(mul_div_u128_checked(10, 20, 5).unwrap(), 40);
+    }
+
+    #[test]
+    fn mul_div_u128_divide_by_zero() {
+        assert_eq!(mul_div_u128_checked(1, 2, 0).unwrap_err(), E_DIVIDE_BY_ZERO);
+    }
+
+    #[test]
+    fn mul_div_u128_overflow_still_errors() {
+        assert_eq!(
+            mul_div_u128_checked(u128::MAX, u128::MAX, 1).unwrap_err(),
+            E_OVERFLOW
+        );
     }
 }

@@ -3,10 +3,13 @@
 
 use move_core_types::account_address::AccountAddress;
 use move_vm_runtime::native_charge_gas_early_exit;
-use move_vm_runtime::native_functions::make_table_from_iter;
+use move_vm_runtime::native_functions::{
+    NativeContext, NativeFunction, NativeFunctionTable, make_table_from_iter,
+};
 use move_vm_types::natives::function::NativeResult;
 use move_vm_types::natives::function::PartialVMResult;
 use move_vm_types::{
+    loaded_data::runtime_types::Type,
     pop_arg,
     values::{Value, VectorRef},
 };
@@ -28,9 +31,9 @@ use sha3::{Digest, Keccak256};
 
 use ed25519_dalek::{Signature as EdSignature, VerifyingKey as EdPublicKey};
 use move_core_types::gas_algebra::InternalGas;
-use std::convert::TryInto;
+use std::{collections::VecDeque, convert::TryInto, sync::Arc};
 
-use crate::make_native;
+use crate::helpers::make_module_natives;
 
 // Error codes for native crypto functions
 const E_INVALID_RECOVERY: u64 = 1;
@@ -44,17 +47,86 @@ const E_INVALID_SCHNORR_SIGNATURE: u64 = 7;
 // Maximum message length accepted by natives (prevent large-memory DoS)
 const MAX_MSG_BYTES: usize = 1_000_000; // 1 MB
 
-pub fn all_natives(
+#[derive(Debug, Clone)]
+pub struct GasParameters {
+    pub ecrecover: InternalGas,
+    pub decompress_pubkey: InternalGas,
+    pub verify_k1: InternalGas,
+    pub verify_r1: InternalGas,
+    pub ed25519_verify: InternalGas,
+}
+
+impl GasParameters {
+    pub fn zeros() -> Self {
+        Self {
+            ecrecover: 0.into(),
+            decompress_pubkey: 0.into(),
+            verify_k1: 0.into(),
+            verify_r1: 0.into(),
+            ed25519_verify: 0.into(),
+        }
+    }
+}
+
+fn make_native<F>(f: F) -> NativeFunction
+where
+    F: Fn(&mut NativeContext, Vec<Type>, VecDeque<Value>) -> PartialVMResult<NativeResult>
+        + Send
+        + Sync
+        + 'static,
+{
+    Arc::new(f)
+}
+
+pub fn make_ecdsa_k1(gas_params: GasParameters) -> impl Iterator<Item = (String, NativeFunction)> {
+    make_module_natives(
+        all_natives_with_gas(AccountAddress::ZERO, gas_params)
+            .into_iter()
+            .filter(|(_, module_name, _, _)| module_name.as_str() == "ecdsa_k1")
+            .map(|(_, _, func_name, func)| (func_name.to_string(), func)),
+    )
+}
+
+pub fn make_ecdsa_r1(gas_params: GasParameters) -> impl Iterator<Item = (String, NativeFunction)> {
+    make_module_natives(
+        all_natives_with_gas(AccountAddress::ZERO, gas_params)
+            .into_iter()
+            .filter(|(_, module_name, _, _)| module_name.as_str() == "ecdsa_r1")
+            .map(|(_, _, func_name, func)| (func_name.to_string(), func)),
+    )
+}
+
+pub fn make_ed25519(gas_params: GasParameters) -> impl Iterator<Item = (String, NativeFunction)> {
+    make_module_natives(
+        all_natives_with_gas(AccountAddress::ZERO, gas_params)
+            .into_iter()
+            .filter(|(_, module_name, _, _)| module_name.as_str() == "ed25519")
+            .map(|(_, _, func_name, func)| (func_name.to_string(), func)),
+    )
+}
+
+pub fn all_natives(move_addr: AccountAddress) -> NativeFunctionTable {
+    all_natives_with_gas(move_addr, GasParameters::zeros())
+}
+
+fn all_natives_with_gas(
     move_addr: AccountAddress,
-) -> move_vm_runtime::native_functions::NativeFunctionTable {
+    gas_params: GasParameters,
+) -> NativeFunctionTable {
     let mut natives = vec![];
+
+    let ecrecover_cost = gas_params.ecrecover;
+    let decompress_pubkey_cost = gas_params.decompress_pubkey;
+    let verify_k1_cost = gas_params.verify_k1;
+    let verify_r1_cost = gas_params.verify_r1;
+    let ed25519_verify_cost = gas_params.ed25519_verify;
 
     // ecdsa_k1::ecrecover(signature: vector<u8>, msg: vector<u8>, hash: u8): vector<u8>
     let ecrecover_native = make_native(
         move |context, _ty_args, mut arguments| -> PartialVMResult<NativeResult> {
             use move_vm_types::natives::function::NativeResult as NR;
 
-            native_charge_gas_early_exit!(context, InternalGas::new(5000));
+            native_charge_gas_early_exit!(context, ecrecover_cost);
 
             // pop in reverse order: hash, msg, signature
             let hash_type: u8 = pop_arg!(arguments, u8);
@@ -129,9 +201,17 @@ pub fn all_natives(
     let decompress_native = make_native(
         move |context, _ty_args, mut arguments| -> PartialVMResult<NativeResult> {
             use move_vm_types::natives::function::NativeResult as NR;
-            native_charge_gas_early_exit!(context, InternalGas::new(1000));
+            native_charge_gas_early_exit!(context, decompress_pubkey_cost);
             let pubkey_ref: VectorRef = pop_arg!(arguments, VectorRef);
-            let pubkey: Vec<u8> = pubkey_ref.as_bytes_ref().to_vec();
+            let mut pubkey: Vec<u8> = pubkey_ref.as_bytes_ref().to_vec();
+
+            // Accept 64-byte uncompressed X||Y (missing 0x04 prefix) and normalize to SEC1.
+            if pubkey.len() == 64 {
+                let mut prefixed = Vec::with_capacity(65);
+                prefixed.push(0x04);
+                prefixed.extend_from_slice(&pubkey);
+                pubkey = prefixed;
+            }
 
             // Accept compressed (33) or uncompressed (65) and return uncompressed 65
             let pk = match K256PublicKey::from_sec1_bytes(&pubkey) {
@@ -148,19 +228,14 @@ pub fn all_natives(
     let verify_k1 = make_native(
         move |context, _ty_args, mut arguments| -> PartialVMResult<NativeResult> {
             use move_vm_types::natives::function::NativeResult as NR;
-            native_charge_gas_early_exit!(context, InternalGas::new(2000));
+            native_charge_gas_early_exit!(context, verify_k1_cost);
             let hash_type: u8 = pop_arg!(arguments, u8);
             let msg_ref: VectorRef = pop_arg!(arguments, VectorRef);
             let public_key_ref: VectorRef = pop_arg!(arguments, VectorRef);
             let signature_ref: VectorRef = pop_arg!(arguments, VectorRef);
             let msg: Vec<u8> = msg_ref.as_bytes_ref().to_vec();
-            let public_key: Vec<u8> = public_key_ref.as_bytes_ref().to_vec();
+            let mut public_key: Vec<u8> = public_key_ref.as_bytes_ref().to_vec();
             let signature: Vec<u8> = signature_ref.as_bytes_ref().to_vec();
-
-            // Prevent overly large messages
-            if msg.len() > MAX_MSG_BYTES {
-                return Ok(NR::err(context.gas_used(), E_INVALID_MESSAGE));
-            }
 
             if signature.is_empty() {
                 return Ok(NR::err(context.gas_used(), E_INVALID_SIGNATURE)); // ErrorInvalidSignature
@@ -226,18 +301,33 @@ pub fn all_natives(
                 }
             }
 
+            // Normalize secp256k1 pubkey encodings. Some callers provide 64-byte X||Y without 0x04.
+            if public_key.len() == 64 {
+                let mut prefixed = Vec::with_capacity(65);
+                prefixed.push(0x04);
+                prefixed.extend_from_slice(&public_key);
+                public_key = prefixed;
+            }
+
             // parse pubkey (allow compressed/uncompressed) for ECDSA
             let vk = match K256VerifyingKey::from_sec1_bytes(&public_key) {
                 Ok(v) => v,
                 Err(_) => return Ok(NR::err(context.gas_used(), E_INVALID_PUBKEY)),
             };
 
+            // Normalize signature encodings. Some ecosystems use 65-byte r||s||v; v is ignored for verification.
+            let sig_bytes = if signature.len() == 65 {
+                &signature[..64]
+            } else {
+                signature.as_slice()
+            };
+
             // parse signature: try DER then raw 64
             let sig = if let Ok(s) = K256Signature::from_der(&signature) {
                 s
-            } else if signature.len() == 64 {
+            } else if sig_bytes.len() == 64 {
                 // try raw 64-bytes signature
-                match K256Signature::try_from(&signature[..]) {
+                match K256Signature::try_from(sig_bytes) {
                     Ok(s) => s,
                     Err(_) => return Ok(NR::ok(context.gas_used(), smallvec![Value::bool(false)])),
                 }
@@ -270,13 +360,13 @@ pub fn all_natives(
     let verify_r1 = make_native(
         move |context, _ty_args, mut arguments| -> PartialVMResult<NativeResult> {
             use move_vm_types::natives::function::NativeResult as NR;
-            native_charge_gas_early_exit!(context, InternalGas::new(2000));
+            native_charge_gas_early_exit!(context, verify_r1_cost);
             let hash_type: u8 = pop_arg!(arguments, u8);
             let msg_ref: VectorRef = pop_arg!(arguments, VectorRef);
             let public_key_ref: VectorRef = pop_arg!(arguments, VectorRef);
             let signature_ref: VectorRef = pop_arg!(arguments, VectorRef);
             let msg: Vec<u8> = msg_ref.as_bytes_ref().to_vec();
-            let public_key: Vec<u8> = public_key_ref.as_bytes_ref().to_vec();
+            let mut public_key: Vec<u8> = public_key_ref.as_bytes_ref().to_vec();
             let signature: Vec<u8> = signature_ref.as_bytes_ref().to_vec();
 
             if signature.is_empty() {
@@ -286,6 +376,14 @@ pub fn all_natives(
             // Prevent overly large messages
             if msg.len() > MAX_MSG_BYTES {
                 return Ok(NR::err(context.gas_used(), E_INVALID_MESSAGE));
+            }
+
+            // Normalize P-256 pubkey encodings. Accept 64-byte uncompressed X||Y and add 0x04 prefix.
+            if public_key.len() == 64 {
+                let mut prefixed = Vec::with_capacity(65);
+                prefixed.push(0x04);
+                prefixed.extend_from_slice(&public_key);
+                public_key = prefixed;
             }
 
             // Only SHA256 is supported for P-256 in Move wrapper, but accept hash_type selection defensively
@@ -299,10 +397,17 @@ pub fn all_natives(
                 return Ok(NR::err(context.gas_used(), E_UNSUPPORTED_HASH_FOR_P256)); // ErrorUnsupportedHashForP256
             }
 
+            // Normalize signature encodings. Some ecosystems use 65-byte r||s||v; v is ignored here.
+            let sig_bytes = if signature.len() == 65 {
+                &signature[..64]
+            } else {
+                signature.as_slice()
+            };
+
             let sig = if let Ok(s) = P256Signature::from_der(&signature) {
                 s
-            } else if signature.len() == 64 {
-                match P256Signature::try_from(&signature[..]) {
+            } else if sig_bytes.len() == 64 {
+                match P256Signature::try_from(sig_bytes) {
                     Ok(s) => s,
                     Err(_) => return Ok(NR::ok(context.gas_used(), smallvec![Value::bool(false)])),
                 }
@@ -324,7 +429,7 @@ pub fn all_natives(
     let ed25519_verify = make_native(
         move |context, _ty_args, mut arguments| -> PartialVMResult<NativeResult> {
             use move_vm_types::natives::function::NativeResult as NR;
-            native_charge_gas_early_exit!(context, InternalGas::new(2000));
+            native_charge_gas_early_exit!(context, ed25519_verify_cost);
             // Pop arguments (may return PartialVMError via the macro)
             let msg_ref: VectorRef = pop_arg!(arguments, VectorRef);
             let public_key_ref: VectorRef = pop_arg!(arguments, VectorRef);
@@ -332,6 +437,11 @@ pub fn all_natives(
             let msg: Vec<u8> = msg_ref.as_bytes_ref().to_vec();
             let public_key: Vec<u8> = public_key_ref.as_bytes_ref().to_vec();
             let signature: Vec<u8> = signature_ref.as_bytes_ref().to_vec();
+
+            // Prevent overly large messages
+            if msg.len() > MAX_MSG_BYTES {
+                return Ok(NR::ok(context.gas_used(), smallvec![Value::bool(false)]));
+            }
 
             // Wrap verification in a panic catcher to avoid propagating panics into the VM
             let result = std::panic::catch_unwind(|| {

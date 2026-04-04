@@ -60,6 +60,52 @@ impl MoveVMState {
         Ok(())
     }
 
+    /// Delete a module blob keyed by module id and remove it from the persistent index.
+    pub fn delete_module(&self, module_id: &ModuleId) -> Result<()> {
+        let key = format!(
+            "module:{}:{}",
+            module_id.address().to_hex_literal(),
+            module_id.name().as_str()
+        );
+        self.store.delete(key.as_bytes())?;
+
+        let mut index = self
+            .store
+            .load::<Vec<String>>(b"module_index")?
+            .unwrap_or_default();
+        let old_len = index.len();
+        index.retain(|x| x != &key);
+        if index.len() != old_len {
+            self.store.save(b"module_index", &index)?;
+        }
+
+        Ok(())
+    }
+
+    /// Persist framework manifest + hash for operational safety / debugging.
+    pub fn save_framework_manifest(
+        &self,
+        name: &str,
+        manifest: &Vec<(String, String)>,
+        hash_hex: &str,
+    ) -> Result<()> {
+        let manifest_key = format!("framework_manifest:{name}");
+        let hash_key = format!("framework_hash:{name}");
+        self.store.save(manifest_key.as_bytes(), manifest)?;
+        self.store
+            .save(hash_key.as_bytes(), &hash_hex.to_string())?;
+        Ok(())
+    }
+
+    /// Load a previously persisted framework hash (if any).
+    pub fn get_framework_hash(&self, name: &str) -> Option<String> {
+        let hash_key = format!("framework_hash:{name}");
+        self.store
+            .load::<String>(hash_key.as_bytes())
+            .ok()
+            .flatten()
+    }
+
     /// Load persisted modules into an `InMemoryStorage` instance.
     /// Returns a list of loaded ModuleIds.
     pub fn load_into_storage(&self, storage: &mut InMemoryStorage) -> Result<Vec<ModuleId>> {

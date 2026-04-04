@@ -165,7 +165,7 @@ fn main() {
 
             // Preload the NftCap object into the runtime's object storage
             runtime
-                .preload_object_snapshot(&id, obj.owner, &obj.type_, obj.data.clone(), obj.version)
+                .preload_object_snapshot(id, obj.owner, &obj.type_, obj.data.clone(), obj.version)
                 .unwrap_or_else(|e| eprintln!("Failed to preload NftCap: {:?}", e));
         } else if obj.type_.contains("::Collection") {
             println!("Found Collection: id={} type={}", id, obj.type_);
@@ -173,7 +173,7 @@ fn main() {
 
             // Preload the Collection object into the runtime's object storage
             runtime
-                .preload_object_snapshot(&id, obj.owner, &obj.type_, obj.data.clone(), obj.version)
+                .preload_object_snapshot(id, obj.owner, &obj.type_, obj.data.clone(), obj.version)
                 .unwrap_or_else(|e| eprintln!("Failed to preload Collection: {:?}", e));
         }
     }

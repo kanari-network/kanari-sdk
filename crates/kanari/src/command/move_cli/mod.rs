@@ -11,7 +11,6 @@ pub mod verify;
 
 use kanari_system_natives::event::EventsExt;
 use kanari_system_natives::transfer_natives::TransferredObjectsExt;
-use kanari_system_natives::{crypto, event, math_calculate, object, transfer_natives, tx_context};
 use kanari_types::address::Address as KanariAddress;
 use move_core_types::{account_address::AccountAddress, identifier::Identifier};
 use move_package::source_package::layout::SourcePackageLayout;
@@ -70,12 +69,11 @@ impl MoveCommand {
                 // Construct kanari crypto/system natives (registered under package address 0x2)
                 let system_addr =
                     AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap();
-                let crypto_natives = crypto::all_natives(system_addr).into_iter();
-                let transfer_natives = transfer_natives::all_natives(system_addr).into_iter();
-                let tx_context = tx_context::all_natives(system_addr).into_iter();
-                let event_natives = event::all_natives(system_addr).into_iter();
-                let object_natives = object::all_natives(system_addr).into_iter();
-                let math_calculate = math_calculate::all_natives(system_addr).into_iter();
+                let system_natives = kanari_system_natives::all_natives(
+                    system_addr,
+                    kanari_system_natives::GasParameters::zeros(),
+                )
+                .into_iter();
                 // Register native-context extensions for the unit-test runner so
                 // extensions like event capture and transfer tracking are available.
                 set_extension_hook(Box::new(|exts| {
@@ -84,14 +82,7 @@ impl MoveCommand {
                 }));
 
                 // Merge all natives and pass into test runner
-                let natives = std_natives
-                    .chain(crypto_natives)
-                    .chain(transfer_natives)
-                    .chain(tx_context)
-                    .chain(event_natives)
-                    .chain(object_natives)
-                    .chain(math_calculate)
-                    .collect();
+                let natives = std_natives.chain(system_natives).collect();
                 t.execute(None, config, natives, None)
             }
             MoveCommand::Docgen(d) => {
