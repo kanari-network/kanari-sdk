@@ -11,6 +11,9 @@ module kanari_system::clock {
     /// Sender is not @0x0 the system address.
     const E_NOT_SYSTEM_ADDRESS: u64 = 0;
 
+    /// Timestamp is not monotonic (not greater than or equal to current time)
+    const E_TIMESTAMP_NOT_MONOTONIC: u64 = 1;
+
     /// Singleton shared object that exposes time to Move calls.
     struct Clock has key, store {
         id: UID,
@@ -46,7 +49,7 @@ module kanari_system::clock {
         assert!(tx_context::sender(ctx) == @0x0, E_NOT_SYSTEM_ADDRESS);
         // Ensure that the new timestamp is greater than or equal to the current one
         // to maintain monotonicity of time on the blockchain
-        assert!(timestamp_ms >= clock.timestamp_ms, 1);
+        assert!(timestamp_ms >= clock.timestamp_ms, E_TIMESTAMP_NOT_MONOTONIC);
         clock.timestamp_ms = timestamp_ms;
     }
 

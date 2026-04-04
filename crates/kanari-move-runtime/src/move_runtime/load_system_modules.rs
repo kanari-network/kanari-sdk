@@ -268,7 +268,7 @@ impl super::MoveRuntime {
         }
 
         let (manifest, hash_hex) = compute_framework_manifest_and_hash(&modules);
-        eprintln!("✓ Move stdlib framework hash (disk): {}", hash_hex);
+        log::info!("Move stdlib framework hash (disk): {}", hash_hex);
         if let Some(prev) = self.state.get_framework_hash("0x1")
             && prev != hash_hex
         {
@@ -358,7 +358,7 @@ impl super::MoveRuntime {
         ];
         let modules_dir = find_modules_dir("KANARI_FRAMEWORK_PATH", &segments);
 
-        eprintln!("✓ Looking for Kanari system modules at: {:?}", modules_dir);
+        eprintln!("Looking for Kanari system modules at: {:?}", modules_dir);
 
         if !modules_dir.exists() {
             warn!(
@@ -388,7 +388,7 @@ impl super::MoveRuntime {
         // so no additional check is needed
 
         let (manifest, hash_hex) = compute_framework_manifest_and_hash(&modules);
-        eprintln!("✓ kanari-system framework hash (disk): {}", hash_hex);
+        eprintln!("kanari-system framework hash (disk): {}", hash_hex);
         if let Some(prev) = self.state.get_framework_hash("0x2")
             && prev != hash_hex
         {
@@ -484,7 +484,7 @@ impl super::MoveRuntime {
             count += 1;
         }
 
-        eprintln!("✓ Loaded {} kanari-system modules (0x2::*)", count);
+        eprintln!("Loaded {} kanari-system modules (0x2::*)", count);
         Ok(())
     }
 }

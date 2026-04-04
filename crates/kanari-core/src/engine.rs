@@ -151,14 +151,16 @@ impl BlockchainEngine {
     pub fn execute_system_prologue(&self, timestamp_ms: u64) -> Result<()> {
         let runtime = &self.runtime_pool[0];
 
-        // Get the clock ID first, before acquiring the write lock
-        let clock_id = runtime.ensure_system_clock(&mut self.state.write().unwrap())?;
+        // Acquire the write lock once to ensure atomicity of the entire operation
+        let mut state_write = self.state.write().unwrap();
+
+        // Get the clock ID
+        let clock_id = runtime.ensure_system_clock(&mut state_write)?;
 
         // Execute the prologue function to get the changeset
         let changeset = runtime.execute_clock_consensus_commit_prologue(clock_id, timestamp_ms)?;
 
         // Apply the changeset to the state
-        let mut state_write = self.state.write().unwrap();
         state_write.apply_changeset(&changeset)?;
         runtime.persist_created_objects(&changeset);
         runtime.persist_deleted_objects(&changeset);
@@ -644,17 +646,19 @@ impl BlockchainEngine {
             checkpoint_txs.len()
         );
 
+        info!(
+            "Executing {} transactions in checkpoint",
+            checkpoint_txs.len()
+        );
+
         // =================================================================
         // 🚨 Update the time on the Blockchain before executing user transactions.
         // =================================================================
         // Use timestamp from consensus layer to ensure all nodes have identical state
-        // Fallback to local time only if no consensus timestamp is provided (for backward compatibility)
-        let current_timestamp_ms = consensus_timestamp_ms.unwrap_or_else(|| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64
-        });
+        // CRITICAL: All nodes must use the same timestamp to ensure deterministic state transitions
+        let current_timestamp_ms = consensus_timestamp_ms.expect(
+            "CRITICAL ERROR: Consensus timestamp must be provided for blockchain state consistency. "
+        );
 
         if let Err(e) = self.execute_system_prologue(current_timestamp_ms) {
             log::error!(
@@ -667,6 +671,9 @@ impl BlockchainEngine {
 
         let execution_results = self.execute_transactions_parallel(checkpoint_txs);
 
+        // =================================================================
+        // 📝 Process all the transaction results and create a checkpoint
+        // =================================================================
         let mut successful_txs = Vec::new();
         let mut all_events_for_block = Vec::new();
         let runtime = &self.runtime_pool[0];

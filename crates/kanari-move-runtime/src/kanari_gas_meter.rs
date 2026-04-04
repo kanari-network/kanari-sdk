@@ -3,13 +3,13 @@ use move_core_types::gas_algebra::InternalGas;
 use move_core_types::vm_status::StatusCode;
 use move_vm_types::gas::GasMeter;
 
-/// KanariGasMeter: ทำหน้าที่เป็นตัวนับ Step การทำงาน
-/// ใช้เพื่อป้องกันการทำ DDoS หรือรัน Loop ไม่สิ้นสุด (Infinite Loop)
-/// โดยไม่เกี่ยวข้องกับการหักเหรียญผู้ใช้ (เพราะค่า Gas เป็น 0)
+/// KanariGasMeter: Acts as a step counter.
+/// Used to prevent DDoS attacks or endless loops.
+/// It does not involve deducting coins from the user (because the Gas cost is 0).
 pub struct KanariGasMeter {
-    /// จำนวน Step ที่รันไปแล้ว
+    /// The number of steps that have been used
     steps_used: u64,
-    /// ขีดจำกัดสูงสุด (เช่น 1,000,000 steps ต่อ Transaction)
+    /// The maximum limit of steps (e.g., 1,000,000 steps per Transaction)
     steps_limit: u64,
 }
 
@@ -34,6 +34,8 @@ impl KanariGasMeter {
         Ok(())
     }
 }
+
+const NATIVE_FUNCTION_BASE_COST: u64 = 10;
 
 // ==============================================================================
 // การ Implement GasMeter Trait (อัปเดตสำหรับ Move VM ล่าสุด)
@@ -217,7 +219,7 @@ impl GasMeter for KanariGasMeter {
         _amount: InternalGas,
         _ret_vals: Option<impl ExactSizeIterator<Item = impl move_vm_types::views::ValueView>>,
     ) -> PartialVMResult<()> {
-        self.charge_step(10) // Native ฟังก์ชันกินพลังงานมากกว่า Instruction ธรรมดา
+        self.charge_step(NATIVE_FUNCTION_BASE_COST) // Native ฟังก์ชันกินพลังงานมากกว่า Instruction ธรรมดา
     }
 
     fn charge_native_function_before_execution(
