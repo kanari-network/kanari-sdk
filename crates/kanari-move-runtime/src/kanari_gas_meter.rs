@@ -219,7 +219,7 @@ impl GasMeter for KanariGasMeter {
         _amount: InternalGas,
         _ret_vals: Option<impl ExactSizeIterator<Item = impl move_vm_types::views::ValueView>>,
     ) -> PartialVMResult<()> {
-        self.charge_step(NATIVE_FUNCTION_BASE_COST) // Native ฟังก์ชันกินพลังงานมากกว่า Instruction ธรรมดา
+        self.charge_step(NATIVE_FUNCTION_BASE_COST)
     }
 
     fn charge_native_function_before_execution(
