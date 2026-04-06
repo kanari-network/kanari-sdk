@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Result;
-use kanari_move_runtime::changeset::ChangeSet;
+use kanari_move_runtime::changeset::{ChangeSet, CreatedObject};
 use kanari_move_runtime::state::StateManager;
 use move_core_types::account_address::AccountAddress;
 
@@ -189,6 +189,65 @@ fn test_multiple_owners_and_token_types() -> Result<()> {
 
     assert_eq!(alice_kanari, 150, "Alice should have 150 KANARI");
     assert_eq!(bob_thb, 300, "Bob should have 300 THB");
+
+    Ok(())
+}
+
+#[test]
+fn test_balance_updates_immediately_after_second_mint_object() -> Result<()> {
+    let mut state = StateManager::new_in_memory();
+    let alice = AccountAddress::from_hex_literal("0x1111")?;
+    let coin_type = "0x2::coin::Coin<0x2::james::JAMES>";
+    let token_type = "0x2::james::JAMES";
+
+    let mut first_coin_data = vec![0u8; 32];
+    first_coin_data[0] = 0xAA;
+    first_coin_data.extend_from_slice(&100u64.to_le_bytes());
+
+    let mut cs1 = ChangeSet::new();
+    cs1.add_created_object(
+        alice,
+        coin_type.to_string(),
+        first_coin_data,
+        1,
+        None,
+        Some("0xaaa1".to_string()),
+    );
+    cs1.add_token_balance_set(alice, token_type.to_string(), 100);
+    state.apply_changeset(&cs1)?;
+
+    let first = state
+        .get_account(&alice)
+        .expect("Alice account should exist after first mint")
+        .get_token_balance(token_type);
+    assert_eq!(first, 100, "first mint should be visible immediately");
+
+    let mut second_coin_data = vec![0u8; 32];
+    second_coin_data[0] = 0xBB;
+    second_coin_data.extend_from_slice(&50u64.to_le_bytes());
+
+    let mut cs2 = ChangeSet::new();
+    cs2.created_objects.push((
+        "0xbbb2".to_string(),
+        CreatedObject {
+            owner: alice,
+            uid: None,
+            type_: coin_type.to_string(),
+            data: second_coin_data,
+            version: 1,
+        },
+    ));
+    cs2.add_token_balance_set(alice, token_type.to_string(), 50);
+    state.apply_changeset(&cs2)?;
+
+    let second = state
+        .get_account(&alice)
+        .expect("Alice account should exist after second mint")
+        .get_token_balance(token_type);
+    assert_eq!(
+        second, 150,
+        "second mint should update balance immediately without self-transfer"
+    );
 
     Ok(())
 }

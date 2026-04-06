@@ -4,12 +4,13 @@
 use crate::changeset::{ChangeSet, CreatedObject};
 use crate::storage::persistent_store::PersistentStore;
 use anyhow::Result;
+use kanari_types::balance::BalanceModule;
 use kanari_types::balance::BalanceRecord;
-use kanari_types::coin::TreasuryCap;
+use kanari_types::coin::{CoinModule, TreasuryCap};
 use kanari_types::kanari::KanariModule;
 use kanari_types::{address::Address as KanariAddress, event::Event};
 use move_core_types::account_address::AccountAddress;
-use move_core_types::language_storage::TypeTag;
+use move_core_types::language_storage::{StructTag, TypeTag};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use smt;
@@ -18,6 +19,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 const SYSTEM_CLOCK_OBJECT_ID_KEY: &[u8] = b"system:clock_object_id";
+const UID_SIZE: usize = 32;
+const U64_SIZE: usize = 8;
 
 /// Account state in the blockchain
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,6 +115,135 @@ impl StateManager {
             return format!("{}", st);
         }
         token_type.to_string()
+    }
+
+    fn is_balance_struct(struct_tag: &StructTag) -> bool {
+        let module_name = struct_tag.module.as_str();
+        let struct_name = struct_tag.name.as_str();
+        (module_name == CoinModule::COIN_MODULE && struct_name == CoinModule::COIN_STRUCT)
+            || (module_name == BalanceModule::BALANCE_MODULE
+                && struct_name == BalanceModule::BALANCE_STRUCT)
+    }
+
+    fn extract_balance_from_object_bytes(data: &[u8], struct_tag: &StructTag) -> Option<u64> {
+        let module_name = struct_tag.module.as_str();
+        let struct_name = struct_tag.name.as_str();
+
+        if module_name == CoinModule::COIN_MODULE && struct_name == CoinModule::COIN_STRUCT {
+            if data.len() < UID_SIZE + U64_SIZE {
+                return None;
+            }
+            let bytes: [u8; U64_SIZE] = data[UID_SIZE..(UID_SIZE + U64_SIZE)].try_into().ok()?;
+            return Some(u64::from_le_bytes(bytes));
+        }
+
+        if module_name == BalanceModule::BALANCE_MODULE
+            && struct_name == BalanceModule::BALANCE_STRUCT
+        {
+            if data.len() < U64_SIZE {
+                return None;
+            }
+            let bytes: [u8; U64_SIZE] = data[data.len() - U64_SIZE..].try_into().ok()?;
+            return Some(u64::from_le_bytes(bytes));
+        }
+
+        None
+    }
+
+    fn token_type_from_balance_struct(struct_tag: &StructTag) -> Option<String> {
+        if let Some(TypeTag::Struct(st)) = struct_tag.type_params.first() {
+            return Some(format!("{}", st));
+        }
+        None
+    }
+
+    fn adjust_global_supplies_for_account_delta(
+        &mut self,
+        old_balances: &BTreeMap<String, BalanceRecord>,
+        new_balances: &BTreeMap<String, BalanceRecord>,
+    ) -> bool {
+        let mut changed = false;
+        let mut tokens = BTreeSet::new();
+        tokens.extend(old_balances.keys().cloned());
+        tokens.extend(new_balances.keys().cloned());
+
+        for token_type in tokens {
+            let old_amount = old_balances
+                .get(&token_type)
+                .map(|x| x.value())
+                .unwrap_or(0);
+            let new_amount = new_balances
+                .get(&token_type)
+                .map(|x| x.value())
+                .unwrap_or(0);
+
+            if old_amount == new_amount {
+                continue;
+            }
+
+            changed = true;
+            let current_supply = self
+                .global_token_supplies
+                .get(&token_type)
+                .copied()
+                .unwrap_or(0);
+
+            let updated_supply = if new_amount >= old_amount {
+                current_supply.saturating_add(new_amount - old_amount)
+            } else {
+                current_supply.saturating_sub(old_amount - new_amount)
+            };
+
+            if updated_supply == 0 {
+                self.global_token_supplies.remove(&token_type);
+            } else {
+                self.global_token_supplies
+                    .insert(token_type, updated_supply);
+            }
+        }
+
+        changed
+    }
+
+    fn recompute_token_balances_for_owner(&mut self, owner: AccountAddress) -> Result<bool> {
+        let mut account = self.load_account_or_default(owner)?;
+        let old_balances = account.token_balances.clone();
+        let mut aggregated: BTreeMap<String, u64> = BTreeMap::new();
+
+        for object_id in self.get_owned_objects(&owner)? {
+            let Some(obj) = self.get_object(&object_id)? else {
+                continue;
+            };
+
+            let Ok(struct_tag) = StructTag::from_str(&obj.type_) else {
+                continue;
+            };
+
+            if !Self::is_balance_struct(&struct_tag) {
+                continue;
+            }
+
+            let Some(amount) = Self::extract_balance_from_object_bytes(&obj.data, &struct_tag)
+            else {
+                continue;
+            };
+
+            let Some(token_type) = Self::token_type_from_balance_struct(&struct_tag) else {
+                continue;
+            };
+
+            let token_type = Self::normalize_token_type(&token_type);
+            let entry = aggregated.entry(token_type).or_insert(0);
+            *entry = entry.saturating_add(amount);
+        }
+
+        account.token_balances = aggregated
+            .into_iter()
+            .map(|(token_type, amount)| (token_type, BalanceRecord::new(amount)))
+            .collect();
+        self.save_account(&account)?;
+
+        Ok(self.adjust_global_supplies_for_account_delta(&old_balances, &account.token_balances))
     }
 
     /// Create a new in-memory state manager for testing
@@ -329,6 +461,7 @@ impl StateManager {
     /// This is the ONLY way to modify state - all changes must come from Move VM
     pub fn apply_changeset(&mut self, changeset: &ChangeSet) -> Result<()> {
         let mut supply_delta: i64 = 0;
+        let mut supplies_dirty = false;
 
         for (address, change) in &changeset.account_changes {
             let mut account = self.load_account_or_default(*address)?;
@@ -397,48 +530,31 @@ impl StateManager {
             self.save_internal(&key, &(*owner, nft_cap.clone()))?;
         }
 
-        // O(1) Global supply tracking
-        // token_balance_sets contains FINAL BALANCE snapshots from Move VM, not increments
+        // Apply incremental token balance hints first; exact owner totals are recomputed
+        // from owned coin objects after object mutations are applied.
         for (owner, token_type, amount) in &changeset.token_balance_sets {
             let mut account = self.load_account_or_default(*owner)?;
             let normalized_token_type = Self::normalize_token_type(token_type);
 
-            let old_balance = account.get_token_balance(&normalized_token_type);
-            let final_balance = amount.value();
-
-            // Calculate the delta (can be positive or negative)
-            let delta: i64 = final_balance as i64 - old_balance as i64;
-
-            // Set balance to final value (this is the snapshot from Move VM)
-            account.set_token_balance(normalized_token_type.clone(), amount.clone());
+            let old_balances = account.token_balances.clone();
+            let current = account.get_token_balance(&normalized_token_type);
+            let next = current.saturating_add(amount.value());
+            account.set_token_balance(normalized_token_type, BalanceRecord::new(next));
             self.save_account(&account)?;
 
-            // Update global supply with the delta
-            let current_supply = self
-                .global_token_supplies
-                .get(&normalized_token_type)
-                .copied()
-                .unwrap_or(0);
-
-            let updated_supply = if delta >= 0 {
-                current_supply.saturating_add(delta as u64)
-            } else {
-                current_supply.saturating_sub((-delta) as u64)
-            };
-
-            self.global_token_supplies
-                .insert(normalized_token_type, updated_supply);
+            if self.adjust_global_supplies_for_account_delta(&old_balances, &account.token_balances)
+            {
+                supplies_dirty = true;
+            }
         }
 
         // บันทึกยอด Global Token Supplies ลงฐานข้อมูลเพียงครั้งเดียวหลังประมวลผลทั้งหมด
-        if !changeset.token_balance_sets.is_empty() {
-            let supplies_clone = self.global_token_supplies.clone();
-            self.save_internal(b"global_token_supplies", &supplies_clone)?;
-        }
+        let mut owners_to_recompute: HashSet<AccountAddress> = HashSet::new();
 
         for obj_id in &changeset.deleted_objects {
             let obj_key = Self::object_key(obj_id);
             if let Some(existing) = self.load_internal::<CreatedObject>(&obj_key)? {
+                owners_to_recompute.insert(existing.owner);
                 let owner_key = Self::owned_objects_key(&existing.owner);
                 let mut owned: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
                 owned.retain(|x| x != obj_id);
@@ -491,6 +607,7 @@ impl StateManager {
             let mut new_obj = created.clone();
 
             if let Ok(Some(existing)) = self.load_internal::<CreatedObject>(&obj_key) {
+                owners_to_recompute.insert(existing.owner);
                 new_obj.version = existing.version + 1;
                 if new_obj.owner.to_hex_literal() == *obj_id {
                     new_obj.owner = existing.owner;
@@ -505,6 +622,7 @@ impl StateManager {
             } else {
                 new_obj.version = 1;
             }
+            owners_to_recompute.insert(new_obj.owner);
 
             self.save_internal(&obj_key, &new_obj)?;
 
@@ -575,6 +693,17 @@ impl StateManager {
                     self.save_internal(&key, &decimals)?;
                 }
             }
+        }
+
+        for owner in owners_to_recompute {
+            if self.recompute_token_balances_for_owner(owner)? {
+                supplies_dirty = true;
+            }
+        }
+
+        if supplies_dirty {
+            let supplies_clone = self.global_token_supplies.clone();
+            self.save_internal(b"global_token_supplies", &supplies_clone)?;
         }
 
         Ok(())
