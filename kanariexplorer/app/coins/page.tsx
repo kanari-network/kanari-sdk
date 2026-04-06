@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
 import { getAllBalances, getTokens } from "../lib/rpc";
 
 function CoinsContent() {
@@ -90,7 +89,7 @@ function CoinsContent() {
         </div>
       </div>
 
-      {/* 📊 Token List - ใช้ 2-Column Grid Style แบบ Account Portfolio */}
+      {/* 📊 Token List - ปรับเป็น 1-Column List Style สีเดิม */}
       <div className="bg-[#111113]/60 backdrop-blur-md rounded-4xl border border-white/5 overflow-hidden shadow-2xl">
         {loading ? (
           <div className="p-24 text-center text-zinc-500 font-mono text-sm flex flex-col items-center gap-4">
@@ -100,11 +99,13 @@ function CoinsContent() {
         ) : balances.length === 0 ? (
           <div className="p-24 text-center text-zinc-600 font-mono text-sm">No tokens found in this context.</div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-white/5">
+          // 🚨 เปลี่ยนตรงนี้: ถอด Grid ออก ใช้เป็น flex-col เรียงลงมาแถวเดียว พร้อมเส้นคั่น divide-y
+          <div className="flex flex-col divide-y divide-white/5">
             {balances.map((b, i) => {
               const symbol = b.symbol || "UNK";
               return (
-                <div key={i} className="p-6 flex justify-between items-center hover:bg-white/2 transition-colors border-b border-white/5 group">
+                // 🚨 เอา border-b ออก เพราะเราใช้ divide-y ที่กรอบนอกจัดการเส้นคั่นให้แล้ว
+                <div key={i} className="p-6 flex justify-between items-center hover:bg-white/2 transition-colors group">
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 rounded-2xl bg-linear-to-br from-zinc-800 to-zinc-900 border border-white/10 flex items-center justify-center overflow-hidden shadow-inner group-hover:border-emerald-500/30 transition-all duration-300">
                       {b.icon_url ? (
@@ -123,7 +124,8 @@ function CoinsContent() {
                   </div>
                   <div className="text-right">
                     <div className="text-white font-mono font-bold text-lg group-hover:text-cyan-400 transition-colors">
-                      {fmtBalance(b.balance ?? b.total_supply, b.decimals)}
+                      {/* 🚨 เพิ่ม b.amount ก่อน b.balance เพื่อแก้ปัญหายอดเงินไม่ขึ้นตามที่เคยคุยกันครับ */}
+                      {fmtBalance(b.amount ?? b.balance ?? b.total_supply, b.decimals)}
                     </div>
                     <div className="text-[9px] text-zinc-600 font-black uppercase tracking-tighter mt-1">
                       {address ? "Confirmed Balance" : "Total Supply"}

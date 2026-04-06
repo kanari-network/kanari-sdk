@@ -160,21 +160,30 @@ function AccountContent() {
             {!balances || balances.length === 0 ? (
               <div className="p-20 text-center text-zinc-600 font-mono text-sm">No assets found in this portfolio</div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-white/5">
+              // 🚨 เปลี่ยนตรงนี้: ถอด Grid ออก ใช้เป็น flex-col เรียงลงมาแถวเดียว พร้อมเส้นคั่น divide-y
+              <div className="flex flex-col divide-y divide-white/5">
                 {balances.map((b, i) => (
-                  <div key={i} className="p-6 flex justify-between items-center hover:bg-white/2 transition-colors border-b border-white/5">
+                  // 🚨 เอา border-b ออก และเพิ่มคลาส group เพื่อให้เอฟเฟกต์โฮเวอร์ทำงานร่วมกัน
+                  <div key={i} className="p-6 flex justify-between items-center hover:bg-white/2 transition-colors group">
                     <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-2xl bg-linear-to-br from-zinc-800 to-zinc-900 border border-white/10 flex items-center justify-center overflow-hidden shadow-inner">
-                        {b.icon_url ? <img src={b.icon_url} className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-zinc-500">{b.symbol?.charAt(0)}</span>}
+                      <div className="w-12 h-12 rounded-2xl bg-linear-to-br from-zinc-800 to-zinc-900 border border-white/10 flex items-center justify-center overflow-hidden shadow-inner group-hover:border-emerald-500/30 transition-all duration-300">
+                        {b.icon_url ? (
+                          <img src={b.icon_url} className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-xs font-bold text-zinc-500">{b.symbol?.charAt(0)}</span>
+                        )}
                       </div>
                       <div>
-                        <div className="text-white text-sm font-bold">{b.name ?? b.symbol}</div>
+                        <div className="text-white text-sm font-bold group-hover:text-emerald-400 transition-colors">{b.name ?? b.symbol}</div>
                         <div className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest mt-0.5">{b.symbol}</div>
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-white font-mono font-bold text-lg">{fmtBalance(b.balance, b.decimals)}</div>
-                      <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-tighter">Current Balance</div>
+                      {/* 🚨 อัปเดตการดึงค่ายอดเงิน ให้รองรับทั้ง amount และ balance */}
+                      <div className="text-white font-mono font-bold text-lg group-hover:text-cyan-400 transition-colors">
+                        {fmtBalance(b.amount ?? b.balance ?? b.total_supply, b.decimals)}
+                      </div>
+                      <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-tighter mt-1">Current Balance</div>
                     </div>
                   </div>
                 ))}
