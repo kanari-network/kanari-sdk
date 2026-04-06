@@ -197,6 +197,7 @@ impl ChangeSet {
 
     /// Merge another ChangeSet into this one
     /// Used to combine Move VM changes with gas/sequence changes
+    /// Token balance sets are consolidated to prevent duplicates
     pub fn merge(&mut self, other: ChangeSet) {
         for (addr, other_change) in other.account_changes {
             let existing = self.get_or_create_change(addr);
@@ -211,7 +212,12 @@ impl ChangeSet {
         self.events.extend(other.events);
         self.treasuries.extend(other.treasuries);
         self.nft_caps.extend(other.nft_caps);
-        self.token_balance_sets.extend(other.token_balance_sets);
+
+        // Consolidate token_balance_sets to prevent duplicates during merge
+        for (owner, token_type, amount) in other.token_balance_sets {
+            self.add_token_balance_set(owner, token_type, amount.value());
+        }
+
         self.created_objects.extend(other.created_objects);
         self.deleted_objects.extend(other.deleted_objects);
         self.gas_used += other.gas_used;
@@ -250,15 +256,31 @@ impl ChangeSet {
             .push((owner, token_type, TreasuryCap { total_supply }));
     }
 
-    /// Record an absolute token balance for an account (after execution)
+    /// Record a token balance update for an account
+    /// When multiple balance updates occur for the same (owner, token_type) pair in the same changeset,
+    /// consolidates them by summing amounts. This handles multiple coins of the same type
+    /// being transferred to the same account in one transaction.
     pub fn add_token_balance_set(
         &mut self,
         owner: AccountAddress,
         token_type: String,
         amount: u64,
     ) {
-        self.token_balance_sets
-            .push((owner, token_type, BalanceRecord::new(amount)));
+        // Check if entry already exists for this (owner, token_type) pair
+        if let Some((_, _, existing_balance)) = self
+            .token_balance_sets
+            .iter_mut()
+            .find(|(o, t, _)| o == &owner && t == &token_type)
+        {
+            // Sum amounts: multiple coins of same type to same account
+            let existing_amount = existing_balance.value();
+            let combined_amount = existing_amount.saturating_add(amount);
+            *existing_balance = BalanceRecord::new(combined_amount);
+        } else {
+            // Add new entry
+            self.token_balance_sets
+                .push((owner, token_type, BalanceRecord::new(amount)));
+        }
     }
 
     /// Record a created object discovered in Move write-sets

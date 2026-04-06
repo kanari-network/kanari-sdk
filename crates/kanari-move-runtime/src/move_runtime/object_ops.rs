@@ -140,6 +140,9 @@ impl super::MoveRuntime {
                 }
 
                 // Parse Coin resources (Balance)
+                // Each Coin object detected adds to token_balance_sets which will be ACCUMULATED
+                // in StateManager. Multiple coins of the same type to same owner in one transaction
+                // are consolidated by add_token_balance_set, and separate transactions accumulate.
                 if self.is_balance_resource(&struct_tag)
                     && let Some(amount) = self.extract_balance_from_bytes(&data, &struct_tag)
                     && let Some(token_type) = self.token_type_from_struct_tag(&struct_tag)

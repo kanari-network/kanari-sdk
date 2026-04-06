@@ -28,12 +28,12 @@ pub struct GasConfig {
 impl Default for GasConfig {
     fn default() -> Self {
         Self {
-            base_price: 0,           // 🚨 ปรับเป็น 0
-            max_gas_per_tx: 100_000, // คง limit ไว้เพื่อป้องกัน infinite loop
+            base_price: 0,
+            max_gas_per_tx: 100_000, // Keep limit to prevent infinite loops
             max_gas_per_block: 1_000_000,
-            min_gas_price: 0,          // 🚨 ปรับค่าต่ำสุดเป็น 0
-            storage_price_per_byte: 0, // 🚨 ปรับค่าพื้นที่จัดเก็บเป็น 0
-            storage_rebate_rate: 0,    // 🚨 ไม่ต้องมี rebate เพราะทุกอย่างฟรี
+            min_gas_price: 0,
+            storage_price_per_byte: 0,
+            storage_rebate_rate: 0,
         }
     }
 }
@@ -56,8 +56,7 @@ pub enum GasOperation {
 impl GasOperation {
     /// Calculate gas units required for this operation
     pub fn gas_units(&self) -> u64 {
-        // 🚨 ให้ทุกการกระทำไม่กิน Gas (ใช้ 0 หน่วย)
-        0
+        0 // All operations are free
     }
 
     /// Get operation name for logging
@@ -105,7 +104,6 @@ impl GasMeter {
     /// Charge for storage bytes written
     pub fn charge_storage(&mut self, bytes: u64, _config: &GasConfig) -> Result<(), GasError> {
         self.storage_bytes_written += bytes;
-        // 🚨 ฟรีค่าจัดเก็บ
         Ok(())
     }
 
@@ -116,19 +114,16 @@ impl GasMeter {
 
     /// Calculate net storage fee in Mist
     pub fn net_storage_fee(&self, _config: &GasConfig) -> i64 {
-        // 🚨 ไม่มีค่าธรรมเนียมจัดเก็บ
         0
     }
 
     /// Consume gas for an operation
     pub fn consume(&mut self, _gas_units: u64) -> Result<(), GasError> {
-        // 🚨 ปิดการกิน Gas ปล่อยผ่านเสมอ
         Ok(())
     }
 
     /// Calculate total gas cost in Mist
     pub fn total_cost(&self) -> u64 {
-        // 🚨 ค่าบริการเป็น 0 เสมอ
         0
     }
 
@@ -144,7 +139,7 @@ impl GasMeter {
 
     /// Get gas usage percentage
     pub fn usage_percentage(&self) -> f64 {
-        0.0 // 🚨 ไม่มีการใช้ Gas
+        0.0
     }
 }
 
@@ -162,7 +157,7 @@ impl GasEstimate {
         Self {
             gas_units,
             gas_price,
-            total_cost_mist: 0, // 🚨 บังคับให้ราคาสุทธิประเมินเป็น 0
+            total_cost_mist: 0,
             total_cost_kanari: 0.0,
         }
     }
@@ -235,7 +230,7 @@ impl TransactionGas {
     }
 
     pub fn total_cost(&self) -> u64 {
-        0 // 🚨 บังคับให้สรุปค่าใช้จ่ายตอนจบ Block เป็น 0
+        0
     }
 
     pub fn refund_amount(&self) -> u64 {

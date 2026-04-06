@@ -81,7 +81,7 @@ pub struct StateManager {
     // Cache for total supply to avoid frequent DB reads
     pub total_supply: u64,
 
-    // 🚨 NEW: ตัวแปรเก็บบน RAM สำหรับ Track ยอดเหรียญ Token ทั้งหมดในระบบแบบ Real-time!
+    /// In-memory cache for tracking total token supplies in real-time
     pub global_token_supplies: BTreeMap<String, u64>,
 
     // SMT for state root calculation (Optional: requires DB backend)
@@ -131,7 +131,7 @@ impl StateManager {
             .unwrap_or(None)
             .unwrap_or(0);
 
-        // 🚨 NEW: ดึง Global Token Supplies เก่าขึ้นมาจาก RocksDB
+        // Load existing global token supplies from RocksDB
         let global_token_supplies = store
             .load::<BTreeMap<String, u64>>(b"global_token_supplies")
             .unwrap_or(None)
@@ -146,7 +146,7 @@ impl StateManager {
             store,
             overlay: BTreeMap::new(),
             total_supply,
-            global_token_supplies, // 🚨 ใส่เข้า State
+            global_token_supplies,
             smt,
             events: Vec::new(),
         };
@@ -397,38 +397,41 @@ impl StateManager {
             self.save_internal(&key, &(*owner, nft_cap.clone()))?;
         }
 
-        // 🚨 FIX 1: O(1) Global Supply Tracking (ติดตามยอดรวมจากส่วนต่างของกระเป๋า)
+        // O(1) Global supply tracking
+        // token_balance_sets contains FINAL BALANCE snapshots from Move VM, not increments
         for (owner, token_type, amount) in &changeset.token_balance_sets {
             let mut account = self.load_account_or_default(*owner)?;
             let normalized_token_type = Self::normalize_token_type(token_type);
 
-            // 1. จำยอดเดิมก่อน
             let old_balance = account.get_token_balance(&normalized_token_type);
-            let new_balance = amount.value();
+            let final_balance = amount.value();
 
-            // 2. อัปเดตยอดกระเป๋าผู้ใช้ปกติ
+            // Calculate the delta (can be positive or negative)
+            let delta: i64 = final_balance as i64 - old_balance as i64;
+
+            // Set balance to final value (this is the snapshot from Move VM)
             account.set_token_balance(normalized_token_type.clone(), amount.clone());
             self.save_account(&account)?;
 
-            // 3. เอาส่วนต่าง (Delta) ไปบวก/ลบในยอด Global รวมบน RAM
+            // Update global supply with the delta
             let current_supply = self
                 .global_token_supplies
                 .get(&normalized_token_type)
                 .copied()
                 .unwrap_or(0);
-            let updated_supply = if new_balance >= old_balance {
-                current_supply
-                    .checked_add(new_balance - old_balance)
-                    .unwrap_or(current_supply)
+
+            let updated_supply = if delta >= 0 {
+                current_supply.saturating_add(delta as u64)
             } else {
-                current_supply.saturating_sub(old_balance - new_balance)
+                current_supply.saturating_sub((-delta) as u64)
             };
 
-            // 4. เซฟกลับเข้า RAM และ RocksDB
             self.global_token_supplies
                 .insert(normalized_token_type, updated_supply);
+        }
 
-            // 🚨 แก้ปัญหา Borrow Checker (Clone ข้อมูลออกมาก่อนเซฟ)
+        // บันทึกยอด Global Token Supplies ลงฐานข้อมูลเพียงครั้งเดียวหลังประมวลผลทั้งหมด
+        if !changeset.token_balance_sets.is_empty() {
             let supplies_clone = self.global_token_supplies.clone();
             self.save_internal(b"global_token_supplies", &supplies_clone)?;
         }
@@ -603,7 +606,7 @@ impl StateManager {
         if let Some(smt) = &self.smt {
             match smt.root_hash() {
                 Ok(root) => return root.to_vec(),
-                Err(e) => eprintln!("Failed to compute SMT root: {}", e),
+                Err(e) => log::error!("Failed to compute SMT root: {}", e),
             }
         }
 
