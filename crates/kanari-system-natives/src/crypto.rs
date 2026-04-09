@@ -105,10 +105,6 @@ pub fn make_ed25519(gas_params: GasParameters) -> impl Iterator<Item = (String, 
     )
 }
 
-pub fn all_natives(move_addr: AccountAddress) -> NativeFunctionTable {
-    all_natives_with_gas(move_addr, GasParameters::zeros())
-}
-
 fn all_natives_with_gas(
     move_addr: AccountAddress,
     gas_params: GasParameters,

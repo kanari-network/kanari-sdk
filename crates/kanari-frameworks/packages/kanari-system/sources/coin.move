@@ -83,7 +83,7 @@ module kanari_system::coin {
         (treasury_cap, metadata)
     }
 
-    /// Create a regulated currency (compatibility with Sui): returns a treasury capability,
+    /// Create a regulated currency (compatibility with kanari): returns a treasury capability,
     /// a deny-capability for administration of a deny-list, and the metadata object.
     public fun create_regulated_currency<T: drop>(
         witness: T,
@@ -196,13 +196,14 @@ module kanari_system::coin {
 
 
     /// Update the icon URL for the given coin type. 
-/// Only the holder of the TreasuryCap can perform this action.
+    /// Only the holder of the TreasuryCap can perform this action.
     public fun update_icon_url<T>(
         _treasury: &TreasuryCap<T>,
         metadata: &mut CoinMetadata<T>,
         url: Option<Url>
     ) {
         metadata.icon_url = url;
+        kanari_system::object::save_object(metadata);
     }
 
     /// Update the name for the given coin type.
@@ -212,6 +213,7 @@ module kanari_system::coin {
         name: string::String
     ) {
         metadata.name = name;
+        kanari_system::object::save_object(metadata);
     }
 
     /// Update the symbol for the given coin type.
@@ -221,6 +223,7 @@ module kanari_system::coin {
         symbol: ascii::String
     ) {
         metadata.symbol = symbol;
+        kanari_system::object::save_object(metadata);
     }
 
     /// Update the description for the given coin type.
@@ -230,6 +233,7 @@ module kanari_system::coin {
         description: string::String
     ) {
         metadata.description = description;
+        kanari_system::object::save_object(metadata);
     }
     
     // --- Deprecated/Legacy functions ---

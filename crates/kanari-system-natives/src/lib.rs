@@ -5,6 +5,7 @@ use move_core_types::account_address::AccountAddress;
 use move_vm_runtime::native_functions::{NativeFunctionTable, make_table_from_iter};
 
 pub mod crypto;
+pub mod dynamic_field;
 pub mod event;
 mod helpers;
 pub mod math_calculate;
@@ -21,6 +22,7 @@ pub struct GasParameters {
     pub object: object::GasParameters,
     pub transfer: transfer_natives::GasParameters,
     pub tx_context: tx_context::GasParameters,
+    pub dynamic_field: dynamic_field::GasParameters,
 }
 
 impl GasParameters {
@@ -32,6 +34,7 @@ impl GasParameters {
             object: object::GasParameters::zeros(),
             transfer: transfer_natives::GasParameters::zeros(),
             tx_context: tx_context::GasParameters::zeros(),
+            dynamic_field: dynamic_field::GasParameters::zeros(),
         }
     }
 }
@@ -57,6 +60,14 @@ pub fn all_natives(move_addr: AccountAddress, gas_params: GasParameters) -> Nati
     add_module_natives!("object", object::make_all(gas_params.object));
     add_module_natives!("transfer", transfer_natives::make_all(gas_params.transfer));
     add_module_natives!("tx_context", tx_context::make_all(gas_params.tx_context));
+    add_module_natives!(
+        "dynamic_field",
+        dynamic_field::make_all(gas_params.dynamic_field.clone())
+    );
+    add_module_natives!(
+        "dynamic_object_field",
+        dynamic_field::make_all(gas_params.dynamic_field)
+    );
 
     make_table_from_iter(move_addr, natives)
 }

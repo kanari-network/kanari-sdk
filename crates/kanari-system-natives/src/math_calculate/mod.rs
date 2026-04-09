@@ -2,10 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::helpers::make_module_natives;
-use move_core_types::account_address::AccountAddress;
-use move_vm_runtime::native_functions::{
-    NativeFunction, NativeFunctionTable, make_table_from_iter,
-};
+use move_vm_runtime::native_functions::NativeFunction;
 use std::sync::Arc;
 
 pub mod math;
@@ -54,12 +51,4 @@ pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, Nati
         ("pow_u64", pow_u64),
         ("mul_div_u128", mul_div_u128),
     ])
-}
-
-pub fn all_natives(core_addr: AccountAddress) -> NativeFunctionTable {
-    make_table_from_iter(
-        core_addr,
-        make_all(GasParameters::zeros())
-            .map(|(func_name, func)| ("math".to_string(), func_name, func)),
-    )
 }

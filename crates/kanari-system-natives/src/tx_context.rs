@@ -5,9 +5,7 @@ use move_core_types::account_address::AccountAddress;
 use move_core_types::gas_algebra::{InternalGas, InternalGasPerByte, NumBytes};
 use move_vm_runtime::native_charge_gas_early_exit;
 use move_vm_runtime::native_functions::NativeContext;
-use move_vm_runtime::native_functions::{
-    NativeFunction, NativeFunctionTable, make_table_from_iter,
-};
+use move_vm_runtime::native_functions::NativeFunction;
 use move_vm_types::loaded_data::runtime_types::Type;
 use move_vm_types::natives::function::{NativeResult, PartialVMError, PartialVMResult};
 use move_vm_types::pop_arg;
@@ -47,14 +45,6 @@ pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, Nati
         native_derive_id(&derive_params, context, ty_args, args)
     });
     make_module_natives([("derive_id", derive_id)])
-}
-
-pub fn all_natives(move_addr: AccountAddress) -> NativeFunctionTable {
-    make_table_from_iter(
-        move_addr,
-        make_all(GasParameters::zeros())
-            .map(|(func_name, func)| ("tx_context".to_string(), func_name, func)),
-    )
 }
 
 fn native_derive_id(

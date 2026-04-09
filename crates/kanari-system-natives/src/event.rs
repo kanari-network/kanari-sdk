@@ -4,13 +4,10 @@
 // Native implementation for event emission capturing
 // via a Move native function `event::emit<T>(event: T)`
 use better_any::{Tid, TidAble};
-use move_core_types::account_address::AccountAddress;
 use move_core_types::gas_algebra::{InternalGas, InternalGasPerByte, NumBytes};
 use move_vm_runtime::native_charge_gas_early_exit;
 use move_vm_runtime::native_functions::NativeContext;
-use move_vm_runtime::native_functions::{
-    NativeFunction, NativeFunctionTable, make_table_from_iter,
-};
+use move_vm_runtime::native_functions::NativeFunction;
 use move_vm_types::loaded_data::runtime_types::Type;
 use move_vm_types::natives::function::NativeResult;
 use move_vm_types::natives::function::PartialVMError;
@@ -66,14 +63,6 @@ pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, Nati
     let emit: NativeFunction =
         Arc::new(move |context, ty_args, args| native_emit(&gas_params, context, ty_args, args));
     make_module_natives([("emit", emit)])
-}
-
-pub fn all_natives(move_addr: AccountAddress) -> NativeFunctionTable {
-    make_table_from_iter(
-        move_addr,
-        make_all(GasParameters::zeros())
-            .map(|(func_name, func)| ("event".to_string(), func_name, func)),
-    )
 }
 
 // native implementation for `event::emit<T: copy + drop>(event: T)`

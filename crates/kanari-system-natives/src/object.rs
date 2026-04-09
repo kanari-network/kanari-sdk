@@ -2,13 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use better_any::{Tid, TidAble};
-use move_core_types::account_address::AccountAddress;
 use move_core_types::gas_algebra::{InternalGas, InternalGasPerByte, NumBytes};
 use move_vm_runtime::native_charge_gas_early_exit;
 use move_vm_runtime::native_functions::NativeContext;
-use move_vm_runtime::native_functions::{
-    NativeFunction, NativeFunctionTable, make_table_from_iter,
-};
+use move_vm_runtime::native_functions::NativeFunction;
 use move_vm_types::natives::function::NativeResult;
 use move_vm_types::natives::function::PartialVMResult;
 use smallvec::smallvec;
@@ -100,14 +97,6 @@ impl DeletedObjectsExt {
     pub fn take_all(&mut self) -> Vec<DeletedObject> {
         std::mem::take(&mut self.objects)
     }
-}
-
-pub fn all_natives(move_addr: AccountAddress) -> NativeFunctionTable {
-    make_table_from_iter(
-        move_addr,
-        make_all(GasParameters::zeros())
-            .map(|(func_name, func)| ("object".to_string(), func_name, func)),
-    )
 }
 
 pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, NativeFunction)> {
@@ -222,6 +211,7 @@ fn native_save_object(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use move_core_types::account_address::AccountAddress;
     use move_vm_types::values::{Struct, Value};
 
     #[test]
