@@ -93,4 +93,19 @@ module james::james {
         let to_burn = coin::split(c, amount, ctx);
         let _burned = coin::burn(treasury_cap, to_burn);
     }
+
+    /// Update the icon URL of the JAMES token Metadata.
+    /// Only the holder of TreasuryCap can call this.
+    /// Usage: kanari move call --function update_icon --args <TreasuryCap_ID> <Metadata_ID> <new_url_bytes>
+    public entry fun update_icon(
+        treasury_cap: &TreasuryCap<JAMES>,
+        metadata: &mut coin::CoinMetadata<JAMES>,
+        new_url: vector<u8>,
+    ) {
+        // สร้าง Url object ใหม่จาก bytes ที่ส่งมา
+        let new_url_obj = url::new_unsafe_from_bytes(new_url);
+        
+        // ใช้ TreasuryCap เพื่อขอสิทธิ์อัปเดต icon_url ใน Metadata
+        coin::update_icon_url<JAMES>(treasury_cap, metadata, option::some(new_url_obj));
+    }
 }

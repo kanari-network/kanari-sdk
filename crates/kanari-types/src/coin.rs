@@ -170,6 +170,10 @@ impl CoinModule {
             join: "join",
             treasury_into_supply: "treasury_into_supply",
             into_balance: "into_balance",
+            update_icon_url: "update_icon_url",
+            update_name: "update_name",
+            update_description: "update_description",
+            update_symbol: "update_symbol",
         }
     }
 }
@@ -188,6 +192,10 @@ pub struct CoinFunctions {
     pub join: &'static str,
     pub treasury_into_supply: &'static str,
     pub into_balance: &'static str,
+    pub update_icon_url: &'static str,
+    pub update_name: &'static str,
+    pub update_description: &'static str,
+    pub update_symbol: &'static str,
 }
 
 #[cfg(test)]

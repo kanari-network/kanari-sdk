@@ -3,9 +3,11 @@
 
 module kanari_system::coin {
     use std::option;
+    use std::option::{Option};
     use std::string;
     use std::ascii;
     use kanari_system::url;
+    use kanari_system::url::{Url};
     use kanari_system::object;
     use kanari_system::balance::Balance;
     use kanari_system::tx_context::TxContext;
@@ -190,6 +192,44 @@ module kanari_system::coin {
         let Coin { id: _, balance } = other;
         kanari_system::balance::merge(&mut coin.balance, balance);
         object::save_object(coin);
+    }
+
+
+    /// Update the icon URL for the given coin type. 
+/// Only the holder of the TreasuryCap can perform this action.
+    public fun update_icon_url<T>(
+        _treasury: &TreasuryCap<T>,
+        metadata: &mut CoinMetadata<T>,
+        url: Option<Url>
+    ) {
+        metadata.icon_url = url;
+    }
+
+    /// Update the name for the given coin type.
+    public fun update_name<T>(
+        _treasury: &TreasuryCap<T>,
+        metadata: &mut CoinMetadata<T>,
+        name: string::String
+    ) {
+        metadata.name = name;
+    }
+
+    /// Update the symbol for the given coin type.
+    public fun update_symbol<T>(
+        _treasury: &TreasuryCap<T>,
+        metadata: &mut CoinMetadata<T>,
+        symbol: ascii::String
+    ) {
+        metadata.symbol = symbol;
+    }
+
+    /// Update the description for the given coin type.
+    public fun update_description<T>(
+        _treasury: &TreasuryCap<T>,
+        metadata: &mut CoinMetadata<T>,
+        description: string::String
+    ) {
+        metadata.description = description;
     }
     
     // --- Deprecated/Legacy functions ---
