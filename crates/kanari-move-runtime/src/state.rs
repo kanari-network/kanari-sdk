@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::changeset::{ChangeSet, CreatedObject};
+use crate::storage::object_storage::StoredObject;
 use crate::storage::persistent_store::PersistentStore;
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
@@ -564,7 +565,7 @@ impl StateManager {
 
         for obj_id in &changeset.deleted_objects {
             let obj_key = Self::object_key(obj_id);
-            if let Some(existing) = self.load_internal::<CreatedObject>(&obj_key)? {
+            if let Some(existing) = self.load_internal::<StoredObject>(&obj_key)? {
                 owners_to_recompute.insert(existing.owner);
                 let owner_key = Self::owned_objects_key(&existing.owner);
                 let mut owned: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
@@ -617,7 +618,7 @@ impl StateManager {
             let obj_key = Self::object_key(obj_id);
             let mut new_obj = created.clone();
 
-            if let Ok(Some(existing)) = self.load_internal::<CreatedObject>(&obj_key) {
+            if let Ok(Some(existing)) = self.load_internal::<StoredObject>(&obj_key) {
                 owners_to_recompute.insert(existing.owner);
                 new_obj.version = existing.version + 1;
                 if new_obj.owner.to_hex_literal() == *obj_id {
@@ -635,7 +636,14 @@ impl StateManager {
             }
             owners_to_recompute.insert(new_obj.owner);
 
-            self.save_internal(&obj_key, &new_obj)?;
+            let stored_obj = StoredObject {
+                id: obj_id.clone(),
+                owner: new_obj.owner,
+                type_name: new_obj.type_.clone(),
+                data: new_obj.data.clone(),
+                version: new_obj.version,
+            };
+            self.save_internal(&obj_key, &stored_obj)?;
 
             let owner_key = Self::owned_objects_key(&new_obj.owner);
             let mut owned: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
@@ -657,14 +665,19 @@ impl StateManager {
                 struct MoveUrl {
                     inner: MoveString,
                 }
+
+                #[derive(Deserialize)]
+                struct MoveOption<T> {
+                    vec: Vec<T>,
+                }
                 #[derive(Deserialize)]
                 struct ParsedCoinMetadata {
                     _id: AccountAddress,
                     decimals: u8,
-                    name: MoveString,
                     symbol: MoveString,
+                    name: MoveString,
                     description: MoveString,
-                    icon_url: Option<MoveUrl>,
+                    icon_url: MoveOption<MoveUrl>,
                 }
 
                 if let Ok(meta) = bcs::from_bytes::<ParsedCoinMetadata>(&new_obj.data) {
@@ -690,7 +703,7 @@ impl StateManager {
                         let _ = self.save_internal(&key_desc, &description);
                     }
 
-                    if let Some(url_obj) = meta.icon_url
+                    if let Some(url_obj) = meta.icon_url.vec.into_iter().next()
                         && let Ok(url) = String::from_utf8(url_obj.inner.bytes)
                     {
                         let mut key_url = b"metadata_icon_url:".to_vec();
@@ -701,7 +714,7 @@ impl StateManager {
                     let decimals = new_obj.data[32];
                     let mut key = b"metadata_decimals:".to_vec();
                     key.extend_from_slice(token_type.as_bytes());
-                    self.save_internal(&key, &decimals)?;
+                    let _ = self.save_internal(&key, &decimals);
                 }
             }
         }
@@ -751,10 +764,18 @@ impl StateManager {
     /// Get a specific object by ID
     pub fn get_object(&self, object_id: &str) -> Result<Option<CreatedObject>> {
         let obj_key = Self::object_key(object_id);
-        self.load_internal(&obj_key)
+        if let Some(stored) = self.load_internal::<StoredObject>(&obj_key)? {
+            return Ok(Some(CreatedObject {
+                owner: stored.owner,
+                uid: None,
+                type_: stored.type_name,
+                data: stored.data,
+                version: stored.version,
+            }));
+        }
+        Ok(None)
     }
 
-    /// Compute the state root hash using SMT
     pub fn compute_state_root(&self) -> Vec<u8> {
         // If SMT is available, use it to compute state root
         if let Some(smt) = &self.smt {

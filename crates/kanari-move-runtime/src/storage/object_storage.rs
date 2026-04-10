@@ -452,12 +452,12 @@ impl ObjectStorage {
             }
         }
 
-        if let Some(store) = &self.persistent {
-            if let Ok(Some(val)) = store.load::<Vec<u8>>(key.as_bytes()) {
-                let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
-                state.dynamic_fields.insert(key, val.clone());
-                return Some(val);
-            }
+        if let Some(store) = &self.persistent
+            && let Ok(Some(val)) = store.load::<Vec<u8>>(key.as_bytes())
+        {
+            let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+            state.dynamic_fields.insert(key, val.clone());
+            return Some(val);
         }
 
         None

@@ -35,7 +35,8 @@ use std::sync::{Arc, RwLock};
 
 #[derive(Clone)]
 pub struct MoveRuntime {
-    pub(crate) vm: Arc<MoveVM>,
+    pub(crate) vm: Arc<RwLock<MoveVM>>,
+    pub(crate) all_natives: Arc<NativeFunctionTable>,
     pub(crate) resolver: KanariMoveResolver,
     pub(crate) state: MoveVMState,
     pub(crate) published_modules: Arc<RwLock<HashSet<ModuleId>>>,
@@ -81,12 +82,12 @@ impl MoveRuntime {
     }
 
     fn new_internal(natives: Vec<NativeFunctionTable>, state: MoveVMState) -> Result<Self> {
-        let all_natives: Vec<_> = natives
+        let all_natives: NativeFunctionTable = natives
             .into_iter()
             .flat_map(|table| table.into_iter())
             .collect();
 
-        let vm = MoveVM::new(all_natives)
+        let vm = MoveVM::new(all_natives.clone())
             .map_err(|e| anyhow::anyhow!(format!("VM init error: {:?}", e)))?;
 
         let object_storage: Arc<dyn ObjectStore> = if cfg!(miri) {
@@ -113,7 +114,8 @@ impl MoveRuntime {
             .collect();
 
         Ok(MoveRuntime {
-            vm: Arc::new(vm),
+            vm: Arc::new(RwLock::new(vm)),
+            all_natives: Arc::new(all_natives),
             resolver,
             state,
             published_modules: Arc::new(RwLock::new(published_modules)),
@@ -152,21 +154,28 @@ impl MoveRuntime {
     }
 
     pub fn spawn_worker(&self) -> Result<Self> {
-        let natives = Self::get_kanari_natives_list();
-        let all_natives: Vec<_> = natives
-            .into_iter()
-            .flat_map(|table| table.into_iter())
-            .collect();
-        let vm = MoveVM::new(all_natives)
+        let vm = MoveVM::new(self.all_natives.as_ref().clone())
             .map_err(|e| anyhow::anyhow!("Worker VM init error: {:?}", e))?;
 
         Ok(MoveRuntime {
-            vm: Arc::new(vm),
+            vm: Arc::new(RwLock::new(vm)),
+            all_natives: self.all_natives.clone(),
             resolver: self.resolver.clone(),
             state: self.state.clone(),
             published_modules: self.published_modules.clone(),
             object_storage: self.object_storage.clone(),
         })
+    }
+
+    // 🟢 สร้างฟังก์ชันใหม่สำหรับ Hot-Reload
+    pub fn reload_vm_cache(&self) -> Result<()> {
+        let new_vm = MoveVM::new(self.all_natives.as_ref().clone())
+            .map_err(|e| anyhow::anyhow!("Failed to reload MoveVM: {:?}", e))?;
+
+        // เขียนทับ MoveVM ตัวเดิมด้วยตัวใหม่ที่เพิ่งสร้าง Cache จะโดนล้างทั้งหมด
+        *self.vm.write().unwrap() = new_vm;
+        log::info!("[RUNTIME] MoveVM cache cleared (Hot-Reload successful)");
+        Ok(())
     }
 
     pub(crate) fn apply_move_changeset(
@@ -229,7 +238,9 @@ impl MoveRuntime {
         let module_id = compiled.self_id();
 
         let (move_changeset, events) = {
-            let mut session = self.vm.new_session(self.resolver.clone());
+            // 🟢 แยกการ Lock ออกมาเก็บในตัวแปรก่อน เพื่อไม่ให้มันถูกทำลายทิ้งทันที
+            let vm_guard = self.vm.read().unwrap();
+            let mut session = vm_guard.new_session(self.resolver.clone());
 
             let provided_gas_limit = gas_info.map(|(limit, _)| limit).unwrap_or(1_000_000);
             let mut metered_gas = crate::kanari_gas_meter::KanariGasMeter::new(provided_gas_limit);
@@ -243,6 +254,9 @@ impl MoveRuntime {
 
         if persist_runtime_state {
             self.apply_move_changeset(move_changeset.clone())?;
+
+            // 🟢 ทำการ Hot-Reload ล้าง Cache ทันทีที่ Publish เสร็จ!
+            self.reload_vm_cache()?;
         }
 
         let mut cs = ChangeSet::new();
@@ -624,7 +638,8 @@ impl MoveRuntime {
             bypass_entry_check,
         } = options;
 
-        let mut session = self.vm.new_session(self.resolver.clone());
+        let vm_guard = self.vm.read().unwrap();
+        let mut session = vm_guard.new_session(self.resolver.clone());
 
         let mut auto_merged_coin_ids = Vec::new();
         let mut merged_coin_types = std::collections::HashSet::new();
@@ -792,7 +807,6 @@ impl MoveRuntime {
         exts.add(DeletedObjectsExt::default());
         exts.add(DynamicFieldsExt::default());
 
-        // 🚨 ใช้งาน KanariGasMeter ป้องกัน Infinite Loop อย่างสมบูรณ์
         let execution_result = if bypass_entry_check {
             let mut unmetered_gas = UnmeteredGasMeter;
             session.execute_function_bypass_visibility(

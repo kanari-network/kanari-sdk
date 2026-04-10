@@ -195,15 +195,18 @@ module kanari_system::coin {
     }
 
 
+    // ==========================================
+    // 🟢 Functions to update CoinMetadata
+    // ==========================================
+
     /// Update the icon URL for the given coin type. 
     /// Only the holder of the TreasuryCap can perform this action.
     public fun update_icon_url<T>(
         _treasury: &TreasuryCap<T>,
         metadata: &mut CoinMetadata<T>,
-        url: Option<Url>
+        url: option::Option<url::Url>
     ) {
         metadata.icon_url = url;
-        kanari_system::object::save_object(metadata);
     }
 
     /// Update the name for the given coin type.
@@ -213,7 +216,6 @@ module kanari_system::coin {
         name: string::String
     ) {
         metadata.name = name;
-        kanari_system::object::save_object(metadata);
     }
 
     /// Update the symbol for the given coin type.
@@ -223,7 +225,6 @@ module kanari_system::coin {
         symbol: ascii::String
     ) {
         metadata.symbol = symbol;
-        kanari_system::object::save_object(metadata);
     }
 
     /// Update the description for the given coin type.
@@ -233,7 +234,6 @@ module kanari_system::coin {
         description: string::String
     ) {
         metadata.description = description;
-        kanari_system::object::save_object(metadata);
     }
     
     // --- Deprecated/Legacy functions ---

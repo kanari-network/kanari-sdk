@@ -7,6 +7,9 @@ module james::thb {
     use std::option;
     use kanari_system::transfer;
     use kanari_system::url;
+
+    use std::string;
+    use std::ascii;
     
     /// Name of the coin
     struct THB has drop {}
@@ -83,7 +86,7 @@ module james::thb {
     }
 
 
-/// Burn a specific `amount` of THB from a mutable Coin held by the caller
+    /// Burn a specific `amount` of THB from a mutable Coin held by the caller
     /// Usage: provide the TreasuryCap, a mutable coin owned by caller, amount to burn, and tx context
     public entry fun burn_amount(
     treasury_cap: &mut TreasuryCap<THB>,
@@ -93,5 +96,49 @@ module james::thb {
     ) {
         let to_burn = coin::split(c, amount, ctx);
         let _burned = coin::burn(treasury_cap, to_burn);
+    }
+
+    // ==========================================
+    // 🟢 Entry wrappers for CLI calling
+    // ==========================================
+
+    /// Usage: kanari move call --function update_icon --args <TreasuryCap_ID> <Metadata_ID> "https://..."
+    public entry fun update_icon(
+        treasury_cap: &TreasuryCap<THB>,
+        metadata: &mut coin::CoinMetadata<THB>,
+        new_url: vector<u8>,
+    ) {
+        let new_url_obj = url::new_unsafe_from_bytes(new_url);
+        coin::update_icon_url<THB>(treasury_cap, metadata, option::some(new_url_obj));
+    }
+
+    /// Usage: kanari move call --function update_name --args <TreasuryCap_ID> <Metadata_ID> "Thai Baht"
+    public entry fun update_name(
+        treasury_cap: &TreasuryCap<THB>,
+        metadata: &mut coin::CoinMetadata<THB>,
+        new_name: vector<u8>,
+    ) {
+        let name_str = string::utf8(new_name);
+        coin::update_name<THB>(treasury_cap, metadata, name_str);
+    }
+
+    /// Usage: kanari move call --function update_symbol --args <TreasuryCap_ID> <Metadata_ID> "THB"
+    public entry fun update_symbol(
+        treasury_cap: &TreasuryCap<THB>,
+        metadata: &mut coin::CoinMetadata<THB>,
+        new_symbol: vector<u8>,
+    ) {
+        let symbol_str = ascii::string(new_symbol);
+        coin::update_symbol<THB>(treasury_cap, metadata, symbol_str);
+    }
+
+    /// Usage: kanari move call --function update_description --args <TreasuryCap_ID> <Metadata_ID> "My new THB description"
+    public entry fun update_description(
+        treasury_cap: &TreasuryCap<THB>,
+        metadata: &mut coin::CoinMetadata<THB>,
+        new_description: vector<u8>,
+    ) {
+        let desc_str = string::utf8(new_description);
+        coin::update_description<THB>(treasury_cap, metadata, desc_str);
     }
 }
