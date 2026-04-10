@@ -4,6 +4,7 @@
 use crate::changeset::{ChangeSet, CreatedObject};
 use crate::storage::persistent_store::PersistentStore;
 use anyhow::Result;
+use kanari_crypto::hash_data_blake3;
 use kanari_types::balance::BalanceModule;
 use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::{CoinModule, TreasuryCap};
@@ -93,14 +94,14 @@ pub struct StateManager {
 }
 
 impl StateManager {
-    /// ดึงรายการ Collection IDs ทั้งหมดจาก Index
+    /// Retrieves all Collection IDs from the index
     pub fn get_all_collection_ids(&self) -> Vec<String> {
         self.load_internal::<Vec<String>>(b"nft_collection_index")
             .unwrap_or(None)
             .unwrap_or_default()
     }
 
-    /// ดึงรายการ NFT IDs ใน Collection นั้นๆ จาก Index
+    /// Retrieves NFT IDs for the specified collection from the index
     pub fn get_collection_nft_ids(&self, collection_id: &str) -> Vec<String> {
         let mut key = b"collection_members:".to_vec();
         key.extend_from_slice(collection_id.as_bytes());
@@ -414,6 +415,16 @@ impl StateManager {
         key
     }
 
+    // helper for generating DB keys for Dynamic Fields
+    fn dynamic_field_key(object_id: &str, name_bytes: &[u8]) -> Vec<u8> {
+        let hash = hash_data_blake3(name_bytes);
+        let mut key = b"df:".to_vec();
+        key.extend_from_slice(object_id.as_bytes());
+        key.extend_from_slice(b":");
+        key.extend_from_slice(hex::encode(&hash[0..16]).as_bytes());
+        key
+    }
+
     pub fn get_system_clock_object_id(&self) -> Result<Option<AccountAddress>> {
         let bytes_opt: Option<Vec<u8>> = self.load_internal(SYSTEM_CLOCK_OBJECT_ID_KEY)?;
         match bytes_opt {
@@ -704,6 +715,20 @@ impl StateManager {
         if supplies_dirty {
             let supplies_clone = self.global_token_supplies.clone();
             self.save_internal(b"global_token_supplies", &supplies_clone)?;
+        }
+
+        // =====================================================================
+        // Process Dynamic Fields into State Overlay.
+        // =====================================================================
+        for (object_id, name_bytes, value_bytes) in &changeset.added_dynamic_fields {
+            let df_key = Self::dynamic_field_key(object_id, name_bytes);
+            self.save_internal(&df_key, value_bytes)?;
+        }
+
+        for (object_id, name_bytes) in &changeset.removed_dynamic_fields {
+            let df_key = Self::dynamic_field_key(object_id, name_bytes);
+            // บันทึกเป็น None เพื่อให้ฟังก์ชัน commit() ลบมันออกจาก RocksDB
+            self.overlay.insert(df_key, None);
         }
 
         Ok(())

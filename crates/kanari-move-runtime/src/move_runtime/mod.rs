@@ -780,6 +780,7 @@ impl MoveRuntime {
             }
         }
 
+        use kanari_system_natives::dynamic_field::DynamicFieldsExt;
         use kanari_system_natives::event::EventsExt;
         use kanari_system_natives::object::{DeletedObjectsExt, SavedObjectsExt};
         use kanari_system_natives::transfer_natives::TransferredObjectsExt;
@@ -789,6 +790,7 @@ impl MoveRuntime {
         exts.add(EventsExt::default());
         exts.add(SavedObjectsExt::default());
         exts.add(DeletedObjectsExt::default());
+        exts.add(DynamicFieldsExt::default());
 
         // 🚨 ใช้งาน KanariGasMeter ป้องกัน Infinite Loop อย่างสมบูรณ์
         let execution_result = if bypass_entry_check {
@@ -816,13 +818,20 @@ impl MoveRuntime {
 
         match execution_result {
             Ok(return_values) => {
-                let (transferred, captured_events, saved_objects, deleted_objects) = {
+                let (
+                    transferred,
+                    captured_events,
+                    saved_objects,
+                    deleted_objects,
+                    dynamic_fields_ops,
+                ) = {
                     let exts_after = session.get_native_extensions();
                     (
                         exts_after.get_mut::<TransferredObjectsExt>().take_all(),
                         exts_after.get_mut::<EventsExt>().take_all(),
                         exts_after.get_mut::<SavedObjectsExt>().take_all(),
                         exts_after.get_mut::<DeletedObjectsExt>().take_all(),
+                        exts_after.get_mut::<DynamicFieldsExt>().take_all(),
                     )
                 };
 
@@ -933,7 +942,24 @@ impl MoveRuntime {
                     });
                 }
 
-                // (หมายเหตุ: ลบลูปของ loaded_by_value_objects ออกจากตรงนี้แล้ว)
+                for op in dynamic_fields_ops {
+                    match op {
+                        kanari_system_natives::dynamic_field::DynamicFieldOp::Add {
+                            object_id,
+                            name_bytes,
+                            value_bytes,
+                        } => {
+                            cs.added_dynamic_fields
+                                .push((object_id, name_bytes, value_bytes));
+                        }
+                        kanari_system_natives::dynamic_field::DynamicFieldOp::Remove {
+                            object_id,
+                            name_bytes,
+                        } => {
+                            cs.removed_dynamic_fields.push((object_id, name_bytes));
+                        }
+                    }
+                }
 
                 if let Some((gas_limit, gas_price)) = gas_info {
                     let complexity = 1 + (total_merge_reads as u32 / 10);

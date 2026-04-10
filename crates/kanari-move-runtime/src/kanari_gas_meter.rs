@@ -21,7 +21,7 @@ impl KanariGasMeter {
         }
     }
 
-    /// ฟังก์ชันหลักสำหรับหักโควต้าการทำงาน
+    /// Main function for deducting execution quota
     #[inline]
     pub fn charge_step(&mut self, amount: u64) -> PartialVMResult<()> {
         self.steps_used = self.steps_used.saturating_add(amount);
@@ -38,7 +38,7 @@ impl KanariGasMeter {
 const NATIVE_FUNCTION_BASE_COST: u64 = 10;
 
 // ==============================================================================
-// การ Implement GasMeter Trait (อัปเดตสำหรับ Move VM ล่าสุด)
+// GasMeter Trait Implementation (Updated for latest Move VM)
 // ==============================================================================
 
 impl GasMeter for KanariGasMeter {

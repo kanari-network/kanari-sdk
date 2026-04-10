@@ -78,6 +78,10 @@ pub struct ChangeSet {
     pub created_objects: Vec<(String, CreatedObject)>,
     /// Objects deleted during execution. Each entry is object_id
     pub deleted_objects: Vec<String>,
+    /// (object_id, name_bytes, value_bytes)
+    pub added_dynamic_fields: Vec<(String, Vec<u8>, Vec<u8>)>,
+    /// (object_id, name_bytes)
+    pub removed_dynamic_fields: Vec<(String, Vec<u8>)>,
     pub gas_used: u64,
     pub success: bool,
     pub error_message: Option<String>,
@@ -93,6 +97,8 @@ impl ChangeSet {
             token_balance_sets: Vec::new(),
             created_objects: Vec::new(),
             deleted_objects: Vec::new(),
+            added_dynamic_fields: Vec::new(),
+            removed_dynamic_fields: Vec::new(),
             gas_used: 0,
             success: true,
             error_message: None,
@@ -108,6 +114,8 @@ impl ChangeSet {
             token_balance_sets: Vec::new(),
             created_objects: Vec::new(),
             deleted_objects: Vec::new(),
+            added_dynamic_fields: Vec::new(),
+            removed_dynamic_fields: Vec::new(),
             gas_used,
             success: true,
             error_message: None,
@@ -123,6 +131,8 @@ impl ChangeSet {
             token_balance_sets: Vec::new(),
             created_objects: Vec::new(),
             deleted_objects: Vec::new(),
+            added_dynamic_fields: Vec::new(),
+            removed_dynamic_fields: Vec::new(),
             gas_used,
             success: false,
             error_message: Some(error),
@@ -186,6 +196,8 @@ impl ChangeSet {
             && self.token_balance_sets.is_empty()
             && self.created_objects.is_empty()
             && self.deleted_objects.is_empty()
+            && self.added_dynamic_fields.is_empty()
+            && self.removed_dynamic_fields.is_empty()
             && self.gas_used == 0
             && self.success
             && self.error_message.is_none()
@@ -198,7 +210,7 @@ impl ChangeSet {
     /// Merge another ChangeSet into this one
     /// Used to combine Move VM changes with gas/sequence changes
     /// Token balance sets are consolidated to prevent duplicates
-    pub fn merge(&mut self, other: ChangeSet) {
+    pub fn merge(&mut self, mut other: ChangeSet) {
         for (addr, other_change) in other.account_changes {
             let existing = self.get_or_create_change(addr);
             existing.balance_delta += other_change.balance_delta;
@@ -220,6 +232,12 @@ impl ChangeSet {
 
         self.created_objects.extend(other.created_objects);
         self.deleted_objects.extend(other.deleted_objects);
+
+        self.added_dynamic_fields
+            .append(&mut other.added_dynamic_fields);
+        self.removed_dynamic_fields
+            .append(&mut other.removed_dynamic_fields);
+
         self.gas_used += other.gas_used;
         if !other.success {
             self.success = false;

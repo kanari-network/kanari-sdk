@@ -3,13 +3,19 @@
 
 use crate::storage::persistent_store::{PersistentStore, PersistentStoreError};
 use anyhow::Result;
-/// Object Storage Layer for persistent object tracking
-/// Stores transferred objects that can be queried and used as function arguments
+use kanari_crypto::hash_data_blake3;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::TypeTag;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
+
+/// Create a unique key for a dynamic field in RocksDB
+/// Format: df_{object_id}_{hash(name_bytes)}
+pub fn derive_dynamic_field_key(object_id: &str, name_bytes: &[u8]) -> String {
+    let hash = hash_data_blake3(name_bytes);
+    format!("df_{}_{}", object_id, hex::encode(&hash[0..16]))
+}
 
 /// Error types that can occur during `ObjectStorage` operations.
 #[derive(Debug)]
@@ -92,6 +98,16 @@ pub trait ObjectStore: Send + Sync {
         owner: AccountAddress,
         coin_type: &TypeTag,
     ) -> Vec<StoredObject>;
+
+    // --- 🟢 Dynamic Field Methods ---
+    fn put_dynamic_field(
+        &self,
+        object_id: &str,
+        name_bytes: &[u8],
+        value_bytes: &[u8],
+    ) -> Result<()>;
+    fn get_dynamic_field(&self, object_id: &str, name_bytes: &[u8]) -> Option<Vec<u8>>;
+    fn remove_dynamic_field(&self, object_id: &str, name_bytes: &[u8]) -> Result<()>;
 }
 
 /// Stored object with metadata
@@ -106,7 +122,7 @@ pub struct StoredObject {
 
 struct InnerState {
     objects: BTreeMap<String, StoredObject>,
-    // 🚨 ลบ owner_index ออกจาก Memory เพื่อแก้ปัญหา RAM บวม
+    dynamic_fields: BTreeMap<String, Vec<u8>>,
 }
 
 pub struct ObjectStorage {
@@ -128,6 +144,7 @@ impl ObjectStorage {
         Self {
             state: Arc::new(RwLock::new(InnerState {
                 objects: BTreeMap::new(),
+                dynamic_fields: BTreeMap::new(),
             })),
             persistent: None,
         }
@@ -187,6 +204,7 @@ impl ObjectStorage {
         Ok(Self {
             state: Arc::new(RwLock::new(InnerState {
                 objects: objects_map,
+                dynamic_fields: BTreeMap::new(),
             })),
             persistent: Some(store),
         })
@@ -391,12 +409,79 @@ impl ObjectStorage {
     pub fn clear(&self) -> Result<(), ObjectStorageError> {
         let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
         state.objects.clear();
+        state.dynamic_fields.clear(); // Clear Cache
+        Ok(())
+    }
+
+    // =====================================================================
+    // 🟢 Dynamic Field Implementations
+    // =====================================================================
+
+    pub fn put_dynamic_field(
+        &self,
+        object_id: &str,
+        name_bytes: &[u8],
+        value_bytes: &[u8],
+    ) -> Result<()> {
+        let key = derive_dynamic_field_key(object_id, name_bytes);
+
+        {
+            let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+            state
+                .dynamic_fields
+                .insert(key.clone(), value_bytes.to_vec());
+        }
+
+        if let Some(store) = &self.persistent {
+            // ใช้ load/save แบบอัดเวกเตอร์เพื่อให้ผ่าน BCS ของ PersistentStore ได้
+            store
+                .save(key.as_bytes(), &value_bytes.to_vec())
+                .map_err(|e| anyhow::anyhow!("RocksDB Error (put_dynamic_field): {}", e))?;
+        }
+
+        Ok(())
+    }
+
+    pub fn get_dynamic_field(&self, object_id: &str, name_bytes: &[u8]) -> Option<Vec<u8>> {
+        let key = derive_dynamic_field_key(object_id, name_bytes);
+
+        {
+            let state = self.state.read().unwrap_or_else(|e| e.into_inner());
+            if let Some(val) = state.dynamic_fields.get(&key) {
+                return Some(val.clone());
+            }
+        }
+
+        if let Some(store) = &self.persistent {
+            if let Ok(Some(val)) = store.load::<Vec<u8>>(key.as_bytes()) {
+                let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+                state.dynamic_fields.insert(key, val.clone());
+                return Some(val);
+            }
+        }
+
+        None
+    }
+
+    pub fn remove_dynamic_field(&self, object_id: &str, name_bytes: &[u8]) -> Result<()> {
+        let key = derive_dynamic_field_key(object_id, name_bytes);
+
+        {
+            let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+            state.dynamic_fields.remove(&key);
+        }
+
+        if let Some(store) = &self.persistent {
+            store
+                .delete(key.as_bytes())
+                .map_err(|e| anyhow::anyhow!("RocksDB Error (remove_dynamic_field): {}", e))?;
+        }
+
         Ok(())
     }
 }
 
-// Implement the ObjectStore trait for the in-memory ObjectStorage so it can
-// be used as a boxed trait object by the runtime.
+// Implement the ObjectStore trait for the in-memory ObjectStorage
 impl ObjectStore for ObjectStorage {
     fn store_object(&self, obj: StoredObject) -> Result<(), ObjectStorageError> {
         ObjectStorage::store_object(self, obj)
@@ -436,5 +521,23 @@ impl ObjectStore for ObjectStorage {
         coin_type: &TypeTag,
     ) -> Vec<StoredObject> {
         ObjectStorage::get_coins_by_type_and_owner(self, owner, coin_type)
+    }
+
+    // Dynamic Field methods
+    fn put_dynamic_field(
+        &self,
+        object_id: &str,
+        name_bytes: &[u8],
+        value_bytes: &[u8],
+    ) -> Result<()> {
+        ObjectStorage::put_dynamic_field(self, object_id, name_bytes, value_bytes)
+    }
+
+    fn get_dynamic_field(&self, object_id: &str, name_bytes: &[u8]) -> Option<Vec<u8>> {
+        ObjectStorage::get_dynamic_field(self, object_id, name_bytes)
+    }
+
+    fn remove_dynamic_field(&self, object_id: &str, name_bytes: &[u8]) -> Result<()> {
+        ObjectStorage::remove_dynamic_field(self, object_id, name_bytes)
     }
 }
