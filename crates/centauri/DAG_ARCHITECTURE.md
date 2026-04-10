@@ -1,10 +1,67 @@
-# DAG Consensus Architecture Diagram
+# DAG Consensus Architecture
 
-## System Overview
+Real-time transaction network architecture for Kanari System.
+
+## What is this?
+
+This document explains how Kanari achieves **instant execution** and **sub-second finality** using DAG-based consensus.
+
+Kanari is designed for:
+
+- Instant in-game payments (UID top-up)
+- Real-time asset trading
+- Game economy systems with verifiable state
+
+Transactions execute instantly (~10 ms) and finalize securely within ~300 ms.
+
+## Why DAG Consensus?
+
+Traditional blockchain consensus:
+
+- ❌ Sequential block production (slow)
+- ❌ Single leader bottleneck
+- ❌ High latency (seconds to minutes)
+
+Kanari's DAG approach:
+
+- ✅ Parallel vertex creation (multiple authorities)
+- ✅ No single point of failure
+- ✅ Sub-second finality (~300ms)
+- ✅ High throughput (10,000+ TPS)
+
+---
+
+## How it works
+
+### Simple Flow
+
+1. Transaction is submitted
+2. Executed instantly by a small node set (~10 ms)
+3. Propagated across the network (DAG)
+4. Finalized by Byzantine quorum (~300 ms)
+
+Result:
+
+- Instant user experience
+- Strong consistency
+- Verifiable state
+
+### Example: In-game payment
+
+1. Player enters UID
+2. Payment is submitted
+3. Balance updates instantly
+4. Transaction is finalized within 300 ms
+
+No waiting. No gas fees.
+
+---
+
+## Architecture Overview
 
 ```rust
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Kanari Blockchain                        │
+│                        Kanari Network                           │
 │                                                                 │
 │                      ┌──────────────┐                           │
 │                      │   DAG Mode   │                           │

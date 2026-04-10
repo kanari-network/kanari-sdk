@@ -1,65 +1,58 @@
-# Kanari Core
+# Kanari Architecture
 
-Core blockchain engine and consensus implementation for Kanari Network.
+Real-time transaction network for in-game payments and asset systems.
 
-## Features
+## What is Kanari?
 
-### 🔗 DAG-Based Blockchain
+Kanari is a real-time transaction network designed for game economies.
 
-- **DAG Mode**: High-throughput DAG-based consensus (Narwhal & Bullshark)
-- Parallel transaction processing
-- Byzantine fault tolerance
+It allows developers to build:
 
-### ⚡ High Performance
+- Instant in-game payments (UID top-up)
+- Real-time asset trading
+- Game economy systems
 
-- **10,000+ TPS** throughput in DAG mode
-- **100-500ms** latency
-- Parallel transaction execution
-- Multi-core CPU utilization
+Transactions execute instantly (~10 ms) and finalize securely within ~300 ms.
 
-### 🛡️ Byzantine Fault Tolerance
+## Why Kanari?
 
-- Tolerates f = (n-1)/3 Byzantine failures
-- 2f+1 quorum requirements
-- Signature verification on all transactions
-- Proven consensus algorithms
+Traditional systems:
 
-### 🔧 Move VM Integration
+- ❌ Slow settlement (seconds)
+- ❌ Complex backend
+- ❌ No verifiable state
 
-- Execute Move smart contracts
-- Parallel execution for non-conflicting transactions
-- Gas metering and limits
-- State management with Sparse Merkle Trees
+Kanari:
 
-## Architecture
+- ✅ Instant execution
+- ✅ Sub-second finality
+- ✅ No gas fees
+- ✅ Simple integration
 
-```rust
-┌─────────────────────────────────────────┐
-│       Application Layer                 │
-│  (Move VM, Smart Contracts, TXs)        │
-└──────────────┬──────────────────────────┘
-               │
-┌──────────────▼──────────────────────────┐
-│       Execution Layer                   │
-│  • DagEngine / BlockchainEngine         │
-│  • Parallel TX execution                │
-│  • State management                     │
-└──────────────┬──────────────────────────┘
-               │
-┌──────────────▼──────────────────────────┐
-│       Consensus Layer                   │
-│  • DagConsensus (Bullshark)             │
-│  • Leader election                      │
-│  • Checkpoint creation                  │
-└──────────────┬──────────────────────────┘
-               │
-┌──────────────▼──────────────────────────┐
-│       Data Availability Layer            │
-│  • DagStore                              │
-│  • Vertex storage & indexing             │
-│  • Merkle proofs                         │
-└──────────────────────────────────────────┘
-```
+---
+
+## How it works
+
+1. Transaction is submitted
+2. Executed instantly by a small node set (~10 ms)
+3. Propagated across the network (DAG)
+4. Finalized by Byzantine quorum (~300 ms)
+
+Result:
+
+- Instant user experience
+- Strong consistency
+
+## Example: In-game payment
+
+1. Player enters UID
+2. Payment is submitted
+3. Balance updates instantly
+4. Transaction is finalized within 300 ms
+
+No waiting. No gas fees.
+
+---
 
 ## Quick Start
 
@@ -99,6 +92,69 @@ if let Some(checkpoint) = dag_info.checkpoint {
 }
 ```
 
+---
+
+## Features
+
+### 🔗 DAG-Based Network
+
+- **DAG Mode**: High-throughput DAG-based consensus (Narwhal & Bullshark)
+- Parallel transaction processing
+- Byzantine fault tolerance
+
+### ⚡ High Performance
+
+- **10,000+ TPS** throughput in DAG mode
+- **100-500ms** latency
+- Parallel transaction execution
+- Multi-core CPU utilization
+
+### 🛡️ Byzantine Fault Tolerance
+
+- Tolerates f = (n-1)/3 Byzantine failures
+- 2f+1 quorum requirements
+- Signature verification on all transactions
+- Proven consensus algorithms
+
+### 🔧 Move VM Integration
+
+- Execute Move smart contracts
+- Parallel execution for non-conflicting transactions
+- Gas metering and limits
+- State management with Sparse Merkle Trees
+
+---
+
+## Architecture
+
+```rust
+┌─────────────────────────────────────────┐
+│       Application Layer                 │
+│  (Move VM, Smart Contracts, TXs)        │
+└──────────────┬──────────────────────────┘
+               │
+┌──────────────▼──────────────────────────┐
+│       Execution Layer                   │
+│  • DagEngine / BlockchainEngine         │
+│  • Parallel TX execution                │
+│  • State management                     │
+└──────────────┬──────────────────────────┘
+               │
+┌──────────────▼──────────────────────────┐
+│       Consensus Layer                   │
+│  • DagConsensus (Bullshark)             │
+│  • Leader election                      │
+│  • Checkpoint creation                  │
+└──────────────┬──────────────────────────┘
+               │
+┌──────────────▼──────────────────────────┐
+│       Data Availability Layer            │
+│  • DagStore                              │
+│  • Vertex storage & indexing             │
+│  • Merkle proofs                         │
+└──────────────────────────────────────────┘
+```
+
 ## Modules
 
 ### blockchain
@@ -119,6 +175,8 @@ Blockchain execution engine:
 - `DagEngine` - DAG consensus engine
 - `produce_vertex()` - DAG vertex production
 - Parallel transaction execution
+
+---
 
 ## Performance
 
@@ -150,6 +208,8 @@ Implements Narwhal & Bullshark consensus protocol:
 - Parallel transaction execution
 - Per-sender sequence enforcement
 - State management with snapshots
+
+---
 
 ## Documentation
 
