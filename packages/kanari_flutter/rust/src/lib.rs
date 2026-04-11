@@ -56,9 +56,7 @@ pub mod signatures;
 pub mod wallet;
 
 // Re-export signature functionality
-pub use signatures::{
-    SignatureError, secure_clear, sign_message, verify_signature, verify_signature_with_curve,
-};
+pub use signatures::{SignatureError, verify_signature};
 
 // Re-export encryption functionality - now using actual functions from the module
 pub use encryption::{

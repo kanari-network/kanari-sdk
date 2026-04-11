@@ -17,7 +17,7 @@ crate-type = ["cdylib"]
 [dependencies]
 bip39.workspace = true
 # Flutter Rust Bridge runtime (generated bindings depend on this)
-flutter_rust_bridge = "=2.11.1"
+flutter_rust_bridge.workspace = true
 # Core crypto libraries
 k256 = { workspace = true, features = ["ecdsa", "std"] }
 p256 = { workspace = true, features = ["ecdsa", "std"] }
