@@ -206,13 +206,17 @@ pub fn verify_signature_with_keypair(
         CurveType::K256 => verify_signature_k256(classical_pub, message, signature),
         CurveType::P256 => verify_signature_p256(classical_pub, message, signature),
         CurveType::Ed25519 => verify_signature_ed25519(classical_pub, message, signature),
+
         CurveType::K256Dilithium3 => {
-            // Require explicit PQC public key on KeyPair for hybrid verification
-            let pqc_pub = keypair.get_pqc_public_key().ok_or_else(|| {
-                SignatureError::InvalidPublicKey(
+            let pqc_pub = keypair
+                .get_pqc_public_key()
+                .unwrap_or_else(|| pub_combined.split(':').nth(1).unwrap_or("").to_string());
+            if pqc_pub.is_empty() {
+                return Err(SignatureError::InvalidPublicKey(
                     "Missing PQC public key for hybrid keypair".to_string(),
-                )
-            })?;
+                ));
+            }
+
             let (classical_ok, pqc_ok) = verify_hybrid_signature_detailed(
                 signature,
                 classical_pub,
@@ -220,22 +224,19 @@ pub fn verify_signature_with_keypair(
                 message,
                 verify_signature_k256,
             )?;
-            if classical_ok && pqc_ok {
-                Ok(true)
-            } else {
-                debug!(
-                    "Hybrid verification failed: classical_ok={}, pqc_ok={}",
-                    classical_ok, pqc_ok
-                );
-                Ok(false)
-            }
+            Ok(classical_ok && pqc_ok)
         }
+
         CurveType::Ed25519Dilithium3 => {
-            let pqc_pub = keypair.get_pqc_public_key().ok_or_else(|| {
-                SignatureError::InvalidPublicKey(
+            let pqc_pub = keypair
+                .get_pqc_public_key()
+                .unwrap_or_else(|| pub_combined.split(':').nth(1).unwrap_or("").to_string());
+            if pqc_pub.is_empty() {
+                return Err(SignatureError::InvalidPublicKey(
                     "Missing PQC public key for hybrid keypair".to_string(),
-                )
-            })?;
+                ));
+            }
+
             let (classical_ok, pqc_ok) = verify_hybrid_signature_detailed(
                 signature,
                 classical_pub,
@@ -243,40 +244,32 @@ pub fn verify_signature_with_keypair(
                 message,
                 verify_signature_ed25519,
             )?;
-            if classical_ok && pqc_ok {
-                Ok(true)
-            } else {
-                debug!(
-                    "Hybrid verification failed: classical_ok={}, pqc_ok={}",
-                    classical_ok, pqc_ok
-                );
-                Ok(false)
-            }
+            Ok(classical_ok && pqc_ok)
         }
-        // Pure PQC curves: public_key on KeyPair is the PQC public hex
+
         CurveType::Dilithium2 => {
-            let pqc_pub = keypair.get_pqc_public_key().ok_or_else(|| {
-                SignatureError::InvalidPublicKey("Missing PQC public key".to_string())
-            })?;
-            verify_signature_dilithium2(&pqc_pub, message, signature)
+            let pqc_pub = keypair
+                .get_pqc_public_key_ref()
+                .unwrap_or(&keypair.public_key);
+            verify_signature_dilithium2(pqc_pub, message, signature)
         }
         CurveType::Dilithium3 => {
-            let pqc_pub = keypair.get_pqc_public_key().ok_or_else(|| {
-                SignatureError::InvalidPublicKey("Missing PQC public key".to_string())
-            })?;
-            verify_signature_dilithium3(&pqc_pub, message, signature)
+            let pqc_pub = keypair
+                .get_pqc_public_key_ref()
+                .unwrap_or(&keypair.public_key);
+            verify_signature_dilithium3(pqc_pub, message, signature)
         }
         CurveType::Dilithium5 => {
-            let pqc_pub = keypair.get_pqc_public_key().ok_or_else(|| {
-                SignatureError::InvalidPublicKey("Missing PQC public key".to_string())
-            })?;
-            verify_signature_dilithium5(&pqc_pub, message, signature)
+            let pqc_pub = keypair
+                .get_pqc_public_key_ref()
+                .unwrap_or(&keypair.public_key);
+            verify_signature_dilithium5(pqc_pub, message, signature)
         }
         CurveType::SphincsPlusSha256Robust => {
-            let pqc_pub = keypair.get_pqc_public_key().ok_or_else(|| {
-                SignatureError::InvalidPublicKey("Missing PQC public key".to_string())
-            })?;
-            verify_signature_sphincs(&pqc_pub, message, signature)
+            let pqc_pub = keypair
+                .get_pqc_public_key_ref()
+                .unwrap_or(&keypair.public_key);
+            verify_signature_sphincs(pqc_pub, message, signature)
         }
     }
 }

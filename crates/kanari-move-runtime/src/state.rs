@@ -456,7 +456,10 @@ impl StateManager {
     }
 
     pub fn get_account(&self, address: &AccountAddress) -> Option<Account> {
-        self.load_account(address).ok().flatten()
+        Some(
+            self.load_account_or_default(*address)
+                .unwrap_or_else(|_| Account::new(*address, 0)),
+        )
     }
 
     pub fn get_account_by_hex(&self, hex_address: &str) -> Option<Account> {
@@ -465,6 +468,10 @@ impl StateManager {
         if let Ok(addr) = kanari_types::address::Address::parse_to_account_address(hex_address) {
             self.get_account(&addr)
         } else {
+            log::warn!(
+                "[StateManager] Failed to parse address from hex: {}",
+                hex_address
+            );
             None
         }
     }

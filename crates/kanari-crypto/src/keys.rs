@@ -468,7 +468,7 @@ fn generate_dilithium2_keypair() -> Result<KeyPair, KeyError> {
 
     let hex_encoded = hex::encode(public_key_bytes);
     let mut hasher = Sha3_256::new();
-    hasher.update(public_key_bytes);
+    hasher.update(hex_encoded.as_bytes());
     let hash_result = hasher.finalize();
     let address = format!("0x{}", hex::encode(&hash_result[..]));
     let raw_private_key = hex::encode(secret_key_bytes);
@@ -493,7 +493,7 @@ fn generate_dilithium3_keypair() -> Result<KeyPair, KeyError> {
 
     let hex_encoded = hex::encode(public_key_bytes);
     let mut hasher = Sha3_256::new();
-    hasher.update(public_key_bytes);
+    hasher.update(hex_encoded.as_bytes());
     let hash_result = hasher.finalize();
     let address = format!("0x{}", hex::encode(&hash_result[..]));
     let raw_private_key = hex::encode(secret_key_bytes);
@@ -518,7 +518,7 @@ fn generate_dilithium5_keypair() -> Result<KeyPair, KeyError> {
 
     let hex_encoded = hex::encode(public_key_bytes);
     let mut hasher = Sha3_256::new();
-    hasher.update(public_key_bytes);
+    hasher.update(hex_encoded.as_bytes());
     let hash_result = hasher.finalize();
     let address = format!("0x{}", hex::encode(&hash_result[..]));
     let raw_private_key = hex::encode(secret_key_bytes);
@@ -543,7 +543,7 @@ fn generate_sphincs_keypair() -> Result<KeyPair, KeyError> {
 
     let hex_encoded = hex::encode(public_key_bytes);
     let mut hasher = Sha3_256::new();
-    hasher.update(public_key_bytes);
+    hasher.update(hex_encoded.as_bytes());
     let hash_result = hasher.finalize();
     let address = format!("0x{}", hex::encode(&hash_result[..]));
     let raw_private_key = hex::encode(secret_key_bytes);
@@ -883,12 +883,12 @@ pub fn keypair_from_private_key(
             // "kanapqc<secret_hex>:<public_hex>" and reject secret-only inputs.
             if let Some((_secret_hex, pub_hex)) = raw_for_pqc.split_once(':') {
                 // validate pub_hex is hex
-                let pub_bytes = hex::decode(pub_hex).map_err(|_| KeyError::InvalidPrivateKey)?;
+                let _pub_bytes = hex::decode(pub_hex).map_err(|_| KeyError::InvalidPrivateKey)?;
                 let pqc_hex = pub_hex.to_string();
 
                 // Derive address from hash of the PQC public key for uniformity
                 let mut hasher = Sha3_256::new();
-                hasher.update(&pub_bytes);
+                hasher.update(pub_hex.as_bytes());
                 let hash_result = hasher.finalize();
                 let address = format!("0x{}", hex::encode(&hash_result[..]));
 
