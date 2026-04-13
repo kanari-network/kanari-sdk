@@ -139,6 +139,11 @@ num-integer = { version = "0.1.46" }
 
 flutter_rust_bridge = "=2.12.0"
 
+tikv-jemallocator = { git = "https://github.com/jamesatomc/jemallocator.git", features = [
+    "unprefixed_malloc_on_supported_platforms",
+    "profiling",
+] }
+
 kanari-common = { path = "crates/kanari-common" }
 kanari-crypto = { path = "crates/kanari-crypto" }
 kanari-types = { path = "crates/kanari-types" }

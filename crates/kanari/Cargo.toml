@@ -41,6 +41,9 @@ kanari-rpc-api = { workspace = true }
 kanari-common = { workspace = true }
 kanari-faucet = { path = "../kanari-faucet" }
 
+# Memory allocator
+tikv-jemallocator = { workspace = true }
+
 # Move dependencies
 move-core-types = { workspace = true }
 move-vm-runtime = { workspace = true }

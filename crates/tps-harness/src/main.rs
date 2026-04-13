@@ -6,10 +6,11 @@ use kanari_core::BlockchainEngine;
 use kanari_crypto::keys::{CurveType, generate_keypair};
 use kanari_types::transaction::{SignedTransaction, Transaction};
 use move_core_types::account_address::AccountAddress;
+use tikv_jemallocator::Jemalloc;
 use std::time::Instant;
 
 #[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+static GLOBAL: Jemalloc = Jemalloc;
 
 fn main() -> Result<()> {
     // Simple harness: create engine, pre-fund accounts, submit N transfers into pending_txs,
