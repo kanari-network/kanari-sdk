@@ -50,6 +50,9 @@ aes-gcm.workspace = true
 zeroize.workspace = true
 fs2.workspace = true
 
+# Constant-time operations for timing attack prevention
+subtle.workspace = true
+
 # Time handling for audit logging
 chrono = { workspace = true }
 
