@@ -60,7 +60,7 @@ tokio = { version = "1.51.1", features = ["full"] }
 
 # Networking / HTTP / Web
 reqwest = { version = "0.13.2", features = ["json"] }
-axum = "0.8.7"
+axum = "0.8.9"
 tower-http = { version = "0.6.8", features = ["cors"] }
 
 # Database / storage
@@ -75,39 +75,42 @@ bcs = { version = "0.2.0" }
 bincode = { version = "2.0.1", features = ["serde", "alloc"] }
 
 # Cryptography - classical
-sha2 = "0.10.9"
-sha3 = "0.10.8"
+sha2 = "0.11.0"
+sha3 = "0.11.0"
 hex = "0.4.3"
 primitive-types = { version = "0.14.0", default-features = true }
 argon2 = { version = "0.5.3", default-features = true }
-hmac = { version = "0.12.1" }
+hmac = { version = "0.13.0" }
 
-k256 = { version = "0.13.4", features = ["ecdsa", "std"] }
-p256 = { version = "0.13.2", features = ["ecdsa", "std"] }
-ed25519-dalek = { version = "2", features = ["rand_core"] }
-curve25519-dalek = { version = "4", features = ["rand_core"] }
+k256 = { version = "0.13.4", features = ["ecdsa", "std", "sha2"] }
+p256 = { version = "0.13.2", features = ["ecdsa", "std", "sha2"] }
+ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
+curve25519-dalek = { version = "4.1.3", features = ["rand_core"] }
 secp256k1 = { version = "0.31.1", features = ["recovery"] }
 aes-gcm = "0.10.3"
 base64 = "0.22.1"
 zstd = "0.13.3"
-lru = "0.16.3"
+lru = "0.16.4"
 # HD wallet / key derivation
 bip39 = { version = "2.2.2", features = ["rand"] }
 bip32 = "0.5.3"
 
 # Memory security
-zeroize = { version = "1.8.1", features = ["derive"] }
+zeroize = { version = "1.8.2", features = ["derive"] }
 rpassword = "7.4.0"
 fs2 = "0.4.3"
 
+# Constant-time operations for timing attack prevention
+subtle = "2.6.1"
+
 # Post-Quantum Cryptography (PQC)
-pqcrypto-dilithium = "0.5"
+pqcrypto-dilithium = "0.5.0"
 pqcrypto-kyber = "0.8.1"
 pqcrypto-sphincsplus = "0.7.2"
 pqcrypto-traits = "0.3.5"
-rayon = "1.11.0"
+rayon = "1.12.0"
 # Optional hashing
-blake3 = { version = "1.8.3" }
+blake3 = { version = "1.8.4" }
 
 # CLI / tooling / utilities
 clap = { version = "4.6.0", features = ["derive"] }
@@ -121,7 +124,8 @@ crossbeam-channel = "0.5.15"
 num_cpus = "1.17.0"
 
 # Randomness, error handling
-rand = "0.8.5"
+rand = "0.10.1"
+rand_core = "0.10.1"
 anyhow = "1.0.101"
 thiserror = { version = "2.0.18", default-features = true }
 better_any = "0.1.1"
@@ -133,11 +137,19 @@ tracing-subscriber = "0.3.23"
 env_logger = "0.11.8"
 
 # Time
-chrono = "0.4.43"
+chrono = "0.4.44"
 
 num-integer = { version = "0.1.46" }
 
 flutter_rust_bridge = "=2.12.0"
+
+tikv-jemallocator = { git = "https://github.com/jamesatomc/jemallocator.git", features = [
+    "unprefixed_malloc_on_supported_platforms",
+    "profiling",
+] }
+
+libp2p = { version = "0.56.0", features = ["tcp", "noise", "yamux", "gossipsub", "mdns", "kad", "identify", "macros", "tokio", "relay", "dcutr", "ping"] }
+flate2 = "1.1.9" # Add compression support for large networks
 
 kanari-common = { path = "crates/kanari-common" }
 kanari-crypto = { path = "crates/kanari-crypto" }

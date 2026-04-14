@@ -34,6 +34,7 @@ blake3 = { workspace = true, optional = true }
 bip32.workspace = true
 
 rand.workspace = true
+rand_core.workspace = true
 hex.workspace = true
 serde_json = { workspace = true, default-features = true }
 lazy_static.workspace = true
@@ -48,6 +49,9 @@ aes-gcm.workspace = true
 # Memory security
 zeroize.workspace = true
 fs2.workspace = true
+
+# Constant-time operations for timing attack prevention
+subtle.workspace = true
 
 # Time handling for audit logging
 chrono = { workspace = true }

@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Main CLI binary for Kanari - A Move-based money transfer system
+
+
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
