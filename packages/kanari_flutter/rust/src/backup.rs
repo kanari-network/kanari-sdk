@@ -14,7 +14,7 @@ use thiserror::Error;
 
 use crate::Keystore;
 use crate::encryption::{EncryptedData, decrypt_data, encrypt_data};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, Mac, KeyInit};
 use sha3::Sha3_256;
 
 type HmacSha3_256 = Hmac<Sha3_256>;

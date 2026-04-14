@@ -334,15 +334,11 @@ fn all_natives_with_gas(
             // Use digest-aware verification: verify the hashed message
             let verified = if hash_type == 0u8 {
                 // Keccak256
-                use k256::ecdsa::signature::DigestVerifier;
-                let mut hasher = Keccak256::new();
-                hasher.update(&msg);
-                vk.verify_digest(hasher, &sig).is_ok()
+                let msg_hash = Keccak256::digest(&msg);
+                vk.verify(&msg_hash, &sig).is_ok()
             } else {
-                use k256::ecdsa::signature::DigestVerifier;
-                let mut hasher = Sha256::new();
-                hasher.update(&msg);
-                vk.verify_digest(hasher, &sig).is_ok()
+                let msg_hash = Sha256::digest(&msg);
+                vk.verify(&msg_hash, &sig).is_ok()
             };
 
             move_vm_types::natives::function::NativeResult::map_partial_vm_result_one(
@@ -411,11 +407,9 @@ fn all_natives_with_gas(
                 return Ok(NR::ok(context.gas_used(), smallvec![Value::bool(false)]));
             };
 
-            // Hash then verify via digest-aware API (SHA256 only for P-256)
-            let mut hasher = Sha256::new();
-            hasher.update(&msg);
-            use p256::ecdsa::signature::DigestVerifier;
-            let verified = vk.verify_digest(hasher, &sig).is_ok();
+            // Hash then verify (SHA256 only for P-256)
+            let msg_hash = Sha256::digest(&msg);
+            let verified = vk.verify(&msg_hash, &sig).is_ok();
 
             Ok(NR::ok(context.gas_used(), smallvec![Value::bool(verified)]))
         },

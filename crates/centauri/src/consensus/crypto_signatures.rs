@@ -1,7 +1,8 @@
 use anyhow::Result;
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-use rand::rngs::OsRng;
+use rand::TryRng;
+use rand::rngs::SysRng;
 use serde::{Deserialize, Serialize};
 
 // Re-export curve25519-dalek types for VRF usage
@@ -21,9 +22,14 @@ pub struct Ed25519Keypair {
 
 impl Ed25519Keypair {
     pub fn generate() -> Self {
-        let mut csprng = OsRng {};
-        let signing_key = SigningKey::generate(&mut csprng);
+        let mut bytes = [0u8; 32];
+        SysRng
+            .try_fill_bytes(&mut bytes)
+            .expect("Failed to get OS randomness");
+
+        let signing_key = SigningKey::from_bytes(&bytes);
         let verifying_key = signing_key.verifying_key();
+
         Self {
             signing_key,
             verifying_key,

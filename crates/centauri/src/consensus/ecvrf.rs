@@ -11,6 +11,8 @@ use super::crypto_signatures::{
     CompressedRistretto, RISTRETTO_BASEPOINT_TABLE, RistrettoPoint, Scalar,
 };
 use kanari_crypto::hash_data_blake3;
+use rand::TryRng;
+use rand::rngs::SysRng;
 use std::fmt;
 
 // ===== VRF Helper Functions (Shared between SecretKey and PublicKey) =====
@@ -129,13 +131,11 @@ impl VrfSecretKey {
                 scalar: Scalar::from_bytes_mod_order([0u8; 32]),
             }
         } else {
-            // Use OS randomness for production security
-            use rand::RngCore;
-            use rand::rngs::OsRng;
-
-            let mut rng = OsRng;
             let mut bytes = [0u8; 32];
-            rng.fill_bytes(&mut bytes);
+            SysRng
+                .try_fill_bytes(&mut bytes)
+                .expect("Failed to get OS randomness"); 
+
             Self {
                 scalar: Scalar::from_bytes_mod_order(bytes),
             }

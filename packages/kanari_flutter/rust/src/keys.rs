@@ -43,8 +43,8 @@
 //! - For PQC keys, use `generate_keypair()` for fresh key generation
 
 use bip39::{Language, Mnemonic};
-use rand::RngCore;
-use rand::rngs::OsRng;
+use rand::TryRng;
+use rand::rngs::SysRng;
 use sha3::{Digest, Sha3_256};
 use std::fmt;
 use std::str::FromStr;
@@ -337,11 +337,17 @@ pub fn generate_keypair(curve_type: CurveType) -> Result<KeyPair, KeyError> {
 
 /// Generate a K256 (secp256k1) keypair
 fn generate_k256_keypair() -> Result<KeyPair, KeyError> {
-    // Generate secret key using k256
-    let secret_key = K256SecretKey::random(&mut OsRng);
-    // Convert to signing key first
-    let signing_key = K256SigningKey::from(secret_key);
-    // Then get verifying key
+    let mut seed = [0u8; 32];
+    SysRng
+        .try_fill_bytes(&mut seed)
+        .expect("Failed to get OS randomness");
+
+    let secret_key = K256SecretKey::from_slice(&seed)
+        .map_err(|_| KeyError::GenerationFailed("Invalid K256 seed".to_string()))?;
+
+    seed.zeroize();
+
+    let signing_key = K256SigningKey::from(&secret_key);
     let verifying_key = K256VerifyingKey::from(&signing_key);
     // Finally get public key
     let public_key = K256PublicKey::from(verifying_key);
@@ -369,13 +375,18 @@ fn generate_k256_keypair() -> Result<KeyPair, KeyError> {
     })
 }
 
-/// Generate a P256 (secp256r1) keypair
 fn generate_p256_keypair() -> Result<KeyPair, KeyError> {
-    // Generate a random P-256 private key
-    let signing_key = SigningKey::random(&mut OsRng);
-    let secret_key = signing_key.to_bytes();
+    let mut seed = [0u8; 32];
+    SysRng
+        .try_fill_bytes(&mut seed)
+        .expect("Failed to get OS randomness");
 
-    // Get the corresponding public key
+    let secret_key = P256SecretKey::from_slice(&seed)
+        .map_err(|_| KeyError::GenerationFailed("Invalid P256 seed".to_string()))?;
+
+    seed.zeroize();
+
+    let signing_key = SigningKey::from(&secret_key);
     let verifying_key = VerifyingKey::from(&signing_key);
     let public_key = verifying_key.to_encoded_point(false);
 
@@ -387,7 +398,7 @@ fn generate_p256_keypair() -> Result<KeyPair, KeyError> {
     hasher.update(full_pub_hex.as_bytes());
     let digest = hasher.finalize();
     let address = format!("0x{}", hex::encode(digest));
-    let raw_private_key = hex::encode(secret_key);
+    let raw_private_key = hex::encode(secret_key.to_bytes());
 
     // Format private key with kanari prefix
     let private_key = format_private_key(&raw_private_key);
@@ -403,16 +414,11 @@ fn generate_p256_keypair() -> Result<KeyPair, KeyError> {
 
 /// Generate an Ed25519 keypair
 pub fn generate_ed25519_keypair() -> Result<KeyPair, KeyError> {
-    use rand::RngCore;
-
-    // Generate random bytes for the private key using OS RNG
-    let mut rng = OsRng;
     let mut seed = [0u8; 32];
+    SysRng
+        .try_fill_bytes(&mut seed)
+        .expect("Failed to get OS randomness");
 
-    // Fill with random bytes
-    rng.fill_bytes(&mut seed);
-
-    // Validate entropy - ensure we didn't get all zeros (extremely unlikely but check anyway)
     if seed.iter().all(|&b| b == 0) {
         return Err(KeyError::GenerationFailed(
             "Insufficient entropy from RNG".to_string(),
@@ -462,17 +468,12 @@ pub fn generate_ed25519_keypair() -> Result<KeyPair, KeyError> {
 /// Generate a Dilithium2 keypair (Fast, NIST Level 2)
 fn generate_dilithium2_keypair() -> Result<KeyPair, KeyError> {
     let (public_key, secret_key) = dilithium2::keypair();
-
-    let public_key_bytes = public_key.as_bytes();
-    let secret_key_bytes = secret_key.as_bytes();
-
-    let hex_encoded = hex::encode(public_key_bytes);
+    let hex_encoded = hex::encode(public_key.as_bytes());
     let mut hasher = Sha3_256::new();
     hasher.update(hex_encoded.as_bytes());
     let hash_result = hasher.finalize();
     let address = format!("0x{}", hex::encode(&hash_result[..]));
-    let raw_private_key = hex::encode(secret_key_bytes);
-    // Store public key alongside secret to avoid fragile recovery from secret bytes
+    let raw_private_key = hex::encode(secret_key.as_bytes());
     let private_key = format!("kanapqc{}:{}", raw_private_key, hex_encoded);
 
     Ok(KeyPair {
@@ -487,17 +488,12 @@ fn generate_dilithium2_keypair() -> Result<KeyPair, KeyError> {
 /// Generate a Dilithium3 keypair (Balanced, NIST Level 3, Recommended)
 fn generate_dilithium3_keypair() -> Result<KeyPair, KeyError> {
     let (public_key, secret_key) = dilithium3::keypair();
-
-    let public_key_bytes = public_key.as_bytes();
-    let secret_key_bytes = secret_key.as_bytes();
-
-    let hex_encoded = hex::encode(public_key_bytes);
+    let hex_encoded = hex::encode(public_key.as_bytes());
     let mut hasher = Sha3_256::new();
     hasher.update(hex_encoded.as_bytes());
     let hash_result = hasher.finalize();
     let address = format!("0x{}", hex::encode(&hash_result[..]));
-    let raw_private_key = hex::encode(secret_key_bytes);
-    // Store public key alongside secret to avoid fragile recovery from secret bytes
+    let raw_private_key = hex::encode(secret_key.as_bytes());
     let private_key = format!("kanapqc{}:{}", raw_private_key, hex_encoded);
 
     Ok(KeyPair {
@@ -512,17 +508,12 @@ fn generate_dilithium3_keypair() -> Result<KeyPair, KeyError> {
 /// Generate a Dilithium5 keypair (Maximum security, NIST Level 5)
 fn generate_dilithium5_keypair() -> Result<KeyPair, KeyError> {
     let (public_key, secret_key) = dilithium5::keypair();
-
-    let public_key_bytes = public_key.as_bytes();
-    let secret_key_bytes = secret_key.as_bytes();
-
-    let hex_encoded = hex::encode(public_key_bytes);
+    let hex_encoded = hex::encode(public_key.as_bytes());
     let mut hasher = Sha3_256::new();
     hasher.update(hex_encoded.as_bytes());
     let hash_result = hasher.finalize();
     let address = format!("0x{}", hex::encode(&hash_result[..]));
-    let raw_private_key = hex::encode(secret_key_bytes);
-    // Store public key alongside secret to avoid fragile recovery from secret bytes
+    let raw_private_key = hex::encode(secret_key.as_bytes());
     let private_key = format!("kanapqc{}:{}", raw_private_key, hex_encoded);
 
     Ok(KeyPair {
@@ -537,17 +528,12 @@ fn generate_dilithium5_keypair() -> Result<KeyPair, KeyError> {
 /// Generate a SPHINCS+ keypair (Hash-based, ultra-secure)
 fn generate_sphincs_keypair() -> Result<KeyPair, KeyError> {
     let (public_key, secret_key) = sphincssha2256fsimple::keypair();
-
-    let public_key_bytes = public_key.as_bytes();
-    let secret_key_bytes = secret_key.as_bytes();
-
-    let hex_encoded = hex::encode(public_key_bytes);
+    let hex_encoded = hex::encode(public_key.as_bytes());
     let mut hasher = Sha3_256::new();
     hasher.update(hex_encoded.as_bytes());
     let hash_result = hasher.finalize();
     let address = format!("0x{}", hex::encode(&hash_result[..]));
-    let raw_private_key = hex::encode(secret_key_bytes);
-    // Store public key alongside secret to avoid fragile recovery from secret bytes
+    let raw_private_key = hex::encode(secret_key.as_bytes());
     let private_key = format!("kanapqc{}:{}", raw_private_key, hex_encoded);
 
     Ok(KeyPair {
@@ -574,9 +560,7 @@ pub fn generate_hybrid_ed25519_dilithium3_keypair() -> Result<KeyPair, KeyError>
 
     // Combine private keys
     let ed25519_raw = extract_raw_key(&ed25519_pair.private_key);
-    // Extract dilithium3 raw key (remove "kanapqc" prefix to get just the hex)
-    let dilithium3_with_prefix = &dilithium3_pair.private_key;
-    let dilithium3_raw = crate::keys::extract_raw_key(dilithium3_with_prefix);
+    let dilithium3_raw = extract_raw_key(&dilithium3_pair.private_key);
     let combined_private = format!("kanahybrid{}:{}", ed25519_raw, dilithium3_raw);
 
     // Generate hybrid address using SHA3-256 hash of combined public key
@@ -606,9 +590,7 @@ pub fn generate_hybrid_k256_dilithium3_keypair() -> Result<KeyPair, KeyError> {
 
     // Combine private keys
     let k256_raw = extract_raw_key(&k256_pair.private_key);
-    // Extract dilithium3 raw key (remove "kanapqc" prefix to get just the hex)
-    let dilithium3_with_prefix = &dilithium3_pair.private_key;
-    let dilithium3_raw = crate::keys::extract_raw_key(dilithium3_with_prefix); // ✅
+    let dilithium3_raw = extract_raw_key(&dilithium3_pair.private_key);
     let combined_private = format!("kanahybrid{}:{}", k256_raw, dilithium3_raw);
 
     // Generate hybrid address using SHA3-256 hash of combined public key
@@ -646,18 +628,14 @@ pub fn keypair_from_mnemonic(phrase: &str, curve_type: CurveType) -> Result<KeyP
 
     match curve_type {
         CurveType::K256 => {
-            let secret_key =
-                K256SecretKey::from_slice(bytes).map_err(|_e| KeyError::InvalidPrivateKey)?;
-
+            let secret_key = K256SecretKey::from_slice(bytes).map_err(|_e| KeyError::InvalidPrivateKey)?;
             let signing_key = K256SigningKey::from(secret_key);
             let verifying_key = K256VerifyingKey::from(&signing_key);
             let public_key = K256PublicKey::from(verifying_key);
 
             let encoded_point = public_key.to_encoded_point(false);
             let slice = skip_uncompressed_point_prefix(encoded_point.as_bytes());
-            let pub_bytes = slice;
-            let full_pub_hex = hex::encode(pub_bytes);
-            // Address: SHA3-256 of public key hex
+            let full_pub_hex = hex::encode(slice);
             let mut hasher = Sha3_256::default();
             hasher.update(full_pub_hex.as_bytes());
             let digest = hasher.finalize();
@@ -676,9 +654,7 @@ pub fn keypair_from_mnemonic(phrase: &str, curve_type: CurveType) -> Result<KeyP
             })
         }
         CurveType::P256 => {
-            let secret_key =
-                P256SecretKey::from_slice(bytes).map_err(|_e| KeyError::InvalidPrivateKey)?;
-
+            let secret_key = P256SecretKey::from_slice(bytes).map_err(|_e| KeyError::InvalidPrivateKey)?;
             let signing_key = SigningKey::from(secret_key);
             let verifying_key = VerifyingKey::from(&signing_key);
             let public_key = verifying_key.to_encoded_point(false);
@@ -1032,7 +1008,11 @@ pub fn generate_mnemonic(word_count: usize) -> Result<String, KeyError> {
         }
     };
     let mut entropy = Zeroizing::new(vec![0u8; entropy_bits / 8]);
-    OsRng.fill_bytes(&mut entropy);
+
+    SysRng
+        .try_fill_bytes(&mut entropy)
+        .expect("Failed to get OS randomness");
+
     let mnemonic =
         Mnemonic::from_entropy(&entropy).map_err(|e| KeyError::GenerationFailed(e.to_string()))?;
     Ok(mnemonic.to_string())
