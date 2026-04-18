@@ -10,6 +10,8 @@ pub use curve25519_dalek::constants::RISTRETTO_BASEPOINT_TABLE;
 pub use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 pub use curve25519_dalek::scalar::Scalar;
 
+const ED25519_SIGNATURE_LEN: usize = 64;
+
 /// Ed25519 signature wrapper
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignatureScheme(pub Vec<u8>);
@@ -46,14 +48,14 @@ impl Ed25519Keypair {
     }
 
     pub fn verify(pubkey: &VerifyingKey, msg: &[u8], sig_bytes: &[u8]) -> Result<()> {
-        if sig_bytes.len() != 64 {
+        if sig_bytes.len() != ED25519_SIGNATURE_LEN {
             return Err(anyhow::anyhow!(
                 "invalid signature length: {}",
                 sig_bytes.len()
             ));
         }
-        let mut sig_arr = [0u8; 64];
-        sig_arr.copy_from_slice(&sig_bytes[0..64]);
+        let mut sig_arr = [0u8; ED25519_SIGNATURE_LEN];
+        sig_arr.copy_from_slice(sig_bytes);
         let sig = Signature::from_bytes(&sig_arr);
         pubkey.verify(msg, &sig).map_err(|e| anyhow::anyhow!(e))
     }

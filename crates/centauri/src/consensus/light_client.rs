@@ -11,6 +11,7 @@
 //! Inspired by Sui's light client design.
 
 use anyhow::{Result, anyhow};
+use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use smt::compute_merkle_root;
 use std::collections::BTreeMap;
@@ -107,62 +108,93 @@ pub struct LightClient {
 
     /// Authority public keys for signature verification
     authority_keys: BTreeMap<AuthorityId, Vec<u8>>,
-
-    /// Total stake
-    total_stake: u64,
 }
 
 impl LightClient {
+    fn has_verified_checkpoint(&self, sequence: u64) -> bool {
+        self.verified_checkpoints.contains_key(&sequence)
+    }
+
+    fn ensure_verified_checkpoint(&self, sequence: u64) -> Result<()> {
+        if self.has_verified_checkpoint(sequence) {
+            Ok(())
+        } else {
+            Err(anyhow!("Checkpoint {} not verified", sequence))
+        }
+    }
+
+    fn checkpoint_payload(
+        sequence: u64,
+        state_root: &[u8],
+        tx_root: &[u8],
+        epoch: Round,
+    ) -> String {
+        format!(
+            "{}:{}:{}:{}",
+            sequence,
+            hex::encode(state_root),
+            hex::encode(tx_root),
+            epoch
+        )
+    }
+
     /// Create new light client
     pub fn new(authority_keys: BTreeMap<AuthorityId, Vec<u8>>) -> Self {
-        let total_stake: u64 = authority_keys.len() as u64; // Simplified: 1 stake per authority
-
         Self {
             verified_checkpoints: BTreeMap::new(),
             latest_checkpoint: 0,
             authority_keys,
-            total_stake,
         }
     }
-
     /// Verify and add checkpoint
-    pub fn verify_checkpoint(&mut self, checkpoint: LightCheckpoint) -> Result<()> {
+    pub fn verify_checkpoint(
+        &mut self,
+        checkpoint: LightCheckpoint,
+        committee: &crate::consensus::committee::Committee,
+    ) -> Result<()> {
         // Check if we already have this checkpoint
-        if self.verified_checkpoints.contains_key(&checkpoint.sequence) {
+        if self.has_verified_checkpoint(checkpoint.sequence) {
             return Ok(());
         }
 
-        // Verify quorum: need 2f+1 signatures
-        let f = (self.authority_keys.len() - 1) / 3;
-        let quorum = 2 * f + 1;
-
-        if checkpoint.signatures.len() < quorum {
-            return Err(anyhow!(
-                "Insufficient signatures: {} < {} (quorum)",
-                checkpoint.signatures.len(),
-                quorum
-            ));
-        }
-
-        // Verify each signature
         let checkpoint_hash = self.hash_checkpoint(&checkpoint);
-        let mut total_stake = 0u64;
+        let mut total_stake = 0u128;
+        let mut seen = std::collections::BTreeSet::new();
 
         for sig in &checkpoint.signatures {
-            // Verify authority exists
-            if !self.authority_keys.contains_key(&sig.authority) {
-                return Err(anyhow!("Unknown authority: {}", sig.authority));
+            if !seen.insert(sig.authority.clone()) {
+                return Err(anyhow::anyhow!(
+                    "Duplicate signature from authority {}",
+                    sig.authority
+                ));
             }
 
-            // Verify signature (simplified)
+            // ตรวจสอบว่าเรารู้จัก Authority นี้ใน Light Client หรือไม่
+            if !self.authority_keys.contains_key(&sig.authority) {
+                return Err(anyhow::anyhow!("Unknown authority: {}", sig.authority));
+            }
+
+            // FIX: ดึงค่า Stake ของจริงจาก Committee
+            let authority_stake = committee
+                .get_validator(&sig.authority)
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Authority {} not found in committee", sig.authority)
+                })?
+                .stake as u128;
+
+            // Verify signature against the authority public key.
             self.verify_signature(&checkpoint_hash, &sig.signature, &sig.authority)?;
 
-            total_stake += sig.stake;
+            total_stake = total_stake.saturating_add(authority_stake);
         }
 
-        // Verify stake exceeds 2f+1
-        if total_stake < (self.total_stake * 2 / 3) {
-            return Err(anyhow!("Insufficient stake in quorum"));
+        // FIX: เปรียบเทียบกับ quorum_threshold ของ Committee จริงๆ (เป็น u128 อยู่แล้ว)
+        if total_stake < committee.quorum_threshold {
+            return Err(anyhow::anyhow!(
+                "Insufficient stake in quorum: {} < {}",
+                total_stake,
+                committee.quorum_threshold
+            ));
         }
 
         // Add verified checkpoint
@@ -174,9 +206,10 @@ impl LightClient {
         }
 
         tracing::info!(
-            "Verified checkpoint {} with {} signatures",
+            "Verified checkpoint {} with {} signatures (stake: {})",
             checkpoint.sequence,
-            checkpoint.signatures.len()
+            checkpoint.signatures.len(),
+            total_stake
         );
 
         Ok(())
@@ -184,16 +217,7 @@ impl LightClient {
 
     /// Verify state proof using SMT verification
     pub fn verify_state_proof(&self, proof: &StateProof) -> Result<()> {
-        // Check if checkpoint is verified
-        if !self
-            .verified_checkpoints
-            .contains_key(&proof.checkpoint.sequence)
-        {
-            return Err(anyhow!(
-                "Checkpoint {} not verified",
-                proof.checkpoint.sequence
-            ));
-        }
+        self.ensure_verified_checkpoint(proof.checkpoint.sequence)?;
 
         // Verify state root matches checkpoint
         if proof.state_root != proof.checkpoint.state_root {
@@ -214,8 +238,15 @@ impl LightClient {
             smt::hash_leaf(&key_hash, &proof.state_data)
         } else {
             // Use default leaf hash for non-membership
-            // The default leaf is H(0x00 || 32 zero key || 32 zero value)
-            smt::default_hashes()[256]
+            // FIX #3: Add bounds checking to prevent panic if library changes
+            let default_hashes = smt::default_hashes();
+            if default_hashes.len() <= 256 {
+                return Err(anyhow!(
+                    "SMT default_hashes array too small: expected at least 257 elements, got {}",
+                    default_hashes.len()
+                ));
+            }
+            default_hashes[256]
         };
 
         // verify_proof returns true if valid
@@ -239,16 +270,7 @@ impl LightClient {
 
     /// Verify transaction proof using Merkle proof verification
     pub fn verify_transaction_proof(&self, proof: &TransactionProof) -> Result<()> {
-        // Check if checkpoint is verified
-        if !self
-            .verified_checkpoints
-            .contains_key(&proof.checkpoint.sequence)
-        {
-            return Err(anyhow!(
-                "Checkpoint {} not verified",
-                proof.checkpoint.sequence
-            ));
-        }
+        self.ensure_verified_checkpoint(proof.checkpoint.sequence)?;
 
         // Verify transaction hash matches data
         let tx_hash = kanari_crypto::hash_data_blake3(&proof.tx_data);
@@ -308,32 +330,34 @@ impl LightClient {
 
     /// Hash checkpoint for signing
     fn hash_checkpoint(&self, checkpoint: &LightCheckpoint) -> Vec<u8> {
-        let data = format!(
-            "{}:{}:{}:{}",
+        let data = Self::checkpoint_payload(
             checkpoint.sequence,
-            hex::encode(&checkpoint.state_root),
-            hex::encode(&checkpoint.tx_root),
-            checkpoint.epoch
+            &checkpoint.state_root,
+            &checkpoint.tx_root,
+            checkpoint.epoch,
         );
         kanari_crypto::hash_data_blake3(data.as_bytes())
     }
 
-    /// Verify signature (simplified - in production use proper crypto)
-    fn verify_signature(&self, _message: &[u8], signature: &[u8], authority: &str) -> Result<()> {
-        // Simplified verification
-        // In production: use ed25519, secp256k1, or BLS signatures
-
-        let _pubkey = self
+    /// Verify ed25519 signature.
+    fn verify_signature(&self, message: &[u8], signature: &[u8], authority: &str) -> Result<()> {
+        let pubkey = self
             .authority_keys
             .get(authority)
             .ok_or_else(|| anyhow!("Authority not found: {}", authority))?;
-
-        // Placeholder: assume signature is valid if it's non-empty
-        if signature.is_empty() {
-            return Err(anyhow!("Empty signature"));
-        }
-
-        Ok(())
+        let key_bytes: [u8; 32] = pubkey
+            .as_slice()
+            .try_into()
+            .map_err(|_| anyhow!("Invalid public key length for {}", authority))?;
+        let verifying_key = VerifyingKey::from_bytes(&key_bytes)
+            .map_err(|e| anyhow!("Invalid public key for {}: {}", authority, e))?;
+        let sig_bytes: [u8; 64] = signature
+            .try_into()
+            .map_err(|_| anyhow!("Invalid signature length for {}", authority))?;
+        let sig = Signature::from_bytes(&sig_bytes);
+        verifying_key
+            .verify_strict(message, &sig)
+            .map_err(|e| anyhow!("Invalid signature from {}: {}", authority, e))
     }
 }
 
@@ -375,8 +399,12 @@ impl LightClientQuery {
     }
 
     /// Sync to new checkpoint
-    pub fn sync_checkpoint(&mut self, checkpoint: LightCheckpoint) -> Result<()> {
-        self.client.verify_checkpoint(checkpoint)
+    pub fn sync_checkpoint(
+        &mut self,
+        checkpoint: LightCheckpoint,
+        committee: &crate::consensus::committee::Committee,
+    ) -> Result<()> {
+        self.client.verify_checkpoint(checkpoint, committee)
     }
 }
 
@@ -436,40 +464,71 @@ impl CheckpointBuilder {
             );
         }
 
-        let message = format!(
-            "{}:{}:{}:{}",
+        let message = LightClient::checkpoint_payload(
             checkpoint.sequence,
-            hex::encode(&checkpoint.state_root),
-            hex::encode(&checkpoint.tx_root),
-            checkpoint.epoch
+            &checkpoint.state_root,
+            &checkpoint.tx_root,
+            checkpoint.epoch,
         );
+        let message_hash = kanari_crypto::hash_data_blake3(message.as_bytes());
 
-        // Use secret_key for signing (simplified - just hash with key)
-        let key_hash = kanari_crypto::hash_data_blake3(&self.secret_key);
-        let combined = [message.as_bytes(), &key_hash].concat();
-        let signature = kanari_crypto::hash_data_blake3(&combined);
+        let seed: [u8; 32] = self.secret_key.as_slice().try_into().unwrap_or([0u8; 32]);
+        let signing_key = SigningKey::from_bytes(&seed);
+        let sig: Signature = ed25519_dalek::Signer::sign(&signing_key, &message_hash);
+        let signature = sig.to_bytes().to_vec();
 
         CheckpointSignature {
             authority: self.authority_id.clone(),
             signature,
-            stake: 1, // Simplified: 1 stake per authority
+            stake: 1,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::consensus::{Committee, ValidatorInfo};
 
-    fn create_test_authorities() -> BTreeMap<AuthorityId, Vec<u8>> {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn create_test_authorities() -> (
+        BTreeMap<AuthorityId, Vec<u8>>,
+        BTreeMap<AuthorityId, [u8; 32]>,
+    ) {
         let mut authorities = BTreeMap::new();
+        let mut secrets = BTreeMap::new();
         for i in 0..4 {
+            let secret = [i as u8 + 1; 32];
+            let signing_key = SigningKey::from_bytes(&secret);
             authorities.insert(
                 format!("auth{}", i),
-                vec![i as u8; 32], // Mock public key
+                signing_key.verifying_key().to_bytes().to_vec(),
             );
+            secrets.insert(format!("auth{}", i), secret);
         }
-        authorities
+        (authorities, secrets)
+    }
+
+    fn sign_checkpoint_for(
+        authority: &str,
+        secret: &[u8; 32],
+        checkpoint: &LightCheckpoint,
+    ) -> CheckpointSignature {
+        let payload = LightClient::checkpoint_payload(
+            checkpoint.sequence,
+            &checkpoint.state_root,
+            &checkpoint.tx_root,
+            checkpoint.epoch,
+        );
+        let payload_hash = kanari_crypto::hash_data_blake3(payload.as_bytes());
+        let signing_key = SigningKey::from_bytes(secret);
+        let sig: Signature = ed25519_dalek::Signer::sign(&signing_key, &payload_hash);
+        CheckpointSignature {
+            authority: authority.to_string(),
+            signature: sig.to_bytes().to_vec(),
+            stake: 1,
+        }
     }
 
     fn create_test_checkpoint(sequence: u64) -> LightCheckpoint {
@@ -482,42 +541,63 @@ mod tests {
         }
     }
 
+    // Helper ในการสร้าง Committee สำหรับการทดสอบ
+    fn create_test_committee(authorities: &BTreeMap<AuthorityId, Vec<u8>>) -> Committee {
+        let validators: Vec<ValidatorInfo> = authorities
+            .iter()
+            .map(|(id, pk)| {
+                ValidatorInfo {
+                    authority_id: id.clone(),
+                    public_key: pk.clone(),
+                    stake: 100, // กำหนด Stake มาตรฐานให้ทุกโหนด
+                    network_address: "127.0.0.1:0".to_string(),
+                    active: true,
+                }
+            })
+            .collect();
+        Committee::new(0, validators)
+    }
+
     #[test]
     fn test_light_client_quorum() {
-        let authorities = create_test_authorities();
+        let (authorities, secrets) = create_test_authorities();
+        let committee = create_test_committee(&authorities); // สร้าง committee
         let mut client = LightClient::new(authorities);
 
         let mut checkpoint = create_test_checkpoint(1);
 
-        // Add 3 signatures (quorum for 4 authorities: 2f+1 = 3)
         for i in 0..3 {
-            checkpoint.signatures.push(CheckpointSignature {
-                authority: format!("auth{}", i),
-                signature: vec![i; 64],
-                stake: 1,
-            });
+            let authority = format!("auth{}", i);
+            checkpoint.signatures.push(sign_checkpoint_for(
+                &authority,
+                secrets.get(&authority).unwrap(),
+                &checkpoint,
+            ));
         }
 
-        assert!(client.verify_checkpoint(checkpoint).is_ok());
+        // FIX: ส่ง &committee เข้าไปด้วยใน Test
+        assert!(client.verify_checkpoint(checkpoint, &committee).is_ok());
     }
 
     #[test]
     fn test_light_client_insufficient_signatures() {
-        let authorities = create_test_authorities();
+        let (authorities, secrets) = create_test_authorities();
+        let committee = create_test_committee(&authorities);
         let mut client = LightClient::new(authorities);
 
         let mut checkpoint = create_test_checkpoint(1);
 
-        // Only 2 signatures (insufficient)
         for i in 0..2 {
-            checkpoint.signatures.push(CheckpointSignature {
-                authority: format!("auth{}", i),
-                signature: vec![i; 64],
-                stake: 1,
-            });
+            let authority = format!("auth{}", i);
+            checkpoint.signatures.push(sign_checkpoint_for(
+                &authority,
+                secrets.get(&authority).unwrap(),
+                &checkpoint,
+            ));
         }
 
-        assert!(client.verify_checkpoint(checkpoint).is_err());
+        // FIX: ส่ง &committee เข้าไปด้วยใน Test
+        assert!(client.verify_checkpoint(checkpoint, &committee).is_err());
     }
 
     #[test]

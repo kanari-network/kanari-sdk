@@ -645,7 +645,7 @@ pub fn generate_hybrid_ed25519_dilithium3_keypair() -> Result<KeyPair, KeyError>
     // Extract raw private keys using constant-time comparison via extract_raw_key
     let ed25519_raw = extract_raw_key(&ed25519_pair.private_key);
     let dilithium3_raw = extract_raw_key(&dilithium3_pair.private_key);
-    
+
     // Combine private keys with secure prefix
     let combined_private = format!("{}{}:{}", KANAHYBRID_PREFIX, ed25519_raw, dilithium3_raw);
 
@@ -676,7 +676,7 @@ pub fn generate_hybrid_k256_dilithium3_keypair() -> Result<KeyPair, KeyError> {
     // Extract raw private keys using constant-time comparison via extract_raw_key
     let k256_raw = extract_raw_key(&k256_pair.private_key);
     let dilithium3_raw = extract_raw_key(&dilithium3_pair.private_key);
-    
+
     // Combine private keys with secure prefix
     let combined_private = format!("{}{}:{}", KANAHYBRID_PREFIX, k256_raw, dilithium3_raw);
 
@@ -726,7 +726,6 @@ pub fn keypair_from_mnemonic(phrase: &str, curve_type: CurveType) -> Result<KeyP
             hasher.update(full_pub_hex.as_bytes());
             let digest = hasher.finalize();
             let address = format!("0x{}", hex::encode(digest));
-            
             // Use secure hex encoding for private key
             let raw_private_key = secure_hex_encode(&signing_key.to_bytes());
             let private_key = format!("{}{}", KANARI_KEY_PREFIX, &*raw_private_key);
@@ -752,7 +751,6 @@ pub fn keypair_from_mnemonic(phrase: &str, curve_type: CurveType) -> Result<KeyP
             hasher.update(full_pub_hex.as_bytes());
             let digest = hasher.finalize();
             let address = format!("0x{}", hex::encode(digest));
-            
             // Use secure hex encoding for private key
             let raw_private_key = secure_hex_encode(&signing_key.to_bytes());
             let private_key = format!("{}{}", KANARI_KEY_PREFIX, &*raw_private_key);
@@ -837,7 +835,8 @@ pub fn keypair_from_private_key(
             let address = format!("0x{}", hex::encode(digest));
 
             // Format with kanari prefix using constant-time comparison to prevent timing attacks
-            let formatted_private_key = if constant_time_starts_with(private_key, KANARI_KEY_PREFIX) {
+            let formatted_private_key = if constant_time_starts_with(private_key, KANARI_KEY_PREFIX)
+            {
                 private_key.to_string()
             } else {
                 format_private_key(raw_private_key)
@@ -874,7 +873,8 @@ pub fn keypair_from_private_key(
             let address = format!("0x{}", hex::encode(digest));
 
             // Format with kanari prefix using constant-time comparison
-            let formatted_private_key = if constant_time_starts_with(private_key, KANARI_KEY_PREFIX) {
+            let formatted_private_key = if constant_time_starts_with(private_key, KANARI_KEY_PREFIX)
+            {
                 private_key.to_string()
             } else {
                 format_private_key(raw_private_key)
@@ -918,7 +918,8 @@ pub fn keypair_from_private_key(
             let address = format!("0x{}", hex::encode(digest));
 
             // Format with kanari prefix using constant-time comparison
-            let formatted_private_key = if constant_time_starts_with(private_key, KANARI_KEY_PREFIX) {
+            let formatted_private_key = if constant_time_starts_with(private_key, KANARI_KEY_PREFIX)
+            {
                 private_key.to_string()
             } else {
                 format_private_key(raw_private_key)
@@ -959,11 +960,12 @@ pub fn keypair_from_private_key(
                 let address = format!("0x{}", hex::encode(&hash_result[..]));
 
                 // Use constant-time comparison for prefix check
-                let formatted_private_key = if constant_time_starts_with(private_key, KANAPQC_PREFIX) {
-                    private_key.to_string()
-                } else {
-                    format!("{}{}", KANAPQC_PREFIX, raw_for_pqc)
-                };
+                let formatted_private_key =
+                    if constant_time_starts_with(private_key, KANAPQC_PREFIX) {
+                        private_key.to_string()
+                    } else {
+                        format!("{}{}", KANAPQC_PREFIX, raw_for_pqc)
+                    };
 
                 return Ok(KeyPair {
                     private_key: Zeroizing::new(formatted_private_key),
@@ -987,7 +989,7 @@ pub fn keypair_from_private_key(
             // with it (this handles cases where multiple prefixes were present
             // and one was stripped by `extract_raw_key`). Require the hybrid
             // structure to avoid ambiguous parsing.
-            
+
             // Use constant-time comparison to prevent timing attacks
             if !constant_time_starts_with(private_key, KANAHYBRID_PREFIX) {
                 // Allow special case if raw still starts with prefix (case of nested prefixes)
@@ -995,7 +997,7 @@ pub fn keypair_from_private_key(
                     Err(KeyError::InvalidPrivateKey)?
                 }
             }
-            
+
             // raw_private_key currently has had one known prefix removed by
             // `extract_raw_key`. Strip an internal `kanahybrid` if present to
             // obtain the canonical hybrid payload (classical_hex:pqc_part).
@@ -1004,7 +1006,7 @@ pub fn keypair_from_private_key(
             } else {
                 raw_private_key
             };
-            
+
             // split into two parts at the first ':' so pqc part may itself contain ':'
             let parts: Vec<&str> = hybrid.splitn(2, ':').collect();
             if parts.len() != 2 {

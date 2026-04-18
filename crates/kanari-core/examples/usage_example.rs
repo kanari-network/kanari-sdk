@@ -23,6 +23,7 @@ fn main() -> anyhow::Result<()> {
     let vertex = DagVertex::new(
         1,                         // round
         "validator_0".to_string(), // author (AuthorityId)
+        "test-chain".to_string(),  // chain_id for replay protection
         vec![],                    // parents
         vec![],                    // transactions
         vec![0xaa; 32],            // state_root

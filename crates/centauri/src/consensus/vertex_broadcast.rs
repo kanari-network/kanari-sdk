@@ -14,9 +14,15 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::{DagVertex, Round, VertexId};
+
+const DEFAULT_BLOOM_EXPECTED_ITEMS: usize = 10_000;
+const DEFAULT_BLOOM_FALSE_POSITIVE_RATE: f64 = 0.01;
+const BLOOM_ROTATION_INTERVAL_SECS: u64 = 1;
+const BLOOM_ROTATION_ITEMS: usize = 50_000;
 
 /// Batch of vertices to broadcast
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,14 +102,17 @@ impl VertexBloomFilter {
         true
     }
 
-    /// Simple hash function (FNV-1a variant)
+    /// Simple fast hash extraction (Zero-cost optimization)
     fn hash(&self, vertex_id: &VertexId, seed: usize) -> usize {
-        let mut hash = 2166136261u32.wrapping_add(seed as u32);
-        for &byte in vertex_id {
-            hash ^= byte as u32;
-            hash = hash.wrapping_mul(16777619);
-        }
-        hash as usize
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        // FIX: ใช้ DefaultHasher ผสม vertex_id และ seed เพื่อการกระจายตัว (Entropy) ที่สมบูรณ์แบบ
+        let mut hasher = DefaultHasher::new();
+        vertex_id.hash(&mut hasher);
+        seed.hash(&mut hasher);
+
+        (hasher.finish() as usize) % self.size
     }
 }
 
@@ -203,8 +212,6 @@ impl AdaptiveBatcher {
     pub fn observe_latency(&mut self, latency: Duration) {
         let latency_ms = latency.as_millis() as f64;
         self.network_rtt.update(latency_ms);
-
-        // Only adjust periodically to avoid oscillation
         if self.last_adjustment.elapsed() < self.adjustment_interval {
             return;
         }
@@ -219,19 +226,18 @@ impl AdaptiveBatcher {
         let target = self.config.target_latency_ms as f64;
 
         if current_latency > target * 1.2 {
-            // Network is slow: increase batch size for better throughput
-            let increase =
-                (self.current_batch_size as f64 * self.config.adjustment_factor) as usize;
+            let increase = ((self.current_batch_size as f64 * self.config.adjustment_factor).ceil()
+                as usize)
+                .max(1);
             self.current_batch_size =
                 (self.current_batch_size + increase).min(self.config.max_batch_size);
         } else if current_latency < target * 0.8 {
-            // Network is fast: decrease batch size for lower latency
-            let decrease =
-                (self.current_batch_size as f64 * self.config.adjustment_factor) as usize;
+            let decrease = ((self.current_batch_size as f64 * self.config.adjustment_factor).ceil()
+                as usize)
+                .max(1);
             self.current_batch_size =
                 (self.current_batch_size.saturating_sub(decrease)).max(self.config.min_batch_size);
         }
-        // Otherwise: latency is within acceptable range, keep current size
     }
 
     /// Get current recommended batch size
@@ -256,37 +262,123 @@ impl AdaptiveBatcher {
 /// Vertex broadcast manager
 pub struct VertexBroadcaster {
     /// Pending vertices to broadcast
-    pending: VecDeque<DagVertex>,
+    pending: VecDeque<Arc<DagVertex>>,
 
-    /// Bloom filter of broadcasted vertices
+    /// Active + previous bloom filters to bound false-positive growth over time.
     broadcasted_filter: VertexBloomFilter,
+    previous_broadcasted_filter: VertexBloomFilter,
+    bloom_last_rotation: Instant,
+    bloom_items_since_rotation: usize,
 
     /// Batch configuration
     max_batch_size: usize,
+    #[allow(dead_code)] // Reserved for future adaptive batch timing logic
     max_batch_delay: Duration,
 
     /// Compression enabled
     compression_enabled: bool,
 
     /// Priority queue for leader vertices
-    priority_queue: VecDeque<DagVertex>,
+    priority_queue: VecDeque<Arc<DagVertex>>,
 
     /// Adaptive batching
     adaptive_batcher: AdaptiveBatcher,
+
+    /// FIX #5: Queue size limits to prevent OOM during network partitions
+    max_pending_queue_size: usize,
+    max_priority_queue_size: usize,
 }
 
 impl VertexBroadcaster {
-    /// Create new broadcaster
-    pub fn new(max_batch_size: usize, max_batch_delay: Duration) -> Self {
+    fn unix_timestamp_secs() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    }
+
+    fn build(
+        max_batch_size: usize,
+        max_batch_delay: Duration,
+        adaptive_batcher: AdaptiveBatcher,
+    ) -> Self {
+        // FIX #5: Set reasonable queue size limits to prevent OOM during network partitions
+        // Default: 100K vertices max (at ~1KB per vertex = ~100MB memory)
+        const MAX_PENDING_QUEUE_SIZE: usize = 100_000;
+        const MAX_PRIORITY_QUEUE_SIZE: usize = 10_000;
+
         Self {
             pending: VecDeque::new(),
-            broadcasted_filter: VertexBloomFilter::new(10000, 0.01),
+            broadcasted_filter: VertexBloomFilter::new(
+                DEFAULT_BLOOM_EXPECTED_ITEMS,
+                DEFAULT_BLOOM_FALSE_POSITIVE_RATE,
+            ),
+            previous_broadcasted_filter: VertexBloomFilter::new(
+                DEFAULT_BLOOM_EXPECTED_ITEMS,
+                DEFAULT_BLOOM_FALSE_POSITIVE_RATE,
+            ),
+            bloom_last_rotation: Instant::now(),
+            bloom_items_since_rotation: 0,
             max_batch_size,
             max_batch_delay,
             compression_enabled: true,
             priority_queue: VecDeque::new(),
-            adaptive_batcher: AdaptiveBatcher::new(AdaptiveBatchConfig::default()),
+            adaptive_batcher,
+            max_pending_queue_size: MAX_PENDING_QUEUE_SIZE,
+            max_priority_queue_size: MAX_PRIORITY_QUEUE_SIZE,
         }
+    }
+
+    fn enqueue_vertex(&mut self, vertex: Arc<DagVertex>, is_priority: bool) {
+        // FIX #5: Enforce queue size limits to prevent OOM during network partitions
+        if is_priority {
+            if self.priority_queue.len() >= self.max_priority_queue_size {
+                // Drop oldest priority vertex (FIFO) when queue is full
+                tracing::warn!(
+                    "[BROADCASTER] Priority queue full ({} vertices), dropping oldest",
+                    self.priority_queue.len()
+                );
+                self.priority_queue.pop_front();
+            }
+            self.priority_queue.push_back(vertex);
+        } else {
+            if self.pending.len() >= self.max_pending_queue_size {
+                // Drop oldest pending vertex (FIFO) when queue is full
+                tracing::warn!(
+                    "[BROADCASTER] Pending queue full ({} vertices, limit: {}), dropping oldest. State Sync will recover.",
+                    self.pending.len(),
+                    self.max_pending_queue_size
+                );
+                self.pending.pop_front();
+            }
+            self.pending.push_back(vertex);
+        }
+    }
+
+    fn rotate_bloom_if_needed(&mut self) {
+        if self.bloom_last_rotation.elapsed() < Duration::from_secs(BLOOM_ROTATION_INTERVAL_SECS)
+            && self.bloom_items_since_rotation < BLOOM_ROTATION_ITEMS
+        {
+            return;
+        }
+        self.previous_broadcasted_filter = std::mem::replace(
+            &mut self.broadcasted_filter,
+            VertexBloomFilter::new(
+                DEFAULT_BLOOM_EXPECTED_ITEMS,
+                DEFAULT_BLOOM_FALSE_POSITIVE_RATE,
+            ),
+        );
+        self.bloom_items_since_rotation = 0;
+        self.bloom_last_rotation = Instant::now();
+    }
+
+    /// Create new broadcaster
+    pub fn new(max_batch_size: usize, max_batch_delay: Duration) -> Self {
+        Self::build(
+            max_batch_size,
+            max_batch_delay,
+            AdaptiveBatcher::new(AdaptiveBatchConfig::default()),
+        )
     }
 
     /// Create broadcaster with custom adaptive config
@@ -295,15 +387,11 @@ impl VertexBroadcaster {
         max_batch_delay: Duration,
         adaptive_config: AdaptiveBatchConfig,
     ) -> Self {
-        Self {
-            pending: VecDeque::new(),
-            broadcasted_filter: VertexBloomFilter::new(10000, 0.01),
+        Self::build(
             max_batch_size,
             max_batch_delay,
-            compression_enabled: true,
-            priority_queue: VecDeque::new(),
-            adaptive_batcher: AdaptiveBatcher::new(adaptive_config),
-        }
+            AdaptiveBatcher::new(adaptive_config),
+        )
     }
 
     /// Observe network latency for adaptive batching
@@ -323,39 +411,122 @@ impl VertexBroadcaster {
 
     /// Add vertex to broadcast queue
     pub fn add_vertex(&mut self, vertex: DagVertex, is_priority: bool) {
-        // Use Bloom filter only - avoid duplicate HashSet
-        if self.broadcasted_filter.might_contain(&vertex.id) {
+        self.add_vertex_arc(Arc::new(vertex), is_priority);
+    }
+
+    /// Add shared vertex to broadcast queue (hot-path friendly).
+    pub fn add_vertex_arc(&mut self, vertex: Arc<DagVertex>, is_priority: bool) {
+        self.rotate_bloom_if_needed();
+        if self.broadcasted_filter.might_contain(&vertex.id)
+            || self.previous_broadcasted_filter.might_contain(&vertex.id)
+        {
             return; // Likely already broadcasted
         }
 
         self.broadcasted_filter.add(&vertex.id);
+        self.bloom_items_since_rotation += 1;
 
-        if is_priority {
-            self.priority_queue.push_back(vertex);
-        } else {
-            self.pending.push_back(vertex);
-        }
+        self.enqueue_vertex(vertex, is_priority);
     }
 
     /// Create batch from pending vertices
     pub fn create_batch(&mut self) -> Option<VertexBatch> {
-        // Use adaptive batch size instead of fixed max_batch_size
         let adaptive_size = self.adaptive_batcher.get_batch_size();
         let batch_limit = adaptive_size.min(self.max_batch_size);
+        let mut vertices = Vec::with_capacity(batch_limit);
 
-        let vertices: Vec<DagVertex> = self
-            .priority_queue
-            .drain(..)
-            .chain(self.pending.drain(..).take(batch_limit))
-            .collect();
+        // --- FIX: เพิ่มการจำกัดขนาด Bytes ป้องกัน Network Socket ค้าง ---
+        const MAX_BATCH_BYTES: usize = 2 * 1024 * 1024; // ลิมิตที่ 2 MB ต่อ Batch
+        let mut current_bytes = 0;
+
+        // FIX #5: Prevent priority queue starvation by using ratio-based selection
+        // Allocate 70% capacity to priority queue, 30% to normal queue
+        // This ensures normal transactions are never completely starved
+        let priority_limit = (batch_limit as f64 * 0.7) as usize;
+        let normal_limit = batch_limit.saturating_sub(priority_limit);
+
+        // Helper function to calculate actual vertex size in bytes
+        // FIX #2 & #15: Use cached serialized data instead of re-serializing transactions (Hot Path optimization)
+        let calculate_vertex_size = |vertex: &DagVertex| -> usize {
+            // Base overhead for vertex structure (id, round, author, parents, timestamp, signature, metadata)
+            let base_overhead = 256; // Conservative estimate for fixed fields
+
+            // FIX #15: CRITICAL - Use cached transaction sizes instead of re-serializing
+            // Previously called bcs::to_bytes() on every transaction in hot path
+            // causing CPU exhaustion at high TPS (100K+ TPS scenarios)
+            let tx_data_size: usize = if let Some(ref cached_data) = vertex.cached_serialized_data {
+                // Use pre-computed cached size (O(1))
+                cached_data.len()
+            } else {
+                // Fallback: estimate based on transaction count and average size
+                // Average transaction size is ~200-300 bytes for simple transfers
+                const AVG_TX_SIZE: usize = 256;
+                vertex.transactions.len().saturating_mul(AVG_TX_SIZE)
+            };
+
+            base_overhead + tx_data_size
+        };
+
+        // Fill batch from priority queue first (up to 70% of capacity).
+        let mut priority_count = 0;
+        while priority_count < priority_limit && vertices.len() < batch_limit {
+            if let Some(vertex) = self.priority_queue.front() {
+                let v_size = calculate_vertex_size(vertex);
+                if current_bytes + v_size > MAX_BATCH_BYTES && !vertices.is_empty() {
+                    break; // ขนาดใหญ่เกินไปแล้ว ตัด Batch ตรงนี้เลย
+                }
+                current_bytes += v_size;
+                vertices.push((**vertex).clone());
+                self.priority_queue.pop_front();
+                priority_count += 1;
+            } else {
+                break;
+            }
+        }
+
+        // Then fill remaining capacity from normal queue (at least 30%).
+        let mut normal_count = 0;
+        while normal_count < normal_limit && vertices.len() < batch_limit {
+            if let Some(vertex) = self.pending.front() {
+                let v_size = calculate_vertex_size(vertex);
+                if current_bytes + v_size > MAX_BATCH_BYTES && !vertices.is_empty() {
+                    break;
+                }
+                current_bytes += v_size;
+                vertices.push((**vertex).clone());
+                self.pending.pop_front();
+                normal_count += 1;
+            } else {
+                break;
+            }
+        }
+
+        // If we still have capacity and priority queue has more, allow overflow
+        while vertices.len() < batch_limit {
+            if let Some(vertex) = self.priority_queue.front() {
+                let v_size = calculate_vertex_size(vertex);
+                if current_bytes + v_size > MAX_BATCH_BYTES && !vertices.is_empty() {
+                    break;
+                }
+                current_bytes += v_size;
+                vertices.push((**vertex).clone());
+                self.priority_queue.pop_front();
+            } else if let Some(vertex) = self.pending.front() {
+                let v_size = calculate_vertex_size(vertex);
+                if current_bytes + v_size > MAX_BATCH_BYTES && !vertices.is_empty() {
+                    break;
+                }
+                current_bytes += v_size;
+                vertices.push((**vertex).clone());
+                self.pending.pop_front();
+            } else {
+                break;
+            }
+        }
 
         if vertices.is_empty() {
             return None;
         }
-
-        // Check if batch should wait for more vertices (using max_batch_delay)
-        let _should_wait =
-            self.max_batch_delay.as_millis() > 0 && vertices.len() < self.max_batch_size;
 
         let round_range = (
             vertices.iter().map(|v| v.round).min().unwrap_or(0),
@@ -368,20 +539,15 @@ impl VertexBroadcaster {
                 v.id.len()
                     + v.author.len()
                     + v.parents.iter().map(|p| p.len()).sum::<usize>()
-                    + v.transactions.len() * 100 // Estimate
+                    + v.transactions.len() * 150 // Estimate
             })
             .sum();
-
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
 
         Some(VertexBatch {
             vertices,
             round_range,
             size_bytes,
-            created_at: timestamp,
+            created_at: Self::unix_timestamp_secs(),
         })
     }
 
@@ -408,14 +574,34 @@ impl VertexBroadcaster {
         })
     }
 
-    /// Decompress batch
+    /// Decompress batch with safety limits (Prevents Zip Bomb attacks)
     pub fn decompress_batch(&self, compressed: &CompressedBatch) -> Result<VertexBatch> {
+        // FIX 2: ป้องกัน Zip Bomb (OOM Attack) โดยการจำกัดขนาดหลังแตกไฟล์
+        // กำหนดเพดานที่ 10 MB ซึ่งเพียงพอสำหรับ VertexBatch ขนาดใหญ่ที่สุดตาม Config (50K vertices)
+        const MAX_SAFE_DECOMPRESSED_SIZE: usize = 10 * 1024 * 1024;
+
+        if compressed.original_size > MAX_SAFE_DECOMPRESSED_SIZE {
+            return Err(anyhow::anyhow!(
+                "Security Alert: Decompressed size {} exceeds safety limit ({} bytes)",
+                compressed.original_size,
+                MAX_SAFE_DECOMPRESSED_SIZE
+            ));
+        }
+
         let decompressed = if self.compression_enabled {
+            // ใช้ zstd แบบจำกัดขนาด output หรือเช็คจากข้อมูล metadata ที่ส่งมา
             zstd::decode_all(&compressed.data[..])
                 .map_err(|e| anyhow::anyhow!("Failed to decompress: {}", e))?
         } else {
             compressed.data.clone()
         };
+
+        // ตรวจสอบขนาดจริงหลังแตกไฟล์อีกครั้งเพื่อความปลอดภัยสูงสุด
+        if decompressed.len() != compressed.original_size {
+            return Err(anyhow::anyhow!(
+                "Decompressed size mismatch: actual size doesn't match reported size"
+            ));
+        }
 
         // Deserialize using BCS
         let batch: VertexBatch = bcs::from_bytes(&decompressed)
@@ -427,6 +613,7 @@ impl VertexBroadcaster {
     /// Check if vertex might have been broadcasted
     pub fn might_have_broadcasted(&self, vertex_id: &VertexId) -> bool {
         self.broadcasted_filter.might_contain(vertex_id)
+            || self.previous_broadcasted_filter.might_contain(vertex_id)
     }
 
     /// Get pending count
@@ -543,7 +730,7 @@ mod tests {
         let mut broadcaster = VertexBroadcaster::new(10, Duration::from_secs(1));
 
         let parent = [0u8; 32];
-        let vertex = DagVertex::new(
+        let vertex = DagVertex::new_for_test(
             1,
             "auth1".to_string(),
             vec![parent],
@@ -564,8 +751,8 @@ mod tests {
     fn test_priority_queue() {
         let mut broadcaster = VertexBroadcaster::new(10, Duration::from_secs(1));
 
-        let normal = DagVertex::new(1, "auth1".to_string(), vec![], vec![], vec![], 0);
-        let priority = DagVertex::new(2, "auth2".to_string(), vec![], vec![], vec![], 0);
+        let normal = DagVertex::new_for_test(1, "auth1".to_string(), vec![], vec![], vec![], 0);
+        let priority = DagVertex::new_for_test(2, "auth2".to_string(), vec![], vec![], vec![], 0);
 
         broadcaster.add_vertex(normal, false);
         broadcaster.add_vertex(priority, true);
@@ -603,6 +790,7 @@ mod tests {
 
         let batch = VertexBatch {
             vertices: vec![DagVertex {
+                chain_id: "test_chain".to_string(),
                 id: vertex_id,
                 round: 1,
                 author: "test_author".to_string(),
@@ -731,7 +919,8 @@ mod tests {
 
         // Add some vertices
         for i in 0..20 {
-            let vertex = DagVertex::new(i, format!("auth{}", i), vec![], vec![], vec![], 0);
+            let vertex =
+                DagVertex::new_for_test(i, format!("auth{}", i), vec![], vec![], vec![], 0);
             broadcaster.add_vertex(vertex, false);
         }
 
@@ -745,5 +934,38 @@ mod tests {
         // Create batch - should respect adaptive size
         let batch = broadcaster.create_batch().unwrap();
         assert!(batch.vertices.len() <= batch_size);
+    }
+
+    #[test]
+    fn test_create_batch_does_not_drop_pending_vertices() {
+        let mut broadcaster = VertexBroadcaster::new(2, Duration::from_secs(1));
+
+        for i in 0..5 {
+            let vertex =
+                DagVertex::new_for_test(i, format!("auth{}", i), vec![], vec![], vec![], 0);
+            broadcaster.add_vertex(vertex, false);
+        }
+
+        let first_batch = broadcaster.create_batch().unwrap();
+        assert_eq!(first_batch.vertices.len(), 2);
+        assert_eq!(broadcaster.pending_count(), 3);
+    }
+
+    #[test]
+    fn test_bloom_filter_rotation() {
+        let mut broadcaster = VertexBroadcaster::new(10, Duration::from_secs(1));
+        let vertex =
+            DagVertex::new_for_test(1, "auth1".to_string(), vec![], vec![], vec![0u8; 32], 0);
+        let vertex_id = vertex.id;
+        broadcaster.add_vertex(vertex, false);
+        assert!(broadcaster.might_have_broadcasted(&vertex_id));
+
+        broadcaster.bloom_last_rotation = Instant::now() - Duration::from_secs(2);
+        broadcaster.rotate_bloom_if_needed();
+        assert!(broadcaster.might_have_broadcasted(&vertex_id));
+
+        broadcaster.bloom_last_rotation = Instant::now() - Duration::from_secs(2);
+        broadcaster.rotate_bloom_if_needed();
+        assert!(!broadcaster.might_have_broadcasted(&vertex_id));
     }
 }

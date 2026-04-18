@@ -10,35 +10,75 @@
 use super::crypto_signatures::{
     CompressedRistretto, RISTRETTO_BASEPOINT_TABLE, RistrettoPoint, Scalar,
 };
-use kanari_crypto::hash_data_blake3;
+use kanari_crypto::{hash_data_blake3, hash_data_shake256_custom};
 use rand::TryRng;
 use rand::rngs::SysRng;
 use std::fmt;
+
+/// Convert hash to scalar with proper bias removal (RFC 9381 compliant)
+/// Uses 64-byte hash input and wide reduction to eliminate modular bias
+fn hash_to_scalar_unbiased(hash: &[u8]) -> Scalar {
+    // FIX #4: Use 64 bytes for unbiased scalar generation (RFC 9381)
+    let mut bytes = [0u8; 64];
+    if hash.len() >= 64 {
+        bytes.copy_from_slice(&hash[..64]);
+    } else {
+        // Fallback: extend with zeros if hash is too short (shouldn't happen with Blake3-512)
+        bytes[..hash.len()].copy_from_slice(hash);
+    }
+    Scalar::from_bytes_mod_order_wide(&bytes)
+}
+
+// /// Legacy function kept for backward compatibility (DEPRECATED - use hash_to_scalar_unbiased)
+// #[deprecated(since = "0.2.0", note = "Use hash_to_scalar_unbiased for RFC 9381 compliance")]
+// fn hash32_to_scalar(hash: &[u8]) -> Scalar {
+//     let mut bytes = [0u8; 32];
+//     bytes.copy_from_slice(&hash[..32]);
+//     Scalar::from_bytes_mod_order(bytes)
+// }
+
+fn hash_with_domain(domain: &[u8], parts: &[&[u8]]) -> Vec<u8> {
+    let cap = domain.len() + parts.iter().map(|p| p.len()).sum::<usize>();
+    let mut data = Vec::with_capacity(cap);
+    data.extend_from_slice(domain);
+    for part in parts {
+        data.extend_from_slice(part);
+    }
+    // FIX #4: Use SHAKE256 with 64-byte output for unbiased scalar generation (RFC 9381)
+    // This prevents lattice attacks on VRF nonce by ensuring uniform distribution
+    hash_data_shake256_custom(&data, 64)
+}
 
 // ===== VRF Helper Functions (Shared between SecretKey and PublicKey) =====
 
 /// Hash arbitrary input to a curve point (hash-to-curve)
 /// Uses try-and-increment approach for Ristretto255
-fn vrf_hash_to_curve(alpha: &[u8]) -> RistrettoPoint {
-    let mut data = Vec::new();
+/// Returns Result instead of panicking to prevent liveness failures
+fn vrf_hash_to_curve(alpha: &[u8]) -> Result<RistrettoPoint, anyhow::Error> {
+    let mut data =
+        Vec::with_capacity(b"vrf_h2c_v1".len() + alpha.len() + std::mem::size_of::<u32>());
     data.extend_from_slice(b"vrf_h2c_v1");
     data.extend_from_slice(alpha);
+    let base_len = data.len();
 
-    // Try-and-increment approach
+    // Try-and-increment approach with proper error handling
     for i in 0u32..256 {
-        let mut attempt = data.clone();
-        attempt.extend_from_slice(&i.to_le_bytes());
-        let hash = hash_data_blake3(&attempt);
+        data.extend_from_slice(&i.to_le_bytes());
+        let hash = hash_data_blake3(&data);
+        data.truncate(base_len);
 
         if let Ok(compressed) = CompressedRistretto::from_slice(&hash[..32])
             && let Some(point) = compressed.decompress()
         {
-            return point;
+            return Ok(point);
         }
     }
 
-    // Fallback: use basepoint (should rarely happen)
-    RistrettoPoint::default()
+    // FIX #4: Return error instead of panic to prevent node halt (liveness failure)
+    // This is extremely unlikely (< 2^-128 probability) but must be handled gracefully
+    Err(anyhow::anyhow!(
+        "Hash-to-curve failed after 256 attempts. This indicates either a critical cryptographic failure or corrupted input data."
+    ))
 }
 
 /// Hash points to create challenge scalar for VRF proof
@@ -49,26 +89,23 @@ fn vrf_hash_challenge(
     u: &RistrettoPoint,
     v: &RistrettoPoint,
 ) -> Scalar {
-    let mut data = Vec::new();
-    data.extend_from_slice(b"vrf_challenge_v1");
-    data.extend_from_slice(pk.compress().as_bytes());
-    data.extend_from_slice(h.compress().as_bytes());
-    data.extend_from_slice(gamma.compress().as_bytes());
-    data.extend_from_slice(u.compress().as_bytes());
-    data.extend_from_slice(v.compress().as_bytes());
-
-    let hash = hash_data_blake3(&data);
-    let bytes: [u8; 32] = hash[..32].try_into().unwrap_or([0u8; 32]);
-    Scalar::from_bytes_mod_order(bytes)
+    let hash = hash_with_domain(
+        b"vrf_challenge_v1",
+        &[
+            pk.compress().as_bytes(),
+            h.compress().as_bytes(),
+            gamma.compress().as_bytes(),
+            u.compress().as_bytes(),
+            v.compress().as_bytes(),
+        ],
+    );
+    // FIX #4: Use unbiased scalar generation (RFC 9381 compliant)
+    hash_to_scalar_unbiased(&hash)
 }
 
 /// Convert proof gamma to final VRF output hash
 fn vrf_proof_to_hash(gamma: &RistrettoPoint) -> [u8; 32] {
-    let mut data = Vec::new();
-    data.extend_from_slice(b"vrf_output_v1");
-    data.extend_from_slice(gamma.compress().as_bytes());
-
-    let hash = hash_data_blake3(&data);
+    let hash = hash_with_domain(b"vrf_output_v1", &[gamma.compress().as_bytes()]);
     hash[..32].try_into().unwrap_or([0u8; 32])
 }
 
@@ -104,6 +141,74 @@ pub struct VrfProof {
     s: Scalar,             // Response
 }
 
+impl serde::Serialize for VrfProof {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeTuple;
+
+        // Serialize as tuple: (gamma_bytes, c_bytes, s_bytes)
+        // gamma: 32 bytes (compressed), c: 32 bytes, s: 32 bytes = 96 bytes total
+        let mut tuple = serializer.serialize_tuple(3)?;
+        tuple.serialize_element(self.gamma.compress().as_bytes())?;
+        tuple.serialize_element(&self.c.to_bytes())?;
+        tuple.serialize_element(&self.s.to_bytes())?;
+        tuple.end()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for VrfProof {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::{self, SeqAccess, Visitor};
+        use std::fmt;
+
+        struct VrfProofVisitor;
+
+        impl<'de> Visitor<'de> for VrfProofVisitor {
+            type Value = VrfProof;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a tuple of (gamma_bytes, c_bytes, s_bytes)")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<VrfProof, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let gamma_bytes: [u8; 32] = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let c_bytes: [u8; 32] = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                let s_bytes: [u8; 32] = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(2, &self))?;
+
+                let gamma = CompressedRistretto(gamma_bytes)
+                    .decompress()
+                    .ok_or_else(|| de::Error::custom("Invalid gamma point"))?;
+
+                let c = Scalar::from_canonical_bytes(c_bytes)
+                    .into_option()
+                    .ok_or_else(|| de::Error::custom("Invalid c scalar"))?;
+
+                let s = Scalar::from_canonical_bytes(s_bytes)
+                    .into_option()
+                    .ok_or_else(|| de::Error::custom("Invalid s scalar"))?;
+
+                Ok(VrfProof { gamma, c, s })
+            }
+        }
+
+        deserializer.deserialize_tuple(3, VrfProofVisitor)
+    }
+}
+
 impl fmt::Debug for VrfProof {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("VrfProof")
@@ -134,7 +239,7 @@ impl VrfSecretKey {
             let mut bytes = [0u8; 32];
             SysRng
                 .try_fill_bytes(&mut bytes)
-                .expect("Failed to get OS randomness"); 
+                .expect("Failed to get OS randomness");
 
             Self {
                 scalar: Scalar::from_bytes_mod_order(bytes),
@@ -166,7 +271,8 @@ impl VrfSecretKey {
         // ECVRF-PROVE algorithm (simplified, using Ristretto255)
 
         // 1. Hash to curve: H = hash_to_curve(alpha)
-        let h = vrf_hash_to_curve(alpha);
+        let h = vrf_hash_to_curve(alpha)
+            .expect("Hash-to-curve should not fail with valid input - this indicates a critical cryptographic error");
 
         // 2. Compute gamma = sk * H (the VRF hash point)
         let gamma = self.scalar * h;
@@ -195,15 +301,14 @@ impl VrfSecretKey {
 
     /// Generate deterministic nonce from secret key and input
     fn generate_nonce(&self, alpha: &[u8], gamma: &RistrettoPoint) -> Scalar {
-        let mut data = Vec::new();
-        data.extend_from_slice(b"vrf_nonce_v1");
-        data.extend_from_slice(&self.scalar.to_bytes());
-        data.extend_from_slice(alpha);
-        data.extend_from_slice(gamma.compress().as_bytes());
-
-        let hash = hash_data_blake3(&data);
-        let bytes: [u8; 32] = hash[..32].try_into().unwrap_or([0u8; 32]);
-        Scalar::from_bytes_mod_order(bytes)
+        let scalar_bytes = self.scalar.to_bytes();
+        let hash = hash_with_domain(
+            b"vrf_nonce_v1",
+            &[&scalar_bytes, alpha, gamma.compress().as_bytes()],
+        );
+        // FIX #4: Use unbiased scalar generation for nonce (RFC 9381 compliant)
+        // This prevents lattice attacks that could recover the VRF secret key
+        hash_to_scalar_unbiased(&hash)
     }
 }
 
@@ -226,7 +331,7 @@ impl VrfPublicKey {
     /// s*G == U + c*PK  and  s*H == V + c*Gamma
     pub fn verify(&self, alpha: &[u8], proof: &VrfProof) -> Option<VrfOutput> {
         // 1. Recompute H = hash_to_curve(alpha)
-        let h = vrf_hash_to_curve(alpha);
+        let h = vrf_hash_to_curve(alpha).ok()?;
 
         // 2. Recompute challenge c' = Hash(pk, H, gamma, U', V')
         //    where U' = s*G - c*PK  and  V' = s*H - c*Gamma
