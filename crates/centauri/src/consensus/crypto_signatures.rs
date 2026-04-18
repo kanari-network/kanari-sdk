@@ -1,5 +1,7 @@
-use anyhow::Result;
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
 
+use anyhow::Result;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use rand::TryRng;
 use rand::rngs::SysRng;

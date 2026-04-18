@@ -30,6 +30,9 @@ log = { workspace = true }
 num_cpus = "1.17.0"
 moka = { version = "0.12.15", features = ["sync"] }
 siphasher = "1.0.2"
+tokio = { workspace = true, features = ["full"] }
+dashmap = "6.1.0"
+ahash = "0.8.12"
 
 [dev-dependencies]
 tempfile = { workspace = true }

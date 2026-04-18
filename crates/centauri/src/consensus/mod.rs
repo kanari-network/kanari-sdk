@@ -44,11 +44,11 @@ mod state_sync;
 pub use state_sync::{FastSync, StateSynchronizer, SyncProgress, SyncRequest, SyncResponse};
 
 // Light client functionality
-// mod light_client;
-// pub use light_client::{
-//     CheckpointBuilder, CheckpointSignature, LightCheckpoint, LightClient, LightClientQuery,
-//     StateProof, TransactionProof,
-// };
+mod light_client;
+pub use light_client::{
+    CheckpointBuilder, CheckpointSignature, LightCheckpoint, LightClient, LightClientQuery,
+    StateProof, TransactionProof,
+};
 
 // Committee management
 mod committee;

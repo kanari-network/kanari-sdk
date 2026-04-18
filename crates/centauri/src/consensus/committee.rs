@@ -24,7 +24,6 @@ use super::crypto_signatures::Ed25519Keypair;
 pub struct ValidatorInfo {
     pub authority_id: AuthorityId,
     pub public_key: Vec<u8>,
-    pub stake: u64,
     pub network_address: String,
     pub active: bool,
 }
@@ -34,23 +33,18 @@ pub struct ValidatorInfo {
 pub struct Committee {
     pub epoch: u64,
     pub validators: BTreeMap<AuthorityId, ValidatorInfo>,
-    // FIX 2: ใช้ u128 ป้องกัน Stake Overflow ทำให้ BFT พัง
-    pub total_stake: u128,
-    pub quorum_threshold: u128,
+    pub quorum_size: usize,
 }
 
 impl Committee {
-    fn compute_totals(validators: &[ValidatorInfo]) -> (u128, u128) {
-        let total_stake = validators.iter().fold(0u128, |acc, validator| {
-            acc.saturating_add(validator.stake as u128)
-        });
-        // คำนวณแบบ 2f+1 โดยใช้ u128 ตลอดทาง ไม่ Truncate ลงมาเป็น u64 แล้ว
-        let quorum = total_stake.saturating_mul(2) / 3 + 1;
-        (total_stake, quorum)
+    fn compute_quorum_size(validators: &[ValidatorInfo]) -> usize {
+        let total = validators.len();
+        let f = (total.saturating_sub(1)) / 3;
+        2 * f + 1
     }
 
     pub fn new(epoch: u64, validators: Vec<ValidatorInfo>) -> Self {
-        let (total_stake, quorum_threshold) = Self::compute_totals(&validators);
+        let quorum_size = Self::compute_quorum_size(&validators);
 
         let validators_map: BTreeMap<AuthorityId, ValidatorInfo> = validators
             .into_iter()
@@ -60,8 +54,7 @@ impl Committee {
         Self {
             epoch,
             validators: validators_map,
-            total_stake,
-            quorum_threshold,
+            quorum_size,
         }
     }
 
@@ -77,34 +70,30 @@ impl Committee {
         self.validators.values().filter(|v| v.active).collect()
     }
 
-    pub fn active_stake(&self) -> u128 {
-        self.validators
-            .values()
-            .filter(|v| v.active)
-            .map(|v| v.stake as u128)
-            .sum()
-    }
-
-    pub fn has_quorum(&self, stake: u128) -> bool {
-        stake >= self.quorum_threshold
+    pub fn has_quorum(&self, support_count: usize) -> bool {
+        support_count >= self.quorum_size
     }
 
     pub fn verify_quorum_certificate(&self, signers: &[AuthorityId]) -> Result<()> {
-        let mut unique_signers = std::collections::BTreeSet::new();
-        let total_stake: u128 = signers
+        let unique_signers: std::collections::HashSet<&str> =
+            signers.iter().map(|s| s.as_str()).collect();
+        let trusted_count = unique_signers
             .iter()
-            .filter(|auth| unique_signers.insert((*auth).clone()))
-            .filter_map(|auth| self.validators.get(auth))
-            .filter(|v| v.active)
-            .fold(0u128, |acc, v| acc.saturating_add(v.stake as u128));
+            .filter(|auth| {
+                self.validators
+                    .get(**auth) // Dereference &&str to &str
+                    .map(|v| v.active)
+                    .unwrap_or(false)
+            })
+            .count();
 
-        if total_stake >= self.quorum_threshold {
+        if trusted_count >= self.quorum_size {
             Ok(())
         } else {
             Err(anyhow!(
-                "Insufficient stake in quorum certificate: {} < {}",
-                total_stake,
-                self.quorum_threshold
+                "Insufficient validators in quorum certificate: {} < {}",
+                trusted_count,
+                self.quorum_size
             ))
         }
     }
@@ -116,10 +105,6 @@ pub enum CommitteeChange {
     RemoveValidator {
         authority_id: AuthorityId,
         reason: String,
-    },
-    UpdateStake {
-        authority_id: AuthorityId,
-        new_stake: u64,
     },
     DeactivateValidator {
         authority_id: AuthorityId,
@@ -176,20 +161,6 @@ impl CommitteeManager {
             } => {
                 tracing::info!("Removing validator {}: {}", authority_id, reason);
                 new_validators.remove(&authority_id);
-            }
-            CommitteeChange::UpdateStake {
-                authority_id,
-                new_stake,
-            } => {
-                if let Some(validator) = new_validators.get_mut(&authority_id) {
-                    tracing::info!(
-                        "Updating stake for {}: {} -> {}",
-                        authority_id,
-                        validator.stake,
-                        new_stake
-                    );
-                    validator.stake = new_stake;
-                }
             }
             CommitteeChange::DeactivateValidator { authority_id } => {
                 if let Some(validator) = new_validators.get_mut(&authority_id) {
@@ -260,14 +231,6 @@ impl CommitteeManager {
                     authority_id: id2, ..
                 },
             ) => id1 == id2,
-            (
-                CommitteeChange::UpdateStake {
-                    authority_id: id1, ..
-                },
-                CommitteeChange::UpdateStake {
-                    authority_id: id2, ..
-                },
-            ) => id1 == id2,
             _ => false,
         });
 
@@ -304,10 +267,9 @@ impl CommitteeManager {
         self.current_committee = new_committee.clone();
 
         tracing::info!(
-            "Advanced to epoch {} with {} validators (total stake: {})",
+            "Advanced to epoch {} with {} validators",
             new_epoch,
-            self.current_committee.validators.len(),
-            self.current_committee.total_stake
+            self.current_committee.validators.len()
         );
 
         Ok(new_committee)
@@ -394,11 +356,10 @@ impl CommitteeManager {
 mod tests {
     use super::*;
 
-    fn create_test_validator(id: &str, stake: u64) -> ValidatorInfo {
+    fn create_test_validator(id: &str) -> ValidatorInfo {
         ValidatorInfo {
             authority_id: id.to_string(),
             public_key: vec![0u8; 32],
-            stake,
             network_address: format!("127.0.0.1:{}", 9000 + id.len()),
             active: true,
         }
@@ -406,10 +367,10 @@ mod tests {
 
     fn create_test_committee() -> Committee {
         let validators = vec![
-            create_test_validator("auth1", 100),
-            create_test_validator("auth2", 100),
-            create_test_validator("auth3", 100),
-            create_test_validator("auth4", 100),
+            create_test_validator("auth1"),
+            create_test_validator("auth2"),
+            create_test_validator("auth3"),
+            create_test_validator("auth4"),
         ];
         Committee::new(0, validators)
     }
@@ -419,15 +380,15 @@ mod tests {
         let committee = create_test_committee();
         assert_eq!(committee.epoch, 0);
         assert_eq!(committee.validators.len(), 4);
-        assert_eq!(committee.total_stake, 400);
-        assert_eq!(committee.quorum_threshold, (400 * 2 / 3) + 1);
+        // 4 validators, f = (4-1)/3 = 1, quorum = 2*1+1 = 3
+        assert_eq!(committee.quorum_size, 3);
     }
 
     #[test]
     fn test_quorum_verification() {
         let committee = create_test_committee();
-        assert!(committee.has_quorum(300));
-        assert!(!committee.has_quorum(200));
+        assert!(committee.has_quorum(3));
+        assert!(!committee.has_quorum(2));
     }
 
     #[test]
@@ -438,6 +399,7 @@ mod tests {
             "auth1".to_string(),
             "auth2".to_string(),
         ];
+        // Only 2 unique signers, quorum is 3
         assert!(committee.verify_quorum_certificate(&signers).is_err());
     }
 
@@ -445,35 +407,13 @@ mod tests {
     fn test_add_validator() {
         let committee = create_test_committee();
         let mut manager = CommitteeManager::new(committee);
-        let new_validator = create_test_validator("auth5", 100);
+        let new_validator = create_test_validator("auth5");
         let change = CommitteeChange::AddValidator(new_validator);
 
         manager.propose_change(change, 1).unwrap();
         let new_committee = manager.advance_epoch(1).unwrap();
         assert_eq!(new_committee.validators.len(), 5);
-        assert_eq!(new_committee.total_stake, 500);
-    }
-
-    #[test]
-    fn test_large_stake_does_not_overflow() {
-        let validators = vec![
-            ValidatorInfo {
-                authority_id: "a".to_string(),
-                public_key: vec![0; 32],
-                stake: u64::MAX,
-                network_address: "a".to_string(),
-                active: true,
-            },
-            ValidatorInfo {
-                authority_id: "b".to_string(),
-                public_key: vec![1; 32],
-                stake: u64::MAX,
-                network_address: "b".to_string(),
-                active: true,
-            },
-        ];
-        let committee = Committee::new(0, validators);
-        assert_eq!(committee.total_stake, (u64::MAX as u128) * 2);
-        assert!(committee.quorum_threshold > u64::MAX as u128);
+        // 5 validators, f = (5-1)/3 = 1, quorum = 2*1+1 = 3
+        assert_eq!(new_committee.quorum_size, 3);
     }
 }

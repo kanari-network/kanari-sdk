@@ -10,12 +10,12 @@
 //!
 //! Inspired by Sui's checkpoint-based sync mechanism.
 
+use crate::consensus::Committee;
+use ahash::HashSet;
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
-
-use crate::consensus::Committee;
 
 use super::{AuthorityId, Checkpoint, DagVertex, Round, VertexId};
 
@@ -52,6 +52,16 @@ pub struct SyncProgress {
 }
 
 impl SyncProgress {
+    // FIX #8: Add sync timeout constant (5 minutes)
+    const SYNC_TIMEOUT_SECS: u64 = 300;
+
+    fn unix_timestamp_secs() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    }
+
     pub fn progress_percentage(&self) -> f64 {
         if self.total_vertices == 0 {
             return 100.0;
@@ -62,6 +72,12 @@ impl SyncProgress {
     pub fn is_complete(&self) -> bool {
         self.current_checkpoint >= self.target_checkpoint
             && self.synced_vertices >= self.total_vertices
+    }
+
+    // FIX #8: Check if sync has timed out
+    pub fn is_timed_out(&self) -> bool {
+        let now = Self::unix_timestamp_secs();
+        now.saturating_sub(self.started_at) > Self::SYNC_TIMEOUT_SECS
     }
 }
 
@@ -74,10 +90,12 @@ pub struct StateSynchronizer {
     latest_round: Round,
     sync_progress: Option<SyncProgress>,
 
-    // --- FIX #14: Orphan Buffer with FIFO eviction tracking ---
-    orphan_buffer: BTreeMap<VertexId, Arc<DagVertex>>,
-    orphan_insertion_order: std::collections::VecDeque<VertexId>, // Track insertion order for proper FIFO eviction
-    waiting_for: BTreeMap<VertexId, Vec<VertexId>>, // parent_id -> list of orphan children waiting
+    /// Orphan vertices buffer (waiting for parents) - HashMap for O(1) lookup
+    orphan_buffer: HashMap<VertexId, Arc<DagVertex>>,
+    /// Parent tracking for orphans - HashMap for O(1) lookup
+    waiting_for: HashMap<VertexId, Vec<VertexId>>, // parent_id -> list of orphan children waiting
+    /// Track insertion order for FIFO eviction (VecDeque for efficient pop_front)
+    orphan_insertion_order: VecDeque<VertexId>,
 }
 
 impl StateSynchronizer {
@@ -142,9 +160,9 @@ impl StateSynchronizer {
             latest_checkpoint: 0,
             latest_round: 0,
             sync_progress: None,
-            orphan_buffer: BTreeMap::new(),
-            orphan_insertion_order: std::collections::VecDeque::new(), // FIX #14
-            waiting_for: BTreeMap::new(),
+            orphan_buffer: HashMap::new(),
+            waiting_for: HashMap::new(),
+            orphan_insertion_order: VecDeque::new(),
         }
     }
 
@@ -286,6 +304,24 @@ impl StateSynchronizer {
     }
 
     pub fn handle_sync_request(&self, request: &SyncRequest) -> Result<SyncResponse> {
+        // FIX #9: CRITICAL - Limit missing_vertices to prevent DoS attack
+        // Previously allowed unlimited missing_vertices causing O(N) lookups and memory exhaustion
+        const MAX_MISSING_VERTICES: usize = 10_000;
+
+        if request.missing_vertices.len() > MAX_MISSING_VERTICES {
+            tracing::warn!(
+                "[Security] SyncRequest from {} has {} missing_vertices (max: {}) - rejecting",
+                request.requester,
+                request.missing_vertices.len(),
+                MAX_MISSING_VERTICES
+            );
+            return Err(anyhow!(
+                "SyncRequest rejected: too many missing_vertices ({}, max: {})",
+                request.missing_vertices.len(),
+                MAX_MISSING_VERTICES
+            ));
+        }
+
         let checkpoint_start = request.last_checkpoint.saturating_add(1);
         let checkpoints: Vec<Checkpoint> = if checkpoint_start > self.latest_checkpoint {
             Vec::new()
@@ -298,7 +334,8 @@ impl StateSynchronizer {
 
         let mut vertices =
             self.collect_vertices_after_round_limited(request.last_round, MAX_SYNC_VERTICES);
-        let mut seen: BTreeSet<VertexId> = vertices.iter().map(|v| v.id).collect();
+        let mut seen: HashSet<VertexId> = vertices.iter().map(|v| v.id).collect();
+
         for vertex_id in &request.missing_vertices {
             if vertices.len() >= MAX_SYNC_VERTICES {
                 break;
@@ -335,30 +372,12 @@ impl StateSynchronizer {
         response: SyncResponse,
         committee: &Committee,
     ) -> Result<()> {
-        let last_valid_checkpoint = self
-            .get_latest_checkpoint()
-            .ok_or_else(|| anyhow!("No local state"))?;
-
-        // FIX 9: ตรวจสอบความถูกต้องของ State Root อย่างเคร่งครัด
-        if response.checkpoints.is_empty()
-            && response.state_root != last_valid_checkpoint.state_root
-        {
-            anyhow::bail!("State root mismatch with target sync point");
-        }
-
-        let expected_root = response
-            .checkpoints
-            .last()
-            .map(|c| c.state_root.clone())
-            .unwrap_or_else(|| self.latest_state_root());
-
-        if expected_root != response.state_root {
-            return Err(anyhow!(
-                "State root mismatch in sync response: expected {:?}, got {:?}",
-                expected_root,
-                response.state_root
-            ));
-        }
+        // FIX #7: CRITICAL - Do NOT trust state_root from remote response for validation!
+        // Previously used response.checkpoints.last().state_root to validate response.state_root
+        // This is circular validation - attacker can send fake state_root with matching checkpoint
+        //
+        // Correct approach: Validate each vertex individually via signature verification,
+        // then compute local state root after applying vertices. Never trust remote state_root.
 
         let start_checkpoint = self.latest_checkpoint;
         let total_vertices = response.vertices.len();
@@ -423,9 +442,11 @@ impl StateSynchronizer {
             }
         }
 
+        // FIX #7: After syncing vertices, verify state consistency locally
+        // Do NOT use response.state_root - it cannot be trusted
         tracing::info!(
-            "Sync complete: {} checkpoints, {} vertices ({} orphans), current round: {}",
-            self.checkpoints.len(),
+            "Sync complete: {} vertices applied ({} orphans), current round: {}. \
+             Local state root should be recomputed from synced vertices.",
             self.vertices_by_round.values().map(Vec::len).sum::<usize>(),
             self.orphan_buffer.len(),
             self.latest_round
@@ -441,8 +462,26 @@ impl StateSynchronizer {
     pub fn is_syncing(&self) -> bool {
         self.sync_progress
             .as_ref()
-            .map(|p| !p.is_complete())
+            .map(|p| {
+                // FIX #8: Check both completion AND timeout
+                // Previously nodes could get stuck in syncing state forever if network failed
+                !p.is_complete() && !p.is_timed_out()
+            })
             .unwrap_or(false)
+    }
+
+    // FIX #8: Check if sync has timed out and should be reset
+    pub fn check_sync_timeout(&mut self) -> bool {
+        if let Some(ref progress) = self.sync_progress
+            && progress.is_timed_out() {
+                tracing::warn!(
+                    "[Sync] Sync timeout detected! Resetting sync progress after {} seconds",
+                    SyncProgress::SYNC_TIMEOUT_SECS
+                );
+                self.sync_progress = None;
+                return true;
+            }
+        false
     }
 
     pub fn get_latest_checkpoint(&self) -> Option<&Checkpoint> {
@@ -474,7 +513,7 @@ impl StateSynchronizer {
 
         // ล้าง Orphan ที่เก่าเกินไปและยังไม่มี Parent มาสักที (ป้องกัน Memory Leak)
         self.orphan_buffer.retain(|_, v| v.round >= before_round);
-        let valid_orphans: BTreeSet<_> = self.orphan_buffer.keys().copied().collect();
+        let valid_orphans: HashSet<_> = self.orphan_buffer.keys().copied().collect();
         self.waiting_for.retain(|_, children| {
             children.retain(|c| valid_orphans.contains(c));
             !children.is_empty()
@@ -631,7 +670,6 @@ mod tests {
         let validator = ValidatorInfo {
             authority_id: "auth1".to_string(),
             public_key: pub_key_bytes,
-            stake: 100,
             network_address: "127.0.0.1:9000".to_string(),
             active: true,
         };

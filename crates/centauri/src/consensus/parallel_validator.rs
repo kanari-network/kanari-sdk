@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use anyhow::Result;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
