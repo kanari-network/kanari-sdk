@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Thread-safe metrics collector for DAG consensus
 #[derive(Clone)]
@@ -22,6 +22,8 @@ struct DagMetricsInner {
     decompression_operations: AtomicU64,
     ecvrf_generations: AtomicU64,
     ecvrf_verifications: AtomicU64,
+    // FIX #10: Track disk I/O queue saturation for monitoring
+    disk_queue_full_count: AtomicU64,
 
     // Gauges - current values
     active_vertices: AtomicUsize,
@@ -29,110 +31,32 @@ struct DagMetricsInner {
     cache_entries: AtomicUsize,
     connected_peers: AtomicUsize,
 
-    // Histograms - distribution tracking
-    vertex_latency: RwLock<Histogram>,
-    compression_ratio: RwLock<Histogram>,
-    batch_size: RwLock<Histogram>,
-    checkpoint_interval: RwLock<Histogram>,
-
     // Custom metrics
     start_time: Instant,
     custom_metrics: RwLock<BTreeMap<String, f64>>,
 }
 
-/// Histogram for tracking value distributions (Prometheus-style)
-/// Uses buckets for efficient percentile approximation without storing individual values
-#[derive(Debug, Clone)]
-pub struct Histogram {
-    sum: f64,
-    count: u64,
-    min: f64,
-    max: f64,
-    buckets: Vec<(f64, u64)>, // (upper_bound, count)
-}
-
-impl Histogram {
-    fn new(buckets: Vec<f64>) -> Self {
-        Self {
-            sum: 0.0,
-            count: 0,
-            min: f64::MAX,
-            max: f64::MIN,
-            buckets: buckets.into_iter().map(|b| (b, 0)).collect(),
-        }
-    }
-
-    fn observe(&mut self, value: f64) {
-        self.sum += value;
-        self.count += 1;
-        self.min = self.min.min(value);
-        self.max = self.max.max(value);
-
-        // Update buckets - increment all buckets >= value
-        for (upper_bound, count) in &mut self.buckets {
-            if value <= *upper_bound {
-                *count += 1;
-            }
-        }
-    }
-
-    fn mean(&self) -> f64 {
-        if self.count == 0 {
-            0.0
-        } else {
-            self.sum / self.count as f64
-        }
-    }
-
-    /// Estimate percentile from buckets (linear interpolation)
-    /// Production-grade approach used by Prometheus
-    fn percentile(&self, p: f64) -> f64 {
-        if self.count == 0 {
-            return 0.0;
-        }
-
-        let target_count = (p / 100.0 * self.count as f64).ceil() as u64;
-
-        // Find the bucket containing the percentile
-        let mut prev_count = 0u64;
-        let mut prev_bound = 0.0;
-
-        for (upper_bound, count) in &self.buckets {
-            if *count >= target_count {
-                // Linear interpolation within bucket
-                if *count == prev_count {
-                    return *upper_bound;
-                }
-                let fraction = (target_count - prev_count) as f64 / (*count - prev_count) as f64;
-                return prev_bound + fraction * (*upper_bound - prev_bound);
-            }
-            prev_count = *count;
-            prev_bound = *upper_bound;
-        }
-
-        // If not found in any bucket, return max
-        self.max
-    }
-
-    #[allow(dead_code)]
-    fn reset(&mut self) {
-        self.sum = 0.0;
-        self.count = 0;
-        self.min = f64::MAX;
-        self.max = f64::MIN;
-        for (_, count) in &mut self.buckets {
-            *count = 0;
-        }
-    }
-
-    #[allow(dead_code)]
-    fn reset_allowed(&mut self) {
-        // Kept as an explicit allowed duplicate to satisfy clippy when needed.
-        self.reset();
-    }
-}
-
 impl DagMetrics {
+    fn counter(counter: &AtomicU64) -> u64 {
+        counter.load(Ordering::Relaxed)
+    }
+
+    fn gauge(gauge: &AtomicUsize) -> usize {
+        gauge.load(Ordering::Relaxed)
+    }
+
+    fn write_counter_metric(output: &mut String, name: &str, help: &str, value: u64) {
+        output.push_str(&format!("# HELP {} {}\n", name, help));
+        output.push_str(&format!("# TYPE {} counter\n", name));
+        output.push_str(&format!("{} {}\n", name, value));
+    }
+
+    fn write_gauge_metric(output: &mut String, name: &str, help: &str, value: usize) {
+        output.push_str(&format!("# HELP {} {}\n", name, help));
+        output.push_str(&format!("# TYPE {} gauge\n", name));
+        output.push_str(&format!("{} {}\n", name, value));
+    }
+
     /// Create new metrics collector
     pub fn new() -> Self {
         Self {
@@ -145,24 +69,12 @@ impl DagMetrics {
                 decompression_operations: AtomicU64::new(0),
                 ecvrf_generations: AtomicU64::new(0),
                 ecvrf_verifications: AtomicU64::new(0),
+                disk_queue_full_count: AtomicU64::new(0),
 
                 active_vertices: AtomicUsize::new(0),
                 pending_broadcasts: AtomicUsize::new(0),
                 cache_entries: AtomicUsize::new(0),
                 connected_peers: AtomicUsize::new(0),
-
-                vertex_latency: RwLock::new(Histogram::new(vec![
-                    0.001, 0.005, 0.010, 0.025, 0.050, 0.100, 0.250, 0.500, 1.0, 2.5, 5.0,
-                ])),
-                compression_ratio: RwLock::new(Histogram::new(vec![
-                    0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0,
-                ])),
-                batch_size: RwLock::new(Histogram::new(vec![
-                    10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0,
-                ])),
-                checkpoint_interval: RwLock::new(Histogram::new(vec![
-                    10.0, 50.0, 100.0, 250.0, 500.0, 1000.0,
-                ])),
 
                 start_time: Instant::now(),
                 custom_metrics: RwLock::new(BTreeMap::new()),
@@ -214,6 +126,13 @@ impl DagMetrics {
             .fetch_add(1, Ordering::Relaxed);
     }
 
+    // FIX #10: Increment disk queue full counter for monitoring
+    pub fn inc_disk_queue_full_count(&self) {
+        self.inner
+            .disk_queue_full_count
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
     // ===== Gauge Operations =====
 
     pub fn set_active_vertices(&self, count: usize) {
@@ -234,33 +153,6 @@ impl DagMetrics {
         self.inner.connected_peers.store(count, Ordering::Relaxed);
     }
 
-    // ===== Histogram Operations =====
-
-    pub fn observe_vertex_latency(&self, duration: Duration) {
-        let seconds = duration.as_secs_f64();
-        if let Ok(mut hist) = self.inner.vertex_latency.write() {
-            hist.observe(seconds);
-        }
-    }
-
-    pub fn observe_compression_ratio(&self, ratio: f64) {
-        if let Ok(mut hist) = self.inner.compression_ratio.write() {
-            hist.observe(ratio);
-        }
-    }
-
-    pub fn observe_batch_size(&self, size: usize) {
-        if let Ok(mut hist) = self.inner.batch_size.write() {
-            hist.observe(size as f64);
-        }
-    }
-
-    pub fn observe_checkpoint_interval(&self, vertices: u64) {
-        if let Ok(mut hist) = self.inner.checkpoint_interval.write() {
-            hist.observe(vertices as f64);
-        }
-    }
-
     // ===== Custom Metrics =====
 
     pub fn set_custom_metric(&self, name: String, value: f64) {
@@ -278,122 +170,82 @@ impl DagMetrics {
     pub fn export_prometheus(&self) -> String {
         let mut output = String::new();
 
-        // Counters
-        output.push_str("# HELP dag_vertices_created_total Total vertices created\n");
-        output.push_str("# TYPE dag_vertices_created_total counter\n");
-        output.push_str(&format!(
-            "dag_vertices_created_total {}\n",
-            self.inner.vertices_created.load(Ordering::Relaxed)
-        ));
-
-        output.push_str("# HELP dag_vertices_broadcast_total Total vertices broadcast\n");
-        output.push_str("# TYPE dag_vertices_broadcast_total counter\n");
-        output.push_str(&format!(
-            "dag_vertices_broadcast_total {}\n",
-            self.inner.vertices_broadcast.load(Ordering::Relaxed)
-        ));
-
-        output.push_str("# HELP dag_vertices_received_total Total vertices received\n");
-        output.push_str("# TYPE dag_vertices_received_total counter\n");
-        output.push_str(&format!(
-            "dag_vertices_received_total {}\n",
-            self.inner.vertices_received.load(Ordering::Relaxed)
-        ));
-
-        output.push_str("# HELP dag_checkpoints_created_total Total checkpoints created\n");
-        output.push_str("# TYPE dag_checkpoints_created_total counter\n");
-        output.push_str(&format!(
-            "dag_checkpoints_created_total {}\n",
-            self.inner.checkpoints_created.load(Ordering::Relaxed)
-        ));
-
-        output.push_str("# HELP dag_compression_operations_total Total compression operations\n");
-        output.push_str("# TYPE dag_compression_operations_total counter\n");
-        output.push_str(&format!(
-            "dag_compression_operations_total {}\n",
-            self.inner.compression_operations.load(Ordering::Relaxed)
-        ));
-
-        output
-            .push_str("# HELP dag_decompression_operations_total Total decompression operations\n");
-        output.push_str("# TYPE dag_decompression_operations_total counter\n");
-        output.push_str(&format!(
-            "dag_decompression_operations_total {}\n",
-            self.inner.decompression_operations.load(Ordering::Relaxed)
-        ));
-
-        output.push_str("# HELP dag_ecvrf_generations_total Total ECVRF generations\n");
-        output.push_str("# TYPE dag_ecvrf_generations_total counter\n");
-        output.push_str(&format!(
-            "dag_ecvrf_generations_total {}\n",
-            self.inner.ecvrf_generations.load(Ordering::Relaxed)
-        ));
-
-        output.push_str("# HELP dag_ecvrf_verifications_total Total ECVRF verifications\n");
-        output.push_str("# TYPE dag_ecvrf_verifications_total counter\n");
-        output.push_str(&format!(
-            "dag_ecvrf_verifications_total {}\n",
-            self.inner.ecvrf_verifications.load(Ordering::Relaxed)
-        ));
-
-        // Gauges
-        output.push_str("# HELP dag_active_vertices Current active vertices\n");
-        output.push_str("# TYPE dag_active_vertices gauge\n");
-        output.push_str(&format!(
-            "dag_active_vertices {}\n",
-            self.inner.active_vertices.load(Ordering::Relaxed)
-        ));
-
-        output.push_str("# HELP dag_pending_broadcasts Current pending broadcasts\n");
-        output.push_str("# TYPE dag_pending_broadcasts gauge\n");
-        output.push_str(&format!(
-            "dag_pending_broadcasts {}\n",
-            self.inner.pending_broadcasts.load(Ordering::Relaxed)
-        ));
-
-        output.push_str("# HELP dag_cache_entries Current cache entries\n");
-        output.push_str("# TYPE dag_cache_entries gauge\n");
-        output.push_str(&format!(
-            "dag_cache_entries {}\n",
-            self.inner.cache_entries.load(Ordering::Relaxed)
-        ));
-
-        output.push_str("# HELP dag_connected_peers Current connected peers\n");
-        output.push_str("# TYPE dag_connected_peers gauge\n");
-        output.push_str(&format!(
-            "dag_connected_peers {}\n",
-            self.inner.connected_peers.load(Ordering::Relaxed)
-        ));
-
-        // Histograms
-        if let Ok(hist) = self.inner.vertex_latency.read() {
-            output.push_str("# HELP dag_vertex_latency_seconds Vertex propagation latency\n");
-            output.push_str("# TYPE dag_vertex_latency_seconds histogram\n");
-            for (bound, count) in &hist.buckets {
-                output.push_str(&format!(
-                    "dag_vertex_latency_seconds_bucket{{le=\"{}\"}} {}\n",
-                    bound, count
-                ));
-            }
-            output.push_str(&format!("dag_vertex_latency_seconds_sum {}\n", hist.sum));
-            output.push_str(&format!(
-                "dag_vertex_latency_seconds_count {}\n",
-                hist.count
-            ));
+        let counters = [
+            (
+                "dag_vertices_created_total",
+                "Total vertices created",
+                Self::counter(&self.inner.vertices_created),
+            ),
+            (
+                "dag_vertices_broadcast_total",
+                "Total vertices broadcast",
+                Self::counter(&self.inner.vertices_broadcast),
+            ),
+            (
+                "dag_vertices_received_total",
+                "Total vertices received",
+                Self::counter(&self.inner.vertices_received),
+            ),
+            (
+                "dag_checkpoints_created_total",
+                "Total checkpoints created",
+                Self::counter(&self.inner.checkpoints_created),
+            ),
+            (
+                "dag_compression_operations_total",
+                "Total compression operations",
+                Self::counter(&self.inner.compression_operations),
+            ),
+            (
+                "dag_decompression_operations_total",
+                "Total decompression operations",
+                Self::counter(&self.inner.decompression_operations),
+            ),
+            (
+                "dag_ecvrf_generations_total",
+                "Total ECVRF generations",
+                Self::counter(&self.inner.ecvrf_generations),
+            ),
+            (
+                "dag_ecvrf_verifications_total",
+                "Total ECVRF verifications",
+                Self::counter(&self.inner.ecvrf_verifications),
+            ),
+            // FIX #10: Export disk queue saturation metric for monitoring
+            (
+                "dag_disk_queue_full_total",
+                "Total times disk write queue was full (backpressure events)",
+                Self::counter(&self.inner.disk_queue_full_count),
+            ),
+        ];
+        for (name, help, value) in counters {
+            Self::write_counter_metric(&mut output, name, help, value);
         }
 
-        if let Ok(hist) = self.inner.compression_ratio.read() {
-            output
-                .push_str("# HELP dag_compression_ratio Compression ratio (compressed/original)\n");
-            output.push_str("# TYPE dag_compression_ratio histogram\n");
-            for (bound, count) in &hist.buckets {
-                output.push_str(&format!(
-                    "dag_compression_ratio_bucket{{le=\"{}\"}} {}\n",
-                    bound, count
-                ));
-            }
-            output.push_str(&format!("dag_compression_ratio_sum {}\n", hist.sum));
-            output.push_str(&format!("dag_compression_ratio_count {}\n", hist.count));
+        let gauges = [
+            (
+                "dag_active_vertices",
+                "Current active vertices",
+                Self::gauge(&self.inner.active_vertices),
+            ),
+            (
+                "dag_pending_broadcasts",
+                "Current pending broadcasts",
+                Self::gauge(&self.inner.pending_broadcasts),
+            ),
+            (
+                "dag_cache_entries",
+                "Current cache entries",
+                Self::gauge(&self.inner.cache_entries),
+            ),
+            (
+                "dag_connected_peers",
+                "Current connected peers",
+                Self::gauge(&self.inner.connected_peers),
+            ),
+        ];
+        for (name, help, value) in gauges {
+            Self::write_gauge_metric(&mut output, name, help, value);
         }
 
         // System info
@@ -415,65 +267,48 @@ impl DagMetrics {
         output.push_str("=== DAG Consensus Metrics ===\n\n");
 
         output.push_str("Counters:\n");
-        output.push_str(&format!(
-            "  Vertices Created:      {}\n",
-            self.inner.vertices_created.load(Ordering::Relaxed)
-        ));
-        output.push_str(&format!(
-            "  Vertices Broadcast:    {}\n",
-            self.inner.vertices_broadcast.load(Ordering::Relaxed)
-        ));
-        output.push_str(&format!(
-            "  Vertices Received:     {}\n",
-            self.inner.vertices_received.load(Ordering::Relaxed)
-        ));
-        output.push_str(&format!(
-            "  Checkpoints Created:   {}\n",
-            self.inner.checkpoints_created.load(Ordering::Relaxed)
-        ));
-        output.push_str(&format!(
-            "  Compression Ops:       {}\n",
-            self.inner.compression_operations.load(Ordering::Relaxed)
-        ));
-        output.push_str(&format!(
-            "  ECVRF Generations:     {}\n",
-            self.inner.ecvrf_generations.load(Ordering::Relaxed)
-        ));
-
-        output.push_str("\nGauges:\n");
-        output.push_str(&format!(
-            "  Active Vertices:       {}\n",
-            self.inner.active_vertices.load(Ordering::Relaxed)
-        ));
-        output.push_str(&format!(
-            "  Pending Broadcasts:    {}\n",
-            self.inner.pending_broadcasts.load(Ordering::Relaxed)
-        ));
-        output.push_str(&format!(
-            "  Cache Entries:         {}\n",
-            self.inner.cache_entries.load(Ordering::Relaxed)
-        ));
-        output.push_str(&format!(
-            "  Connected Peers:       {}\n",
-            self.inner.connected_peers.load(Ordering::Relaxed)
-        ));
-
-        if let Ok(hist) = self.inner.vertex_latency.read() {
-            output.push_str("\nVertex Latency:\n");
-            output.push_str(&format!("  Count:      {}\n", hist.count));
-            output.push_str(&format!("  Mean:       {:.4}s\n", hist.mean()));
-            output.push_str(&format!("  Min:        {:.4}s\n", hist.min));
-            output.push_str(&format!("  Max:        {:.4}s\n", hist.max));
-            output.push_str(&format!("  P50:        {:.4}s\n", hist.percentile(50.0)));
-            output.push_str(&format!("  P95:        {:.4}s\n", hist.percentile(95.0)));
-            output.push_str(&format!("  P99:        {:.4}s\n", hist.percentile(99.0)));
+        let counter_lines = [
+            (
+                "Vertices Created",
+                Self::counter(&self.inner.vertices_created),
+            ),
+            (
+                "Vertices Broadcast",
+                Self::counter(&self.inner.vertices_broadcast),
+            ),
+            (
+                "Vertices Received",
+                Self::counter(&self.inner.vertices_received),
+            ),
+            (
+                "Checkpoints Created",
+                Self::counter(&self.inner.checkpoints_created),
+            ),
+            (
+                "Compression Ops",
+                Self::counter(&self.inner.compression_operations),
+            ),
+            (
+                "ECVRF Generations",
+                Self::counter(&self.inner.ecvrf_generations),
+            ),
+        ];
+        for (label, value) in counter_lines {
+            output.push_str(&format!("  {:<22} {}\n", format!("{}:", label), value));
         }
 
-        if let Ok(hist) = self.inner.compression_ratio.read() {
-            output.push_str("\nCompression Ratio:\n");
-            output.push_str(&format!("  Mean:       {:.2}x\n", hist.mean()));
-            output.push_str(&format!("  Min:        {:.2}x\n", hist.min));
-            output.push_str(&format!("  Max:        {:.2}x\n", hist.max));
+        output.push_str("\nGauges:\n");
+        let gauge_lines = [
+            ("Active Vertices", Self::gauge(&self.inner.active_vertices)),
+            (
+                "Pending Broadcasts",
+                Self::gauge(&self.inner.pending_broadcasts),
+            ),
+            ("Cache Entries", Self::gauge(&self.inner.cache_entries)),
+            ("Connected Peers", Self::gauge(&self.inner.connected_peers)),
+        ];
+        for (label, value) in gauge_lines {
+            output.push_str(&format!("  {:<22} {}\n", format!("{}:", label), value));
         }
 
         output.push_str(&format!(
@@ -495,7 +330,6 @@ impl Default for DagMetrics {
 mod tests {
     use super::*;
     use std::thread;
-    use std::time::Duration;
 
     #[test]
     fn test_counters() {
@@ -523,40 +357,6 @@ mod tests {
 
         metrics.set_active_vertices(100);
         assert_eq!(metrics.inner.active_vertices.load(Ordering::Relaxed), 100);
-    }
-
-    #[test]
-    fn test_histogram() {
-        let metrics = DagMetrics::new();
-
-        metrics.observe_vertex_latency(Duration::from_millis(10));
-        metrics.observe_vertex_latency(Duration::from_millis(20));
-        metrics.observe_vertex_latency(Duration::from_millis(30));
-
-        let hist = match metrics.inner.vertex_latency.read() {
-            Ok(h) => h,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        assert_eq!(hist.count, 3);
-        assert_eq!(hist.mean(), 0.020); // 20ms average
-        assert_eq!(hist.min, 0.010);
-        assert_eq!(hist.max, 0.030);
-    }
-
-    #[test]
-    fn test_compression_ratio() {
-        let metrics = DagMetrics::new();
-
-        metrics.observe_compression_ratio(0.5); // 50% compression
-        metrics.observe_compression_ratio(0.3); // 70% compression
-        metrics.observe_compression_ratio(0.4); // 60% compression
-
-        let hist = match metrics.inner.compression_ratio.read() {
-            Ok(h) => h,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        assert_eq!(hist.count, 3);
-        assert!((hist.mean() - 0.4).abs() < 1e-10); // Floating point comparison with tolerance
     }
 
     #[test]

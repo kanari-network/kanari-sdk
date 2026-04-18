@@ -700,7 +700,7 @@ impl BlockchainEngine {
 
         let mut chain = self.blockchain.write().unwrap();
         let height = chain.blocks.len() as u64;
-        let prev_hash = chain.blocks.last().map(|b| b.hash()).unwrap_or_default();
+        let prev_hash = chain.blocks.back().map(|b| b.hash()).unwrap_or_default();
 
         let new_block = kanari_types::block::Block::new(
             height,
@@ -714,7 +714,7 @@ impl BlockchainEngine {
                 .as_secs(),
         );
         let block_hash = new_block.hash();
-        chain.blocks.push(new_block);
+        chain.blocks.push_back(new_block);
 
         log::info!(
             "[DAG CONSENSUS] Checkpoint {} committed! Hash: {}",
@@ -1164,7 +1164,7 @@ impl BlockchainEngine {
 
         let prev_hash = {
             let chain = self.blockchain.read().unwrap();
-            chain.latest_checkpoint().hash()
+            chain.latest_checkpoint().hash()?
         };
 
         let vertices: Vec<[u8; 32]> = block_data

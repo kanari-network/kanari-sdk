@@ -40,18 +40,24 @@ pub struct VrfOutput {
 }
 
 impl VrfOutput {
-    /// Create a new VRF output using ECVRF
-    pub fn new(round: Round, authority: &str, secret_key: &VrfSecretKey) -> Self {
-        // Create deterministic input: round || authority
-        let mut input = Vec::new();
+    fn build_input(round: Round, authority: &str) -> Vec<u8> {
+        let mut input = Vec::with_capacity(std::mem::size_of::<Round>() + authority.len());
         input.extend_from_slice(&round.to_le_bytes());
         input.extend_from_slice(authority.as_bytes());
+        input
+    }
+
+    /// Create a new VRF output using ECVRF
+    pub fn new(round: Round, authority: &str, secret_key: &VrfSecretKey) -> Self {
+        let input = Self::build_input(round, authority);
 
         // Generate VRF proof
-        let (ecvrf_output, _proof) = secret_key.prove(&input);
+        let (ecvrf_output, proof) = secret_key.prove(&input);
 
-        // Simplified proof storage (in production use proper serialization)
-        let proof_bytes = vec![0u8; 96]; // Placeholder
+        // Serialize the VRF proof for storage and transmission
+        // This should never fail - if it does, it indicates corrupted memory or a bug
+        let proof_bytes = bcs::to_bytes(&proof)
+            .expect("VRF proof serialization must not fail - indicates corrupted memory");
 
         Self {
             output: ecvrf_output.value,
@@ -62,16 +68,64 @@ impl VrfOutput {
     }
 
     /// Verify the VRF proof using public key
-    /// Note: Simplified verification due to proof serialization constraints
-    pub fn verify(&self, _public_key: &VrfPublicKey) -> bool {
-        // In production, deserialize proof and verify properly
-        // For now, basic sanity check
-        !self.proof.is_empty() && self.output != [0u8; 32]
-    }
+    pub fn verify(&self, public_key: &VrfPublicKey) -> bool {
+        // FIX #1: Implement full cryptographic VRF verification instead of dummy check
+        // This prevents malicious validators from submitting fake VRF outputs
 
-    /// Get the VRF output as a number for comparison
-    pub fn as_number(&self) -> u64 {
-        u64::from_le_bytes(self.output[..8].try_into().unwrap_or([0u8; 8]))
+        if self.proof.is_empty() || self.output == [0u8; 32] {
+            tracing::warn!("VRF output has empty proof or zero output");
+            return false;
+        }
+
+        // Deserialize the proof
+        let vrf_proof: super::ecvrf::VrfProof = match bcs::from_bytes(&self.proof) {
+            Ok(proof) => proof,
+            Err(e) => {
+                tracing::warn!("Failed to deserialize VRF proof: {}", e);
+                return false;
+            }
+        };
+
+        // Build the input that was used to generate this VRF
+        let input = Self::build_input(self.round, &self.authority);
+
+        // Perform cryptographic verification
+        match public_key.verify(&input, &vrf_proof) {
+            Some(computed_output) => {
+                // Verify that the computed output matches the claimed output
+                if computed_output.value != self.output {
+                    tracing::warn!(
+                        "VRF output mismatch for round {} authority {}: expected {}, got {}",
+                        self.round,
+                        self.authority,
+                        hex::encode(&computed_output.value[..8]),
+                        hex::encode(&self.output[..8])
+                    );
+                    return false;
+                }
+
+                // Additional security checks
+                let unique_bytes: std::collections::HashSet<u8> =
+                    self.output.iter().copied().collect();
+                if unique_bytes.len() < 4 {
+                    tracing::warn!(
+                        "VRF output has suspiciously low entropy: {} unique bytes",
+                        unique_bytes.len()
+                    );
+                    return false;
+                }
+
+                true
+            }
+            None => {
+                tracing::warn!(
+                    "VRF proof verification failed for round {} authority {}",
+                    self.round,
+                    self.authority
+                );
+                false
+            }
+        }
     }
 }
 
@@ -107,16 +161,43 @@ pub struct VrfLeaderElection {
 
     /// Cache of VRF outputs by round
     vrf_cache: BTreeMap<Round, Vec<VrfOutput>>,
+
+    /// Current round for future-round DoS protection (FIX #13)
+    current_round: Round,
 }
 
 impl VrfLeaderElection {
+    // FIX #10: Compare full 32-byte VRF output to prevent grinding attacks
+    // Previously used only 8 bytes (64-bit) which is vulnerable to birthday paradox collisions
+    fn compare_vrf_outputs(a: &VrfOutput, b: &VrfOutput) -> std::cmp::Ordering {
+        let val_cmp = a.output.cmp(&b.output); // Compare full 32 bytes
+        if val_cmp == std::cmp::Ordering::Equal {
+            a.authority.cmp(&b.authority)
+        } else {
+            val_cmp
+        }
+    }
+
     /// Create a new VRF leader election system
     pub fn new() -> Self {
         Self {
             authority_keys: BTreeMap::new(),
             authority_pubkeys: BTreeMap::new(),
             vrf_cache: BTreeMap::new(),
+            current_round: 0,
         }
+    }
+
+    /// Update current round (called when blockchain advances)
+    pub fn update_current_round(&mut self, round: Round) {
+        self.current_round = round;
+
+        // FIX #13: Prune old VRF data to prevent memory leaks
+        // Keep only recent rounds (current - 100 to current + 5)
+        let min_round = self.current_round.saturating_sub(100);
+        let max_round = self.current_round.saturating_add(5);
+        self.vrf_cache
+            .retain(|round, _| *round >= min_round && *round <= max_round);
     }
 
     /// Register an authority with their VRF secret key
@@ -148,9 +229,81 @@ impl VrfLeaderElection {
         Ok(VrfOutput::new(round, authority, secret_key))
     }
 
-    /// Add VRF output to cache
+    /// Add VRF output to cache with rate limiting and cryptographic verification
     pub fn add_vrf(&mut self, vrf: VrfOutput) {
-        self.vrf_cache.entry(vrf.round).or_default().push(vrf);
+        // FIX #13: CRITICAL - Reject VRF submissions from too far in the future
+        // Prevents memory exhaustion attacks where attacker sends VRF for round 999,999,999
+        const MAX_FUTURE_ROUNDS: Round = 5;
+        if vrf.round > self.current_round.saturating_add(MAX_FUTURE_ROUNDS) {
+            tracing::warn!(
+                "[Security] Future round VRF rejected: round {} (current: {}, max allowed: {})",
+                vrf.round,
+                self.current_round,
+                self.current_round.saturating_add(MAX_FUTURE_ROUNDS)
+            );
+            return;
+        }
+
+        // Also reject VRF from too far in the past (already pruned)
+        const MIN_PAST_ROUNDS: Round = 100;
+        if vrf.round < self.current_round.saturating_sub(MIN_PAST_ROUNDS) {
+            tracing::debug!(
+                "Past round VRF rejected: round {} (current: {})",
+                vrf.round,
+                self.current_round
+            );
+            return;
+        }
+
+        // FIX #10: Limit VRF submissions per round to prevent memory exhaustion attacks
+        const MAX_VRF_PER_ROUND: usize = 1000;
+
+        let round_entries = self.vrf_cache.entry(vrf.round).or_default();
+
+        if round_entries.len() >= MAX_VRF_PER_ROUND {
+            tracing::warn!(
+                "VRF submission limit reached for round {} (max: {}). Rejecting VRF from authority {}",
+                vrf.round,
+                MAX_VRF_PER_ROUND,
+                vrf.authority
+            );
+            return;
+        }
+
+        // FIX #12: CRITICAL - Prevent duplicate VRF submissions from same authority
+        // Previously allowed one attacker to fill the entire quota with duplicate entries
+        if round_entries
+            .iter()
+            .any(|existing| existing.authority == vrf.authority)
+        {
+            tracing::warn!(
+                "[Security] Duplicate VRF submission rejected from authority {} for round {}",
+                vrf.authority,
+                vrf.round
+            );
+            return;
+        }
+
+        // FIX #1: Verify VRF proof cryptographically before accepting
+        if let Some(public_key) = self.authority_pubkeys.get(&vrf.authority) {
+            if !vrf.verify(public_key) {
+                tracing::warn!(
+                    "[Security] Invalid VRF proof rejected for round {} from authority {}",
+                    vrf.round,
+                    vrf.authority
+                );
+                return;
+            }
+        } else {
+            tracing::warn!(
+                "[Security] Unknown authority {} submitted VRF for round {}",
+                vrf.authority,
+                vrf.round
+            );
+            return;
+        }
+
+        round_entries.push(vrf);
     }
 
     /// Elect leader for a round based on VRF outputs
@@ -164,14 +317,7 @@ impl VrfLeaderElection {
 
         // Find VRF with lowest output value
         // Use tie-breaker (AuthorityId) for strict determinism regardless of insertion order
-        let leader_vrf = vrfs.iter().min_by(|a, b| {
-            let val_cmp = a.as_number().cmp(&b.as_number());
-            if val_cmp == std::cmp::Ordering::Equal {
-                a.authority.cmp(&b.authority)
-            } else {
-                val_cmp
-            }
-        })?;
+        let leader_vrf = vrfs.iter().min_by(|a, b| Self::compare_vrf_outputs(a, b))?;
 
         Some(leader_vrf.authority.clone())
     }
@@ -189,25 +335,42 @@ impl VrfLeaderElection {
             return None;
         }
 
-        // Weighted selection: VRF_output / stake (lower is better)
-        // Higher stake reduces effective VRF value = higher chance to win
+        // FIX #5: CRITICAL - Use u128 cross-multiplication instead of f64 division
+        // NEVER use floating-point in consensus! Different CPU architectures (ARM vs x86)
+        // can produce different rounding results for f64, causing permanent chain forks.
+        //
+        // Cross-multiplication approach:
+        // To compare (VRF_A / Stake_A) < (VRF_B / Stake_B)
+        // We compute: (VRF_A * Stake_B) < (VRF_B * Stake_A)
+        // This is 100% deterministic and lossless using u128 arithmetic
+
         let leader_vrf = vrfs
             .iter()
             .filter_map(|vrf| {
                 let stake = stakes.get(&vrf.authority).copied().unwrap_or(1);
                 if stake == 0 {
-                    return None; // Skip zero stake
+                    return None; // Skip zero stake validators
                 }
-                // Calculate weighted score (lower is better)
-                let weighted_score = vrf.as_number() / stake.max(1);
-                Some((vrf, weighted_score))
+                Some((vrf, stake))
             })
-            .min_by(|(vrf_a, score_a), (vrf_b, score_b)| {
-                let score_cmp = score_a.cmp(score_b);
-                if score_cmp == std::cmp::Ordering::Equal {
+            .min_by(|(vrf_a, stake_a), (vrf_b, stake_b)| {
+                // Cross-multiply to avoid division: compare VRF_A/Stake_A vs VRF_B/Stake_B
+                // by computing VRF_A * Stake_B vs VRF_B * Stake_A
+                // FIX #10: Use full 16-byte (128-bit) conversion instead of deprecated as_number()
+                let vrf_num_a =
+                    u128::from_be_bytes(vrf_a.output[..16].try_into().unwrap_or([0u8; 16]));
+                let vrf_num_b =
+                    u128::from_be_bytes(vrf_b.output[..16].try_into().unwrap_or([0u8; 16]));
+
+                let score_a = vrf_num_a * (*stake_b as u128);
+                let score_b = vrf_num_b * (*stake_a as u128);
+
+                let cmp = score_a.cmp(&score_b);
+                if cmp == std::cmp::Ordering::Equal {
+                    // Deterministic tie-breaker using AuthorityId
                     vrf_a.authority.cmp(&vrf_b.authority)
                 } else {
-                    score_cmp
+                    cmp
                 }
             })
             .map(|(vrf, _)| vrf)?;

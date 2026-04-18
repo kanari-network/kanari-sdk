@@ -41,6 +41,13 @@ impl Default for PruningConfig {
 }
 
 impl PruningConfig {
+    fn ensure_positive(value: u64, field: &str) -> Result<()> {
+        if value == 0 {
+            return Err(anyhow::anyhow!("{} must be > 0", field));
+        }
+        Ok(())
+    }
+
     /// Moderate config for 8-16 core machines (10K-30K TPS)
     pub fn moderate() -> Self {
         Self {
@@ -66,20 +73,14 @@ impl PruningConfig {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.retention_rounds == 0 {
-            return Err(anyhow::anyhow!("retention_rounds must be > 0"));
-        }
-        if self.retention_checkpoints == 0 {
-            return Err(anyhow::anyhow!("retention_checkpoints must be > 0"));
-        }
+        Self::ensure_positive(self.retention_rounds, "retention_rounds")?;
+        Self::ensure_positive(self.retention_checkpoints, "retention_checkpoints")?;
         if self.min_rounds_before_pruning < 10 {
             return Err(anyhow::anyhow!(
                 "min_rounds_before_pruning must be >= 10 for safety"
             ));
         }
-        if self.prune_interval_rounds == 0 {
-            return Err(anyhow::anyhow!("prune_interval_rounds must be > 0"));
-        }
+        Self::ensure_positive(self.prune_interval_rounds, "prune_interval_rounds")?;
         Ok(())
     }
 }
@@ -113,16 +114,81 @@ pub struct PruneStats {
 pub struct DagPruner {
     config: PruningConfig,
     last_prune_round: Round,
+    /// Track the last pruned checkpoint sequence to avoid re-scanning
+    last_pruned_checkpoint_seq: u64,
+    /// Track the last cleaned round for O(1) pruning (not from 0)
+    last_cleaned_round: Round,
+    /// Track the last cleaned checkpoint sequence
+    last_cleaned_checkpoint: u64,
+    /// FIX #16: Track whether pruner has been initialized from store
+    initialized: bool,
 }
 
 impl DagPruner {
+    fn now_secs() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    }
+
+    fn elapsed_ms_since(start: SystemTime) -> u64 {
+        SystemTime::now()
+            .duration_since(start)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0)
+    }
+
     /// Create a new DAG pruner with the given configuration
     pub fn new(config: PruningConfig) -> Result<Self> {
         config.validate()?;
         Ok(Self {
             config,
             last_prune_round: 0,
+            last_pruned_checkpoint_seq: 0,
+            last_cleaned_round: 0,
+            last_cleaned_checkpoint: 0,
+            initialized: false, // FIX #16: Not yet initialized from store
         })
+    }
+
+    /// FIX #16: Initialize pruner from persistent store to avoid restart freeze
+    /// When node restarts, this method queries the database to find the actual
+    /// last cleaned round instead of starting from 0 (which causes million-query loops)
+    pub fn init_from_store(&mut self, store: &PersistentDagStore) -> Result<()> {
+        if self.initialized {
+            // Already initialized, skip
+            return Ok(());
+        }
+
+        // Query the minimum round that still exists in the database
+        if let Some(min_round) = store.get_min_existing_round()? {
+            // Set last_cleaned_round to just before the minimum existing round
+            // This ensures we don't try to prune rounds that don't exist
+            self.last_cleaned_round = min_round.saturating_sub(1);
+
+            tracing::info!(
+                "Initialized pruner from store: last_cleaned_round = {} (min existing round: {})",
+                self.last_cleaned_round,
+                min_round
+            );
+        } else {
+            // Database is empty, start from 0
+            self.last_cleaned_round = 0;
+            tracing::debug!("Database empty, starting pruning from round 0");
+        }
+
+        // Also initialize checkpoint tracking
+        if let Some(min_checkpoint) = store.get_min_existing_checkpoint_sequence()? {
+            self.last_cleaned_checkpoint = min_checkpoint.saturating_sub(1);
+            tracing::info!(
+                "Initialized pruner checkpoint tracking: last_cleaned_checkpoint = {}",
+                self.last_cleaned_checkpoint
+            );
+        }
+
+        self.initialized = true;
+        Ok(())
     }
 
     /// Check if pruning should run for the given round
@@ -161,7 +227,7 @@ impl DagPruner {
         let cutoff_round = current_round.saturating_sub(self.config.retention_rounds);
 
         // Prune vertices and collect pruned IDs
-        let (vertices_pruned, vertices_skipped, _pruned_ids) =
+        let (vertices_pruned, vertices_skipped, pruned_ids) =
             self.prune_vertices(store, cutoff_round)?;
 
         // Prune checkpoints
@@ -172,13 +238,13 @@ impl DagPruner {
             (0, None)
         };
 
+        // Update tracking state after successful prune
+        self.update_prune_state(cutoff_round, cutoff_checkpoint);
+
         // Update last prune round
         self.last_prune_round = current_round;
 
-        let duration_ms = SystemTime::now()
-            .duration_since(start)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
+        let duration_ms = Self::elapsed_ms_since(start);
 
         Ok(PruneStats {
             vertices_pruned,
@@ -187,39 +253,65 @@ impl DagPruner {
             cutoff_round,
             cutoff_checkpoint,
             duration_ms,
-            pruned_vertex_ids: _pruned_ids,
+            pruned_vertex_ids: pruned_ids,
         })
     }
 
     /// Prune vertices older than the cutoff round
     /// Returns (pruned_count, skipped_count, pruned_vertex_ids)
     fn prune_vertices(
-        &self,
+        &mut self,
         store: &PersistentDagStore,
         cutoff_round: Round,
     ) -> Result<(usize, usize, Vec<super::VertexId>)> {
+        // FIX #16: Initialize from store on first prune to avoid restart freeze
+        if !self.initialized {
+            self.init_from_store(store)?;
+        }
+
         let mut pruned = 0;
         let mut skipped = 0;
         let mut pruned_ids = Vec::new();
 
-        // Get all vertices before cutoff round
-        for round in 0..cutoff_round {
+        // FIX #1: Start from last_cleaned_round instead of 0 for O(1) pruning
+        let start_round = self.last_cleaned_round;
+
+        tracing::debug!(
+            "Pruning vertices from round {} to {}",
+            start_round,
+            cutoff_round
+        );
+
+        for round in start_round..cutoff_round {
             let vertex_ids = store.get_vertices_by_round(round)?;
 
-            for vertex_id in vertex_ids {
-                // Fetch the actual vertex
-                let vertex = match store.get_vertex(&vertex_id)? {
+            if vertex_ids.is_empty() {
+                continue;
+            }
+
+            // Check each vertex individually
+            let mut vertices_to_prune = Vec::new();
+
+            for vertex_id in &vertex_ids {
+                let vertex = match store.get_vertex(vertex_id)? {
                     Some(v) => v,
-                    None => continue, // Already deleted
+                    None => continue,
                 };
 
-                // Safety check: only prune checkpointed vertices
-                if !self.is_vertex_safe_to_prune(&vertex) {
+                let is_checkpointed = self.is_vertex_safe_to_prune(&vertex);
+                if !is_checkpointed {
+                    if let Some(retention_secs) = self.config.retention_time_secs
+                        && self.is_vertex_old_enough(&vertex, retention_secs)
+                    {
+                        // Can prune this vertex
+                        vertices_to_prune.push(*vertex_id);
+                        continue;
+                    }
+                    // Cannot prune - not checkpointed and not old enough
                     skipped += 1;
                     continue;
                 }
 
-                // Check time-based retention if configured
                 if let Some(retention_secs) = self.config.retention_time_secs
                     && !self.is_vertex_old_enough(&vertex, retention_secs)
                 {
@@ -227,19 +319,43 @@ impl DagPruner {
                     continue;
                 }
 
-                // Prune the vertex
-                store.delete_vertex(&vertex.id)?;
-                pruned += 1;
-                pruned_ids.push(vertex_id);
+                // Vertex can be pruned
+                vertices_to_prune.push(*vertex_id);
+            }
+
+            // Prune the selected vertices
+            if !vertices_to_prune.is_empty() {
+                // If we're pruning ALL vertices in this round, use batch delete
+                if vertices_to_prune.len() == vertex_ids.len() {
+                    let pruned_in_round = store.prune_entire_round(round)?;
+                    pruned += pruned_in_round;
+                    pruned_ids.extend(vertices_to_prune);
+                } else {
+                    // Partial prune - delete individual vertices
+                    for vertex_id in &vertices_to_prune {
+                        store.prune_vertex_fast(vertex_id)?;
+                        pruned += 1;
+                        pruned_ids.push(*vertex_id);
+                    }
+                }
             }
         }
+
+        // Update tracking state
+        self.last_cleaned_round = cutoff_round;
+        tracing::debug!(
+            "Pruned {} vertices, skipped {}, updated last_cleaned_round to {}",
+            pruned,
+            skipped,
+            cutoff_round
+        );
 
         Ok((pruned, skipped, pruned_ids))
     }
 
     /// Prune checkpoints older than retention policy
     fn prune_checkpoints(
-        &self,
+        &mut self,
         store: &PersistentDagStore,
         latest_checkpoint_seq: u64,
     ) -> Result<(usize, Option<u64>)> {
@@ -248,17 +364,24 @@ impl DagPruner {
         }
 
         // Calculate cutoff: keep retention_checkpoints most recent ones
-        // If latest=19 and retention=10, we want to keep 10-19, so cutoff at 10
-        let cutoff_checkpoint = latest_checkpoint_seq + 1 - self.config.retention_checkpoints;
+        let cutoff_checkpoint = latest_checkpoint_seq
+            .saturating_add(1)
+            .saturating_sub(self.config.retention_checkpoints);
         let mut pruned = 0;
 
+        // FIX #1: Start from last_cleaned_checkpoint instead of 0
+        let start_seq = self.last_cleaned_checkpoint;
+
         // Prune checkpoints before cutoff (exclusive)
-        for seq in 0..cutoff_checkpoint {
+        for seq in start_seq..cutoff_checkpoint {
             if store.get_checkpoint(seq)?.is_some() {
                 store.delete_checkpoint(seq)?;
                 pruned += 1;
             }
         }
+
+        // Update tracking state
+        self.last_cleaned_checkpoint = cutoff_checkpoint;
 
         Ok((pruned, Some(cutoff_checkpoint - 1)))
     }
@@ -271,10 +394,7 @@ impl DagPruner {
 
     /// Check if a vertex is old enough to prune based on time
     fn is_vertex_old_enough(&self, vertex: &DagVertex, retention_secs: u64) -> bool {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now = Self::now_secs();
 
         let age_secs = now.saturating_sub(vertex.timestamp);
         age_secs >= retention_secs
@@ -286,7 +406,9 @@ impl DagPruner {
         store: &PersistentDagStore,
         before_round: Round,
     ) -> Result<usize> {
-        let pruned = store.prune_old_vertices(before_round)?;
+        // Use the new optimized prune_old_vertices with start_round parameter
+        let pruned = store.prune_old_vertices(self.last_cleaned_round, before_round)?;
+        self.last_cleaned_round = before_round;
         self.last_prune_round = before_round;
         Ok(pruned)
     }
@@ -306,6 +428,19 @@ impl DagPruner {
     /// Get the round of the last pruning operation
     pub fn last_prune_round(&self) -> Round {
         self.last_prune_round
+    }
+
+    /// Update tracking state after successful prune
+    pub fn update_prune_state(&mut self, cutoff_round: Round, cutoff_checkpoint: Option<u64>) {
+        self.last_prune_round = cutoff_round;
+        if let Some(seq) = cutoff_checkpoint {
+            self.last_pruned_checkpoint_seq = seq;
+        }
+        // Also update cleaned tracking for O(1) pruning
+        self.last_cleaned_round = cutoff_round;
+        if let Some(seq) = cutoff_checkpoint {
+            self.last_cleaned_checkpoint = seq;
+        }
     }
 }
 
@@ -358,7 +493,8 @@ mod tests {
     use tempfile::TempDir;
 
     fn create_test_vertex(round: Round, author: AuthorityId, checkpointed: bool) -> DagVertex {
-        let mut vertex = DagVertex::new(round, author, vec![], vec![], vec![round as u8; 32], 0);
+        let mut vertex =
+            DagVertex::new_for_test(round, author, vec![], vec![], vec![round as u8; 32], 0);
         vertex.metadata.is_checkpoint = checkpointed;
         if checkpointed {
             vertex.metadata.checkpoint_seq = Some(round);
@@ -439,6 +575,13 @@ mod tests {
         };
 
         let mut pruner = DagPruner::new(config)?;
+
+        // Debug: verify initial state
+        assert_eq!(
+            pruner.last_cleaned_round, 0,
+            "Pruner should start with last_cleaned_round = 0"
+        );
+
         let stats = pruner.prune(&store, 10, None)?;
 
         // Should prune rounds 0-4 (current=10, retention=5, cutoff=5)
@@ -624,5 +767,26 @@ mod tests {
         // Should never prune when auto_prune is false
         assert!(!pruner.should_prune(1000));
         assert!(!pruner.should_prune(10000));
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_old_orphan_vertex_can_be_pruned_by_time() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let store = PersistentDagStore::new(temp_dir.path())?;
+        let mut orphan = create_test_vertex(0, "validator_0".to_string(), false);
+        orphan.timestamp = 1;
+        store.put_vertex(&orphan)?;
+
+        let config = PruningConfig {
+            retention_rounds: 1,
+            retention_time_secs: Some(1),
+            min_rounds_before_pruning: 10,
+            ..Default::default()
+        };
+        let mut pruner = DagPruner::new(config)?;
+        let stats = pruner.prune(&store, 11, None)?;
+        assert_eq!(stats.vertices_pruned, 1);
+        Ok(())
     }
 }

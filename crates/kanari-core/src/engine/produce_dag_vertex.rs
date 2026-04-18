@@ -187,9 +187,10 @@ impl DagEngine {
         }
 
         let tx_count = transactions.len();
+        // FIX: Use as_secs() instead of as_millis() to match validation expectations (seconds, not milliseconds)
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
+            .map(|d| d.as_secs()) // ✅ CORRECT - seconds
             .unwrap_or(0);
 
         // 🚨 3. ประมวลผลธุรกรรมโดยใช้ Helper แบบสั้นๆ!

@@ -27,6 +27,9 @@ rand = { workspace = true }
 rocksdb = { workspace = true }
 rayon = { workspace = true }
 log = { workspace = true }
+num_cpus = "1.17.0"
+moka = { version = "0.12.15", features = ["sync"] }
+siphasher = "1.0.2"
 
 [dev-dependencies]
 tempfile = { workspace = true }

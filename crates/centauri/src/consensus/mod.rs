@@ -11,7 +11,6 @@ pub use dag_consensus::{
 // Cryptographic primitives
 mod crypto_signatures;
 pub use crypto_signatures::{Ed25519Keypair, SignatureScheme};
-
 mod ecvrf;
 pub use ecvrf::{VrfProof, VrfPublicKey, VrfSecretKey};
 
@@ -21,7 +20,7 @@ pub use vrf_leader::{VrfLeaderElection, VrfOutput};
 
 // Consensus subsystems
 mod metrics;
-pub use metrics::{DagMetrics, Histogram};
+pub use metrics::DagMetrics;
 
 // Caching utilities
 mod cache;
@@ -45,11 +44,11 @@ mod state_sync;
 pub use state_sync::{FastSync, StateSynchronizer, SyncProgress, SyncRequest, SyncResponse};
 
 // Light client functionality
-mod light_client;
-pub use light_client::{
-    CheckpointBuilder, CheckpointSignature, LightCheckpoint, LightClient, LightClientQuery,
-    StateProof, TransactionProof,
-};
+// mod light_client;
+// pub use light_client::{
+//     CheckpointBuilder, CheckpointSignature, LightCheckpoint, LightClient, LightClientQuery,
+//     StateProof, TransactionProof,
+// };
 
 // Committee management
 mod committee;
