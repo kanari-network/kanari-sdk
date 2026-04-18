@@ -473,14 +473,15 @@ impl StateSynchronizer {
     // FIX #8: Check if sync has timed out and should be reset
     pub fn check_sync_timeout(&mut self) -> bool {
         if let Some(ref progress) = self.sync_progress
-            && progress.is_timed_out() {
-                tracing::warn!(
-                    "[Sync] Sync timeout detected! Resetting sync progress after {} seconds",
-                    SyncProgress::SYNC_TIMEOUT_SECS
-                );
-                self.sync_progress = None;
-                return true;
-            }
+            && progress.is_timed_out()
+        {
+            tracing::warn!(
+                "[Sync] Sync timeout detected! Resetting sync progress after {} seconds",
+                SyncProgress::SYNC_TIMEOUT_SECS
+            );
+            self.sync_progress = None;
+            return true;
+        }
         false
     }
 

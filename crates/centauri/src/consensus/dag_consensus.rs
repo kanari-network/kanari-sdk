@@ -1146,13 +1146,10 @@ impl DagConsensus {
             tokio::spawn(async move {
                 while let Some(vertex) = rx.recv().await {
                     if let Some(ref store) = persistent_clone
-                        && let Err(e) = store.put_vertex(&vertex) {
-                            log::error!(
-                                "Failed to persist vertex {}: {}",
-                                hex::encode(vertex.id),
-                                e
-                            );
-                        }
+                        && let Err(e) = store.put_vertex(&vertex)
+                    {
+                        log::error!("Failed to persist vertex {}: {}", hex::encode(vertex.id), e);
+                    }
                 }
             });
 

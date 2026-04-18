@@ -156,10 +156,19 @@ For detailed architecture documentation:
 
 ## Documentation
 
+### Core Documentation
+
 - [Move CLI Guide](crates/kanari/MOVE_CLI_GUIDE.md) — Complete Move development guide
 - [Kanari Core](crates/kanari-core/README.md) — Engine and consensus details
 - [Whitepaper](documentation/whitepaper/) — Technical whitepaper
 - [Developer Book](documentation/book/) — Comprehensive docs
+
+### Centauri Consensus (Advanced)
+
+- **[Architecture Guide](crates/centauri/ARCHITECTURE.md)** 🆕 — System design, DAG protocol, performance tuning
+- **[Security Guide](crates/centauri/SECURITY.md)** 🆕 — Threat model, attack vectors, deployment checklist
+- **[PoA Security Fixes](POA_SECURITY_FIXES.md)** — Critical vulnerability patches (v0.1.5)
+- **[Fuzzing Tests](crates/centauri/FUZZING.md)** 🆕 — Property-based testing guide
 
 ---
 

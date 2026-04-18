@@ -97,6 +97,29 @@ impl Committee {
             ))
         }
     }
+
+    /// Create next epoch committee with validator additions and removals
+    /// This is a convenience method for simple epoch transitions
+    pub fn next_epoch_committee(
+        &self,
+        new_validators: Vec<ValidatorInfo>,
+        removed_validators: Vec<AuthorityId>,
+    ) -> Self {
+        let mut next_validators = self.validators.clone();
+
+        // Remove validators
+        for id in removed_validators {
+            next_validators.remove(&id);
+        }
+
+        // Add new validators
+        for v in new_validators {
+            next_validators.insert(v.authority_id.clone(), v);
+        }
+
+        let validators: Vec<ValidatorInfo> = next_validators.into_values().collect();
+        Self::new(self.epoch + 1, validators)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
