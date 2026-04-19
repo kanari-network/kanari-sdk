@@ -1,37 +1,103 @@
-## 4. Move Modules and On-Chain Schemas
+## 4. The Zero-Fee Payment Infrastructure
 
-This chapter maps the high-level data model and primitives to the actual Move modules in the repository and explains the on-chain schema shapes used by Kanari's Move packages.
+### 4.1 Universal Zero-Fee Model
 
-4.1 Key Move modules (repo locations)
+Kanari eliminates transaction fees for end users across all payment scenarios:
 
-- `crates/kanari-frameworks/packages/kanari-system/sources/kanari.move` — protocol-level types and common constants used across modules.
-- `crates/kanari-frameworks/packages/kanari-system/sources/object.move` — object creation, `head` storage, and history anchoring primitives.
-- `crates/kanari-frameworks/packages/kanari-system/sources/tx_context.move` — transaction-context types and helpers for capability checks.
-- `crates/kanari-frameworks/packages/kanari-system/sources/event.move` — event shapes emitted by protocol actions (used by indexers).
-- `crates/kanari-frameworks/packages/kanari-system/sources/transfer.move` and `coin.move` — examples of asset transfer semantics and token interactions that coexist with metadata operations.
+**Traditional Payment Costs:**
 
-4.2 On-chain resources and types
+- **Credit Cards**: 2-4% + $0.30 per transaction
+- **Bank Transfers**: $15-50 for international, 1-3 day settlement
+- **Blockchain**: $0.50-$20+ in gas fees, variable finality
 
-Common Move resource shapes used by Kanari:
+**Kanari Model:**
 
-- `ObjectHead` (or similar): stores the current `RecordHash` for an object and possibly a `sequence` counter.
-- `MetadataRecord` (stored off-chain or emitted as events): small on-chain footprint referencing an off-chain `payload_hash` and `prev_record_hash`.
-- `Capability` resources: typed resources representing `OwnerCapability`, `UpdateCapability`, and `IndexerCapability` attached to accounts or object tables.
+- **End Users**: Pay $0 in transaction fees
+- **Merchants/Businesses**: Cover minimal infrastructure costs
+- **Predictable Economics**: Fixed costs enable better business planning
 
-4.3 Storage tables and indexing in Move
+### 4.2 PoA Economic Sustainability
 
-Move modules keep small tables keyed by `ObjectId` or account address. Look for `Table` or `vector`-backed storages inside the Move sources; these ensure efficient lookup of heads and capability assignments.
+Since Kanari uses **Proof of Authority (PoA)** consensus, there are no validator rewards or token inflation. The network stays sustainable through operational efficiency:
 
-4.4 Events emitted by Move
+**Infrastructure Cost Formula:**
 
-Move modules publish events for authoritative changes. Event fields commonly include `object_id`, `record_hash`, `author`, and `timestamp`. Indexers rely on these events to build materialized views.
+```
+Cost per Transaction = (Total Infrastructure Cost) / Transactions
+```
 
-4.5 How Move and the Rust runtime interoperate
+**Example Calculation:**
 
-- Move modules define the protocol invariants and resource types; the Rust runtime (`crates/kanari-move-runtime`) executes Move bytecode, enforces caps, and implements low-level storage and proof helpers.
-- Native functions exposed to Move (in `move_runtime_extensions.rs`) provide performance-sensitive primitives, such as hashing or proof construction, that remain deterministic across validators.
+- Monthly server costs: $1,000
+- Monthly transactions: 10,000,000
+- Cost per transaction: $1,000 / 10,000,000 = $0.0001
 
-References
+Businesses absorb this minimal cost as part of their normal operational expenses, similar to payment processor or database costs.
 
-- Move sources: `crates/kanari-frameworks/packages/kanari-system/sources/`
-- Runtime: `crates/kanari-move-runtime/src/move_runtime/` and `crates/kanari-move-runtime/src/storage/`
+### 4.3 Universal Account System
+
+Users can link any existing account to Kanari seamlessly:
+
+**Account Mapping Formula:**
+
+```
+Payment Address = hash(User_ID + Salt)
+```
+
+**Integration Examples:**
+
+- **E-commerce**: Map email addresses to payment addresses
+- **Gaming**: Map game UIDs to payment addresses  
+- **Banking**: Map phone numbers to payment addresses
+- **Social**: Map usernames to payment addresses
+
+No wallet setup or cryptocurrency knowledge required—users interact with familiar identifiers.
+
+### 4.4 Micro and Macro Payment Economics
+
+**Cost Comparison Across Scenarios:**
+
+| Transaction Type | Traditional Cost | Kanari Cost |
+|------------------|------------------|-------------|
+| $1 Coffee | $0.34 (3.4%) | $0.0001 |
+| $100 Online Purchase | $4.30 (4.3%) | $0.0001 |
+| $1,000 International Transfer | $50.00 (5%) | $0.0001 |
+| NFT Purchase ($50) | $5-20 gas fee | $0.0001 |
+
+**Business Revenue Formula:**
+
+```
+Net Revenue = Gross Revenue - Infrastructure Cost
+```
+
+Since infrastructure costs are fixed and extremely low (~$0.0001 per transaction), businesses keep virtually all revenue while offering free payments to customers.
+
+### 4.5 Real-World Payment Scenarios
+
+**E-commerce Platform:**
+
+- 50,000 daily transactions
+- Average transaction value: $75
+- Traditional processing fees: ~$150,000/month
+- **Kanari cost: ~$15/month**
+
+**Remittance Service:**
+
+- Cross-border money transfers
+- Instant settlement instead of 1-3 days
+- Near-zero fees instead of 5-10% charges
+- Transparent exchange rates
+
+**Digital Content Marketplace:**
+
+- Creator monetization with instant payouts
+- Fractional payments (pay-per-article, pay-per-minute)
+- Global accessibility without banking barriers
+
+**Gaming Platform:**
+
+- In-game purchases with instant confirmation
+- Player-to-player trading with zero fees
+- Tournament prize distributions in seconds
+
+This universal payment infrastructure enables new business models across all industries by removing the friction and cost barriers of traditional payment systems.

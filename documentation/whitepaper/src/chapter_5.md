@@ -1,28 +1,102 @@
-## 5. Runtime, Storage, and Proofs Implementation
+## 5. Infrastructure & Networking
 
-This chapter explains how Kanari's Rust runtime implements storage, object history, and compact proofs used for efficient verification by off-chain clients.
+### 5.1 Rust Performance Benefits
 
-5.1 Runtime components (repo locations)
+Kanari is built in Rust for three key reasons:
 
-- `crates/kanari-move-runtime/src/lib.rs` — top-level runtime integration.
-- `crates/kanari-move-runtime/src/move_runtime/mod.rs` and `helpers.rs` — runtime helpers and native extension registration.
-- `crates/kanari-move-runtime/src/move_runtime/object_ops.rs` — object-level operations (head updates, fetches).
-- `crates/kanari-move-runtime/src/storage/object_storage.rs` — persistent storage layer for object state.
-- `crates/smt/src/sparse_merkle.rs` and `hash.rs` — sparse Merkle tree implementation and hashing primitives used to build compact inclusion proofs.
+**Memory Safety Formula:**
 
-5.2 Object history and compact proofs
+```
+Bugs Prevented = Memory Errors + Data Races + Null Pointers
+```
 
-- Each object's head is anchored on-chain (small `RecordHash`). The full record chain may be stored off-chain or reconstructed by indexers. To verify inclusion without fetching the full chain, the runtime can construct a sparse-merkle-like proof proving that a `RecordHash` equals the head at a particular sequence.
-- Proof verification uses `crates/smt` helpers; ensure clients use the same canonical hashing scheme found in `crates/smt/src/hash.rs`.
+Rust's compiler prevents these at compile time, making the system more reliable for **financial infrastructure**.
 
-5.3 Native functions and determinism
+**Performance Characteristics:**
 
-- Natives implemented under `move_runtime_extensions.rs` must be deterministic across validator nodes. They should avoid filesystem or RNG usage that would diverge execution.
+- Near C/C++ speed with automatic memory management
+- Zero-cost abstractions mean no performance penalty for safety
+- Efficient multi-core utilization
 
-5.4 Persistence and shared DB
+This ensures **banking-grade reliability** for payment processing.
 
-- Persistent disk-backed stores are implemented under `crates/kanari-move-runtime/src/storage/persistent_store.rs` (and related shared DB files). These modules manage serialization formats and recovery semantics.
+### 5.2 Simple Networking Model
 
-5.5 Tests & examples
+Kanari uses libp2p for peer-to-peer networking:
 
-- See `crates/kanari-move-runtime/examples/` for e2e examples (`e2e_nft_publish.rs`, `e2e_token_publish.rs`) demonstrating publishing and verifying metadata flows.
+**Network Topology:**
+
+- Each node connects to 10-20 other nodes
+- Automatic discovery finds new peers
+- Messages propagate in ~100ms across global network
+
+**Bandwidth Formula:**
+
+```
+Total Bandwidth = (Transactions × Size) / Time
+```
+
+**Example:**
+
+- 50,000 TPS × 200 bytes per transaction ÷ 1 second = 10 MB/s per node
+
+This is manageable even on modest internet connections, enabling **global payment accessibility**.
+
+### 5.3 Storage Efficiency
+
+Kanari uses RocksDB for persistent storage with smart compression:
+
+**Storage Formula:**
+
+```
+Compressed Size = Original Size × Compression Ratio
+```
+
+**Typical Values:**
+
+- Original transaction size: 200 bytes
+- After Zstd compression: ~80 bytes  
+- **Compression ratio: ~40%**
+
+This reduces storage costs significantly for **high-volume payment processors**.
+
+### 5.4 Cryptography Made Simple
+
+Kanari supports both current and future-proof cryptography:
+
+**Security Levels:**
+
+- **Current**: Ed25519 signatures (fast, secure today)
+- **Future**: Dilithium post-quantum signatures (quantum-resistant)
+- **Hybrid**: Both together for smooth transition
+
+**Key Generation Formula:**
+
+```
+Public Key = generate_public(private_key)
+Signature = sign(message, private_key)
+verify(message, signature, public_key) = true/false
+```
+
+The system handles all complexity—developers just use simple functions for **secure payment processing**.
+
+### 5.5 Easy Deployment for Payment Services
+
+**Single Node Setup:**
+
+```powershell
+# Start a payment node (Windows)
+.\start-node.ps1
+
+# Multi-node setup for high availability  
+.\setup-multi-node.ps1
+```
+
+**Resource Requirements:**
+
+- CPU: 4+ cores recommended
+- RAM: 8+ GB  
+- Storage: 100+ GB SSD
+- Network: 10+ Mbps upload
+
+This makes it accessible for **payment processors, e-commerce platforms, and financial institutions** of all sizes.

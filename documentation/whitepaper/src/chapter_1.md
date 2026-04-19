@@ -1,35 +1,58 @@
 <div align="center">
 
-## Kanari Network: A Decentralized Metadata Management Protocol
+## Kanari Network
+
 #### Technical Whitepaper
 
-https://kanari.network
+Author: James Jiraphon
 
-Version 1.0.0 (February 2025)
+<https://kanarinetwork.site>
+
+Version: 0.0.2 (April 19, 2026)
 </div>
 
 ### Abstract
 
-Kanari Network is a decentralized protocol for managing metadata about digital assets with cryptographic guarantees for integrity, provenance, access control, and versioning. Existing decentralized storage solutions address content availability but do not provide a unified, auditable system for metadata lifecycle management. Kanari combines the Move VM's safety model with on-chain records to create tamper-evident metadata entries, verifiable ownership, and fine-grained permissioning without relying on centralized intermediaries.
+Kanari Network is a fast, secure **payment infrastructure** built for real-time transactions. It uses advanced technology to process payments in less than 1 second with no fees for end users.
 
-The protocol captures metadata as immutable, signed records linked into an append-only history. Access controls and delegation are expressed as verifiable capabilities, while efficient indexing and compact proofs enable external verifiers to confirm state without trusting any single operator. Kanari targets applications that require enterprise-grade metadata guarantees: provenance tracking, digital rights management, institutional registries, and composable Web3 services.
+**Key Features:**
+
+- **Speed**: Payments finalize in ~300 milliseconds
+- **No Fees**: End users never pay transaction fees  
+- **Security**: Built with quantum-resistant cryptography
+- **Scale**: Handles 50,000+ transactions per second
+- **Safety**: Uses MoveVM to prevent asset loss or duplication
 
 ### 1. Introduction
 
-Digital assets increasingly depend on metadata: descriptive attributes, provenance, licensing, and version history. When metadata is centralized, it becomes a single point of failure and a vector for tampering. Decentralized storage systems (e.g., IPFS) solve content addressing and distribution, but they leave the metadata layer under-specified: ownership claims, structured permissions, and authoritative updates remain brittle or off-chain.
+**The Problem**
+Traditional payment systems and blockchains have significant limitations:
 
-Key limitations of current approaches:
+- **Banking systems**: Slow settlement (1-3 days), high fees, limited accessibility
+- **Credit cards**: High merchant fees (2-4%), chargeback risks, fraud concerns  
+- **Traditional blockchains**: High gas fees, slow finality, poor user experience
 
-- Lack of authoritative metadata records that are both tamper-evident and efficiently verifiable.
-- Weak or absent mechanisms for delegating and enforcing access and update rights.
-- Fragmented provenance models that hinder composability and auditability.
-- Poorly defined version semantics across storage and registry layers.
+**Kanari's Solution**
+Kanari provides a universal payment infrastructure optimized for real-time transactions:
 
-Kanari addresses these gaps by providing:
+- **Instant Payments**: Complete settlement in under 1 second
+- **Zero User Fees**: Businesses cover infrastructure costs
+- **Simple Integration**: Works with existing user accounts and systems
+- **High Performance**: 50,000+ TPS supports massive scale applications
 
-- Cryptographically anchored metadata records managed by Move-based smart contracts.
-- Clear ownership semantics with transfer, delegation, and revocation primitives.
-- Versioning and immutable change history for each metadata object.
-- Compact proofs and APIs for off-chain verifiers and indexing services.
+**Primary Use Cases:**
 
-In the sections that follow, we describe Kanari's data model, Move contracts and native extensions used to enforce policy, the protocol's primitives for ownership and delegation, and how clients and indexers interact to achieve scalable, auditable metadata management.
+- **Gaming**: In-game purchases, microtransactions, player-to-player trading
+- **E-commerce**: Instant checkout, cross-border payments, subscription billing
+- **Financial Services**: Remittances, peer-to-peer transfers, digital wallets
+- **Digital Content**: NFT marketplaces, content monetization, creator payments
+
+**How It Works**
+Kanari combines proven technologies in a new way:
+
+- **Move Virtual Machine**: Safe smart contracts for financial assets
+- **DAG Consensus**: Parallel processing instead of sequential blocks  
+- **Rust Programming**: Fast, memory-safe code
+- **Post-Quantum Crypto**: Ready for future security threats
+
+This whitepaper explains how Kanari works as a universal payment infrastructure, with clear formulas and practical examples for all use cases.
