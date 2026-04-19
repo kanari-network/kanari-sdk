@@ -1,6 +1,7 @@
-// Phase 1.5: Advanced Metrics & Monitoring
-// Production-grade prometheus-style metrics for DAG consensus
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
 
+// Production-grade prometheus-style metrics for DAG consensus
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};

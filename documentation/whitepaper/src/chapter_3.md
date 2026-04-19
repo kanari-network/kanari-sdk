@@ -1,62 +1,102 @@
-### 3. System Architecture and Components
+## 3. MoveVM Execution Layer
 
-This chapter outlines Kanari's runtime architecture, the role of Move contracts and native extensions, and the interactions between clients, indexers, and storage providers.
+### 3.1 Why MoveVM for Universal Payments?
 
-3.1 Principled Layers
+MoveVM is perfect for payment systems because it treats digital assets as **resources** that cannot be accidentally lost, copied, or duplicated.
 
-- Consensus & Execution: The underlying blockchain provides finality and ordering for metadata updates. Move contracts encode protocol state and enforce capability checks.
-- On-chain Registry: Lightweight Move modules store object heads, capability tables, and pointers to payload storage.
-- Native Extensions: Performance-sensitive operations (compact proof generation, advanced hashing) can be implemented as native functions exposed to Move while preserving deterministic behavior.
-- Indexing Layer: Off-chain indexers subscribe to events and maintain searchable views, offering APIs for queries and bulk export.
-- Storage Layer: Large payloads live off-chain with integrity anchored on-chain via content hashes and URIs.
+**Traditional Smart Contracts:**
 
-3.2 Move Modules
+- Assets are just numbers in a database
+- Easy to create bugs that lose or duplicate money
 
-Key Move modules include:
+**MoveVM Resources:**
 
-- `kanari_registry`: core types and primitives for object creation, head updates, and capability management.
-- `kanari_access`: higher-level policies for delegation, roles, and revocation semantics.
-- `kanari_proofs`: utilities for constructing and verifying compact inclusion proofs.
+- Assets are physical objects in code
+- Cannot be copied or discarded without explicit actions
+- Compiler prevents common financial mistakes
 
-3.3 Eventing and Observability
+This makes MoveVM ideal for **stablecoins, loyalty points, gift cards, and any financial instrument** where asset integrity is critical.
 
-Updates emit structured events containing `ObjectId`, new `RecordHash`, author, and minimal metadata useful to indexers. Events are the canonical change-stream for off-chain consumers.
+### 3.2 Gasless Transaction Model
 
-3.4 Client Workflows
+End users never pay gas fees. Instead, the system uses a simple resource accounting model:
 
-- Create: client generates an `ObjectId`, stores payload off-chain, calls `create_object` with payload hash and initial capability assignment.
-- Update: authorized client calls `publish_metadata` with a `PayloadDiff`; Move module validates capability and appends a new record.
-- Transfer: owner calls `transfer_ownership`, which atomically hands off capabilities and emits transfer events.
-- Verify: any verifier fetches the object's head, retrieves the record chain (or a proof), and validates record hashes and signatures.
+**Resource Accounting Formula:**
 
-3.5 Indexers and Search
+```
+Total Steps = Σ(Operation Cost × Quantity)
+```
 
-Indexers consume events and materialize views optimized for query types: by owner, by schema type, or by temporal range. Indexers may optionally hold `IndexerCapability` to annotate records with derived metadata (e.g., text extraction), but annotations do not change canonical on-chain records.
+Each transaction has a step limit (e.g., 10,000 steps). If a transaction exceeds this limit, it's rejected—but users aren't charged.
 
-3.6 Security Considerations
+**Operation Costs:**
 
-- Minimize on-chain payloads: keep authoritative data small and verifiable; store bulk data off-chain.
-- Capability hygiene: prefer short-lived or narrow-scope capabilities to reduce blast radius.
-- Deterministic natives: ensure any native functions used for proof generation are deterministic across validator nodes.
-- Auditing: comprehensive event logs and compact proofs enable external auditors to reconstruct histories without trusting indexers.
+- Simple transfer: 100 steps
+- Multi-currency swap: 500 steps  
+- Complex payment logic: 1,000 steps
+- Publish new payment module: 5,000 steps
 
-3.7 Scalability and Performance
+This prevents spam attacks while keeping transactions free for users across all payment scenarios.
 
-Kanari offloads heavy payload storage and full-text indexing to off-chain systems while keeping a compact, cryptographically secure on-chain state. This hybrid approach scales to millions of objects while ensuring a single canonical source of truth for ownership and versioning.
+### 3.3 Universal Payment Primitives
 
-Summary
+Kanari provides ready-to-use building blocks for all payment applications:
 
-Kanari's architecture combines Move's strong safety semantics with targeted native extensions and off-chain services to deliver a practical, auditable metadata management system suitable for both open ecosystems and enterprise deployments.
+**Core Modules:**
 
-Code mapping (where to find implementation in the repo)
+- **Coins**: Fungible tokens for stablecoins, loyalty points, currencies
+- **NFTs**: Unique assets like gift cards, certificates, tickets
+- **Accounts**: Secure wallets with multi-signature support
+- **Clock**: Time-based payments for subscriptions and escrow
 
-- Move sources and on-chain modules: `crates/kanari-frameworks/packages/kanari-system/sources/` (files of interest: `kanari.move`, `object.move`, `tx_context.move`, `event.move`, `transfer.move`, `coin.move`, `balance.move`). These Move files implement the on-chain record heads, capability resources and events.
-- Runtime & native helpers: `crates/kanari-move-runtime/src/move_runtime/` (e.g., `helpers.rs`, `object_ops.rs`, `move_runtime_extensions.rs`) and storage under `crates/kanari-move-runtime/src/storage/` — runtime enforcement, proof helpers, and native functions live here.
-- Sparse Merkle and hashing primitives used for compact proofs: `crates/smt/src/` (notably `sparse_merkle.rs` and `hash.rs`).
-- Canonical Rust types for objects, coins, balances and transactions: `crates/kanari-types/src/` (files: `object.rs`, `coin.rs`, `balance.rs`, `tx_context.rs`, `kanari.rs`).
-- RPC surface used by indexers / clients: `crates/kanari-rpc-server/src/` (modules for `block`, `transaction`, `module`, `balance` expose server endpoints and event streaming patterns).
-- Cryptography & signatures used by clients and attestations: `crates/kanari-crypto/src/` (keys, keystore, signatures, and wallet utilities).
-- Tests and examples demonstrating end-to-end flows: `crates/kanari-move-runtime/examples/` (e2e token/nft examples) and Move tests under `crates/kanari-frameworks/packages/kanari-system/tests/`.
+**Example: Cross-Border Payment**
 
-Use these files as the ground truth when updating or extending the system; the chapter text maps directly to the modules and crates above.
+```move
+// Send USDC to international recipient
+public entry fun send_international(
+    sender_coin: &mut Coin<USDC>, 
+    amount: u64,
+    recipient: address,
+    ctx: &mut TxContext
+) {
+    // Verify sufficient balance
+    assert!(coin::value(sender_coin) >= amount, 1);
+    
+    // Split amount to send
+    let payment = coin::split(sender_coin, amount, ctx);
+    
+    // Instant international transfer
+    transfer::public_transfer(payment, recipient);
+}
+```
 
+### 3.4 Performance for Real-Time Payments
+
+**Execution Speed Formula:**
+
+```
+Total Time = Execution Time + Finality Time
+```
+
+- Execution Time: ~10ms (transaction processing)
+- Finality Time: ~300ms (network confirmation)
+- **Total**: ~310ms for complete payment settlement
+
+This speed enables real-time payments for e-commerce, remittances, and instant settlements.
+
+### 3.5 Simple Development Workflow
+
+Developers can build payment applications easily:
+
+```bash
+# Create new stablecoin
+kanari move new my_stablecoin
+
+# Test payment flows  
+kanari move test ./my_stablecoin
+
+# Deploy to network
+kanari move publish ./my_stablecoin
+```
+
+The system handles all complexity—developers focus on payment logic for any industry.

@@ -27,9 +27,18 @@ rand = { workspace = true }
 rocksdb = { workspace = true }
 rayon = { workspace = true }
 log = { workspace = true }
-num_cpus = "1.17.0"
-moka = { version = "0.12.15", features = ["sync"] }
-siphasher = "1.0.2"
+num_cpus = { workspace = true }
+moka = { workspace = true }
+siphasher = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+dashmap = { workspace = true }
+ahash = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+arbitrary = { workspace = true }
+proptest = { workspace = true }
+
+# Fuzzing configuration (use with cargo-fuzz)
+# Install: cargo install cargo-fuzz
+# Run: cargo fuzz run fuzz_vertex_validation

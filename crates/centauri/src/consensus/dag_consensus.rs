@@ -31,8 +31,8 @@ use log;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
-use std::thread;
 // Use fully-qualified time APIs where needed to avoid unused-import warnings
+use tokio::sync::mpsc;
 
 /// Unique identifier for a DAG vertex (block)
 /// Fixed-size [u8; 32] for zero heap allocations (500K TPS optimization)
@@ -122,7 +122,7 @@ impl DagVertex {
         Ok(bytes)
     }
 
-    /// Create a new DAG vertex
+    /// Create a new DAG vertex (panics on serialization failure - use try_new() for production)
     pub fn new(
         round: Round,
         author: AuthorityId,
@@ -132,6 +132,28 @@ impl DagVertex {
         state_root: Vec<u8>,
         timestamp: u64,
     ) -> Self {
+        Self::try_new(
+            round,
+            author,
+            chain_id,
+            parents,
+            transactions,
+            state_root,
+            timestamp,
+        )
+        .expect("DagVertex::new failed - this should never happen with valid inputs")
+    }
+
+    /// Try to create a new DAG vertex (returns Result for safe error handling)
+    pub fn try_new(
+        round: Round,
+        author: AuthorityId,
+        chain_id: String,
+        parents: Vec<VertexId>,
+        transactions: Vec<SignedTransaction>,
+        state_root: Vec<u8>,
+        timestamp: u64,
+    ) -> Result<Self> {
         let tx_count = transactions.len();
 
         let metadata = VertexMetadata {
@@ -146,7 +168,7 @@ impl DagVertex {
             id: [0u8; 32], // Will be computed
             round,
             author,
-            chain_id, // Use provided chain_id instead of hardcoded default
+            chain_id,
             parents,
             transactions,
             timestamp,
@@ -157,12 +179,10 @@ impl DagVertex {
         };
 
         // Compute vertex ID (hash) and cache it
-        let hash = vertex
-            .compute_hash()
-            .expect("Serialization during vertex creation must not fail");
+        let hash = vertex.compute_hash()?;
         vertex.cached_hash = Some(hash.to_vec());
         vertex.id = hash;
-        vertex
+        Ok(vertex)
     }
 
     /// Create a new DAG vertex with default chain_id (for testing)
@@ -210,10 +230,8 @@ impl DagVertex {
             let serialized = bcs::to_bytes(self)?;
             self.cached_serialized_data = Some(serialized);
         }
-        Ok(self
-            .cached_serialized_data
-            .as_ref()
-            .expect("Just inserted above"))
+        // Safe unwrap - we just ensured it's Some above
+        Ok(self.cached_serialized_data.as_ref().unwrap())
     }
 
     /// Verify vertex integrity
@@ -240,15 +258,25 @@ impl DagVertex {
         let f = (total_authorities - 1) / 3;
         let quorum_size = 2 * f + 1;
 
-        // Collect unique authors from parent vertices
+        // FIX #2 & #3: CRITICAL - Filter out banned/untrusted authorities before counting quorum
+        // Previously counted ALL authors including Byzantine ones that should be excluded
         let mut unique_authors = BTreeSet::new();
         for parent_id in &self.parents {
             if let Some(parent_vertex) = store.get_vertex(parent_id) {
-                unique_authors.insert(parent_vertex.author.clone());
+                // FIX #2: Check if author is trusted (not banned/slash to reputation 0)
+                // This prevents Byzantine nodes from participating in quorum
+                if store.is_authority_trusted(&parent_vertex.author) {
+                    unique_authors.insert(parent_vertex.author.clone());
+                } else {
+                    log::warn!(
+                        "[Security] Excluding untrusted authority {} from quorum calculation",
+                        parent_vertex.author
+                    );
+                }
             }
         }
 
-        // Must have quorum from unique authors
+        // Must have quorum from unique TRUSTED authors only
         unique_authors.len() >= quorum_size
     }
 }
@@ -413,6 +441,8 @@ pub struct DagStore {
     last_checkpoint_round: Round,
     /// Backpressure limit for pending vertices (500K TPS protection)
     max_pending_vertices: usize,
+    /// FIX #2 & #3: Track banned/untrusted authorities (reputation = 0)
+    banned_authorities: BTreeSet<AuthorityId>,
 }
 
 impl DagStore {
@@ -560,6 +590,7 @@ impl DagStore {
             checkpoint_config: config,
             last_checkpoint_round: 0,
             max_pending_vertices: max_pending,
+            banned_authorities: BTreeSet::new(), // FIX #2 & #3: Initialize empty ban list
         }
     }
 
@@ -842,6 +873,33 @@ impl DagStore {
     pub fn num_authorities(&self) -> usize {
         self.authorities.len()
     }
+
+    // FIX #2 & #3: Methods to manage banned/untrusted authorities
+
+    /// Ban an authority (set reputation to 0, exclude from quorum)
+    pub fn ban_authority(&mut self, authority: &AuthorityId) {
+        self.banned_authorities.insert(authority.clone());
+        log::warn!(
+            "[Security] Authority {} has been BANNED - excluded from quorum",
+            authority
+        );
+    }
+
+    /// Unban an authority (restore participation rights)
+    pub fn unban_authority(&mut self, authority: &AuthorityId) {
+        self.banned_authorities.remove(authority);
+        log::info!("[Security] Authority {} has been UNBANNED", authority);
+    }
+
+    /// Check if an authority is trusted (not banned)
+    pub fn is_authority_trusted(&self, authority: &AuthorityId) -> bool {
+        !self.banned_authorities.contains(authority)
+    }
+
+    /// Get list of all banned authorities
+    pub fn get_banned_authorities(&self) -> &BTreeSet<AuthorityId> {
+        &self.banned_authorities
+    }
 }
 
 /// Statistics for checkpoint creation
@@ -897,8 +955,8 @@ pub struct DagConsensus {
     /// Persistent storage backend for DAG vertices
     persistent_store: Option<PersistentDagStore>,
 
-    /// Background I/O channel for async disk writes (500K TPS optimization)
-    disk_writer_tx: Option<std::sync::mpsc::SyncSender<Arc<DagVertex>>>,
+    /// Async channel for background disk writes (500K TPS optimization - replaced raw thread with tokio)
+    disk_writer_tx: Option<mpsc::Sender<Arc<DagVertex>>>,
 
     /// DAG pruning to manage storage growth
     pruner: DagPruner,
@@ -976,7 +1034,10 @@ impl DagConsensus {
         authorities: Vec<AuthorityId>,
         chain_id: String,
         committee_public_keys: BTreeMap<AuthorityId, Vec<u8>>,
-        vrf_secrets: BTreeMap<AuthorityId, [u8; 32]>,
+        // FIX #1: CRITICAL SECURITY - Remove vrf_secrets parameter
+        // Each node should only know its OWN VRF secret, not all authorities' secrets
+        // This prevents any admin/config leak from compromising all validators
+        local_vrf_secret: Option<[u8; 32]>,
         local_signing_key: ed25519_dalek::SigningKey,
     ) -> Self {
         log::info!(
@@ -989,8 +1050,13 @@ impl DagConsensus {
 
         // Initialize VRF-based leader election
         let mut vrf_election = VrfLeaderElection::new();
-        for (auth, secret) in vrf_secrets {
-            vrf_election.register_authority_bytes(auth, &secret);
+
+        // FIX #1: Only register this node's own VRF secret
+        if let Some(secret) = local_vrf_secret {
+            vrf_election.register_authority_bytes(authority_id.clone(), &secret);
+            log::info!("[VRF] Registered local VRF secret for {}", authority_id);
+        } else {
+            log::warn!("[VRF] No VRF secret provided - will use fallback round-robin");
         }
 
         // Fallback: Create simple round-robin leader schedule
@@ -1036,7 +1102,6 @@ impl DagConsensus {
             .enumerate()
             .map(|(i, auth)| ValidatorInfo {
                 authority_id: auth.clone(),
-                stake: 100,
                 public_key: committee_public_keys
                     .get(auth)
                     .cloned()
@@ -1058,31 +1123,35 @@ impl DagConsensus {
         );
 
         let persistent_store: Option<PersistentDagStore> = None;
-        let pruner = DagPruner::new(PruningConfig::default())
-            .expect("Failed to create pruner with default config");
+        let pruner = DagPruner::new(PruningConfig::default()).unwrap_or_else(|e| {
+            panic!(
+                "Failed to create pruner with default config: {}. This is a programming error.",
+                e
+            )
+        });
         let parallel_validator = ParallelValidator::new(ParallelValidatorConfig::high_throughput())
-            .expect("Failed to create parallel validator");
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Failed to create parallel validator: {}. This is a programming error.",
+                    e
+                )
+            });
 
         let disk_writer_tx = if persistent_store.is_some() {
-            let (tx, rx) = std::sync::mpsc::sync_channel::<Arc<DagVertex>>(100_000);
+            // Use async channel instead of sync mpsc (better performance, no thread overhead)
+            let (tx, mut rx) = mpsc::channel::<Arc<DagVertex>>(100_000);
             let persistent_clone = persistent_store.clone();
 
-            thread::Builder::new()
-                .name("dag-disk-writer".to_string())
-                .spawn(move || {
-                    while let Ok(vertex) = rx.recv() {
-                        if let Some(ref store) = persistent_clone
-                            && let Err(e) = store.put_vertex(&vertex)
-                        {
-                            log::error!(
-                                "Failed to persist vertex {}: {}",
-                                hex::encode(vertex.id),
-                                e
-                            );
-                        }
+            // Spawn async task instead of OS thread (lighter weight, better scheduling)
+            tokio::spawn(async move {
+                while let Some(vertex) = rx.recv().await {
+                    if let Some(ref store) = persistent_clone
+                        && let Err(e) = store.put_vertex(&vertex)
+                    {
+                        log::error!("Failed to persist vertex {}: {}", hex::encode(vertex.id), e);
                     }
-                })
-                .expect("Failed to spawn disk writer thread");
+                }
+            });
 
             Some(tx)
         } else {
@@ -1122,10 +1191,10 @@ impl DagConsensus {
             .iter()
             .map(|auth| (auth.clone(), Self::authority_public_key(auth).to_vec()))
             .collect();
-        let vrf_secrets: BTreeMap<AuthorityId, [u8; 32]> = authorities
-            .iter()
-            .map(|auth| (auth.clone(), Self::authority_seed(auth)))
-            .collect();
+
+        // FIX #1: Only provide local VRF secret, not all secrets
+        let local_vrf_secret = Some(Self::authority_seed(&authority_id));
+
         let local_signing_key =
             ed25519_dalek::SigningKey::from_bytes(&Self::authority_seed(&authority_id));
         Self::with_chain_id_internal(
@@ -1133,7 +1202,7 @@ impl DagConsensus {
             authorities,
             chain_id,
             committee_public_keys,
-            vrf_secrets,
+            local_vrf_secret, // FIX #1: Pass only local secret
             local_signing_key,
         )
     }
@@ -1142,14 +1211,15 @@ impl DagConsensus {
     ///
     /// - `authority_public_keys` must contain every authority from `authorities`
     /// - `local_signing_key` must match `authority_id` public key in `authority_public_keys`
-    /// - `vrf_secrets` may contain a subset (leader election will fallback when VRF is missing)
+    /// - `local_vrf_secret` should be THIS NODE'S OWN VRF secret ONLY (never other nodes' secrets)
     pub fn with_chain_id_secure(
         authority_id: AuthorityId,
         authorities: Vec<AuthorityId>,
         chain_id: String,
         local_signing_key: ed25519_dalek::SigningKey,
         authority_public_keys: BTreeMap<AuthorityId, Vec<u8>>,
-        vrf_secrets: BTreeMap<AuthorityId, [u8; 32]>,
+        // FIX #1: Changed from vrf_secrets (all nodes) to local_vrf_secret (this node only)
+        local_vrf_secret: Option<[u8; 32]>,
     ) -> Result<Self> {
         for auth in &authorities {
             let key = authority_public_keys
@@ -1175,7 +1245,7 @@ impl DagConsensus {
             authorities,
             chain_id,
             authority_public_keys,
-            vrf_secrets,
+            local_vrf_secret, // FIX #1: Only this node's VRF secret
             local_signing_key,
         ))
     }
@@ -1252,6 +1322,19 @@ impl DagConsensus {
             anyhow::bail!("Vertex author '{}' is not in current committee", author);
         }
 
+        // FIX #3: CRITICAL - Reject vertices from banned/untrusted authorities
+        // Previously allowed Byzantine nodes (reputation = 0) to keep producing blocks
+        if !self.store.is_authority_trusted(&author) {
+            log::warn!(
+                "[Security] REJECTED vertex from BANNED authority: {}",
+                author
+            );
+            return Err(anyhow::anyhow!(
+                "Vertex from banned authority '{}' rejected",
+                author
+            ));
+        }
+
         // 1.5. Fast-path validation + signature verification
         self.verify_vertex_signature(&vertex)?;
 
@@ -1267,9 +1350,33 @@ impl DagConsensus {
         let total_authorities = self.committee.validators.len();
 
         // 3. Check for Byzantine faults before adding
-        self.byzantine_detector.check_double_voting(&vertex)?;
-        self.byzantine_detector
-            .check_vertex_validity(&vertex, total_authorities)?;
+        // FIX #2 & #3: Automatically ban authorities that are slashed to reputation 0
+        if let Err(e) = self.byzantine_detector.check_double_voting(&vertex) {
+            // Double voting detected - check if authority should be banned
+            if self.byzantine_detector.get_reputation(&author) == 0 {
+                log::error!(
+                    "[Security] Authority {} SLASHED to 0 reputation - BANNING from consensus",
+                    author
+                );
+                self.store.ban_authority(&author);
+            }
+            return Err(e);
+        }
+
+        if let Err(e) = self
+            .byzantine_detector
+            .check_vertex_validity(&vertex, total_authorities)
+        {
+            // Invalid vertex detected - check if authority should be banned
+            if self.byzantine_detector.get_reputation(&author) == 0 {
+                log::error!(
+                    "[Security] Authority {} SLASHED to 0 reputation for invalid vertex - BANNING",
+                    author
+                );
+                self.store.ban_authority(&author);
+            }
+            return Err(e);
+        }
 
         let vertex_arc = Arc::new(vertex);
 
@@ -1280,7 +1387,7 @@ impl DagConsensus {
                 Ok(()) => {
                     // Successfully queued for disk write, proceed to add to memory
                 }
-                Err(std::sync::mpsc::TrySendError::Full(_)) => {
+                Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
                     // FIX #6: Reject vertex if disk queue is full to prevent data loss
                     self.metrics.inc_disk_queue_full_count();
                     log::error!(
@@ -1293,14 +1400,15 @@ impl DagConsensus {
                         hex::encode(vertex_id)
                     ));
                 }
-                Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
-                    // Disk writer thread has crashed - this is a fatal error
+                Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                    // Disk writer task has crashed - this is a fatal error
                     log::error!(
-                        "[FATAL] Disk writer thread disconnected! Vertex {} will not be persisted.",
+                        "[FATAL] Disk writer task closed! Vertex {} will not be persisted.",
                         hex::encode(vertex_id)
                     );
+
                     return Err(anyhow::anyhow!(
-                        "Disk writer thread crashed - system unhealthy"
+                        "Disk writer task crashed - system unhealthy"
                     ));
                 }
             }
@@ -1425,13 +1533,24 @@ impl DagConsensus {
                     .map(|v| &v.author)
                     .collect();
 
-                let support_count = support_authors.len();
+                // Count unique trusted authors for quorum (PoA: count-based, not stake-based)
+                let trusted_support_count = support_authors
+                    .iter()
+                    .filter(|auth| self.store.is_authority_trusted(auth))
+                    .count();
 
                 let total_authorities = self.committee.validators.len();
                 let f = (total_authorities - 1) / 3;
                 let quorum = 2 * f + 1;
 
-                if support_count >= quorum {
+                if trusted_support_count >= quorum {
+                    log::info!(
+                        "[Consensus] Quorum reached! Support: {} / {} (threshold: {})",
+                        trusted_support_count,
+                        total_authorities,
+                        quorum
+                    );
+
                     // Commit! Collect all uncommitted vertices up to and including leader vertex
                     let vertices_to_commit = self.collect_vertices_to_commit(leader_vertex.id)?;
 
@@ -1743,10 +1862,13 @@ mod tests {
 
     #[test]
     fn test_reject_future_timestamp_vertex() {
-        // FIX #2: Test now validates median-based timestamp checking instead of SystemTime
-        // Create a DAG where parents have timestamp 100, then try to add vertex with timestamp 200
-        // This should be rejected as it's too far ahead of parent median (>10s tolerance)
-        let mut store = DagStore::new(vec!["auth1".to_string(), "auth2".to_string()]);
+        let authorities = vec![
+            "auth1".to_string(),
+            "auth2".to_string(),
+            "auth3".to_string(),
+            "auth4".to_string(),
+        ];
+        let mut store = DagStore::new(authorities);
 
         // Add parent vertices with timestamp 100
         let parent1 =
@@ -1757,8 +1879,8 @@ mod tests {
         store.add_vertex(parent1, store.num_authorities()).unwrap();
         store.add_vertex(parent2, store.num_authorities()).unwrap();
 
-        // Try to add child vertex with timestamp way too far in the future (200 vs median 100)
-        // Max allowed is median + 10 = 110, so 200 should be rejected
+        // Try to add child vertex with timestamp way too far in the future
+        // Max allowed is median + 300 (MAX_TIMESTAMP_DRIFT_SECS), so 500 should be rejected
         let child_parents = store.get_vertex_ids_in_round(0);
         let future_vertex = DagVertex::new_for_test(
             1,
@@ -1766,7 +1888,7 @@ mod tests {
             child_parents,
             vec![],
             vec![3u8; 32],
-            200, // Way too far ahead
+            500, // Exceeds median (100) + max drift (300) = 400
         );
 
         assert!(
@@ -1984,9 +2106,9 @@ mod tests {
         let mut public_keys = std::collections::BTreeMap::new();
         public_keys.insert("auth1".to_string(), sk1.verifying_key().to_bytes().to_vec());
         public_keys.insert("auth2".to_string(), sk2.verifying_key().to_bytes().to_vec());
-        let mut vrf_secrets = std::collections::BTreeMap::new();
-        vrf_secrets.insert("auth1".to_string(), [1u8; 32]);
-        vrf_secrets.insert("auth2".to_string(), [2u8; 32]);
+
+        // FIX #1: Only provide local VRF secret (for auth1), not all secrets
+        let local_vrf_secret = Some([1u8; 32]);
 
         let consensus = DagConsensus::with_chain_id_secure(
             "auth1".to_string(),
@@ -1994,7 +2116,7 @@ mod tests {
             "chain-secure".to_string(),
             sk1,
             public_keys,
-            vrf_secrets,
+            local_vrf_secret, // FIX #1: Pass only local secret
         )
         .unwrap();
         assert!(consensus.committee().contains("auth1"));
@@ -2012,13 +2134,14 @@ mod tests {
             expected.verifying_key().to_bytes().to_vec(),
         );
 
+        // FIX #1: Provide None for local VRF secret (not required for this test)
         let result = DagConsensus::with_chain_id_secure(
             "auth1".to_string(),
             authorities,
             "chain-secure".to_string(),
             wrong,
             public_keys,
-            std::collections::BTreeMap::new(),
+            None, // FIX #1: No VRF secret needed for this test
         );
         assert!(result.is_err());
     }

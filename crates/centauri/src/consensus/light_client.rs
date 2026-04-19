@@ -45,12 +45,8 @@ pub struct LightCheckpoint {
 pub struct CheckpointSignature {
     /// Authority ID
     pub authority: AuthorityId,
-
     /// Signature bytes
     pub signature: Vec<u8>,
-
-    /// Authority's stake/weight
-    pub stake: u64,
 }
 
 /// State proof for light client
@@ -58,20 +54,15 @@ pub struct CheckpointSignature {
 pub struct StateProof {
     /// Account address
     pub address: String,
-
     /// Account state data (value)
     /// If is_membership is false, this should be empty
     pub state_data: Vec<u8>,
-
     /// Whether this is a membership proof (true) or non-membership proof (false)
     pub is_membership: bool,
-
     /// Merkle proof siblings (bottom-up from leaf)
     pub siblings: Vec<[u8; 32]>,
-
     /// State root hash
     pub state_root: Vec<u8>,
-
     /// Checkpoint this proof is based on
     pub checkpoint: LightCheckpoint,
 }
@@ -158,8 +149,8 @@ impl LightClient {
         }
 
         let checkpoint_hash = self.hash_checkpoint(&checkpoint);
-        let mut total_stake = 0u128;
         let mut seen = std::collections::BTreeSet::new();
+        let mut trusted_count = 0usize;
 
         for sig in &checkpoint.signatures {
             if !seen.insert(sig.authority.clone()) {
@@ -169,31 +160,32 @@ impl LightClient {
                 ));
             }
 
-            // ตรวจสอบว่าเรารู้จัก Authority นี้ใน Light Client หรือไม่
+            // Verify authority is known and active
             if !self.authority_keys.contains_key(&sig.authority) {
                 return Err(anyhow::anyhow!("Unknown authority: {}", sig.authority));
             }
 
-            // FIX: ดึงค่า Stake ของจริงจาก Committee
-            let authority_stake = committee
-                .get_validator(&sig.authority)
-                .ok_or_else(|| {
-                    anyhow::anyhow!("Authority {} not found in committee", sig.authority)
-                })?
-                .stake as u128;
+            // Verify authority exists in committee and is active
+            let validator = committee.get_validator(&sig.authority).ok_or_else(|| {
+                anyhow::anyhow!("Authority {} not found in committee", sig.authority)
+            })?;
 
-            // Verify signature against the authority public key.
+            if !validator.active {
+                return Err(anyhow::anyhow!("Authority {} is not active", sig.authority));
+            }
+
+            // Verify signature against the authority public key
             self.verify_signature(&checkpoint_hash, &sig.signature, &sig.authority)?;
 
-            total_stake = total_stake.saturating_add(authority_stake);
+            trusted_count += 1;
         }
 
-        // FIX: เปรียบเทียบกับ quorum_threshold ของ Committee จริงๆ (เป็น u128 อยู่แล้ว)
-        if total_stake < committee.quorum_threshold {
+        // Check count-based quorum (PoA: 2f+1 of authorities)
+        if trusted_count < committee.quorum_size {
             return Err(anyhow::anyhow!(
-                "Insufficient stake in quorum: {} < {}",
-                total_stake,
-                committee.quorum_threshold
+                "Insufficient validators in quorum: {} < {}",
+                trusted_count,
+                committee.quorum_size
             ));
         }
 
@@ -206,10 +198,9 @@ impl LightClient {
         }
 
         tracing::info!(
-            "Verified checkpoint {} with {} signatures (stake: {})",
+            "Verified checkpoint {} with {} signatures",
             checkpoint.sequence,
-            checkpoint.signatures.len(),
-            total_stake
+            checkpoint.signatures.len()
         );
 
         Ok(())
@@ -480,7 +471,6 @@ impl CheckpointBuilder {
         CheckpointSignature {
             authority: self.authority_id.clone(),
             signature,
-            stake: 1,
         }
     }
 }
@@ -527,7 +517,6 @@ mod tests {
         CheckpointSignature {
             authority: authority.to_string(),
             signature: sig.to_bytes().to_vec(),
-            stake: 1,
         }
     }
 
@@ -545,14 +534,11 @@ mod tests {
     fn create_test_committee(authorities: &BTreeMap<AuthorityId, Vec<u8>>) -> Committee {
         let validators: Vec<ValidatorInfo> = authorities
             .iter()
-            .map(|(id, pk)| {
-                ValidatorInfo {
-                    authority_id: id.clone(),
-                    public_key: pk.clone(),
-                    stake: 100, // กำหนด Stake มาตรฐานให้ทุกโหนด
-                    network_address: "127.0.0.1:0".to_string(),
-                    active: true,
-                }
+            .map(|(id, pk)| ValidatorInfo {
+                authority_id: id.clone(),
+                public_key: pk.clone(),
+                network_address: "127.0.0.1:0".to_string(),
+                active: true,
             })
             .collect();
         Committee::new(0, validators)

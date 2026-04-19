@@ -1,17 +1,19 @@
 # Kanari
 
-Kanari is a real-time transaction network designed for in-game payments and asset systems.
+Kanari is a real-time payment network designed for instant transactions across all industries.
 
-It allows developers to build instant game economy features — such as UID top-ups, item purchases, and asset transfers — with sub-second finality and no gas fees.
+It allows developers to build fee-free payment applications — such as e-commerce checkout, cross-border remittances, digital content monetization, and in-game purchases — with sub-second finality and no user fees.
 
 ---
 
 ## What can you build with Kanari?
 
-- 🎮 In-game payment system (UID top-up)
-- 💰 Instant item purchases
-- 🔁 Real-time asset transfers
-- 📊 Game economy backend
+- 🛍️ E-commerce payment processing
+- 💸 Cross-border remittances  
+- 🎮 In-game payment systems (UID top-up)
+- 📱 Digital content monetization (pay-per-article)
+- 🔁 Real-time peer-to-peer transfers
+- 🏦 Financial service applications
 
 ---
 
@@ -19,16 +21,17 @@ It allows developers to build instant game economy features — such as UID top-
 
 Traditional systems:
 
-- ❌ Slow settlement (seconds or batch processing)
-- ❌ Complex backend logic
+- ❌ Slow settlement (seconds to days)
+- ❌ High transaction fees (2-10% + fixed costs)
+- ❌ Complex integration requirements
 - ❌ No verifiable state
 
 Kanari:
 
 - ⚡ Instant execution (~10 ms)
 - 🔒 Secure finality (~300 ms)
-- 💸 No gas fees (user-friendly UX)
-- 🧩 Simple integration
+- 💸 No user fees (businesses cover infrastructure costs)
+- 🧩 Simple integration with existing systems
 
 ---
 
@@ -43,17 +46,32 @@ Result:
 
 - Instant user experience
 - Strong consistency and correctness
+- Universal payment infrastructure
 
 ---
 
-## Example: In-game payment
+## Example: Universal Payment Scenarios
+
+**E-commerce**:
+
+1. Customer checks out with email address
+2. Payment processes instantly
+3. Order confirmed within ~300 ms
+
+**Remittance**:
+
+1. User sends money internationally  
+2. Recipient receives funds instantly
+3. Near-zero fees vs traditional 5-10% charges
+
+**Gaming**:
 
 1. Player enters UID
 2. Payment is submitted
 3. Balance updates instantly
-4. Transaction is finalized within ~300 ms
+4. Transaction finalized within ~300 ms
 
-No waiting. No gas fees.
+No waiting. No user fees.
 
 ---
 
@@ -119,7 +137,7 @@ cargo test -p kanari-types
 
 ## Local State
 
-- **RocksDB path**: `~/.kari/kanari-db/move_vm_db`
+- **RocksDB path**: `~/.kanari/kanari-db/`
 - **State storage**: Serialized `MoveVMState` under key `"state"`
 - **Reset state**: Delete the DB directory and restart
 
@@ -156,10 +174,19 @@ For detailed architecture documentation:
 
 ## Documentation
 
+### Core Documentation
+
 - [Move CLI Guide](crates/kanari/MOVE_CLI_GUIDE.md) — Complete Move development guide
 - [Kanari Core](crates/kanari-core/README.md) — Engine and consensus details
 - [Whitepaper](documentation/whitepaper/) — Technical whitepaper
 - [Developer Book](documentation/book/) — Comprehensive docs
+
+### Centauri Consensus (Advanced)
+
+- **[Architecture Guide](crates/centauri/ARCHITECTURE.md)** 🆕 — System design, DAG protocol, performance tuning
+- **[Security Guide](crates/centauri/SECURITY.md)** 🆕 — Threat model, attack vectors, deployment checklist
+- **[PoA Security Fixes](POA_SECURITY_FIXES.md)** — Critical vulnerability patches (v0.1.5)
+- **[Fuzzing Tests](crates/centauri/FUZZING.md)** 🆕 — Property-based testing guide
 
 ---
 

@@ -322,12 +322,11 @@ impl VrfLeaderElection {
         Some(leader_vrf.authority.clone())
     }
 
-    /// Elect leader with weighted selection based on stake (500K TPS - fair PoS)
-    /// Higher stake = higher probability of winning
+    /// Elect leader using VRF (PoA: equal probability for all authorities)
     pub fn elect_leader_weighted(
         &self,
         round: Round,
-        stakes: &BTreeMap<AuthorityId, u64>,
+        _stakes: &BTreeMap<AuthorityId, u64>, // Ignored in PoA - kept for API compatibility
     ) -> Option<AuthorityId> {
         let vrfs = self.vrf_cache.get(&round)?;
 
@@ -335,45 +334,21 @@ impl VrfLeaderElection {
             return None;
         }
 
-        // FIX #5: CRITICAL - Use u128 cross-multiplication instead of f64 division
-        // NEVER use floating-point in consensus! Different CPU architectures (ARM vs x86)
-        // can produce different rounding results for f64, causing permanent chain forks.
-        //
-        // Cross-multiplication approach:
-        // To compare (VRF_A / Stake_A) < (VRF_B / Stake_B)
-        // We compute: (VRF_A * Stake_B) < (VRF_B * Stake_A)
-        // This is 100% deterministic and lossless using u128 arithmetic
+        // PoA: Simple minimum VRF value wins (all authorities have equal weight)
+        // No stake weighting - fair rotation among all validators
+        let leader_vrf = vrfs.iter().min_by(|vrf_a, vrf_b| {
+            // Compare full 16-byte VRF output as u128
+            let vrf_num_a = u128::from_be_bytes(vrf_a.output[..16].try_into().unwrap_or([0u8; 16]));
+            let vrf_num_b = u128::from_be_bytes(vrf_b.output[..16].try_into().unwrap_or([0u8; 16]));
 
-        let leader_vrf = vrfs
-            .iter()
-            .filter_map(|vrf| {
-                let stake = stakes.get(&vrf.authority).copied().unwrap_or(1);
-                if stake == 0 {
-                    return None; // Skip zero stake validators
-                }
-                Some((vrf, stake))
-            })
-            .min_by(|(vrf_a, stake_a), (vrf_b, stake_b)| {
-                // Cross-multiply to avoid division: compare VRF_A/Stake_A vs VRF_B/Stake_B
-                // by computing VRF_A * Stake_B vs VRF_B * Stake_A
-                // FIX #10: Use full 16-byte (128-bit) conversion instead of deprecated as_number()
-                let vrf_num_a =
-                    u128::from_be_bytes(vrf_a.output[..16].try_into().unwrap_or([0u8; 16]));
-                let vrf_num_b =
-                    u128::from_be_bytes(vrf_b.output[..16].try_into().unwrap_or([0u8; 16]));
-
-                let score_a = vrf_num_a * (*stake_b as u128);
-                let score_b = vrf_num_b * (*stake_a as u128);
-
-                let cmp = score_a.cmp(&score_b);
-                if cmp == std::cmp::Ordering::Equal {
-                    // Deterministic tie-breaker using AuthorityId
-                    vrf_a.authority.cmp(&vrf_b.authority)
-                } else {
-                    cmp
-                }
-            })
-            .map(|(vrf, _)| vrf)?;
+            let cmp = vrf_num_a.cmp(&vrf_num_b);
+            if cmp == std::cmp::Ordering::Equal {
+                // Deterministic tie-breaker using AuthorityId
+                vrf_a.authority.cmp(&vrf_b.authority)
+            } else {
+                cmp
+            }
+        })?;
 
         Some(leader_vrf.authority.clone())
     }
