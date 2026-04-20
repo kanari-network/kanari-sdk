@@ -37,7 +37,8 @@ members = [
       "crates/kanari-system-natives",
       "crates/kanari-db-common", 
       "crates/centauri", 
-      "sdk/wallet",
+      "sdk/wallet", 
+      "crates/kanari-indexer",
 ]
 
 
