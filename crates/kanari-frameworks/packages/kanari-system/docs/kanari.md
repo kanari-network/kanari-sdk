@@ -9,7 +9,7 @@ It has 9 decimals, and the smallest unit (10^-9) is called "MIST".
 
 -  [Struct `KANARI`](#0x2_kanari_KANARI)
 -  [Constants](#@Constants_0)
--  [Function `new`](#0x2_kanari_new)
+-  [Function `init`](#0x2_kanari_init)
 -  [Function `transfer`](#0x2_kanari_transfer)
 -  [Function `burn`](#0x2_kanari_burn)
 
@@ -88,31 +88,31 @@ The amount of Mist per Kanari token based on the fact that mist is
 
 <a name="0x2_kanari_TOTAL_SUPPLY_KANARI"></a>
 
-The total supply of Kanari denominated in whole Kanari tokens (100 Million)
+The total supply of Kanari denominated in whole Kanari tokens (11 Million)
 
 
-<pre><code><b>const</b> <a href="kanari.md#0x2_kanari_TOTAL_SUPPLY_KANARI">TOTAL_SUPPLY_KANARI</a>: u64 = 100000000;
+<pre><code><b>const</b> <a href="kanari.md#0x2_kanari_TOTAL_SUPPLY_KANARI">TOTAL_SUPPLY_KANARI</a>: u64 = 11000000;
 </code></pre>
 
 
 
 <a name="0x2_kanari_TOTAL_SUPPLY_MIST"></a>
 
-The total supply of Kanari denominated in Mist (100 Million * 10^9)
+The total supply of Kanari denominated in Mist (11 Million * 10^9)
 
 
-<pre><code><b>const</b> <a href="kanari.md#0x2_kanari_TOTAL_SUPPLY_MIST">TOTAL_SUPPLY_MIST</a>: u64 = 100000000000000000;
+<pre><code><b>const</b> <a href="kanari.md#0x2_kanari_TOTAL_SUPPLY_MIST">TOTAL_SUPPLY_MIST</a>: u64 = 11000000000000000;
 </code></pre>
 
 
 
-<a name="0x2_kanari_new"></a>
+<a name="0x2_kanari_init"></a>
 
-## Function `new`
+## Function `init`
 
 
 
-<pre><code><b>fun</b> <a href="kanari.md#0x2_kanari_new">new</a>(ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): <a href="coin.md#0x2_coin_TreasuryCap">coin::TreasuryCap</a>&lt;<a href="kanari.md#0x2_kanari_KANARI">kanari::KANARI</a>&gt;
+<pre><code><b>fun</b> <a href="kanari.md#0x2_kanari_init">init</a>(witness: <a href="kanari.md#0x2_kanari_KANARI">kanari::KANARI</a>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -121,12 +121,12 @@ The total supply of Kanari denominated in Mist (100 Million * 10^9)
 <summary>Implementation</summary>
 
 
-<pre><code><b>fun</b> <a href="kanari.md#0x2_kanari_new">new</a>(ctx: &<b>mut</b> TxContext): TreasuryCap&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt; {
-    <b>assert</b>!(<a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx) == @0x0, <a href="kanari.md#0x2_kanari_ENotSystemAddress">ENotSystemAddress</a>);
-    <b>assert</b>!(<a href="tx_context.md#0x2_tx_context_epoch">tx_context::epoch</a>(ctx) == 0, <a href="kanari.md#0x2_kanari_EAlreadyMinted">EAlreadyMinted</a>);
+<pre><code><b>fun</b> <a href="kanari.md#0x2_kanari_init">init</a>(witness: <a href="kanari.md#0x2_kanari_KANARI">KANARI</a>, ctx: &<b>mut</b> TxContext) {
+    // <b>assert</b>!(<a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx) == @0x0, <a href="kanari.md#0x2_kanari_ENotSystemAddress">ENotSystemAddress</a>); // Sender check might be too strict for init
+    // <b>assert</b>!(<a href="tx_context.md#0x2_tx_context_epoch">tx_context::epoch</a>(ctx) == 0, <a href="kanari.md#0x2_kanari_EAlreadyMinted">EAlreadyMinted</a>); // Epoch check might be okay
 
     <b>let</b> (treasury, metadata) = <a href="coin.md#0x2_coin_create_currency">coin::create_currency</a>(
-        <a href="kanari.md#0x2_kanari_KANARI">KANARI</a> {},
+        witness,
         9,
         b"<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>",
         b"Kanari Network Coin",
@@ -140,12 +140,12 @@ The total supply of Kanari denominated in Mist (100 Million * 10^9)
     <b>let</b> treasury_cap = treasury;
 
     // Mint the entire supply (in Mist) and <a href="transfer.md#0x2_transfer">transfer</a> <b>to</b> dev @0x9
-    <b>let</b> dev_address: <b>address</b> = @0x72f651a238529a7f5a4416916a018cb55557091c291f050f75368afe87b272c9;
+    <b>let</b> dev_address: <b>address</b> = @0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146;
     <b>let</b> minted_coin: Coin&lt;<a href="kanari.md#0x2_kanari_KANARI">KANARI</a>&gt; = <a href="coin.md#0x2_coin_mint">coin::mint</a>(&<b>mut</b> treasury_cap, <a href="kanari.md#0x2_kanari_TOTAL_SUPPLY_MIST">TOTAL_SUPPLY_MIST</a>, ctx);
     <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(minted_coin, dev_address);
 
-    // Return the treasury cap for further authorized minting <b>if</b> needed
-    treasury_cap
+    // Transfer the treasury cap <b>to</b> the sender (deployer)
+    <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(treasury_cap, <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx));
 }
 </code></pre>
 

@@ -250,7 +250,7 @@ mod tests {
     fn test_gas_meter_consume() {
         let mut meter = GasMeter::new(100_000, 1000);
 
-        // ตอนนี้การ consume จะไม่บันทึกค่า gas_used แล้ว และผ่านเสมอ
+        // Now consume does not record gas_used and always succeeds
         assert!(meter.consume(21_000).is_ok());
         assert_eq!(meter.gas_used, 0);
         assert_eq!(meter.remaining(), 100_000);
@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn test_gas_operation_costs() {
-        // ค่า Gas ของทุก operation ต้องเป็น 0 ตามที่แก้ใหม่
+        // Gas cost for all operations must be 0 as updated
         assert_eq!(GasOperation::Transfer.gas_units(), 0);
         assert_eq!(GasOperation::CreateAccount.gas_units(), 0);
 
@@ -273,7 +273,7 @@ mod tests {
     fn test_gas_estimate() {
         let estimate = GasEstimate::new(21_000, 1000);
         assert_eq!(estimate.gas_units, 21_000);
-        assert_eq!(estimate.total_cost_mist, 0); // คาดหวัง 0
+        assert_eq!(estimate.total_cost_mist, 0); // Expected 0
         assert_eq!(estimate.total_cost_kanari, 0.0);
     }
 
@@ -282,7 +282,7 @@ mod tests {
         let mut meter = GasMeter::new(100_000, 1500);
         meter.consume(21_000).unwrap();
 
-        assert_eq!(meter.total_cost(), 0); // ต้องเป็น 0
+        assert_eq!(meter.total_cost(), 0); // Must be 0
     }
 
     #[test]

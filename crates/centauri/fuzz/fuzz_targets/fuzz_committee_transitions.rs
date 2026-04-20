@@ -2,6 +2,7 @@
 
 use centauri::consensus::DagConsensus;
 use libfuzzer_sys::fuzz_target;
+use crate::calculate_quorum;
 
 fuzz_target!(|data: &[u8]| {
     // Fuzz target: Test committee changes through consensus API
@@ -64,7 +65,6 @@ fuzz_target!(|data: &[u8]| {
     assert!(final_committee.validators.len() >= 4);
 
     // Verify quorum calculation
-    let f = (final_committee.validators.len() - 1) / 3;
-    let quorum = 2 * f + 1;
+    let quorum = calculate_quorum(final_committee.validators.len());
     assert!(quorum <= final_committee.validators.len());
 });

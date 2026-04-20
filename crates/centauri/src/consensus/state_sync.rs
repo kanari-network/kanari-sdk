@@ -130,7 +130,7 @@ impl StateSynchronizer {
     }
 
     fn find_vertex(&self, vertex_id: &VertexId) -> Option<DagVertex> {
-        // ค้นหาใน Orphan Buffer ด้วย เผื่อคนอื่นขอมา
+        // Also search Orphan Buffer in case others request it
         if let Some(orphan) = self.orphan_buffer.get(vertex_id) {
             return Some((**orphan).clone());
         }
@@ -174,7 +174,7 @@ impl StateSynchronizer {
         }
     }
 
-    /// Add vertex (คืนค่าจำนวน Vertex ที่เพิ่มสำเร็จ รวมถึงตัวกำพร้าที่ถูก Process)
+    /// Add vertex (returns count of successfully added vertices, including processed orphans)
     pub fn add_vertex(&mut self, vertex: DagVertex) -> usize {
         self.add_vertex_arc(Arc::new(vertex))
     }
@@ -193,7 +193,7 @@ impl StateSynchronizer {
             return 0;
         }
 
-        // --- FIX 5: ป้องกัน Cyclic DAG (A -> B -> A) และการอ้างอิง Round ผิดปกติ ---
+        // FIX 5: Prevent Cyclic DAG (A -> B -> A) and abnormal round references
         for parent_id in &vertex.parents {
             if let Some(parent) = self.find_vertex(parent_id)
                 && parent.round >= vertex.round
@@ -203,11 +203,11 @@ impl StateSynchronizer {
                     vertex.round,
                     parent.round
                 );
-                return 0; // เตะทิ้งทันทีหากบล็อกลูกมี Round น้อยกว่าหรือเท่ากับแม่
+                return 0; // Immediately reject if child round is less than or equal to parent
             }
         }
 
-        // หาว่า Parent ตัวไหนยังไม่มา
+        // Find which parents are missing
         let missing_parents: Vec<_> = vertex
             .parents
             .iter()
@@ -215,7 +215,7 @@ impl StateSynchronizer {
             .copied()
             .collect();
 
-        // ถ้ามี Parent หายไป ให้เก็บลง Orphan Buffer อย่าเพิ่งทิ้ง
+        // If parents are missing, store in Orphan Buffer instead of discarding
         if vertex.round > 0 && !missing_parents.is_empty() {
             // --- FIX #14: CRITICAL - Proper FIFO eviction for orphan buffer ---
             // Previously used keys().next() which evicts by hash order (not insertion time)
@@ -237,24 +237,24 @@ impl StateSynchronizer {
 
             for p in missing_parents {
                 let waiters = self.waiting_for.entry(p).or_default();
-                // จำกัดจำนวนลูกที่รอคอย Parent เดียวกัน ไม่ให้กิน RAM อนันต์จากการยิงสแปม
+                // Limit children waiting for same parent to prevent infinite RAM usage from spam
                 if waiters.len() < 1000 {
                     waiters.push(vertex_id);
                 } else {
                     tracing::warn!("Max waiters limit reached for parent: {}", hex::encode(p));
                 }
             }
-            return 0; // ยังไม่ได้ถูกนำเข้าเชนหลัก
+            return 0; // Not yet added to main chain
         }
 
-        // ถ้า Parent ครบแล้ว นำเข้าเชนหลักและเคลียร์ Buffer
+        // If all parents present, add to main chain and clear buffer
         self.insert_to_main_dag(vertex)
     }
 
-    /// นำเข้าเชนหลัก และปลดปล่อยบล็อกลูกที่รอคอยอยู่แบบ Recursive
+    /// Insert into main chain and recursively release waiting child blocks
     fn insert_to_main_dag(&mut self, initial_vertex: Arc<DagVertex>) -> usize {
         let mut added_count = 0;
-        let mut stack = vec![initial_vertex]; // ใช้ Stack ธรรมดาแทน Recursion
+        let mut stack = vec![initial_vertex]; // Use regular stack instead of recursion
 
         while let Some(vertex) = stack.pop() {
             let round = vertex.round;
@@ -273,7 +273,7 @@ impl StateSynchronizer {
             if let Some(children) = self.waiting_for.remove(&vertex_id) {
                 for child_id in children {
                     if let Some(child) = self.orphan_buffer.get(&child_id).cloned() {
-                        // ตรวจสอบว่าเด็กคนนี้ Parent คนอื่นๆ มาครบหมดหรือยัง
+                        // Check if this child's other parents have arrived yet
                         let still_missing = child
                             .parents
                             .iter()
@@ -283,7 +283,7 @@ impl StateSynchronizer {
                             // FIX #14: Remove from insertion order tracking
                             self.orphan_insertion_order.retain(|id| id != &child_id);
                             self.orphan_buffer.remove(&child_id);
-                            // นำเด็กลง Stack แทนการเรียก Recursive Call ทันที
+                            // Push child onto stack instead of making recursive call immediately
                             stack.push(child);
                         }
                     }
@@ -366,7 +366,7 @@ impl StateSynchronizer {
         })
     }
 
-    // FIX 2: เพิ่มพารามิเตอร์ `committee: &Committee` เพื่อใช้ดึง Public Key มาตรวจสอบลายเซ็น
+    // FIX 2: Add parameter `committee: &Committee` to fetch Public Key for signature verification
     pub fn apply_sync_response(
         &mut self,
         response: SyncResponse,
@@ -412,27 +412,27 @@ impl StateSynchronizer {
         }
 
         for vertex in response.vertices {
-            // --- FIX 2: ป้องกัน State Poisoning ด้วยการตรวจสอบ Signature ก่อนรับบล็อก ---
+            // --- FIX 2: Prevent State Poisoning by verifying Signature before accepting block ---
             if let Some(validator) = committee.get_validator(&vertex.author) {
-                // แปลง Public Key Bytes เป็น VerifyingKey
+                // Convert Public Key Bytes to VerifyingKey
                 let pub_key_bytes: [u8; 32] =
                     validator.public_key.clone().try_into().unwrap_or([0u8; 32]);
 
                 if let Ok(pub_key) = ed25519_dalek::VerifyingKey::from_bytes(&pub_key_bytes) {
-                    // เรียกใช้ฟังก์ชันตรวจสอบลายเซ็น (Zero-copy optimization) จาก ParallelValidator
+                    // Call signature verification function (Zero-copy optimization) from ParallelValidator
                     if crate::consensus::parallel_validator::ParallelValidator::verify_vertex_signature(&vertex, &pub_key).is_err() {
                         tracing::error!("[Security] Invalid signature in synced vertex: {}", hex::encode(vertex.id));
-                        continue; // เตะบล็อกเถื่อนทิ้งทันที
+                        continue; // Immediately reject malicious block
                     }
                 } else {
-                    continue; // Public Key ผิดรูปแบบ
+                    continue; // Public Key is malformed
                 }
             } else {
                 tracing::warn!(
                     "[Security] Unknown author {} in synced vertex",
                     vertex.author
                 );
-                continue; // ข้ามบล็อกที่มาจากคนที่ไม่ได้อยู่ใน Committee
+                continue; // Skip block from unknown Committee member
             }
             // ----------------------------------------------------------------------
 
@@ -512,7 +512,7 @@ impl StateSynchronizer {
             }
         }
 
-        // ล้าง Orphan ที่เก่าเกินไปและยังไม่มี Parent มาสักที (ป้องกัน Memory Leak)
+        // Prune orphans that are too old and have never had their parent arrive (prevent memory leak)
         self.orphan_buffer.retain(|_, v| v.round >= before_round);
         let valid_orphans: HashSet<_> = self.orphan_buffer.keys().copied().collect();
         self.waiting_for.retain(|_, children| {
@@ -664,7 +664,7 @@ mod tests {
 
         let mut sync = StateSynchronizer::new();
 
-        // 1. สร้าง Keypair และ Committee จำลองสำหรับการทดสอบ
+        // 1. Create Keypair and Committee for testing
         let keypair = Ed25519Keypair::generate();
         let pub_key_bytes = keypair.public().to_bytes().to_vec();
 
@@ -676,11 +676,11 @@ mod tests {
         };
         let committee = Committee::new(0, vec![validator]);
 
-        // 2. สร้าง Vertex ชั่วคราว
+        // 2. Create temporary Vertex
         let mut vertex =
             DagVertex::new_for_test(1, "auth1".to_string(), vec![], vec![], vec![0u8; 32], 0);
 
-        // 3. สร้างลายเซ็นจำลอง (Sign) เพื่อให้ผ่านระบบ ParallelValidator::verify_vertex_signature
+        // 3. Create mock signature (Sign) to pass ParallelValidator::verify_vertex_signature
         #[derive(Serialize)]
         struct DagVertexSigningRef<'a> {
             id: &'a VertexId,
@@ -708,7 +708,7 @@ mod tests {
         let payload = bcs::to_bytes(&signing_ref).unwrap();
         vertex.signature = keypair.sign(&payload);
 
-        // 4. สร้าง SyncResponse
+        // 4. Create SyncResponse
         let response = SyncResponse {
             checkpoints: vec![],
             vertices: vec![vertex],
@@ -716,7 +716,7 @@ mod tests {
             state_root: Checkpoint::genesis().state_root,
         };
 
-        // 5. ทดสอบใช้งานโดยส่ง &committee เข้าไปด้วย
+        // 5. Test by passing &committee
         assert!(sync.apply_sync_response(response, &committee).is_ok());
         assert_eq!(sync.latest_round, 1);
     }
@@ -735,15 +735,15 @@ mod tests {
             0,
         );
 
-        // ใส่บล็อกลูกก่อน (สถานการณ์เน็ตเวิร์กสลับลำดับ)
-        assert_eq!(sync.add_vertex(child), 0); // ยังไม่เข้าเชนหลัก 
-        assert_eq!(sync.orphan_buffer.len(), 1); // แต่ไปอยู่ในสถานรับเลี้ยงเด็กกำพร้า
+        // Add child block first (network reordering scenario)
+        assert_eq!(sync.add_vertex(child), 0); // Not yet in main chain 
+        assert_eq!(sync.orphan_buffer.len(), 1); // But stored in orphan buffer
         assert_eq!(sync.latest_round, 0);
 
-        // พอใส่บล็อกแม่ตามหลังมา
-        assert_eq!(sync.add_vertex(parent), 2); // มันจะปลดล็อกลูกออกมาด้วย เลยคืนค่ากลับมาเป็น 2 บล็อก
-        assert_eq!(sync.orphan_buffer.len(), 0); // สถานรับเลี้ยงเด็กว่างเปล่า
-        assert_eq!(sync.latest_round, 2); // ซิงค์ทะลุไปถึงรอบของลูกได้ทันที
+        // When parent arrives later
+        assert_eq!(sync.add_vertex(parent), 2); // Unlocks child too, returns 2 blocks
+        assert_eq!(sync.orphan_buffer.len(), 0); // Orphan buffer is empty
+        assert_eq!(sync.latest_round, 2); // Synced through to child's round immediately
     }
 
     #[test]

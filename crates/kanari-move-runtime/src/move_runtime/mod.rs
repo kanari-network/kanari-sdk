@@ -19,8 +19,8 @@ mod helpers;
 mod load_system_modules;
 mod object_ops;
 mod parsers;
-use crate::gas_v2::GasOperation;
 use kanari_types::address::Address as KanariAddress;
+use kanari_types::gas_v2::GasOperation;
 use kanari_types::tx_context::TxContextModule;
 pub mod move_runtime_extensions;
 use crate::changeset::ChangeSet;
@@ -167,12 +167,12 @@ impl MoveRuntime {
         })
     }
 
-    // 🟢 สร้างฟังก์ชันใหม่สำหรับ Hot-Reload
+    // 🟢 Create new function for Hot-Reload
     pub fn reload_vm_cache(&self) -> Result<()> {
         let new_vm = MoveVM::new(self.all_natives.as_ref().clone())
             .map_err(|e| anyhow::anyhow!("Failed to reload MoveVM: {:?}", e))?;
 
-        // เขียนทับ MoveVM ตัวเดิมด้วยตัวใหม่ที่เพิ่งสร้าง Cache จะโดนล้างทั้งหมด
+        // Overwrite old MoveVM with newly created one, clearing all caches
         *self.vm.write().unwrap() = new_vm;
         log::info!("[RUNTIME] MoveVM cache cleared (Hot-Reload successful)");
         Ok(())
@@ -238,7 +238,7 @@ impl MoveRuntime {
         let module_id = compiled.self_id();
 
         let (move_changeset, events) = {
-            // 🟢 แยกการ Lock ออกมาเก็บในตัวแปรก่อน เพื่อไม่ให้มันถูกทำลายทิ้งทันที
+            // 🟢 Separate Lock into a variable first to prevent it from being dropped immediately
             let vm_guard = self.vm.read().unwrap();
             let mut session = vm_guard.new_session(self.resolver.clone());
 
@@ -255,7 +255,7 @@ impl MoveRuntime {
         if persist_runtime_state {
             self.apply_move_changeset(move_changeset.clone())?;
 
-            // 🟢 ทำการ Hot-Reload ล้าง Cache ทันทีที่ Publish เสร็จ!
+            // 🟢 Perform Hot-Reload to clear Cache immediately after Publish is done!
             self.reload_vm_cache()?;
         }
 

@@ -3,15 +3,16 @@
 
 use anyhow::{Context, Result};
 use centauri::blockchain::Blockchain;
+use centauri::calculate_quorum;
 use centauri::consensus::{Checkpoint, PersistentDagState};
 use kanari_move_runtime::changeset::ChangeSet;
-use kanari_move_runtime::gas_v2::{GasMeter, GasOperation};
 use kanari_move_runtime::move_runtime::MoveRuntime;
 use kanari_move_runtime::state::StateManager;
 use kanari_move_runtime::storage::persistent_store::PersistentStore;
 pub use kanari_rpc_api::{AccountInfo, BlockData, BlockchainStats, FullBlockData, ObjectInfo};
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::event::Event;
+use kanari_types::gas_v2::{GasMeter, GasOperation};
 use kanari_types::transaction::{SignedTransaction, Transaction};
 use log::{error, info, warn};
 use lru::LruCache;
@@ -919,8 +920,7 @@ impl BlockchainEngine {
             let current_round = store.current_round();
             let num_authorities = store.num_authorities();
 
-            let f = (num_authorities - 1) / 3;
-            let quorum_needed = 2 * f + 1;
+            let quorum_needed = calculate_quorum(num_authorities);
 
             let parents_available = store.get_vertices_in_round(current_round).len();
 

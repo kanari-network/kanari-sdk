@@ -212,7 +212,7 @@ impl Address {
         }
 
         // Handle tagged addresses (e.g. "Dilithium3:HEX_PUB" or "Dilithium3:0xADDRESS")
-        if let Some((_tag, addr_or_pub)) = literal.split_once(':') {
+        if let Some((tag, addr_or_pub)) = literal.split_once(':') {
             // If it's a tagged address where the part after colon is a hex literal (0x...),
             // then it's just an address with a hint.
             if addr_or_pub.starts_with("0x") {
@@ -220,10 +220,27 @@ impl Address {
             }
 
             // Otherwise, it's a Public Key (tagged) that needs to be hashed to get the address.
-            // This applies to both Hybrid (HEX:HEX) and pure PQC (HEX).
             use sha3::{Digest, Sha3_256};
             let mut hasher = Sha3_256::new();
-            hasher.update(addr_or_pub.as_bytes());
+
+            // Determine hashing strategy based on curve type:
+            // - Pure PQC (Dilithium*, SphincsPlus*): Hash the DECODED bytes (matching key generation)
+            // - Hybrid (Ed25519Dilithium3, K256Dilithium3): Hash the hex STRING (matching key generation)
+            let tag_upper = tag.to_uppercase();
+            let is_hybrid = tag_upper.contains("HYBRID")
+                || tag_upper.contains("ED25519")
+                || tag_upper.contains("K256");
+
+            if is_hybrid {
+                // Hybrid keys: hash the hex string representation (contains colons between parts)
+                hasher.update(addr_or_pub.as_bytes());
+            } else {
+                // Pure PQC keys: decode hex to bytes first, then hash
+                let pubkey_bytes =
+                    hex::decode(addr_or_pub).map_err(|_| AddressParseError::InvalidHexString)?;
+                hasher.update(&pubkey_bytes);
+            }
+
             let hash_result = hasher.finalize();
             let mut bytes = [0u8; Self::LENGTH];
             bytes.copy_from_slice(&hash_result[..]);
@@ -368,15 +385,41 @@ mod tests {
 
     #[test]
     fn test_from_hex_literal_tagged_pubkey() {
-        // Tagged public key (non-0x prefixed)
+        // Tagged public key (non-0x prefixed) - Pure PQC keys hash decoded bytes
         let pubkey_hex = "d897adffc6bd9c4334506147d8ff3c29cbf986599876ecfd930889f856c0d9c5";
         let tagged_pubkey = format!("Dilithium3:{}", pubkey_hex);
         let addr = Address::from_hex_literal(&tagged_pubkey).unwrap();
 
-        // Should be hashed
+        // Should hash the DECODED bytes (matching pure PQC key generation behavior)
         use sha3::{Digest, Sha3_256};
         let mut hasher = Sha3_256::new();
-        hasher.update(pubkey_hex.as_bytes());
+
+        // Decode hex to bytes first, then hash (matching key generation)
+        let pubkey_bytes = hex::decode(pubkey_hex).expect("valid hex");
+        hasher.update(&pubkey_bytes);
+
+        let expected_hash = hasher.finalize();
+        let mut expected_bytes = [0u8; Address::LENGTH];
+        expected_bytes.copy_from_slice(&expected_hash[..]);
+        let expected_addr = Address::from(expected_bytes);
+
+        assert_eq!(addr, expected_addr);
+    }
+
+    #[test]
+    fn test_from_hex_literal_dilithium5_key() {
+        // Test Dilithium5 specifically - should match generate_dilithium5_keypair behavior
+        // This is a sample Dilithium5 public key hex (1568 bytes when decoded)
+        let pubkey_hex = "aabbccdd11223344556677889900aabbccddeeff00112233445566778899aabb";
+        let tagged_pubkey = format!("Dilithium5:{}", pubkey_hex);
+        let addr = Address::from_hex_literal(&tagged_pubkey).unwrap();
+
+        // Should hash the DECODED bytes (matching Dilithium5 key generation)
+        use sha3::{Digest, Sha3_256};
+        let mut hasher = Sha3_256::new();
+        let pubkey_bytes = hex::decode(pubkey_hex).expect("valid hex");
+        hasher.update(&pubkey_bytes);
+
         let expected_hash = hasher.finalize();
         let mut expected_bytes = [0u8; Address::LENGTH];
         expected_bytes.copy_from_slice(&expected_hash[..]);
@@ -387,15 +430,19 @@ mod tests {
 
     #[test]
     fn test_from_hex_literal_hybrid_pubkey() {
-        // Hybrid public key (tagged, contains another colon)
-        let pubkey_hex = "k256_hex:dilithium_hex";
+        // Hybrid public key (tagged, two hex parts separated by colon)
+        // Hybrid keys hash the STRING representation (not decoded bytes)
+        let k256_part = "aabbccdd11223344";
+        let dilithium_part = "5566778899aabbcc";
+        let pubkey_hex = format!("{}:{}", k256_part, dilithium_part);
         let tagged_pubkey = format!("Hybrid:{}", pubkey_hex);
         let addr = Address::from_hex_literal(&tagged_pubkey).unwrap();
 
-        // Should be hashed
+        // Should hash the HEX STRING (matching hybrid key generation behavior)
         use sha3::{Digest, Sha3_256};
         let mut hasher = Sha3_256::new();
         hasher.update(pubkey_hex.as_bytes());
+
         let expected_hash = hasher.finalize();
         let mut expected_bytes = [0u8; Address::LENGTH];
         expected_bytes.copy_from_slice(&expected_hash[..]);

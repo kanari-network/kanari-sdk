@@ -89,7 +89,7 @@ impl DagEngine {
     }
 
     // =====================================================================
-    // 💡 HELPER: รวบรวม Transaction ที่ไม่ซ้ำและยังไม่เคยรันมาก่อน (History + Current)
+    // 💡 HELPER: Collect unique, unexecuted Transactions (History + Current)
     // =====================================================================
     fn collect_unexecuted_txs<'a>(
         &self,
@@ -101,7 +101,7 @@ impl DagEngine {
         let mut all_to_execute = Vec::new();
         let consensus = self.consensus.read().unwrap();
 
-        // 1. ดึงจาก History เก่า (Vertex รุ่นพ่อแม่)
+        // 1. Fetch from old History (Parent generation Vertices)
         for v_id in history_vertices {
             if let Some(v) = consensus.store().get_vertex(v_id) {
                 for signed_tx in &v.transactions {
@@ -115,7 +115,7 @@ impl DagEngine {
             }
         }
 
-        // 2. ดึงจาก ปัจจุบัน (Vertex ล่าสุด)
+        // 2. Fetch from Current (Latest Vertex)
         for signed_tx in current_txs {
             let tx_hash = signed_tx.hash();
             if seen_tx_hashes.insert(tx_hash.clone())
@@ -193,14 +193,14 @@ impl DagEngine {
             .map(|d| d.as_secs()) // ✅ CORRECT - seconds
             .unwrap_or(0);
 
-        // 🚨 3. ประมวลผลธุรกรรมโดยใช้ Helper แบบสั้นๆ!
+        // Process transactions using the engine helper
         let (executed_state, state_root, executed, failed) = {
             let state_guard = self.engine.state.read().unwrap();
             let state_clone = state_guard.clone();
             let chain = self.engine.blockchain.read().unwrap();
             let state_arc = Arc::new(RwLock::new(state_clone));
 
-            // ดึง TX ทั้งหมดด้วย Helper
+            // Fetch all TXs using Helper
             let all_to_execute =
                 self.collect_unexecuted_txs(&history_vertices, transactions.iter(), &chain)?;
 
@@ -209,15 +209,15 @@ impl DagEngine {
                 all_to_execute.len()
             );
 
-            // 🚀 เรียกใช้ Engine Helper โดยตรง (ไม่เขียนลูปซ้ำแล้ว)
+            // Execute transactions in parallel waves
             let (executed_count, failed_count) = self
                 .engine
                 .execute_tx_waves_parallel(
                     all_to_execute,
                     &state_arc,
                     Some(timestamp),
-                    false, // persist_objects = false (รอมั่นใจตอน Commit ค่อยเซฟจริง)
-                    false, // strict_mode = false (ล้มเหลวก็แค่บวก failed_count แล้วไปต่อ)
+                    false, // persist_objects = false (wait for Commit confirmation before saving)
+                    false, // strict_mode = false (on failure, just increment failed_count and continue)
                 )
                 .unwrap_or((0, 0));
 
@@ -362,7 +362,7 @@ impl DagEngine {
                 }
             }
 
-            // 🚨 ใช้ Helper ในการประมวลผล Network Vertex (เหมือนตอน Produce Block)
+            // Process network vertex transactions using the engine helper
             let (computed_state_root, executed, failed) = {
                 let state_clone = self.engine.state.read().unwrap().clone();
                 let chain = self.engine.blockchain.read().unwrap();
@@ -389,7 +389,7 @@ impl DagEngine {
                     );
                 }
 
-                // 🚀 เรียกใช้ Engine Helper
+                // Execute transactions in parallel waves
                 let (executed_count, failed_count) = self
                     .engine
                     .execute_tx_waves_parallel(

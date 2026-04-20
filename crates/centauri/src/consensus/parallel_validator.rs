@@ -29,7 +29,7 @@ impl BloomFilter {
     pub fn new(capacity: usize, _error_rate: f64) -> Self {
         Self {
             bit_set: vec![false; capacity],
-            num_hashes: 3, // ค่าเฉลี่ยที่เหมาะสมสำหรับงานทั่วไป
+            num_hashes: 3, // Optimal value for general use cases
         }
     }
 
@@ -220,7 +220,7 @@ impl ParallelValidator {
 
         let validation_results: Vec<ValidationResult> = vertices_to_validate
             .into_par_iter()
-            .map(|vertex| this.validate_single_ref(&vertex)) // <--- ใช้ this. เพื่ออ้างอิงถึง Instance
+            .map(|vertex| this.validate_single_ref(&vertex)) // Use this. to reference instance
             .collect();
 
         for result in &validation_results {
@@ -260,7 +260,7 @@ impl ParallelValidator {
             }
         }
 
-        // --- แก้ไข: ใช้ self. แทน Self:: ---
+        // FIX: Use self. instead of Self::
         let result = self.validate_single_ref(vertex);
 
         if result.is_valid {
@@ -362,7 +362,7 @@ impl ParallelValidator {
             return Self::validation_err(vertex_id, e);
         }
 
-        // --- แก้ไข: ใช้ self. แทน Self:: ---
+        // FIX: Use self. instead of Self::
         if let Err(e) = self.check_round_progression(vertex) {
             return Self::validation_err(vertex_id, e);
         }
@@ -466,13 +466,13 @@ impl ParallelValidator {
         let (cached_results, vertices_to_validate) = self.check_cache_and_store(vertices)?;
 
         let keys_arc = Arc::new(public_keys);
-        let this = &*self; // <--- ให้ Rayon อ้างอิงผ่าน this
+        let this = &*self; // Allow Rayon to reference through this
 
         let validation_results: Vec<ValidationResult> = vertices_to_validate
             .into_par_iter()
             .map(|vertex| {
                 let keys = Arc::clone(&keys_arc);
-                this.validate_with_signature(vertex, &keys) // <--- ใช้ this.
+                this.validate_with_signature(vertex, &keys) // Use this.
             })
             .collect();
 
@@ -488,7 +488,7 @@ impl ParallelValidator {
     }
 
     fn validate_with_signature(
-        &self, // <--- แก้ไข: เปลี่ยนเป็น Method รับ &self
+        &self, // FIX: Change to method accepting &self
         vertex: DagVertex,
         public_keys: &BTreeMap<String, ed25519_dalek::VerifyingKey>,
     ) -> ValidationResult {
@@ -498,7 +498,7 @@ impl ParallelValidator {
             return Self::validation_err(vertex_id, e);
         }
 
-        // --- แก้ไข: ใช้ self. แทน Self:: ---
+        // FIX: Use self. instead of Self::
         if let Err(e) = self.check_round_progression(&vertex) {
             return Self::validation_err(vertex_id, e);
         }

@@ -177,25 +177,25 @@ impl MoveVMState {
     ) -> Result<()> {
         let key = format!("resource:{}:{}", address.to_hex_literal(), tag);
 
-        // 1. บันทึกข้อมูลดิบลง Move Store ตามปกติ
+        // 1. Save raw data to Move Store as usual
         self.store
             .save(key.as_bytes(), blob)
             .map_err(|e| anyhow::anyhow!(e))?;
 
-        // 2. 🚨 DEEP SYNC: ถ้า Resource นี้เป็น Coin (เหรียญ)
-        // เราต้องบังคับให้อัปเดตข้อมูลใน Object Storage ด้วย เพื่อให้ยอดเงินรวมถูกต้อง
+        // 2. 🚨 DEEP SYNC: If this Resource is a Coin (token)
+        // We must force update data in Object Storage to ensure correct total balance
         if tag.module.as_str() == "coin" && tag.name.as_str() == "Coin" {
             let object_id = address.to_hex_literal();
             let obj_key = format!("object:{}", object_id);
 
-            // ดึงข้อมูล Object เดิมออกมาเพื่ออัปเดต Data (ยอดเงินใหม่)
+            // Extract original Object data to update Data (new balance)
             if let Ok(Some(obj_bytes)) = self.store.load::<Vec<u8>>(obj_key.as_bytes()) {
-                // สมมติว่าโครงสร้าง CreatedObject ใน DB ของคุณใช้ BCS
-                // เราจะทำการเขียนทับเฉพาะส่วน Data ที่ MoveVM ส่งมาให้ใหม่
+                // Assuming CreatedObject structure in your DB uses BCS
+                // We will overwrite only the Data part with new data from MoveVM
                 if let Ok(mut created_obj) =
                     bcs::from_bytes::<crate::changeset::CreatedObject>(&obj_bytes)
                 {
-                    created_obj.data = blob.to_vec(); // อัปเดตยอดเงินที่ถูกหักแล้ว
+                    created_obj.data = blob.to_vec(); // Update balance after deduction
                     created_obj.version += 1;
 
                     let updated_bytes = bcs::to_bytes(&created_obj)?;

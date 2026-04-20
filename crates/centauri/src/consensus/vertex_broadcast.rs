@@ -107,7 +107,7 @@ impl VertexBloomFilter {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
-        // FIX: ใช้ DefaultHasher ผสม vertex_id และ seed เพื่อการกระจายตัว (Entropy) ที่สมบูรณ์แบบ
+        // FIX: Use DefaultHasher to mix vertex_id and seed for perfect entropy distribution
         let mut hasher = DefaultHasher::new();
         vertex_id.hash(&mut hasher);
         seed.hash(&mut hasher);
@@ -435,8 +435,8 @@ impl VertexBroadcaster {
         let batch_limit = adaptive_size.min(self.max_batch_size);
         let mut vertices = Vec::with_capacity(batch_limit);
 
-        // --- FIX: เพิ่มการจำกัดขนาด Bytes ป้องกัน Network Socket ค้าง ---
-        const MAX_BATCH_BYTES: usize = 2 * 1024 * 1024; // ลิมิตที่ 2 MB ต่อ Batch
+        // FIX: Add byte size limit to prevent network socket congestion
+        const MAX_BATCH_BYTES: usize = 2 * 1024 * 1024; // 2 MB limit per batch
         let mut current_bytes = 0;
 
         // FIX #5: Prevent priority queue starvation by using ratio-based selection
@@ -473,7 +473,7 @@ impl VertexBroadcaster {
             if let Some(vertex) = self.priority_queue.front() {
                 let v_size = calculate_vertex_size(vertex);
                 if current_bytes + v_size > MAX_BATCH_BYTES && !vertices.is_empty() {
-                    break; // ขนาดใหญ่เกินไปแล้ว ตัด Batch ตรงนี้เลย
+                    break; // Size too large, cut batch here
                 }
                 current_bytes += v_size;
                 vertices.push((**vertex).clone());
@@ -576,8 +576,8 @@ impl VertexBroadcaster {
 
     /// Decompress batch with safety limits (Prevents Zip Bomb attacks)
     pub fn decompress_batch(&self, compressed: &CompressedBatch) -> Result<VertexBatch> {
-        // FIX 2: ป้องกัน Zip Bomb (OOM Attack) โดยการจำกัดขนาดหลังแตกไฟล์
-        // กำหนดเพดานที่ 10 MB ซึ่งเพียงพอสำหรับ VertexBatch ขนาดใหญ่ที่สุดตาม Config (50K vertices)
+        // FIX 2: Prevent Zip Bomb (OOM Attack) by limiting decompressed size
+        // Set ceiling at 10 MB which is sufficient for largest VertexBatch per config (50K vertices)
         const MAX_SAFE_DECOMPRESSED_SIZE: usize = 10 * 1024 * 1024;
 
         if compressed.original_size > MAX_SAFE_DECOMPRESSED_SIZE {
@@ -589,14 +589,14 @@ impl VertexBroadcaster {
         }
 
         let decompressed = if self.compression_enabled {
-            // ใช้ zstd แบบจำกัดขนาด output หรือเช็คจากข้อมูล metadata ที่ส่งมา
+            // Use zstd with output size limit or check from sent metadata
             zstd::decode_all(&compressed.data[..])
                 .map_err(|e| anyhow::anyhow!("Failed to decompress: {}", e))?
         } else {
             compressed.data.clone()
         };
 
-        // ตรวจสอบขนาดจริงหลังแตกไฟล์อีกครั้งเพื่อความปลอดภัยสูงสุด
+        // Verify actual size after decompression for maximum security
         if decompressed.len() != compressed.original_size {
             return Err(anyhow::anyhow!(
                 "Decompressed size mismatch: actual size doesn't match reported size"

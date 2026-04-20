@@ -67,8 +67,8 @@ impl super::MoveRuntime {
                         );
                     }
                     MoveOp::Delete => {
-                        // 🚨 FIX: ลบแค่ ID ปลอมเท่านั้น ห้ามบังคับเซ็ตยอด Token เป็น 0 เด็ดขาด!
-                        // ระบบ StateManager จะเป็นคนคำนวณยอดที่ถูกต้องเองในตอนท้าย
+                        // 🚨 FIX: Delete only the fake ID, never force Token balance to 0!
+                        // StateManager will calculate the correct balance at the end
                         kanari_cs.add_deleted_object(deterministic_id.clone());
                     }
                 }

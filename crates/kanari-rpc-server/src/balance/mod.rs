@@ -177,12 +177,12 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
 
     let mut coin_sums: BTreeMap<String, u128> = BTreeMap::new();
 
-    // 1. นำยอด Native Balance มาตั้งต้นเป็นยอดของเหรียญ KANARI
+    // 1. Use Native Balance as initial KANARI token balance
     coin_sums.insert("KANARI".to_string(), account_info.balance as u128);
 
-    // 🚨 2. วนลูปดึงยอดจาก token_balances เฉพาะเหรียญที่ไม่ใช่ KANARI เพื่อป้องกันยอดเบิ้ล
+    // 🚨 2. Loop through token_balances for non-KANARI tokens only to prevent double counting
     for (token_type, amount) in account_info.token_balances {
-        // ถ้าเป็นเหรียญ KANARI ให้ข้ามไปเลย เพราะเราใช้ยอด Native Balance เป็นหลักแล้วในข้อ 1
+        // Skip KANARI token since we already use Native Balance as primary source in step 1
         if token_type.to_uppercase().contains("KANARI") {
             continue;
         }
@@ -219,7 +219,7 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
         let is_kanari = token_type.to_uppercase().contains("KANARI");
 
         let (final_name, final_symbol, icon_url) = if is_kanari {
-            // บังคับข้อมูลพื้นฐานของ KANARI ให้เป๊ะ
+            // Enforce exact KANARI token metadata
             if description.is_none() {
                 description = Some("The native token of Kanari Network".to_string());
             }
@@ -259,13 +259,13 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
 pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let state_guard = state.engine.state.read().unwrap_or_else(|p| p.into_inner());
 
-    // 🚨 1. ดึงยอด Global Token Supplies ที่ Cache ไว้ใน RAM ทันที (ไม่ต้องทำ Deep Scan แล้ว!)
+    // 🚨 1. Fetch cached Global Token Supplies from RAM immediately (no Deep Scan needed!)
     let mut global_tokens = state_guard.global_token_supplies.clone();
 
-    // 🚨 2. บังคับใส่ยอด Native Token (KANARI) เสมอ
+    // 🚨 2. Always include Native Token (KANARI) balance
     global_tokens.insert("KANARI".to_string(), state_guard.total_supply);
 
-    // 🚨 3. เช็คชื่อเหรียญที่มีการเปิดคลัง (Treasury) แล้วแต่ยังไม่มีใคร Mint (ให้แสดงยอด 0 ไว้ก่อน)
+    // 🚨 3. Check for Treasury-enabled tokens with zero mint (display 0 balance)
     if let Ok(Some(keys)) = state_guard.store.load::<Vec<String>>(b"treasury_index") {
         for key in keys {
             let token_type = key.strip_prefix("treasury:").unwrap_or(&key).to_string();

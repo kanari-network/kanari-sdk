@@ -456,15 +456,15 @@ pub async fn handle_get_all_transactions(
     state: &RpcServerState,
     request: &RpcRequest,
 ) -> RpcResponse {
-    // 🚨 1. กำหนดค่า Limit (ดึงสูงสุดกี่รายการ) เพื่อป้องกันโหนดค้าง
-    // พยายามดึงจาก params["limit"] ถ้าไม่มีให้ใช้ค่าเริ่มต้นที่ 50 รายการ
+    // 🚨 1. Set Limit (max items to fetch) to prevent node hanging
+    // Try to extract from params["limit"], fallback to default of 50 items
     let limit = request
         .params
         .get("limit")
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
 
-    // แกะที่อยู่กระเป๋า (Account) จาก Params (รองรับทั้งแบบ String และ Object)
+    // Extract account address from Params (support both String and Object formats)
     let account_norm = request
         .params
         .as_str()
@@ -478,13 +478,13 @@ pub async fn handle_get_all_transactions(
 
     let mut results: Vec<TransactionDetails> = Vec::new();
 
-    // 🚨 2. เริ่มดึงจาก "Pending Transactions" ก่อน (ธุรกรรมที่ใหม่ที่สุดที่กำลังรอเข้าบล็อก)
+    // 🚨 2. Start fetching from "Pending Transactions" first (newest transactions waiting to enter block)
     let pending = state.engine.pending_txs.read().unwrap_or_else(|p| {
         error!("pending_txs lock poisoned while listing transactions; recovering");
         p.into_inner()
     });
 
-    // วนลูปจากหลังไปหน้า (Newest Pending First)
+    // Loop from back to front (Newest Pending First)
     for tx in pending.iter().rev() {
         if results.len() >= limit {
             break;
@@ -514,20 +514,20 @@ pub async fn handle_get_all_transactions(
         ));
     }
 
-    // 🚨 3. ถ้ายังไม่ครบ Limit ให้ไปดึงต่อจาก "Committed Transactions" (บล็อกที่คอนเฟิร์มแล้ว)
+    // 🚨 3. If limit not reached, continue fetching from "Committed Transactions" (confirmed blocks)
     if results.len() < limit {
         let chain = state.engine.blockchain.read().unwrap_or_else(|p| {
             error!("blockchain lock poisoned while listing transactions; recovering");
             p.into_inner()
         });
 
-        // วนลูปบล็อกย้อนกลับ (Latest Blocks First)
+        // Loop through blocks in reverse (Latest Blocks First)
         for block in chain.blocks.iter().rev() {
             if results.len() >= limit {
                 break;
             }
 
-            // วนลูปธุรกรรมในบล็อกย้อนกลับ (Latest TX in block first)
+            // Loop through transactions in block in reverse (Latest TX in block first)
             for tx in block.transactions.iter().rev() {
                 if results.len() >= limit {
                     break;

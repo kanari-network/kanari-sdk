@@ -334,7 +334,7 @@ impl ChangeSet {
             .iter_mut()
             .find(|(id, _)| id == &canonical_id)
         {
-            // ป้องกัน Overwrite ชื่อ Owner ผิดพลาด
+            // Prevent accidental Owner overwrite
             if owner.to_hex_literal() != canonical_id {
                 existing_obj.owner = owner;
             }

@@ -530,7 +530,7 @@ mod tests {
         }
     }
 
-    // Helper ในการสร้าง Committee สำหรับการทดสอบ
+    // Helper function to create Committee for testing
     fn create_test_committee(authorities: &BTreeMap<AuthorityId, Vec<u8>>) -> Committee {
         let validators: Vec<ValidatorInfo> = authorities
             .iter()
@@ -547,7 +547,7 @@ mod tests {
     #[test]
     fn test_light_client_quorum() {
         let (authorities, secrets) = create_test_authorities();
-        let committee = create_test_committee(&authorities); // สร้าง committee
+        let committee = create_test_committee(&authorities); // Create committee
         let mut client = LightClient::new(authorities);
 
         let mut checkpoint = create_test_checkpoint(1);
@@ -561,7 +561,7 @@ mod tests {
             ));
         }
 
-        // FIX: ส่ง &committee เข้าไปด้วยใน Test
+        // FIX: Pass &committee to the test
         assert!(client.verify_checkpoint(checkpoint, &committee).is_ok());
     }
 
@@ -582,7 +582,7 @@ mod tests {
             ));
         }
 
-        // FIX: ส่ง &committee เข้าไปด้วยใน Test
+        // FIX: Pass &committee to the test
         assert!(client.verify_checkpoint(checkpoint, &committee).is_err());
     }
 

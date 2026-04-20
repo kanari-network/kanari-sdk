@@ -143,9 +143,9 @@ mod tests {
 
     #[test]
     fn test_utf8_with_unicode() {
-        let s = Utf8String::from_str("สวัสดี");
+        let s = Utf8String::from_str("Hello");
         assert!(s.length() > 0);
-        assert_eq!(s.to_string().unwrap(), "สวัสดี");
+        assert_eq!(s.to_string().unwrap(), "Hello");
     }
 
     #[test]

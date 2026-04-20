@@ -236,13 +236,11 @@ Hidden for now, but may expose later
 
 ## Function `derive_id`
 
-Derive an object id. Original design used a VM native to hash
-<code>tx_hash || ids_created</code>. For tests and to avoid requiring a
-VM native, provide a deterministic Move-side fallback that maps
-the <code>ids_created</code> counter into one of a few constant addresses.
+Derive an object id.
+Hashes <code>tx_hash || ids_created</code> to produce a unique object address.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="tx_context.md#0x2_tx_context_derive_id">derive_id</a>(_tx_hash: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, ids_created: u64): <b>address</b>
+<pre><code><b>public</b> <b>fun</b> <a href="tx_context.md#0x2_tx_context_derive_id">derive_id</a>(tx_hash: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, ids_created: u64): <b>address</b>
 </code></pre>
 
 
@@ -251,18 +249,7 @@ the <code>ids_created</code> counter into one of a few constant addresses.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="tx_context.md#0x2_tx_context_derive_id">derive_id</a>(_tx_hash: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, ids_created: u64): <b>address</b> {
-    <b>let</b> rem = ids_created % 4;
-    <b>if</b> (rem == 0) {
-        @0x1
-    } <b>else</b> <b>if</b> (rem == 1) {
-        @0x2
-    } <b>else</b> <b>if</b> (rem == 2) {
-        @0x3
-    } <b>else</b> {
-        @0x4
-    }
-}
+<pre><code><b>native</b> <b>public</b> <b>fun</b> <a href="tx_context.md#0x2_tx_context_derive_id">derive_id</a>(tx_hash: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, ids_created: u64): <b>address</b>;
 </code></pre>
 
 

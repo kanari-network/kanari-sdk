@@ -711,7 +711,7 @@ mod tests {
         // Format: "kanahybrid<ed25519_secret>:<dilithium3_secret>:<dilithium3_public>"
         let result = keypair_from_private_key(&original.private_key, CurveType::Ed25519Dilithium3);
 
-        assert!(result.is_ok(), "Error: {:?}", result.err()); // ✅ เพิ่มแสดง error เพื่อ debug
+        assert!(result.is_ok(), "Error: {:?}", result.err());
     }
 
     // ============================================================================

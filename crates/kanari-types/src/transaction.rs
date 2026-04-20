@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 // Blockchain data structures and operations
 use anyhow::Result;
 use kanari_crypto::keys::CurveType;
@@ -161,7 +164,7 @@ impl Transaction {
     /// Get conflict keys for this transaction.
     /// Transactions with overlapping conflict keys must be executed sequentially.
     pub fn get_conflict_keys(&self) -> Vec<String> {
-        // 1. บังคับ Normalize Sender (แปลงเป็น Address มาตรฐาน ตัวพิมพ์เล็ก มี 0x เสมอ)
+        // 1. Force Normalize Sender (convert to standard Address, lowercase, always with 0x)
         let sender_norm = if let Ok(addr) = AccountAddress::from_hex_literal(self.sender()) {
             addr.to_hex_literal()
         } else {
@@ -177,7 +180,7 @@ impl Transaction {
 
         match self {
             Transaction::Transfer { to, .. } => {
-                // 2. บังคับ Normalize ปลายทาง
+                // 2. Force Normalize destination
                 let to_norm = if let Ok(addr) = AccountAddress::from_hex_literal(to) {
                     addr.to_hex_literal()
                 } else if !to.starts_with("0x") {
@@ -193,24 +196,24 @@ impl Transaction {
                         && let Ok(addr) = AccountAddress::from_bytes(arg)
                     {
                         keys.push(addr.to_hex_literal());
-                        continue; // ข้ามไปตัวถัดไปถ้าตรงเงื่อนไขแล้ว
+                        continue; // Skip to next item if condition already met
                     }
 
-                    // 2. ดึง String ออกมาจาก Argument (รองรับทั้งแบบ BCS String และ Raw UTF-8)
+                    // 2. Extract String from Argument (support both BCS String and Raw UTF-8)
                     let parsed_string = bcs::from_bytes::<String>(arg)
                         .or_else(|_| std::str::from_utf8(arg).map(|s| s.to_string()));
 
                     if let Ok(s) = parsed_string {
                         let s_trim = s.trim();
 
-                        // บังคับเติม 0x ถ้ายังไม่มี
+                        // Force add 0x prefix if missing
                         let hex_str = if !s_trim.starts_with("0x") {
                             format!("0x{}", s_trim)
                         } else {
                             s_trim.to_string()
                         };
 
-                        // ใช้ from_hex_literal เพื่อจัดการความยาวและแปลงเป็น Lowercase
+                        // Use from_hex_literal to handle length and convert to Lowercase
                         if let Ok(addr) = AccountAddress::from_hex_literal(&hex_str) {
                             keys.push(addr.to_hex_literal());
                         }
@@ -221,7 +224,7 @@ impl Transaction {
                 keys.push(module_name.clone());
             }
             Transaction::Burn { .. } => {
-                // ไม่ต้องทำอะไรเพิ่มสำหรับ Burn
+                // No additional action needed for Burn
             }
         }
         keys
