@@ -1,6 +1,9 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Integration tests for kanari-types
 //!
-//! ทดสอบการเชื่อมต่อระหว่าง Rust types และ Move modules
+//! Test integration between Rust types and Move modules
 
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::stdlib::*;

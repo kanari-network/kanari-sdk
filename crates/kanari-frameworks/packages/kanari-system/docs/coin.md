@@ -20,6 +20,10 @@
 -  [Function `value`](#0x2_coin_value)
 -  [Function `split`](#0x2_coin_split)
 -  [Function `join`](#0x2_coin_join)
+-  [Function `update_icon_url`](#0x2_coin_update_icon_url)
+-  [Function `update_name`](#0x2_coin_update_name)
+-  [Function `update_symbol`](#0x2_coin_update_symbol)
+-  [Function `update_description`](#0x2_coin_update_description)
 -  [Function `treasury_into_supply`](#0x2_coin_treasury_into_supply)
 
 
@@ -265,7 +269,7 @@ returned objects as appropriate for their use-case.
 
 ## Function `create_regulated_currency`
 
-Create a regulated currency (compatibility with Sui): returns a treasury capability,
+Create a regulated currency (compatibility with kanari): returns a treasury capability,
 a deny-capability for administration of a deny-list, and the metadata object.
 
 
@@ -338,6 +342,7 @@ Returns the newly minted Coin<T>.
     <b>let</b> new_total = cap.total_supply + amount;
     <b>assert</b>!(new_total &gt;= cap.total_supply, <a href="coin.md#0x2_coin_EOVERFLOW">EOVERFLOW</a>);
     cap.total_supply = new_total;
+    <a href="object.md#0x2_object_save_object">object::save_object</a>(cap);
     <a href="coin.md#0x2_coin_Coin">Coin</a> {
         id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
         <a href="balance.md#0x2_balance">balance</a>: kanari_system::balance::create&lt;T&gt;(amount),
@@ -401,6 +406,7 @@ Burn coins, decreasing total supply
     <b>let</b> value = kanari_system::balance::destroy&lt;T&gt;(<a href="balance.md#0x2_balance">balance</a>);
     <b>assert</b>!(cap.total_supply &gt;= value, <a href="coin.md#0x2_coin_EUNDERFLOW">EUNDERFLOW</a>);
     cap.total_supply = cap.total_supply - value;
+    <a href="object.md#0x2_object_save_object">object::save_object</a>(cap);
     value
 }
 </code></pre>
@@ -530,9 +536,11 @@ Split a coin into two. Returns the new coin with the specified amount.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_split">split</a>&lt;T&gt;(<a href="coin.md#0x2_coin">coin</a>: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">Coin</a>&lt;T&gt;, amount: u64, ctx: &<b>mut</b> TxContext): <a href="coin.md#0x2_coin_Coin">Coin</a>&lt;T&gt; {
+    <b>let</b> new_balance = kanari_system::balance::split(&<b>mut</b> <a href="coin.md#0x2_coin">coin</a>.<a href="balance.md#0x2_balance">balance</a>, amount);
+    <a href="object.md#0x2_object_save_object">object::save_object</a>(<a href="coin.md#0x2_coin">coin</a>);
     <a href="coin.md#0x2_coin_Coin">Coin</a> {
         id: <a href="object.md#0x2_object_new">object::new</a>(ctx),
-        <a href="balance.md#0x2_balance">balance</a>: kanari_system::balance::split(&<b>mut</b> <a href="coin.md#0x2_coin">coin</a>.<a href="balance.md#0x2_balance">balance</a>, amount),
+        <a href="balance.md#0x2_balance">balance</a>: new_balance,
     }
 }
 </code></pre>
@@ -560,6 +568,124 @@ Join two coins together (adds the balance of 'other' into 'coin').
 <pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_join">join</a>&lt;T&gt;(<a href="coin.md#0x2_coin">coin</a>: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">Coin</a>&lt;T&gt;, other: <a href="coin.md#0x2_coin_Coin">Coin</a>&lt;T&gt;) {
     <b>let</b> <a href="coin.md#0x2_coin_Coin">Coin</a> { id: _, <a href="balance.md#0x2_balance">balance</a> } = other;
     kanari_system::balance::merge(&<b>mut</b> <a href="coin.md#0x2_coin">coin</a>.<a href="balance.md#0x2_balance">balance</a>, <a href="balance.md#0x2_balance">balance</a>);
+    <a href="object.md#0x2_object_save_object">object::save_object</a>(<a href="coin.md#0x2_coin">coin</a>);
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_coin_update_icon_url"></a>
+
+## Function `update_icon_url`
+
+Update the icon URL for the given coin type.
+Only the holder of the TreasuryCap can perform this action.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_update_icon_url">update_icon_url</a>&lt;T&gt;(_treasury: &<a href="coin.md#0x2_coin_TreasuryCap">coin::TreasuryCap</a>&lt;T&gt;, metadata: &<b>mut</b> <a href="coin.md#0x2_coin_CoinMetadata">coin::CoinMetadata</a>&lt;T&gt;, <a href="url.md#0x2_url">url</a>: <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;<a href="url.md#0x2_url_Url">url::Url</a>&gt;)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_update_icon_url">update_icon_url</a>&lt;T&gt;(
+    _treasury: &<a href="coin.md#0x2_coin_TreasuryCap">TreasuryCap</a>&lt;T&gt;,
+    metadata: &<b>mut</b> <a href="coin.md#0x2_coin_CoinMetadata">CoinMetadata</a>&lt;T&gt;,
+    <a href="url.md#0x2_url">url</a>: <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;<a href="url.md#0x2_url_Url">url::Url</a>&gt;
+) {
+    metadata.icon_url = <a href="url.md#0x2_url">url</a>;
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_coin_update_name"></a>
+
+## Function `update_name`
+
+Update the name for the given coin type.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_update_name">update_name</a>&lt;T&gt;(_treasury: &<a href="coin.md#0x2_coin_TreasuryCap">coin::TreasuryCap</a>&lt;T&gt;, metadata: &<b>mut</b> <a href="coin.md#0x2_coin_CoinMetadata">coin::CoinMetadata</a>&lt;T&gt;, name: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_update_name">update_name</a>&lt;T&gt;(
+    _treasury: &<a href="coin.md#0x2_coin_TreasuryCap">TreasuryCap</a>&lt;T&gt;,
+    metadata: &<b>mut</b> <a href="coin.md#0x2_coin_CoinMetadata">CoinMetadata</a>&lt;T&gt;,
+    name: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>
+) {
+    metadata.name = name;
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_coin_update_symbol"></a>
+
+## Function `update_symbol`
+
+Update the symbol for the given coin type.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_update_symbol">update_symbol</a>&lt;T&gt;(_treasury: &<a href="coin.md#0x2_coin_TreasuryCap">coin::TreasuryCap</a>&lt;T&gt;, metadata: &<b>mut</b> <a href="coin.md#0x2_coin_CoinMetadata">coin::CoinMetadata</a>&lt;T&gt;, symbol: <a href="dependencies/move-stdlib/ascii.md#0x1_ascii_String">ascii::String</a>)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_update_symbol">update_symbol</a>&lt;T&gt;(
+    _treasury: &<a href="coin.md#0x2_coin_TreasuryCap">TreasuryCap</a>&lt;T&gt;,
+    metadata: &<b>mut</b> <a href="coin.md#0x2_coin_CoinMetadata">CoinMetadata</a>&lt;T&gt;,
+    symbol: <a href="dependencies/move-stdlib/ascii.md#0x1_ascii_String">ascii::String</a>
+) {
+    metadata.symbol = symbol;
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_coin_update_description"></a>
+
+## Function `update_description`
+
+Update the description for the given coin type.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_update_description">update_description</a>&lt;T&gt;(_treasury: &<a href="coin.md#0x2_coin_TreasuryCap">coin::TreasuryCap</a>&lt;T&gt;, metadata: &<b>mut</b> <a href="coin.md#0x2_coin_CoinMetadata">coin::CoinMetadata</a>&lt;T&gt;, description: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_update_description">update_description</a>&lt;T&gt;(
+    _treasury: &<a href="coin.md#0x2_coin_TreasuryCap">TreasuryCap</a>&lt;T&gt;,
+    metadata: &<b>mut</b> <a href="coin.md#0x2_coin_CoinMetadata">CoinMetadata</a>&lt;T&gt;,
+    description: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>
+) {
+    metadata.description = description;
 }
 </code></pre>
 

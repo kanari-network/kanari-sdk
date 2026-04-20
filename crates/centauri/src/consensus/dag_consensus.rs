@@ -30,7 +30,7 @@ use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
 use kanari_types::transaction::SignedTransaction;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 // Use fully-qualified time APIs where needed to avoid unused-import warnings
 use tokio::sync::mpsc;
@@ -249,7 +249,19 @@ impl DagVertex {
 
         Ok(())
     }
-    /// Check if this vertex has quorum from unique authors (enhanced security)
+
+    /// Check if this vertex has quorum support from unique, trusted authors
+    ///
+    /// This validates that at least `2f+1` unique trusted authorities have referenced
+    /// this vertex as a parent. Excludes banned/untrusted authorities to prevent
+    /// Byzantine nodes from influencing consensus.
+    ///
+    /// # Arguments
+    /// * `store` - DAG store with vertex data and trust information
+    /// * `total_authorities` - Total validators in committee
+    ///
+    /// # Returns
+    /// `true` if quorum is reached from trusted authorities only
     pub fn has_quorum_unique_authors(&self, store: &DagStore, total_authorities: usize) -> bool {
         // Prevent underflow and ensure meaningful quorum calculation
         if total_authorities == 0 {
@@ -260,7 +272,7 @@ impl DagVertex {
 
         // FIX #2 & #3: CRITICAL - Filter out banned/untrusted authorities before counting quorum
         // Previously counted ALL authors including Byzantine ones that should be excluded
-        let mut unique_authors = BTreeSet::new();
+        let mut unique_authors = HashSet::new();
         for parent_id in &self.parents {
             if let Some(parent_vertex) = store.get_vertex(parent_id) {
                 // FIX #2: Check if author is trusted (not banned/slash to reputation 0)
@@ -418,7 +430,8 @@ impl CheckpointConfig {
 #[derive(Clone)]
 pub struct DagStore {
     /// All vertices indexed by their ID (Arc for zero-copy sharing - 500K TPS)
-    vertices: BTreeMap<VertexId, Arc<DagVertex>>,
+    /// Optimized: HashMap for O(1) lookup instead of BTreeMap O(log n)
+    vertices: HashMap<VertexId, Arc<DagVertex>>,
     /// Vertices indexed by round number
     vertices_by_round: BTreeMap<Round, Vec<VertexId>>,
     /// Vertices indexed by authority
@@ -428,13 +441,15 @@ pub struct DagStore {
     /// Pending vertices (not yet checkpointed)
     pending_vertices: VecDeque<VertexId>,
     /// Executed transaction hashes to prevent replay across checkpoints
-    executed_tx_hashes: BTreeSet<Vec<u8>>,
+    /// Optimized: HashSet for O(1) lookup instead of BTreeSet O(log n)
+    executed_tx_hashes: HashSet<Vec<u8>>,
     /// Current round number
     current_round: Round,
     /// Set of authority IDs
-    authorities: BTreeSet<AuthorityId>,
+    /// Optimized: HashSet for O(1) lookup instead of BTreeSet O(log n)
+    authorities: HashSet<AuthorityId>,
     /// Map of vertex ID to its checkpoint sequence number (for GC)
-    vertex_checkpoint_map: BTreeMap<VertexId, u64>,
+    vertex_checkpoint_map: HashMap<VertexId, u64>,
     /// Checkpoint configuration
     checkpoint_config: CheckpointConfig,
     /// Round of last checkpoint
@@ -442,12 +457,12 @@ pub struct DagStore {
     /// Backpressure limit for pending vertices (500K TPS protection)
     max_pending_vertices: usize,
     /// FIX #2 & #3: Track banned/untrusted authorities (reputation = 0)
-    banned_authorities: BTreeSet<AuthorityId>,
+    banned_authorities: HashSet<AuthorityId>,
 }
 
 impl DagStore {
     fn validate_pending_transactions(&self, vertex: &DagVertex) -> Result<()> {
-        let mut local_hashes = BTreeSet::new();
+        let mut local_hashes = HashSet::new();
         for tx in &vertex.transactions {
             let tx_hash = tx.hash();
             if self.executed_tx_hashes.contains(&tx_hash) {
@@ -578,19 +593,19 @@ impl DagStore {
         };
 
         Self {
-            vertices: BTreeMap::new(),
+            vertices: HashMap::new(),
             vertices_by_round: BTreeMap::new(),
             vertices_by_authority: BTreeMap::new(),
             checkpoints: VecDeque::from([genesis_checkpoint]),
             pending_vertices: VecDeque::new(),
-            executed_tx_hashes: BTreeSet::new(),
+            executed_tx_hashes: HashSet::new(),
             current_round: 0,
             authorities: authorities.into_iter().collect(),
-            vertex_checkpoint_map: BTreeMap::new(),
+            vertex_checkpoint_map: HashMap::new(),
             checkpoint_config: config,
             last_checkpoint_round: 0,
             max_pending_vertices: max_pending,
-            banned_authorities: BTreeSet::new(), // FIX #2 & #3: Initialize empty ban list
+            banned_authorities: HashSet::new(), 
         }
     }
 
@@ -897,7 +912,7 @@ impl DagStore {
     }
 
     /// Get list of all banned authorities
-    pub fn get_banned_authorities(&self) -> &BTreeSet<AuthorityId> {
+    pub fn get_banned_authorities(&self) -> &HashSet<AuthorityId> {
         &self.banned_authorities
     }
 }
@@ -911,13 +926,13 @@ pub struct CheckpointStats {
     pub should_checkpoint: bool,
 }
 
-/// Serializable state of the DAG for persistence
+/// Serializable state for persisting DAG data across restarts
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistentDagState {
-    vertices: Vec<DagVertex>,
-    checkpoints: Vec<Checkpoint>,
-    current_round: Round,
-    last_checkpoint_round: Round,
+    pub vertices: Vec<DagVertex>,
+    pub checkpoints: Vec<Checkpoint>,
+    pub current_round: Round,
+    pub last_checkpoint_round: Round,
 }
 
 /// DAG Consensus Protocol (Bullshark-style with VRF leader election)
@@ -1148,7 +1163,11 @@ impl DagConsensus {
                     if let Some(ref store) = persistent_clone
                         && let Err(e) = store.put_vertex(&vertex)
                     {
-                        tracing::error!("Failed to persist vertex {}: {}", hex::encode(vertex.id), e);
+                        tracing::error!(
+                            "Failed to persist vertex {}: {}",
+                            hex::encode(vertex.id),
+                            e
+                        );
                     }
                 }
             });
@@ -1263,7 +1282,7 @@ impl DagConsensus {
         // Get parent vertices from current round
         let mut parents = self.store.get_vertex_ids_in_round(current_round);
 
-        let mut unique_authors = std::collections::BTreeSet::new();
+        let mut unique_authors = HashSet::new();
         for parent_id in &parents {
             if let Some(parent_vertex) = self.store.get_vertex(parent_id) {
                 unique_authors.insert(parent_vertex.author.clone());
@@ -1550,8 +1569,9 @@ impl DagConsensus {
                     let vertices_to_commit = self.collect_vertices_to_commit(leader_vertex.id)?;
 
                     // Order transactions from vertices (with deduplication)
-                    let mut seen_tx_hashes = BTreeSet::new();
+                    let mut seen_tx_hashes = HashSet::new();
                     let mut all_transactions = Vec::new();
+
                     for vertex_id in &vertices_to_commit {
                         if let Some(vertex) = self.store.get_vertex(vertex_id) {
                             for tx in &vertex.transactions {
@@ -1610,8 +1630,8 @@ impl DagConsensus {
         include_vertex_in_cycle_error: bool,
     ) -> Result<Vec<VertexId>> {
         let mut result = Vec::new();
-        let mut visited = BTreeSet::new();
-        let mut in_progress = BTreeSet::new();
+        let mut visited = HashSet::new();
+        let mut in_progress = HashSet::new();
         let mut stack = Vec::new();
 
         roots.sort();

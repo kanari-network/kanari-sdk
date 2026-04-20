@@ -71,8 +71,8 @@ impl super::MoveRuntime {
                 continue;
             }
 
-            // 🚨 บังคับแปลง Object ID เป็นรูปแบบมาตรฐานเสมอ (0x + ตัวพิมพ์เล็ก 64 ตัวอักษร)
-            // เพื่อป้องกันปัญหา Case Sensitive ที่ทำให้ฐานข้อมูลหาเหรียญไม่เจอในรอบถัดไป
+            // 🚨 Always normalize Object ID to standard format (0x + 64 lowercase hex characters)
+            // Prevents Case Sensitive issues that cause database lookup failures in subsequent rounds
             let canonical_id = {
                 let s_trim = id.trim();
                 let hex_str = if !s_trim.starts_with("0x") {
@@ -81,7 +81,7 @@ impl super::MoveRuntime {
                     s_trim.to_string()
                 };
 
-                // ใช้ Move Core แปลงเป็นมาตรฐาน (ตัวพิมพ์เล็กและเติมศูนย์ให้ครบ 64 ตัว)
+                // Use Move Core to normalize (lowercase and zero-padded to 64 characters)
                 if let Ok(addr) = AccountAddress::from_hex_literal(&hex_str) {
                     addr.to_hex_literal()
                 } else {

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::address::Address;
-use crate::object::UIDRecord; // 🚨 แก้ไขตรงนี้
+use crate::object::UIDRecord;
 
 use anyhow::{Context, Result};
 use move_core_types::{
@@ -11,25 +11,25 @@ use move_core_types::{
 use serde::{Deserialize, Serialize};
 
 // =================================================================
-// 1. BCS Data Structure (สำหรับอ่านข้อมูล State จาก Database)
+// 1. BCS Data Structure (for reading State from Database)
 // =================================================================
 
-/// โครงสร้างที่จำลองมาจาก `struct Clock has key, store` ใน Move
+/// Structure that mirrors `struct Clock has key, store` in Move
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct Clock {
-    pub id: UIDRecord, // 🚨 แก้ไขตรงนี้
+    pub id: UIDRecord,
     pub timestamp_ms: u64,
 }
 
 impl Clock {
-    /// อ่านเวลาปัจจุบันจาก Object
+    /// Read current time from Object
     pub fn timestamp_ms(&self) -> u64 {
         self.timestamp_ms
     }
 }
 
 // =================================================================
-// 2. Module Constants & Utilities (สำหรับรัน Move VM)
+// 2. Module Constants & Utilities (for running Move VM)
 // =================================================================
 
 /// Clock module constants and utilities

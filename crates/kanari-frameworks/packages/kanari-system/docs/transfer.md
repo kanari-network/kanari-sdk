@@ -16,6 +16,7 @@ Uses proper address types with validation
 -  [Function `get_to`](#0x2_transfer_get_to)
 -  [Function `total_amount`](#0x2_transfer_total_amount)
 -  [Function `is_valid_amount`](#0x2_transfer_is_valid_amount)
+-  [Function `freeze_object`](#0x2_transfer_freeze_object)
 -  [Function `public_freeze_object`](#0x2_transfer_public_freeze_object)
 -  [Function `public_transfer`](#0x2_transfer_public_transfer)
 -  [Function `transfer_with_uid`](#0x2_transfer_transfer_with_uid)
@@ -291,15 +292,15 @@ Check if amount is valid (non-zero)
 
 </details>
 
-<a name="0x2_transfer_public_freeze_object"></a>
+<a name="0x2_transfer_freeze_object"></a>
 
-## Function `public_freeze_object`
+## Function `freeze_object`
 
-Minimal helper to 'freeze' a metadata object returned by currency creation.
-This implementation is a no-op placeholder that consumes the object.
+Freeze an object (make it immutable).
+The object must have <code>key</code> and <code>store</code>.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_public_freeze_object">public_freeze_object</a>&lt;T: drop&gt;(_obj: T)
+<pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_freeze_object">freeze_object</a>&lt;T: store, key&gt;(obj: T)
 </code></pre>
 
 
@@ -308,9 +309,32 @@ This implementation is a no-op placeholder that consumes the object.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_public_freeze_object">public_freeze_object</a>&lt;T: drop&gt;(_obj: T) {
-    // In a full implementation this would mark the metadata <b>as</b> immutable
-    // or store it in a <b>global</b> registry. Here we simply accept the <a href="object.md#0x2_object">object</a>.
+<pre><code><b>public</b> <b>native</b> <b>fun</b> <a href="transfer.md#0x2_transfer_freeze_object">freeze_object</a>&lt;T: key + store&gt;(obj: T);
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_transfer_public_freeze_object"></a>
+
+## Function `public_freeze_object`
+
+Helper to 'freeze' a metadata object returned by currency creation.
+Redirects to <code>freeze_object</code> native.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_public_freeze_object">public_freeze_object</a>&lt;T: store, key&gt;(obj: T)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_public_freeze_object">public_freeze_object</a>&lt;T: key + store&gt;(obj: T) {
+    <a href="transfer.md#0x2_transfer_freeze_object">freeze_object</a>(obj)
 }
 </code></pre>
 

@@ -207,7 +207,6 @@ impl P2PNetwork {
             P2PMessage::NewDagVertex(_) => &self.topics.dag_vertices,
             P2PMessage::CompressedBlock(_) => &self.topics.blocks,
             P2PMessage::CompressedDagVertex(_) => &self.topics.dag_vertices,
-            // ✅ FIX 2.1: เพิ่มการจัดการ Topic ให้กับ CompressedBlockResponse
             P2PMessage::CompressedBlockResponse(_) => &self.topics.blocks,
         };
 
@@ -228,7 +227,6 @@ impl P2PNetwork {
             P2PMessage::BlockRequest(h, t) => {
                 info!("[P2P] Publishing BlockRequest: height={}, ts={}", h, t);
             }
-            // ✅ เพิ่ม Log สำหรับ BlockResponse ด้วย
             P2PMessage::BlockResponse(data) => {
                 info!("[P2P] Publishing BlockResponse (size: {})", data.len());
             }
@@ -261,7 +259,6 @@ impl P2PNetwork {
                 );
                 P2PMessage::CompressedDagVertex(compressed_data)
             }
-            // ✅ FIX 2.2: ทำการบีบอัด BlockResponse ที่มีขนาดใหญ่กว่า 100KB
             P2PMessage::BlockResponse(ref data) if data.len() > 100_000 => {
                 let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
                 encoder.write_all(data.as_bytes())?;

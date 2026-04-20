@@ -1,4 +1,6 @@
-// 📌 นำไปแก้ไขทับไฟล์ apply_checkpoint.rs
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use super::BlockchainEngine;
 use anyhow::{Context, Result};
 use centauri::consensus::Checkpoint;
@@ -8,7 +10,7 @@ use log::{error, info, warn};
 use std::sync::{Arc, RwLock};
 
 impl BlockchainEngine {
-    /// Helper: ขั้นตอนร่วมสำหรับการสรุป Checkpoint ลงฐานข้อมูล
+    /// Helper: Common steps for finalizing Checkpoint to database
     fn finalize_checkpoint(&self, checkpoint: Checkpoint, new_state: StateManager) -> Result<()> {
         // 1. Update canonical state
         {
@@ -62,7 +64,7 @@ impl BlockchainEngine {
             return self.apply_checkpoint(checkpoint);
         }
 
-        // เรียกใช้งาน Helper
+        // Call Helper
         self.finalize_checkpoint(checkpoint, precomputed_state.read().unwrap().clone())
     }
 
@@ -86,13 +88,13 @@ impl BlockchainEngine {
             }
         }
 
-        // 🚨 เรียกใช้งาน Helper จาก engine.rs แทนการเขียนลูป Par_iter ใหม่
+        // 🚨 Call Helper from engine.rs instead of writing new Par_iter loop
         let (_executed_count, _) = self.execute_tx_waves_parallel(
             to_execute,
             &state_arc,
             Some(checkpoint.timestamp),
             true, // persist_objects = true
-            true, // strict_mode = true (ล้มเหลวให้ Throw ทันที)
+            true, // strict_mode = true (throw immediately on failure)
         )?;
 
         let verified_state = {
@@ -105,7 +107,7 @@ impl BlockchainEngine {
             state_read.clone()
         };
 
-        // เรียกใช้งาน Helper
+        // Call Helper
         self.finalize_checkpoint(checkpoint, verified_state)
     }
 }

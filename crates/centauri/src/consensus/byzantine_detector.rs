@@ -17,35 +17,92 @@ use crate::calculate_quorum;
 
 use super::{AuthorityId, DagVertex, Round, VertexId};
 
-/// Constants for Byzantine detection
+/// Constants for Byzantine detection and reputation management
+///
+/// These values are tuned to balance security and network stability:
+/// - High enough penalties to deter malicious behavior
+/// - Low enough initial reputation to allow recovery from minor faults
 const INITIAL_REPUTATION: u64 = 100;
+
+/// Maximum number of fault records to retain per authority (DoS protection)
+/// Prevents unbounded memory growth from historical fault tracking
 const MAX_FAULTS_HISTORY: usize = 10_000;
+
+/// Maximum number of penalty records to retain per authority (DoS protection)
+/// Matches MAX_FAULTS_HISTORY for consistency
 const MAX_PENALTIES_HISTORY: usize = 10_000;
 
 /// Penalty amounts for different fault types
+///
+/// Penalties are designed to be proportional to the severity of the fault:
+/// - Equivocation (30): Most severe - active attempt to confuse consensus
+/// - Double voting (20): Severe - violates one-authority-one-vote rule
+/// - Invalid vertex (10): Moderate - could be bug or attack
+/// - Withholding (5): Minor - passive non-participation
 const DOUBLE_VOTING_PENALTY: u64 = 20;
 const INVALID_VERTEX_PENALTY: u64 = 10;
 const EQUIVOCATION_PENALTY: u64 = 30;
 const WITHHOLDING_PENALTY: u64 = 5;
 
-/// Types of Byzantine faults
+/// Types of Byzantine faults that can be detected in the consensus protocol
+///
+/// Each fault type represents a different class of malicious or erroneous behavior
+/// that could compromise the safety or liveness of the consensus.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ByzantineFault {
+    /// Double voting: An authority creates multiple vertices in the same round
+    ///
+    /// This violates the "one-authority-one-vote-per-round" invariant and could
+    /// be used to manipulate leader election or confuse the ordering algorithm.
+    ///
+    /// **Severity**: High - Direct attack on consensus integrity
+    /// **Penalty**: `DOUBLE_VOTING_PENALTY` (20 points)
+    /// **Detection**: Track (authority, round) pairs and detect duplicates
     DoubleVoting {
         authority: AuthorityId,
         round: Round,
         vertices: Vec<VertexId>,
     },
+
+    /// Invalid vertex: A vertex with incorrect structure or missing requirements
+    ///
+    /// This includes vertices with:
+    /// - Invalid parent references (non-existent or from future rounds)
+    /// - Insufficient quorum support (< 2f+1 unique authors)
+    /// - Malformed transaction batches
+    /// - Invalid cryptographic signatures
+    ///
+    /// **Severity**: Medium - Could be bug or deliberate attack
+    /// **Penalty**: `INVALID_VERTEX_PENALTY` (10 points)
+    /// **Detection**: Structural validation during vertex processing
     InvalidVertex {
         authority: AuthorityId,
         vertex_id: VertexId,
         reason: String,
     },
+
+    /// Equivocation: An authority makes conflicting statements about the same data
+    ///
+    /// This is a generalization of double voting where an authority sends
+    /// different messages to different peers (e.g., different parent sets).
+    ///
+    /// **Severity**: Critical - Most dangerous Byzantine behavior
+    /// **Penalty**: `EQUIVOCATION_PENALTY` (30 points)
+    /// **Detection**: Cross-reference messages received from different peers
     Equivocation {
         authority: AuthorityId,
         round: Round,
         evidence: Vec<u8>,
     },
+
+    /// Withholding: An authority fails to participate when expected
+    ///
+    /// While not actively malicious, persistent withholding degrades network
+    /// performance and could indicate a compromised node.
+    ///
+    /// **Severity**: Low - Passive non-participation
+    /// **Penalty**: `WITHHOLDING_PENALTY` (5 points)
+    /// **Detection**: Monitor participation rate over time windows
     Withholding {
         authority: AuthorityId,
         round: Round,
@@ -143,18 +200,18 @@ impl ByzantineDetector {
         self.reputation.insert(authority, INITIAL_REPUTATION);
     }
 
-    // --- FIX 1: ป้องกัน O(N^2) DoS Attack ---
+    // FIX 1: Prevent O(N^2) DoS Attack
     pub fn check_double_voting(&mut self, vertex: &DagVertex) -> Result<()> {
         let key = (vertex.author.clone(), vertex.round);
         let existing = self.vertices_by_authority_round.entry(key).or_default();
 
-        // กรณีปกติ: ยังไม่เคยโหวตในรอบนี้
+        // Normal case: First vote in this round
         if existing.is_empty() {
             existing.push(vertex.id);
             return Ok(());
         }
 
-        // กรณีผิดปกติครั้งแรก: พบการโหวตครั้งที่ 2
+        // Anomaly detected: Second vote found
         if existing.len() == 1 && existing[0] != vertex.id {
             existing.push(vertex.id);
             let fault = ByzantineFault::DoubleVoting {
@@ -162,7 +219,7 @@ impl ByzantineDetector {
                 round: vertex.round,
                 vertices: existing.clone(),
             };
-            // รายงานและหักคะแนน
+            // Report and apply penalty
             self.report_fault(fault)?;
 
             // FIX #8: CRITICAL - Reject the vertex after slashing
@@ -172,8 +229,8 @@ impl ByzantineDetector {
             ));
         }
 
-        // ถ้า existing.len() >= 2 แปลว่าเคยจับได้และลงโทษไปแล้ว
-        // ให้ return กลับทันที (O(1) Time) ไม่ต้องเสียเวลาประมวลผลซ้ำ
+        // If existing.len() >= 2, already caught and penalized
+        // Return immediately (O(1) time) to avoid redundant processing
         Ok(())
     }
 
@@ -239,7 +296,7 @@ impl ByzantineDetector {
     ) -> Result<()> {
         let reputation = self.reputation.entry(authority.to_string()).or_insert(100);
 
-        // ตัดคะแนนความประพฤติ (ต่ำสุดคือ 0)
+        // Deduct reputation score (minimum 0)
         *reputation = reputation.saturating_sub(penalty);
 
         let slashing = SlashingPenalty {
@@ -262,8 +319,8 @@ impl ByzantineDetector {
         Ok(())
     }
 
-    // --- FIX 2: ระบบ Export/Import สถานะลง Disk (Persistent State) ---
-    /// ส่งออกประวัติคนร้ายเพื่อเก็บถาวร (สำหรับเปิดโหนดใหม่)
+    // --- FIX 2: System Export/Import State to Disk (Persistent State) ---
+    /// Export fault history for persistence (for new node startup)
     pub fn export_state(&self) -> Result<Vec<u8>> {
         let state = ByzantineDetectorState {
             faults: self.faults.clone(),
@@ -275,7 +332,7 @@ impl ByzantineDetector {
             .map_err(|e| anyhow::anyhow!("Failed to serialize Byzantine state: {}", e))
     }
 
-    /// โหลดประวัติคนร้ายกลับมาหลังจากเปิดโหนดใหม่
+    /// Load fault history back after new node startup
     pub fn import_state(&mut self, data: &[u8]) -> Result<()> {
         let state: ByzantineDetectorState = bcs::from_bytes(data)
             .map_err(|e| anyhow::anyhow!("Failed to deserialize Byzantine state: {}", e))?;
@@ -417,13 +474,13 @@ mod tests {
 
         let vertex1 = create_test_vertex(1, "auth1", 1);
         let vertex2 = create_test_vertex(1, "auth1", 2);
-        let vertex3 = create_test_vertex(1, "auth1", 3); // สแปมครั้งที่ 3
+        let vertex3 = create_test_vertex(1, "auth1", 3); // Spam attempt 3
 
-        // ครั้งแรกผ่าน
+        // First attempt passes
         assert!(detector.check_double_voting(&vertex1).is_ok());
         assert_eq!(detector.get_faults().len(), 0);
 
-        // FIX #8: ครั้งที่สองจับได้และ REJECT (return Err)
+        // FIX #8: Second attempt is caught and REJECTED (returns Err)
         let result = detector.check_double_voting(&vertex2);
         assert!(result.is_err(), "Double voting should be rejected");
         assert!(
@@ -435,10 +492,10 @@ mod tests {
         assert_eq!(detector.get_faults().len(), 1);
         assert_eq!(detector.get_reputation("auth1"), 80);
 
-        // สแปมครั้งที่สาม จะไม่สนใจแล้ว (กัน DoS attack) - still returns Ok because already caught
+        // Spam attempt 3 will be ignored (DoS protection) - still returns Ok because already caught
         assert!(detector.check_double_voting(&vertex3).is_ok());
-        assert_eq!(detector.get_faults().len(), 1); // ไม่เพิ่มขึ้น
-        assert_eq!(detector.get_reputation("auth1"), 80); // คะแนนไม่โดนหักซ้ำซ้อน
+        assert_eq!(detector.get_faults().len(), 1); // Does not increase
+        assert_eq!(detector.get_reputation("auth1"), 80); // Score not deducted again
     }
 
     #[test]
@@ -489,14 +546,14 @@ mod tests {
             .slash_authority("auth1", 40, "Bad node", 1)
             .unwrap();
 
-        // ส่งออก State ลง Byte Array
+        // Export State to Byte Array
         let exported = detector1.export_state().unwrap();
 
-        // นำเข้า State ไปยัง Detector ตัวใหม่
+        // Import State to new Detector
         let mut detector2 = ByzantineDetector::new();
         detector2.import_state(&exported).unwrap();
 
-        // ตรวจสอบว่าแฮกเกอร์ยังมีคะแนน 60 อยู่ ไม่ใช่กลับมาเป็น 100
+        // Verify that the hacker still has 60 score, not reverted to 100
         assert_eq!(detector2.get_reputation("auth1"), 60);
         assert_eq!(detector2.get_penalties().len(), 1);
     }

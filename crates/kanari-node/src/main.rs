@@ -417,7 +417,7 @@ async fn run_node(
             wallets.len()
         );
 
-        // ✅ 1. เพิ่มตัวแปรเช็คสถานะว่ารอบนี้มีการสร้างบล็อกหรือไม่
+        // ✅ 1. Add flag to track whether block was produced in this iteration
         let mut did_work = false;
 
         // Only produce blocks when there are pending transactions
@@ -425,7 +425,7 @@ async fn run_node(
         if stats.pending_transactions > 0 {
             match engine.produce_block() {
                 Ok(block_info) => {
-                    did_work = true; // ✅ 2. อัปเดตสถานะว่าเพิ่งทำงานเสร็จไป
+                    did_work = true; // ✅ 2. Update status to indicate work was just completed
 
                     tracing::info!(
                         "DAG Vertex (Round #{}) produced: {} txs ({} executed, {} failed)",
@@ -477,8 +477,8 @@ async fn run_node(
                     }
                 }
                 Err(e) => {
-                    // ถ้ายังไม่พร้อม (รอ Quorum) มันจะพ่น Error "DAG not ready"
-                    // ซึ่งถือเป็นเรื่องปกติ ให้ปล่อยมันรอไป
+                    // If not ready yet (waiting for Quorum), it will throw "DAG not ready" error
+                    // This is normal behavior, let it continue waiting
                     if !e.to_string().contains("DAG not ready") {
                         tracing::error!("Block production failed: {}", e);
                     }
@@ -486,9 +486,9 @@ async fn run_node(
             }
         }
 
-        // ✅ 3. โลจิกควบคุมความเร็ว (Throttle Control)
+        // ✅ 3. Throttle Control Logic
         if !did_work {
-            // ถ้าไม่มีงานทำ ให้หลับรอ (ประหยัด CPU)
+            // If no work to do, sleep to save CPU
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
                     tracing::info!("Shutdown signal received. Cleaning up and exiting...");
@@ -497,8 +497,8 @@ async fn run_node(
                 _ = sleep(Duration::from_secs(1)) => {}
             }
         } else {
-            // ถ้าเพิ่งมีงานทำเสร็จ ให้วนลูปทำงานรอบต่อไปทันทีโดยไม่ติด Sleep
-            // แต่ยังคงเช็คปุ่มปิดโปรแกรม (Ctrl+C) แบบ Non-blocking (ให้เวลาแค่ 1ms)
+            // If work was just completed, loop immediately without sleep
+            // But still check for shutdown signal (Ctrl+C) in non-blocking mode (1ms timeout)
             if tokio::time::timeout(Duration::from_millis(1), tokio::signal::ctrl_c())
                 .await
                 .is_ok()

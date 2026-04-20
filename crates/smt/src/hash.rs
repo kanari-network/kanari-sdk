@@ -1,3 +1,6 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 // Small hash abstraction layer using BLAKE3 (fast software hash).
 
 /// Compute a 32-byte digest of `data` using BLAKE3.

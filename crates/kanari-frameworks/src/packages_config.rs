@@ -42,7 +42,7 @@ const PACKAGES: &[PackageConfig] = &[
         address: Address::KANARI_SYSTEM_ADDRESS,
         address_name: "kanari_system",
     },
-    // เพิ่ม packages ใหม่ที่นี่:
+    // Add new packages here:
     // PackageConfig { name: "MyPackage", directory: "my-package", address: "0x3", address_name: "my_package" },
 ];
 

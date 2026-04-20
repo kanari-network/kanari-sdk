@@ -16,7 +16,7 @@ use smallvec::smallvec;
 use std::collections::VecDeque;
 
 // =================================================================
-// Error Codes (ต้องตรงกับใน math.move)
+// Error Codes (must match math.move)
 // =================================================================
 const E_OVERFLOW: u64 = 1;
 const E_DIVIDE_BY_ZERO: u64 = 2;
@@ -25,7 +25,7 @@ const E_DIVIDE_BY_ZERO: u64 = 2;
 // Native Implementations
 // =================================================================
 
-/// ถอดรากที่สองของ u128
+/// Calculate square root of u128
 #[derive(Debug, Clone)]
 pub struct SqrtU128GasParameters {
     pub base: InternalGas,
@@ -87,7 +87,7 @@ pub fn native_sqrt_u128(
     Ok(NR::ok(context.gas_used(), smallvec![Value::u128(result)]))
 }
 
-/// ถอดรากที่สองของ u64
+/// Calculate square root of u64
 pub fn native_sqrt_u64(
     gas_params: &SqrtU64GasParameters,
     context: &mut NativeContext,
@@ -104,7 +104,7 @@ pub fn native_sqrt_u64(
     Ok(NR::ok(context.gas_used(), smallvec![Value::u64(result)]))
 }
 
-/// ยกกำลังสำหรับ u64 (base ^ exponent)
+/// Power function for u64 (base ^ exponent)
 pub fn native_pow_u64(
     gas_params: &PowU64GasParameters,
     context: &mut NativeContext,
@@ -115,18 +115,18 @@ pub fn native_pow_u64(
 
     debug_assert!(args.len() == 2);
     native_charge_gas_early_exit!(context, gas_params.base);
-    // Pop argument จากหลังมาหน้า (LIFO)
+    // Pop arguments in LIFO order
     let exponent: u8 = pop_arg!(args, u8);
     let base: u64 = pop_arg!(args, u64);
 
-    // ใช้ checked_pow เพื่อป้องกัน Overflow เวลายกกำลังสูงๆ
+    // Use checked_pow to prevent overflow with high exponents
     match base.checked_pow(exponent as u32) {
         Some(result) => Ok(NR::ok(context.gas_used(), smallvec![Value::u64(result)])),
         None => Ok(NR::err(context.gas_used(), E_OVERFLOW)),
     }
 }
 
-/// คำนวณ (x * y) / z แบบปลอดภัยสำหรับ u128 ป้องกัน Overflow ระหว่างทาง
+/// Calculate (x * y) / z safely for u128, preventing intermediate overflow
 pub fn native_mul_div_u128(
     gas_params: &MulDivU128GasParameters,
     context: &mut NativeContext,
@@ -137,14 +137,14 @@ pub fn native_mul_div_u128(
 
     debug_assert!(args.len() == 3);
     native_charge_gas_early_exit!(context, gas_params.base);
-    // Pop argument จากหลังมาหน้า (LIFO)
+    // Pop arguments in LIFO order
     let z: u128 = pop_arg!(args, u128);
     let y: u128 = pop_arg!(args, u128);
     let x: u128 = pop_arg!(args, u128);
 
-    // ป้องกันหารด้วย 0
-    // คำนวณ x * y แบบเช็คขอบเขต (checked_mul)
-    // หมายเหตุ: สำหรับ Production Scale ถ้า x*y เกินเพดาน u128 แนะนำให้ใช้ Type U256 ชั่วคราว (เช่น primitive_types::U256)
+    // Prevent division by zero
+    // Calculate x * y with bounds checking (checked_mul)
+    // Note: For production scale, if x*y exceeds u128 ceiling, consider using U256 temporarily (e.g., primitive_types::U256)
     match mul_div_u128_checked(x, y, z) {
         Ok(result) => Ok(NR::ok(context.gas_used(), smallvec![Value::u128(result)])),
         Err(code) => Ok(NR::err(context.gas_used(), code)),

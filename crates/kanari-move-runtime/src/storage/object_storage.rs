@@ -133,7 +133,7 @@ pub struct ObjectStorage {
 impl ObjectStorage {
     const OBJECT_INDEX_KEY: &'static str = "object_index";
 
-    // 🚨 Helper สร้าง Key สำหรับดึงข้อมูล Owner Index ตรงจากฐานข้อมูล RocksDB
+    // 🚨 Helper to create Key for fetching Owner Index directly from RocksDB database
     fn owner_key(owner: &AccountAddress) -> Vec<u8> {
         let mut key = b"owner_index:".to_vec();
         key.extend_from_slice(owner.as_ref());
@@ -222,7 +222,7 @@ impl ObjectStorage {
         let owner = obj.owner;
         let mut old_owner = None;
 
-        // 🚨 Lock Poisoning Fix: ใช้ unwrap_or_else เสมอ
+        // 🚨 Lock Poisoning Fix: Always use unwrap_or_else
         {
             let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
             if let Some(existing) = state.objects.get(&id) {
@@ -237,13 +237,13 @@ impl ObjectStorage {
 
             if let Some(old) = old_owner {
                 if old != owner {
-                    // ลบออกจากกระเป๋าคนเก่า
+                    // Remove from old owner's wallet
                     let old_key = Self::owner_key(&old);
                     let mut old_ids: Vec<String> = store.load(&old_key)?.unwrap_or_default();
                     old_ids.retain(|oid| oid != &id);
                     store.save(&old_key, &old_ids)?;
 
-                    // ใส่กระเป๋าคนใหม่
+                    // Add to new owner's wallet
                     let new_key = Self::owner_key(&owner);
                     let mut new_ids: Vec<String> = store.load(&new_key)?.unwrap_or_default();
                     if !new_ids.contains(&id) {
@@ -252,7 +252,7 @@ impl ObjectStorage {
                     }
                 }
             } else {
-                // Object ใหม่
+                // New Object
                 let new_key = Self::owner_key(&owner);
                 let mut new_ids: Vec<String> = store.load(&new_key)?.unwrap_or_default();
                 if !new_ids.contains(&id) {
@@ -261,7 +261,7 @@ impl ObjectStorage {
                 }
             }
 
-            // อัปเดต Global Object Index
+            // Update Global Object Index
             let mut ids: Vec<String> = store
                 .load(Self::OBJECT_INDEX_KEY.as_bytes())?
                 .unwrap_or_default();
@@ -282,7 +282,7 @@ impl ObjectStorage {
         if let Some(obj) = state.objects.get(id) {
             return Some(obj.clone());
         }
-        drop(state); // Drop Lock ก่อนไปแตะฐานข้อมูล
+        drop(state); // Drop Lock before accessing database
 
         if let Some(store) = &self.persistent
             && let Ok(Some(obj)) = store.load::<StoredObject>(format!("object:{}", id).as_bytes())
@@ -330,20 +330,20 @@ impl ObjectStorage {
             return Err(ObjectStorageError::NotFound);
         }
 
-        // 🚨 FIX: ดึงค่าออกมาจาก Scope ของ RwLock ตรงๆ โดยไม่ต้องประกาศตัวแปรหลอกๆ ไว้ก่อน
+        // 🚨 FIX: Fetch value directly from RwLock scope without declaring dummy variables
         let (old_owner, obj_to_persist) = {
             let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
             if let Some(obj) = state.objects.get_mut(id) {
                 let old = obj.owner;
                 obj.owner = new_owner;
-                (old, obj.clone()) // ส่งคืนค่าเป็น Tuple
+                (old, obj.clone()) // Return value as Tuple
             } else {
                 return Err(ObjectStorageError::NotFound);
             }
         };
 
         if let Some(store) = &self.persistent {
-            // ไม่ต้องเช็ค if let Some(obj) แล้ว เพราะเราได้ค่ามาเป็นชิ้นเป็นอันแล้ว
+            // No need to check if let Some(obj) again because we already have the value
             store.save(format!("object:{}", id).as_bytes(), &obj_to_persist)?;
 
             let old_key = Self::owner_key(&old_owner);
@@ -433,7 +433,7 @@ impl ObjectStorage {
         }
 
         if let Some(store) = &self.persistent {
-            // ใช้ load/save แบบอัดเวกเตอร์เพื่อให้ผ่าน BCS ของ PersistentStore ได้
+            // Use vector load/save to comply with PersistentStore BCS requirements
             store
                 .save(key.as_bytes(), &value_bytes.to_vec())
                 .map_err(|e| anyhow::anyhow!("RocksDB Error (put_dynamic_field): {}", e))?;

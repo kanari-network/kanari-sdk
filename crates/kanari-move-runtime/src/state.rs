@@ -567,7 +567,7 @@ impl StateManager {
             }
         }
 
-        // บันทึกยอด Global Token Supplies ลงฐานข้อมูลเพียงครั้งเดียวหลังประมวลผลทั้งหมด
+        // Record Global Token Supplies to database only once after all processing
         let mut owners_to_recompute: HashSet<AccountAddress> = HashSet::new();
 
         for obj_id in &changeset.deleted_objects {
@@ -582,9 +582,9 @@ impl StateManager {
             self.overlay.insert(obj_key, None);
         }
 
-        // 1. ตรวจสอบการสร้าง Object ใหม่เพื่อดัชนี Collection
+        // 1. Check for newly created Objects to index Collections
         for (obj_id, created) in &changeset.created_objects {
-            // ถ้าเป็น Object ประเภท Collection ให้จดบันทึกลงดัชนีรวม
+            // If this is a Collection type Object, record it in the global index
             if created.type_.contains("::collection::Collection") {
                 let mut index: Vec<String> = self
                     .load_internal(b"nft_collection_index")?
@@ -596,11 +596,11 @@ impl StateManager {
             }
         }
 
-        // 2. ตรวจสอบ Events เพื่อดัชนีความสัมพันธ์ NFT <-> Collection
+        // 2. Check Events to index NFT <-> Collection relationships
         for event in &changeset.events {
-            // ตรวจสอบว่าเป็น MintLog ของ james::nft หรือไม่
+            // Check if this is a MintLog from james::nft
             if event.type_tag.to_string().contains("::nft::MintLog") {
-                // ข้อมูล MintLog ใน nft.move มี: object_id(32), creator(32), collection_id(32)
+                // MintLog data in nft.move contains: object_id(32), creator(32), collection_id(32)
                 if event.event_data.len() >= 96 {
                     let nft_id_bytes = &event.event_data[0..32];
                     let coll_id_bytes = &event.event_data[64..96];
@@ -608,7 +608,7 @@ impl StateManager {
                     let nft_id = format!("0x{}", hex::encode(nft_id_bytes));
                     let coll_id = format!("0x{}", hex::encode(coll_id_bytes));
 
-                    // บันทึกลงดัชนีสมาชิกของ Collection (O(1) Access)
+                    // Record in Collection member index (O(1) Access)
                     let mut key = b"collection_members:".to_vec();
                     key.extend_from_slice(coll_id.as_bytes());
 
@@ -747,7 +747,7 @@ impl StateManager {
 
         for (object_id, name_bytes) in &changeset.removed_dynamic_fields {
             let df_key = Self::dynamic_field_key(object_id, name_bytes);
-            // บันทึกเป็น None เพื่อให้ฟังก์ชัน commit() ลบมันออกจาก RocksDB
+            // Record as None so commit() will delete it from RocksDB
             self.overlay.insert(df_key, None);
         }
 

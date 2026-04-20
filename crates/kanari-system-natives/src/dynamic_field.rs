@@ -18,7 +18,7 @@ use std::sync::Arc;
 use crate::helpers::make_module_natives;
 
 // ==============================================================================
-// Error Codes (ตรงกับที่ประกาศไว้ใน dynamic_field.move)
+// Error Codes (must match declarations in dynamic_field.move)
 // ==============================================================================
 const E_FIELD_ALREADY_EXISTS: u64 = 1;
 const E_FIELD_DOES_NOT_EXIST: u64 = 2;
@@ -125,7 +125,7 @@ fn native_add(
 
     native_charge_gas_early_exit!(context, gas_base);
 
-    // ตรวจสอบความถูกต้องของ Arguments
+    // Validate arguments
     if ty_args.len() != 2 || arguments.len() != 3 {
         return Err(PartialVMError::new(
             StatusCode::NUMBER_OF_TYPE_ARGUMENTS_MISMATCH,
@@ -136,7 +136,7 @@ fn native_add(
     let name = arguments.pop_back().unwrap();
     let uid_ref = pop_arg!(arguments, Reference);
 
-    // 1. Serialize Name แบบปลอดภัย (ไม่ใช้ unwrap)
+    // 1. Serialize Name safely (avoid unwrap)
     let name_layout = match context.type_to_type_layout(&ty_args[0]) {
         Ok(Some(layout)) => layout,
         _ => return Err(PartialVMError::new(StatusCode::TYPE_RESOLUTION_FAILURE)),
@@ -146,7 +146,7 @@ fn native_add(
         None => return Err(PartialVMError::new(StatusCode::VALUE_SERIALIZATION_ERROR)),
     };
 
-    // 2. Serialize Value แบบปลอดภัย
+    // 2. Serialize Value safely
     let value_layout = match context.type_to_type_layout(&ty_args[1]) {
         Ok(Some(layout)) => layout,
         _ => return Err(PartialVMError::new(StatusCode::TYPE_RESOLUTION_FAILURE)),
@@ -156,12 +156,12 @@ fn native_add(
         None => return Err(PartialVMError::new(StatusCode::VALUE_SERIALIZATION_ERROR)),
     };
 
-    // ดึง Object ID ชั่วคราวจาก Reference (เป็น placeholder ระหว่างที่รอเชื่อม DB เต็มตัว)
+    // Extract temporary Object ID from Reference (placeholder until full DB integration)
     let object_id_str = format!("{:?}", uid_ref);
 
     let mut already_exists = false;
 
-    // บันทึกข้อมูลลง Context แบบปลอดภัย
+    // Record data in Context safely
     crate::native_ext::with_ext_mut_or_default::<DynamicFieldsExt, _>(context, |ext| {
         already_exists = ext.ops.iter().any(|op| match op {
             DynamicFieldOp::Add {
@@ -180,7 +180,7 @@ fn native_add(
         }
     });
 
-    // หากพบว่าเพิ่ม Key ซ้ำ ให้พ่น Error กลับไปที่ Move VM แบบ Graceful (สัญญา Abort แต่ Node ไม่ดับ)
+    // If duplicate Key is added, return Error gracefully to Move VM (Abort but Node does not crash)
     if already_exists {
         Ok(NR::err(context.gas_used(), E_FIELD_ALREADY_EXISTS))
     } else {
@@ -199,9 +199,9 @@ fn native_borrow_mut(
     let _name = arguments.pop_back().unwrap();
     let _uid_ref = pop_arg!(arguments, Reference);
 
-    // ปลอดภัยที่สุด: การสร้าง Reference ปลอมจะทำให้ VM พัง (Crash)
-    // การคืนค่า Error `E_FIELD_DOES_NOT_EXIST` เป็นวิธีที่ถูกต้องและปลอดภัยที่สุด
-    // จนกว่าเราจะเขียนระบบเชื่อม Database Reference ให้สมบูรณ์
+    // Safest approach: Creating fake Reference will crash VM
+    // Returning Error `E_FIELD_DOES_NOT_EXIST` is the safest and correct approach
+    // Until full DB Reference connection system is implemented
     Ok(NativeResult::err(
         context.gas_used(),
         E_FIELD_DOES_NOT_EXIST,
@@ -219,7 +219,7 @@ fn native_borrow(
     let _name = arguments.pop_back().unwrap();
     let _uid_ref = pop_arg!(arguments, Reference);
 
-    // ปลอดภัยที่สุด: สั่ง Abort สัญญาหากมีการเรียกใช้งาน
+    // Safest approach: Abort contract if called
     Ok(NativeResult::err(
         context.gas_used(),
         E_FIELD_DOES_NOT_EXIST,
@@ -237,7 +237,7 @@ fn native_remove(
     let _name = arguments.pop_back().unwrap();
     let _uid_ref = pop_arg!(arguments, Reference);
 
-    // ปลอดภัยที่สุด: สั่ง Abort เพราะระบบยังไม่สามารถแปลงข้อมูลจาก Byte กลับเป็น 'Value' เพื่อคืนให้ Move ได้
+    // Safest approach: Abort because system cannot yet convert data from Bytes back to 'Value' for Move
     Ok(NativeResult::err(
         context.gas_used(),
         E_FIELD_DOES_NOT_EXIST,
@@ -263,7 +263,7 @@ fn native_exists_(
     let name = arguments.pop_back().unwrap();
     let _uid_ref = pop_arg!(arguments, Reference);
 
-    // Serialize Name อย่างปลอดภัย
+    // Serialize Name safely
     let name_layout = match context.type_to_type_layout(&ty_args[0]) {
         Ok(Some(layout)) => layout,
         _ => return Err(PartialVMError::new(StatusCode::TYPE_RESOLUTION_FAILURE)),
@@ -275,7 +275,7 @@ fn native_exists_(
 
     let mut is_exist = false;
 
-    // ตรวจสอบใน Extension ว่าถูก Add ไปหรือยังใน Transaction ปัจจุบัน
+    // Check in Extension if it has been Added in current Transaction
     crate::native_ext::with_ext_mut_or_default::<DynamicFieldsExt, _>(context, |ext| {
         is_exist = ext.ops.iter().any(|op| match op {
             DynamicFieldOp::Add {
@@ -286,7 +286,7 @@ fn native_exists_(
         });
     });
 
-    // TODO: ตรวจสอบจาก RocksDB ในอนาคต
+    // TODO: Check from RocksDB in future
 
     Ok(NR::ok(context.gas_used(), smallvec![Value::bool(is_exist)]))
 }

@@ -10,9 +10,9 @@ use std::collections::VecDeque;
 
 use crate::consensus::Checkpoint;
 
-// จำกัดจำนวนข้อมูลใน RAM ป้องกัน OOM
+// Limit in-memory data to prevent OOM
 const MAX_RETAINED_BLOCKS: usize = 1000;
-const MAX_RETAINED_TX_HASHES: usize = 2_000_000; // เก็บย้อนหลังประมาณ 4 วินาทีที่ 500K TPS
+const MAX_RETAINED_TX_HASHES: usize = 2_000_000; // Retain ~4 seconds at 500K TPS
 
 /// Generic serde helper for VecDeque serialization (serialize as Vec for compatibility)
 mod serde_vecdeque {
@@ -45,11 +45,11 @@ pub struct Blockchain {
     #[serde(default = "default_dag_checkpoints", with = "serde_vecdeque")]
     pub dag_checkpoints: VecDeque<Checkpoint>,
 
-    // --- FIX: ใช้ Vec<u8> แทน String เพื่อลด Memory Overhead และ String Allocation ---
+    // FIX: Use Vec<u8> instead of String to reduce memory overhead and allocations
     #[serde(skip)]
     executed_tx_hashes: std::collections::HashSet<Vec<u8>>,
 
-    // คิวสำหรับช่วยลบข้อมูลเก่าออกจาก HashSet (FIFO)
+    // FIFO queue for evicting old transaction hashes from HashSet
     #[serde(skip)]
     tx_hash_queue: VecDeque<Vec<u8>>,
 
@@ -79,7 +79,7 @@ impl Blockchain {
             }
         }
 
-        // --- FIX: ลบ Hash เก่าทิ้งเมื่อเกินขีดจำกัด ป้องกัน RAM เต็ม ---
+        // FIX: Evict old hashes when exceeding limit to prevent OOM
         while self.tx_hash_queue.len() > MAX_RETAINED_TX_HASHES {
             if let Some(old_hash) = self.tx_hash_queue.pop_front() {
                 self.executed_tx_hashes.remove(&old_hash);
@@ -168,7 +168,7 @@ impl Blockchain {
     /// PRODUCTION RECOMMENDATION: Use PersistentDagStore or separate KV store
     /// to maintain permanent TX hash history independent of checkpoint pruning.
     pub fn rebuild_tx_hash_index(&mut self) {
-        // ล้างข้อมูลเดิมใน Cache ทั้งหมด
+        // Clear all existing cache data
         self.executed_tx_hashes.clear();
         self.tx_hash_queue.clear();
 
@@ -277,7 +277,7 @@ impl Blockchain {
         self.blocks.push_back(block);
         self.dag_checkpoints.push_back(checkpoint);
 
-        // ตัดข้อมูลเก่าทิ้งป้องกัน RAM เต็ม (OOM)
+        // Evict old data to prevent OOM
         // FIX #2: Use pop_front() for O(1) removal instead of remove(0) which is O(N)
         if self.blocks.len() > MAX_RETAINED_BLOCKS {
             self.blocks.pop_front();
