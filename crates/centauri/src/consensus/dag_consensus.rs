@@ -13,6 +13,8 @@
 //! - Byzantine fault tolerance
 //! - Efficient parallel execution (already supported in Kanari's produce_block.rs)
 
+use crate::calculate_quorum;
+
 use super::byzantine_detector::ByzantineDetector;
 use super::cache::DagCaches;
 use super::committee::{Committee, ValidatorInfo};
@@ -27,7 +29,6 @@ use super::vrf_leader::VrfLeaderElection;
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
 use kanari_types::transaction::SignedTransaction;
-use log;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
@@ -255,8 +256,7 @@ impl DagVertex {
             return false;
         }
 
-        let f = (total_authorities - 1) / 3;
-        let quorum_size = 2 * f + 1;
+        let quorum_size = calculate_quorum(total_authorities);
 
         // FIX #2 & #3: CRITICAL - Filter out banned/untrusted authorities before counting quorum
         // Previously counted ALL authors including Byzantine ones that should be excluded
@@ -268,7 +268,7 @@ impl DagVertex {
                 if store.is_authority_trusted(&parent_vertex.author) {
                     unique_authors.insert(parent_vertex.author.clone());
                 } else {
-                    log::warn!(
+                    tracing::warn!(
                         "[Security] Excluding untrusted authority {} from quorum calculation",
                         parent_vertex.author
                     );
@@ -879,7 +879,7 @@ impl DagStore {
     /// Ban an authority (set reputation to 0, exclude from quorum)
     pub fn ban_authority(&mut self, authority: &AuthorityId) {
         self.banned_authorities.insert(authority.clone());
-        log::warn!(
+        tracing::warn!(
             "[Security] Authority {} has been BANNED - excluded from quorum",
             authority
         );
@@ -888,7 +888,7 @@ impl DagStore {
     /// Unban an authority (restore participation rights)
     pub fn unban_authority(&mut self, authority: &AuthorityId) {
         self.banned_authorities.remove(authority);
-        log::info!("[Security] Authority {} has been UNBANNED", authority);
+        tracing::info!("[Security] Authority {} has been UNBANNED", authority);
     }
 
     /// Check if an authority is trusted (not banned)
@@ -1040,7 +1040,7 @@ impl DagConsensus {
         local_vrf_secret: Option<[u8; 32]>,
         local_signing_key: ed25519_dalek::SigningKey,
     ) -> Self {
-        log::info!(
+        tracing::info!(
             "[DAG Consensus] Initializing with authority_id: {}, chain_id: {}, committee: {:?}",
             authority_id,
             chain_id,
@@ -1054,9 +1054,9 @@ impl DagConsensus {
         // FIX #1: Only register this node's own VRF secret
         if let Some(secret) = local_vrf_secret {
             vrf_election.register_authority_bytes(authority_id.clone(), &secret);
-            log::info!("[VRF] Registered local VRF secret for {}", authority_id);
+            tracing::info!("[VRF] Registered local VRF secret for {}", authority_id);
         } else {
-            log::warn!("[VRF] No VRF secret provided - will use fallback round-robin");
+            tracing::warn!("[VRF] No VRF secret provided - will use fallback round-robin");
         }
 
         // Fallback: Create simple round-robin leader schedule
@@ -1148,7 +1148,7 @@ impl DagConsensus {
                     if let Some(ref store) = persistent_clone
                         && let Err(e) = store.put_vertex(&vertex)
                     {
-                        log::error!("Failed to persist vertex {}: {}", hex::encode(vertex.id), e);
+                        tracing::error!("Failed to persist vertex {}: {}", hex::encode(vertex.id), e);
                     }
                 }
             });
@@ -1183,7 +1183,7 @@ impl DagConsensus {
         authorities: Vec<AuthorityId>,
         chain_id: String,
     ) -> Self {
-        log::warn!(
+        tracing::warn!(
             "[DAG Consensus] with_chain_id() uses deterministic demo keys. \
              Use with_chain_id_secure() for production-safe key management."
         );
@@ -1271,8 +1271,7 @@ impl DagConsensus {
         }
 
         let total_authorities = self.committee.validators.len();
-        let f = (total_authorities - 1) / 3;
-        let quorum_size = 2 * f + 1;
+        let quorum_size = calculate_quorum(total_authorities);
 
         if unique_authors.len() < quorum_size {
             anyhow::bail!(
@@ -1314,7 +1313,7 @@ impl DagConsensus {
 
         // 1. Verify author is in current committee
         if !self.committee.contains(&author) {
-            log::error!(
+            tracing::error!(
                 "[DAG Consensus] Committee check failed for author: '{}'. Committee members: {:?}",
                 author,
                 self.committee.validators.keys().collect::<Vec<_>>()
@@ -1325,7 +1324,7 @@ impl DagConsensus {
         // FIX #3: CRITICAL - Reject vertices from banned/untrusted authorities
         // Previously allowed Byzantine nodes (reputation = 0) to keep producing blocks
         if !self.store.is_authority_trusted(&author) {
-            log::warn!(
+            tracing::warn!(
                 "[Security] REJECTED vertex from BANNED authority: {}",
                 author
             );
@@ -1354,7 +1353,7 @@ impl DagConsensus {
         if let Err(e) = self.byzantine_detector.check_double_voting(&vertex) {
             // Double voting detected - check if authority should be banned
             if self.byzantine_detector.get_reputation(&author) == 0 {
-                log::error!(
+                tracing::error!(
                     "[Security] Authority {} SLASHED to 0 reputation - BANNING from consensus",
                     author
                 );
@@ -1369,7 +1368,7 @@ impl DagConsensus {
         {
             // Invalid vertex detected - check if authority should be banned
             if self.byzantine_detector.get_reputation(&author) == 0 {
-                log::error!(
+                tracing::error!(
                     "[Security] Authority {} SLASHED to 0 reputation for invalid vertex - BANNING",
                     author
                 );
@@ -1390,7 +1389,7 @@ impl DagConsensus {
                 Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
                     // FIX #6: Reject vertex if disk queue is full to prevent data loss
                     self.metrics.inc_disk_queue_full_count();
-                    log::error!(
+                    tracing::error!(
                         "[CRITICAL] Disk write queue FULL! Rejecting vertex {} to prevent data loss. \
                          Node must slow down or increase queue capacity.",
                         hex::encode(vertex_id)
@@ -1402,7 +1401,7 @@ impl DagConsensus {
                 }
                 Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
                     // Disk writer task has crashed - this is a fatal error
-                    log::error!(
+                    tracing::error!(
                         "[FATAL] Disk writer task closed! Vertex {} will not be persisted.",
                         hex::encode(vertex_id)
                     );
@@ -1468,7 +1467,7 @@ impl DagConsensus {
     /// Uses Bullshark-style leader-based ordering with VRF
     pub fn try_commit(&mut self) -> Result<Option<Checkpoint>> {
         let current_round = self.store.current_round();
-        log::debug!(
+        tracing::debug!(
             "[DAG Consensus] try_commit: current_round = {}",
             current_round
         );
@@ -1487,7 +1486,7 @@ impl DagConsensus {
             return Ok(None);
         }
 
-        log::info!(
+        tracing::info!(
             "[DAG Consensus] Catching up on missed rounds ({} to {})",
             start_round,
             max_commit_round
@@ -1503,7 +1502,7 @@ impl DagConsensus {
             } else {
                 let authorities: Vec<_> = self.committee.validators.keys().cloned().collect();
                 if authorities.is_empty() {
-                    log::warn!(
+                    tracing::warn!(
                         "[DAG Consensus] Empty committee at round {}, skipping",
                         commit_round
                     );
@@ -1526,25 +1525,21 @@ impl DagConsensus {
                 // Previously counted vertex count which allowed one attacker to pump votes
                 let next_round_vertices = self.store.get_vertices_in_round(commit_round + 1);
 
-                // Collect unique authors who support this leader
-                let support_authors: std::collections::HashSet<_> = next_round_vertices
+                // Collect unique trusted authors who support this leader
+                let trusted_support_count = next_round_vertices
                     .iter()
                     .filter(|v| v.parents.contains(&leader_vertex.id))
                     .map(|v| &v.author)
-                    .collect();
-
-                // Count unique trusted authors for quorum (PoA: count-based, not stake-based)
-                let trusted_support_count = support_authors
-                    .iter()
+                    .collect::<std::collections::HashSet<_>>()
+                    .into_iter()
                     .filter(|auth| self.store.is_authority_trusted(auth))
                     .count();
 
                 let total_authorities = self.committee.validators.len();
-                let f = (total_authorities - 1) / 3;
-                let quorum = 2 * f + 1;
+                let quorum = calculate_quorum(total_authorities);
 
                 if trusted_support_count >= quorum {
-                    log::info!(
+                    tracing::info!(
                         "[Consensus] Quorum reached! Support: {} / {} (threshold: {})",
                         trusted_support_count,
                         total_authorities,
@@ -1672,7 +1667,7 @@ impl DagConsensus {
         self.collect_vertices_post_order(parents.to_vec(), false)
     }
 
-    /// Collect all vertices that should be committed (topological sort with cycle detection)
+    /// Collect all vertices that should be committed (topotracingical sort with cycle detection)
     fn collect_vertices_to_commit(&self, leader_vertex_id: VertexId) -> Result<Vec<VertexId>> {
         self.collect_vertices_post_order(vec![leader_vertex_id], true)
     }

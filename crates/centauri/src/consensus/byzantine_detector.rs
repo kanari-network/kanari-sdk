@@ -13,7 +13,20 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
+use crate::calculate_quorum;
+
 use super::{AuthorityId, DagVertex, Round, VertexId};
+
+/// Constants for Byzantine detection
+const INITIAL_REPUTATION: u64 = 100;
+const MAX_FAULTS_HISTORY: usize = 10_000;
+const MAX_PENALTIES_HISTORY: usize = 10_000;
+
+/// Penalty amounts for different fault types
+const DOUBLE_VOTING_PENALTY: u64 = 20;
+const INVALID_VERTEX_PENALTY: u64 = 10;
+const EQUIVOCATION_PENALTY: u64 = 30;
+const WITHHOLDING_PENALTY: u64 = 5;
 
 /// Types of Byzantine faults
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,13 +112,20 @@ impl ByzantineDetector {
         match fault {
             ByzantineFault::DoubleVoting {
                 authority, round, ..
-            } => (authority, 20, *round, "Double voting detected"),
-            ByzantineFault::InvalidVertex { authority, .. } => (authority, 10, 0, "Invalid vertex"),
+            } => (
+                authority,
+                DOUBLE_VOTING_PENALTY,
+                *round,
+                "Double voting detected",
+            ),
+            ByzantineFault::InvalidVertex { authority, .. } => {
+                (authority, INVALID_VERTEX_PENALTY, 0, "Invalid vertex")
+            }
             ByzantineFault::Equivocation {
                 authority, round, ..
-            } => (authority, 30, *round, "Equivocation"),
+            } => (authority, EQUIVOCATION_PENALTY, *round, "Equivocation"),
             ByzantineFault::Withholding { authority, round } => {
-                (authority, 5, *round, "Withholding")
+                (authority, WITHHOLDING_PENALTY, *round, "Withholding")
             }
         }
     }
@@ -120,7 +140,7 @@ impl ByzantineDetector {
     }
 
     pub fn init_authority(&mut self, authority: AuthorityId) {
-        self.reputation.insert(authority, 100);
+        self.reputation.insert(authority, INITIAL_REPUTATION);
     }
 
     // --- FIX 1: ป้องกัน O(N^2) DoS Attack ---
@@ -167,8 +187,7 @@ impl ByzantineDetector {
         }
 
         if vertex.round > 0 {
-            let f = (total_authorities - 1) / 3;
-            let quorum = 2 * f + 1;
+            let quorum = calculate_quorum(total_authorities);
 
             if vertex.parents.len() < quorum {
                 let fault = ByzantineFault::InvalidVertex {
@@ -309,7 +328,7 @@ impl ByzantineDetector {
 
     pub fn reset_reputation(&mut self, authority: &str, score: u64) {
         self.reputation
-            .insert(authority.to_string(), score.min(100));
+            .insert(authority.to_string(), score.min(INITIAL_REPUTATION));
     }
 
     pub fn ban_authority(&mut self, authority: &str) {
@@ -320,11 +339,8 @@ impl ByzantineDetector {
     pub fn prune_old_rounds(&mut self, before_round: Round) {
         self.retain_round_tracking(before_round);
 
-        const MAX_FAULTS: usize = 10000;
-        const MAX_PENALTIES: usize = 10000;
-
-        Self::retain_recent_records(&mut self.faults, MAX_FAULTS);
-        Self::retain_recent_records(&mut self.penalties, MAX_PENALTIES);
+        Self::retain_recent_records(&mut self.faults, MAX_FAULTS_HISTORY);
+        Self::retain_recent_records(&mut self.penalties, MAX_PENALTIES_HISTORY);
 
         tracing::debug!(
             "Pruned Byzantine detector data before round {} ({} faults, {} penalties remaining)",

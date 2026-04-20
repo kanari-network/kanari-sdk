@@ -2,6 +2,7 @@
 
 use centauri::consensus::DagConsensus;
 use libfuzzer_sys::fuzz_target;
+use crate::calculate_quorum;
 
 fuzz_target!(|data: &[u8]| {
     // Fuzz target: Test Byzantine fault detection with random fault patterns
@@ -88,8 +89,7 @@ fuzz_target!(|data: &[u8]| {
 
     // Verify quorum calculation still works
     let committee = consensus.committee();
-    let f = (committee.validators.len() - 1) / 3;
-    let quorum = 2 * f + 1;
+    let quorum = calculate_quorum(committee.validators.len());
     assert!(
         quorum <= committee.validators.len(),
         "Quorum should be achievable"

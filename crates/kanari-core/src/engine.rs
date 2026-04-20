@@ -3,6 +3,7 @@
 
 use anyhow::{Context, Result};
 use centauri::blockchain::Blockchain;
+use centauri::calculate_quorum;
 use centauri::consensus::{Checkpoint, PersistentDagState};
 use kanari_move_runtime::changeset::ChangeSet;
 use kanari_move_runtime::move_runtime::MoveRuntime;
@@ -919,8 +920,7 @@ impl BlockchainEngine {
             let current_round = store.current_round();
             let num_authorities = store.num_authorities();
 
-            let f = (num_authorities - 1) / 3;
-            let quorum_needed = 2 * f + 1;
+            let quorum_needed = calculate_quorum(num_authorities);
 
             let parents_available = store.get_vertices_in_round(current_round).len();
 

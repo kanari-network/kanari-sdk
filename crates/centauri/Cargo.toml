@@ -26,7 +26,6 @@ curve25519-dalek = { workspace = true }
 rand = { workspace = true }
 rocksdb = { workspace = true }
 rayon = { workspace = true }
-log = { workspace = true }
 num_cpus = { workspace = true }
 moka = { workspace = true }
 siphasher = { workspace = true }
