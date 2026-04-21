@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use kanari_types::block::Block;
 use kanari_types::transaction::{SignedTransaction, Transaction};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
 use tracing::{debug, info};
 
@@ -65,21 +65,22 @@ impl IndexerDB {
         let state_root = hex::encode(&block.header.state_root);
         let merkle_root = hex::encode(&block.header.merkle_root);
 
-        self.conn.execute(
-            "INSERT OR REPLACE INTO blocks 
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO blocks 
              (height, hash, prev_hash, state_root, merkle_root, timestamp, tx_count)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![
-                block.header.height as i64,
-                block_hash,
-                prev_hash,
-                state_root,
-                merkle_root,
-                block.header.timestamp as i64,
-                block.header.tx_count as i64,
-            ],
-        )
-        .context("Failed to insert block")?;
+                params![
+                    block.header.height as i64,
+                    block_hash,
+                    prev_hash,
+                    state_root,
+                    merkle_root,
+                    block.header.timestamp as i64,
+                    block.header.tx_count as i64,
+                ],
+            )
+            .context("Failed to insert block")?;
 
         debug!("Inserted block at height {}", block.header.height);
 
@@ -126,7 +127,11 @@ impl IndexerDB {
     // =========================================================================
 
     /// Insert transactions from a block
-    pub fn insert_transactions(&self, block_height: u64, transactions: &[SignedTransaction]) -> Result<()> {
+    pub fn insert_transactions(
+        &self,
+        block_height: u64,
+        transactions: &[SignedTransaction],
+    ) -> Result<()> {
         for signed_tx in transactions {
             let tx_hash = hex::encode(signed_tx.hash());
             let sender = signed_tx.transaction.sender().to_string();
@@ -172,7 +177,11 @@ impl IndexerDB {
             }
         }
 
-        debug!("Inserted {} transactions for block {}", transactions.len(), block_height);
+        debug!(
+            "Inserted {} transactions for block {}",
+            transactions.len(),
+            block_height
+        );
 
         Ok(())
     }
@@ -242,7 +251,11 @@ impl IndexerDB {
     }
 
     /// Get transactions by sender address
-    pub fn get_transactions_by_sender(&self, sender: &str, limit: u32) -> Result<Vec<IndexedTransaction>> {
+    pub fn get_transactions_by_sender(
+        &self,
+        sender: &str,
+        limit: u32,
+    ) -> Result<Vec<IndexedTransaction>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, tx_hash, block_height, sender, tx_type, sequence_number, 
                     gas_limit, gas_price, gas_used, status, signature, raw_data, timestamp, created_at
@@ -278,7 +291,11 @@ impl IndexerDB {
     // =========================================================================
 
     /// Insert events from a block
-    pub fn insert_events(&self, block_height: u64, tx_hash_events: &[(String, Vec<kanari_types::event::Event>)]) -> Result<()> {
+    pub fn insert_events(
+        &self,
+        block_height: u64,
+        tx_hash_events: &[(String, Vec<kanari_types::event::Event>)],
+    ) -> Result<()> {
         for (tx_hash, events) in tx_hash_events {
             for event in events {
                 let event_key = hex::encode(&event.key);
@@ -462,10 +479,14 @@ impl IndexerDB {
     }
 
     /// Get account balance
-    pub fn get_account_balance(&self, address: &str, coin_type: &str) -> Result<Option<AccountBalance>> {
+    pub fn get_account_balance(
+        &self,
+        address: &str,
+        coin_type: &str,
+    ) -> Result<Option<AccountBalance>> {
         let mut stmt = self.conn.prepare(
             "SELECT address, coin_type, total_balance, coin_count, last_updated
-             FROM account_balances WHERE address = ?1 AND coin_type = ?2"
+             FROM account_balances WHERE address = ?1 AND coin_type = ?2",
         )?;
 
         let balance = stmt
@@ -487,7 +508,7 @@ impl IndexerDB {
     pub fn get_all_balances(&self, address: &str) -> Result<Vec<AccountBalance>> {
         let mut stmt = self.conn.prepare(
             "SELECT address, coin_type, total_balance, coin_count, last_updated
-             FROM account_balances WHERE address = ?1 ORDER BY coin_type"
+             FROM account_balances WHERE address = ?1 ORDER BY coin_type",
         )?;
 
         let balances = stmt
@@ -513,9 +534,11 @@ impl IndexerDB {
     pub fn get_metadata(&self, key: &str) -> Result<Option<String>> {
         let value: Option<String> = self
             .conn
-            .query_row("SELECT value FROM indexer_metadata WHERE key = ?1", params![key], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT value FROM indexer_metadata WHERE key = ?1",
+                params![key],
+                |row| row.get(0),
+            )
             .optional()?;
 
         Ok(value)
@@ -540,8 +563,12 @@ impl IndexerDB {
 
     /// Get last indexed height
     pub fn get_last_indexed_height(&self) -> Result<u64> {
-        let value = self.get_metadata("last_indexed_height")?.unwrap_or_else(|| "0".to_string());
-        value.parse::<u64>().map_err(|e| anyhow::anyhow!("Failed to parse height: {}", e))
+        let value = self
+            .get_metadata("last_indexed_height")?
+            .unwrap_or_else(|| "0".to_string());
+        value
+            .parse::<u64>()
+            .map_err(|e| anyhow::anyhow!("Failed to parse height: {}", e))
     }
 
     // =========================================================================
@@ -574,9 +601,9 @@ impl IndexerDB {
 
     /// Get transaction statistics by type
     pub fn get_transaction_stats(&self) -> Result<Vec<(String, u64)>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT tx_type, COUNT(*) FROM transactions GROUP BY tx_type ORDER BY COUNT(*) DESC")?;
+        let mut stmt = self.conn.prepare(
+            "SELECT tx_type, COUNT(*) FROM transactions GROUP BY tx_type ORDER BY COUNT(*) DESC",
+        )?;
 
         let stats = stmt
             .query_map([], |row| Ok((row.get(0)?, row.get::<_, i64>(1)? as u64)))?
@@ -592,7 +619,9 @@ impl IndexerDB {
         )?;
 
         let addresses = stmt
-            .query_map(params![limit], |row| Ok((row.get(0)?, row.get::<_, i64>(1)? as u64)))?
+            .query_map(params![limit], |row| {
+                Ok((row.get(0)?, row.get::<_, i64>(1)? as u64))
+            })?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(addresses)
@@ -612,7 +641,7 @@ mod tests {
     #[test]
     fn test_metadata_operations() {
         let db = IndexerDB::new_in_memory().unwrap();
-        
+
         db.set_metadata("test_key", "test_value").unwrap();
         let value = db.get_metadata("test_key").unwrap();
         assert_eq!(value, Some("test_value".to_string()));

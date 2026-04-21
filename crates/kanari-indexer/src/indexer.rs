@@ -159,7 +159,7 @@ impl Indexer {
                     synced_count += 1;
                     height += 1;
 
-                    if synced_count % self.config.batch_size as u64 == 0 {
+                    if synced_count.is_multiple_of(self.config.batch_size as u64) {
                         info!("Synced {} blocks so far...", synced_count);
                     }
                 }

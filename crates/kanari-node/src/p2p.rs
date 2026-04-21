@@ -472,6 +472,30 @@ impl P2PEventHandler {
                                     data.len()
                                 );
                             }
+                            P2PMessage::CompressedBlockResponse(compressed_data) => {
+                                info!(
+                                    "[P2P] Received CompressedBlockResponse from {} (size: {})",
+                                    propagation_source,
+                                    compressed_data.len()
+                                );
+                                // Decompress and convert to BlockResponse
+                                match decompress_block(compressed_data.to_vec()) {
+                                    Ok(block_data) => {
+                                        let new_msg = P2PMessage::BlockResponse(block_data);
+                                        if let Err(e) = self.message_tx.send(new_msg) {
+                                            warn!(
+                                                "[P2P] Failed to forward decompressed block response: {}",
+                                                e
+                                            );
+                                        }
+                                        return; // Already sent, don't send original msg
+                                    }
+                                    Err(e) => {
+                                        warn!("[P2P] Failed to decompress block response: {}", e);
+                                        return;
+                                    }
+                                }
+                            }
                             _ => {
                                 info!(
                                     "[P2P] Received message {:?} from {}",

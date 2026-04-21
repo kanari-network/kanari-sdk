@@ -131,7 +131,7 @@ impl PeerStore {
 
         let before_count = self.peers.len();
         self.peers
-            .retain(|_, peer| now - peer.last_seen < max_age_secs);
+            .retain(|_, peer| now.saturating_sub(peer.last_seen) < max_age_secs);
         let removed = before_count - self.peers.len();
 
         if removed > 0 {
