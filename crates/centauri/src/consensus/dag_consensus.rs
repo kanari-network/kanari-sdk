@@ -605,7 +605,7 @@ impl DagStore {
             checkpoint_config: config,
             last_checkpoint_round: 0,
             max_pending_vertices: max_pending,
-            banned_authorities: HashSet::new(), 
+            banned_authorities: HashSet::new(),
         }
     }
 

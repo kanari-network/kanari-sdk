@@ -5,18 +5,20 @@ use crate::p2p::{P2PMessage, PeerInfoMsg, decompress_block};
 use centauri::consensus::DagVertex;
 use kanari_core::{BlockchainEngine, FullBlockData, engine::DagEngine};
 use kanari_types::transaction::SignedTransaction;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 /// Handles block and transaction synchronization between peers
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub struct SyncManager {
     engine: Arc<BlockchainEngine>,
     network_tx: mpsc::UnboundedSender<P2PMessage>,
     local_peer_id: String,
+    /// Optional indexer for blockchain data indexing
+    indexer: Option<Arc<Mutex<kanari_indexer::Indexer>>>,
     /// Buffer for blocks that arrived out of order (height -> block)
     block_buffer: Mutex<std::collections::BTreeMap<u64, FullBlockData>>,
     /// Highest height seen in the network
@@ -30,11 +32,13 @@ impl SyncManager {
         engine: Arc<BlockchainEngine>,
         network_tx: mpsc::UnboundedSender<P2PMessage>,
         local_peer_id: String,
+        indexer: Option<Arc<Mutex<kanari_indexer::Indexer>>>,
     ) -> Self {
         Self {
             engine,
             network_tx,
             local_peer_id,
+            indexer,
             block_buffer: Mutex::new(std::collections::BTreeMap::new()),
             max_peer_height: AtomicU64::new(0),
             max_buffer_size: 1000, // Limit buffer to 1000 blocks for 200-node networks
@@ -102,8 +106,7 @@ impl SyncManager {
             }
             P2PMessage::CompressedBlockResponse(compressed_data) => {
                 if let Ok(data) = decompress_block(compressed_data.to_vec()) {
-                    let new_msg = P2PMessage::BlockResponse(data);
-                    let _ = self.network_tx.send(new_msg);
+                    self.handle_block_response(data).await;
                 }
             }
         }
@@ -212,6 +215,20 @@ impl SyncManager {
                             "[SYNC] Successfully synced block #{} with {} transactions",
                             block.height, block.tx_count
                         );
+
+                        // Index the block if indexer is available
+                        if let Some(ref indexer) = self.indexer {
+                            match self.index_block_with_indexer(indexer, &block) {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    error!(
+                                        "[INDEXER] Failed to index block #{}: {}",
+                                        block.height, e
+                                    );
+                                }
+                            }
+                        }
+
                         // Broadcast our new height
                         self.broadcast_peer_info().await;
                     }
@@ -283,36 +300,35 @@ impl SyncManager {
                 // Add vertex to local DAG consensus
                 // Auto-initialize DAG engine if not already initialized
                 if let Some(dag_engine_arc) = self.engine.get_dag_engine() {
-                    // Check if initialized first with a read lock
-                    let is_initialized = {
-                        let guard = dag_engine_arc.read().unwrap();
-                        guard.is_some()
-                    };
+                    // Check and initialize with write lock to prevent TOCTOU race
+                    {
+                        let mut guard = dag_engine_arc.write().unwrap();
 
-                    if !is_initialized {
-                        info!(
-                            "[DAG SYNC] Auto-initializing DAG engine for vertex round {}",
-                            vertex.round
-                        );
+                        // Only initialize if still None after acquiring write lock
+                        if guard.is_none() {
+                            info!(
+                                "[DAG SYNC] Auto-initializing DAG engine for vertex round {}",
+                                vertex.round
+                            );
 
-                        // Initialize DAG engine with same authorities as the network
-                        // We do this OUTSIDE the dag_engine_arc lock to avoid lock inversion
-                        let authority_id = self.engine.get_authority_id();
-                        let authorities = self.engine.get_authorities();
+                            // Initialize DAG engine with same authorities as the network
+                            let authority_id = self.engine.get_authority_id();
+                            let authorities = self.engine.get_authorities();
 
-                        match DagEngine::new(self.engine.clone(), authority_id, authorities) {
-                            Ok(engine) => {
-                                let mut dag_engine_opt = dag_engine_arc.write().unwrap();
-                                *dag_engine_opt = Some(engine);
-                                info!("[DAG SYNC] DAG engine initialized successfully");
-                            }
-                            Err(e) => {
-                                error!("[DAG SYNC] Failed to initialize DAG engine: {}", e);
+                            match DagEngine::new(self.engine.clone(), authority_id, authorities) {
+                                Ok(engine) => {
+                                    *guard = Some(engine);
+                                    info!("[DAG SYNC] DAG engine initialized successfully");
+                                }
+                                Err(e) => {
+                                    error!("[DAG SYNC] Failed to initialize DAG engine: {}", e);
+                                }
                             }
                         }
+                        // Write lock is released here when guard goes out of scope
                     }
 
-                    // Get the engine with a read lock
+                    // Get the engine with a read lock for processing
                     let dag_engine_opt = {
                         let guard = dag_engine_arc.read().unwrap();
                         guard.as_ref().cloned()
@@ -477,7 +493,7 @@ impl SyncManager {
         );
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         // Limit the number of blocks requested at once to avoid network congestion
@@ -515,7 +531,7 @@ impl SyncManager {
         let stats = self.engine.get_stats();
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         let msg = P2PMessage::PeerInfo(PeerInfoMsg {
@@ -527,5 +543,49 @@ impl SyncManager {
         if let Err(e) = self.network_tx.send(msg) {
             error!("Failed to broadcast peer info: {}", e);
         }
+    }
+
+    /// Index a block using the indexer (helper method)
+    fn index_block_with_indexer(
+        &self,
+        indexer: &Arc<Mutex<kanari_indexer::Indexer>>,
+        full_block: &FullBlockData,
+    ) -> anyhow::Result<()> {
+        use kanari_types::block::{Block, BlockHeader};
+        use kanari_types::event::Event;
+        use smt::compute_merkle_root;
+
+        // Convert FullBlockData to kanari-types Block
+        let tx_hashes: Vec<Vec<u8>> = full_block.transactions.iter().map(|tx| tx.hash()).collect();
+
+        let merkle_root = compute_merkle_root(&tx_hashes);
+
+        // Create events from transaction results (if available)
+        // For now, we'll create empty events - in production this would come from execution results
+        let events: Vec<Event> = vec![];
+
+        let header = BlockHeader::new(
+            full_block.height,
+            hex::decode(&full_block.prev_hash).unwrap_or_default(),
+            hex::decode(&full_block.state_root).unwrap_or_default(),
+            merkle_root,
+            full_block.tx_count,
+            full_block.timestamp,
+        );
+
+        let block = Block {
+            header,
+            transactions: full_block.transactions.clone(),
+            events,
+        };
+
+        // Index the block
+        let idx = indexer
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Failed to acquire indexer lock: {}", e))?;
+
+        idx.index_block(&block)?;
+
+        Ok(())
     }
 }

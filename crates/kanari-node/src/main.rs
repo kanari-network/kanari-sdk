@@ -14,18 +14,19 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
 
+mod indexer;
 mod p2p;
 mod peer_store;
 mod sync;
 
+use indexer::NodeIndexer;
 use p2p::{P2PEventHandler, P2PMessage, P2PNetwork};
 use peer_store::PeerStore;
 use sync::SyncManager;
 
 /// Kanari node command-line interface
 #[derive(Parser)]
-#[command(name = "kanari-node")]
-#[command(about = "Kanari blockchain node", long_about = None)]
+#[command(name = "kanari-node", about = "Kanari run server")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -38,114 +39,126 @@ enum Commands {
         /// P2P listen port
         #[arg(long, default_value = "19000")]
         p2p_port: u16,
-
         /// RPC listen port
         #[arg(long, default_value = "19001")]
         rpc_port: u16,
-
         /// RPC listen host/IP (use 0.0.0.0 to bind all interfaces)
         #[arg(long, default_value = "0.0.0.0")]
         rpc_host: String,
-
         /// Data directory for blockchain and state storage
         #[arg(long)]
         data_dir: Option<std::path::PathBuf>,
-
         /// Run as relay server to help other nodes behind NAT
         #[arg(long, default_value = "false")]
         relay_server: bool,
-
         /// Authority ID for DAG consensus (e.g. 0x1)
         #[arg(long)]
         authority_id: Option<String>,
-
         /// List of authority IDs for DAG consensus (comma-separated)
         #[arg(long, value_delimiter = ',')]
         authorities: Option<Vec<String>>,
-
         /// Bootstrap peer multiaddr to connect to (can be specified multiple times)
         #[arg(long, value_name = "MULTIADDR")]
         bootstrap: Option<Vec<String>>,
     },
     /// Run a local-only node
-    Local {},
+    Local,
     /// List wallet files
     ListWallets,
     /// Show blockchain statistics
     Stats,
     /// Get account info
-    Account {
-        /// Account address
-        address: String,
-    },
+    Account { address: String },
     /// Get block information by height
-    Block {
-        /// Block height
-        height: u64,
-    },
+    Block { height: u64 },
 }
 
 // Main entry point
 // Initializes and runs the Kanari blockchain node
 // Sets up P2P networking, RPC server, and blockchain engine
+fn default_data_dir() -> std::path::PathBuf {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".to_string());
+    std::path::PathBuf::from(home)
+        .join(".kanari")
+        .join("kanari-db")
+}
+
+fn create_engine(data_dir: &Option<std::path::PathBuf>) -> Result<BlockchainEngine> {
+    if let Some(d) = data_dir {
+        unsafe {
+            std::env::set_var("KANARI_STATE_DB", d);
+            std::env::set_var("KANARI_MOVE_VM_DB", d);
+        }
+        tracing::info!("Using data directory: {}", d.display());
+        Ok(BlockchainEngine::new_dir(
+            d.to_str().expect("Invalid data directory path"),
+        )?)
+    } else {
+        Ok(BlockchainEngine::new()?)
+    }
+}
+
+fn print_stats() -> Result<()> {
+    let stats = BlockchainEngine::new()?.get_stats();
+    tracing::info!("Blockchain Statistics:");
+    tracing::info!("  Height: {}", stats.height);
+    tracing::info!("  Total Blocks: {}", stats.total_blocks);
+    tracing::info!("  Total Transactions: {}", stats.total_transactions);
+    tracing::info!("  Pending: {}", stats.pending_transactions);
+    tracing::info!("  Accounts: {}", stats.total_accounts);
+    tracing::info!("  Supply: {} Kanari", stats.total_supply);
+    Ok(())
+}
+
+fn print_account(address: &str) -> Result<()> {
+    match BlockchainEngine::new()?.get_account_info(address) {
+        Some(info) => {
+            tracing::info!("  Account: {}", info.address);
+            tracing::info!("  Balance: {}", info.balance);
+            tracing::info!("  Sequence: {}", info.sequence_number);
+            tracing::info!("  Modules: {}", info.modules.len());
+            for module in &info.modules {
+                tracing::info!("    - {}", module);
+            }
+        }
+        None => tracing::info!("Account not found: {}", address),
+    }
+    Ok(())
+}
+
+fn print_block(height: u64) -> Result<()> {
+    match BlockchainEngine::new()?.get_block(height) {
+        Some(block) => {
+            tracing::info!("  Block #{}", block.height);
+            tracing::info!("  Timestamp: {}", block.timestamp);
+            tracing::info!("  Hash: {}", block.hash);
+            tracing::info!("  Prev Hash: {}", block.prev_hash);
+            tracing::info!("  Transactions: {}", block.tx_count);
+        }
+        None => tracing::info!("Block not found: {}", height),
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Initialize tracing subscriber first so all commands have log output
+    tracing_subscriber::fmt::init();
+
     let cli = Cli::parse();
 
     match cli.command {
         Commands::ListWallets => {
-            let wallets = list_wallet_files()?;
-            for (addr, selected) in wallets {
+            for (addr, selected) in list_wallet_files()? {
                 tracing::info!("{}{}", addr, if selected { " (selected)" } else { "" });
             }
-            return Ok(());
+            Ok(())
         }
-
-        Commands::Stats => {
-            let engine = BlockchainEngine::new()?;
-            let stats = engine.get_stats();
-            tracing::info!("Blockchain Statistics:");
-            tracing::info!("  Height: {}", stats.height);
-            tracing::info!("  Total Blocks: {}", stats.total_blocks);
-            tracing::info!("  Total Transactions: {}", stats.total_transactions);
-            tracing::info!("  Pending Transactions: {}", stats.pending_transactions);
-            tracing::info!("  Total Accounts: {}", stats.total_accounts);
-            tracing::info!("  Total Supply: {} Kanari", stats.total_supply);
-            return Ok(());
-        }
-
-        Commands::Account { address } => {
-            let engine = BlockchainEngine::new()?;
-            match engine.get_account_info(&address) {
-                Some(info) => {
-                    tracing::info!("  Account: {}", info.address);
-                    tracing::info!("  Balance: {}", info.balance);
-                    tracing::info!("  Sequence: {}", info.sequence_number);
-                    tracing::info!("  Modules: {}", info.modules.len());
-                    for module in &info.modules {
-                        tracing::info!("    - {}", module);
-                    }
-                }
-                None => tracing::info!("Account not found: {}", address),
-            }
-            return Ok(());
-        }
-
-        Commands::Block { height } => {
-            let engine = BlockchainEngine::new()?;
-            match engine.get_block(height) {
-                Some(block) => {
-                    tracing::info!("  Block #{}", block.height);
-                    tracing::info!("  Timestamp: {}", block.timestamp);
-                    tracing::info!("  Hash: {}", block.hash);
-                    tracing::info!("  Prev Hash: {}", block.prev_hash);
-                    tracing::info!("  Transactions: {}", block.tx_count);
-                }
-                None => tracing::info!("Block not found: {}", height),
-            }
-            return Ok(());
-        }
-
+        Commands::Stats => print_stats(),
+        Commands::Account { address } => print_account(&address),
+        Commands::Block { height } => print_block(height),
         Commands::Start {
             p2p_port,
             rpc_port,
@@ -156,44 +169,20 @@ async fn main() -> Result<()> {
             authorities,
             bootstrap,
         } => {
-            let data_dir_path = data_dir.clone().unwrap_or_else(|| {
-                let home = std::env::var("HOME")
-                    .or_else(|_| std::env::var("USERPROFILE"))
-                    .unwrap_or_else(|_| ".".to_string());
-                std::path::PathBuf::from(home)
-                    .join(".kanari")
-                    .join("kanari-db")
-            });
+            let data_dir_path = data_dir.clone().unwrap_or_else(default_data_dir);
+            let mut engine = create_engine(&data_dir)?;
 
-            // If data_dir is provided, use it. Otherwise, use the default internal logic
-            // which handles path resolution and directory creation correctly.
-            let mut engine = if let Some(ref d) = data_dir {
-                unsafe {
-                    std::env::set_var("KANARI_STATE_DB", d);
-                    // Also set MOVE_VM_DB to ensure consistency if fallback is triggered
-                    std::env::set_var("KANARI_MOVE_VM_DB", d);
-                }
-                tracing::info!("Using data directory: {}", d.display());
-                BlockchainEngine::new_dir(d.to_str().expect("Invalid data directory path"))?
-            } else {
-                // Use default persistent store (internally resolves to ~/.kanari/kanari-db/kanari_db)
-                BlockchainEngine::new()?
-            };
-
-            // Configure authorities if provided
             if let (Some(id), Some(auths)) = (authority_id, authorities) {
                 tracing::info!(
-                    "Configuring node with Authority ID: {} and {} authorities",
+                    "Configuring Authority ID: {} with {} authorities",
                     id,
                     auths.len()
                 );
                 engine.set_authorities(id, auths);
             }
 
-            let engine_arc = Arc::new(engine);
-
             run_node(
-                engine_arc,
+                Arc::new(engine),
                 p2p_port,
                 rpc_port,
                 rpc_host,
@@ -201,36 +190,25 @@ async fn main() -> Result<()> {
                 relay_server,
                 bootstrap,
             )
-            .await?;
-            return Ok(());
+            .await
         }
-        Commands::Local {} => {
-            // Run a local-only node: RPC bound to localhost, P2P disabled
-            let p2p_port = 0;
-            let rpc_port = 6767;
-            let rpc_host = "127.0.0.1".to_string();
-
+        Commands::Local => {
+            tracing::info!("Starting local node: RPC on 127.0.0.1:6767 (P2P disabled)");
             let data_dir_path = std::path::PathBuf::from("./.kanari-local");
-            tracing::info!(
-                "Starting local node: RPC on {}:{} (P2P disabled)",
-                rpc_host,
-                rpc_port
-            );
-
-            let engine = BlockchainEngine::new()?;
-            let engine_arc = Arc::new(engine);
-
+            // Ensure data directory exists
+            std::fs::create_dir_all(&data_dir_path)?;
+            // Create engine with the same data directory for consistency
+            let engine = BlockchainEngine::new_dir(data_dir_path.to_str().unwrap())?;
             run_node(
-                engine_arc,
-                p2p_port,
-                rpc_port,
-                rpc_host,
+                Arc::new(engine),
+                0,
+                6767,
+                "127.0.0.1".to_string(),
                 data_dir_path,
                 false,
                 None,
             )
-            .await?;
-            return Ok(());
+            .await
         }
     }
 }
@@ -257,9 +235,6 @@ async fn run_node(
     relay_server: bool,
     bootstrap_peers: Option<Vec<String>>,
 ) -> Result<()> {
-    // Initialize tracing
-    tracing_subscriber::fmt::init();
-
     let stats = engine.get_stats();
 
     tracing::info!("Kanari blockchain node starting");
@@ -302,11 +277,27 @@ async fn run_node(
     let peer_id = keypair.public().to_peer_id().to_string();
     tracing::info!("Node Peer ID: {}", peer_id);
 
-    // Create sync manager
+    // Initialize blockchain indexer
+    let node_indexer = match NodeIndexer::new(data_dir.clone()) {
+        Ok(idx) => {
+            tracing::info!("Blockchain indexer initialized successfully");
+            Some(idx)
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Failed to initialize indexer: {}. Indexing will be disabled.",
+                e
+            );
+            None
+        }
+    };
+
+    // Create sync manager with optional indexer
     let sync_manager = Arc::new(SyncManager::new(
         engine.clone(),
         network_tx.clone(),
         peer_id.clone(),
+        node_indexer.as_ref().map(|idx| idx.indexer().clone()),
     ));
 
     // Start sync manager tasks
@@ -417,6 +408,21 @@ async fn run_node(
             wallets.len()
         );
 
+        // Log indexer statistics periodically (every 10 iterations)
+        if let Some(ref node_idx) = node_indexer
+            && stats.height > 0
+            && stats.height.is_multiple_of(10)
+        {
+            match node_idx.get_stats() {
+                Ok(idx_stats) => {
+                    tracing::info!("[INDEXER] {}", idx_stats);
+                }
+                Err(e) => {
+                    tracing::warn!("[INDEXER] Failed to get stats: {}", e);
+                }
+            }
+        }
+
         // ✅ 1. Add flag to track whether block was produced in this iteration
         let mut did_work = false;
 
@@ -461,6 +467,56 @@ async fn run_node(
                         }
                     } else {
                         tracing::warn!("No vertex in block_info to broadcast");
+                    }
+
+                    // Index the locally produced block
+                    if let Some(ref node_idx) = node_indexer {
+                        let current_height = engine.blockchain.read().unwrap().height();
+                        if let Some(full_block_data) = engine.get_full_block(current_height) {
+                            // Use the same conversion logic as in sync.rs
+                            use kanari_types::block::{Block, BlockHeader};
+                            use smt::compute_merkle_root;
+
+                            let tx_hashes: Vec<Vec<u8>> = full_block_data
+                                .transactions
+                                .iter()
+                                .map(|tx| tx.hash())
+                                .collect();
+                            let merkle_root = compute_merkle_root(&tx_hashes);
+
+                            let header = BlockHeader::new(
+                                full_block_data.height,
+                                hex::decode(&full_block_data.prev_hash).unwrap_or_default(),
+                                hex::decode(&full_block_data.state_root).unwrap_or_default(),
+                                merkle_root,
+                                full_block_data.tx_count,
+                                full_block_data.timestamp,
+                            );
+
+                            let block = Block {
+                                header,
+                                transactions: full_block_data.transactions.clone(),
+                                events: vec![],
+                            };
+
+                            match node_idx.index_block(&block) {
+                                Ok(_) => {
+                                    if current_height.is_multiple_of(100) {
+                                        tracing::info!(
+                                            "[INDEXER] Indexed locally produced block #{}",
+                                            current_height
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!(
+                                        "[INDEXER] Failed to index locally produced block #{}: {}",
+                                        current_height,
+                                        e
+                                    );
+                                }
+                            }
+                        }
                     }
 
                     // If a checkpoint was created, broadcast the new blocks as well

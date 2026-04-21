@@ -1,0 +1,42 @@
+[package]
+name = "kanari-indexer"
+edition.workspace = true
+categories.workspace = true
+keywords.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[dependencies]
+# Internal crates
+kanari-types = { workspace = true }
+kanari-crypto = { workspace = true }
+
+# Database
+rusqlite = { version = "0.37.0", features = ["bundled", "chrono", "serde_json"] }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+bcs = { workspace = true }
+hex = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Utilities - enable serde feature for DateTime serialization
+chrono = { workspace = true, features = ["serde"] }
+
+[dev-dependencies]
+tracing-subscriber = "0.3"

@@ -178,6 +178,7 @@ kanari-node start --p2p-port 19000 --rpc-port 19001 --relay-server
 ```
 
 **คุณสมบัติ:**
+
 - รับ reservation requests จาก nodes ที่ต้องการใช้ relay
 - สร้าง circuit relay ระหว่าง nodes
 - ช่วยให้ nodes ที่อยู่หลัง NAT สื่อสารกันได้แม้ว่า hole punching จะล้มเหลว
