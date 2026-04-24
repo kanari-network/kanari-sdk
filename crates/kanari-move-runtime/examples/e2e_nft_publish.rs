@@ -226,7 +226,7 @@ fn main() {
             let arg5 = bcs::to_bytes(&level_mv).expect("serialize level");
             let arg6 = bcs::to_bytes(&rarity_mv).expect("serialize rarity");
             let arg7 = bcs::to_bytes(&attack_mv).expect("serialize attack");
-            let arg8 = bcs::to_bytes(&defense_mv).expect("serialize defense");
+            let _arg8 = bcs::to_bytes(&defense_mv).expect("serialize defense"); // Prepared but not used in current mint signature
 
             // Build args: cap, name, desc, number, url, level, rarity, attack (omit defense to match function signature)
             let mint_args = vec![arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7];

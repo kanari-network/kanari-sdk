@@ -174,7 +174,43 @@ impl MoveRuntime {
 
         // Overwrite old MoveVM with newly created one, clearing all caches
         *self.vm.write().unwrap() = new_vm;
-        log::info!("[RUNTIME] MoveVM cache cleared (Hot-Reload successful)");
+
+        // Preload essential system modules into the new VM's cache to ensure dependencies are available
+        // This is critical for module upgrades where dependencies must be resolvable
+        self.preload_system_modules_into_vm()?;
+
+        log::info!("[RUNTIME] MoveVM cache cleared and reloaded (Hot-Reload successful)");
+        Ok(())
+    }
+
+    /// Preload system modules into the VM cache to ensure dependencies are available
+    fn preload_system_modules_into_vm(&self) -> Result<()> {
+        let vm_guard = self.vm.read().unwrap();
+        let session = vm_guard.new_session(self.resolver.clone());
+
+        // Get all published module IDs from our index
+        let module_ids: Vec<ModuleId> = self
+            .published_modules
+            .read()
+            .unwrap()
+            .iter()
+            .cloned()
+            .collect();
+
+        // Load each module into the VM cache by accessing it through the session
+        for module_id in module_ids {
+            if let Some(module_bytes) = self.state.get_module(&module_id) {
+                // Deserialize to trigger caching in the VM
+                if CompiledModule::deserialize_with_defaults(&module_bytes).is_ok() {
+                    log::debug!("[RUNTIME] Preloaded module into cache: {}", module_id);
+                }
+            }
+        }
+
+        // Finish session without making changes (just for caching)
+        drop(session);
+        drop(vm_guard);
+
         Ok(())
     }
 

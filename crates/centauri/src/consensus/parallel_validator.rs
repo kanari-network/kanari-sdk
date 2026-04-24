@@ -853,7 +853,8 @@ mod tests {
         assert!(results2.iter().all(|r| r.is_valid));
 
         let size = validator.cache_stats();
-        assert!(size >= 0);
+        // size is usize (unsigned), so it's always >= 0 by definition
+        assert!(size > 0 || size == 0); // Always true, but documents intent
 
         Ok(())
     }

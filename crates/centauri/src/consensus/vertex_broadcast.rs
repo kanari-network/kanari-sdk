@@ -151,6 +151,7 @@ pub struct AdaptiveBatchConfig {
     pub max_batch_size: usize,
     pub target_latency_ms: u64,
     pub adjustment_factor: f64, // How aggressively to adjust (0.1 = 10% per adjustment)
+    pub adjustment_interval: Duration,
 }
 
 impl AdaptiveBatchConfig {
@@ -161,6 +162,7 @@ impl AdaptiveBatchConfig {
             max_batch_size: 1000,   // 1K max batch
             target_latency_ms: 100, // 100ms moderate latency
             adjustment_factor: 0.1, // Conservative tuning
+            adjustment_interval: Duration::from_secs(5),
         }
     }
 
@@ -171,6 +173,7 @@ impl AdaptiveBatchConfig {
             max_batch_size: 50000,  // 50K max batch
             target_latency_ms: 20,  // 20ms ultra-low latency
             adjustment_factor: 0.2, // Very aggressive tuning
+            adjustment_interval: Duration::from_secs(5),
         }
     }
 }
@@ -182,6 +185,7 @@ impl Default for AdaptiveBatchConfig {
             max_batch_size: 10000,   // 10K max for 500K TPS
             target_latency_ms: 50,   // 50ms target for faster batching
             adjustment_factor: 0.15, // More aggressive adjustment
+            adjustment_interval: Duration::from_secs(5),
         }
     }
 }
@@ -199,12 +203,13 @@ pub struct AdaptiveBatcher {
 impl AdaptiveBatcher {
     pub fn new(config: AdaptiveBatchConfig) -> Self {
         let initial_batch_size = (config.min_batch_size + config.max_batch_size) / 2;
+        let adjustment_interval = config.adjustment_interval;
         Self {
             current_batch_size: initial_batch_size,
             config,
             network_rtt: EwmaEstimator::new(0.2), // 20% weight to new samples
             last_adjustment: Instant::now(),
-            adjustment_interval: Duration::from_secs(5),
+            adjustment_interval,
         }
     }
 
@@ -829,6 +834,7 @@ mod tests {
             max_batch_size: 1000,
             target_latency_ms: 100,
             adjustment_factor: 0.2,
+            adjustment_interval: Duration::from_millis(10), // Short interval for testing
         };
 
         let mut batcher = AdaptiveBatcher::new(config);
@@ -836,7 +842,7 @@ mod tests {
 
         // Simulate high latency (200ms) - should increase batch size
         batcher.observe_latency(Duration::from_millis(200));
-        std::thread::sleep(Duration::from_millis(5100)); // Wait past adjustment interval
+        std::thread::sleep(Duration::from_millis(20)); // Wait past short adjustment interval
         batcher.observe_latency(Duration::from_millis(200));
 
         assert!(batcher.get_batch_size() > initial_size);
@@ -849,6 +855,7 @@ mod tests {
             max_batch_size: 1000,
             target_latency_ms: 100,
             adjustment_factor: 0.2,
+            adjustment_interval: Duration::from_millis(10), // Short interval for testing
         };
 
         let mut batcher = AdaptiveBatcher::new(config);
@@ -856,7 +863,7 @@ mod tests {
 
         // Simulate low latency (30ms) - should decrease batch size
         batcher.observe_latency(Duration::from_millis(30));
-        std::thread::sleep(Duration::from_millis(5100));
+        std::thread::sleep(Duration::from_millis(20)); // Wait past short adjustment interval
         batcher.observe_latency(Duration::from_millis(30));
 
         assert!(batcher.get_batch_size() < initial_size);
@@ -869,6 +876,7 @@ mod tests {
             max_batch_size: 100,
             target_latency_ms: 50,
             adjustment_factor: 0.5, // Aggressive adjustment
+            adjustment_interval: Duration::from_millis(0), // Immediate adjustment for testing
         };
 
         let mut batcher = AdaptiveBatcher::new(config);
@@ -876,7 +884,6 @@ mod tests {
         // Extreme high latency - should cap at max
         for _ in 0..10 {
             batcher.observe_latency(Duration::from_millis(1000));
-            std::thread::sleep(Duration::from_millis(5100));
         }
 
         assert_eq!(batcher.get_batch_size(), 100);
@@ -887,7 +894,6 @@ mod tests {
         // Extreme low latency - should cap at min
         for _ in 0..10 {
             batcher.observe_latency(Duration::from_millis(1));
-            std::thread::sleep(Duration::from_millis(5100));
         }
 
         assert_eq!(batcher.get_batch_size(), 10);
@@ -912,6 +918,7 @@ mod tests {
             max_batch_size: 50,
             target_latency_ms: 100,
             adjustment_factor: 0.1,
+            adjustment_interval: Duration::from_millis(10), // Short interval for testing
         };
 
         let mut broadcaster =
