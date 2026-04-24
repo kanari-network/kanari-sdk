@@ -5,7 +5,10 @@
 ## Getting Started
 
 - [Modules and Scripts](modules-and-scripts.md)
-- [Move Tutorial](creating-coins.md)
+- [Creating Tokens](creating-coins.md)
+- [NFT Tutorial](nft-tutorial.md)
+- [DeFi Staking](defi-staking-tutorial.md)
+- [Usage Examples](usage-examples.md)
 
 ## Primitive Types
 
@@ -16,7 +19,7 @@
 - [Signer](signer.md)
 - [References](references.md)
 - [Tuples and Unit](tuples.md)
-- [Kari](kari.md)
+- [Kanari](kanari.md)
 
 ## Basic Concepts
 
@@ -42,5 +45,6 @@
 
 ## Reference
 
+- [Quick Reference](quick-reference.md)
 - [Standard Library](standard-library.md)
 - [Coding Conventions](coding-conventions.md)
