@@ -83,8 +83,8 @@ tower-http = { version = "0.6.8", features = ["cors"] }
 # ============================================================================
 serde = { version = "1.0.228", default-features = true }
 serde_json = { version = "1.0.149", default-features = true }
-serde_yaml = { version = "0.9.34+deprecated", default-features = true }
-toml = { version = "1.1.2+spec-1.1.0", default-features = true }
+serde_yaml = { version = "0.9.34", default-features = true }
+toml = { version = "1.1.2", default-features = true }
 
 ## Blockchain-specific serialization
 bcs = { version = "0.2.0" }
