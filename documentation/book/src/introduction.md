@@ -1,27 +1,177 @@
 # Introduction
 
-Welcome to Move, a next generation language for secure, sandboxed, and formally verified programming. Its first use case is for the Diem blockchain, where Move provides the foundation for its implementation. Move allows developers to write programs that flexibly manage and transfer assets, while providing the security and protections against attacks on those assets. However, Move has been developed with use cases in mind outside a blockchain context as well.
+Welcome to the Move programming language documentation for the Kanari blockchain! This guide will help you learn how to build secure, scalable decentralized applications using Move.
 
-Move takes its cue from [Rust](https://www.rust-lang.org/) by using resource types with move (hence the name) semantics as an explicit representation of digital assets, such as currency.
+## What is Move?
 
-## Who is Move for?
+Move is a programming language designed for digital assets and smart contracts. Originally developed by Meta for the Diem project, Move emphasizes safety and security through its unique type system and resource-oriented programming model.
 
-Move was designed and created as a secure, verified, yet flexible programming language. The first use of Move is for the implementation of the Diem blockchain. That said, the language is still evolving. Move has the potential to be a language for other blockchains, and even non-blockchain use cases as well.
+### Key Features
 
-The early Move Developer is one with some programming experience, who wants to begin understanding the core programming language and see examples of its usage.
+- **Resource-Oriented Programming**: Digital assets behave like real-world resources that can't be copied or accidentally lost
+- **Formal Verification**: Built-in tools for mathematically proving code correctness
+- **Flexibility**: Supports both simple and complex decentralized applications
+- **Security**: Type system prevents common vulnerabilities like double-spending
 
-### Hobbyists
+### Why Move for Blockchain?
 
-Understanding that the capability to create custom modules on the Diem Payment Network will not be available at launch, the hobbyist Move Developer is interested in learning the intricacies of the language. She will understand the basic syntax, the standard libraries available, and write example code that can be executed using the Move CLI. The Move Developer may even want to dig into understanding how the Move Virtual Machine executes the code she writes.
+Move was designed specifically for blockchains where security and asset safety are paramount:
 
-### Core Contributor
+```move
+// In Move, this is impossible:
+// let coin1 = my_coin;  // coin is moved
+// let coin2 = my_coin;  // compile error! coin already moved
 
-Beyond a hobbyist wanting to stay ahead of the curve for the core programming language is someone who may want to [contribute](https://diem.com/en-US/cla-sign/) directly to Move. Whether this includes submitting language improvements or even, in the future, adding core modules available on the Diem Payment Network, the core contributor will understand Move at a deep level.
+// This ensures no accidental duplication of assets
+```
 
-### Who Move is currently not targeting
+## Kanari Blockchain
 
-Currently, Move is not targeting developers who wish to create custom modules and contracts for use on the Diem Payment Network. We are also not targeting novice developers who expect a completely polished developer experience even in testing the language.
+Kanari is a high-performance blockchain built for decentralized finance (DeFi) applications. It uses Move as its smart contract language and provides additional features for building scalable applications.
 
-## Where Do I Start?
+### Kanari Advantages
 
-Begin with understanding [modules and scripts](./modules-and-scripts.md) and then work through the [Move Tutorial](./creating-coins.md).
+- **High Performance**: Optimized for high transaction throughput
+- **Low Fees**: Designed with zero user fees model
+- **Developer Friendly**: Comprehensive tooling and documentation
+- **Secure**: Built-in security features and best practices
+
+## Getting Started
+
+### Your First Move Module
+
+```move
+module my_project::hello {
+    use kanari_system::tx_context::TxContext;
+    use kanari_system::event;
+
+    struct GreetingEvent has copy, drop {
+        message: vector<u8>,
+        sender: address,
+    }
+
+    public fun hello_world(ctx: &mut TxContext) {
+        let sender = tx_context::sender(ctx);
+        event::emit(GreetingEvent {
+            message: b"Hello, Kanari!",
+            sender,
+        });
+    }
+}
+```
+
+This simple module demonstrates:
+
+- Module declaration syntax
+- Importing standard modules
+- Defining custom event types
+- Using transaction context
+- Emitting events
+
+### Key Concepts
+
+1. **Modules**: Contain related functions and types
+2. **Resources**: Special types that represent digital assets
+3. **Transactions**: Calls to public functions
+4. **Events**: Logs of important actions
+
+## Move Language Structure
+
+### Modules and Scripts
+
+Move programs consist of two types:
+
+- **Modules**: Libraries of functions and types, deployed once and used many times
+- **Scripts**: One-time executable code (in older Move versions) or entry functions (in newer versions)
+
+### Basic Syntax
+
+Move syntax is similar to Rust:
+
+```move
+// Functions
+public fun add(x: u64, y: u64): u64 {
+    x + y
+}
+
+// Structs
+struct Point has copy, drop {
+    x: u64,
+    y: u64,
+}
+
+// Conditionals
+if (x > y) {
+    x
+} else {
+    y
+}
+
+// Loops
+let mut i = 0;
+while (i < 10) {
+    i = i + 1;
+};
+```
+
+## Kanari Extensions
+
+Kanari provides additional modules beyond standard Move:
+
+- **coin**: For creating and managing tokens
+- **transfer**: For moving resources between addresses
+- **object**: For managing unique objects
+- **tx_context**: For accessing transaction information
+- **event**: For emitting logs
+- **clock**: For time-based operations
+
+## Safety Features
+
+### Type Safety
+
+Move's type system prevents many common bugs:
+
+```move
+let x: u64 = 10;
+// let y: bool = x;  // Compile error!
+let y: u64 = x;  // OK
+```
+
+### Resource Safety
+
+The ownership system prevents double-spending:
+
+```move
+// This is impossible in Move:
+// let coin1 = my_coin;
+// let coin2 = my_coin;  // Error: my_coin already moved
+```
+
+### Access Control
+
+Modules control access to their functions:
+
+```move
+public fun can_be_called_by_anyone() { }
+
+fun can_only_be_called_internally() { }
+
+public entry fun can_be_called_from_transactions() { }
+```
+
+## Learning Path
+
+This documentation is structured to guide you from beginner to advanced Move development:
+
+1. **Getting Started**: Basic concepts and simple examples
+2. **Core Concepts**: Types, functions, and control flow
+3. **Advanced Topics**: Resources, storage, and verification
+4. **Practical Applications**: Building real applications
+
+## Next Steps
+
+Start with the [Modules and Scripts](modules-and-scripts.md) section to learn about organizing your Move code, then explore the specific topics that interest you most. Each section builds upon the previous ones, so consider following the documentation in order if you're new to Move.
+
+For hands-on experience, try following the [Usage Examples](usage-examples.md) and tutorials like [Creating Coins](creating-coins.md) and [NFT Tutorial](nft-tutorial.md).
+
+Happy coding on Kanari!
