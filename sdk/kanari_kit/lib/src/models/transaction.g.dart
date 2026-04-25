@@ -32,9 +32,9 @@ TransactionDetails _$TransactionDetailsFromJson(Map<String, dynamic> json) =>
       gasUsed: (json['gas_used'] as num?)?.toInt(),
       txType: json['tx_type'] as String,
       sender: json['sender'] as String,
-      sequenceNumber: (json['sequence_number'] as num?)?.toInt() ?? 0,
-      gasLimit: (json['gas_limit'] as num?)?.toInt() ?? 0,
-      gasPrice: (json['gas_price'] as num?)?.toInt() ?? 0,
+      sequenceNumber: (json['sequence_number'] as num).toInt(),
+      gasLimit: (json['gas_limit'] as num).toInt(),
+      gasPrice: (json['gas_price'] as num).toInt(),
       module: json['module'] as String?,
       function: json['function'] as String?,
       moduleFunctions: (json['module_functions'] as List<dynamic>?)

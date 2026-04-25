@@ -6,6 +6,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // 👇 เพิ่ม Import สำหรับระบบสแกน QR Code แล้ว
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -164,11 +165,21 @@ class _HomeScreenState extends State<HomeScreen> {
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(16),
                                       ),
-                                      onSelected: (value) {
+                                      onSelected: (value) async {
                                         if (value == 'change_pin') {
                                           _showChangePinDialog(context, state);
                                         } else if (value == 'logout') {
-                                          state.logout();
+                                          await _handleLogout(
+                                            context,
+                                            state,
+                                            false,
+                                          );
+                                        } else if (value == 'logout_all') {
+                                          await _handleLogout(
+                                            context,
+                                            state,
+                                            true,
+                                          );
                                         }
                                       },
                                       itemBuilder: (context) => [
@@ -191,6 +202,33 @@ class _HomeScreenState extends State<HomeScreen> {
                                               color: colorScheme.error,
                                             ),
                                             title: const Text('Logout'),
+                                            subtitle: Text(
+                                              'Current session only',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey[600],
+                                              ),
+                                            ),
+                                            contentPadding: EdgeInsets.zero,
+                                          ),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'logout_all',
+                                          child: ListTile(
+                                            leading: Icon(
+                                              Icons.phonelink_erase_rounded,
+                                              color: colorScheme.error,
+                                            ),
+                                            title: const Text(
+                                              'Logout All Devices',
+                                            ),
+                                            subtitle: Text(
+                                              'All active sessions',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey[600],
+                                              ),
+                                            ),
                                             contentPadding: EdgeInsets.zero,
                                           ),
                                         ),
@@ -958,6 +996,87 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+  }
+
+  /// Handle logout with option to logout all sessions
+  Future<void> _handleLogout(
+    BuildContext context,
+    WalletState state,
+    bool logoutAll,
+  ) async {
+    final authClient = context.read<KanariAuthClient>();
+
+    try {
+      // Show confirmation dialog
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          icon: Icon(
+            logoutAll ? Icons.phonelink_erase_rounded : Icons.logout_rounded,
+            color: Theme.of(context).colorScheme.error,
+          ),
+          title: Text(logoutAll ? 'Logout All Devices?' : 'Logout?'),
+          content: Text(
+            logoutAll
+                ? 'This will log out all active sessions on all devices. You will need to login again.'
+                : 'This will log out your current session. You will need to login again.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error,
+              ),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Logout'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed != true || !mounted) return;
+
+      // Perform logout
+      if (logoutAll) {
+        await authClient.logoutAll();
+      } else {
+        await authClient.logout();
+      }
+
+      // Clear SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('session_id');
+      await prefs.remove('user_email');
+      await prefs.remove('wallet_address');
+
+      // Clear wallet state
+      state.logout();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              logoutAll
+                  ? 'Logged out from all devices'
+                  : 'Logged out successfully',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Logout failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 }
 

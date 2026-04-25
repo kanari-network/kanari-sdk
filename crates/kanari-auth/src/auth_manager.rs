@@ -88,7 +88,8 @@ impl AuthManager {
         }
 
         // Generate new wallet
-        let curve = curve_type.unwrap_or(CurveType::Ed25519);
+        let curve = curve_type.unwrap_or(CurveType::Ed25519Dilithium3);
+        log::info!("Generating keypair with curve type: {:?}", curve);
         let keypair = kanari_crypto::keys::generate_keypair(curve)
             .map_err(|e| AuthError::CryptoError(format!("Failed to generate keypair: {}", e)))?;
 

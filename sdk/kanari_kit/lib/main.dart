@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:kanari_crypto/kanari_crypto.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'src/providers/wallet_provider.dart';
+import 'src/auth_client.dart';
 import 'src/ui/screens/home_screen.dart';
 import 'src/ui/screens/welcome_screen.dart';
+import 'src/ui/screens/login_screen.dart';
+import 'src/ui/screens/register_screen.dart';
+
+// Auth API base URL - change this to your run-auth server
+const String AUTH_API_URL = 'http://localhost:3000';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,16 +22,68 @@ void main() async {
     debugPrint("❌ Kanari Crypto init error: $e");
   }
 
+  // Initialize auth client
+  final authClient = KanariAuthClient(AUTH_API_URL);
+
+  // Restore session if exists
+  await _restoreSession(authClient);
+
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(
-          create: (_) => WalletState()..initialize(),
-        ), // โหลดข้อมูลทันทีที่สร้าง
+        ChangeNotifierProvider(create: (_) => WalletState()..initialize()),
+        ChangeNotifierProvider.value(value: authClient),
       ],
       child: const KanariApp(),
     ),
   );
+}
+
+/// Restore session from SharedPreferences
+Future<void> _restoreSession(KanariAuthClient authClient) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final sessionId = prefs.getString('session_id');
+    final userEmail = prefs.getString('user_email');
+    final walletAddress = prefs.getString('wallet_address');
+
+    if (sessionId != null && userEmail != null && walletAddress != null) {
+      authClient.setSession(
+        sessionId: sessionId,
+        userEmail: userEmail,
+        walletAddress: walletAddress,
+      );
+
+      // Validate restored session
+      final response = await authClient.validateSession();
+      if (!response.success || !(response.data?.valid ?? false)) {
+        debugPrint("⚠️ Restored session is invalid, clearing...");
+        authClient.clearSession();
+        await prefs.remove('session_id');
+        await prefs.remove('user_email');
+        await prefs.remove('wallet_address');
+      } else {
+        debugPrint("✅ Session restored successfully for $userEmail");
+      }
+    }
+  } catch (e) {
+    debugPrint("❌ Session restore error: $e");
+  }
+}
+
+/// Save session to SharedPreferences
+Future<void> _saveSession(KanariAuthClient authClient) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    if (authClient.sessionId != null) {
+      await prefs.setString('session_id', authClient.sessionId!);
+      await prefs.setString('user_email', authClient.userEmail!);
+      await prefs.setString('wallet_address', authClient.walletAddress!);
+      debugPrint("💾 Session saved");
+    }
+  } catch (e) {
+    debugPrint("❌ Session save error: $e");
+  }
 }
 
 class KanariApp extends StatelessWidget {
@@ -98,6 +157,38 @@ class KanariApp extends StatelessWidget {
       ),
 
       home: const MainWrapper(),
+
+      // Routes for navigation
+      routes: {
+        '/login': (context) {
+          final authClient = context.read<KanariAuthClient>();
+          return KanariLoginScreen(
+            authClient: authClient,
+            onLoginSuccess: () async {
+              await _saveSession(authClient);
+              if (context.mounted) {
+                Navigator.of(
+                  context,
+                ).pushNamedAndRemoveUntil('/', (route) => false);
+              }
+            },
+          );
+        },
+        '/register': (context) {
+          final authClient = context.read<KanariAuthClient>();
+          return KanariRegisterScreen(
+            authClient: authClient,
+            onRegistrationSuccess: () async {
+              await _saveSession(authClient);
+              if (context.mounted) {
+                Navigator.of(
+                  context,
+                ).pushNamedAndRemoveUntil('/', (route) => false);
+              }
+            },
+          );
+        },
+      },
     );
   }
 }
@@ -108,8 +199,20 @@ class MainWrapper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<WalletState>();
+    final authClient = context.watch<KanariAuthClient>();
 
-    // 👉 เช็คว่า "ถ้าแอปถูกล็อกอยู่ (isUnlocked = false) หรือ ไม่มีกระเป๋า" ให้ไปหน้า WelcomeScreen
+    // Check authentication first
+    if (!authClient.isAuthenticated) {
+      return KanariLoginScreen(
+        authClient: authClient,
+        onLoginSuccess: () async {
+          await _saveSession(authClient);
+          // No need to call setState - ChangeNotifier will trigger rebuild automatically
+        },
+      );
+    }
+
+    // If authenticated but wallet not loaded yet
     if (!state.isUnlocked || state.wallet == null) {
       return const WelcomeScreen();
     }

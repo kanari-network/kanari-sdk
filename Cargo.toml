@@ -39,7 +39,7 @@ members = [
       "crates/kanari-db-common", 
       "crates/centauri", 
       "sdk/wallet", 
-      "crates/kanari-indexer",
+      "crates/kanari-indexer", "crates/run-auth",
 ]
 
 
