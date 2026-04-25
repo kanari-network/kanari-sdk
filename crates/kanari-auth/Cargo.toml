@@ -1,0 +1,52 @@
+[package]
+name = "kanari-auth"
+edition.workspace = true
+categories.workspace = true
+keywords.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Email-based authentication and transaction signing system for Kanari Network"
+
+[dependencies]
+# Internal dependencies
+kanari-crypto.workspace = true
+kanari-types.workspace = true
+move-core-types.workspace = true
+
+# Cryptography
+sha2.workspace = true
+argon2.workspace = true
+password-hash = "0.5"
+hmac.workspace = true
+rand.workspace = true
+rand_core.workspace = true
+hex.workspace = true
+base64.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Error handling
+thiserror.workspace = true
+anyhow.workspace = true
+
+# Logging
+log.workspace = true
+
+# Memory security
+zeroize.workspace = true
+
+# Time handling
+chrono.workspace = true
+uuid.workspace = true
+
+# Email validation
+regex = "1.11"
+
+[dev-dependencies]
+tempfile.workspace = true

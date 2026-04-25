@@ -21,6 +21,7 @@ members = [
       "crates/kanari",
       "crates/kanari-common",
       "crates/kanari-crypto", 
+      "crates/kanari-auth",
       "crates/kanari-framework-builder",
       "crates/kanari-frameworks", 
       "crates/kanari-move-runtime", 
@@ -188,7 +189,8 @@ arbitrary = { version = "1.4.2", features = ["derive"] }                        
 # ============================================================================
 # Time & Date Handling
 # ============================================================================
-chrono = "0.4.44"
+chrono = { version = "0.4.44", features = ["serde"] }
+uuid = { version = "1.18", features = ["v4", "serde"] }
 
 # ============================================================================
 # Mathematics & Numerics
@@ -219,6 +221,7 @@ tikv-jemallocator = { git = "https://github.com/jamesatomc/jemallocator.git", fe
 # ============================================================================
 kanari-common = { path = "crates/kanari-common" }
 kanari-crypto = { path = "crates/kanari-crypto" }
+kanari-auth = { path = "crates/kanari-auth" }
 kanari-types = { path = "crates/kanari-types" }
 kanari-move-runtime = { path = "crates/kanari-move-runtime" }
 kanari-framework-builder = { path = "crates/kanari-framework-builder" }
