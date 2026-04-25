@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct RegisterRequest {
     pub email: String,
     pub password: String,
+    #[serde(rename = "curveType")]
     pub curve_type: Option<String>, // "ed25519", "secp256k1", "bls12_381"
 }
 
@@ -22,6 +23,7 @@ pub struct RegisterResponse {
 pub struct LoginRequest {
     pub email: String,
     pub password: String,
+    #[serde(rename = "sessionTimeoutHours")]
     pub session_timeout_hours: Option<u64>,
 }
 
@@ -42,6 +44,7 @@ pub struct LoginResponse {
 /// Logout request
 #[derive(Debug, Deserialize)]
 pub struct LogoutRequest {
+    #[serde(rename = "sessionId")]
     pub session_id: String,
 }
 
@@ -55,7 +58,9 @@ pub struct LogoutAllRequest {
 #[derive(Debug, Deserialize)]
 pub struct ChangePasswordRequest {
     pub email: String,
+    #[serde(rename = "oldPassword")]
     pub old_password: String,
+    #[serde(rename = "newPassword")]
     pub new_password: String,
 }
 
@@ -69,17 +74,22 @@ pub struct DeleteAccountRequest {
 /// Transfer signing request
 #[derive(Debug, Deserialize)]
 pub struct SignTransferRequest {
+    #[serde(rename = "sessionId")]
     pub session_id: String,
     pub recipient: String,
     pub amount: u64,
+    #[serde(rename = "gasLimit")]
     pub gas_limit: Option<u64>,
+    #[serde(rename = "gasPrice")]
     pub gas_price: Option<u64>,
 }
 
 /// Generic transaction signing request
 #[derive(Debug, Deserialize)]
 pub struct SignTransactionRequest {
+    #[serde(rename = "sessionId")]
     pub session_id: String,
+    #[serde(rename = "transactionJson")]
     pub transaction_json: String, // JSON-encoded transaction
 }
 
