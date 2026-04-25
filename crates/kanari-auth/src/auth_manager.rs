@@ -29,24 +29,24 @@ pub struct AuthManager {
 }
 
 impl AuthManager {
-    /// Create a new AuthManager with in-memory storage
+    /// Create a new AuthManager with in-memory SQLite database
     pub fn new() -> Self {
         Self {
-            user_store: UserStore::new(),
+            user_store: UserStore::new(None).expect("Failed to create in-memory UserStore"),
             session_manager: SessionManager::new(),
         }
     }
 
-    /// Create an AuthManager with persistent storage
+    /// Create an AuthManager with persistent SQLite storage
     ///
     /// # Arguments
-    /// * `storage_path` - Path to JSON file for user data persistence
+    /// * `db_path` - Path to SQLite database file
     ///
     /// # Returns
     /// Configured AuthManager
-    pub fn with_persistence(storage_path: std::path::PathBuf) -> AuthResult<Self> {
+    pub fn with_persistence(db_path: std::path::PathBuf) -> AuthResult<Self> {
         Ok(Self {
-            user_store: UserStore::with_persistence(storage_path)?,
+            user_store: UserStore::new(Some(db_path))?,
             session_manager: SessionManager::new(),
         })
     }
@@ -83,7 +83,7 @@ impl AuthManager {
         let normalized_email = email_validator::normalize_email(email);
 
         // Check if user already exists
-        if self.user_store.user_exists(&normalized_email) {
+        if self.user_store.user_exists(&normalized_email)? {
             return Err(AuthError::UserAlreadyExists(normalized_email));
         }
 
@@ -148,9 +148,9 @@ impl AuthManager {
 
         // Get user record and check account status
         let wallet_address = {
-            let user = self
+            let mut user = self
                 .user_store
-                .get_user_mut(&normalized_email)
+                .get_user(&normalized_email)?
                 .ok_or(AuthError::UserNotFound(normalized_email.clone()))?;
 
             // Check if account is locked
@@ -161,12 +161,14 @@ impl AuthManager {
             // Verify password
             if !user.verify_password(password)? {
                 user.record_failed_attempt();
+                self.user_store.update_user(&user)?;
                 log::warn!("Failed login attempt for: {}", normalized_email);
                 return Err(AuthError::AuthenticationFailed);
             }
 
             // Record successful login
             user.record_successful_login();
+            self.user_store.update_user(&user)?;
 
             user.wallet_address.clone()
         };
@@ -234,7 +236,7 @@ impl AuthManager {
     ///
     /// let mut auth = AuthManager::new();
     /// let session = auth.login("user@example.com", "SecurePassword123!", None)?;
-    /// 
+    ///
     /// // Create your transaction here
     /// let tx = Transaction::Transfer { /* ... */ };
     /// let signed_tx = auth.sign_transaction(&session, tx)?;
@@ -252,7 +254,7 @@ impl AuthManager {
         // Get user to retrieve wallet credentials
         let user = self
             .user_store
-            .get_user(&session.email)
+            .get_user(&session.email)?
             .ok_or(AuthError::UserNotFound(session.email.clone()))?;
 
         // In a real implementation, decrypt the private key here
@@ -340,7 +342,7 @@ impl AuthManager {
 
         let user = self
             .user_store
-            .get_user(&session.email)
+            .get_user(&session.email)?
             .ok_or(AuthError::UserNotFound(session.email.clone()))?;
 
         Ok((user.email.clone(), user.wallet_address.clone()))
@@ -360,9 +362,9 @@ impl AuthManager {
     ) -> AuthResult<()> {
         let normalized_email = email_validator::normalize_email(email);
 
-        let user = self
+        let mut user = self
             .user_store
-            .get_user_mut(&normalized_email)
+            .get_user(&normalized_email)?
             .ok_or(AuthError::UserNotFound(normalized_email.clone()))?;
 
         // Verify old password
@@ -376,6 +378,9 @@ impl AuthManager {
         // Hash and update password
         let new_hash = UserRecord::hash_password(new_password)?;
         user.password_hash = new_hash;
+
+        // Persist the password change
+        self.user_store.update_user(&user)?;
 
         // Invalidate all sessions for security
         self.logout_all(&normalized_email)?;
@@ -395,7 +400,7 @@ impl AuthManager {
 
         let user = self
             .user_store
-            .get_user(&normalized_email)
+            .get_user(&normalized_email)?
             .ok_or(AuthError::UserNotFound(normalized_email.clone()))?;
 
         // Verify password before deletion
@@ -416,12 +421,12 @@ impl AuthManager {
 
     /// List all registered users
     pub fn list_users(&self) -> Vec<String> {
-        self.user_store.list_users()
+        self.user_store.list_users().unwrap_or_default()
     }
 
     /// Get total number of registered users
     pub fn user_count(&self) -> usize {
-        self.user_store.user_count()
+        self.user_store.user_count().unwrap_or(0)
     }
 }
 

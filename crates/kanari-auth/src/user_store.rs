@@ -8,8 +8,8 @@
 
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use chrono::{DateTime, Utc};
+use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::{AuthError, AuthResult, email_validator};
@@ -95,10 +95,24 @@ impl UserRecord {
     /// Hashed password string
     pub fn hash_password(password: &str) -> AuthResult<String> {
         use argon2::{Argon2, PasswordHasher};
-        use password_hash::{SaltString, rand_core::OsRng};
+        use rand::TryRng;
+        use rand::rngs::SysRng;
 
-        // Generate a random salt
-        let salt = SaltString::generate(&mut OsRng);
+        // Generate a random salt manually (16 bytes)
+        let mut rng = SysRng;
+        let mut salt_bytes = [0u8; 16];
+        rng.try_fill_bytes(&mut salt_bytes).map_err(|e| {
+            AuthError::CryptoError(format!("Failed to generate random bytes: {}", e))
+        })?;
+
+        // Create SaltString from raw bytes using B64 encoding without padding
+        // SaltString expects exactly the right format
+        let salt_string = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD_NO_PAD,
+            salt_bytes,
+        );
+        let salt = argon2::password_hash::SaltString::from_b64(&salt_string)
+            .map_err(|e| AuthError::CryptoError(format!("Invalid salt: {}", e)))?;
 
         let argon2 = Argon2::default();
 
@@ -216,44 +230,91 @@ impl UserRecord {
     }
 }
 
-/// In-memory user store with persistence support
+/// Thread-safe user store backed by SQLite database
 #[derive(Debug)]
 pub struct UserStore {
-    /// Users indexed by normalized email
-    users: HashMap<String, UserRecord>,
+    /// SQLite database connection
+    conn: Connection,
 
-    /// Path to persistent storage file (optional)
-    storage_path: Option<PathBuf>,
+    /// Database file path (kept for debugging/logging purposes)
+    #[allow(dead_code)]
+    db_path: PathBuf,
+}
+
+/// Helper struct to hold raw user data from database query
+#[derive(Debug)]
+struct UserRowData {
+    email: String,
+    password_hash: String,
+    wallet_address: String,
+    encrypted_private_key: Option<String>,
+    created_at: String,
+    last_login: Option<String>,
+    failed_attempts: i64,
+    locked_until: Option<String>,
+    is_active: bool,
 }
 
 impl UserStore {
-    /// Create a new empty user store
-    pub fn new() -> Self {
-        Self {
-            users: HashMap::new(),
-            storage_path: None,
-        }
-    }
-
-    /// Create a user store with persistent storage
+    /// Create a new UserStore with SQLite backend
     ///
     /// # Arguments
-    /// * `storage_path` - Path to JSON file for persistence
-    pub fn with_persistence(storage_path: PathBuf) -> AuthResult<Self> {
-        let mut store = Self {
-            users: HashMap::new(),
-            storage_path: Some(storage_path.clone()),
+    /// * `db_path` - Path to SQLite database file (use None for in-memory)
+    pub fn new(db_path: Option<PathBuf>) -> AuthResult<Self> {
+        let path = db_path.unwrap_or_else(|| PathBuf::from(":memory:"));
+
+        let conn = if path.to_str() == Some(":memory:") {
+            Connection::open_in_memory().map_err(|e| AuthError::DatabaseError(e.to_string()))?
+        } else {
+            // Ensure parent directory exists
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
+            }
+            Connection::open(&path).map_err(|e| AuthError::DatabaseError(e.to_string()))?
         };
 
-        // Load existing data if file exists
-        if storage_path.exists() {
-            store.load_from_disk()?;
-        }
+        let mut store = Self {
+            conn,
+            db_path: path,
+        };
+
+        // Initialize database schema
+        store.init_schema()?;
 
         Ok(store)
     }
 
-    /// Add a new user to the store
+    /// Initialize database schema
+    fn init_schema(&mut self) -> AuthResult<()> {
+        self.conn
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS users (
+                email TEXT PRIMARY KEY,
+                password_hash TEXT NOT NULL,
+                wallet_address TEXT NOT NULL,
+                encrypted_private_key TEXT,
+                created_at TEXT NOT NULL,
+                last_login TEXT,
+                failed_attempts INTEGER NOT NULL DEFAULT 0,
+                locked_until TEXT,
+                is_active BOOLEAN NOT NULL DEFAULT 1
+            );",
+            )
+            .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
+
+        // Create index for faster lookups
+        self.conn
+            .execute(
+                "CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active);",
+                [],
+            )
+            .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
+
+        Ok(())
+    }
+
+    /// Add a new user to the database
     ///
     /// # Arguments
     /// * `user` - UserRecord to add
@@ -261,96 +322,192 @@ impl UserStore {
     /// # Returns
     /// Error if user already exists
     pub fn add_user(&mut self, user: UserRecord) -> AuthResult<()> {
-        let email = user.email.clone();
-
-        if self.users.contains_key(&email) {
-            return Err(AuthError::UserAlreadyExists(email));
+        // Check if user already exists
+        if self.user_exists(&user.email)? {
+            return Err(AuthError::UserAlreadyExists(user.email.clone()));
         }
 
-        self.users.insert(email, user);
-        self.save_to_disk()?;
+        self.conn
+            .execute(
+                "INSERT INTO users (
+                email, password_hash, wallet_address, encrypted_private_key,
+                created_at, last_login, failed_attempts, locked_until, is_active
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                rusqlite::params![
+                    user.email,
+                    user.password_hash,
+                    user.wallet_address,
+                    user.encrypted_private_key,
+                    user.created_at.to_rfc3339(),
+                    user.last_login.map(|dt| dt.to_rfc3339()),
+                    user.failed_attempts,
+                    user.locked_until.map(|dt| dt.to_rfc3339()),
+                    user.is_active,
+                ],
+            )
+            .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
 
         Ok(())
     }
 
-    /// Get a user by email
+    /// Get a user record by email
     ///
     /// # Arguments
-    /// * `email` - User's email address
-    ///
-    /// # Returns
-    /// Reference to UserRecord if found
-    pub fn get_user(&self, email: &str) -> Option<&UserRecord> {
+    /// * `email` - Normalized email address
+    pub fn get_user(&self, email: &str) -> AuthResult<Option<UserRecord>> {
         let normalized = email_validator::normalize_email(email);
-        self.users.get(&normalized)
+
+        let result: Option<UserRowData> = self
+            .conn
+            .query_row(
+                "SELECT email, password_hash, wallet_address, encrypted_private_key,
+                            created_at, last_login, failed_attempts, locked_until, is_active
+                     FROM users WHERE email = ?1",
+                [&normalized],
+                |row| {
+                    Ok(UserRowData {
+                        email: row.get(0)?,
+                        password_hash: row.get(1)?,
+                        wallet_address: row.get(2)?,
+                        encrypted_private_key: row.get(3)?,
+                        created_at: row.get(4)?,
+                        last_login: row.get(5)?,
+                        failed_attempts: row.get(6)?,
+                        locked_until: row.get(7)?,
+                        is_active: row.get(8)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
+
+        match result {
+            Some(data) => {
+                let created_at = DateTime::parse_from_rfc3339(&data.created_at)
+                    .map_err(|e| AuthError::SerializationError(e.to_string()))?
+                    .with_timezone(&Utc);
+
+                let last_login = data
+                    .last_login
+                    .map(|s| {
+                        DateTime::parse_from_rfc3339(&s)
+                            .map_err(|e| AuthError::SerializationError(e.to_string()))
+                            .map(|dt| dt.with_timezone(&Utc))
+                    })
+                    .transpose()?;
+
+                let locked_until = data
+                    .locked_until
+                    .map(|s| {
+                        DateTime::parse_from_rfc3339(&s)
+                            .map_err(|e| AuthError::SerializationError(e.to_string()))
+                            .map(|dt| dt.with_timezone(&Utc))
+                    })
+                    .transpose()?;
+
+                Ok(Some(UserRecord {
+                    email: data.email,
+                    password_hash: data.password_hash,
+                    wallet_address: data.wallet_address,
+                    encrypted_private_key: data.encrypted_private_key,
+                    created_at,
+                    last_login,
+                    failed_attempts: data.failed_attempts as u32,
+                    locked_until,
+                    is_active: data.is_active,
+                }))
+            }
+            None => Ok(None),
+        }
     }
 
-    /// Get mutable reference to a user
-    pub fn get_user_mut(&mut self, email: &str) -> Option<&mut UserRecord> {
-        let normalized = email_validator::normalize_email(email);
-        self.users.get_mut(&normalized)
+    /// Update a user record in the database
+    pub fn update_user(&mut self, user: &UserRecord) -> AuthResult<()> {
+        self.conn
+            .execute(
+                "UPDATE users SET 
+                password_hash = ?2,
+                wallet_address = ?3,
+                encrypted_private_key = ?4,
+                last_login = ?5,
+                failed_attempts = ?6,
+                locked_until = ?7,
+                is_active = ?8
+             WHERE email = ?1",
+                rusqlite::params![
+                    user.email,
+                    user.password_hash,
+                    user.wallet_address,
+                    user.encrypted_private_key,
+                    user.last_login.map(|dt| dt.to_rfc3339()),
+                    user.failed_attempts,
+                    user.locked_until.map(|dt| dt.to_rfc3339()),
+                    user.is_active,
+                ],
+            )
+            .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
+        Ok(())
     }
 
     /// Check if a user exists
-    pub fn user_exists(&self, email: &str) -> bool {
+    pub fn user_exists(&self, email: &str) -> AuthResult<bool> {
         let normalized = email_validator::normalize_email(email);
-        self.users.contains_key(&normalized)
+        let count: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM users WHERE email = ?1",
+                [&normalized],
+                |row| row.get(0),
+            )
+            .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
+        Ok(count > 0)
     }
 
     /// Remove a user from the store
     pub fn remove_user(&mut self, email: &str) -> AuthResult<()> {
         let normalized = email_validator::normalize_email(email);
 
-        if self.users.remove(&normalized).is_some() {
-            self.save_to_disk()?;
-            Ok(())
-        } else {
+        let changes = self
+            .conn
+            .execute("DELETE FROM users WHERE email = ?1", [&normalized])
+            .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
+
+        if changes == 0 {
             Err(AuthError::UserNotFound(normalized))
+        } else {
+            Ok(())
         }
     }
 
     /// List all registered users (emails only)
-    pub fn list_users(&self) -> Vec<String> {
-        self.users.keys().cloned().collect()
+    pub fn list_users(&self) -> AuthResult<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT email FROM users ORDER BY created_at")
+            .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
+
+        let emails = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| AuthError::DatabaseError(e.to_string()))?
+            .filter_map(|r: Result<String, _>| r.ok())
+            .collect();
+
+        Ok(emails)
     }
 
     /// Get total number of users
-    pub fn user_count(&self) -> usize {
-        self.users.len()
-    }
-
-    /// Save user store to disk
-    fn save_to_disk(&self) -> AuthResult<()> {
-        if let Some(ref path) = self.storage_path {
-            let json = serde_json::to_string_pretty(&self.users).map_err(|e| {
-                AuthError::SerializationError(format!("Failed to serialize users: {}", e))
-            })?;
-
-            std::fs::write(path, json).map_err(AuthError::IoError)?;
-        }
-        Ok(())
-    }
-
-    /// Load user store from disk
-    fn load_from_disk(&mut self) -> AuthResult<()> {
-        if let Some(ref path) = self.storage_path
-            && path.exists() {
-                let json = std::fs::read_to_string(path).map_err(AuthError::IoError)?;
-
-                let users: HashMap<String, UserRecord> =
-                    serde_json::from_str(&json).map_err(|e| {
-                        AuthError::SerializationError(format!("Failed to deserialize users: {}", e))
-                    })?;
-
-                self.users = users;
-            }
-        Ok(())
+    pub fn user_count(&self) -> AuthResult<usize> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM users", [], |row| row.get::<_, i64>(0))
+            .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
+        Ok(count as usize)
     }
 }
 
 impl Default for UserStore {
     fn default() -> Self {
-        Self::new()
+        Self::new(None).expect("Failed to create default UserStore")
     }
 }
 
@@ -427,7 +584,7 @@ mod tests {
 
     #[test]
     fn test_user_store() {
-        let mut store = UserStore::new();
+        let mut store = UserStore::new(None).unwrap();
 
         let user = UserRecord::new(
             "user@example.com".to_string(),
@@ -440,14 +597,14 @@ mod tests {
         assert!(store.add_user(user).is_ok());
 
         // Check existence
-        assert!(store.user_exists("user@example.com"));
-        assert_eq!(store.user_count(), 1);
+        assert!(store.user_exists("user@example.com").unwrap());
+        assert_eq!(store.user_count().unwrap(), 1);
 
         // Get user
-        assert!(store.get_user("user@example.com").is_some());
+        assert!(store.get_user("user@example.com").unwrap().is_some());
 
         // List users
-        let users = store.list_users();
+        let users = store.list_users().unwrap();
         assert_eq!(users.len(), 1);
 
         // Duplicate should fail

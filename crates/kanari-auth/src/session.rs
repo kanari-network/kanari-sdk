@@ -183,12 +183,13 @@ impl SessionManager {
 
         // Check session limit
         if let Some(user_sessions) = self.email_sessions.get(&email)
-            && user_sessions.len() >= self.max_sessions_per_user {
-                // Remove oldest session
-                if let Some(oldest_id) = user_sessions.first() {
-                    self.sessions.remove(oldest_id);
-                }
+            && user_sessions.len() >= self.max_sessions_per_user
+        {
+            // Remove oldest session
+            if let Some(oldest_id) = user_sessions.first() {
+                self.sessions.remove(oldest_id);
             }
+        }
 
         let session = Session::new(email.clone(), wallet_address, timeout);
         let session_id = session.session_id.clone();

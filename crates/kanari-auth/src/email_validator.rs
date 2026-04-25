@@ -6,8 +6,8 @@
 //! This module provides comprehensive email validation to ensure
 //! only properly formatted email addresses are accepted.
 
-use regex::Regex;
 use crate::{AuthError, AuthResult};
+use regex::Regex;
 
 /// Validates an email address format
 ///

@@ -114,6 +114,9 @@ pub enum AuthError {
 
     #[error("Cryptographic error: {0}")]
     CryptoError(String),
+
+    #[error("Database error: {0}")]
+    DatabaseError(String),
 }
 
 /// Result type for authentication operations

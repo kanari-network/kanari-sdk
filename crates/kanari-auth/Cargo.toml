@@ -20,7 +20,6 @@ move-core-types.workspace = true
 # Cryptography
 sha2.workspace = true
 argon2.workspace = true
-password-hash = "0.5"
 hmac.workspace = true
 rand.workspace = true
 rand_core.workspace = true
@@ -46,7 +45,10 @@ chrono.workspace = true
 uuid.workspace = true
 
 # Email validation
-regex = "1.11"
+regex = "1.12.3"
+
+# Database
+rusqlite = { workspace = true }
 
 [dev-dependencies]
 tempfile.workspace = true

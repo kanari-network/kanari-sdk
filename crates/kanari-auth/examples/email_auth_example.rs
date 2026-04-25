@@ -25,7 +25,7 @@ fn main() -> Result<()> {
     println!("2. Registering new user...");
     let email = "alice@example.com";
     let password = "SecurePass123!";
-    
+
     let wallet = auth.register_user(email, password, Some(CurveType::Ed25519))?;
     println!("   Email: {}", email);
     println!("   Wallet Address: {}", wallet.address);
@@ -54,32 +54,32 @@ fn main() -> Result<()> {
     println!("5. Signing a transfer transaction...");
     let recipient = "0x0000000000000000000000000000000000000000000000000000000000000456";
     let amount_mist = 1_000_000; // 1 KANARI token
-    
+
     let signed_tx = auth.sign_transfer(
         &session,
         recipient,
         amount_mist,
-        Some(100_000),  // gas limit
-        Some(1_000),    // gas price
+        Some(100_000), // gas limit
+        Some(1_000),   // gas price
     )?;
-    
+
     println!("   Transaction Type: Transfer");
     println!("   From: {}", signed_tx.transaction.sender());
     println!("   To: {}", recipient);
     println!("   Amount: {} Mist", amount_mist);
     println!("   Gas Limit: {}", signed_tx.transaction.gas_limit());
     println!("   Gas Price: {} Mist", signed_tx.transaction.gas_price());
-    println!("   Sequence Number: {}", signed_tx.transaction.sequence_number());
+    println!(
+        "   Sequence Number: {}",
+        signed_tx.transaction.sequence_number()
+    );
     println!("   Signature Length: {} bytes", signed_tx.signature.len());
     println!("   ✓ Transaction signed successfully\n");
 
     // 6. Register another user
     println!("6. Registering second user...");
-    let bob_wallet = auth.register_user(
-        "bob@example.com",
-        "BobPassword456!",
-        Some(CurveType::K256),
-    )?;
+    let bob_wallet =
+        auth.register_user("bob@example.com", "BobPassword456!", Some(CurveType::K256))?;
     println!("   Email: bob@example.com");
     println!("   Wallet: {}", bob_wallet.address);
     println!("   ✓ Second user registered\n");
@@ -97,24 +97,30 @@ fn main() -> Result<()> {
     println!("8. Changing password for alice...");
     auth.change_password(email, password, "NewSecurePass789!")?;
     println!("   ✓ Password changed successfully");
-    
+
+    // Note: change_password automatically logs out all sessions
+    println!("   Note: All sessions were invalidated by password change");
+
     // Old password should fail
     println!("   Testing old password (should fail)...");
     match auth.login(email, password, None) {
         Ok(_) => println!("   ✗ Unexpected: old password still works"),
         Err(_) => println!("   ✓ Old password correctly rejected"),
     }
-    
+
     // New password should work
     println!("   Testing new password...");
     let new_session = auth.login(email, "NewSecurePass789!", None)?;
-    println!("   ✓ New password works, session: {}\n", new_session.session_id);
+    println!(
+        "   ✓ New password works, session: {}\n",
+        new_session.session_id
+    );
 
-    // 9. Logout
+    // 9. Logout - use the new_session since old one was invalidated
     println!("9. Logging out...");
-    auth.logout(&session.session_id)?;
+    auth.logout(&new_session.session_id)?;
     println!("   ✓ Session invalidated");
-    
+
     // Try to use expired session
     println!("   Testing invalidated session (should fail)...");
     match auth.get_user_info(&session) {
@@ -131,7 +137,7 @@ fn main() -> Result<()> {
     println!("11. Deleting bob's account...");
     auth.delete_account("bob@example.com", "BobPassword456!")?;
     println!("    ✓ Account deleted");
-    
+
     let users = auth.list_users();
     println!("    Remaining users: {}", users.len());
     for user in &users {
