@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+
 import 'package:kanari_kit/src/providers/wallet_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:kanari_kit/kanari_kit.dart';
@@ -208,23 +208,21 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   }
 
   void _showCurveSelectionSheet(BuildContext context, String pin) {
+    final walletState = context.read<WalletState>();
+
     showAppModalSheet(
       context: context,
       showDragHandle: true,
       builder: (sheetContext) => AppCurveSelectionSheet(
         onConfirm: (selectedCurve) async {
-          final walletState = context.read<WalletState>();
-
-          await walletState.createNewWallet(
-            curve: selectedCurve,
-            pin: pin,
-          );
+          await walletState.createNewWallet(curve: selectedCurve, pin: pin);
 
           if (!sheetContext.mounted || !context.mounted) return;
 
           final hasCreatedWallet =
               walletState.hasWallet &&
-              (walletState.activeWalletId != null || walletState.wallet != null);
+              (walletState.activeWalletId != null ||
+                  walletState.wallet != null);
 
           if (hasCreatedWallet) {
             Navigator.pop(sheetContext);
@@ -232,9 +230,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           } else {
             ScaffoldMessenger.of(sheetContext).showSnackBar(
               SnackBar(
-                content: Text(
-                  walletState.error ?? 'Failed to create wallet',
-                ),
+                content: Text(walletState.error ?? 'Failed to create wallet'),
                 backgroundColor: Colors.red,
               ),
             );
@@ -246,10 +242,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
   // 👉 อัปเดต Import Flow ให้เป็น 2 สเต็ป
   void _showImportDialog(BuildContext context) {
-    showModalBottomSheet(
+    showAppModalSheet(
       context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
       showDragHandle: true,
       builder: (context) => AppImportWalletSheet(
         onContinue: (String data, KanariCurve curve, bool isMnemonic) {
@@ -345,26 +339,3 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     });
   }
 }
-
-// ============================================================================
-// UI: Step 2 - หน้าต่างเลือก Curve หลังจากใส่ PIN เสร็จ (Create Wallet)
-// ============================================================================
-// ============================================================================
-// UI: หน้าจอใส่รหัส PIN (Custom Number Pad)
-// ============================================================================
-
-// ============================================================================
-// Widget: จุดวงกลมแสดงสถานะ PIN
-// ============================================================================
-
-// ============================================================================
-// Widget: แป้นพิมพ์ตัวเลขแบบกำหนดเอง
-// ============================================================================
-
-// ============================================================================
-// Widget ย่อย: ปุ่มตัวเลขวงกลม
-// ============================================================================
-
-// ============================================================================
-// 👉 UI: Import Wallet Sheet (Step 1: กรอกข้อมูล -> กด Continue)
-// ============================================================================
