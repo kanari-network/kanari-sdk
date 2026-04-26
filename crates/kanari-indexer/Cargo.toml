@@ -17,7 +17,7 @@ kanari-types = { workspace = true }
 kanari-crypto = { workspace = true }
 
 # Database
-rusqlite = { version = "0.37.0", features = ["bundled", "chrono", "serde_json"] }
+rusqlite = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
@@ -39,4 +39,4 @@ tracing = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
-tracing-subscriber = "0.3"
+tracing-subscriber = { workspace = true }

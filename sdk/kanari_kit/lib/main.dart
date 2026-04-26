@@ -1,8 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:kanari_crypto/kanari_crypto.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'src/auth_client.dart';
+import 'src/providers/theme_mode_provider.dart';
 import 'src/providers/wallet_provider.dart';
 import 'src/ui/screens/home_screen.dart';
+import 'src/ui/screens/login_screen.dart';
+import 'src/ui/screens/register_screen.dart';
+import 'src/ui/screens/setting_screen.dart';
 import 'src/ui/screens/welcome_screen.dart';
 
 void main() async {
@@ -10,21 +17,96 @@ void main() async {
 
   try {
     await initKanariCrypto();
-    debugPrint("✅ Kanari Crypto initialized");
+    debugPrint('Kanari Crypto initialized');
   } catch (e) {
-    debugPrint("❌ Kanari Crypto init error: $e");
+    debugPrint('Kanari Crypto init error: $e');
   }
+
+  final authClient = KanariAuthClient('http://localhost:3000');
+  await _restoreSession(authClient);
+
+  final themeModeProvider = ThemeModeProvider();
+  await themeModeProvider.initialize();
 
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(
-          create: (_) => WalletState()..initialize(),
-        ), // โหลดข้อมูลทันทีที่สร้าง
+        ChangeNotifierProvider(create: (_) => authClient),
+        ChangeNotifierProvider(create: (_) => themeModeProvider),
+        ChangeNotifierProvider(create: (_) => WalletState()..initialize()),
       ],
       child: const KanariApp(),
     ),
   );
+}
+
+Future<void> _restoreSession(KanariAuthClient authClient) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+
+    final sessionId = prefs.getString('session_id');
+    final userEmail = prefs.getString('user_email');
+    final walletAddress = prefs.getString('wallet_address');
+
+    if (sessionId != null &&
+        sessionId.isNotEmpty &&
+        userEmail != null &&
+        userEmail.isNotEmpty &&
+        walletAddress != null &&
+        walletAddress.isNotEmpty) {
+      debugPrint('Restoring session from SharedPreferences...');
+      debugPrint('User: $userEmail');
+      debugPrint('Wallet: $walletAddress');
+
+      authClient.setSession(
+        sessionId: sessionId,
+        userEmail: userEmail,
+        walletAddress: walletAddress,
+      );
+
+      debugPrint('Session restored locally for $userEmail');
+      _validateSessionInBackground(authClient);
+    } else {
+      debugPrint('No saved session found in SharedPreferences');
+    }
+  } catch (e) {
+    debugPrint('Session restore error: $e');
+  }
+}
+
+Future<void> _validateSessionInBackground(KanariAuthClient authClient) async {
+  try {
+    debugPrint('Validating session in background...');
+    final response = await authClient.validateSession();
+
+    if (!response.success || !(response.data?.valid ?? false)) {
+      debugPrint('Session validation failed - session may be expired');
+      debugPrint('User can still access app, but may need to re-login later');
+    } else {
+      debugPrint('Session validated successfully');
+    }
+  } catch (e) {
+    debugPrint('Background validation skipped: $e');
+  }
+}
+
+Future<void> _saveSession(KanariAuthClient authClient) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+
+    if (authClient.sessionId != null &&
+        authClient.userEmail != null &&
+        authClient.walletAddress != null) {
+      await prefs.setString('session_id', authClient.sessionId!);
+      await prefs.setString('user_email', authClient.userEmail!);
+      await prefs.setString('wallet_address', authClient.walletAddress!);
+      debugPrint('Session saved for: ${authClient.userEmail}');
+    } else {
+      debugPrint('Cannot save session: missing required fields');
+    }
+  } catch (e) {
+    debugPrint('Session save error: $e');
+  }
 }
 
 class KanariApp extends StatelessWidget {
@@ -32,20 +114,21 @@ class KanariApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final themeMode = context.watch<ThemeModeProvider>().themeMode;
+
     return MaterialApp(
       title: 'Kanari Wallet',
       debugShowCheckedModeBanner: false,
-      themeMode: ThemeMode.system, // รองรับทั้งโหมดมืดและสว่างตามระบบ
-      // --- Light Theme ---
+      themeMode: themeMode,
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blueAccent, // สีม่วงจะดูเป็น M3 มากกว่าน้ำเงินเดิม
+          seedColor: Colors.blueAccent,
           brightness: Brightness.light,
         ),
         appBarTheme: const AppBarTheme(
           centerTitle: true,
-          scrolledUnderElevation: 0, // ป้องกันสี AppBar เปลี่ยนเมื่อไถหน้าจอ
+          scrolledUnderElevation: 0,
           backgroundColor: Colors.transparent,
         ),
         cardTheme: CardThemeData(
@@ -53,9 +136,7 @@ class KanariApp extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(24),
           ),
-          color: const ColorScheme.light().surfaceVariant.withOpacity(
-            0.3,
-          ), // การใช้พื้นผิวแบบ M3
+          color: const ColorScheme.light().surfaceVariant.withOpacity(0.3),
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
@@ -69,8 +150,6 @@ class KanariApp extends StatelessWidget {
           ),
         ),
       ),
-
-      // --- Dark Theme ---
       darkTheme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
@@ -96,24 +175,62 @@ class KanariApp extends StatelessWidget {
           ),
         ),
       ),
+      initialRoute: '/',
+      routes: {
+        '/': (context) {
+          final authClient = context.watch<KanariAuthClient>();
+          final walletState = context.watch<WalletState>();
+          final canEnterHome =
+              authClient.isAuthenticated ||
+              (walletState.isUnlocked && walletState.hasWallet);
 
-      home: const MainWrapper(),
+          debugPrint(
+            "Route '/' check: isAuthenticated=${authClient.isAuthenticated}, isUnlocked=${walletState.isUnlocked}, hasWallet=${walletState.hasWallet}",
+          );
+
+          if (canEnterHome) {
+            debugPrint(
+              authClient.isAuthenticated
+                  ? 'Authenticated -> Navigate to HomeScreen'
+                  : 'Local wallet unlocked -> Navigate to HomeScreen',
+            );
+            return const HomeScreen();
+          }
+
+          debugPrint('Stay on WelcomeScreen');
+          return const WelcomeScreen();
+        },
+        '/login': (context) {
+          final authClient = context.read<KanariAuthClient>();
+          return KanariLoginScreen(
+            authClient: authClient,
+            onLoginSuccess: () async {
+              await _saveSession(authClient);
+              if (context.mounted) {
+                Navigator.of(
+                  context,
+                ).pushNamedAndRemoveUntil('/', (route) => false);
+              }
+            },
+          );
+        },
+        '/register': (context) {
+          final authClient = context.read<KanariAuthClient>();
+          return KanariRegisterScreen(
+            authClient: authClient,
+            onRegistrationSuccess: () async {
+              await _saveSession(authClient);
+              if (context.mounted) {
+                Navigator.of(
+                  context,
+                ).pushNamedAndRemoveUntil('/', (route) => false);
+              }
+            },
+          );
+        },
+        '/home': (context) => const HomeScreen(),
+        '/settings': (context) => const SettingScreen(),
+      },
     );
-  }
-}
-
-class MainWrapper extends StatelessWidget {
-  const MainWrapper({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final state = context.watch<WalletState>();
-
-    // 👉 เช็คว่า "ถ้าแอปถูกล็อกอยู่ (isUnlocked = false) หรือ ไม่มีกระเป๋า" ให้ไปหน้า WelcomeScreen
-    if (!state.isUnlocked || state.wallet == null) {
-      return const WelcomeScreen();
-    }
-
-    return const HomeScreen();
   }
 }

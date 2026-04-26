@@ -21,6 +21,7 @@ members = [
       "crates/kanari",
       "crates/kanari-common",
       "crates/kanari-crypto", 
+      "crates/kanari-auth",
       "crates/kanari-framework-builder",
       "crates/kanari-frameworks", 
       "crates/kanari-move-runtime", 
@@ -38,7 +39,7 @@ members = [
       "crates/kanari-db-common", 
       "crates/centauri", 
       "sdk/wallet", 
-      "crates/kanari-indexer",
+      "crates/kanari-indexer", "crates/run-auth",
 ]
 
 
@@ -87,7 +88,7 @@ serde_yaml = { version = "0.9.34", default-features = true }
 toml = { version = "1.1.2", default-features = true }
 
 ## Blockchain-specific serialization
-bcs = { version = "0.2.0" }
+bcs = { version = "0.2.1" }
 bincode = { version = "2.0.1", features = ["serde", "alloc"] }
 
 # ============================================================================
@@ -96,7 +97,7 @@ bincode = { version = "2.0.1", features = ["serde", "alloc"] }
 ## Hash Functions
 sha2 = "0.11.0"
 sha3 = "0.11.0"
-blake3 = { version = "1.8.4" }
+blake3 = { version = "1.8.5" }
 
 ## Elliptic Curve Cryptography (ECC)
 k256 = { version = "0.13.4", features = ["ecdsa", "std", "sha2"] }                 # secp256k1 (Bitcoin/Ethereum)
@@ -188,7 +189,8 @@ arbitrary = { version = "1.4.2", features = ["derive"] }                        
 # ============================================================================
 # Time & Date Handling
 # ============================================================================
-chrono = "0.4.44"
+chrono = { version = "0.4.44", features = ["serde"] }
+uuid = { version = "1.18", features = ["v4", "serde"] }
 
 # ============================================================================
 # Mathematics & Numerics
@@ -213,12 +215,17 @@ tikv-jemallocator = { git = "https://github.com/jamesatomc/jemallocator.git", fe
     "profiling",
 ] }
 
+# ============================================================================
+# Database
+# ============================================================================
+rusqlite = { version = "0.37.0", features = ["bundled", "chrono", "serde_json"] }
 
 # ============================================================================
 # Workspace Members (Internal Crates)
 # ============================================================================
 kanari-common = { path = "crates/kanari-common" }
 kanari-crypto = { path = "crates/kanari-crypto" }
+kanari-auth = { path = "crates/kanari-auth" }
 kanari-types = { path = "crates/kanari-types" }
 kanari-move-runtime = { path = "crates/kanari-move-runtime" }
 kanari-framework-builder = { path = "crates/kanari-framework-builder" }

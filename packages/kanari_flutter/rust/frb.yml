@@ -2,3 +2,4 @@ rust_input: "crate::api"
 dart_output: "../flutter/kanari_crypto/lib/src/"
 rust_root: "."
 dart_root: "../flutter/kanari_crypto"
+wasm_enabled: false

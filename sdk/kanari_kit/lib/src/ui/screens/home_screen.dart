@@ -7,12 +7,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:provider/provider.dart';
 
-// 👇 เพิ่ม Import สำหรับระบบสแกน QR Code แล้ว
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import 'package:kanari_kit/src/providers/wallet_provider.dart';
 import 'package:kanari_kit/kanari_kit.dart';
 import '../widgets/security_card.dart';
+import '../widgets/app_ui.dart';
 import '../network_selector.dart';
 import '../wallet_info_card.dart';
 
@@ -155,46 +155,17 @@ class _HomeScreenState extends State<HomeScreen> {
                                   children: [
                                     const NetworkSelector(),
                                     const SizedBox(width: 4),
-                                    PopupMenuButton<String>(
+                                    IconButton(
+                                      onPressed: () {
+                                        Navigator.of(
+                                          context,
+                                        ).pushNamed('/settings');
+                                      },
                                       icon: Icon(
-                                        Icons.more_vert_rounded,
+                                        Icons.settings_rounded,
                                         color: colorScheme.onSurfaceVariant,
                                       ),
-                                      color: colorScheme.surfaceContainer,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(16),
-                                      ),
-                                      onSelected: (value) {
-                                        if (value == 'change_pin') {
-                                          _showChangePinDialog(context, state);
-                                        } else if (value == 'logout') {
-                                          state.logout();
-                                        }
-                                      },
-                                      itemBuilder: (context) => [
-                                        PopupMenuItem(
-                                          value: 'change_pin',
-                                          child: ListTile(
-                                            leading: Icon(
-                                              Icons.pin_rounded,
-                                              color: colorScheme.primary,
-                                            ),
-                                            title: const Text('Change PIN'),
-                                            contentPadding: EdgeInsets.zero,
-                                          ),
-                                        ),
-                                        PopupMenuItem(
-                                          value: 'logout',
-                                          child: ListTile(
-                                            leading: Icon(
-                                              Icons.logout_rounded,
-                                              color: colorScheme.error,
-                                            ),
-                                            title: const Text('Logout'),
-                                            contentPadding: EdgeInsets.zero,
-                                          ),
-                                        ),
-                                      ],
+                                      tooltip: 'Settings',
                                     ),
                                   ],
                                 ),
@@ -574,13 +545,32 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       child: Column(
         children: [
-          Text(
-            walletData['name'] ?? 'Wallet',
-            style: theme.textTheme.titleSmall?.copyWith(
-              color: colorScheme.onPrimary.withOpacity(0.8),
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.5,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  walletData['name'] ?? 'Wallet',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: colorScheme.onPrimary.withOpacity(0.8),
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: () => _confirmDeleteWallet(
+                  context,
+                  walletData['id'] as String,
+                  walletData['name'] ?? 'Wallet',
+                ),
+                icon: Icon(
+                  Icons.delete_outline_rounded,
+                  color: colorScheme.onPrimary.withOpacity(0.85),
+                ),
+                tooltip: 'Delete Wallet',
+              ),
+            ],
           ),
 
           Expanded(
@@ -760,136 +750,59 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showTransferDialog(BuildContext context, {String? prefilledAddress}) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      showDragHandle: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-      ),
-      builder: (context) =>
-          _TransferBottomSheet(prefilledAddress: prefilledAddress),
-    );
-  }
-
-  void _showChangePinDialog(BuildContext context, WalletState state) {
-    final oldPinController = TextEditingController();
-    final newPinController = TextEditingController();
-    final confirmPinController = TextEditingController();
-
-    showDialog(
+  Future<void> _confirmDeleteWallet(
+    BuildContext context,
+    String walletId,
+    String walletName,
+  ) async {
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.pin_rounded),
-        title: const Text('Change PIN'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: oldPinController,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                maxLength: 6,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  letterSpacing: 8,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Old PIN',
-                  counterText: '',
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: newPinController,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                maxLength: 6,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  letterSpacing: 8,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'New PIN',
-                  counterText: '',
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: confirmPinController,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                maxLength: 6,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  letterSpacing: 8,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Confirm New PIN',
-                  counterText: '',
-                ),
-              ),
-            ],
-          ),
+        title: const Text('Delete Wallet'),
+        content: Text(
+          'Are you sure you want to delete "$walletName"? This cannot be undone.',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () async {
-              final oldPin = oldPinController.text;
-              final newPin = newPinController.text;
-              final confirmPin = confirmPinController.text;
-
-              if (oldPin.length != 6 ||
-                  newPin.length != 6 ||
-                  newPin != confirmPin) {
-                ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  SnackBar(
-                    content: const Text('Invalid PIN or PINs do not match'),
-                    backgroundColor: Theme.of(dialogContext).colorScheme.error,
-                  ),
-                );
-                return;
-              }
-
-              Navigator.pop(dialogContext);
-              final success = await state.changePin(oldPin, newPin);
-
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      success
-                          ? 'PIN changed successfully'
-                          : 'Failed to change PIN (Old PIN incorrect?)',
-                    ),
-                    backgroundColor: success
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.error,
-                  ),
-                );
-              }
-            },
-            child: const Text('Update'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            child: const Text('Delete'),
           ),
         ],
       ),
+    );
+
+    if (confirmed != true) return;
+
+    await context.read<WalletState>().removeWallet(walletId);
+
+    if (_pageController.hasClients) {
+      final currentPage =
+          _pageController.page?.round() ?? _pageController.initialPage;
+      final remainingWallets = context.read<WalletState>().wallets.length;
+      final targetPage = remainingWallets > 0
+          ? currentPage.clamp(0, remainingWallets - 1)
+          : 0;
+
+      if (targetPage != currentPage) {
+        _pageController.jumpToPage(targetPage);
+      }
+    }
+  }
+
+  void _showTransferDialog(BuildContext context, {String? prefilledAddress}) {
+    showAppModalSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (context) =>
+          _TransferBottomSheet(prefilledAddress: prefilledAddress),
     );
   }
 
