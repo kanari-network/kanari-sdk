@@ -6,14 +6,13 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-// 👇 เพิ่ม Import สำหรับระบบสแกน QR Code แล้ว
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import 'package:kanari_kit/src/providers/wallet_provider.dart';
 import 'package:kanari_kit/kanari_kit.dart';
 import '../widgets/security_card.dart';
+import '../widgets/app_ui.dart';
 import '../network_selector.dart';
 import '../wallet_info_card.dart';
 
@@ -799,135 +798,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showTransferDialog(BuildContext context, {String? prefilledAddress}) {
-    showModalBottomSheet(
+    showAppModalSheet(
       context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
       showDragHandle: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-      ),
       builder: (context) =>
           _TransferBottomSheet(prefilledAddress: prefilledAddress),
-    );
-  }
-
-  void _showChangePinDialog(BuildContext context, WalletState state) {
-    final oldPinController = TextEditingController();
-    final newPinController = TextEditingController();
-    final confirmPinController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.pin_rounded),
-        title: const Text('Change PIN'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: oldPinController,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                maxLength: 6,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  letterSpacing: 8,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Old PIN',
-                  counterText: '',
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: newPinController,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                maxLength: 6,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  letterSpacing: 8,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'New PIN',
-                  counterText: '',
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: confirmPinController,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                maxLength: 6,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  letterSpacing: 8,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Confirm New PIN',
-                  counterText: '',
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final oldPin = oldPinController.text;
-              final newPin = newPinController.text;
-              final confirmPin = confirmPinController.text;
-
-              if (oldPin.length != 6 ||
-                  newPin.length != 6 ||
-                  newPin != confirmPin) {
-                ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  SnackBar(
-                    content: const Text('Invalid PIN or PINs do not match'),
-                    backgroundColor: Theme.of(dialogContext).colorScheme.error,
-                  ),
-                );
-                return;
-              }
-
-              Navigator.pop(dialogContext);
-              final success = await state.changePin(oldPin, newPin);
-
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      success
-                          ? 'PIN changed successfully'
-                          : 'Failed to change PIN (Old PIN incorrect?)',
-                    ),
-                    backgroundColor: success
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.error,
-                  ),
-                );
-              }
-            },
-            child: const Text('Update'),
-          ),
-        ],
-      ),
     );
   }
 
@@ -996,91 +871,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
-  }
-
-  /// Handle logout with option to logout all sessions
-  Future<void> _handleLogout(
-    BuildContext context,
-    WalletState state,
-    bool logoutAll,
-  ) async {
-    final authClient = context.read<KanariAuthClient>();
-
-    try {
-      // Show confirmation dialog
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          icon: Icon(
-            logoutAll ? Icons.phonelink_erase_rounded : Icons.logout_rounded,
-            color: Theme.of(context).colorScheme.error,
-          ),
-          title: Text(logoutAll ? 'Logout All Devices?' : 'Logout?'),
-          content: Text(
-            logoutAll
-                ? 'This will log out all active sessions on all devices. You will need to login again.'
-                : 'This will log out your current session. You will need to login again.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error,
-              ),
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Logout'),
-            ),
-          ],
-        ),
-      );
-
-      if (confirmed != true || !mounted) return;
-
-      // Perform logout
-      if (logoutAll) {
-        await authClient.logoutAll();
-      } else {
-        await authClient.logout();
-      }
-
-      // Clear SharedPreferences
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('session_id');
-      await prefs.remove('user_email');
-      await prefs.remove('wallet_address');
-
-      // Logout should only clear the session and lock the local wallet.
-      state.logout();
-
-      if (mounted) {
-        Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              logoutAll
-                  ? 'Logged out from all devices'
-                  : 'Logged out successfully',
-            ),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Logout failed: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
   }
 }
 

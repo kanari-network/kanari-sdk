@@ -1,41 +1,29 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../auth_client.dart';
 import '../../providers/theme_mode_provider.dart';
 import '../../providers/wallet_provider.dart';
+import '../widgets/app_ui.dart';
 
 class SettingScreen extends StatelessWidget {
   const SettingScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final colorScheme = Theme.of(context).colorScheme;
 
-    return Scaffold(
-      backgroundColor: colorScheme.surface,
+    return AppGradientScaffold(
       appBar: AppBar(title: const Text('Settings'), centerTitle: true),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          Text(
-            'Appearance',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
-          ),
+          const AppSectionTitle('Appearance'),
           const SizedBox(height: 12),
           _ThemeModeCard(),
           const SizedBox(height: 24),
-          Text(
-            'Security',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
-          ),
+          const AppSectionTitle('Security'),
           const SizedBox(height: 12),
           _SettingsTile(
             icon: Icons.pin_rounded,
@@ -44,12 +32,7 @@ class SettingScreen extends StatelessWidget {
             onTap: () => _showChangePinDialog(context),
           ),
           const SizedBox(height: 24),
-          Text(
-            'Session',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
-          ),
+          const AppSectionTitle('Session'),
           const SizedBox(height: 12),
           _SettingsTile(
             icon: Icons.logout_rounded,
@@ -73,92 +56,11 @@ class SettingScreen extends StatelessWidget {
 
   void _showChangePinDialog(BuildContext context) {
     final state = context.read<WalletState>();
-    final oldPinController = TextEditingController();
-    final newPinController = TextEditingController();
-    final confirmPinController = TextEditingController();
 
     showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.pin_rounded),
-        title: const Text('Change PIN'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: oldPinController,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                maxLength: 6,
-                decoration: const InputDecoration(labelText: 'Current PIN'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: newPinController,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                maxLength: 6,
-                decoration: const InputDecoration(labelText: 'New PIN'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: confirmPinController,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                maxLength: 6,
-                decoration: const InputDecoration(labelText: 'Confirm New PIN'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final oldPin = oldPinController.text;
-              final newPin = newPinController.text;
-              final confirmPin = confirmPinController.text;
-
-              if (oldPin.length != 6 ||
-                  newPin.length != 6 ||
-                  newPin != confirmPin) {
-                ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  SnackBar(
-                    content: const Text('Invalid PIN or PINs do not match'),
-                    backgroundColor: Theme.of(dialogContext).colorScheme.error,
-                  ),
-                );
-                return;
-              }
-
-              Navigator.pop(dialogContext);
-              final success = await state.changePin(oldPin, newPin);
-
-              if (!context.mounted) return;
-
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    success
-                        ? 'PIN changed successfully'
-                        : 'Failed to change PIN (Old PIN incorrect?)',
-                  ),
-                  backgroundColor: success
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).colorScheme.error,
-                ),
-              );
-            },
-            child: const Text('Update'),
-          ),
-        ],
+      builder: (_) => AppPinChangeDialog(
+        onSubmit: (oldPin, newPin) => state.changePin(oldPin, newPin),
       ),
     );
   }
@@ -169,30 +71,14 @@ class SettingScreen extends StatelessWidget {
 
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: Icon(
-          logoutAll ? Icons.phonelink_erase_rounded : Icons.logout_rounded,
-          color: Theme.of(context).colorScheme.error,
-        ),
-        title: Text(logoutAll ? 'Logout All Devices?' : 'Logout?'),
-        content: Text(
-          logoutAll
-              ? 'This will log out all active sessions on all devices.'
-              : 'This will log out your current session.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Logout'),
-          ),
-        ],
+      builder: (_) => AppConfirmationDialog(
+        icon: logoutAll ? Icons.phonelink_erase_rounded : Icons.logout_rounded,
+        title: logoutAll ? 'Logout All Devices?' : 'Logout?',
+        content: logoutAll
+            ? 'This will log out all active sessions on all devices.'
+            : 'This will log out your current session.',
+        confirmLabel: 'Logout',
+        isDestructive: true,
       ),
     );
 
@@ -227,14 +113,10 @@ class SettingScreen extends StatelessWidget {
 class _ThemeModeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
     final themeModeProvider = context.watch<ThemeModeProvider>();
 
-    return Container(
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(20),
-      ),
+    return AppPanel(
+      padding: EdgeInsets.zero,
       child: Column(
         children: [
           RadioListTile<ThemeMode>(

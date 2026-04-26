@@ -1,15 +1,14 @@
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../../auth_client.dart';
 import '../../kanaricurve.dart';
 import '../../providers/wallet_provider.dart';
+import '../widgets/app_ui.dart';
 
-/// Login Screen Widget for Kanari Auth
-///
-/// Provides email/password login interface with validation and error handling.
 class KanariLoginScreen extends StatefulWidget {
   final KanariAuthClient authClient;
   final VoidCallback? onLoginSuccess;
@@ -26,12 +25,14 @@ class KanariLoginScreen extends StatefulWidget {
 
 class _KanariLoginScreenState extends State<KanariLoginScreen> {
   static const int _defaultKdfIterations = 120000;
+
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+
   bool _isLoading = false;
-  String? _errorMessage;
   bool _obscurePassword = true;
+  String? _errorMessage;
 
   @override
   void dispose() {
@@ -54,234 +55,189 @@ class _KanariLoginScreenState extends State<KanariLoginScreen> {
         password: _passwordController.text,
       );
 
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+      if (!mounted) return;
 
-        if (response.success) {
-          final walletAddress = response.data?.walletAddress;
-          var matchedLocalWallet = false;
-          if (walletAddress != null && walletAddress.isNotEmpty) {
-            matchedLocalWallet = await context
-                .read<WalletState>()
-                .syncWalletWithAddress(
-              walletAddress,
-            );
-          }
+      setState(() {
+        _isLoading = false;
+      });
 
-          if (!matchedLocalWallet &&
-              response.data?.encryptedPrivateKey != null &&
-              response.data!.encryptedPrivateKey!.isNotEmpty &&
-              response.data?.curveType != null) {
-            try {
-              final privateKey = await _decryptPrivateKey(
-                response.data!.encryptedPrivateKey!,
-                _passwordController.text,
-              );
-              final curve = KanariCurve.fromString(response.data!.curveType!);
-              await context.read<WalletState>().importFromPrivateKey(
-                privateKey,
-                curve: curve,
-                pin: '',
-              );
+      if (response.success) {
+        final walletAddress = response.data?.walletAddress;
+        var matchedLocalWallet = false;
 
-              if (walletAddress != null && walletAddress.isNotEmpty) {
-                matchedLocalWallet = await context
-                    .read<WalletState>()
-                    .syncWalletWithAddress(walletAddress);
-              }
-            } catch (e) {
-              if (mounted) {
-                setState(() {
-                  _errorMessage = 'Wallet import failed: $e';
-                });
-              }
-            }
-          }
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                matchedLocalWallet
-                    ? 'Login successful!'
-                    : 'Login successful, but this wallet is not stored on this device yet.',
-              ),
-              backgroundColor: matchedLocalWallet
-                  ? Colors.green
-                  : Colors.orange,
-            ),
-          );
-          widget.onLoginSuccess?.call();
-        } else {
-          setState(() {
-            _errorMessage = response.error ?? 'Login failed';
-          });
+        if (walletAddress != null && walletAddress.isNotEmpty) {
+          matchedLocalWallet = await context
+              .read<WalletState>()
+              .syncWalletWithAddress(walletAddress);
         }
+
+        if (!matchedLocalWallet &&
+            response.data?.encryptedPrivateKey != null &&
+            response.data!.encryptedPrivateKey!.isNotEmpty &&
+            response.data?.curveType != null) {
+          try {
+            final privateKey = await _decryptPrivateKey(
+              response.data!.encryptedPrivateKey!,
+              _passwordController.text,
+            );
+            final curve = KanariCurve.fromString(response.data!.curveType!);
+            await context.read<WalletState>().importFromPrivateKey(
+              privateKey,
+              curve: curve,
+              pin: '',
+            );
+
+            if (walletAddress != null && walletAddress.isNotEmpty) {
+              matchedLocalWallet = await context
+                  .read<WalletState>()
+                  .syncWalletWithAddress(walletAddress);
+            }
+          } catch (e) {
+            setState(() {
+              _errorMessage = 'Wallet import failed: $e';
+            });
+          }
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              matchedLocalWallet
+                  ? 'Login successful!'
+                  : 'Login successful, but this wallet is not stored on this device yet.',
+            ),
+            backgroundColor: matchedLocalWallet ? Colors.green : Colors.orange,
+          ),
+        );
+        widget.onLoginSuccess?.call();
+      } else {
+        setState(() {
+          _errorMessage = response.error ?? 'Login failed';
+        });
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = 'Network error: $e';
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Network error: $e';
+      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Kanari Login'), centerTitle: true),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 32),
+    Theme.of(context);
 
-                // Logo or Icon
-                Icon(
-                  Icons.account_circle,
-                  size: 80,
-                  color: Theme.of(context).primaryColor,
-                ),
-
-                const SizedBox(height: 16),
-
-                // Title
-                Text(
-                  'Welcome Back',
-                  style: Theme.of(context).textTheme.headlineMedium,
-                  textAlign: TextAlign.center,
-                ),
-
-                const SizedBox(height: 8),
-
-                Text(
-                  'Login to access your Kanari wallet',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodyLarge?.copyWith(color: Colors.grey[600]),
-                  textAlign: TextAlign.center,
-                ),
-
-                const SizedBox(height: 32),
-
-                // Email Field
-                TextFormField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
-                    labelText: 'Email',
-                    hintText: 'user@example.com',
-                    prefixIcon: Icon(Icons.email),
-                    border: OutlineInputBorder(),
+    return AppGradientScaffold(
+      appBar: AppBar(title: const Text('Login'), centerTitle: true),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 24),
+                  const AuthHero(
+                    icon: Icons.login_rounded,
+                    title: 'Welcome Back',
+                    subtitle:
+                        'Sign in to access your Kanari wallet and synced sessions.',
                   ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter your email';
-                    }
-                    if (!value.contains('@')) {
-                      return 'Please enter a valid email';
-                    }
-                    return null;
-                  },
-                  enabled: !_isLoading,
-                ),
-
-                const SizedBox(height: 16),
-
-                // Password Field
-                TextFormField(
-                  controller: _passwordController,
-                  obscureText: _obscurePassword,
-                  decoration: InputDecoration(
-                    labelText: 'Password',
-                    hintText: 'Enter your password',
-                    prefixIcon: const Icon(Icons.lock),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility
-                            : Icons.visibility_off,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _obscurePassword = !_obscurePassword;
-                        });
-                      },
-                    ),
-                    border: const OutlineInputBorder(),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter your password';
-                    }
-                    if (value.length < 8) {
-                      return 'Password must be at least 8 characters';
-                    }
-                    return null;
-                  },
-                  enabled: !_isLoading,
-                ),
-
-                if (_errorMessage != null) ...[
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.red[50],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.red[200]!),
-                    ),
-                    child: Row(
+                  const SizedBox(height: 28),
+                  AppPanel(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Icon(Icons.error_outline, color: Colors.red[700]),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _errorMessage!,
-                            style: TextStyle(color: Colors.red[700]),
+                        const AppSectionTitle('Account'),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _emailController,
+                          keyboardType: TextInputType.emailAddress,
+                          enabled: !_isLoading,
+                          decoration: const InputDecoration(
+                            labelText: 'Email',
+                            hintText: 'user@example.com',
+                            prefixIcon: Icon(Icons.alternate_email_rounded),
                           ),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Please enter your email';
+                            }
+                            if (!value.contains('@')) {
+                              return 'Please enter a valid email';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _passwordController,
+                          obscureText: _obscurePassword,
+                          enabled: !_isLoading,
+                          decoration: InputDecoration(
+                            labelText: 'Password',
+                            hintText: 'Enter your password',
+                            prefixIcon: const Icon(Icons.lock_rounded),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility_rounded
+                                    : Icons.visibility_off_rounded,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _obscurePassword = !_obscurePassword;
+                                });
+                              },
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Please enter your password';
+                            }
+                            if (value.length < 8) {
+                              return 'Password must be at least 8 characters';
+                            }
+                            return null;
+                          },
+                        ),
+                        if (_errorMessage != null) ...[
+                          const SizedBox(height: 16),
+                          AppErrorBanner(message: _errorMessage!),
+                        ],
+                        const SizedBox(height: 24),
+                        AppWideButton(
+                          onPressed: _isLoading ? null : _handleLogin,
+                          icon: Icons.login_rounded,
+                          label: 'Login',
+                          child: _isLoading
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Text('Login'),
+                        ),
+                        const SizedBox(height: 12),
+                        AppWideButton(
+                          onPressed: _isLoading
+                              ? null
+                              : () => Navigator.pushNamed(context, '/register'),
+                          icon: Icons.person_add_rounded,
+                          label: "Don't have an account? Register",
+                          style: AppWideButtonStyle.text,
                         ),
                       ],
                     ),
                   ),
                 ],
-
-                const SizedBox(height: 24),
-
-                // Login Button
-                ElevatedButton(
-                  onPressed: _isLoading ? null : _handleLogin,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                  child: _isLoading
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Login', style: TextStyle(fontSize: 16)),
-                ),
-
-                const SizedBox(height: 16),
-
-                // Register Link
-                TextButton(
-                  onPressed: _isLoading
-                      ? null
-                      : () {
-                          Navigator.pushNamed(context, '/register');
-                        },
-                  child: const Text("Don't have an account? Register"),
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -299,6 +255,7 @@ class _KanariLoginScreenState extends State<KanariLoginScreen> {
     final salt = base64Decode(payload['salt'] as String);
     final iterations =
         (payload['iterations'] as num?)?.toInt() ?? _defaultKdfIterations;
+
     if (encryptedBytes.length < 16) {
       throw Exception('Encrypted payload is invalid');
     }
@@ -307,11 +264,7 @@ class _KanariLoginScreenState extends State<KanariLoginScreen> {
     final algorithm = AesGcm.with256bits();
     final cipherText = encryptedBytes.sublist(0, encryptedBytes.length - 16);
     final macBytes = encryptedBytes.sublist(encryptedBytes.length - 16);
-    final secretBox = SecretBox(
-      cipherText,
-      nonce: nonce,
-      mac: Mac(macBytes),
-    );
+    final secretBox = SecretBox(cipherText, nonce: nonce, mac: Mac(macBytes));
 
     final clearText = await algorithm.decrypt(
       secretBox,
@@ -321,7 +274,11 @@ class _KanariLoginScreenState extends State<KanariLoginScreen> {
     return utf8.decode(clearText);
   }
 
-  Future<List<int>> _deriveKey(String password, List<int> salt, int iterations) async {
+  Future<List<int>> _deriveKey(
+    String password,
+    List<int> salt,
+    int iterations,
+  ) async {
     final sha256 = Sha256();
     var block = await sha256.hash([...utf8.encode(password), ...salt]);
 

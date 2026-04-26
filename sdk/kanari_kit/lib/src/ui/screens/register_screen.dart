@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
-import '../../auth_client.dart';
 
-/// Registration Screen Widget for Kanari Auth
-///
-/// Provides email/password registration interface with validation,
-/// curve type selection, and error handling.
+import '../../auth_client.dart';
+import '../widgets/app_ui.dart';
+
 class KanariRegisterScreen extends StatefulWidget {
   final KanariAuthClient authClient;
   final VoidCallback? onRegistrationSuccess;
@@ -24,54 +22,50 @@ class _KanariRegisterScreenState extends State<KanariRegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+
   bool _isLoading = false;
-  String? _errorMessage;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
+  String? _errorMessage;
   String _selectedCurveType = 'ed25519';
 
-  // Available curve types with descriptions
   final List<Map<String, String>> _curveTypes = [
-    {'value': 'ed25519', 'label': 'Ed25519', 'desc': 'Fast & secure (default)'},
+    {'value': 'ed25519', 'label': 'Ed25519', 'desc': 'Fast and secure default'},
     {
       'value': 'k256',
-      'label': 'K256 (Secp256k1)',
-      'desc': 'Bitcoin/Ethereum compatible',
+      'label': 'K256',
+      'desc': 'Bitcoin and Ethereum compatible',
     },
-    {
-      'value': 'p256',
-      'label': 'P256 (NIST)',
-      'desc': 'Enterprise standard (NIST P-256)',
-    },
+    {'value': 'p256', 'label': 'P256', 'desc': 'NIST enterprise standard'},
     {
       'value': 'dilithium2',
       'label': 'Dilithium2',
-      'desc': 'Post-quantum, Level 2 security (~2.5KB)',
+      'desc': 'Post-quantum level 2',
     },
     {
       'value': 'dilithium3',
       'label': 'Dilithium3',
-      'desc': 'Post-quantum, Level 3 security (~4KB) - Recommended',
+      'desc': 'Post-quantum level 3 recommended',
     },
     {
       'value': 'dilithium5',
       'label': 'Dilithium5',
-      'desc': 'Post-quantum, Level 5 security (~5KB)',
+      'desc': 'Post-quantum level 5',
     },
     {
       'value': 'sphincsplus',
-      'label': 'Sphincs+ (SHA256)',
-      'desc': 'Post-quantum, hash-based (~50KB)',
+      'label': 'Sphincs+',
+      'desc': 'Hash-based post-quantum',
     },
     {
       'value': 'ed25519dilithium3',
       'label': 'Ed25519 + Dilithium3',
-      'desc': 'Hybrid: Classical + Post-quantum',
+      'desc': 'Hybrid classical and PQ',
     },
     {
       'value': 'k256dilithium3',
       'label': 'K256 + Dilithium3',
-      'desc': 'Hybrid: Bitcoin-compatible + Post-quantum',
+      'desc': 'Hybrid EVM and PQ',
     },
   ];
 
@@ -98,38 +92,38 @@ class _KanariRegisterScreenState extends State<KanariRegisterScreen> {
         curveType: _selectedCurveType,
       );
 
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+      if (!mounted) return;
 
-        if (response.success) {
-          final walletAddr = response.data?.walletAddress;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                walletAddr != null
-                    ? 'Registration successful! Wallet: ${walletAddr.substring(0, 10)}...'
-                    : 'Registration successful!',
-              ),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 4),
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (response.success) {
+        final walletAddr = response.data?.walletAddress;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              walletAddr != null
+                  ? 'Registration successful! Wallet: ${walletAddr.substring(0, 10)}...'
+                  : 'Registration successful!',
             ),
-          );
-          widget.onRegistrationSuccess?.call();
-        } else {
-          setState(() {
-            _errorMessage = response.error ?? 'Registration failed';
-          });
-        }
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        widget.onRegistrationSuccess?.call();
+      } else {
+        setState(() {
+          _errorMessage = response.error ?? 'Registration failed';
+        });
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = 'Network error: $e';
-        });
-      }
+      if (!mounted) return;
+
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Network error: $e';
+      });
     }
   }
 
@@ -157,287 +151,272 @@ class _KanariRegisterScreenState extends State<KanariRegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Create Account'), centerTitle: true),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 24),
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final selectedCurve = _curveTypes.firstWhere(
+      (curve) => curve['value'] == _selectedCurveType,
+    );
 
-                // Icon
-                Icon(
-                  Icons.person_add,
-                  size: 80,
-                  color: Theme.of(context).primaryColor,
-                ),
-
-                const SizedBox(height: 16),
-
-                // Title
-                Text(
-                  'Join Kanari Network',
-                  style: Theme.of(context).textTheme.headlineMedium,
-                  textAlign: TextAlign.center,
-                ),
-
-                const SizedBox(height: 8),
-
-                Text(
-                  'Create your wallet and start transacting',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodyLarge?.copyWith(color: Colors.grey[600]),
-                  textAlign: TextAlign.center,
-                ),
-
-                const SizedBox(height: 32),
-
-                // Email Field
-                TextFormField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
-                    labelText: 'Email',
-                    hintText: 'user@example.com',
-                    prefixIcon: Icon(Icons.email),
-                    border: OutlineInputBorder(),
+    return AppGradientScaffold(
+      appBar: AppBar(title: const Text('Register'), centerTitle: true),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 20),
+                  const AuthHero(
+                    icon: Icons.person_add_alt_1_rounded,
+                    title: 'Create Your Account',
+                    subtitle:
+                        'Set up your Kanari account and choose the wallet cryptography that fits your use case.',
                   ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter your email';
-                    }
-                    if (!value.contains('@')) {
-                      return 'Please enter a valid email';
-                    }
-                    return null;
-                  },
-                  enabled: !_isLoading,
-                ),
-
-                const SizedBox(height: 16),
-
-                // Password Field
-                TextFormField(
-                  controller: _passwordController,
-                  obscureText: _obscurePassword,
-                  decoration: InputDecoration(
-                    labelText: 'Password',
-                    hintText: 'Min 8 chars, upper, lower, digit, special',
-                    prefixIcon: const Icon(Icons.lock),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility
-                            : Icons.visibility_off,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _obscurePassword = !_obscurePassword;
-                        });
-                      },
-                    ),
-                    border: const OutlineInputBorder(),
-                    helperText: 'Must meet all requirements below',
-                  ),
-                  validator: _validatePassword,
-                  enabled: !_isLoading,
-                ),
-
-                const SizedBox(height: 8),
-
-                // Password Requirements
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.blue[50],
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blue[200]!),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Password Requirements:',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blue[700],
-                          fontSize: 12,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      _buildRequirement(
-                        'At least 8 characters',
-                        RegExp(r'.{8,}'),
-                      ),
-                      _buildRequirement(
-                        'One uppercase letter',
-                        RegExp(r'[A-Z]'),
-                      ),
-                      _buildRequirement(
-                        'One lowercase letter',
-                        RegExp(r'[a-z]'),
-                      ),
-                      _buildRequirement('One digit', RegExp(r'[0-9]')),
-                      _buildRequirement(
-                        'One special character',
-                        RegExp(r'[!@#$%^&*(),.?":{}|<>]'),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                // Confirm Password Field
-                TextFormField(
-                  controller: _confirmPasswordController,
-                  obscureText: _obscureConfirmPassword,
-                  decoration: InputDecoration(
-                    labelText: 'Confirm Password',
-                    hintText: 'Re-enter your password',
-                    prefixIcon: const Icon(Icons.lock_outline),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscureConfirmPassword
-                            ? Icons.visibility
-                            : Icons.visibility_off,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _obscureConfirmPassword = !_obscureConfirmPassword;
-                        });
-                      },
-                    ),
-                    border: const OutlineInputBorder(),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please confirm your password';
-                    }
-                    if (value != _passwordController.text) {
-                      return 'Passwords do not match';
-                    }
-                    return null;
-                  },
-                  enabled: !_isLoading,
-                ),
-
-                const SizedBox(height: 24),
-
-                // Curve Type Dropdown
-                DropdownButtonFormField<String>(
-                  value: _selectedCurveType,
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.security),
-                    labelText: 'Cryptographic Curve Type',
-                    helperText: 'Choose the algorithm for your wallet',
-                  ),
-                  items: _curveTypes.map((curve) {
-                    return DropdownMenuItem<String>(
-                      value: curve['value'],
-                      child: Text(
-                        curve['label']!,
-                        style: const TextStyle(fontWeight: FontWeight.w500),
-                      ),
-                    );
-                  }).toList(),
-                  onChanged: _isLoading
-                      ? null
-                      : (value) {
-                          setState(() {
-                            _selectedCurveType = value!;
-                          });
-                        },
-                ),
-
-                if (_errorMessage != null) ...[
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.red[50],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.red[200]!),
-                    ),
-                    child: Row(
+                  const SizedBox(height: 28),
+                  AppPanel(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Icon(Icons.error_outline, color: Colors.red[700]),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _errorMessage!,
-                            style: TextStyle(color: Colors.red[700]),
+                        const AppSectionTitle('Account Details'),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _emailController,
+                          keyboardType: TextInputType.emailAddress,
+                          enabled: !_isLoading,
+                          decoration: const InputDecoration(
+                            labelText: 'Email',
+                            hintText: 'user@example.com',
+                            prefixIcon: Icon(Icons.alternate_email_rounded),
                           ),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Please enter your email';
+                            }
+                            if (!value.contains('@')) {
+                              return 'Please enter a valid email';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _passwordController,
+                          obscureText: _obscurePassword,
+                          enabled: !_isLoading,
+                          onChanged: (_) => setState(() {}),
+                          decoration: InputDecoration(
+                            labelText: 'Password',
+                            hintText: 'Strong password required',
+                            prefixIcon: const Icon(Icons.lock_rounded),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility_rounded
+                                    : Icons.visibility_off_rounded,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _obscurePassword = !_obscurePassword;
+                                });
+                              },
+                            ),
+                          ),
+                          validator: _validatePassword,
+                        ),
+                        const SizedBox(height: 12),
+                        _RequirementsCard(password: _passwordController.text),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _confirmPasswordController,
+                          obscureText: _obscureConfirmPassword,
+                          enabled: !_isLoading,
+                          decoration: InputDecoration(
+                            labelText: 'Confirm Password',
+                            hintText: 'Re-enter your password',
+                            prefixIcon: const Icon(Icons.verified_user_rounded),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscureConfirmPassword
+                                    ? Icons.visibility_rounded
+                                    : Icons.visibility_off_rounded,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _obscureConfirmPassword =
+                                      !_obscureConfirmPassword;
+                                });
+                              },
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Please confirm your password';
+                            }
+                            if (value != _passwordController.text) {
+                              return 'Passwords do not match';
+                            }
+                            return null;
+                          },
                         ),
                       ],
                     ),
                   ),
-                ],
-
-                const SizedBox(height: 24),
-
-                // Register Button
-                ElevatedButton(
-                  onPressed: _isLoading ? null : _handleRegister,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                  child: _isLoading
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text(
-                          'Create Account',
-                          style: TextStyle(fontSize: 16),
+                  const SizedBox(height: 18),
+                  AppPanel(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const AppSectionTitle('Wallet Cryptography'),
+                        const SizedBox(height: 8),
+                        Text(
+                          selectedCurve['desc']!,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
                         ),
-                ),
-
-                const SizedBox(height: 16),
-
-                // Login Link
-                TextButton(
-                  onPressed: _isLoading
-                      ? null
-                      : () {
-                          Navigator.pop(context);
-                        },
-                  child: const Text('Already have an account? Login'),
-                ),
-              ],
+                        const SizedBox(height: 16),
+                        DropdownButtonFormField<String>(
+                          value: _selectedCurveType,
+                          decoration: const InputDecoration(
+                            labelText: 'Curve Type',
+                            prefixIcon: Icon(Icons.security_rounded),
+                          ),
+                          items: _curveTypes.map((curve) {
+                            return DropdownMenuItem<String>(
+                              value: curve['value'],
+                              child: Text(curve['label']!),
+                            );
+                          }).toList(),
+                          onChanged: _isLoading
+                              ? null
+                              : (value) {
+                                  if (value == null) return;
+                                  setState(() {
+                                    _selectedCurveType = value;
+                                  });
+                                },
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_errorMessage != null) ...[
+                    const SizedBox(height: 16),
+                    AppErrorBanner(message: _errorMessage!),
+                  ],
+                  const SizedBox(height: 24),
+                  AppWideButton(
+                    onPressed: _isLoading ? null : _handleRegister,
+                    icon: Icons.person_add_alt_1_rounded,
+                    label: 'Create Account',
+                    child: _isLoading
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Create Account'),
+                  ),
+                  const SizedBox(height: 12),
+                  AppWideButton(
+                    onPressed: _isLoading ? null : () => Navigator.pop(context),
+                    icon: Icons.login_rounded,
+                    label: 'Already have an account? Login',
+                    style: AppWideButtonStyle.text,
+                  ),
+                ],
+              ),
             ),
           ),
         ),
       ),
     );
   }
+}
 
-  Widget _buildRequirement(String text, RegExp pattern) {
-    final password = _passwordController.text;
-    final isValid = password.isNotEmpty && pattern.hasMatch(password);
+class _RequirementsCard extends StatelessWidget {
+  final String password;
+
+  const _RequirementsCard({required this.password});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colorScheme.primaryContainer.withOpacity(0.35),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Password requirements',
+            style: Theme.of(
+              context,
+            ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          _RequirementRow(
+            text: 'At least 8 characters',
+            isValid: RegExp(r'.{8,}').hasMatch(password),
+          ),
+          _RequirementRow(
+            text: 'One uppercase letter',
+            isValid: RegExp(r'[A-Z]').hasMatch(password),
+          ),
+          _RequirementRow(
+            text: 'One lowercase letter',
+            isValid: RegExp(r'[a-z]').hasMatch(password),
+          ),
+          _RequirementRow(
+            text: 'One digit',
+            isValid: RegExp(r'[0-9]').hasMatch(password),
+          ),
+          _RequirementRow(
+            text: 'One special character',
+            isValid: RegExp(r'[!@#$%^&*(),.?":{}|<>]').hasMatch(password),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RequirementRow extends StatelessWidget {
+  final String text;
+  final bool isValid;
+
+  const _RequirementRow({required this.text, required this.isValid});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         children: [
           Icon(
-            isValid ? Icons.check_circle : Icons.radio_button_unchecked,
+            isValid
+                ? Icons.check_circle_rounded
+                : Icons.radio_button_unchecked_rounded,
             size: 16,
-            color: isValid ? Colors.green : Colors.grey,
+            color: isValid ? Colors.green : colorScheme.onSurfaceVariant,
           ),
           const SizedBox(width: 8),
-          Text(
-            text,
-            style: TextStyle(
-              fontSize: 11,
-              color: isValid ? Colors.green[700] : Colors.grey[600],
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 12,
+                color: isValid ? Colors.green : colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
         ],
