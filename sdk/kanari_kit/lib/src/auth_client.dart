@@ -169,6 +169,7 @@ class KanariAuthClient extends ChangeNotifier {
       _sessionId = null;
       _userEmail = null;
       _walletAddress = null;
+      notifyListeners();
 
       return ApiResponse(
         success: true,
@@ -205,6 +206,7 @@ class KanariAuthClient extends ChangeNotifier {
       _sessionId = null;
       _userEmail = null;
       _walletAddress = null;
+      notifyListeners();
 
       return ApiResponse(
         success: true,
@@ -251,6 +253,7 @@ class KanariAuthClient extends ChangeNotifier {
       _sessionId = null;
       _userEmail = null;
       _walletAddress = null;
+      notifyListeners();
 
       return ApiResponse(
         success: true,
@@ -315,30 +318,42 @@ class KanariAuthClient extends ChangeNotifier {
       return ApiResponse(success: false, error: 'No active session');
     }
 
-    final response = await _client.get(
-      Uri.parse('$baseUrl/api/v1/session/validate/$_sessionId'),
-    );
-
-    final jsonResponse = jsonDecode(response.body) as Map<String, dynamic>;
-
-    if (response.statusCode == 200) {
-      final validateResponse = ValidateSessionResponse.fromJson(
-        jsonResponse['data'] as Map<String, dynamic>,
+    try {
+      final response = await _client.get(
+        Uri.parse('$baseUrl/api/v1/session/validate/$_sessionId'),
       );
 
-      // If session is invalid, clear local state
-      if (!validateResponse.valid) {
-        _sessionId = null;
-        _userEmail = null;
-        _walletAddress = null;
+      final jsonResponse = jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode == 200) {
+        final data = jsonResponse['data'];
+        if (data == null) {
+          return ApiResponse(
+            success: false,
+            error: 'No data returned from server',
+          );
+        }
+
+        final validateResponse = ValidateSessionResponse.fromJson(
+          data as Map<String, dynamic>,
+        );
+
+        // If session is invalid, clear local state
+        if (!validateResponse.valid) {
+          _sessionId = null;
+          _userEmail = null;
+          _walletAddress = null;
+        }
+
+        return ApiResponse(success: true, data: validateResponse);
+      } else {
+        return ApiResponse(
+          success: false,
+          error: jsonResponse['error'] as String? ?? 'Validation failed',
+        );
       }
-
-      return ApiResponse(success: true, data: validateResponse);
-    } else {
-      return ApiResponse(
-        success: false,
-        error: jsonResponse['error'] as String? ?? 'Validation failed',
-      );
+    } catch (e) {
+      return ApiResponse(success: false, error: 'Validation error: $e');
     }
   }
 
@@ -407,10 +422,5 @@ class KanariAuthClient extends ChangeNotifier {
     _userEmail = null;
     _walletAddress = null;
     notifyListeners(); // Notify listeners of state change
-  }
-
-  /// Dispose of HTTP client
-  void dispose() {
-    _client.close();
   }
 }

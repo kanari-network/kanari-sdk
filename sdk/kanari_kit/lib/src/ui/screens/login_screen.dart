@@ -1,5 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:cryptography/cryptography.dart';
+import 'package:provider/provider.dart';
 import '../../auth_client.dart';
+import '../../kanaricurve.dart';
+import '../../providers/wallet_provider.dart';
 
 /// Login Screen Widget for Kanari Auth
 ///
@@ -19,6 +25,7 @@ class KanariLoginScreen extends StatefulWidget {
 }
 
 class _KanariLoginScreenState extends State<KanariLoginScreen> {
+  static const int _defaultKdfIterations = 120000;
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -53,10 +60,56 @@ class _KanariLoginScreenState extends State<KanariLoginScreen> {
         });
 
         if (response.success) {
+          final walletAddress = response.data?.walletAddress;
+          var matchedLocalWallet = false;
+          if (walletAddress != null && walletAddress.isNotEmpty) {
+            matchedLocalWallet = await context
+                .read<WalletState>()
+                .syncWalletWithAddress(
+              walletAddress,
+            );
+          }
+
+          if (!matchedLocalWallet &&
+              response.data?.encryptedPrivateKey != null &&
+              response.data!.encryptedPrivateKey!.isNotEmpty &&
+              response.data?.curveType != null) {
+            try {
+              final privateKey = await _decryptPrivateKey(
+                response.data!.encryptedPrivateKey!,
+                _passwordController.text,
+              );
+              final curve = KanariCurve.fromString(response.data!.curveType!);
+              await context.read<WalletState>().importFromPrivateKey(
+                privateKey,
+                curve: curve,
+                pin: '',
+              );
+
+              if (walletAddress != null && walletAddress.isNotEmpty) {
+                matchedLocalWallet = await context
+                    .read<WalletState>()
+                    .syncWalletWithAddress(walletAddress);
+              }
+            } catch (e) {
+              if (mounted) {
+                setState(() {
+                  _errorMessage = 'Wallet import failed: $e';
+                });
+              }
+            }
+          }
+
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Login successful!'),
-              backgroundColor: Colors.green,
+            SnackBar(
+              content: Text(
+                matchedLocalWallet
+                    ? 'Login successful!'
+                    : 'Login successful, but this wallet is not stored on this device yet.',
+              ),
+              backgroundColor: matchedLocalWallet
+                  ? Colors.green
+                  : Colors.orange,
             ),
           );
           widget.onLoginSuccess?.call();
@@ -234,5 +287,52 @@ class _KanariLoginScreenState extends State<KanariLoginScreen> {
         ),
       ),
     );
+  }
+
+  Future<String> _decryptPrivateKey(
+    String encryptedPayload,
+    String password,
+  ) async {
+    final payload = jsonDecode(encryptedPayload) as Map<String, dynamic>;
+    final encryptedBytes = base64Decode(payload['ciphertext'] as String);
+    final nonce = base64Decode(payload['nonce'] as String);
+    final salt = base64Decode(payload['salt'] as String);
+    final iterations =
+        (payload['iterations'] as num?)?.toInt() ?? _defaultKdfIterations;
+    if (encryptedBytes.length < 16) {
+      throw Exception('Encrypted payload is invalid');
+    }
+
+    final keyBytes = await _deriveKey(password, salt, iterations);
+    final algorithm = AesGcm.with256bits();
+    final cipherText = encryptedBytes.sublist(0, encryptedBytes.length - 16);
+    final macBytes = encryptedBytes.sublist(encryptedBytes.length - 16);
+    final secretBox = SecretBox(
+      cipherText,
+      nonce: nonce,
+      mac: Mac(macBytes),
+    );
+
+    final clearText = await algorithm.decrypt(
+      secretBox,
+      secretKey: SecretKey(keyBytes),
+    );
+
+    return utf8.decode(clearText);
+  }
+
+  Future<List<int>> _deriveKey(String password, List<int> salt, int iterations) async {
+    final sha256 = Sha256();
+    var block = await sha256.hash([...utf8.encode(password), ...salt]);
+
+    for (var i = 1; i < iterations; i++) {
+      block = await sha256.hash([
+        ...block.bytes,
+        ...utf8.encode(password),
+        ...salt,
+      ]);
+    }
+
+    return block.bytes;
   }
 }

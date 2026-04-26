@@ -17,6 +17,7 @@ use crate::{
     AuthError, AuthResult, Session, UserStore, email_validator, session::SessionManager,
     user_store::UserRecord,
 };
+use crate::private_key_crypto::{decrypt_private_key, encrypt_private_key};
 
 /// Main authentication manager that coordinates user registration,
 /// login, and transaction signing operations.
@@ -108,10 +109,16 @@ impl AuthManager {
         let wallet_address = wallet.address.to_hex_literal();
 
         // Create user record with hashed password
-        let mut user_record = UserRecord::new(normalized_email.clone(), password, wallet_address)?;
+        let mut user_record = UserRecord::new(
+            normalized_email.clone(),
+            password,
+            wallet_address,
+            curve.to_string(),
+        )?;
 
-        // Store encrypted private key (in production, use proper encryption)
-        user_record.set_encrypted_private_key(keypair.private_key.to_string());
+        let encrypted_private_key =
+            encrypt_private_key(&keypair.private_key.to_string(), password)?;
+        user_record.set_encrypted_private_key(encrypted_private_key);
 
         // Save user to store
         self.user_store.add_user(user_record)?;
@@ -148,7 +155,7 @@ impl AuthManager {
         let normalized_email = email_validator::normalize_email(email);
 
         // Get user record and check account status
-        let wallet_address = {
+        let (wallet_address, curve_type, decrypted_private_key) = {
             let mut user = self
                 .user_store
                 .get_user(&normalized_email)?
@@ -171,13 +178,24 @@ impl AuthManager {
             user.record_successful_login();
             self.user_store.update_user(&user)?;
 
-            user.wallet_address.clone()
+            let decrypted_private_key = decrypt_private_key(
+                user.encrypted_private_key.as_deref().ok_or_else(|| {
+                    AuthError::CryptoError("Encrypted private key not found".to_string())
+                })?,
+                password,
+            )?;
+            let curve_type = CurveType::from_str(&user.curve_type)
+                .map_err(|e| AuthError::CryptoError(format!("Invalid stored curve type: {e}")))?;
+
+            (user.wallet_address.clone(), curve_type, decrypted_private_key)
         };
 
         // Create session (outside the borrow scope)
         let session = self.session_manager.create_session(
             normalized_email.clone(),
             wallet_address,
+            Some(decrypted_private_key),
+            curve_type,
             session_timeout,
         );
 
@@ -253,32 +271,22 @@ impl AuthManager {
         }
 
         // Get user to retrieve wallet credentials
-        let user = self
-            .user_store
-            .get_user(&session.email)?
-            .ok_or(AuthError::UserNotFound(session.email.clone()))?;
-
-        // In a real implementation, decrypt the private key here
-        // For now, we'll use the stored key directly (not secure!)
-        let private_key = user.encrypted_private_key.as_ref().ok_or_else(|| {
+        let private_key = session.private_key.as_ref().ok_or_else(|| {
             AuthError::WalletError(kanari_crypto::wallet::WalletError::NotFound(
-                "Private key not found".to_string(),
+                "Session private key not found".to_string(),
             ))
         })?;
 
         // Parse wallet address
-        let address = AccountAddress::from_str(&user.wallet_address)
+        let address = AccountAddress::from_str(&session.wallet_address)
             .map_err(|e| AuthError::CryptoError(format!("Invalid wallet address: {}", e)))?;
 
-        // Recreate wallet from stored credentials
-        // Note: In production, you should properly decrypt and reconstruct the wallet
-        // For this example, we're using Ed25519 as default
         let wallet = wallet::Wallet::new(
             address,
             private_key.clone(),
             String::new(), // Seed phrase would be needed for full reconstruction
             None,
-            CurveType::Ed25519, // Would need to be stored with user
+            session.curve_type,
         );
 
         // Sign the transaction
@@ -356,7 +364,10 @@ impl AuthManager {
     ///
     /// # Returns
     /// User's email, wallet address, and encrypted private key (if available)
-    pub fn get_user_encrypted_key(&self, email: &str) -> AuthResult<(String, String, Option<String>)> {
+    pub fn get_user_encrypted_key(
+        &self,
+        email: &str,
+    ) -> AuthResult<(String, String, String, Option<String>)> {
         let user = self
             .user_store
             .get_user(email)?
@@ -369,6 +380,7 @@ impl AuthManager {
         Ok((
             user.email.clone(),
             user.wallet_address.clone(),
+            user.curve_type.clone(),
             user.encrypted_private_key.clone(),
         ))
     }
@@ -400,9 +412,17 @@ impl AuthManager {
         // Validate new password
         UserRecord::validate_password(new_password)?;
 
+        let encrypted_private_key = user
+            .encrypted_private_key
+            .clone()
+            .ok_or_else(|| AuthError::CryptoError("Encrypted private key not found".to_string()))?;
+        let decrypted_private_key = decrypt_private_key(&encrypted_private_key, old_password)?;
+
         // Hash and update password
         let new_hash = UserRecord::hash_password(new_password)?;
         user.password_hash = new_hash;
+        user.encrypted_private_key =
+            Some(encrypt_private_key(&decrypted_private_key, new_password)?);
 
         // Persist the password change
         self.user_store.update_user(&user)?;

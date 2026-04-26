@@ -7,6 +7,7 @@
 //! expiration, and secure storage of session tokens.
 
 use chrono::{DateTime, Utc};
+use kanari_crypto::keys::CurveType;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use uuid::Uuid;
@@ -30,6 +31,13 @@ pub struct Session {
 
     /// Wallet address associated with this session
     pub wallet_address: String,
+
+    /// Decrypted private key held in memory for authenticated operations
+    #[serde(skip)]
+    pub private_key: Option<String>,
+
+    /// Curve type for this wallet
+    pub curve_type: CurveType,
 
     /// Session creation timestamp
     pub created_at: DateTime<Utc>,
@@ -55,7 +63,13 @@ impl Session {
     ///
     /// # Returns
     /// A new Session instance
-    pub fn new(email: String, wallet_address: String, timeout: Option<Duration>) -> Self {
+    pub fn new(
+        email: String,
+        wallet_address: String,
+        private_key: Option<String>,
+        curve_type: CurveType,
+        timeout: Option<Duration>,
+    ) -> Self {
         let now = Utc::now();
         let timeout_duration = timeout.unwrap_or(DEFAULT_SESSION_TIMEOUT);
 
@@ -72,6 +86,8 @@ impl Session {
             session_id,
             email,
             wallet_address,
+            private_key,
+            curve_type,
             created_at: now,
             expires_at: now + chrono::Duration::from_std(actual_timeout).unwrap(),
             last_activity: now,
@@ -176,6 +192,8 @@ impl SessionManager {
         &mut self,
         email: String,
         wallet_address: String,
+        private_key: Option<String>,
+        curve_type: CurveType,
         timeout: Option<Duration>,
     ) -> Session {
         // Clean up expired sessions for this user first
@@ -191,7 +209,7 @@ impl SessionManager {
             }
         }
 
-        let session = Session::new(email.clone(), wallet_address, timeout);
+        let session = Session::new(email.clone(), wallet_address, private_key, curve_type, timeout);
         let session_id = session.session_id.clone();
 
         // Store session
@@ -315,7 +333,13 @@ mod tests {
 
     #[test]
     fn test_session_creation() {
-        let session = Session::new("user@example.com".to_string(), "0x123".to_string(), None);
+        let session = Session::new(
+            "user@example.com".to_string(),
+            "0x123".to_string(),
+            Some("kanari_test".to_string()),
+            CurveType::Ed25519,
+            None,
+        );
 
         assert!(!session.session_id.is_empty());
         assert_eq!(session.email, "user@example.com");
@@ -329,6 +353,8 @@ mod tests {
         let mut session = Session::new(
             "user@example.com".to_string(),
             "0x123".to_string(),
+            Some("kanari_test".to_string()),
+            CurveType::Ed25519,
             Some(Duration::from_secs(0)),
         );
 
@@ -343,8 +369,13 @@ mod tests {
     fn test_session_manager() {
         let mut manager = SessionManager::new();
 
-        let session =
-            manager.create_session("user@example.com".to_string(), "0x123".to_string(), None);
+        let session = manager.create_session(
+            "user@example.com".to_string(),
+            "0x123".to_string(),
+            Some("kanari_test".to_string()),
+            CurveType::Ed25519,
+            None,
+        );
 
         let session_id = session.session_id.clone();
 
@@ -361,7 +392,13 @@ mod tests {
 
     #[test]
     fn test_session_serialization() {
-        let session = Session::new("user@example.com".to_string(), "0x123".to_string(), None);
+        let session = Session::new(
+            "user@example.com".to_string(),
+            "0x123".to_string(),
+            Some("kanari_test".to_string()),
+            CurveType::Ed25519,
+            None,
+        );
 
         let json = session.to_json().unwrap();
         let restored = Session::from_json(&json).unwrap();

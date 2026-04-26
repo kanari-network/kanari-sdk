@@ -33,6 +33,9 @@ pub struct UserRecord {
     /// Wallet address associated with this user
     pub wallet_address: String,
 
+    /// Curve type associated with the stored wallet
+    pub curve_type: String,
+
     /// Encrypted private key (stored securely)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encrypted_private_key: Option<String>,
@@ -63,7 +66,12 @@ impl UserRecord {
     ///
     /// # Returns
     /// New UserRecord with hashed password
-    pub fn new(email: String, password: &str, wallet_address: String) -> AuthResult<Self> {
+    pub fn new(
+        email: String,
+        password: &str,
+        wallet_address: String,
+        curve_type: String,
+    ) -> AuthResult<Self> {
         // Validate email
         email_validator::validate_email(&email)?;
 
@@ -77,6 +85,7 @@ impl UserRecord {
             email: email_validator::normalize_email(&email),
             password_hash,
             wallet_address,
+            curve_type,
             encrypted_private_key: None,
             created_at: Utc::now(),
             last_login: None,
@@ -247,6 +256,7 @@ struct UserRowData {
     email: String,
     password_hash: String,
     wallet_address: String,
+    curve_type: String,
     encrypted_private_key: Option<String>,
     created_at: String,
     last_login: Option<String>,
@@ -293,6 +303,7 @@ impl UserStore {
                 email TEXT PRIMARY KEY,
                 password_hash TEXT NOT NULL,
                 wallet_address TEXT NOT NULL,
+                curve_type TEXT NOT NULL DEFAULT 'Ed25519',
                 encrypted_private_key TEXT,
                 created_at TEXT NOT NULL,
                 last_login TEXT,
@@ -302,6 +313,11 @@ impl UserStore {
             );",
             )
             .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
+
+        let _ = self.conn.execute(
+            "ALTER TABLE users ADD COLUMN curve_type TEXT NOT NULL DEFAULT 'Ed25519';",
+            [],
+        );
 
         // Create index for faster lookups
         self.conn
@@ -330,13 +346,14 @@ impl UserStore {
         self.conn
             .execute(
                 "INSERT INTO users (
-                email, password_hash, wallet_address, encrypted_private_key,
+                email, password_hash, wallet_address, curve_type, encrypted_private_key,
                 created_at, last_login, failed_attempts, locked_until, is_active
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 rusqlite::params![
                     user.email,
                     user.password_hash,
                     user.wallet_address,
+                    user.curve_type,
                     user.encrypted_private_key,
                     user.created_at.to_rfc3339(),
                     user.last_login.map(|dt| dt.to_rfc3339()),
@@ -360,7 +377,7 @@ impl UserStore {
         let result: Option<UserRowData> = self
             .conn
             .query_row(
-                "SELECT email, password_hash, wallet_address, encrypted_private_key,
+                "SELECT email, password_hash, wallet_address, curve_type, encrypted_private_key,
                             created_at, last_login, failed_attempts, locked_until, is_active
                      FROM users WHERE email = ?1",
                 [&normalized],
@@ -369,12 +386,13 @@ impl UserStore {
                         email: row.get(0)?,
                         password_hash: row.get(1)?,
                         wallet_address: row.get(2)?,
-                        encrypted_private_key: row.get(3)?,
-                        created_at: row.get(4)?,
-                        last_login: row.get(5)?,
-                        failed_attempts: row.get(6)?,
-                        locked_until: row.get(7)?,
-                        is_active: row.get(8)?,
+                        curve_type: row.get(3)?,
+                        encrypted_private_key: row.get(4)?,
+                        created_at: row.get(5)?,
+                        last_login: row.get(6)?,
+                        failed_attempts: row.get(7)?,
+                        locked_until: row.get(8)?,
+                        is_active: row.get(9)?,
                     })
                 },
             )
@@ -409,6 +427,7 @@ impl UserStore {
                     email: data.email,
                     password_hash: data.password_hash,
                     wallet_address: data.wallet_address,
+                    curve_type: data.curve_type,
                     encrypted_private_key: data.encrypted_private_key,
                     created_at,
                     last_login,
@@ -428,16 +447,18 @@ impl UserStore {
                 "UPDATE users SET 
                 password_hash = ?2,
                 wallet_address = ?3,
-                encrypted_private_key = ?4,
-                last_login = ?5,
-                failed_attempts = ?6,
-                locked_until = ?7,
-                is_active = ?8
+                curve_type = ?4,
+                encrypted_private_key = ?5,
+                last_login = ?6,
+                failed_attempts = ?7,
+                locked_until = ?8,
+                is_active = ?9
              WHERE email = ?1",
                 rusqlite::params![
                     user.email,
                     user.password_hash,
                     user.wallet_address,
+                    user.curve_type,
                     user.encrypted_private_key,
                     user.last_login.map(|dt| dt.to_rfc3339()),
                     user.failed_attempts,
@@ -513,6 +534,8 @@ impl Default for UserStore {
 
 #[cfg(test)]
 mod tests {
+    use kanari_crypto::CurveType;
+
     use super::*;
 
     #[test]
@@ -521,6 +544,7 @@ mod tests {
             "user@example.com".to_string(),
             "SecurePass123!",
             "0x123".to_string(),
+            CurveType::Ed25519.to_string(),
         )
         .unwrap();
 
@@ -537,6 +561,7 @@ mod tests {
             "user@example.com".to_string(),
             "SecurePass123!",
             "0x123".to_string(),
+            CurveType::Ed25519.to_string(),
         )
         .unwrap();
 
@@ -571,6 +596,7 @@ mod tests {
             "user@example.com".to_string(),
             "SecurePass123!",
             "0x123".to_string(),
+            CurveType::Ed25519.to_string(),
         )
         .unwrap();
 
@@ -590,6 +616,7 @@ mod tests {
             "user@example.com".to_string(),
             "SecurePass123!",
             "0x123".to_string(),
+            CurveType::Ed25519.to_string(),
         )
         .unwrap();
 
@@ -612,6 +639,7 @@ mod tests {
             "user@example.com".to_string(),
             "AnotherPass456!",
             "0x456".to_string(),
+            CurveType::Ed25519.to_string(),
         )
         .unwrap();
         assert!(store.add_user(duplicate).is_err());

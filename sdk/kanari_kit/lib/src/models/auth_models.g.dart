@@ -53,6 +53,8 @@ LoginResponse _$LoginResponseFromJson(Map<String, dynamic> json) =>
       sessionId: json['sessionId'] as String?,
       userEmail: json['userEmail'] as String?,
       walletAddress: json['walletAddress'] as String?,
+      curveType: json['curveType'] as String?,
+      encryptedPrivateKey: json['encryptedPrivateKey'] as String?,
       expiresAt: json['expiresAt'] as String?,
     );
 
@@ -62,6 +64,8 @@ Map<String, dynamic> _$LoginResponseToJson(LoginResponse instance) =>
       'sessionId': instance.sessionId,
       'userEmail': instance.userEmail,
       'walletAddress': instance.walletAddress,
+      'curveType': instance.curveType,
+      'encryptedPrivateKey': instance.encryptedPrivateKey,
       'expiresAt': instance.expiresAt,
     };
 

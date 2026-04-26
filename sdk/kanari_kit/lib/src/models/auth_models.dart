@@ -62,6 +62,8 @@ class LoginResponse {
   final String? sessionId;
   final String? userEmail;
   final String? walletAddress;
+  final String? curveType;
+  final String? encryptedPrivateKey;
   final String? expiresAt;
 
   LoginResponse({
@@ -69,6 +71,8 @@ class LoginResponse {
     this.sessionId,
     this.userEmail,
     this.walletAddress,
+    this.curveType,
+    this.encryptedPrivateKey,
     this.expiresAt,
   });
 

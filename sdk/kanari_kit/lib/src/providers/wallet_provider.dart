@@ -12,6 +12,7 @@ class WalletState extends ChangeNotifier {
   bool _isLoading = false;
   String? _error;
   String? _activeWalletId;
+  String? _authenticatedWalletId;
   KanariEnvironment _environment = KanariEnvironment.local;
 
   bool _isUnlocked = false;
@@ -26,6 +27,7 @@ class WalletState extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
   String? get activeWalletId => _activeWalletId;
+  String? get authenticatedWalletId => _authenticatedWalletId;
   bool get hasWallet => _wallets.isNotEmpty;
   KanariEnvironment get environment => _environment;
 
@@ -35,6 +37,53 @@ class WalletState extends ChangeNotifier {
     _updateClient();
     _wallets = await WalletStorage.loadAllWallets();
     notifyListeners();
+  }
+
+  Future<bool> syncWalletWithAddress(String walletAddress) async {
+    final normalizedTarget = _normalizeWalletAddress(walletAddress);
+    _wallets = await WalletStorage.loadAllWallets();
+    _authenticatedWalletId = null;
+
+    for (final walletData in _wallets) {
+      try {
+        final curve = KanariCurve.values.firstWhere(
+          (c) => c.name == walletData['curve'],
+          orElse: () => KanariCurve.ed25519,
+        );
+
+        final KanariWallet candidateWallet;
+        if (walletData['mnemonic'] != null &&
+            walletData['mnemonic'].toString().isNotEmpty &&
+            !curve.isPostQuantum) {
+          candidateWallet = await KanariWallet.fromMnemonic(
+            walletData['mnemonic'],
+            curve: curve,
+          );
+        } else {
+          candidateWallet = await KanariWallet.fromPrivateKey(
+            walletData['privateKey'],
+            curve: curve,
+          );
+        }
+
+        if (_normalizeWalletAddress(candidateWallet.address) ==
+            normalizedTarget) {
+          await WalletStorage.setActiveWallet(walletData['id']);
+          _activeWalletId = walletData['id'];
+          _authenticatedWalletId = walletData['id'];
+          _wallet = candidateWallet;
+          _isUnlocked = true;
+          await refreshBalance();
+          notifyListeners();
+          return true;
+        }
+      } catch (e) {
+        debugPrint('Failed to compare wallet ${walletData['id']}: $e');
+      }
+    }
+
+    notifyListeners();
+    return false;
   }
 
   void _updateClient() {
@@ -140,6 +189,9 @@ class WalletState extends ChangeNotifier {
   Future<void> removeWallet(String walletId) async {
     _wallets.removeWhere((w) => w['id'] == walletId);
     await WalletStorage.saveAllWallets(_wallets);
+    if (_authenticatedWalletId == walletId) {
+      _authenticatedWalletId = null;
+    }
 
     final activeId = await WalletStorage.getActiveWalletId();
     if (activeId == walletId && _wallets.isNotEmpty) {
@@ -274,6 +326,8 @@ class WalletState extends ChangeNotifier {
     _balance = 0;
     _tokenBalances = [];
     _error = null;
+    _activeWalletId = null;
+    _authenticatedWalletId = null;
     _isUnlocked = false;
     notifyListeners();
   }
@@ -285,6 +339,8 @@ class WalletState extends ChangeNotifier {
     _balance = 0;
     _tokenBalances = [];
     _error = null;
+    _activeWalletId = null;
+    _authenticatedWalletId = null;
     _isUnlocked = false;
     notifyListeners();
   }
@@ -375,6 +431,11 @@ class WalletState extends ChangeNotifier {
   void _setLoading(bool value) {
     _isLoading = value;
     notifyListeners();
+  }
+
+  String _normalizeWalletAddress(String address) {
+    final lower = address.trim().toLowerCase();
+    return lower.startsWith('0x') ? lower.substring(2) : lower;
   }
 
   // 👉 แก้ไขให้เปลี่ยนเป็น changePin

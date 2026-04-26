@@ -37,6 +37,10 @@ pub struct LoginResponse {
     pub user_email: String,
     #[serde(rename = "walletAddress")]
     pub wallet_address: String,
+    #[serde(rename = "curveType")]
+    pub curve_type: String,
+    #[serde(rename = "encryptedPrivateKey")]
+    pub encrypted_private_key: Option<String>,
     #[serde(rename = "expiresAt")]
     pub expires_at: String,
 }
@@ -57,6 +61,8 @@ pub struct EncryptedKeyResponse {
     pub email: String,
     #[serde(rename = "walletAddress")]
     pub wallet_address: String,
+    #[serde(rename = "curveType")]
+    pub curve_type: String,
     #[serde(rename = "encryptedPrivateKey")]
     pub encrypted_private_key: Option<String>,
 }

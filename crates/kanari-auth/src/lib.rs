@@ -58,6 +58,7 @@
 
 pub mod auth_manager;
 pub mod email_validator;
+pub mod private_key_crypto;
 pub mod session;
 pub mod user_store;
 

@@ -110,6 +110,17 @@ pub async fn login(
     match auth.login(&payload.email, &payload.password, session_timeout) {
         Ok(session) => {
             info!("Login successful: {}", payload.email);
+            let (_, _, curve_type, encrypted_private_key) =
+                match auth.get_user_encrypted_key(&payload.email) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        error!("Failed to fetch encrypted key after login: {:?}", e);
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(ApiResponse::error(format!("{:?}", e))),
+                        );
+                    }
+                };
             (
                 StatusCode::OK,
                 Json(ApiResponse::success(LoginResponse {
@@ -117,6 +128,8 @@ pub async fn login(
                     session_id: session.session_id.clone(),
                     user_email: session.email.clone(),
                     wallet_address: session.wallet_address.clone(),
+                    curve_type,
+                    encrypted_private_key,
                     expires_at: session.expires_at.to_rfc3339(),
                 })),
             )
@@ -328,7 +341,7 @@ pub async fn get_user_encrypted_key(
     let auth = state.auth_manager.lock().await;
 
     match auth.get_user_encrypted_key(&email) {
-        Ok((email, wallet_address, encrypted_key)) => {
+        Ok((email, wallet_address, curve_type, encrypted_key)) => {
             info!("Encrypted key retrieved successfully for: {}", email);
             (
                 StatusCode::OK,
@@ -336,6 +349,7 @@ pub async fn get_user_encrypted_key(
                     success: true,
                     email,
                     wallet_address,
+                    curve_type,
                     encrypted_private_key: encrypted_key,
                 })),
             )
@@ -369,6 +383,8 @@ pub async fn sign_transfer(
         session_id: payload.session_id.clone(),
         email: String::new(), // Would be retrieved from session store
         wallet_address: String::new(),
+        private_key: None,
+        curve_type: CurveType::Ed25519,
         created_at: chrono::Utc::now(),
         expires_at: chrono::Utc::now() + chrono::Duration::hours(24),
         last_activity: chrono::Utc::now(),
@@ -447,6 +463,8 @@ pub async fn sign_transaction(
         session_id: payload.session_id.clone(),
         email: String::new(),
         wallet_address: String::new(),
+        private_key: None,
+        curve_type: CurveType::Ed25519,
         created_at: chrono::Utc::now(),
         expires_at: chrono::Utc::now() + chrono::Duration::hours(24),
         last_activity: chrono::Utc::now(),

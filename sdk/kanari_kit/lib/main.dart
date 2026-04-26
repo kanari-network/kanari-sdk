@@ -1,16 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:kanari_crypto/kanari_crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:kanari_crypto/kanari_crypto.dart';
 import 'src/providers/wallet_provider.dart';
-import 'src/auth_client.dart';
 import 'src/ui/screens/home_screen.dart';
 import 'src/ui/screens/welcome_screen.dart';
 import 'src/ui/screens/login_screen.dart';
 import 'src/ui/screens/register_screen.dart';
-
-// Auth API base URL - change this to your run-auth server
-const String AUTH_API_URL = 'http://localhost:3000';
+import 'src/ui/screens/setting_screen.dart';
+import 'src/auth_client.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,17 +20,17 @@ void main() async {
     debugPrint("❌ Kanari Crypto init error: $e");
   }
 
-  // Initialize auth client
-  final authClient = KanariAuthClient(AUTH_API_URL);
+  // สร้าง authClient instance พร้อม baseUrl
+  final authClient = KanariAuthClient('http://localhost:3000');
 
-  // Restore session if exists
+  // Restore session ก่อนเริ่ม app
   await _restoreSession(authClient);
 
   runApp(
     MultiProvider(
       providers: [
+        ChangeNotifierProvider(create: (_) => authClient),
         ChangeNotifierProvider(create: (_) => WalletState()..initialize()),
-        ChangeNotifierProvider.value(value: authClient),
       ],
       child: const KanariApp(),
     ),
@@ -43,31 +41,65 @@ void main() async {
 Future<void> _restoreSession(KanariAuthClient authClient) async {
   try {
     final prefs = await SharedPreferences.getInstance();
+
     final sessionId = prefs.getString('session_id');
     final userEmail = prefs.getString('user_email');
     final walletAddress = prefs.getString('wallet_address');
 
-    if (sessionId != null && userEmail != null && walletAddress != null) {
+    if (sessionId != null &&
+        sessionId.isNotEmpty &&
+        userEmail != null &&
+        userEmail.isNotEmpty &&
+        walletAddress != null &&
+        walletAddress.isNotEmpty) {
+      debugPrint("🔄 Restoring session from SharedPreferences...");
+      debugPrint("   - User: $userEmail");
+      debugPrint("   - Wallet: $walletAddress");
+
+      // Set session information WITHOUT validating with server yet
+      // Validation will happen when user performs an action
       authClient.setSession(
         sessionId: sessionId,
         userEmail: userEmail,
         walletAddress: walletAddress,
       );
 
-      // Validate restored session
-      final response = await authClient.validateSession();
-      if (!response.success || !(response.data?.valid ?? false)) {
-        debugPrint("⚠️ Restored session is invalid, clearing...");
-        authClient.clearSession();
-        await prefs.remove('session_id');
-        await prefs.remove('user_email');
-        await prefs.remove('wallet_address');
-      } else {
-        debugPrint("✅ Session restored successfully for $userEmail");
-      }
+      debugPrint("✅ Session restored locally for $userEmail");
+
+      // Optional: Try to validate in background (don't block app startup)
+      // If validation fails, we'll handle it later when user interacts
+      _validateSessionInBackground(authClient, prefs);
+    } else {
+      debugPrint("ℹ️ No saved session found in SharedPreferences");
     }
   } catch (e) {
     debugPrint("❌ Session restore error: $e");
+    // Don't clear session on error - let user stay logged in
+  }
+}
+
+/// Validate session in background (non-blocking)
+Future<void> _validateSessionInBackground(
+  KanariAuthClient authClient,
+  SharedPreferences prefs,
+) async {
+  try {
+    debugPrint("🔍 Validating session in background...");
+    final response = await authClient.validateSession();
+
+    if (!response.success || !(response.data?.valid ?? false)) {
+      debugPrint("⚠️ Session validation failed - session may be expired");
+      // Don't clear session immediately - let user know when they try to use it
+      debugPrint(
+        "   User can still access app, but may need to re-login for actions",
+      );
+    } else {
+      debugPrint("✅ Session validated successfully");
+    }
+  } catch (e) {
+    // Network error or server not available - keep session anyway
+    debugPrint("⚠️ Background validation skipped (server may be offline): $e");
+    debugPrint("   Session kept locally - will validate on next action");
   }
 }
 
@@ -75,11 +107,16 @@ Future<void> _restoreSession(KanariAuthClient authClient) async {
 Future<void> _saveSession(KanariAuthClient authClient) async {
   try {
     final prefs = await SharedPreferences.getInstance();
-    if (authClient.sessionId != null) {
+
+    if (authClient.sessionId != null &&
+        authClient.userEmail != null &&
+        authClient.walletAddress != null) {
       await prefs.setString('session_id', authClient.sessionId!);
       await prefs.setString('user_email', authClient.userEmail!);
       await prefs.setString('wallet_address', authClient.walletAddress!);
-      debugPrint("💾 Session saved");
+      debugPrint("💾 Session saved for: ${authClient.userEmail}");
+    } else {
+      debugPrint("⚠️ Cannot save session: missing required fields");
     }
   } catch (e) {
     debugPrint("❌ Session save error: $e");
@@ -156,10 +193,32 @@ class KanariApp extends StatelessWidget {
         ),
       ),
 
-      home: const MainWrapper(),
-
-      // Routes for navigation
+      initialRoute: '/',
       routes: {
+        '/': (context) {
+          final authClient = context.watch<KanariAuthClient>();
+          final walletState = context.watch<WalletState>();
+          final canEnterHome =
+              authClient.isAuthenticated ||
+              (walletState.isUnlocked && walletState.hasWallet);
+
+          debugPrint(
+            "🔄 Route '/' check: isAuthenticated=${authClient.isAuthenticated}, isUnlocked=${walletState.isUnlocked}, hasWallet=${walletState.hasWallet}",
+          );
+
+          // เข้า Home ได้ทั้งแบบ login แล้ว หรือปลดล็อก local wallet แล้ว
+          if (canEnterHome) {
+            debugPrint(
+              authClient.isAuthenticated
+                  ? "✅ Authenticated → Navigate to HomeScreen"
+                  : "✅ Local wallet unlocked → Navigate to HomeScreen",
+            );
+            return const HomeScreen();
+          }
+
+          debugPrint("ℹ️ Stay on WelcomeScreen");
+          return const WelcomeScreen();
+        },
         '/login': (context) {
           final authClient = context.read<KanariAuthClient>();
           return KanariLoginScreen(
@@ -188,35 +247,15 @@ class KanariApp extends StatelessWidget {
             },
           );
         },
+        '/home': (context) {
+          debugPrint("🏠 Navigating to HomeScreen");
+          return const HomeScreen();
+        },
+        '/settings': (context) {
+          debugPrint("Settings screen opened");
+          return const SettingScreen();
+        },
       },
     );
-  }
-}
-
-class MainWrapper extends StatelessWidget {
-  const MainWrapper({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final state = context.watch<WalletState>();
-    final authClient = context.watch<KanariAuthClient>();
-
-    // Check authentication first
-    if (!authClient.isAuthenticated) {
-      return KanariLoginScreen(
-        authClient: authClient,
-        onLoginSuccess: () async {
-          await _saveSession(authClient);
-          // No need to call setState - ChangeNotifier will trigger rebuild automatically
-        },
-      );
-    }
-
-    // If authenticated but wallet not loaded yet
-    if (!state.isUnlocked || state.wallet == null) {
-      return const WelcomeScreen();
-    }
-
-    return const HomeScreen();
   }
 }

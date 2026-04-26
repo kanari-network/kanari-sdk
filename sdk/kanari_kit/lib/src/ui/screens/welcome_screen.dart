@@ -4,12 +4,45 @@ import 'package:kanari_kit/src/providers/wallet_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:kanari_kit/kanari_kit.dart';
 
-class WelcomeScreen extends StatelessWidget {
+class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
+
+  @override
+  State<WelcomeScreen> createState() => _WelcomeScreenState();
+}
+
+class _WelcomeScreenState extends State<WelcomeScreen> {
+  bool _isInitialized = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    // ป้องกันการทำงานซ้ำ
+    if (_isInitialized) return;
+    _isInitialized = true;
+
+    // ตรวจสอบสถานะหลังจาก widget ถูก mount
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      final state = context.read<WalletState>();
+      final authClient = context.read<KanariAuthClient>();
+
+      debugPrint("🔍 WelcomeScreen didChangeDependencies:");
+      debugPrint("   - isAuthenticated: ${authClient.isAuthenticated}");
+      debugPrint("   - userEmail: ${authClient.userEmail}");
+      debugPrint("   - walletAddress: ${authClient.walletAddress}");
+      debugPrint("   - hasWallet: ${state.hasWallet}");
+      debugPrint("   - isUnlocked: ${state.isUnlocked}");
+      debugPrint("   - wallet != null: ${state.wallet != null}");
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<WalletState>();
+    final authClient = context.watch<KanariAuthClient>();
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
@@ -26,7 +59,6 @@ class WelcomeScreen extends StatelessWidget {
           ),
         ),
         child: SafeArea(
-          // 👇 แก้ไขตรงนี้: เพิ่ม CustomScrollView และ SliverFillRemaining
           child: CustomScrollView(
             slivers: [
               SliverFillRemaining(
@@ -36,27 +68,92 @@ class WelcomeScreen extends StatelessWidget {
                   child: Column(
                     children: [
                       const Spacer(),
-                      _buildLogo(theme),
-                      const SizedBox(height: 32),
-                      Text(
-                        'Kanari Wallet',
-                        style: theme.textTheme.displaySmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: colorScheme.onSurface,
-                          letterSpacing: -0.5,
+
+                      // 🔐 Authentication Section (แสดงเมื่อยังไม่ได้ login)
+                      if (!authClient.isAuthenticated) ...[
+                        _buildLogo(theme),
+                        const SizedBox(height: 32),
+                        Text(
+                          'Kanari Wallet',
+                          style: theme.textTheme.displaySmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: colorScheme.onSurface,
+                            letterSpacing: -0.5,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Secure, Quantum-Safe Digital Wallet',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodyLarge?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
+                        const SizedBox(height: 12),
+                        Text(
+                          'Secure, Quantum-Safe Digital Wallet',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
                         ),
-                      ),
+                      ],
+
                       const Spacer(),
 
-                      // M3 Action Area
+                      // 💼 Wallet Management Section
+                      if (authClient.isAuthenticated) ...[
+                        // แสดงข้อมูล user ที่ login อยู่
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                backgroundColor: colorScheme.primaryContainer,
+                                child: Icon(
+                                  Icons.account_circle,
+                                  color: colorScheme.onPrimaryContainer,
+                                  size: 32,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      authClient.userEmail ?? 'User',
+                                      style: theme.textTheme.titleMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    if (authClient.walletAddress != null) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '${authClient.walletAddress!.substring(0, 8)}...${authClient.walletAddress!.substring(authClient.walletAddress!.length - 6)}',
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                              color:
+                                                  colorScheme.onSurfaceVariant,
+                                            ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                icon: Icon(
+                                  Icons.logout_rounded,
+                                  color: colorScheme.error,
+                                ),
+                                onPressed: () => _showLogoutDialog(context),
+                                tooltip: 'Logout',
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+
+                      // Wallet Actions
                       if (state.hasWallet) ...[
                         FilledButton.icon(
                           onPressed: () => _showUnlockSheet(context),
@@ -78,7 +175,7 @@ class WelcomeScreen extends StatelessWidget {
                             foregroundColor: colorScheme.error,
                           ),
                         ),
-                        _buildDivider(),
+                        const SizedBox(height: 16),
                       ],
 
                       FilledButton.tonalIcon(
@@ -98,8 +195,78 @@ class WelcomeScreen extends StatelessWidget {
                           minimumSize: const Size(double.infinity, 56),
                         ),
                       ),
-                      // ลดความสูงด้านล่างลงนิดหน่อยเพื่อประหยัดพื้นที่หน้าจอเล็ก
-                      const SizedBox(height: 32),
+                      const SizedBox(height: 24),
+
+                      // Divider
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Divider(
+                              color: colorScheme.outline.withOpacity(0.3),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Text(
+                              'or',
+                              style: TextStyle(
+                                color: colorScheme.onSurfaceVariant,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: Divider(
+                              color: colorScheme.outline.withOpacity(0.3),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Login / Register buttons
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pushNamed('/login');
+                        },
+                        icon: Icon(
+                          Icons.login_rounded,
+                          color: colorScheme.primary,
+                        ),
+                        label: Text(
+                          'Login',
+                          style: TextStyle(
+                            color: colorScheme.primary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        style: TextButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 56),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pushNamed('/register');
+                        },
+                        icon: Icon(
+                          Icons.person_add_rounded,
+                          color: colorScheme.primary,
+                        ),
+                        label: Text(
+                          'Register',
+                          style: TextStyle(
+                            color: colorScheme.primary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        style: TextButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 56),
+                        ),
+                      ),
+
+                      const Spacer(),
+                      const SizedBox(height: 24),
                     ],
                   ),
                 ),
@@ -126,43 +293,37 @@ class WelcomeScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildDivider() {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 24),
-      child: Row(
-        children: [
-          Expanded(child: Divider()),
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              'OR',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: Colors.grey,
-              ),
-            ),
-          ),
-          Expanded(child: Divider()),
-        ],
-      ),
-    );
-  }
-
   // --- Dialogs & Sheets ---
 
-  void _showUnlockSheet(BuildContext context) {
-    final walletState = context.read<WalletState>();
+  void _showUnlockSheet(BuildContext context, {bool isAutoTriggered = false}) {
+    final state = context.read<WalletState>();
+
     showModalBottomSheet(
       context: context,
+      isDismissible: !isAutoTriggered,
+      enableDrag: !isAutoTriggered,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Theme.of(context).colorScheme.surface,
-      builder: (context) => _PinEntryPage(
-        title: 'Enter PIN',
-        subtitle: 'Enter your 6-digit PIN to unlock your wallet.',
-        onComplete: (pin) {
-          walletState.unlockWallet(pin);
+      builder: (sheetContext) => _PinEntryPage(
+        title: 'Unlock Wallet',
+        subtitle: 'Enter your 6-digit PIN',
+        onComplete: (pin) async {
+          await state.unlockWallet(pin);
+
+          if (!context.mounted) return;
+
+          if (state.isUnlocked && state.hasWallet) {
+            debugPrint("🔓 Wallet unlocked successfully");
+            Navigator.of(context).pushReplacementNamed('/home');
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(state.error ?? 'Invalid PIN'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
         },
       ),
     );
@@ -198,7 +359,8 @@ class WelcomeScreen extends StatelessWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
       ),
-      builder: (context) => _CurveSelectionSheet(pin: pin),
+      builder: (sheetContext) =>
+          _CurveSelectionSheet(pin: pin, parentContext: context),
     );
   }
 
@@ -229,20 +391,43 @@ class WelcomeScreen extends StatelessWidget {
     KanariCurve curve,
     bool isMnemonic,
   ) {
+    final parentContext = context;
     final walletState = context.read<WalletState>();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Theme.of(context).colorScheme.surface,
-      builder: (context) => _PinEntryPage(
+      builder: (sheetContext) => _PinEntryPage(
         title: 'Set PIN',
         subtitle: 'Set a 6-digit PIN to secure your imported wallet.',
-        onComplete: (pin) {
+        onComplete: (pin) async {
           if (isMnemonic) {
-            walletState.importFromMnemonic(data, curve: curve, pin: pin);
+            await walletState.importFromMnemonic(data, curve: curve, pin: pin);
           } else {
-            walletState.importFromPrivateKey(data, curve: curve, pin: pin);
+            await walletState.importFromPrivateKey(
+              data,
+              curve: curve,
+              pin: pin,
+            );
+          }
+
+          if (!parentContext.mounted) return;
+
+          final hasImportedWallet =
+              walletState.hasWallet &&
+              (walletState.activeWalletId != null ||
+                  walletState.wallet != null);
+
+          if (hasImportedWallet) {
+            Navigator.of(parentContext).pushReplacementNamed('/home');
+          } else {
+            ScaffoldMessenger.of(parentContext).showSnackBar(
+              SnackBar(
+                content: Text(walletState.error ?? 'Failed to import wallet'),
+                backgroundColor: Colors.red,
+              ),
+            );
           }
         },
       ),
@@ -276,6 +461,32 @@ class WelcomeScreen extends StatelessWidget {
       ),
     );
   }
+
+  void _showLogoutDialog(BuildContext context) {
+    final authClient = context.read<KanariAuthClient>();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Logout?'),
+        content: const Text(
+          'Are you sure you want to logout from this account?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              authClient.logout();
+              Navigator.pop(context);
+            },
+            child: const Text('Logout', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ============================================================================
@@ -283,7 +494,9 @@ class WelcomeScreen extends StatelessWidget {
 // ============================================================================
 class _CurveSelectionSheet extends StatefulWidget {
   final String pin;
-  const _CurveSelectionSheet({required this.pin});
+  final BuildContext parentContext;
+
+  const _CurveSelectionSheet({required this.pin, required this.parentContext});
 
   @override
   State<_CurveSelectionSheet> createState() => _CurveSelectionSheetState();
@@ -346,12 +559,36 @@ class _CurveSelectionSheetState extends State<_CurveSelectionSheet> {
                 borderRadius: BorderRadius.circular(20),
               ),
             ),
-            onPressed: () {
-              context.read<WalletState>().createNewWallet(
+            onPressed: () async {
+              final walletState = context.read<WalletState>();
+
+              await walletState.createNewWallet(
                 curve: _selectedCurve,
                 pin: widget.pin,
               );
-              Navigator.pop(context);
+
+              if (!context.mounted || !widget.parentContext.mounted) return;
+
+              final hasCreatedWallet =
+                  walletState.hasWallet &&
+                  (walletState.activeWalletId != null ||
+                      walletState.wallet != null);
+
+              if (hasCreatedWallet) {
+                Navigator.pop(context);
+                Navigator.of(
+                  widget.parentContext,
+                ).pushReplacementNamed('/home');
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      walletState.error ?? 'Failed to create wallet',
+                    ),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
             },
             child: const Text(
               'Generate Wallet',

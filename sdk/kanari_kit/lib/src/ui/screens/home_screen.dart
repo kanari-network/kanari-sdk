@@ -156,83 +156,17 @@ class _HomeScreenState extends State<HomeScreen> {
                                   children: [
                                     const NetworkSelector(),
                                     const SizedBox(width: 4),
-                                    PopupMenuButton<String>(
+                                    IconButton(
+                                      onPressed: () {
+                                        Navigator.of(
+                                          context,
+                                        ).pushNamed('/settings');
+                                      },
                                       icon: Icon(
-                                        Icons.more_vert_rounded,
+                                        Icons.settings_rounded,
                                         color: colorScheme.onSurfaceVariant,
                                       ),
-                                      color: colorScheme.surfaceContainer,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(16),
-                                      ),
-                                      onSelected: (value) async {
-                                        if (value == 'change_pin') {
-                                          _showChangePinDialog(context, state);
-                                        } else if (value == 'logout') {
-                                          await _handleLogout(
-                                            context,
-                                            state,
-                                            false,
-                                          );
-                                        } else if (value == 'logout_all') {
-                                          await _handleLogout(
-                                            context,
-                                            state,
-                                            true,
-                                          );
-                                        }
-                                      },
-                                      itemBuilder: (context) => [
-                                        PopupMenuItem(
-                                          value: 'change_pin',
-                                          child: ListTile(
-                                            leading: Icon(
-                                              Icons.pin_rounded,
-                                              color: colorScheme.primary,
-                                            ),
-                                            title: const Text('Change PIN'),
-                                            contentPadding: EdgeInsets.zero,
-                                          ),
-                                        ),
-                                        PopupMenuItem(
-                                          value: 'logout',
-                                          child: ListTile(
-                                            leading: Icon(
-                                              Icons.logout_rounded,
-                                              color: colorScheme.error,
-                                            ),
-                                            title: const Text('Logout'),
-                                            subtitle: Text(
-                                              'Current session only',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.grey[600],
-                                              ),
-                                            ),
-                                            contentPadding: EdgeInsets.zero,
-                                          ),
-                                        ),
-                                        PopupMenuItem(
-                                          value: 'logout_all',
-                                          child: ListTile(
-                                            leading: Icon(
-                                              Icons.phonelink_erase_rounded,
-                                              color: colorScheme.error,
-                                            ),
-                                            title: const Text(
-                                              'Logout All Devices',
-                                            ),
-                                            subtitle: Text(
-                                              'All active sessions',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.grey[600],
-                                              ),
-                                            ),
-                                            contentPadding: EdgeInsets.zero,
-                                          ),
-                                        ),
-                                      ],
+                                      tooltip: 'Settings',
                                     ),
                                   ],
                                 ),
@@ -612,13 +546,32 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       child: Column(
         children: [
-          Text(
-            walletData['name'] ?? 'Wallet',
-            style: theme.textTheme.titleSmall?.copyWith(
-              color: colorScheme.onPrimary.withOpacity(0.8),
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.5,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  walletData['name'] ?? 'Wallet',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: colorScheme.onPrimary.withOpacity(0.8),
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: () => _confirmDeleteWallet(
+                  context,
+                  walletData['id'] as String,
+                  walletData['name'] ?? 'Wallet',
+                ),
+                icon: Icon(
+                  Icons.delete_outline_rounded,
+                  color: colorScheme.onPrimary.withOpacity(0.85),
+                ),
+                tooltip: 'Delete Wallet',
+              ),
+            ],
           ),
 
           Expanded(
@@ -796,6 +749,53 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDeleteWallet(
+    BuildContext context,
+    String walletId,
+    String walletName,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete Wallet'),
+        content: Text(
+          'Are you sure you want to delete "$walletName"? This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    await context.read<WalletState>().removeWallet(walletId);
+
+    if (_pageController.hasClients) {
+      final currentPage =
+          _pageController.page?.round() ?? _pageController.initialPage;
+      final remainingWallets = context.read<WalletState>().wallets.length;
+      final targetPage = remainingWallets > 0
+          ? currentPage.clamp(0, remainingWallets - 1)
+          : 0;
+
+      if (targetPage != currentPage) {
+        _pageController.jumpToPage(targetPage);
+      }
+    }
   }
 
   void _showTransferDialog(BuildContext context, {String? prefilledAddress}) {
@@ -1052,8 +1052,12 @@ class _HomeScreenState extends State<HomeScreen> {
       await prefs.remove('user_email');
       await prefs.remove('wallet_address');
 
-      // Clear wallet state
+      // Logout should only clear the session and lock the local wallet.
       state.logout();
+
+      if (mounted) {
+        Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
