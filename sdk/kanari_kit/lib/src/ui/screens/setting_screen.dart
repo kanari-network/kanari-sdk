@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../auth_client.dart';
+import '../../providers/theme_mode_provider.dart';
 import '../../providers/wallet_provider.dart';
 
 class SettingScreen extends StatelessWidget {
@@ -20,11 +21,34 @@ class SettingScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
+          Text(
+            'Appearance',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _ThemeModeCard(),
+          const SizedBox(height: 24),
+          Text(
+            'Security',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 12),
           _SettingsTile(
             icon: Icons.pin_rounded,
             title: 'Change PIN',
             subtitle: 'Update the 6-digit PIN for this device',
             onTap: () => _showChangePinDialog(context),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Session',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 12),
           _SettingsTile(
@@ -195,6 +219,60 @@ class SettingScreen extends StatelessWidget {
         content: Text(
           logoutAll ? 'Logged out from all devices' : 'Logged out successfully',
         ),
+      ),
+    );
+  }
+}
+
+class _ThemeModeCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final themeModeProvider = context.watch<ThemeModeProvider>();
+
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        children: [
+          RadioListTile<ThemeMode>(
+            value: ThemeMode.system,
+            groupValue: themeModeProvider.themeMode,
+            title: const Text('System'),
+            subtitle: const Text('Follow device appearance'),
+            onChanged: (value) {
+              if (value != null) {
+                themeModeProvider.setThemeMode(value);
+              }
+            },
+          ),
+          const Divider(height: 1),
+          RadioListTile<ThemeMode>(
+            value: ThemeMode.light,
+            groupValue: themeModeProvider.themeMode,
+            title: const Text('Light'),
+            subtitle: const Text('Always use the light theme'),
+            onChanged: (value) {
+              if (value != null) {
+                themeModeProvider.setThemeMode(value);
+              }
+            },
+          ),
+          const Divider(height: 1),
+          RadioListTile<ThemeMode>(
+            value: ThemeMode.dark,
+            groupValue: themeModeProvider.themeMode,
+            title: const Text('Dark'),
+            subtitle: const Text('Always use the dark theme'),
+            onChanged: (value) {
+              if (value != null) {
+                themeModeProvider.setThemeMode(value);
+              }
+            },
+          ),
+        ],
       ),
     );
   }
