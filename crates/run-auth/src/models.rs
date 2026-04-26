@@ -41,6 +41,26 @@ pub struct LoginResponse {
     pub expires_at: String,
 }
 
+/// User info response
+#[derive(Debug, Serialize)]
+pub struct UserInfoResponse {
+    pub success: bool,
+    pub email: String,
+    #[serde(rename = "walletAddress")]
+    pub wallet_address: String,
+}
+
+/// Encrypted private key response (for wallet restoration)
+#[derive(Debug, Serialize)]
+pub struct EncryptedKeyResponse {
+    pub success: bool,
+    pub email: String,
+    #[serde(rename = "walletAddress")]
+    pub wallet_address: String,
+    #[serde(rename = "encryptedPrivateKey")]
+    pub encrypted_private_key: Option<String>,
+}
+
 /// Logout request
 #[derive(Debug, Deserialize)]
 pub struct LogoutRequest {
@@ -91,18 +111,6 @@ pub struct SignTransactionRequest {
     pub session_id: String,
     #[serde(rename = "transactionJson")]
     pub transaction_json: String, // JSON-encoded transaction
-}
-
-/// User info response
-#[derive(Debug, Serialize)]
-pub struct UserInfoResponse {
-    pub email: String,
-    #[serde(rename = "walletAddress")]
-    pub wallet_address: String,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-    #[serde(rename = "lastLogin")]
-    pub last_login: Option<String>,
 }
 
 /// List users response

@@ -349,6 +349,30 @@ impl AuthManager {
         Ok((user.email.clone(), user.wallet_address.clone()))
     }
 
+    /// Get user's encrypted private key by email (for wallet restoration)
+    ///
+    /// # Arguments
+    /// * `email` - User's email
+    ///
+    /// # Returns
+    /// User's email, wallet address, and encrypted private key (if available)
+    pub fn get_user_encrypted_key(&self, email: &str) -> AuthResult<(String, String, Option<String>)> {
+        let user = self
+            .user_store
+            .get_user(email)?
+            .ok_or(AuthError::UserNotFound(email.to_string()))?;
+
+        if !user.is_active {
+            return Err(AuthError::AccountLocked);
+        }
+
+        Ok((
+            user.email.clone(),
+            user.wallet_address.clone(),
+            user.encrypted_private_key.clone(),
+        ))
+    }
+
     /// Change user password
     ///
     /// # Arguments

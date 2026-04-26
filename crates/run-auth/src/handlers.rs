@@ -9,7 +9,7 @@ use tracing::{error, info, warn};
 use crate::{
     AppState,
     models::{
-        ApiResponse, ChangePasswordRequest, DeleteAccountRequest, ListUsersResponse, LoginRequest,
+        ApiResponse, ChangePasswordRequest, DeleteAccountRequest, EncryptedKeyResponse, ListUsersResponse, LoginRequest,
         LoginResponse, LogoutAllRequest, LogoutRequest, RegisterRequest, RegisterResponse,
         SignTransactionRequest, SignTransferRequest, UserInfoResponse, ValidateSessionResponse,
     },
@@ -306,6 +306,50 @@ pub async fn get_user_info(
         StatusCode::NOT_IMPLEMENTED,
         Json(ApiResponse::error("This endpoint is not yet implemented")),
     )
+}
+
+/// Get user's encrypted private key for wallet restoration
+pub async fn get_user_encrypted_key(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> (StatusCode, Json<ApiResponse<EncryptedKeyResponse>>) {
+    let email = match params.get("email") {
+        Some(email) => email.clone(),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ApiResponse::error("Email parameter is required")),
+            );
+        }
+    };
+
+    info!("Encrypted key retrieval attempt for email: {}", email);
+
+    let auth = state.auth_manager.lock().await;
+
+    match auth.get_user_encrypted_key(&email) {
+        Ok((email, wallet_address, encrypted_key)) => {
+            info!("Encrypted key retrieved successfully for: {}", email);
+            (
+                StatusCode::OK,
+                Json(ApiResponse::success(EncryptedKeyResponse {
+                    success: true,
+                    email,
+                    wallet_address,
+                    encrypted_private_key: encrypted_key,
+                })),
+            )
+        }
+        Err(e) => {
+            error!("Encrypted key retrieval failed: {:?}", e);
+            let status_code = match e {
+                kanari_auth::AuthError::UserNotFound(_) => StatusCode::NOT_FOUND,
+                kanari_auth::AuthError::AccountLocked => StatusCode::FORBIDDEN,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            (status_code, Json(ApiResponse::error(format!("{:?}", e))))
+        }
+    }
 }
 
 /// Sign a transfer transaction
