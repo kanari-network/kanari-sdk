@@ -38,26 +38,6 @@ class _KanariRegisterScreenState extends State<KanariRegisterScreen> {
     },
     {'value': 'p256', 'label': 'P256', 'desc': 'NIST enterprise standard'},
     {
-      'value': 'dilithium2',
-      'label': 'Dilithium2',
-      'desc': 'Post-quantum level 2',
-    },
-    {
-      'value': 'dilithium3',
-      'label': 'Dilithium3',
-      'desc': 'Post-quantum level 3 recommended',
-    },
-    {
-      'value': 'dilithium5',
-      'label': 'Dilithium5',
-      'desc': 'Post-quantum level 5',
-    },
-    {
-      'value': 'sphincsplus',
-      'label': 'Sphincs+',
-      'desc': 'Hash-based post-quantum',
-    },
-    {
       'value': 'ed25519dilithium3',
       'label': 'Ed25519 + Dilithium3',
       'desc': 'Hybrid classical and PQ',

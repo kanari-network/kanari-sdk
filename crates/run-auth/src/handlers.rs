@@ -19,7 +19,6 @@ use crate::{
 ///
 /// Supported curve types:
 /// - **Classical ECC**: `ed25519`, `k256` (or `secp256k1`), `p256` (or `secp256r1`, `nist`)
-/// - **Post-Quantum**: `dilithium2`, `dilithium3`, `dilithium5`, `sphincsplus` (or `sphincs+sha256`, `sphincs`)
 /// - **Hybrid**: `ed25519dilithium3` (or `ed25519+dilithium3`), `k256dilithium3` (or `k256+dilithium3`)
 ///
 /// Default: `ed25519` (if curve_type not provided)
@@ -38,14 +37,6 @@ pub async fn register(
             "ed25519" => Some(CurveType::Ed25519),
             "k256" | "secp256k1" => Some(CurveType::K256),
             "p256" | "secp256r1" | "nist" => Some(CurveType::P256),
-
-            // Post-Quantum Cryptography (PQC)
-            "dilithium2" => Some(CurveType::Dilithium2),
-            "dilithium3" => Some(CurveType::Dilithium3),
-            "dilithium5" => Some(CurveType::Dilithium5),
-            "sphincsplus" | "sphincs+sha256" | "sphincs" => {
-                Some(CurveType::SphincsPlusSha256Robust)
-            }
 
             // Hybrid Schemes
             "ed25519dilithium3" => Some(CurveType::Ed25519Dilithium3),
