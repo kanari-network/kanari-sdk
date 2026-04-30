@@ -24,7 +24,6 @@ members = [
       "crates/kanari-auth",
       "crates/kanari-framework-builder",
       "crates/kanari-frameworks", 
-      "crates/kanari-move-runtime", 
       "crates/kanari-types",
       "crates/kanari-node",
       "crates/kanari-rpc-api", 
@@ -39,7 +38,10 @@ members = [
       "crates/kanari-db-common", 
       "crates/centauri", 
       "sdk/wallet", 
-      "crates/kanari-indexer", "crates/run-auth",
+      "crates/kanari-indexer", 
+      "crates/run-auth",
+      # move-execution
+      "move-execution/v0/kanari-move-runtime", 
 ]
 
 
@@ -227,7 +229,7 @@ kanari-common = { path = "crates/kanari-common" }
 kanari-crypto = { path = "crates/kanari-crypto" }
 kanari-auth = { path = "crates/kanari-auth" }
 kanari-types = { path = "crates/kanari-types" }
-kanari-move-runtime = { path = "crates/kanari-move-runtime" }
+kanari-move-runtime = { path = "move-execution/v0/kanari-move-runtime" }
 kanari-framework-builder = { path = "crates/kanari-framework-builder" }
 kanari-frameworks = { path = "crates/kanari-frameworks" }
 kanari-rpc-api = { path = "crates/kanari-rpc-api" }
