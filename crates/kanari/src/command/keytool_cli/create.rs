@@ -18,7 +18,7 @@ pub struct CreateWallet {
     /// Password for wallet encryption
     #[arg(short, long)]
     pub password: String,
-    /// Curve type (ed25519, k256, p256, dilithium2, dilithium3, dilithium5, sphincs+, ed25519+dilithium3, k256+dilithium3)
+    /// Curve type (ed25519, k256, p256, ed25519+dilithium3, k256+dilithium3)
     #[arg(short, long, default_value = "ed25519")]
     pub curve: String,
     /// Number of seed words (12 or 24)
@@ -35,10 +35,6 @@ impl CreateWallet {
             "ed25519" => CurveType::Ed25519,
             "k256" | "secp256k1" => CurveType::K256,
             "p256" | "secp256r1" => CurveType::P256,
-            "dilithium2" => CurveType::Dilithium2,
-            "dilithium3" => CurveType::Dilithium3,
-            "dilithium5" => CurveType::Dilithium5,
-            "sphincs+" | "sphincsplus" => CurveType::SphincsPlusSha256Robust,
             "ed25519+dilithium3" | "ed25519_dilithium3" => CurveType::Ed25519Dilithium3,
             "k256+dilithium3" | "k256_dilithium3" => CurveType::K256Dilithium3,
             other => {

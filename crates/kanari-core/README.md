@@ -182,8 +182,8 @@ Blockchain execution engine:
 
 |    Metric   |       DAG Mode      |
 |-------------|---------------------|
-| Throughput  | ~10,000+ TPS        |
-| Latency     | ~100-500ms          |
+| Throughput  | ~50,000+ TPS        |
+| Latency     | ~100-300ms          |
 | Parallelism | High (N validators) |
 | CPU Usage   | ~80%+ (optimized)   |
 

@@ -20,7 +20,7 @@ pub struct AddWallet {
     /// Password for wallet encryption
     #[arg(short, long)]
     pub password: String,
-    /// Curve type (supports classical and PQC private-key imports: ed25519, k256, p256, dilithium2, dilithium3, dilithium5, sphincs+)
+    /// Curve type (ed25519, k256, p256, ed25519+dilithium3, k256+dilithium3)
     #[arg(short, long, default_value = "ed25519")]
     pub curve: String,
     /// BIP32 derivation path (default: m/44'/637'/0'/0/0)
@@ -34,10 +34,6 @@ impl AddWallet {
             "ed25519" => CurveType::Ed25519,
             "k256" | "secp256k1" => CurveType::K256,
             "p256" | "secp256r1" => CurveType::P256,
-            "dilithium2" => CurveType::Dilithium2,
-            "dilithium3" => CurveType::Dilithium3,
-            "dilithium5" => CurveType::Dilithium5,
-            "sphincs+" | "sphincsplus" => CurveType::SphincsPlusSha256Robust,
             "ed25519+dilithium3" | "ed25519_dilithium3" => CurveType::Ed25519Dilithium3,
             "k256+dilithium3" | "k256_dilithium3" => CurveType::K256Dilithium3,
             other => {
