@@ -1,23 +1,23 @@
 # Quick Start Guide - Multi-Node Setup
 
-## วิธีการรันอย่างรวดเร็ว
+## How to Run Quickly
 
-### ขั้นตอนที่ 1: Build โปรเจค
+### Step 1: Build the Project
 
 ```powershell
 cd C:\Users\Pukpuy\Desktop\kanari-sdk
 cargo build --release
 ```
 
-### ขั้นตอนที่ 2: เตรียม Data Directories
+### Step 2: Prepare Data Directories
 
 ```powershell
-# รัน setup script
+# Run setup script
 cd crates\kanari-node
 .\setup-multi-node.ps1
 ```
 
-### ขั้นตอนที่ 3: เปิด 3 Terminals และรัน Nodes
+### Step 3: Open 3 Terminals and Run Nodes
 
 **Terminal 1 - Node 1:**
 
@@ -40,16 +40,16 @@ cd C:\Users\Pukpuy\Desktop\kanari-sdk\crates\kanari-node
 .\start-node.ps1 -NodeId 3
 ```
 
-### ขั้นตอนที่ 4: ตรวจสอบว่า Nodes เชื่อมต่อกันแล้ว
+### Step 4: Verify Nodes are Connected
 
-ดูที่ logs ในแต่ละ terminal:
+Check the logs in each terminal:
 
 ```
 INFO kanari_node: Discovered peer: 12D3KooW... at /ip4/...
 INFO kanari_node: Connection established with 12D3KooW...
 ```
 
-## การรันแบบ Manual (ไม่ใช้ Scripts)
+## Running Manually (Without Scripts)
 
 ```powershell
 # Terminal 1 - Node 1 (Auth: 0x1)
@@ -71,18 +71,18 @@ cargo run --bin kanari-node -- start --p2p-port 19040 --rpc-port 19041 --data-di
 cargo run --bin kanari-node -- start --p2p-port 19050 --rpc-port 19051 --data-dir data/node6 --authority-id 0x6 --authorities 0x1,0x2,0x3,0x4,0x5,0x6
 ```
 
-## ตรวจสอบสถานะ Blockchain
+## Check Blockchain Status
 
-เปิด terminal ใหม่และรัน:
+Open a new terminal and run:
 
 ```powershell
-# ดู stats
+# View stats
 kanari-node stats
 
-# ดูข้อมูล account
+# View account information
 kanari-node account 0x1
 
-# ดูข้อมูล block
+# View block information
 kanari-node block 0
 ```
 
@@ -106,22 +106,22 @@ kanari-node start --p2p-port 19000 --rpc-port 19001 --rpc-host 0.0.0.0 --data-di
 
 Security note: binding RPC to all interfaces exposes the API to your local network — ensure your firewall and network policies allow or block access as intended.
 
-## การทดสอบ P2P Network
+## Testing P2P Network
 
-1. ส่ง transaction ผ่าน RPC ของ Node 1
-2. ตรวจสอบว่า transaction ปรากฏใน Node 2 และ Node 3
-3. เมื่อมีการ produce block ที่ Node ใดก็ตาม blocks จะถูก sync ไปยัง nodes อื่นๆ
+1. Submit a transaction via Node 1's RPC
+2. Verify that the transaction appears in Node 2 and Node 3
+3. When blocks are produced by any node, they will be synced to other nodes
 
-## หมายเหตุสำคัญ
+## Important Notes
 
-⚠️ **แต่ละ node ต้องมี `--data-dir` แยกกัน** เพื่อป้องกันข้อมูลทับกัน
+⚠️ **Each node must have a separate `--data-dir`** to prevent data conflicts
 
-⚠️ **ต้องใช้ ports ที่แตกต่างกัน** สำหรับ `--p2p-port` และ `--rpc-port`
+⚠️ **Must use different ports** for `--p2p-port` and `--rpc-port`
 
-✅ Nodes จะค้นหากันเองโดยอัตโนมัติผ่าน mDNS (ใน local network)
+✅ Nodes will automatically discover each other via mDNS (in local network)
 
-✅ ข้อมูล blockchain และ state จะถูกเก็บแยกกันในแต่ละ data directory
+✅ Blockchain data and state will be stored separately in each data directory
 
-## เอกสารเพิ่มเติม
+## Additional Documentation
 
-ดูเอกสารฉบับเต็มที่: [MULTI_NODE_GUIDE.md](MULTI_NODE_GUIDE.md)
+See the full documentation at: [MULTI_NODE_GUIDE.md](MULTI_NODE_GUIDE.md)

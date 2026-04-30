@@ -1,17 +1,17 @@
 # Kanari Multi-Node Setup Guide
 
-คู่มือการรัน Kanari blockchain แบบหลาย node ด้วย libp2p
+Guide for running Kanari blockchain with multiple nodes using libp2p
 
-## คุณสมบัติ
+## Features
 
-- ✅ P2P networking ด้วย libp2p
-- ✅ Automatic peer discovery ด้วย mDNS (สำหรับ local network)
-- ✅ Kademlia DHT สำหรับ peer discovery
-- ✅ Gossipsub protocol สำหรับ message propagation
-- ✅ Block และ transaction synchronization
-- ✅ Configurable P2P และ RPC ports
+- ✅ P2P networking with libp2p
+- ✅ Automatic peer discovery with mDNS (for local network)
+- ✅ Kademlia DHT for peer discovery
+- ✅ Gossipsub protocol for message propagation
+- ✅ Block and transaction synchronization
+- ✅ Configurable P2P and RPC ports
 
-## การติดตั้ง
+## Installation
 
 1. Build project:
 
@@ -19,13 +19,13 @@
 cargo build --release
 ```
 
-1. ไฟล์ที่ถูกสร้าง:
+1. Generated file:
 
 ```
 target/release/kanari-node
 ```
 
-## การรัน Multi-Node
+## Running Multi-Node
 
 ### Node 1 (Bootstrap Node / Authority 0x1)
 
@@ -45,54 +45,54 @@ cargo run --bin kanari-node -- start --p2p-port 19010 --rpc-port 19011 --data-di
 cargo run --bin kanari-node -- start --p2p-port 19020 --rpc-port 19021 --data-dir data/node3 --authority-id 0x3 --authorities 0x1,0x2,0x3,0x4,0x5
 ```
 
-## การเชื่อมต่อ Nodes
+## Connecting Nodes
 
-### อัตโนมัติ (Local Network)
+### Automatic (Local Network)
 
-หาก nodes ทำงานในเครือข่ายเดียวกัน จะค้นหากันเองผ่าน mDNS โดยอัตโนมัติ
+If nodes are running on the same network, they will discover each other automatically via mDNS
 
-## ตัวอย่างการใช้งาน
+## Usage Examples
 
-### 1. ดู Stats ของ blockchain
+### 1. View Blockchain Stats
 
 ```bash
 kanari-node stats
 ```
 
-### 2. ดูข้อมูล Account
+### 2. View Account Information
 
 ```bash
 kanari-node account 0x1
 ```
 
-### 3. ดูข้อมูล Block
+### 3. View Block Information
 
 ```bash
 kanari-node block 0
 ```
 
-### 4. List wallets
+### 4. List Wallets
 
 ```bash
 kanari-node list-wallets
 ```
 
-### 5. ดูตัวเลือกทั้งหมด
+### 5. View All Options
 
 ```bash
 kanari-node start --help
 ```
 
-**ตัวเลือกที่สำคัญ:**
+**Important options:**
 
-- `--p2p-port <PORT>` - กำหนด port สำหรับ P2P networking (default: 19000)
-- `--rpc-port <PORT>` - กำหนด port สำหรับ RPC server (default: 19001)
-- `--rpc-host <HOST>` - กำหนด host/IP สำหรับ RPC (default: 0.0.0.0)
-- `--data-dir <PATH>` - กำหนดตำแหน่งเก็บข้อมูล blockchain และ state
-- `--relay-server` - เปิดใช้งาน relay server mode เพื่อช่วย nodes ที่อยู่หลัง NAT
-- `--bootstrap <MULTIADDR>` - เชื่อมต่อกับ bootstrap peer (สามารถระบุหลายครั้ง)
+- `--p2p-port <PORT>` - Set port for P2P networking (default: 19000)
+- `--rpc-port <PORT>` - Set port for RPC server (default: 19001)
+- `--rpc-host <HOST>` - Set host/IP for RPC (default: 0.0.0.0)
+- `--data-dir <PATH>` - Set location for storing blockchain and state data
+- `--relay-server` - Enable relay server mode to help nodes behind NAT
+- `--bootstrap <MULTIADDR>` - Connect to bootstrap peer (can specify multiple times)
 
-## โครงสร้าง P2P Network
+## P2P Network Structure
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -106,14 +106,14 @@ kanari-node start --help
 └─────────────────────────────────────────────┘
 ```
 
-### Protocols ที่ใช้
+### Protocols Used
 
-1. **Gossipsub** - สำหรับ broadcast blocks และ transactions
+1. **Gossipsub** - For broadcasting blocks and transactions
    - Topic: `kanari/blocks`
    - Topic: `kanari/transactions`
    - Topic: `kanari/peers`
 
-2. **mDNS** - Auto-discovery ใน local network
+2. **mDNS** - Auto-discovery in local network
 
 3. **Kademlia DHT** - Distributed peer discovery
 
@@ -121,80 +121,80 @@ kanari-node start --help
 
 5. **Yamux** - Stream multiplexing
 
-6. **DCUtR** - Direct Connection Upgrade through Relay สำหรับ NAT traversal
+6. **DCUtR** - Direct Connection Upgrade through Relay for NAT traversal
 
 7. **Identify** - Peer information exchange (protocol version, addresses)
 
-8. **Ping** - Connection keep-alive และ latency measurement
+8. **Ping** - Connection keep-alive and latency measurement
 
-9. **Relay** - Circuit relay protocol สำหรับ nodes ที่อยู่หลัง strict NAT
+9. **Relay** - Circuit relay protocol for nodes behind strict NAT
 
 ## P2P Message Types
 
 ```rust
 pub enum P2PMessage {
-    NewTransaction(String),  // Transaction ใหม่
-    NewBlock(String),        // Block ใหม่
-    BlockRequest(u64),       // ขอ block ตาม height
-    BlockResponse(String),   // ตอบกลับด้วย block data
-    PeerInfo(PeerInfoMsg),   // ข้อมูล peer (height, peer_id)
+    NewTransaction(String),  // New transaction
+    NewBlock(String),        // New block
+    BlockRequest(u64),       // Request block by height
+    BlockResponse(String),   // Response with block data
+    PeerInfo(PeerInfoMsg),   // Peer information (height, peer_id)
 }
 ```
 
-## การ Sync Blocks
+## Block Synchronization
 
-เมื่อ node ใหม่เข้าร่วม network:
+When a new node joins the network:
 
-1. Node รับ `PeerInfo` จาก peers อื่นๆ
-2. เปรียบเทียบ height กับ local blockchain
-3. ถ้าต่ำกว่า จะส่ง `BlockRequest` เพื่อขอ blocks ที่ขาดหายไป
-4. รับ `BlockResponse` และ apply blocks ไปยัง local chain
+1. Node receives `PeerInfo` from other peers
+2. Compares height with local blockchain
+3. If lower, sends `BlockRequest` to request missing blocks
+4. Receives `BlockResponse` and applies blocks to local chain
 
-## NAT Traversal และ Hole Punching
+## NAT Traversal and Hole Punching
 
-Kanari รองรับการเชื่อมต่อระหว่าง nodes ที่อยู่หลัง NAT/firewall ผ่าน:
+Kanari supports connections between nodes behind NAT/firewall through:
 
 ### DCUtR (Direct Connection Upgrade through Relay)
 
-- **Hole punching** - สร้างการเชื่อมต่อโดยตรงระหว่าง nodes ที่อยู่หลัง NAT
-- **Identify protocol** - แลกเปลี่ยนข้อมูล peer (protocol version, listen addresses)
-- **Ping protocol** - Keep-alive connections และตรวจสอบ latency
+- **Hole punching** - Creates direct connections between nodes behind NAT
+- **Identify protocol** - Exchanges peer information and addresses
+- **Ping protocol** - Keep-alive connections and latency checking
 
-### การทำงาน
+### How It Works
 
-1. Nodes ใช้ **Identify protocol** เพื่อแลกเปลี่ยนข้อมูลและ addresses
-2. **Kademlia DHT** ช่วยในการ discover peers across networks
-3. **DCUtR** พยายามสร้างการเชื่อมต่อโดยตรง (hole punching)
-4. ถ้าสำเร็จ, nodes จะสื่อสารกันโดยตรงโดยไม่ต้องผ่าน relay
+1. Nodes use **Identify protocol** to exchange information and addresses
+2. **Kademlia DHT** helps discover peers across networks
+3. **DCUtR** attempts to create direct connections (hole punching)
+4. If successful, nodes communicate directly without relay
 
-**หมายเหตุ:** สำหรับ strict NAT/symmetric NAT อาจต้องใช้ relay server เพิ่มเติม (ดูข้อมูลด้านล่าง)
+**Note:** For strict NAT/symmetric NAT where hole punching cannot work, additional relay server may be needed (see below)
 
 ### Relay Server Mode
 
-สำหรับ nodes ที่อยู่หลัง strict NAT หรือ symmetric NAT ที่ hole punching ไม่สามารถทำงานได้ สามารถใช้ relay server mode:
+For nodes behind strict NAT or symmetric NAT where hole punching cannot work, you can use relay server mode:
 
 ```bash
 kanari-node start --p2p-port 19000 --rpc-port 19001 --relay-server
 ```
 
-**คุณสมบัติ:**
+**Features:**
 
-- รับ reservation requests จาก nodes ที่ต้องการใช้ relay
-- สร้าง circuit relay ระหว่าง nodes
-- ช่วยให้ nodes ที่อยู่หลัง NAT สื่อสารกันได้แม้ว่า hole punching จะล้มเหลว
+- Accepts reservation requests from nodes that want to use relay
+- Creates circuit relay between nodes
+- Helps nodes behind NAT communicate even when hole punching fails
 
-**แนะนำ:** รัน relay server บน node ที่มี public IP หรืออยู่บน network ที่ accessible จากภายนอก
+**Recommendation:** Run relay server on a node with public IP or on a network accessible from outside
 
 ## Port Configuration
 
-| Service | Default Port |   การปรับแต่ง  |
-|---------|--------------|--------------|
-| P2P     | 19000        | `--p2p-port` |
-| RPC     | 19001        | `--rpc-port` |
+| Service | Default Port | Customization |
+|---------|--------------|---------------|
+| P2P     | 19000        | `--p2p-port`  |
+| RPC     | 19001        | `--rpc-port`  |
 
 ## Data Directory Configuration
 
-แต่ละ node ควรมี data directory แยกกันเพื่อป้องกันข้อมูลทับกัน:
+Each node should have a separate data directory to prevent data conflicts:
 
 ### Windows
 
@@ -212,27 +212,27 @@ kanari-node start --p2p-port 19000 --rpc-port 19001 --relay-server
 --data-dir ~/.kanari/kanari-db/node3
 ```
 
-**หมายเหตุ:** ถ้าไม่ระบุ `--data-dir` ระบบจะใช้ default directory ซึ่งอาจทำให้ nodes ใช้ข้อมูลร่วมกัน
+**Note:** If `--data-dir` is not specified, the system will use the default directory which may cause nodes to share data
 
-## ตัวอย่าง Advanced Setup
+## Advanced Setup Examples
 
-### การใช้ PowerShell Scripts (Windows)
+### Using PowerShell Scripts (Windows)
 
-ในโฟลเดอร์นี้มี PowerShell scripts สำหรับช่วยในการรัน multi-node:
+This folder contains PowerShell scripts to help run multi-node:
 
-#### 1. Setup และดูข้อมูล Configuration
+#### 1. Setup and View Configuration Information
 
 ```powershell
 .\setup-multi-node.ps1
 ```
 
-Script นี้จะ:
+This script will:
 
-- สร้าง data directories สำหรับแต่ละ node
-- แสดงข้อมูล configuration ของแต่ละ node
-- แสดงคำสั่งสำหรับการรัน nodes
+- Create data directories for each node
+- Display configuration information for each node
+- Show commands for running nodes
 
-#### 2. รัน Node แต่ละตัว
+#### 2. Run Each Node
 
 ```powershell
 # Terminal 1
@@ -245,7 +245,7 @@ Script นี้จะ:
 .\start-node.ps1 -NodeId 3
 ```
 
-### การรัน 6 Nodes พร้อมกัน (Manual)
+### Running 6 Nodes Simultaneously (Manual)
 
 ```bash
 # Terminal 1 (Authority 0x1)
@@ -287,9 +287,9 @@ kanari-node start --p2p-port 19000 --rpc-port 19001 --rpc-host 0.0.0.0 --data-di
 
 Security note: binding RPC to all interfaces exposes the API to your local network — ensure your firewall and network policies allow or block access as intended.
 
-## การ Monitor Network
+## Monitoring the Network
 
-ดู logs เพื่อตรวจสอบ P2P events:
+Check logs to monitor P2P events:
 
 ```
 INFO kanari_node: Node Peer ID: 12D3KooW...
@@ -303,23 +303,23 @@ INFO kanari_node: Received new block #123 from network
 
 ## Troubleshooting
 
-### ปัญหา: Nodes ไม่เจอกัน
+### Problem: Nodes Cannot Find Each Other
 
-**แก้ไข:**
+**Solution:**
 
-1. ตรวจสอบว่าใช้ port ไม่ซ้ำกัน
-2. ตรวจสอบ firewall settings
-3. ลอง manual bootstrap ด้วย `--bootstrap`
+1. Check that ports are not duplicated
+2. Check firewall settings
+3. Try manual bootstrap with `--bootstrap`
 
-### ปัญหา: Block sync ไม่ทำงาน
+### Problem: Block Sync Not Working
 
-**แก้ไข:**
+**Solution:**
 
-1. ตรวจสอบ logs หา errors
-2. ตรวจสอบว่า blocks ถูก broadcast หรือไม่
-3. Restart nodes เพื่อ re-sync
+1. Check logs for errors
+2. Verify that blocks are being broadcast
+3. Restart nodes to re-sync
 
-## สถาปัตยกรรม
+## Architecture
 
 ```
 ┌──────────────────────────────────────────┐
@@ -334,8 +334,8 @@ INFO kanari_node: Received new block #123 from network
 │         └────┬──────────────┘            │
 │              │                           │
 │      ┌───────▼────────┐                  │
-│      │ Blockchain     │                  │
-│      │ Engine         │                  │
+│      │                │                  │
+│      │     Engine     │                  │
 │      └───────┬────────┘                  │
 │              │                           │
 │      ┌───────▼────────┐                  │
@@ -346,66 +346,25 @@ INFO kanari_node: Received new block #123 from network
 └──────────────────────────────────────────┘
 ```
 
-## การพัฒนาต่อ
-
-### ✅ คุณสมบัติที่ทำงานแล้ว
-
-- [x] **Block synchronization** - Nodes สามารถ sync blocks จากกันได้ผ่าน P2P
-- [x] **State sync optimization** - Execute transactions จาก synced blocks เพื่อ rebuild state
-  - Skip sequence validation สำหรับ synced transactions
-  - ใช้ main Move runtime เพื่อให้ module bytecode persist ถูกต้อง
-  - Apply changesets เพื่อ update accounts, balances, modules, objects
-- [x] **Transaction pool management** - Pending transaction pool พร้อม broadcast ผ่าน P2P
-- [x] **P2P message propagation** - Gossipsub protocol สำหรับ broadcast blocks/transactions
-- [x] **Peer discovery** - mDNS (local) และ Kademlia DHT
-- [x] **Block validation logic** - ตรวจสอบ block hash, prev_hash chain, timestamp, transaction integrity
-- [x] **Transaction deduplication** - ป้องกัน double spending และ replay attacks ด้วย transaction hash tracking
-- [x] **Persistent peer storage** - บันทึกและโหลด peer list จาก disk เพื่อ reconnect อัตโนมัติ
-- [x] **Transaction signature verification** - Verify signatures สำหรับ synced และ committed transactions
-  - Block เก็บ `SignedTransaction` แทน `Transaction`
-  - Verify signatures ใน `Block::verify()` และ `sync_full_block_from_data()`
-  - ป้องกัน malicious blocks จาก compromised nodes
-- [x] **Merkle tree for transactions** - Transaction merkle root ใน block header สำหรับ light client verification
-  - ใช้ SMT's Blake3 hash function เพื่อความสอดคล้องกับ state tree
-  - ทุก block มี merkle root ที่คำนวณจาก transaction hashes
-  - Block validation ตรวจสอบ merkle root integrity
-  - RPC endpoint `kanari_getTransactionMerkleProof` สำหรับ proof generation
-  - Support proof verification สำหรับ light clients
-- [x] **NAT traversal** - DCUtR (Direct Connection Upgrade through Relay) protocol สำหรับ hole punching
-  - Identify protocol สำหรับ peer information exchange
-  - Ping protocol สำหรับ connection keep-alive
-  - รองรับการเชื่อมต่อโดยตรงระหว่าง nodes ที่อยู่หลัง NAT
-  - ใช้ร่วมกับ Kademlia DHT สำหรับ peer discovery
-- [x] **Relay server mode** - รัน node เป็น relay server สำหรับ nodes ที่อยู่หลัง strict NAT
-  - ใช้ `--relay-server` flag เพื่อเปิดใช้งาน relay server mode
-  - รองรับ circuit relay และ reservation requests
-  - ช่วย nodes ที่อยู่หลัง symmetric NAT ให้สื่อสารกันได้
-
 ## Merkle Tree Architecture
 
-Kanari ใช้ **2 ประเภท** ของ Merkle trees:
+Kanari uses **2 types** of Merkle trees:
 
 ### 1. Sparse Merkle Tree (SMT) - State Storage
 
-- **ตำแหน่ง**: `crates/smt/`
-- **จุดประสงค์**: Account state verification และ proofs
-- **ใช้สำหรับ**: Account balances, modules, objects, state root
-- **Storage**: Persistent ใน RocksDB
+- **Location**: `crates/smt/`
+- **Purpose**: Account state verification and proofs
+- **Used for**: Account balances, modules, objects, state root
+- **Storage**: Persistent in RocksDB
 
 ### 2. Transaction Merkle Tree - Block Verification  
 
-- **ตำแหน่ง**: `crates/kanari-core/src/blockchain/merkle.rs`
-- **จุดประสงค์**: Light client transaction verification
-- **ใช้สำหรับ**: Block header merkle root, transaction inclusion proofs
-- **Storage**: In-memory, คำนวณใหม่ต่อ block
+- **Location**: `crates/kanari-core/src/blockchain/merkle.rs`
+- **Purpose**: Light client transaction verification
+- **Used for**: Block header merkle root, transaction inclusion proofs
+- **Storage**: In-memory, recalculated per block
 
-ดู [DOCS/MERKLE_TREES.md](../../../DOCS/MERKLE_TREES.md) สำหรับรายละเอียดเพิ่มเติม
-
-### 🚧 TODO items ที่สามารถพัฒนาต่อได้
-
-- [ ] **Consensus mechanism** - PoS, PoW, หรือ BFT consensus
-- [ ] **Fork resolution** - Logic สำหรับจัดการ chain forks และเลือก canonical chain
-- [ ] **Metrics และ monitoring dashboard** - Real-time network statistics
+See [DOCS/MERKLE_TREES.md](../../../DOCS/MERKLE_TREES.md) for more details
 
 ## License
 
