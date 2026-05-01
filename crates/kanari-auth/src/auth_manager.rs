@@ -13,11 +13,11 @@ use kanari_crypto::{keys::CurveType, wallet};
 use kanari_types::transaction::{SignedTransaction, Transaction};
 use move_core_types::account_address::AccountAddress;
 
+use crate::private_key_crypto::{decrypt_private_key, encrypt_private_key};
 use crate::{
     AuthError, AuthResult, Session, UserStore, email_validator, session::SessionManager,
     user_store::UserRecord,
 };
-use crate::private_key_crypto::{decrypt_private_key, encrypt_private_key};
 
 /// Main authentication manager that coordinates user registration,
 /// login, and transaction signing operations.
@@ -117,7 +117,7 @@ impl AuthManager {
         )?;
 
         let encrypted_private_key =
-            encrypt_private_key(&keypair.private_key.to_string(), password)?;
+            encrypt_private_key(keypair.private_key.as_ref(), password)?;
         user_record.set_encrypted_private_key(encrypted_private_key);
 
         // Save user to store
@@ -187,7 +187,11 @@ impl AuthManager {
             let curve_type = CurveType::from_str(&user.curve_type)
                 .map_err(|e| AuthError::CryptoError(format!("Invalid stored curve type: {e}")))?;
 
-            (user.wallet_address.clone(), curve_type, decrypted_private_key)
+            (
+                user.wallet_address.clone(),
+                curve_type,
+                decrypted_private_key,
+            )
         };
 
         // Create session (outside the borrow scope)

@@ -209,7 +209,13 @@ impl SessionManager {
             }
         }
 
-        let session = Session::new(email.clone(), wallet_address, private_key, curve_type, timeout);
+        let session = Session::new(
+            email.clone(),
+            wallet_address,
+            private_key,
+            curve_type,
+            timeout,
+        );
         let session_id = session.session_id.clone();
 
         // Store session

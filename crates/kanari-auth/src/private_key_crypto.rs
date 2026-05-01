@@ -38,15 +38,18 @@ pub fn encrypt_private_key(private_key: &str, password: &str) -> AuthResult<Stri
         iterations: KDF_ITERATIONS,
     };
 
-    serde_json::to_string(&payload)
-        .map_err(|e| AuthError::SerializationError(format!("Encryption payload serialize failed: {e}")))
+    serde_json::to_string(&payload).map_err(|e| {
+        AuthError::SerializationError(format!("Encryption payload serialize failed: {e}"))
+    })
 }
 
 pub fn decrypt_private_key(encrypted_payload: &str, password: &str) -> AuthResult<String> {
     validate_password(password)?;
 
-    let payload: EncryptedPrivateKeyPayload = serde_json::from_str(encrypted_payload)
-        .map_err(|e| AuthError::SerializationError(format!("Invalid encrypted key payload: {e}")))?;
+    let payload: EncryptedPrivateKeyPayload =
+        serde_json::from_str(encrypted_payload).map_err(|e| {
+            AuthError::SerializationError(format!("Invalid encrypted key payload: {e}"))
+        })?;
 
     let ciphertext = general_purpose::STANDARD
         .decode(payload.ciphertext)
@@ -103,7 +106,9 @@ fn random_bytes(len: usize) -> Vec<u8> {
 
 fn validate_password(password: &str) -> AuthResult<()> {
     if password.is_empty() {
-        return Err(AuthError::InvalidPassword("Password cannot be empty".to_string()));
+        return Err(AuthError::InvalidPassword(
+            "Password cannot be empty".to_string(),
+        ));
     }
     Ok(())
 }

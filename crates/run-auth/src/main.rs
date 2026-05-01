@@ -77,13 +77,18 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/users", get(handlers::list_users))
         .route("/api/v1/users/count", get(handlers::user_count))
         .route("/api/v1/user/info", get(handlers::get_user_info))
-        .route("/api/v1/user/encrypted-key", get(handlers::get_user_encrypted_key))
+        .route(
+            "/api/v1/user/encrypted-key",
+            get(handlers::get_user_encrypted_key),
+        )
         // Transaction signing
         .route("/api/v1/sign/transfer", post(handlers::sign_transfer))
         .route("/api/v1/sign/transaction", post(handlers::sign_transaction))
         // Session validation
-        .route("/api/v1/session/validate/{session_id}", get(handlers::validate_session))
-        
+        .route(
+            "/api/v1/session/validate/{session_id}",
+            get(handlers::validate_session),
+        )
         // Apply middleware and state
         .layer(cors)
         .layer(TraceLayer::new_for_http())

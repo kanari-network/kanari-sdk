@@ -148,7 +148,7 @@ zstd = "0.13.3"                                                                 
 # Caching & Performance Optimization
 # ============================================================================
 moka = { version = "0.12.15", features = ["sync"] }                                 # Thread-safe caching
-lru = "0.17.0"                                                                      # LRU cache
+lru = "0.18.0"                                                                      # LRU cache
 dashmap = "6.1.0"                                                                   # Concurrent HashMap
 ahash = "0.8.12"                                                                    # Fast non-cryptographic hasher
 siphasher = "1.0.2"                                                                 # SipHash implementation
