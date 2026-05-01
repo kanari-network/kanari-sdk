@@ -1,5 +1,5 @@
-use criterion::measurement::ValueFormatter;
 use criterion::Throughput;
+use criterion::measurement::ValueFormatter;
 
 pub(crate) struct DurationFormatter;
 impl DurationFormatter {
@@ -23,7 +23,12 @@ impl DurationFormatter {
         unit
     }
 
-    fn bytes_decimal_per_second(&self, bytes: f64, typical: f64, values: &mut [f64]) -> &'static str {
+    fn bytes_decimal_per_second(
+        &self,
+        bytes: f64,
+        typical: f64,
+        values: &mut [f64],
+    ) -> &'static str {
         let bytes_per_second = bytes * (1e9 / typical);
         let (denominator, unit) = if bytes_per_second < 1000.0 {
             (1.0, "  B/s")
@@ -93,7 +98,9 @@ impl ValueFormatter for DurationFormatter {
     ) -> &'static str {
         match *throughput {
             Throughput::Bytes(bytes) => self.bytes_per_second(bytes as f64, typical, values),
-            Throughput::BytesDecimal(bytes) => self.bytes_decimal_per_second(bytes as f64, typical, values),
+            Throughput::BytesDecimal(bytes) => {
+                self.bytes_decimal_per_second(bytes as f64, typical, values)
+            }
             Throughput::Elements(elems) => self.elements_per_second(elems as f64, typical, values),
         }
     }

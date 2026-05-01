@@ -48,7 +48,7 @@ pub mod consensus;
 /// # References
 ///
 /// - Castro, M., & Liskov, B. (1999). Practical Byzantine Fault Tolerance.
-///   OSDI '99. https://pmg.csail.mit.edu/papers/osdi99.pdf
+///   OSDI '99. <https://pmg.csail.mit.edu/papers/osdi99.pdf>
 /// - Yin, M., et al. (2019). HotStuff: BFT Consensus with Linearity and Responsiveness.
 ///   PODC '19.
 ///

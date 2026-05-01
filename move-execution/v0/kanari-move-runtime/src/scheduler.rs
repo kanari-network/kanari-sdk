@@ -15,7 +15,7 @@ impl TransactionScheduler {
     /// Algorithm:
     /// 1. Track the last wave index assigned to each conflict key (Object ID/Address).
     /// 2. For each transaction, determine the earliest possible wave index:
-    ///    wave_idx = max(last_wave_index[key] for key in tx_keys) + 1
+    ///    `wave_idx = max(last_wave_index[key] for key in tx_keys) + 1`
     /// 3. Assign the transaction to that wave.
     /// 4. Update last_wave_index for all keys involved in the transaction.
     ///

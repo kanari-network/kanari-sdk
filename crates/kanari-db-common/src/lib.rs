@@ -10,7 +10,7 @@ use std::sync::Arc;
 static GLOBAL_DB: OnceCell<Arc<DB>> = OnceCell::new();
 static GLOBAL_DB_PATH: OnceCell<PathBuf> = OnceCell::new();
 
-/// Open (once) a RocksDB instance at the given path (or default) and return Arc<DB>.
+/// Open (once) a RocksDB instance at the given path (or default) and return `Arc<DB>`.
 /// Subsequent calls will return the same Arc. If a different path is provided after
 /// the DB was opened, an error is returned to avoid multiple opens to different paths.
 pub fn open_or_get_db(path_opt: Option<PathBuf>) -> Result<Arc<DB>> {

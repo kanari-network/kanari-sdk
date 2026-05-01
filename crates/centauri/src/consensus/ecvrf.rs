@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! ECVRF (Elliptic Curve Verifiable Random Function) implementation
-//! Based on RFC 9381: https://www.rfc-editor.org/rfc/rfc9381.html
+//! Based on [RFC 9381](https://www.rfc-editor.org/rfc/rfc9381.html)
 //!
 //! This is a production-grade VRF using Ristretto255 curve for cryptographically
 //! secure and unpredictable leader election in DAG consensus.

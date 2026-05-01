@@ -31,10 +31,10 @@ pub struct DagCaches {
     /// Merkle proof cache: (vertex_id, leaf_index) -> proof
     pub merkle_proofs: LruCache<(VertexId, usize), Vec<Vec<u8>>>,
 
-    /// Parent vertices cache: VertexId -> Vec<VertexId>
+    /// Parent vertices cache: `VertexId` -> `Vec<VertexId>`
     pub parent_vertices: LruCache<VertexId, Vec<VertexId>>,
 
-    /// Round cache: Round -> Vec<VertexId>
+    /// Round cache: Round -> `Vec<VertexId>`
     pub round_vertices: LruCache<u64, Vec<VertexId>>,
 }
 

@@ -1,8 +1,8 @@
-use std::time::Duration;
 use criterion::measurement::{Measurement, ValueFormatter};
+use std::time::Duration;
 
 #[cfg(unix)]
-use libc::{timespec, timeval, c_long, time_t};
+use libc::{c_long, time_t, timespec, timeval};
 
 #[cfg(unix)]
 struct Timeval {
@@ -33,22 +33,22 @@ impl ProcessTime {
         use libc::{RUSAGE_SELF, getrusage};
 
         #[cfg(not(target_os = "macos"))]
-        use libc::{RUSAGE_SELF, getrusage, CLOCK_PROCESS_CPUTIME_ID, clock_gettime};
+        use libc::{CLOCK_PROCESS_CPUTIME_ID, RUSAGE_SELF, clock_gettime, getrusage};
 
         unsafe {
             // Try using getrusage first
             let mut r_usage: Rusage = zeroed();
             let result = getrusage(RUSAGE_SELF, &mut r_usage as *mut Rusage as *mut _);
-            
+
             if result == 0 {
                 let user_sec = r_usage.ru_utime.tv_sec as u64;
                 let user_usec = r_usage.ru_utime.tv_usec as u32;
                 let sys_sec = r_usage.ru_stime.tv_sec as u64;
                 let sys_usec = r_usage.ru_stime.tv_usec as u32;
-                
+
                 let user = Duration::new(user_sec, user_usec * 1000);
                 let sys = Duration::new(sys_sec, sys_usec * 1000);
-                
+
                 user + sys
             } else {
                 // Fallback to clock_gettime if available (not on macOS)
@@ -56,7 +56,7 @@ impl ProcessTime {
                 {
                     let mut time_spec: timespec = zeroed();
                     let result = clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &mut time_spec);
-                    
+
                     if result == 0 {
                         Duration::new(time_spec.tv_sec as u64, time_spec.tv_nsec as u32)
                     } else {
@@ -76,17 +76,17 @@ impl ProcessTime {
     #[cfg(windows)]
     pub fn get_process_time(&self) -> Duration {
         use std::mem::zeroed;
+        use windows_sys::Win32::Foundation::FILETIME;
         use windows_sys::Win32::System::Threading::GetCurrentProcess;
         use windows_sys::Win32::System::Threading::GetProcessTimes;
-        use windows_sys::Win32::Foundation::FILETIME;
-        
+
         unsafe {
             let h_process = GetCurrentProcess();
             let mut creation_time: FILETIME = zeroed();
             let mut exit_time: FILETIME = zeroed();
             let mut kernel_time: FILETIME = zeroed();
             let mut user_time: FILETIME = zeroed();
-            
+
             let result = GetProcessTimes(
                 h_process,
                 &mut creation_time,
@@ -94,12 +94,12 @@ impl ProcessTime {
                 &mut kernel_time,
                 &mut user_time,
             );
-            
+
             if result != 0 {
                 // Convert FILETIME to Duration (100-nanosecond intervals)
                 let user = filetime_to_duration(&user_time);
                 let kernel = filetime_to_duration(&kernel_time);
-                
+
                 user + kernel
             } else {
                 Duration::new(0, 0)
@@ -113,11 +113,11 @@ fn filetime_to_duration(ft: &windows_sys::Win32::Foundation::FILETIME) -> Durati
     // FILETIME is in 100-nanosecond intervals
     // Combine the high and low parts to get the total 100-nanosecond intervals
     let total_intervals = ((ft.dwHighDateTime as u64) << 32) | (ft.dwLowDateTime as u64);
-    
+
     // Convert to seconds and nanoseconds
     let seconds = total_intervals / 10_000_000;
     let nanoseconds = ((total_intervals % 10_000_000) * 100) as u32;
-    
+
     Duration::new(seconds, nanoseconds)
 }
 

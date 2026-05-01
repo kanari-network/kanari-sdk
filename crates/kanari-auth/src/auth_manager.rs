@@ -116,8 +116,7 @@ impl AuthManager {
             curve.to_string(),
         )?;
 
-        let encrypted_private_key =
-            encrypt_private_key(keypair.private_key.as_ref(), password)?;
+        let encrypted_private_key = encrypt_private_key(keypair.private_key.as_ref(), password)?;
         user_record.set_encrypted_private_key(encrypted_private_key);
 
         // Save user to store

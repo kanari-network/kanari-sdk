@@ -707,7 +707,7 @@ impl DagStore {
             .unwrap_or_default()
     }
 
-    /// Get all vertex IDs in a round (cheap path, avoids cloning Arc<DagVertex> values).
+    /// Get all vertex IDs in a round (cheap path, avoids cloning `Arc<DagVertex>` values).
     pub fn get_vertex_ids_in_round(&self, round: Round) -> Vec<VertexId> {
         self.vertices_by_round
             .get(&round)
