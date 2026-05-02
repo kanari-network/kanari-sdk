@@ -29,15 +29,20 @@ class _KanariLoginScreenState extends State<KanariLoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _totpController = TextEditingController();
+  final _backupCodeController = TextEditingController();
 
   bool _isLoading = false;
   bool _obscurePassword = true;
+  bool _requiresTwoFactor = false;
   String? _errorMessage;
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _totpController.dispose();
+    _backupCodeController.dispose();
     super.dispose();
   }
 
@@ -49,10 +54,26 @@ class _KanariLoginScreenState extends State<KanariLoginScreen> {
       _errorMessage = null;
     });
 
+    if (_requiresTwoFactor &&
+        _totpController.text.trim().isEmpty &&
+        _backupCodeController.text.trim().isEmpty) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Please enter an authenticator code or a backup code.';
+      });
+      return;
+    }
+
     try {
       final response = await widget.authClient.login(
         email: _emailController.text.trim(),
         password: _passwordController.text,
+        totpCode: _totpController.text.trim().isEmpty
+            ? null
+            : _totpController.text.trim(),
+        backupCode: _backupCodeController.text.trim().isEmpty
+            ? null
+            : _backupCodeController.text.trim(),
       );
 
       if (!mounted) return;
@@ -62,6 +83,9 @@ class _KanariLoginScreenState extends State<KanariLoginScreen> {
       });
 
       if (response.success) {
+        setState(() {
+          _requiresTwoFactor = false;
+        });
         final walletAddress = response.data?.walletAddress;
         var matchedLocalWallet = false;
 
@@ -111,8 +135,10 @@ class _KanariLoginScreenState extends State<KanariLoginScreen> {
         );
         widget.onLoginSuccess?.call();
       } else {
+        final error = response.error ?? 'Login failed';
         setState(() {
-          _errorMessage = response.error ?? 'Login failed';
+          _requiresTwoFactor = error.toLowerCase().contains('two-factor');
+          _errorMessage = error;
         });
       }
     } catch (e) {
@@ -205,6 +231,35 @@ class _KanariLoginScreenState extends State<KanariLoginScreen> {
                             return null;
                           },
                         ),
+                        if (_requiresTwoFactor) ...[
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _totpController,
+                            keyboardType: TextInputType.number,
+                            enabled: !_isLoading,
+                            decoration: const InputDecoration(
+                              labelText: 'Authenticator code',
+                              hintText: '123456',
+                              prefixIcon: Icon(Icons.shield_rounded),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _backupCodeController,
+                            textCapitalization: TextCapitalization.characters,
+                            enabled: !_isLoading,
+                            decoration: const InputDecoration(
+                              labelText: 'Backup code',
+                              hintText: 'Optional backup code',
+                              prefixIcon: Icon(Icons.key_rounded),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Enter either a 6-digit authenticator code or a backup code.',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
                         if (_errorMessage != null) ...[
                           const SizedBox(height: 16),
                           AppErrorBanner(message: _errorMessage!),

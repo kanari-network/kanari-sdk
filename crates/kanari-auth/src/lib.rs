@@ -63,6 +63,7 @@ pub mod session;
 pub mod user_store;
 
 pub use auth_manager::AuthManager;
+pub use auth_manager::TwoFactorStatus;
 pub use session::Session;
 pub use user_store::{UserRecord, UserStore};
 

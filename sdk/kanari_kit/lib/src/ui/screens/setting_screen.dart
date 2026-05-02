@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../auth_client.dart';
+import '../../models/auth_models.dart';
 import '../../providers/theme_mode_provider.dart';
 import '../../providers/wallet_provider.dart';
 import '../widgets/app_ui.dart';
@@ -30,6 +32,20 @@ class SettingScreen extends StatelessWidget {
             title: 'Change PIN',
             subtitle: 'Update the 6-digit PIN for this device',
             onTap: () => _showChangePinDialog(context),
+          ),
+          const SizedBox(height: 12),
+          _SettingsTile(
+            icon: Icons.shield_moon_rounded,
+            title: 'Set Up Two-Factor Authentication',
+            subtitle: 'Scan QR code and protect login with an authenticator app',
+            onTap: () => _showSetup2faDialog(context),
+          ),
+          const SizedBox(height: 12),
+          _SettingsTile(
+            icon: Icons.shield_outlined,
+            title: 'Disable Two-Factor Authentication',
+            subtitle: 'Remove authenticator-based login protection',
+            onTap: () => _showDisable2faDialog(context),
           ),
           const SizedBox(height: 24),
           const AppSectionTitle('Session'),
@@ -62,6 +78,381 @@ class SettingScreen extends StatelessWidget {
       builder: (_) => AppPinChangeDialog(
         onSubmit: (oldPin, newPin) => state.changePin(oldPin, newPin),
       ),
+    );
+  }
+
+  Future<void> _showSetup2faDialog(BuildContext context) async {
+    final outerContext = context;
+    final authClient = context.read<KanariAuthClient>();
+    final email = authClient.userEmail;
+
+    if (email == null || email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please login before configuring 2FA')),
+      );
+      return;
+    }
+
+    final passwordController = TextEditingController();
+    final codeController = TextEditingController();
+    var isLoading = false;
+    String? errorMessage;
+    TwoFactorSetupResponse? setupResponse;
+
+    await showAppModalSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            Future<void> startSetup() async {
+              setState(() {
+                isLoading = true;
+                errorMessage = null;
+              });
+
+              final response = await authClient.setup2fa(
+                email: email,
+                password: passwordController.text,
+              );
+
+              if (!context.mounted) return;
+              setState(() {
+                isLoading = false;
+                if (response.success) {
+                  setupResponse = response.data;
+                } else {
+                  errorMessage = response.error ?? 'Failed to start 2FA setup';
+                }
+              });
+            }
+
+            Future<void> confirmSetup() async {
+              setState(() {
+                isLoading = true;
+                errorMessage = null;
+              });
+
+              final response = await authClient.enable2fa(
+                email: email,
+                password: passwordController.text,
+                code: codeController.text.trim(),
+              );
+
+              if (!context.mounted) return;
+              setState(() {
+                isLoading = false;
+                if (!response.success) {
+                  errorMessage = response.error ?? 'Failed to enable 2FA';
+                }
+              });
+
+              if (response.success && outerContext.mounted) {
+                Navigator.of(dialogContext).pop();
+                ScaffoldMessenger.of(outerContext).showSnackBar(
+                  const SnackBar(
+                    content: Text('Two-factor authentication enabled'),
+                  ),
+                );
+              }
+            }
+
+            return SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    AppPanel(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                setupResponse == null
+                                    ? Icons.shield_moon_rounded
+                                    : Icons.verified_user_rounded,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  setupResponse == null
+                                      ? 'Set Up 2FA'
+                                      : 'Confirm 2FA Setup',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleLarge
+                                      ?.copyWith(fontWeight: FontWeight.w800),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            setupResponse == null
+                                ? 'Enter your password to generate a QR code and backup codes.'
+                                : 'Scan the QR code with your authenticator app, then enter the current 6-digit code.',
+                          ),
+                          const SizedBox(height: 16),
+                          TextField(
+                            controller: passwordController,
+                            obscureText: true,
+                            enabled: !isLoading && setupResponse == null,
+                            decoration: const InputDecoration(
+                              labelText: 'Password',
+                              prefixIcon: Icon(Icons.lock_rounded),
+                            ),
+                          ),
+                          if (setupResponse != null) ...[
+                            const SizedBox(height: 20),
+                            if (setupResponse!.otpauthUrl != null &&
+                                setupResponse!.otpauthUrl!.isNotEmpty)
+                              Center(
+                                child: Container(
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(24),
+                                  ),
+                                  child: QrImageView(
+                                    data: setupResponse!.otpauthUrl!,
+                                    size: 220,
+                                    backgroundColor: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Manual secret',
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: SelectableText(
+                                setupResponse!.secret ?? '-',
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            TextField(
+                              controller: codeController,
+                              keyboardType: TextInputType.number,
+                              enabled: !isLoading,
+                              decoration: const InputDecoration(
+                                labelText: 'Authenticator code',
+                                hintText: '123456',
+                                prefixIcon: Icon(Icons.shield_rounded),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Backup codes',
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: SelectableText(
+                                (setupResponse!.backupCodes ?? const <String>[])
+                                    .join('\n'),
+                              ),
+                            ),
+                          ],
+                          if (errorMessage != null) ...[
+                            const SizedBox(height: 16),
+                            AppErrorBanner(message: errorMessage!),
+                          ],
+                          const SizedBox(height: 20),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: isLoading
+                                      ? null
+                                      : () => Navigator.of(dialogContext).pop(),
+                                  child: const Text('Cancel'),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: FilledButton(
+                                  onPressed: isLoading
+                                      ? null
+                                      : (setupResponse == null
+                                            ? startSetup
+                                            : confirmSetup),
+                                  child: isLoading
+                                      ? const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : Text(
+                                          setupResponse == null
+                                              ? 'Generate QR'
+                                              : 'Enable 2FA',
+                                        ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _showDisable2faDialog(BuildContext context) async {
+    final outerContext = context;
+    final authClient = context.read<KanariAuthClient>();
+    final email = authClient.userEmail;
+
+    if (email == null || email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please login before disabling 2FA')),
+      );
+      return;
+    }
+
+    final passwordController = TextEditingController();
+    var isLoading = false;
+    String? errorMessage;
+
+    await showAppModalSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            Future<void> disable2fa() async {
+              setState(() {
+                isLoading = true;
+                errorMessage = null;
+              });
+
+              final response = await authClient.disable2fa(
+                email: email,
+                password: passwordController.text,
+              );
+
+              if (!context.mounted) return;
+              setState(() {
+                isLoading = false;
+                if (!response.success) {
+                  errorMessage = response.error ?? 'Failed to disable 2FA';
+                }
+              });
+
+              if (response.success && outerContext.mounted) {
+                Navigator.of(dialogContext).pop();
+                ScaffoldMessenger.of(outerContext).showSnackBar(
+                  const SnackBar(
+                    content: Text('Two-factor authentication disabled'),
+                  ),
+                );
+              }
+            }
+
+            return SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+                child: AppPanel(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.shield_outlined),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Disable 2FA',
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Enter your password to remove authenticator-based login protection.',
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: passwordController,
+                        obscureText: true,
+                        enabled: !isLoading,
+                        decoration: const InputDecoration(
+                          labelText: 'Password',
+                          prefixIcon: Icon(Icons.lock_rounded),
+                        ),
+                      ),
+                      if (errorMessage != null) ...[
+                        const SizedBox(height: 16),
+                        AppErrorBanner(message: errorMessage!),
+                      ],
+                      const SizedBox(height: 20),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: isLoading
+                                  ? null
+                                  : () => Navigator.of(dialogContext).pop(),
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: isLoading ? null : disable2fa,
+                              child: isLoading
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Text('Disable'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 

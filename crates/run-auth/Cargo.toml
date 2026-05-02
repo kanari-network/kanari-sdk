@@ -37,3 +37,12 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 # Utilities
 uuid.workspace = true
 chrono.workspace = true
+
+# TOTP for 2FA
+totp-rs = { version = "5.4", features = ["gen_secret", "otpauth"] }
+qrcode = "0.14"
+data-encoding = "2.4"
+rand = "0.8"
+
+# IP extraction
+axum-client-ip = "0.7"

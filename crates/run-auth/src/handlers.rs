@@ -1,8 +1,10 @@
 use axum::{
     Json,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, HeaderValue, StatusCode},
+    response::IntoResponse,
 };
+use axum_client_ip::InsecureClientIp;
 use kanari_crypto::keys::CurveType;
 use tracing::{error, info, warn};
 
@@ -16,6 +18,21 @@ use crate::{
     },
 };
 
+fn build_rate_limit_response(
+    retry_after_secs: u64,
+) -> (StatusCode, HeaderMap, Json<ApiResponse<serde_json::Value>>) {
+    let mut headers = HeaderMap::new();
+    if let Ok(value) = HeaderValue::from_str(&retry_after_secs.to_string()) {
+        headers.insert("Retry-After", value);
+    }
+
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        headers,
+        Json(ApiResponse::error("Rate limit exceeded")),
+    )
+}
+
 /// Register a new user
 ///
 /// Supported curve types:
@@ -25,10 +42,40 @@ use crate::{
 /// Default: `ed25519` (if curve_type not provided)
 pub async fn register(
     State(state): State<AppState>,
+    InsecureClientIp(client_ip): InsecureClientIp,
     Json(payload): Json<RegisterRequest>,
-) -> (StatusCode, Json<ApiResponse<RegisterResponse>>) {
+) -> axum::response::Response {
     info!("Registration attempt for email: {}", payload.email);
     info!("Requested curve type: {:?}", payload.curve_type);
+
+    if let Err(rate_limit) = state.rate_limiter.check_rate_limit(client_ip).await {
+        state
+            .audit_logger
+            .log_failure(
+                crate::audit_logger::AuditEventType::RateLimitExceeded,
+                crate::audit_logger::AuditSeverity::Warning,
+                Some(payload.email.clone()),
+                Some(client_ip.to_string()),
+                None,
+                serde_json::json!({"endpoint": "register"}),
+                "Rate limit exceeded".to_string(),
+            )
+            .await;
+        return build_rate_limit_response(rate_limit.retry_after_secs).into_response();
+    }
+
+    // SECURITY FIX #2: Validate password strength before processing
+    if let Err(e) = kanari_auth::UserRecord::validate_password(&payload.password) {
+        warn!("Weak password rejected for email: {}", payload.email);
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::<serde_json::Value>::error(format!(
+                "Password validation failed: {}",
+                e
+            ))),
+        )
+            .into_response();
+    }
 
     // Parse curve type if provided
     let curve_type = if let Some(curve_str) = &payload.curve_type {
@@ -47,10 +94,11 @@ pub async fn register(
                 warn!("Invalid curve type: {}", curve_str);
                 return (
                     StatusCode::BAD_REQUEST,
-                    Json(ApiResponse::error(
+                    Json(ApiResponse::<serde_json::Value>::error(
                         "Invalid curve type. Supported: ed25519, k256, p256, dilithium2, dilithium3, dilithium5, sphincsplus, ed25519dilithium3, k256dilithium3",
                     )),
-                );
+                )
+                    .into_response();
             }
         }
     } else {
@@ -70,18 +118,45 @@ pub async fn register(
                 wallet_address: wallet.address.to_hex_literal(),
                 message: "User registered successfully".to_string(),
             };
-            info!("Sending response: {:?}", serde_json::to_string(&response));
-            (StatusCode::CREATED, Json(ApiResponse::success(response)))
+            state
+                .audit_logger
+                .log_success(
+                    crate::audit_logger::AuditEventType::Registration,
+                    Some(payload.email.clone()),
+                    Some(client_ip.to_string()),
+                    None,
+                    serde_json::json!({"curve_type": curve_type.map(|c| c.to_string())}),
+                )
+                .await;
+            // SECURITY FIX #3: Remove sensitive data from logs - only log success/failure
+            info!("Registration successful for email: {}", payload.email);
+            (StatusCode::CREATED, Json(ApiResponse::success(response))).into_response()
         }
         Err(e) => {
             error!("Registration failed: {:?}", e);
+            state
+                .audit_logger
+                .log_failure(
+                    crate::audit_logger::AuditEventType::Registration,
+                    crate::audit_logger::AuditSeverity::Warning,
+                    Some(payload.email.clone()),
+                    Some(client_ip.to_string()),
+                    None,
+                    serde_json::json!({"curve_type": payload.curve_type.clone()}),
+                    format!("{:?}", e),
+                )
+                .await;
             let status_code = match e {
                 kanari_auth::AuthError::UserAlreadyExists(_) => StatusCode::CONFLICT,
                 kanari_auth::AuthError::InvalidEmail(_)
                 | kanari_auth::AuthError::InvalidPassword(_) => StatusCode::BAD_REQUEST,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             };
-            (status_code, Json(ApiResponse::error(format!("{:?}", e))))
+            (
+                status_code,
+                Json(ApiResponse::<serde_json::Value>::error(format!("{:?}", e))),
+            )
+                .into_response()
         }
     }
 }
@@ -89,18 +164,112 @@ pub async fn register(
 /// Login user
 pub async fn login(
     State(state): State<AppState>,
+    InsecureClientIp(client_ip): InsecureClientIp,
     Json(payload): Json<LoginRequest>,
-) -> (StatusCode, Json<ApiResponse<LoginResponse>>) {
+) -> axum::response::Response {
     info!("Login attempt for email: {}", payload.email);
+
+    if let Err(rate_limit) = state.rate_limiter.check_rate_limit(client_ip).await {
+        state
+            .audit_logger
+            .log_failure(
+                crate::audit_logger::AuditEventType::RateLimitExceeded,
+                crate::audit_logger::AuditSeverity::Warning,
+                Some(payload.email.clone()),
+                Some(client_ip.to_string()),
+                None,
+                serde_json::json!({"endpoint": "login"}),
+                "Rate limit exceeded".to_string(),
+            )
+            .await;
+        return build_rate_limit_response(rate_limit.retry_after_secs).into_response();
+    }
 
     let session_timeout = payload
         .session_timeout_hours
         .map(|hours| std::time::Duration::from_secs(hours * 3600));
 
+    let normalized_email = kanari_auth::email_validator::normalize_email(&payload.email);
     let mut auth = state.auth_manager.lock().await;
+    let two_factor_status = match auth.get_two_factor_status(&normalized_email) {
+        Ok(status) => status,
+        Err(kanari_auth::AuthError::UserNotFound(_)) => None,
+        Err(e) => {
+            error!("Failed to read 2FA status: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::<serde_json::Value>::error(
+                    "Failed to read 2FA status",
+                )),
+            )
+                .into_response();
+        }
+    };
+    let two_factor_enabled = two_factor_status
+        .as_ref()
+        .map(|status| status.enabled)
+        .unwrap_or(false);
 
     match auth.login(&payload.email, &payload.password, session_timeout) {
         Ok(session) => {
+            if let Some(two_factor_status) = two_factor_status.filter(|status| status.enabled) {
+                let verification = if let Some(code) = payload.totp_code.as_deref() {
+                    if state
+                        .totp_manager
+                        .verify_code(&two_factor_status.secret, code)
+                    {
+                        Ok(crate::two_factor::VerificationMethod::Totp)
+                    } else {
+                        Err("Invalid TOTP code")
+                    }
+                } else if let Some(backup_code) = payload.backup_code.as_deref() {
+                    match auth.consume_backup_code(&normalized_email, backup_code) {
+                        Ok(true) => Ok(crate::two_factor::VerificationMethod::BackupCode),
+                        Ok(false) => Err("Invalid backup code"),
+                        Err(_) => Err("Failed to validate backup code"),
+                    }
+                } else {
+                    Err("Two-factor authentication required")
+                };
+
+                match verification {
+                    Ok(method) => {
+                        state
+                            .audit_logger
+                            .log_success(
+                                crate::audit_logger::AuditEventType::TwoFactorVerification,
+                                Some(payload.email.clone()),
+                                Some(client_ip.to_string()),
+                                None,
+                                serde_json::json!({"method": format!("{:?}", method)}),
+                            )
+                            .await;
+                    }
+                    Err(err) => {
+                        let _ = auth.logout(&session.session_id);
+                        state
+                            .audit_logger
+                            .log_failure(
+                                crate::audit_logger::AuditEventType::TwoFactorVerification,
+                                crate::audit_logger::AuditSeverity::Warning,
+                                Some(payload.email.clone()),
+                                Some(client_ip.to_string()),
+                                None,
+                                serde_json::json!({"endpoint": "login"}),
+                                err.to_string(),
+                            )
+                            .await;
+                        return (
+                            StatusCode::UNAUTHORIZED,
+                            Json(ApiResponse::<serde_json::Value>::error(
+                                "Two-factor authentication required or invalid verification code",
+                            )),
+                        )
+                            .into_response();
+                    }
+                }
+            }
+
             info!("Login successful: {}", payload.email);
             let (_, _, curve_type, encrypted_private_key) =
                 match auth.get_user_encrypted_key(&payload.email) {
@@ -109,14 +278,26 @@ pub async fn login(
                         error!("Failed to fetch encrypted key after login: {:?}", e);
                         return (
                             StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(ApiResponse::error(format!("{:?}", e))),
-                        );
+                            Json(ApiResponse::<serde_json::Value>::error(format!("{:?}", e))),
+                        )
+                            .into_response();
                     }
                 };
+            state
+                .audit_logger
+                .log_success(
+                    crate::audit_logger::AuditEventType::LoginSuccess,
+                    Some(payload.email.clone()),
+                    Some(client_ip.to_string()),
+                    None,
+                    serde_json::json!({"two_factor_enabled": two_factor_enabled}),
+                )
+                .await;
             (
                 StatusCode::OK,
                 Json(ApiResponse::success(LoginResponse {
                     success: true,
+                    two_factor_enabled,
                     session_id: session.session_id.clone(),
                     user_email: session.email.clone(),
                     wallet_address: session.wallet_address.clone(),
@@ -125,9 +306,22 @@ pub async fn login(
                     expires_at: session.expires_at.to_rfc3339(),
                 })),
             )
+                .into_response()
         }
         Err(e) => {
             error!("Login failed: {:?}", e);
+            state
+                .audit_logger
+                .log_failure(
+                    crate::audit_logger::AuditEventType::LoginFailure,
+                    crate::audit_logger::AuditSeverity::Warning,
+                    Some(payload.email.clone()),
+                    Some(client_ip.to_string()),
+                    None,
+                    serde_json::json!({"two_factor_enabled": two_factor_enabled}),
+                    format!("{:?}", e),
+                )
+                .await;
             let status_code = match e {
                 kanari_auth::AuthError::AuthenticationFailed
                 | kanari_auth::AuthError::UserNotFound(_) => StatusCode::UNAUTHORIZED,
@@ -135,7 +329,11 @@ pub async fn login(
                 kanari_auth::AuthError::InvalidEmail(_) => StatusCode::BAD_REQUEST,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             };
-            (status_code, Json(ApiResponse::error(format!("{:?}", e))))
+            (
+                status_code,
+                Json(ApiResponse::<serde_json::Value>::error(format!("{:?}", e))),
+            )
+                .into_response()
         }
     }
 }
@@ -298,41 +496,86 @@ pub async fn user_count(
 
 /// Get user info from session
 pub async fn get_user_info(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> (StatusCode, Json<ApiResponse<UserInfoResponse>>) {
-    let _session_id = params.get("session_id");
+    let Some(session_id) = params.get("session_id") else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::error("Missing session_id query parameter")),
+        );
+    };
 
     info!("Getting user info endpoint called");
 
-    // This endpoint needs proper implementation with session validation
-    // For now, return not implemented
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(ApiResponse::error("This endpoint is not yet implemented")),
-    )
-}
+    let mut auth = state.auth_manager.lock().await;
 
-/// Get user's encrypted private key for wallet restoration
-pub async fn get_user_encrypted_key(
-    State(state): State<AppState>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
-) -> (StatusCode, Json<ApiResponse<EncryptedKeyResponse>>) {
-    let email = match params.get("email") {
-        Some(email) => email.clone(),
-        None => {
+    let session = match auth.validate_session(session_id) {
+        Ok(session) => session.clone(),
+        Err(_) => {
             return (
-                StatusCode::BAD_REQUEST,
-                Json(ApiResponse::error("Email parameter is required")),
+                StatusCode::UNAUTHORIZED,
+                Json(ApiResponse::error("Invalid or expired session")),
             );
         }
     };
 
-    info!("Encrypted key retrieval attempt for email: {}", email);
+    match auth.get_user_info(&session) {
+        Ok((email, wallet_address)) => (
+            StatusCode::OK,
+            Json(ApiResponse::success(UserInfoResponse {
+                success: true,
+                email,
+                wallet_address,
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(format!("{:?}", e))),
+        ),
+    }
+}
 
-    let auth = state.auth_manager.lock().await;
+/// Get user's encrypted private key for wallet restoration
+/// SECURITY FIX #5: Now requires session validation to prevent unauthorized access
+pub async fn get_user_encrypted_key(
+    State(state): State<AppState>,
+    Json(payload): Json<crate::models::GetEncryptedKeyRequest>,
+) -> (StatusCode, Json<ApiResponse<EncryptedKeyResponse>>) {
+    info!(
+        "Encrypted key retrieval attempt for email: {}",
+        payload.email
+    );
 
-    match auth.get_user_encrypted_key(&email) {
+    let mut auth = state.auth_manager.lock().await;
+
+    // SECURITY FIX #5: Validate session before returning encrypted key
+    match auth.validate_session(&payload.session_id) {
+        Ok(session) => {
+            // Verify the session belongs to the requesting email
+            if session.email != payload.email {
+                warn!(
+                    "Session/email mismatch: session={} requested={}",
+                    session.email, payload.email
+                );
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(ApiResponse::error(
+                        "Unauthorized: Session does not match email",
+                    )),
+                );
+            }
+        }
+        Err(e) => {
+            warn!("Invalid session for encrypted key request: {:?}", e);
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiResponse::error("Invalid or expired session")),
+            );
+        }
+    }
+
+    match auth.get_user_encrypted_key(&payload.email) {
         Ok((email, wallet_address, curve_type, encrypted_key)) => {
             info!("Encrypted key retrieved successfully for: {}", email);
             (
@@ -368,19 +611,18 @@ pub async fn sign_transfer(
         payload.session_id
     );
 
-    let auth = state.auth_manager.lock().await;
+    let mut auth = state.auth_manager.lock().await;
 
-    // Create a mock session - in production, validate session first
-    let session = kanari_auth::Session {
-        session_id: payload.session_id.clone(),
-        email: String::new(), // Would be retrieved from session store
-        wallet_address: String::new(),
-        private_key: None,
-        curve_type: CurveType::Ed25519,
-        created_at: chrono::Utc::now(),
-        expires_at: chrono::Utc::now() + chrono::Duration::hours(24),
-        last_activity: chrono::Utc::now(),
-        is_valid: true,
+    // SECURITY FIX #4: Validate session instead of creating mock session
+    let session = match auth.validate_session(&payload.session_id) {
+        Ok(session) => session.clone(),
+        Err(e) => {
+            warn!("Invalid session for transfer signing: {:?}", e);
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiResponse::error("Invalid or expired session")),
+            );
+        }
     };
 
     match auth.sign_transfer(
@@ -448,19 +690,18 @@ pub async fn sign_transaction(
             }
         };
 
-    let auth = state.auth_manager.lock().await;
+    let mut auth = state.auth_manager.lock().await;
 
-    // Create a mock session - in production, validate session first
-    let session = kanari_auth::Session {
-        session_id: payload.session_id.clone(),
-        email: String::new(),
-        wallet_address: String::new(),
-        private_key: None,
-        curve_type: CurveType::Ed25519,
-        created_at: chrono::Utc::now(),
-        expires_at: chrono::Utc::now() + chrono::Duration::hours(24),
-        last_activity: chrono::Utc::now(),
-        is_valid: true,
+    // SECURITY FIX #4: Validate session instead of creating mock session
+    let session = match auth.validate_session(&payload.session_id) {
+        Ok(session) => session.clone(),
+        Err(e) => {
+            warn!("Invalid session for transaction signing: {:?}", e);
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiResponse::error("Invalid or expired session")),
+            );
+        }
     };
 
     match auth.sign_transaction(&session, transaction) {
@@ -532,5 +773,324 @@ pub async fn validate_session(
                 )
             }
         }
+    }
+}
+
+/// Setup 2FA for a user (generate QR code and secret)
+pub async fn setup_2fa(
+    State(state): State<AppState>,
+    InsecureClientIp(client_ip): InsecureClientIp,
+    Json(payload): Json<crate::models::TwoFactorSetupRequest>,
+) -> (
+    StatusCode,
+    Json<ApiResponse<crate::models::TwoFactorSetupResponse>>,
+) {
+    info!("2FA setup requested for email: {}", payload.email);
+
+    let mut auth = state.auth_manager.lock().await;
+
+    // Verify user exists and password is correct
+    match auth.login(&payload.email, &payload.password, None) {
+        Ok(session) => {
+            // Generate 2FA setup
+            let normalized_email = kanari_auth::email_validator::normalize_email(&payload.email);
+            let setup = state.totp_manager.generate_setup(&normalized_email);
+            if let Err(e) = auth.save_two_factor_setup(
+                &normalized_email,
+                setup.secret.clone(),
+                setup.backup_codes.clone(),
+            ) {
+                error!("Failed to persist 2FA setup: {:?}", e);
+                let _ = auth.logout(&session.session_id);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ApiResponse::error("Failed to persist 2FA setup")),
+                );
+            }
+            let qr_code_svg = state
+                .totp_manager
+                .generate_qr_svg(&setup.otpauth_url)
+                .unwrap_or_default();
+
+            // Log the event
+            state
+                .audit_logger
+                .log_success(
+                    crate::audit_logger::AuditEventType::TwoFactorSetup,
+                    Some(payload.email.clone()),
+                    Some(client_ip.to_string()),
+                    None,
+                    serde_json::json!({"action": "2fa_setup_initiated"}),
+                )
+                .await;
+
+            // Invalidate the temporary session
+            let _ = auth.logout(&session.session_id);
+
+            (
+                StatusCode::OK,
+                Json(ApiResponse::success(
+                    crate::models::TwoFactorSetupResponse {
+                        success: true,
+                        secret: setup.secret,
+                        otpauth_url: setup.otpauth_url,
+                        qr_code_svg,
+                        backup_codes: setup.backup_codes,
+                        message: "Scan the QR code with your authenticator app".to_string(),
+                    },
+                )),
+            )
+        }
+        Err(e) => {
+            error!("2FA setup failed - authentication error: {:?}", e);
+            state
+                .audit_logger
+                .log_failure(
+                    crate::audit_logger::AuditEventType::LoginFailure,
+                    crate::audit_logger::AuditSeverity::Warning,
+                    Some(payload.email),
+                    Some(client_ip.to_string()),
+                    None,
+                    serde_json::json!({"action": "2fa_setup_failed"}),
+                    format!("{:?}", e),
+                )
+                .await;
+
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiResponse::error("Authentication failed")),
+            )
+        }
+    }
+}
+
+/// Enable 2FA for a user (verify TOTP code and save)
+pub async fn enable_2fa(
+    State(state): State<AppState>,
+    InsecureClientIp(client_ip): InsecureClientIp,
+    Json(payload): Json<crate::two_factor::Enable2faRequest>,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    let normalized_email = kanari_auth::email_validator::normalize_email(&payload.email);
+    let mut auth = state.auth_manager.lock().await;
+
+    let temp_session = match auth.login(&payload.email, &payload.password, None) {
+        Ok(session) => session,
+        Err(_) => {
+            state
+                .audit_logger
+                .log_failure(
+                    crate::audit_logger::AuditEventType::TwoFactorEnabled,
+                    crate::audit_logger::AuditSeverity::Warning,
+                    Some(payload.email),
+                    Some(client_ip.to_string()),
+                    None,
+                    serde_json::json!({"action": "2fa_enable_failed"}),
+                    "Authentication failed".to_string(),
+                )
+                .await;
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiResponse::error("Authentication failed")),
+            );
+        }
+    };
+    let _ = auth.logout(&temp_session.session_id);
+
+    let status = match auth.get_two_factor_status(&normalized_email) {
+        Ok(Some(status)) => status,
+        Ok(None) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ApiResponse::error("No pending 2FA setup found")),
+            );
+        }
+        Err(e) => {
+            error!("Failed to load 2FA state: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::error("Failed to load 2FA state")),
+            );
+        }
+    };
+
+    if status.enabled {
+        return (
+            StatusCode::CONFLICT,
+            Json(ApiResponse::error("2FA is already enabled")),
+        );
+    }
+
+    if !state
+        .totp_manager
+        .verify_code(&status.secret, &payload.code)
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::error("Invalid TOTP code")),
+        );
+    }
+
+    match auth.enable_two_factor(&normalized_email) {
+        Ok(backup_codes) => {
+            state
+                .audit_logger
+                .log_success(
+                    crate::audit_logger::AuditEventType::TwoFactorEnabled,
+                    Some(normalized_email),
+                    Some(client_ip.to_string()),
+                    None,
+                    serde_json::json!({"backup_codes_remaining": backup_codes.len()}),
+                )
+                .await;
+            (
+                StatusCode::OK,
+                Json(ApiResponse::success(serde_json::json!({
+                    "message": "2FA enabled successfully",
+                    "backupCodes": backup_codes
+                }))),
+            )
+        }
+        Err(err) => (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::error(err.to_string())),
+        ),
+    }
+}
+
+/// Disable 2FA for a user
+pub async fn disable_2fa(
+    State(state): State<AppState>,
+    InsecureClientIp(client_ip): InsecureClientIp,
+    Json(payload): Json<crate::two_factor::Disable2faRequest>,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    let mut auth = state.auth_manager.lock().await;
+    let temp_session = match auth.login(&payload.email, &payload.password, None) {
+        Ok(session) => session,
+        Err(_) => {
+            state
+                .audit_logger
+                .log_failure(
+                    crate::audit_logger::AuditEventType::TwoFactorDisabled,
+                    crate::audit_logger::AuditSeverity::Warning,
+                    Some(payload.email),
+                    Some(client_ip.to_string()),
+                    None,
+                    serde_json::json!({"action": "2fa_disable_failed"}),
+                    "Authentication failed".to_string(),
+                )
+                .await;
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiResponse::error("Authentication failed")),
+            );
+        }
+    };
+    let _ = auth.logout(&temp_session.session_id);
+
+    let normalized_email = kanari_auth::email_validator::normalize_email(&payload.email);
+    match auth.disable_two_factor(&normalized_email) {
+        Ok(true) => {
+            state
+                .audit_logger
+                .log_success(
+                    crate::audit_logger::AuditEventType::TwoFactorDisabled,
+                    Some(normalized_email),
+                    Some(client_ip.to_string()),
+                    None,
+                    serde_json::json!({"action": "2fa_disabled"}),
+                )
+                .await;
+            (
+                StatusCode::OK,
+                Json(ApiResponse::success(serde_json::json!({
+                    "message": "2FA disabled successfully"
+                }))),
+            )
+        }
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error("2FA is not enabled for this user")),
+        ),
+        Err(e) => {
+            error!("Failed to disable 2FA: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::error("Failed to disable 2FA")),
+            )
+        }
+    }
+}
+
+/// Verify a TOTP code (for testing or login flow)
+pub async fn verify_2fa(
+    State(state): State<AppState>,
+    InsecureClientIp(client_ip): InsecureClientIp,
+    Json(payload): Json<crate::two_factor::TotpVerifyRequest>,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    info!("2FA verification attempt for email: {}", payload.email);
+    let normalized_email = kanari_auth::email_validator::normalize_email(&payload.email);
+    let auth = state.auth_manager.lock().await;
+    let status = match auth.get_two_factor_status(&normalized_email) {
+        Ok(Some(status)) if status.enabled => status,
+        Ok(Some(_)) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ApiResponse::error(
+                    "2FA setup is pending and not enabled yet",
+                )),
+            );
+        }
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ApiResponse::error("2FA is not enabled for this user")),
+            );
+        }
+        Err(e) => {
+            error!("Failed to read 2FA state: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::error("Failed to read 2FA state")),
+            );
+        }
+    };
+
+    if state
+        .totp_manager
+        .verify_code(&status.secret, &payload.code)
+    {
+        state
+            .audit_logger
+            .log_success(
+                crate::audit_logger::AuditEventType::TwoFactorVerification,
+                Some(normalized_email),
+                Some(client_ip.to_string()),
+                None,
+                serde_json::json!({"method": "Totp"}),
+            )
+            .await;
+        (
+            StatusCode::OK,
+            Json(ApiResponse::success(serde_json::json!({
+                "message": "2FA code verified successfully"
+            }))),
+        )
+    } else {
+        state
+            .audit_logger
+            .log_failure(
+                crate::audit_logger::AuditEventType::TwoFactorVerification,
+                crate::audit_logger::AuditSeverity::Warning,
+                Some(normalized_email),
+                Some(client_ip.to_string()),
+                None,
+                serde_json::json!({"endpoint": "verify_2fa"}),
+                "Invalid TOTP code".to_string(),
+            )
+            .await;
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(ApiResponse::error("Invalid TOTP code")),
+        )
     }
 }

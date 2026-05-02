@@ -40,6 +40,17 @@ pub struct UserRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encrypted_private_key: Option<String>,
 
+    /// Pending or active TOTP secret (base32 encoded)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub totp_secret: Option<String>,
+
+    /// Whether 2FA has been fully enabled
+    pub totp_enabled: bool,
+
+    /// Remaining backup codes for account recovery
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub backup_codes: Vec<String>,
+
     /// Account creation timestamp
     pub created_at: DateTime<Utc>,
 
@@ -87,6 +98,9 @@ impl UserRecord {
             wallet_address,
             curve_type,
             encrypted_private_key: None,
+            totp_secret: None,
+            totp_enabled: false,
+            backup_codes: Vec::new(),
             created_at: Utc::now(),
             last_login: None,
             failed_attempts: 0,
@@ -237,6 +251,39 @@ impl UserRecord {
     pub fn set_encrypted_private_key(&mut self, encrypted_key: String) {
         self.encrypted_private_key = Some(encrypted_key);
     }
+
+    /// Save a pending or refreshed 2FA enrollment for the user.
+    pub fn set_two_factor_setup(&mut self, secret: String, backup_codes: Vec<String>) {
+        self.totp_secret = Some(secret);
+        self.totp_enabled = false;
+        self.backup_codes = backup_codes;
+    }
+
+    /// Mark the currently stored 2FA setup as enabled.
+    pub fn enable_two_factor(&mut self) {
+        self.totp_enabled = self.totp_secret.is_some();
+    }
+
+    /// Disable 2FA and remove all stored recovery material.
+    pub fn disable_two_factor(&mut self) {
+        self.totp_secret = None;
+        self.totp_enabled = false;
+        self.backup_codes.clear();
+    }
+
+    /// Consume a one-time backup code if present.
+    pub fn consume_backup_code(&mut self, backup_code: &str) -> bool {
+        if let Some(index) = self
+            .backup_codes
+            .iter()
+            .position(|stored| stored == backup_code)
+        {
+            self.backup_codes.remove(index);
+            true
+        } else {
+            false
+        }
+    }
 }
 
 /// Thread-safe user store backed by SQLite database
@@ -258,6 +305,9 @@ struct UserRowData {
     wallet_address: String,
     curve_type: String,
     encrypted_private_key: Option<String>,
+    totp_secret: Option<String>,
+    totp_enabled: bool,
+    backup_codes: Option<String>,
     created_at: String,
     last_login: Option<String>,
     failed_attempts: i64,
@@ -302,22 +352,46 @@ impl UserStore {
                 "CREATE TABLE IF NOT EXISTS users (
                 email TEXT PRIMARY KEY,
                 password_hash TEXT NOT NULL,
-                wallet_address TEXT NOT NULL,
+                wallet_address TEXT NOT NULL UNIQUE,
                 curve_type TEXT NOT NULL DEFAULT 'Ed25519',
                 encrypted_private_key TEXT,
+                totp_secret TEXT,
+                totp_enabled BOOLEAN NOT NULL DEFAULT 0,
+                backup_codes TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL,
                 last_login TEXT,
                 failed_attempts INTEGER NOT NULL DEFAULT 0,
                 locked_until TEXT,
-                is_active BOOLEAN NOT NULL DEFAULT 1
+                is_active BOOLEAN NOT NULL DEFAULT 1,
+                CONSTRAINT unique_email UNIQUE (email COLLATE NOCASE)
             );",
             )
             .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
 
+        // Add curve_type column if it doesn't exist (for backward compatibility)
         let _ = self.conn.execute(
             "ALTER TABLE users ADD COLUMN curve_type TEXT NOT NULL DEFAULT 'Ed25519';",
             [],
         );
+        let _ = self
+            .conn
+            .execute("ALTER TABLE users ADD COLUMN totp_secret TEXT;", []);
+        let _ = self.conn.execute(
+            "ALTER TABLE users ADD COLUMN totp_enabled BOOLEAN NOT NULL DEFAULT 0;",
+            [],
+        );
+        let _ = self.conn.execute(
+            "ALTER TABLE users ADD COLUMN backup_codes TEXT NOT NULL DEFAULT '[]';",
+            [],
+        );
+
+        // SECURITY FIX #1: Create unique index on normalized email to prevent race conditions
+        self.conn
+            .execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(email COLLATE NOCASE);",
+                [],
+            )
+            .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
 
         // Create index for faster lookups
         self.conn
@@ -338,33 +412,62 @@ impl UserStore {
     /// # Returns
     /// Error if user already exists
     pub fn add_user(&mut self, user: UserRecord) -> AuthResult<()> {
-        // Check if user already exists
-        if self.user_exists(&user.email)? {
-            return Err(AuthError::UserAlreadyExists(user.email.clone()));
-        }
+        // SECURITY FIX #1: Use transaction to prevent race conditions
+        let tx = self
+            .conn
+            .transaction()
+            .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
 
-        self.conn
-            .execute(
-                "INSERT INTO users (
-                email, password_hash, wallet_address, curve_type, encrypted_private_key,
-                created_at, last_login, failed_attempts, locked_until, is_active
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                rusqlite::params![
-                    user.email,
-                    user.password_hash,
-                    user.wallet_address,
-                    user.curve_type,
-                    user.encrypted_private_key,
-                    user.created_at.to_rfc3339(),
-                    user.last_login.map(|dt| dt.to_rfc3339()),
-                    user.failed_attempts,
-                    user.locked_until.map(|dt| dt.to_rfc3339()),
-                    user.is_active,
-                ],
+        // Check if user already exists (within transaction)
+        let count: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM users WHERE email = ?1",
+                [&user.email],
+                |row| row.get(0),
             )
             .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
 
-        Ok(())
+        if count > 0 {
+            return Err(AuthError::UserAlreadyExists(user.email.clone()));
+        }
+
+        // Insert user with unique constraint as backup protection
+        match tx.execute(
+            "INSERT INTO users (
+                email, password_hash, wallet_address, curve_type, encrypted_private_key,
+                totp_secret, totp_enabled, backup_codes,
+                created_at, last_login, failed_attempts, locked_until, is_active
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            rusqlite::params![
+                user.email,
+                user.password_hash,
+                user.wallet_address,
+                user.curve_type,
+                user.encrypted_private_key,
+                user.totp_secret,
+                user.totp_enabled,
+                serde_json::to_string(&user.backup_codes)
+                    .map_err(|e| AuthError::SerializationError(e.to_string()))?,
+                user.created_at.to_rfc3339(),
+                user.last_login.map(|dt| dt.to_rfc3339()),
+                user.failed_attempts,
+                user.locked_until.map(|dt| dt.to_rfc3339()),
+                user.is_active,
+            ],
+        ) {
+            Ok(_) => {
+                tx.commit()
+                    .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
+                Ok(())
+            }
+            Err(rusqlite::Error::SqliteFailure(sqlite_err, _))
+                if sqlite_err.code == rusqlite::ErrorCode::ConstraintViolation =>
+            {
+                // Database-level constraint caught duplicate (race condition protection)
+                Err(AuthError::UserAlreadyExists(user.email.clone()))
+            }
+            Err(e) => Err(AuthError::DatabaseError(e.to_string())),
+        }
     }
 
     /// Get a user record by email
@@ -378,7 +481,8 @@ impl UserStore {
             .conn
             .query_row(
                 "SELECT email, password_hash, wallet_address, curve_type, encrypted_private_key,
-                            created_at, last_login, failed_attempts, locked_until, is_active
+                            totp_secret, totp_enabled, backup_codes, created_at, last_login,
+                            failed_attempts, locked_until, is_active
                      FROM users WHERE email = ?1",
                 [&normalized],
                 |row| {
@@ -388,11 +492,14 @@ impl UserStore {
                         wallet_address: row.get(2)?,
                         curve_type: row.get(3)?,
                         encrypted_private_key: row.get(4)?,
-                        created_at: row.get(5)?,
-                        last_login: row.get(6)?,
-                        failed_attempts: row.get(7)?,
-                        locked_until: row.get(8)?,
-                        is_active: row.get(9)?,
+                        totp_secret: row.get(5)?,
+                        totp_enabled: row.get(6)?,
+                        backup_codes: row.get(7)?,
+                        created_at: row.get(8)?,
+                        last_login: row.get(9)?,
+                        failed_attempts: row.get(10)?,
+                        locked_until: row.get(11)?,
+                        is_active: row.get(12)?,
                     })
                 },
             )
@@ -423,12 +530,23 @@ impl UserStore {
                     })
                     .transpose()?;
 
+                let backup_codes = data
+                    .backup_codes
+                    .as_deref()
+                    .map(serde_json::from_str::<Vec<String>>)
+                    .transpose()
+                    .map_err(|e| AuthError::SerializationError(e.to_string()))?
+                    .unwrap_or_default();
+
                 Ok(Some(UserRecord {
                     email: data.email,
                     password_hash: data.password_hash,
                     wallet_address: data.wallet_address,
                     curve_type: data.curve_type,
                     encrypted_private_key: data.encrypted_private_key,
+                    totp_secret: data.totp_secret,
+                    totp_enabled: data.totp_enabled,
+                    backup_codes,
                     created_at,
                     last_login,
                     failed_attempts: data.failed_attempts as u32,
@@ -449,10 +567,13 @@ impl UserStore {
                 wallet_address = ?3,
                 curve_type = ?4,
                 encrypted_private_key = ?5,
-                last_login = ?6,
-                failed_attempts = ?7,
-                locked_until = ?8,
-                is_active = ?9
+                totp_secret = ?6,
+                totp_enabled = ?7,
+                backup_codes = ?8,
+                last_login = ?9,
+                failed_attempts = ?10,
+                locked_until = ?11,
+                is_active = ?12
              WHERE email = ?1",
                 rusqlite::params![
                     user.email,
@@ -460,6 +581,10 @@ impl UserStore {
                     user.wallet_address,
                     user.curve_type,
                     user.encrypted_private_key,
+                    user.totp_secret,
+                    user.totp_enabled,
+                    serde_json::to_string(&user.backup_codes)
+                        .map_err(|e| AuthError::SerializationError(e.to_string()))?,
                     user.last_login.map(|dt| dt.to_rfc3339()),
                     user.failed_attempts,
                     user.locked_until.map(|dt| dt.to_rfc3339()),
@@ -553,6 +678,8 @@ mod tests {
         assert_eq!(user.wallet_address, "0x123");
         assert_eq!(user.failed_attempts, 0);
         assert!(user.is_active);
+        assert!(!user.totp_enabled);
+        assert!(user.backup_codes.is_empty());
     }
 
     #[test]
@@ -643,5 +770,29 @@ mod tests {
         )
         .unwrap();
         assert!(store.add_user(duplicate).is_err());
+    }
+
+    #[test]
+    fn test_two_factor_state_persists() {
+        let mut store = UserStore::new(None).unwrap();
+        let mut user = UserRecord::new(
+            "user@example.com".to_string(),
+            "SecurePass123!",
+            "0x123".to_string(),
+            CurveType::Ed25519.to_string(),
+        )
+        .unwrap();
+        user.set_two_factor_setup(
+            "BASE32SECRET".to_string(),
+            vec!["CODE1234".to_string(), "CODE5678".to_string()],
+        );
+        user.enable_two_factor();
+
+        store.add_user(user).unwrap();
+        let loaded = store.get_user("user@example.com").unwrap().unwrap();
+
+        assert_eq!(loaded.totp_secret.as_deref(), Some("BASE32SECRET"));
+        assert!(loaded.totp_enabled);
+        assert_eq!(loaded.backup_codes.len(), 2);
     }
 }

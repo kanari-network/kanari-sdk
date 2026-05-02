@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -12,13 +14,19 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use kanari_auth::AuthManager;
 
+mod audit_logger;
 mod handlers;
 mod models;
+mod rate_limiter;
+mod two_factor;
 
 /// Application state shared across all handlers
 #[derive(Clone)]
 pub struct AppState {
     pub auth_manager: Arc<Mutex<AuthManager>>,
+    pub audit_logger: audit_logger::AuditLogger,
+    pub rate_limiter: rate_limiter::RateLimiter,
+    pub totp_manager: two_factor::TotpManager,
 }
 
 /// Health check endpoint
@@ -52,8 +60,23 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let auth_manager = AuthManager::with_persistence(db_path.into())?;
+
+    // Initialize audit logger
+    let audit_log_dir = std::env::var("AUDIT_LOG_DIR").ok().map(PathBuf::from);
+    let audit_logger = audit_logger::AuditLogger::new(audit_log_dir);
+    tracing::info!("Audit logging enabled: {:?}", audit_logger.log_path());
+
+    // Initialize rate limiter (strict for auth endpoints)
+    let rate_limiter = rate_limiter::RateLimiter::new(rate_limiter::RateLimitConfig::strict());
+
+    // Initialize TOTP manager
+    let totp_manager = two_factor::TotpManager::new(None);
+
     let state = AppState {
         auth_manager: Arc::new(Mutex::new(auth_manager)),
+        audit_logger,
+        rate_limiter,
+        totp_manager,
     };
 
     // Configure CORS
@@ -77,9 +100,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/users", get(handlers::list_users))
         .route("/api/v1/users/count", get(handlers::user_count))
         .route("/api/v1/user/info", get(handlers::get_user_info))
+        // SECURITY FIX #5: Changed from GET to POST for encrypted key retrieval (requires session validation)
         .route(
             "/api/v1/user/encrypted-key",
-            get(handlers::get_user_encrypted_key),
+            post(handlers::get_user_encrypted_key),
         )
         // Transaction signing
         .route("/api/v1/sign/transfer", post(handlers::sign_transfer))
@@ -89,6 +113,11 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/session/validate/{session_id}",
             get(handlers::validate_session),
         )
+        // Two-Factor Authentication routes
+        .route("/api/v1/2fa/setup", post(handlers::setup_2fa))
+        .route("/api/v1/2fa/enable", post(handlers::enable_2fa))
+        .route("/api/v1/2fa/disable", post(handlers::disable_2fa))
+        .route("/api/v1/2fa/verify", post(handlers::verify_2fa))
         // Apply middleware and state
         .layer(cors)
         .layer(TraceLayer::new_for_http())
@@ -103,7 +132,11 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Kanari Auth API listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
 
     Ok(())
 }

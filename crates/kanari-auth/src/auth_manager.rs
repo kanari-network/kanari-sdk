@@ -19,6 +19,13 @@ use crate::{
     user_store::UserRecord,
 };
 
+#[derive(Debug, Clone)]
+pub struct TwoFactorStatus {
+    pub secret: String,
+    pub enabled: bool,
+    pub backup_codes: Vec<String>,
+}
+
 /// Main authentication manager that coordinates user registration,
 /// login, and transaction signing operations.
 pub struct AuthManager {
@@ -438,6 +445,96 @@ impl AuthManager {
         Ok(())
     }
 
+    /// Save or refresh a pending 2FA enrollment for the given user.
+    pub fn save_two_factor_setup(
+        &mut self,
+        email: &str,
+        secret: String,
+        backup_codes: Vec<String>,
+    ) -> AuthResult<()> {
+        let normalized_email = email_validator::normalize_email(email);
+        let mut user = self
+            .user_store
+            .get_user(&normalized_email)?
+            .ok_or(AuthError::UserNotFound(normalized_email.clone()))?;
+
+        user.set_two_factor_setup(secret, backup_codes);
+        self.user_store.update_user(&user)?;
+        Ok(())
+    }
+
+    /// Return current 2FA state, including pending setup information.
+    pub fn get_two_factor_status(&self, email: &str) -> AuthResult<Option<TwoFactorStatus>> {
+        let normalized_email = email_validator::normalize_email(email);
+        let user = self
+            .user_store
+            .get_user(&normalized_email)?
+            .ok_or(AuthError::UserNotFound(normalized_email.clone()))?;
+
+        Ok(user.totp_secret.map(|secret| TwoFactorStatus {
+            secret,
+            enabled: user.totp_enabled,
+            backup_codes: user.backup_codes,
+        }))
+    }
+
+    /// Mark the stored 2FA setup as enabled.
+    pub fn enable_two_factor(&mut self, email: &str) -> AuthResult<Vec<String>> {
+        let normalized_email = email_validator::normalize_email(email);
+        let mut user = self
+            .user_store
+            .get_user(&normalized_email)?
+            .ok_or(AuthError::UserNotFound(normalized_email.clone()))?;
+
+        if user.totp_secret.is_none() {
+            return Err(AuthError::ValidationError(
+                "No pending 2FA setup found".to_string(),
+            ));
+        }
+
+        user.enable_two_factor();
+        let backup_codes = user.backup_codes.clone();
+        self.user_store.update_user(&user)?;
+        Ok(backup_codes)
+    }
+
+    /// Disable 2FA and clear persisted recovery data.
+    pub fn disable_two_factor(&mut self, email: &str) -> AuthResult<bool> {
+        let normalized_email = email_validator::normalize_email(email);
+        let mut user = self
+            .user_store
+            .get_user(&normalized_email)?
+            .ok_or(AuthError::UserNotFound(normalized_email.clone()))?;
+
+        if user.totp_secret.is_none() && !user.totp_enabled && user.backup_codes.is_empty() {
+            return Ok(false);
+        }
+
+        user.disable_two_factor();
+        self.user_store.update_user(&user)?;
+        Ok(true)
+    }
+
+    /// Consume a persisted one-time backup code.
+    pub fn consume_backup_code(&mut self, email: &str, backup_code: &str) -> AuthResult<bool> {
+        let normalized_email = email_validator::normalize_email(email);
+        let mut user = self
+            .user_store
+            .get_user(&normalized_email)?
+            .ok_or(AuthError::UserNotFound(normalized_email.clone()))?;
+
+        if !user.totp_enabled {
+            return Ok(false);
+        }
+
+        let consumed = user.consume_backup_code(backup_code);
+        if consumed {
+            self.user_store.update_user(&user)?;
+        }
+
+        Ok(consumed)
+    }
+
     /// Delete a user account
     ///
     /// # Arguments
@@ -602,5 +699,50 @@ mod tests {
 
         // New password should work
         assert!(auth.login("test@example.com", "NewPass456!", None).is_ok());
+    }
+
+    #[test]
+    fn test_persisted_two_factor_lifecycle() {
+        let mut auth = AuthManager::new();
+        auth.register_user(
+            "test@example.com",
+            "SecurePass123!",
+            Some(CurveType::Ed25519),
+        )
+        .unwrap();
+
+        auth.save_two_factor_setup(
+            "test@example.com",
+            "BASE32SECRET".to_string(),
+            vec!["CODE1234".to_string()],
+        )
+        .unwrap();
+
+        let status = auth
+            .get_two_factor_status("test@example.com")
+            .unwrap()
+            .unwrap();
+        assert!(!status.enabled);
+        assert_eq!(status.secret, "BASE32SECRET");
+
+        let backup_codes = auth.enable_two_factor("test@example.com").unwrap();
+        assert_eq!(backup_codes, vec!["CODE1234".to_string()]);
+
+        assert!(
+            auth.consume_backup_code("test@example.com", "CODE1234")
+                .unwrap()
+        );
+        assert!(
+            !auth
+                .consume_backup_code("test@example.com", "CODE1234")
+                .unwrap()
+        );
+
+        assert!(auth.disable_two_factor("test@example.com").unwrap());
+        assert!(
+            auth.get_two_factor_status("test@example.com")
+                .unwrap()
+                .is_none()
+        );
     }
 }
