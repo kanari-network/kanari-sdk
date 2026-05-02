@@ -5,7 +5,7 @@
 use crate::changeset::ChangeSet;
 use anyhow::Result;
 use kanari_types::address::Address as KanariAddress;
-use kanari_types::gas_v2::{GasMeter, GasOperation};
+use kanari_types::gas::{GasMeter, GasOperation};
 use move_core_types::account_address::AccountAddress;
 
 use move_core_types::language_storage::ModuleId;
@@ -25,7 +25,7 @@ impl super::MoveRuntime {
         storage_deleted: u64,
     ) -> Result<()> {
         let mut meter = GasMeter::new(gas_limit, gas_price);
-        let config = kanari_types::gas_v2::GasConfig::default();
+        let config = kanari_types::gas::GasConfig::default();
 
         // Charge execution gas
         meter.consume(gas_op.gas_units())?;
@@ -57,7 +57,11 @@ impl super::MoveRuntime {
 
         let dao_addr = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
         cs.collect_gas(dao_addr, total_cost);
-        cs.set_gas_used(meter.gas_used);
+
+        // Use the gas units from GasOperation (calculated by our GasMeter), not from KanariGasMeter
+        // KanariGasMeter is only for DoS protection during VM execution
+        cs.set_gas_used(gas_op.gas_units());
+
         Ok(())
     }
 

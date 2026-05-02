@@ -28,11 +28,11 @@ pub struct GasConfig {
 impl Default for GasConfig {
     fn default() -> Self {
         Self {
-            base_price: 100,              // 100 Mist per gas unit
+            base_price: 1,                // 1 Mist per gas unit (extremely low)
             max_gas_per_tx: 100_000,      // 100K gas per transaction
             max_gas_per_block: 1_000_000, // 1M gas per block
-            min_gas_price: 10,            // 10 Mist minimum
-            storage_price_per_byte: 100,  // 100 Mist per byte
+            min_gas_price: 1,             // 1 Mist minimum
+            storage_price_per_byte: 1,    // 1 Mist per byte (extremely low)
             storage_rebate_rate: 99,      // 99% rebate (Sui-like)
         }
     }
@@ -57,17 +57,17 @@ impl GasOperation {
     /// Calculate gas units required for this operation
     pub fn gas_units(&self) -> u64 {
         match self {
-            GasOperation::Transfer => 21_000,
+            GasOperation::Transfer => 100, // ~0.0000001 KANARI (100 Mist)
             GasOperation::PublishModule { module_size } => {
-                // Base cost + per-byte cost
-                50_000 + (*module_size as u64 * 10)
+                // Base cost + per-byte cost (very low)
+                500 + (*module_size as u64)
             }
             GasOperation::ExecuteFunction { complexity } => {
-                // Base cost + complexity multiplier
-                30_000 + (*complexity as u64 * 1_000)
+                // Base cost + minimal complexity multiplier
+                200 + (*complexity as u64 * 10)
             }
-            GasOperation::CreateAccount => 25_000,
-            GasOperation::UpdateAccount => 5_000,
+            GasOperation::CreateAccount => 150, // ~0.00000015 KANARI
+            GasOperation::UpdateAccount => 50,  // ~0.00000005 KANARI
         }
     }
 
@@ -288,52 +288,52 @@ mod tests {
 
     #[test]
     fn test_gas_meter_consume() {
-        let mut meter = GasMeter::new(100_000, 1000);
+        let mut meter = GasMeter::new(100_000, 1);
 
-        assert!(meter.consume(21_000).is_ok());
-        assert_eq!(meter.gas_used, 21_000);
-        assert_eq!(meter.remaining(), 79_000);
+        assert!(meter.consume(100).is_ok());
+        assert_eq!(meter.gas_used, 100);
+        assert_eq!(meter.remaining(), 99_900);
     }
 
     #[test]
     fn test_gas_meter_out_of_gas() {
-        let mut meter = GasMeter::new(10_000, 1000);
+        let mut meter = GasMeter::new(50, 1);
 
-        let result = meter.consume(15_000);
+        let result = meter.consume(100);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_gas_operation_costs() {
-        assert_eq!(GasOperation::Transfer.gas_units(), 21_000);
-        assert_eq!(GasOperation::CreateAccount.gas_units(), 25_000);
+        assert_eq!(GasOperation::Transfer.gas_units(), 100);
+        assert_eq!(GasOperation::CreateAccount.gas_units(), 150);
 
         let publish = GasOperation::PublishModule { module_size: 1000 };
-        assert_eq!(publish.gas_units(), 60_000); // 50_000 + 1000*10
+        assert_eq!(publish.gas_units(), 1_500); // 500 + 1000
 
         let execute = GasOperation::ExecuteFunction { complexity: 10 };
-        assert_eq!(execute.gas_units(), 40_000); // 30_000 + 10 * 1_000
+        assert_eq!(execute.gas_units(), 300); // 200 + 10 * 10
     }
 
     #[test]
     fn test_gas_estimate() {
-        let estimate = GasEstimate::new(21_000, 1000);
-        assert_eq!(estimate.gas_units, 21_000);
-        assert_eq!(estimate.total_cost_mist, 21_000_000);
-        assert_eq!(estimate.total_cost_kanari, 0.021);
+        let estimate = GasEstimate::new(100, 1);
+        assert_eq!(estimate.gas_units, 100);
+        assert_eq!(estimate.total_cost_mist, 100);
+        assert_eq!(estimate.total_cost_kanari, 0.0000001);
     }
 
     #[test]
     fn test_gas_meter_total_cost() {
-        let mut meter = GasMeter::new(100_000, 1500);
-        meter.consume(21_000).unwrap();
+        let mut meter = GasMeter::new(100_000, 1);
+        meter.consume(100).unwrap();
 
-        assert_eq!(meter.total_cost(), 31_500_000); // 21_000 * 1500
+        assert_eq!(meter.total_cost(), 100); // 100 * 1
     }
 
     #[test]
     fn test_gas_usage_percentage() {
-        let mut meter = GasMeter::new(100_000, 1000);
+        let mut meter = GasMeter::new(100_000, 1);
         meter.consume(25_000).unwrap();
 
         assert_eq!(meter.usage_percentage(), 25.0);
@@ -341,12 +341,12 @@ mod tests {
 
     #[test]
     fn test_transaction_gas() {
-        let mut tx_gas = TransactionGas::new(100_000, 1000);
-        tx_gas.gas_used = 21_000;
-        tx_gas.gas_refund = 5_000;
+        let mut tx_gas = TransactionGas::new(100_000, 1);
+        tx_gas.gas_used = 100;
+        tx_gas.gas_refund = 20;
 
-        assert_eq!(tx_gas.total_cost(), 21_000_000);
-        assert_eq!(tx_gas.refund_amount(), 5_000_000);
-        assert_eq!(tx_gas.net_cost(), 16_000_000);
+        assert_eq!(tx_gas.total_cost(), 100);
+        assert_eq!(tx_gas.refund_amount(), 20);
+        assert_eq!(tx_gas.net_cost(), 80);
     }
 }

@@ -8,7 +8,7 @@ use crate::command::common::{
 use anyhow::{Context, Result};
 use clap::*;
 use kanari_rpc_api::{CallFunctionRequest, RpcRequest, RpcResponse, methods};
-use kanari_types::gas_v2::{GasEstimate, GasOperation};
+use kanari_types::gas::{GasEstimate, GasOperation};
 use kanari_types::transaction::{SignedTransaction, Transaction};
 use log::error;
 use move_core_types::{parser, runtime_value::MoveValue};
@@ -51,7 +51,7 @@ pub struct Call {
     pub gas_limit: u64,
 
     /// Gas price in Mist
-    #[clap(long = "gas-price", default_value = "0")]
+    #[clap(long = "gas-price", default_value = "10")]
     pub gas_price: u64,
 
     /// RPC endpoint
