@@ -558,11 +558,11 @@ impl DagStore {
                     .unwrap_or(0);
 
                 const MAX_TIMESTAMP_DRIFT_SECS: u64 = 300; // 5 minutes for normal operation
-                const RESTART_THRESHOLD_SECS: u64 = 3600; // 1 hour threshold for restart detection
+                const RESTART_THRESHOLD_SECS: u64 = 900; // 15 minutes threshold for restart detection
 
                 let max_allowed =
                     if current_time.saturating_sub(median_timestamp) > RESTART_THRESHOLD_SECS {
-                        // Node likely just restarted - use current time as baseline
+                        // Node likely just restarted or paused - use current time as baseline
                         // Allow vertex timestamp to be close to current time (±30 seconds)
                         current_time.saturating_add(30)
                     } else {
@@ -1950,8 +1950,8 @@ mod tests {
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
-        // Simulate old parent vertices from 2 hours ago (beyond RESTART_THRESHOLD_SECS = 3600)
-        let old_timestamp = current_time - 7200; // 2 hours ago
+        // Simulate very old parents (node was offline) - need 3 for quorum
+        let old_timestamp = current_time - 1200; // 20 minutes ago (beyond 15-min threshold)
 
         // Add parent vertices with very old timestamps from ALL authorities to satisfy quorum
         // Need at least 2f+1 = 3 out of 4 authorities for quorum
@@ -2003,7 +2003,7 @@ mod tests {
         eprintln!("Old timestamp: {}", old_timestamp);
         eprintln!("Restart vertex timestamp: {}", restart_vertex.timestamp);
         eprintln!("Drift from old: {} seconds", current_time - old_timestamp);
-        eprintln!("RESTART_THRESHOLD_SECS: 3600");
+        eprintln!("RESTART_THRESHOLD_SECS: 900 (15 minutes)");
 
         // This should succeed because of restart detection logic
         // The validation will use current_time + 30 as max_allowed instead of old_median + 300
