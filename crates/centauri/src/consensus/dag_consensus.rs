@@ -549,15 +549,26 @@ impl DagStore {
                 }
 
                 // Allow reasonable future tolerance based on parent median
-                // FIX: Production-grade tolerance for real-world scenarios (node pauses, network delays)
-                // Previously 10s was too strict, 60s may still be insufficient for long pauses
-                // Using 300 seconds (5 minutes) to accommodate:
-                // - Node sleep/wake cycles
-                // - Network partitions and reconnections
-                // - GC pauses and system hiccups
-                // - Clock adjustments (NTP sync)
-                const MAX_TIMESTAMP_DRIFT_SECS: u64 = 300; // 5 minutes
-                let max_allowed = median_timestamp.saturating_add(MAX_TIMESTAMP_DRIFT_SECS);
+                // FIX #5: Handle node restart scenarios where parents are very old
+                // If parent median is more than 1 hour behind current time, assume node just restarted
+                // and use current time as baseline instead of old parent timestamps
+                let current_time = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+
+                const MAX_TIMESTAMP_DRIFT_SECS: u64 = 300; // 5 minutes for normal operation
+                const RESTART_THRESHOLD_SECS: u64 = 3600; // 1 hour threshold for restart detection
+
+                let max_allowed =
+                    if current_time.saturating_sub(median_timestamp) > RESTART_THRESHOLD_SECS {
+                        // Node likely just restarted - use current time as baseline
+                        // Allow vertex timestamp to be close to current time (±30 seconds)
+                        current_time.saturating_add(30)
+                    } else {
+                        // Normal operation - use parent median as baseline
+                        median_timestamp.saturating_add(MAX_TIMESTAMP_DRIFT_SECS)
+                    };
 
                 if vertex.timestamp > max_allowed {
                     anyhow::bail!(
@@ -565,7 +576,7 @@ impl DagStore {
                         vertex.timestamp,
                         median_timestamp,
                         vertex.timestamp.saturating_sub(median_timestamp),
-                        MAX_TIMESTAMP_DRIFT_SECS
+                        max_allowed.saturating_sub(median_timestamp)
                     );
                 }
             }
@@ -1918,6 +1929,239 @@ mod tests {
         let checkpoint = Checkpoint::genesis();
         assert_eq!(checkpoint.sequence, 0);
         assert!(checkpoint.transactions.is_empty());
+    }
+
+    #[test]
+    fn test_node_restart_timestamp_recovery() {
+        // Test FIX #5: Node restart scenario where parent timestamps are very old
+        // This simulates a node that was offline for a long time and then comes back online
+
+        let authorities = vec![
+            "auth1".to_string(),
+            "auth2".to_string(),
+            "auth3".to_string(),
+            "auth4".to_string(),
+        ];
+        let mut store = DagStore::new(authorities);
+
+        // Get current time
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        // Simulate old parent vertices from 2 hours ago (beyond RESTART_THRESHOLD_SECS = 3600)
+        let old_timestamp = current_time - 7200; // 2 hours ago
+
+        // Add parent vertices with very old timestamps from ALL authorities to satisfy quorum
+        // Need at least 2f+1 = 3 out of 4 authorities for quorum
+        let parent1 = DagVertex::new_for_test(
+            0,
+            "auth1".to_string(),
+            vec![],
+            vec![],
+            vec![1u8; 32],
+            old_timestamp,
+        );
+        let parent2 = DagVertex::new_for_test(
+            0,
+            "auth2".to_string(),
+            vec![],
+            vec![],
+            vec![2u8; 32],
+            old_timestamp,
+        );
+        let parent3 = DagVertex::new_for_test(
+            0,
+            "auth3".to_string(),
+            vec![],
+            vec![],
+            vec![3u8; 32],
+            old_timestamp,
+        );
+
+        store.add_vertex(parent1, store.num_authorities()).unwrap();
+        store.add_vertex(parent2, store.num_authorities()).unwrap();
+        store.add_vertex(parent3, store.num_authorities()).unwrap();
+
+        // Now simulate node restart: create a new vertex with current timestamp
+        // This should be ACCEPTED because we detect the restart scenario
+        let child_parents = store.get_vertex_ids_in_round(0);
+
+        // Use current time as vertex timestamp (simulating fresh vertex after restart)
+        let restart_vertex = DagVertex::new_for_test(
+            1,
+            "auth1".to_string(),
+            child_parents.clone(),
+            vec![],
+            vec![4u8; 32],
+            current_time, // Current time after restart
+        );
+
+        // Debug: Print validation parameters
+        eprintln!("Current time: {}", current_time);
+        eprintln!("Old timestamp: {}", old_timestamp);
+        eprintln!("Restart vertex timestamp: {}", restart_vertex.timestamp);
+        eprintln!("Drift from old: {} seconds", current_time - old_timestamp);
+        eprintln!("RESTART_THRESHOLD_SECS: 3600");
+
+        // This should succeed because of restart detection logic
+        // The validation will use current_time + 30 as max_allowed instead of old_median + 300
+        let result = store.add_vertex(restart_vertex, store.num_authorities());
+
+        if let Err(ref e) = result {
+            eprintln!("❌ Validation failed with error: {}", e);
+        }
+
+        assert!(
+            result.is_ok(),
+            "Node restart vertex should be accepted when parent timestamps are very old"
+        );
+    }
+
+    #[test]
+    fn test_acceptable_timestamp_after_restart() {
+        // Test that vertices with reasonable timestamps are accepted after restart
+
+        let authorities = vec![
+            "auth1".to_string(),
+            "auth2".to_string(),
+            "auth3".to_string(),
+            "auth4".to_string(),
+        ];
+        let mut store = DagStore::new(authorities);
+
+        // Get current time
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        // Simulate very old parents (node was offline) - need 3 for quorum
+        let old_timestamp = current_time - 7200; // 2 hours ago
+
+        let parent1 = DagVertex::new_for_test(
+            0,
+            "auth1".to_string(),
+            vec![],
+            vec![],
+            vec![1u8; 32],
+            old_timestamp,
+        );
+        let parent2 = DagVertex::new_for_test(
+            0,
+            "auth2".to_string(),
+            vec![],
+            vec![],
+            vec![2u8; 32],
+            old_timestamp,
+        );
+        let parent3 = DagVertex::new_for_test(
+            0,
+            "auth3".to_string(),
+            vec![],
+            vec![],
+            vec![3u8; 32],
+            old_timestamp,
+        );
+
+        store.add_vertex(parent1, store.num_authorities()).unwrap();
+        store.add_vertex(parent2, store.num_authorities()).unwrap();
+        store.add_vertex(parent3, store.num_authorities()).unwrap();
+
+        // Create vertex with timestamp slightly in the future (within ±30s tolerance)
+        let child_parents = store.get_vertex_ids_in_round(0);
+        let acceptable_vertex = DagVertex::new_for_test(
+            1,
+            "auth1".to_string(),
+            child_parents.clone(),
+            vec![],
+            vec![4u8; 32],
+            current_time + 20, // Within the ±30s tolerance for restart scenario
+        );
+
+        // Debug output
+        eprintln!("Current time: {}", current_time);
+        eprintln!("Vertex timestamp: {}", acceptable_vertex.timestamp);
+        eprintln!(
+            "Drift from current: {} seconds",
+            acceptable_vertex.timestamp as i64 - current_time as i64
+        );
+
+        // Should succeed
+        let result = store.add_vertex(acceptable_vertex, store.num_authorities());
+
+        if let Err(ref e) = result {
+            eprintln!("❌ Validation failed: {}", e);
+        }
+
+        assert!(
+            result.is_ok(),
+            "Vertex within ±30s of current time should be accepted after restart"
+        );
+    }
+
+    #[test]
+    fn test_normal_operation_timestamp_validation() {
+        // Test that normal operation still enforces strict timestamp validation
+        // (without restart detection trigger)
+
+        let authorities = vec![
+            "auth1".to_string(),
+            "auth2".to_string(),
+            "auth3".to_string(),
+            "auth4".to_string(),
+        ];
+        let mut store = DagStore::new(authorities);
+
+        // Get current time
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        // Add parent vertices with recent timestamps (within last minute)
+        let recent_timestamp = current_time - 30; // 30 seconds ago
+
+        let parent1 = DagVertex::new_for_test(
+            0,
+            "auth1".to_string(),
+            vec![],
+            vec![],
+            vec![1u8; 32],
+            recent_timestamp,
+        );
+        let parent2 = DagVertex::new_for_test(
+            0,
+            "auth2".to_string(),
+            vec![],
+            vec![],
+            vec![2u8; 32],
+            recent_timestamp,
+        );
+
+        store.add_vertex(parent1, store.num_authorities()).unwrap();
+        store.add_vertex(parent2, store.num_authorities()).unwrap();
+
+        // Try to add a vertex with timestamp too far ahead (> 300 seconds from median)
+        let child_parents = store.get_vertex_ids_in_round(0);
+        let future_vertex = DagVertex::new_for_test(
+            1,
+            "auth1".to_string(),
+            child_parents,
+            vec![],
+            vec![3u8; 32],
+            recent_timestamp + 400, // 400 seconds ahead, exceeds MAX_TIMESTAMP_DRIFT_SECS (300)
+        );
+
+        // This should fail because it's within normal operation window (< 1 hour)
+        // and exceeds the 300 second drift limit
+        assert!(
+            store
+                .add_vertex(future_vertex, store.num_authorities())
+                .is_err(),
+            "Normal operation should reject vertices with > 300s timestamp drift"
+        );
     }
 
     #[test]
