@@ -9,6 +9,7 @@ pub mod balance;
 pub mod burn;
 pub mod envs;
 pub mod faucet;
+pub mod objects;
 pub mod stats;
 pub mod token_transfer;
 pub mod transfer;
@@ -34,6 +35,8 @@ pub enum ClientCommand {
     },
     /// Manage environments (RPC endpoints)
     Envs(envs::Envs),
+    /// List owned objects
+    Objects(objects::Objects),
 }
 
 impl ClientCommand {
@@ -47,6 +50,7 @@ impl ClientCommand {
             ClientCommand::Balance(cmd) => cmd.execute().await,
             ClientCommand::Account { command } => command.execute().await,
             ClientCommand::Envs(cmd) => cmd.execute(),
+            ClientCommand::Objects(cmd) => cmd.execute().await,
         }
     }
 }

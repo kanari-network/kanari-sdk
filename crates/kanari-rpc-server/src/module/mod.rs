@@ -158,3 +158,84 @@ pub async fn handle_get_object(state: &RpcServerState, request: &RpcRequest) -> 
         id: request.id,
     }
 }
+
+/// Handle get owned objects request
+pub async fn handle_get_owned_objects(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    let req: kanari_rpc_api::GetOwnedObjectsRequest =
+        match serde_json::from_value(request.params.clone()) {
+            Ok(r) => r,
+            Err(e) => {
+                return RpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: None,
+                    error: Some(RpcError::invalid_params(e.to_string())),
+                    id: request.id,
+                };
+            }
+        };
+
+    // Parse owner address using kanari_types::address::Address::parse_to_account_address
+    let owner_addr = match kanari_types::address::Address::parse_to_account_address(&req.owner) {
+        Ok(addr) => addr,
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".to_string(),
+                result: None,
+                error: Some(RpcError::invalid_params(format!(
+                    "Invalid owner address: {}",
+                    e
+                ))),
+                id: request.id,
+            };
+        }
+    };
+
+    let state_guard = state.engine.state.read().unwrap_or_else(|e| e.into_inner());
+
+    // Get all owned object IDs for the owner
+    let owned_ids = match state_guard.get_owned_objects(&owner_addr) {
+        Ok(ids) => ids,
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".to_string(),
+                result: None,
+                error: Some(RpcError::internal_error(format!(
+                    "Failed to get owned objects: {}",
+                    e
+                ))),
+                id: request.id,
+            };
+        }
+    };
+
+    // Filter objects by type if specified
+    let mut objects = Vec::new();
+    for uid in owned_ids {
+        if let Ok(Some(obj)) = state_guard.get_object(&uid) {
+            // If object_type filter is specified, check if it matches
+            if let Some(ref filter_type) = req.object_type
+                && !obj.type_.contains(filter_type) {
+                    continue;
+                }
+
+            let info = kanari_rpc_api::ObjectInfo {
+                id: uid.clone(),
+                owner: format!("{:#x}", obj.owner),
+                type_: obj.type_.clone(),
+                data: obj.data.clone(),
+                version: obj.version,
+            };
+            objects.push(info);
+        }
+    }
+
+    // Return the filtered list of objects
+    RpcResponse {
+        jsonrpc: "2.0".to_string(),
+        result: Some(serde_json::json!({
+            "objects": objects
+        })),
+        error: None,
+        id: request.id,
+    }
+}

@@ -6,8 +6,8 @@ edition = "legacy" # edition = "legacy" to use legacy (pre-2024) Move
 
 [dependencies]
 # Dependencies point to the Kanari SDK for framework and stdlib
-KanariSystem = { git = "https://github.com/kanari-network/kanari-sdk.git", subdir = "crates/kanari-frameworks/packages/kanari-system", rev = "fee" }
-MoveStdlib = { git = "https://github.com/kanari-network/fee.git", subdir = "crates/kanari-frameworks/packages/move-stdlib", rev = "fee" }
+KanariSystem = { git = "https://github.com/kanari-network/kanari-sdk.git", subdir = "crates/kanari-frameworks/packages/kanari-system", rev = "kanari-sdk" }
+MoveStdlib = { git = "https://github.com/kanari-network/kanari-sdk.git", subdir = "crates/kanari-frameworks/packages/move-stdlib", rev = "kanari-sdk" }
 # For remote import, use the `{ git = "...", subdir = "...", rev = "..." }`.
 # Revision can be a branch, a tag, and a commit hash.
 # MyRemotePackage = { git = "https://some.remote/host.git", subdir = "remote/path", rev = "main" }

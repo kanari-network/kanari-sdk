@@ -23,7 +23,10 @@ use crate::{
         handle_get_block, handle_get_block_height, handle_get_full_block, handle_get_stats,
         handle_produce_block,
     },
-    module::{handle_get_module, handle_get_object, handle_list_modules, handle_verify_module},
+    module::{
+        handle_get_module, handle_get_object, handle_get_owned_objects, handle_list_modules,
+        handle_verify_module,
+    },
     nft::{handle_get_nfts_by_collection, handle_get_owned_nfts, handle_list_collections},
     transaction::{
         handle_call_function, handle_get_transaction, handle_publish_module,
@@ -129,6 +132,7 @@ async fn handle_rpc(
 
         // Object queries
         methods::GET_OBJECT => handle_get_object(&state, &request).await,
+        methods::GET_OWNED_OBJECTS => handle_get_owned_objects(&state, &request).await,
 
         // NFT queries
         methods::GET_OWNED_NFTS => handle_get_owned_nfts(&state, &request).await,
