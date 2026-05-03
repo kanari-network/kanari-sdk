@@ -104,23 +104,16 @@ class EscrowClient {
       tokenType: wantedToken,
     );
 
+    final normalizedCoinObjectId = _normalizeObjectId(coinObjectId);
     print('[ESCROW]   Coin Object ID: $coinObjectId');
-
-    // Validate coin object ID length (must be 32 bytes = 64 hex chars)
-    final cleanId = coinObjectId.startsWith('0x')
-        ? coinObjectId.substring(2)
-        : coinObjectId;
-    if (cleanId.length != 64) {
-      throw Exception(
-        'Invalid coin object ID: expected 64 hex characters, got ${cleanId.length}. '
-        'Object ID: $coinObjectId',
-      );
+    if (normalizedCoinObjectId != coinObjectId) {
+      print('[ESCROW]   Normalized Coin Object ID: $normalizedCoinObjectId');
     }
 
     // CRITICAL: For mutable reference objects (&mut Coin), Move VM expects
-    // raw 32-byte address, NOT string or BCS-encoded value
-    // The VM will look up the full object from storage automatically
-    final coinObjectBytes = _hexToBytes(coinObjectId);
+    // raw 32-byte object ID, NOT string or BCS-encoded value.
+    // The VM will look up the full object from storage automatically.
+    final coinObjectBytes = _hexToBytes(normalizedCoinObjectId);
     print('[ESCROW]   Coin Object bytes length: ${coinObjectBytes.length}');
     print(
       '[ESCROW]   Coin Object bytes hex: ${coinObjectBytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}',
@@ -410,10 +403,12 @@ class EscrowClient {
         availableCoinTypes.add(objToken);
       }
       if (objToken == tokenType) {
+        final normalizedId = _normalizeObjectId(obj.id);
         print('[ESCROW]   Found coin object: ${obj.id}');
+        print('[ESCROW]   Normalized coin object ID: $normalizedId');
         print('[ESCROW]   Object type: ${obj.type}');
         print('[ESCROW]   Object version: ${obj.version}');
-        return obj.id;
+        return normalizedId;
       }
     }
 
@@ -469,10 +464,25 @@ class EscrowClient {
     }
 
     return EscrowObjectRefs(
-      dealObjectId: dealObject.id,
-      proofObjectId: proofObject.id,
+      dealObjectId: _normalizeObjectId(dealObject.id),
+      proofObjectId: _normalizeObjectId(proofObject.id),
       coinType: coinType,
     );
+  }
+
+  String _normalizeObjectId(String objectId) {
+    var clean = objectId.startsWith('0x') ? objectId.substring(2) : objectId;
+    if (clean.isEmpty || !RegExp(r'^[0-9a-fA-F]+$').hasMatch(clean)) {
+      throw ArgumentError('Invalid object ID format: $objectId');
+    }
+    clean = clean.padLeft(64, '0').toLowerCase();
+    if (clean.length != 64) {
+      throw ArgumentError(
+        'Object ID must be 32 bytes (64 hex chars) after normalization. '
+        'Got ${clean.length} characters for $objectId.',
+      );
+    }
+    return '0x$clean';
   }
 
   String _normalizeTokenType(String tokenType) {
@@ -533,8 +543,7 @@ class EscrowClient {
   }
 
   List<int> _encodeStringBcs(String value) {
-    final utf8Bytes = utf8.encode(value);
-    return Bcs.vector(Bcs.u8()).serialize(utf8Bytes).toBytes().toList();
+    return Bcs.string().serialize(value).toBytes().toList();
   }
 
   List<int> _encodeAddressBcs(String address) {
