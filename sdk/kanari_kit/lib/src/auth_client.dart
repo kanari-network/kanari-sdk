@@ -100,11 +100,15 @@ class KanariAuthClient extends ChangeNotifier {
   Future<ApiResponse<LoginResponse>> login({
     required String email,
     required String password,
+    String? totpCode,
+    String? backupCode,
     int? sessionTimeoutHours,
   }) async {
     final request = LoginRequest(
       email: email,
       password: password,
+      totpCode: totpCode,
+      backupCode: backupCode,
       sessionTimeoutHours: sessionTimeoutHours,
     );
 
@@ -144,6 +148,124 @@ class KanariAuthClient extends ChangeNotifier {
         error: jsonResponse['error'] as String? ?? 'Login failed',
       );
     }
+  }
+
+  /// Create a pending 2FA setup and return secret, QR, and backup codes.
+  Future<ApiResponse<TwoFactorSetupResponse>> setup2fa({
+    required String email,
+    required String password,
+  }) async {
+    final request = TwoFactorSetupRequest(email: email, password: password);
+
+    final response = await _client.post(
+      Uri.parse('$baseUrl/api/v1/2fa/setup'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(request.toJson()),
+    );
+
+    final jsonResponse = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode == 200) {
+      final data = jsonResponse['data'];
+      if (data == null) {
+        return ApiResponse(success: false, error: 'No data returned from server');
+      }
+
+      return ApiResponse(
+        success: true,
+        data: TwoFactorSetupResponse.fromJson(data as Map<String, dynamic>),
+      );
+    }
+
+    return ApiResponse(
+      success: false,
+      error: jsonResponse['error'] as String? ?? '2FA setup failed',
+    );
+  }
+
+  /// Enable 2FA using the setup verification code.
+  Future<ApiResponse<Map<String, dynamic>>> enable2fa({
+    required String email,
+    required String password,
+    required String code,
+  }) async {
+    final request = Enable2faRequest(
+      email: email,
+      password: password,
+      code: code,
+    );
+
+    final response = await _client.post(
+      Uri.parse('$baseUrl/api/v1/2fa/enable'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(request.toJson()),
+    );
+
+    final jsonResponse = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode == 200) {
+      return ApiResponse(
+        success: true,
+        data: (jsonResponse['data'] as Map?)?.cast<String, dynamic>(),
+      );
+    }
+
+    return ApiResponse(
+      success: false,
+      error: jsonResponse['error'] as String? ?? '2FA enable failed',
+    );
+  }
+
+  /// Disable 2FA for the given account.
+  Future<ApiResponse<Map<String, dynamic>>> disable2fa({
+    required String email,
+    required String password,
+  }) async {
+    final request = Disable2faRequest(email: email, password: password);
+
+    final response = await _client.post(
+      Uri.parse('$baseUrl/api/v1/2fa/disable'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(request.toJson()),
+    );
+
+    final jsonResponse = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode == 200) {
+      return ApiResponse(
+        success: true,
+        data: (jsonResponse['data'] as Map?)?.cast<String, dynamic>(),
+      );
+    }
+
+    return ApiResponse(
+      success: false,
+      error: jsonResponse['error'] as String? ?? '2FA disable failed',
+    );
+  }
+
+  /// Verify an already-enabled TOTP code.
+  Future<ApiResponse<Map<String, dynamic>>> verify2fa({
+    required String email,
+    required String code,
+  }) async {
+    final request = Verify2faRequest(email: email, code: code);
+
+    final response = await _client.post(
+      Uri.parse('$baseUrl/api/v1/2fa/verify'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(request.toJson()),
+    );
+
+    final jsonResponse = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode == 200) {
+      return ApiResponse(
+        success: true,
+        data: (jsonResponse['data'] as Map?)?.cast<String, dynamic>(),
+      );
+    }
+
+    return ApiResponse(
+      success: false,
+      error: jsonResponse['error'] as String? ?? '2FA verification failed',
+    );
   }
 
   /// Logout current session

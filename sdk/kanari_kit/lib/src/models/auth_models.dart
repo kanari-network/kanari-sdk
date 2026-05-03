@@ -41,11 +41,15 @@ class RegisterResponse {
 class LoginRequest {
   final String email;
   final String password;
+  final String? totpCode;
+  final String? backupCode;
   final int? sessionTimeoutHours;
 
   LoginRequest({
     required this.email,
     required this.password,
+    this.totpCode,
+    this.backupCode,
     this.sessionTimeoutHours,
   });
 
@@ -59,6 +63,7 @@ class LoginRequest {
 @JsonSerializable()
 class LoginResponse {
   final bool? success;
+  final bool? twoFactorEnabled;
   final String? sessionId;
   final String? userEmail;
   final String? walletAddress;
@@ -68,6 +73,7 @@ class LoginResponse {
 
   LoginResponse({
     this.success,
+    this.twoFactorEnabled,
     this.sessionId,
     this.userEmail,
     this.walletAddress,
@@ -80,6 +86,92 @@ class LoginResponse {
       _$LoginResponseFromJson(json);
 
   Map<String, dynamic> toJson() => _$LoginResponseToJson(this);
+}
+
+/// Two-factor setup request
+@JsonSerializable()
+class TwoFactorSetupRequest {
+  final String email;
+  final String password;
+
+  TwoFactorSetupRequest({required this.email, required this.password});
+
+  factory TwoFactorSetupRequest.fromJson(Map<String, dynamic> json) =>
+      _$TwoFactorSetupRequestFromJson(json);
+
+  Map<String, dynamic> toJson() => _$TwoFactorSetupRequestToJson(this);
+}
+
+/// Two-factor setup response
+@JsonSerializable()
+class TwoFactorSetupResponse {
+  final bool? success;
+  final String? secret;
+  final String? otpauthUrl;
+  final String? qrCodeSvg;
+  final List<String>? backupCodes;
+  final String? message;
+
+  TwoFactorSetupResponse({
+    this.success,
+    this.secret,
+    this.otpauthUrl,
+    this.qrCodeSvg,
+    this.backupCodes,
+    this.message,
+  });
+
+  factory TwoFactorSetupResponse.fromJson(Map<String, dynamic> json) =>
+      _$TwoFactorSetupResponseFromJson(json);
+
+  Map<String, dynamic> toJson() => _$TwoFactorSetupResponseToJson(this);
+}
+
+/// Enable two-factor request
+@JsonSerializable()
+class Enable2faRequest {
+  final String email;
+  final String password;
+  final String code;
+
+  Enable2faRequest({
+    required this.email,
+    required this.password,
+    required this.code,
+  });
+
+  factory Enable2faRequest.fromJson(Map<String, dynamic> json) =>
+      _$Enable2faRequestFromJson(json);
+
+  Map<String, dynamic> toJson() => _$Enable2faRequestToJson(this);
+}
+
+/// Disable two-factor request
+@JsonSerializable()
+class Disable2faRequest {
+  final String email;
+  final String password;
+
+  Disable2faRequest({required this.email, required this.password});
+
+  factory Disable2faRequest.fromJson(Map<String, dynamic> json) =>
+      _$Disable2faRequestFromJson(json);
+
+  Map<String, dynamic> toJson() => _$Disable2faRequestToJson(this);
+}
+
+/// Verify two-factor code request
+@JsonSerializable()
+class Verify2faRequest {
+  final String email;
+  final String code;
+
+  Verify2faRequest({required this.email, required this.code});
+
+  factory Verify2faRequest.fromJson(Map<String, dynamic> json) =>
+      _$Verify2faRequestFromJson(json);
+
+  Map<String, dynamic> toJson() => _$Verify2faRequestToJson(this);
 }
 
 /// Logout request

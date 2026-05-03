@@ -23,6 +23,10 @@ pub struct RegisterResponse {
 pub struct LoginRequest {
     pub email: String,
     pub password: String,
+    #[serde(rename = "totpCode")]
+    pub totp_code: Option<String>,
+    #[serde(rename = "backupCode")]
+    pub backup_code: Option<String>,
     #[serde(rename = "sessionTimeoutHours")]
     pub session_timeout_hours: Option<u64>,
 }
@@ -31,6 +35,8 @@ pub struct LoginRequest {
 #[derive(Debug, Serialize)]
 pub struct LoginResponse {
     pub success: bool,
+    #[serde(rename = "twoFactorEnabled")]
+    pub two_factor_enabled: bool,
     #[serde(rename = "sessionId")]
     pub session_id: String,
     #[serde(rename = "userEmail")]
@@ -54,7 +60,7 @@ pub struct UserInfoResponse {
     pub wallet_address: String,
 }
 
-/// Encrypted private key response (for wallet restoration)
+/// Encrypted private key response (for wallet restoration) - NOW REQUIRES SESSION VALIDATION
 #[derive(Debug, Serialize)]
 pub struct EncryptedKeyResponse {
     pub success: bool,
@@ -65,6 +71,35 @@ pub struct EncryptedKeyResponse {
     pub curve_type: String,
     #[serde(rename = "encryptedPrivateKey")]
     pub encrypted_private_key: Option<String>,
+}
+
+/// Request to get encrypted private key (requires session validation)
+#[derive(Debug, Deserialize)]
+pub struct GetEncryptedKeyRequest {
+    pub email: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+}
+
+/// Two-Factor Authentication setup request
+#[derive(Debug, Deserialize)]
+pub struct TwoFactorSetupRequest {
+    pub email: String,
+    pub password: String,
+}
+
+/// Two-Factor Authentication setup response
+#[derive(Debug, Serialize)]
+pub struct TwoFactorSetupResponse {
+    pub success: bool,
+    pub secret: String,
+    #[serde(rename = "otpauthUrl")]
+    pub otpauth_url: String,
+    #[serde(rename = "qrCodeSvg")]
+    pub qr_code_svg: String,
+    #[serde(rename = "backupCodes")]
+    pub backup_codes: Vec<String>,
+    pub message: String,
 }
 
 /// Logout request

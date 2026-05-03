@@ -14,6 +14,17 @@ module james::thb {
     /// Name of the coin
     struct THB has drop {}
 
+    // ==========================================
+    // 🟢 DAO Configuration
+    // ==========================================
+    
+    /// DAO wallet address for collecting transfer fees (0.1%)
+    const DAO_ADDRESS: address = @0x3141a487d7a5382bb435c0ad39a6060067765e60e45b50953a0050bcf24b03a3;
+    
+    /// Transfer fee rate: 0.1% = 1/1000 (in basis points: 10 out of 10000)
+    const FEE_RATE_NUMERATOR: u64 = 1;
+    const FEE_RATE_DENOMINATOR: u64 = 1000;
+
     /// Initialize and register the THB currency.
     /// Returns the `TreasuryCap<THB>` which can be used to mint tokens.
     /// This should be invoked once (e.g., during genesis or deployment).
@@ -66,6 +77,7 @@ module james::thb {
 
     /// Transfer a specific `amount` of THB from a mutable Coin held by the caller
     /// Usage: provide the caller's coin, the amount to send, and the recipient
+    /// A 0.1% fee is deducted and sent to the DAO wallet
     public entry fun transfer_amount(
         c: &mut coin::Coin<THB>,
         amount: u64,
@@ -80,9 +92,42 @@ module james::thb {
             return
         };
 
-        // 3. Split the specified amount from the sender's coin
-        let split_coin = coin::split(c, amount, ctx);
+        // 3. Calculate the 0.1% fee
+        let fee = calculate_fee(amount);
+        
+        // 4. Ensure there's enough balance for amount + fee
+        let total_required = amount + fee;
+        assert!(coin::value(c) >= total_required, 0);
+
+        // 5. Split the total amount (including fee) from sender's coin
+        let split_coin = coin::split(c, total_required, ctx);
+        
+        // 6. From the split coin, separate the fee portion
+        let fee_coin = coin::split(&mut split_coin, fee, ctx);
+        
+        // 7. Transfer the fee to DAO wallet
+        transfer::public_transfer(fee_coin, DAO_ADDRESS);
+        
+        // 8. Transfer the remaining amount to the recipient
         transfer::public_transfer(split_coin, recipient);
+    }
+
+    /// Calculate 0.1% fee from the given amount
+    /// Formula: fee = (amount * 1) / 1000
+    fun calculate_fee(amount: u64): u64 {
+        if (amount == 0) {
+            return 0
+        };
+        
+        // Calculate fee: amount * 1 / 1000
+        let fee = (amount * FEE_RATE_NUMERATOR) / FEE_RATE_DENOMINATOR;
+        
+        // Ensure minimum fee of 1 if amount > 0
+        if (fee == 0 && amount > 0) {
+            return 1
+        };
+        
+        fee
     }
 
 

@@ -37,6 +37,8 @@ Map<String, dynamic> _$RegisterResponseToJson(RegisterResponse instance) =>
 LoginRequest _$LoginRequestFromJson(Map<String, dynamic> json) => LoginRequest(
   email: json['email'] as String,
   password: json['password'] as String,
+  totpCode: json['totpCode'] as String?,
+  backupCode: json['backupCode'] as String?,
   sessionTimeoutHours: (json['sessionTimeoutHours'] as num?)?.toInt(),
 );
 
@@ -44,12 +46,15 @@ Map<String, dynamic> _$LoginRequestToJson(LoginRequest instance) =>
     <String, dynamic>{
       'email': instance.email,
       'password': instance.password,
+      'totpCode': instance.totpCode,
+      'backupCode': instance.backupCode,
       'sessionTimeoutHours': instance.sessionTimeoutHours,
     };
 
 LoginResponse _$LoginResponseFromJson(Map<String, dynamic> json) =>
     LoginResponse(
       success: json['success'] as bool?,
+      twoFactorEnabled: json['twoFactorEnabled'] as bool?,
       sessionId: json['sessionId'] as String?,
       userEmail: json['userEmail'] as String?,
       walletAddress: json['walletAddress'] as String?,
@@ -61,6 +66,7 @@ LoginResponse _$LoginResponseFromJson(Map<String, dynamic> json) =>
 Map<String, dynamic> _$LoginResponseToJson(LoginResponse instance) =>
     <String, dynamic>{
       'success': instance.success,
+      'twoFactorEnabled': instance.twoFactorEnabled,
       'sessionId': instance.sessionId,
       'userEmail': instance.userEmail,
       'walletAddress': instance.walletAddress,
@@ -68,6 +74,73 @@ Map<String, dynamic> _$LoginResponseToJson(LoginResponse instance) =>
       'encryptedPrivateKey': instance.encryptedPrivateKey,
       'expiresAt': instance.expiresAt,
     };
+
+TwoFactorSetupRequest _$TwoFactorSetupRequestFromJson(
+  Map<String, dynamic> json,
+) => TwoFactorSetupRequest(
+  email: json['email'] as String,
+  password: json['password'] as String,
+);
+
+Map<String, dynamic> _$TwoFactorSetupRequestToJson(
+  TwoFactorSetupRequest instance,
+) => <String, dynamic>{'email': instance.email, 'password': instance.password};
+
+TwoFactorSetupResponse _$TwoFactorSetupResponseFromJson(
+  Map<String, dynamic> json,
+) => TwoFactorSetupResponse(
+  success: json['success'] as bool?,
+  secret: json['secret'] as String?,
+  otpauthUrl: json['otpauthUrl'] as String?,
+  qrCodeSvg: json['qrCodeSvg'] as String?,
+  backupCodes: (json['backupCodes'] as List<dynamic>?)
+      ?.map((e) => e as String)
+      .toList(),
+  message: json['message'] as String?,
+);
+
+Map<String, dynamic> _$TwoFactorSetupResponseToJson(
+  TwoFactorSetupResponse instance,
+) => <String, dynamic>{
+  'success': instance.success,
+  'secret': instance.secret,
+  'otpauthUrl': instance.otpauthUrl,
+  'qrCodeSvg': instance.qrCodeSvg,
+  'backupCodes': instance.backupCodes,
+  'message': instance.message,
+};
+
+Enable2faRequest _$Enable2faRequestFromJson(Map<String, dynamic> json) =>
+    Enable2faRequest(
+      email: json['email'] as String,
+      password: json['password'] as String,
+      code: json['code'] as String,
+    );
+
+Map<String, dynamic> _$Enable2faRequestToJson(Enable2faRequest instance) =>
+    <String, dynamic>{
+      'email': instance.email,
+      'password': instance.password,
+      'code': instance.code,
+    };
+
+Disable2faRequest _$Disable2faRequestFromJson(Map<String, dynamic> json) =>
+    Disable2faRequest(
+      email: json['email'] as String,
+      password: json['password'] as String,
+    );
+
+Map<String, dynamic> _$Disable2faRequestToJson(Disable2faRequest instance) =>
+    <String, dynamic>{'email': instance.email, 'password': instance.password};
+
+Verify2faRequest _$Verify2faRequestFromJson(Map<String, dynamic> json) =>
+    Verify2faRequest(
+      email: json['email'] as String,
+      code: json['code'] as String,
+    );
+
+Map<String, dynamic> _$Verify2faRequestToJson(Verify2faRequest instance) =>
+    <String, dynamic>{'email': instance.email, 'code': instance.code};
 
 LogoutRequest _$LogoutRequestFromJson(Map<String, dynamic> json) =>
     LogoutRequest(sessionId: json['sessionId'] as String);
