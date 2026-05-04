@@ -319,6 +319,21 @@ class KanariClient {
     return '0x${clean.toLowerCase()}';
   }
 
+  String _normalizeObjectId(String objectId) {
+    var clean = objectId.startsWith('0x') ? objectId.substring(2) : objectId;
+    if (clean.isEmpty || !RegExp(r'^[0-9a-fA-F]+$').hasMatch(clean)) {
+      throw ArgumentError('Invalid object ID format: $objectId');
+    }
+    clean = clean.padLeft(64, '0').toLowerCase();
+    if (clean.length != 64) {
+      throw ArgumentError(
+        'Object ID must be 32 bytes (64 hex chars) after normalization. '
+        'Got ${clean.length} characters for $objectId.',
+      );
+    }
+    return '0x$clean';
+  }
+
   /// Transfer KANARI tokens from one account to another
   Future<TransactionResult> transfer({
     required KanariWallet wallet,
@@ -595,7 +610,7 @@ class KanariClient {
     final moduleName = parts[1];
 
     // 4. Prepare Arguments
-    final objectIdBytes = _hexToBytes(coinObjectId);
+    final objectIdBytes = _hexToBytes(_normalizeObjectId(coinObjectId));
     final amountBytes = _encodeU64Bcs(amount);
     final recipientBytes = _hexToBytes(normalizedRecipient);
 

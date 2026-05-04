@@ -177,6 +177,14 @@ module kanari_system::coin {
         kanari_system::balance::value(&coin.balance)
     }
 
+    /// Create a zero-value Coin<T> (useful for testing and as a starting point)
+    public fun zero<T>(ctx: &mut TxContext): Coin<T> {
+        Coin {
+            id: object::new(ctx),
+            balance: kanari_system::balance::create<T>(0),
+        }
+    }
+
     /// Split a coin into two. Returns the new coin with the specified amount.
     public fun split<T>(coin: &mut Coin<T>, amount: u64, ctx: &mut TxContext): Coin<T> {
         let new_balance = kanari_system::balance::split(&mut coin.balance, amount);

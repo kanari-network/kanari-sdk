@@ -375,6 +375,7 @@ pub mod methods {
 
     // Object queries
     pub const GET_OBJECT: &str = "kanari_getObject";
+    pub const GET_OWNED_OBJECTS: &str = "kanari_getOwnedObjects";
 
     // NFT queries
     pub const GET_OWNED_NFTS: &str = "kanari_getOwnedNfts";

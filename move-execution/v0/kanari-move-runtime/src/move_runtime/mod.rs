@@ -12,7 +12,9 @@ use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::{IdentStr, Identifier};
 use move_core_types::language_storage::{ModuleId, StructTag, TypeTag};
 use move_vm_runtime::move_vm::MoveVM;
+use move_vm_runtime::native_extensions::NativeContextExtensions;
 use move_vm_runtime::native_functions::NativeFunctionTable;
+use move_vm_runtime::session::Session;
 use move_vm_types::gas::UnmeteredGasMeter;
 mod gas_ops;
 mod helpers;
@@ -186,7 +188,7 @@ impl MoveRuntime {
     /// Preload system modules into the VM cache to ensure dependencies are available
     fn preload_system_modules_into_vm(&self) -> Result<()> {
         let vm_guard = self.vm.read().unwrap();
-        let session = vm_guard.new_session(self.resolver.clone());
+        let session = self.create_session_with_storage_ext(&vm_guard);
 
         // Get all published module IDs from our index
         let module_ids: Vec<ModuleId> = self
@@ -276,7 +278,7 @@ impl MoveRuntime {
         let (move_changeset, events) = {
             // 🟢 Separate Lock into a variable first to prevent it from being dropped immediately
             let vm_guard = self.vm.read().unwrap();
-            let mut session = vm_guard.new_session(self.resolver.clone());
+            let mut session = self.create_session_with_storage_ext(&vm_guard);
 
             let provided_gas_limit = gas_info.map(|(limit, _)| limit).unwrap_or(1_000_000);
             let mut metered_gas = crate::kanari_gas_meter::KanariGasMeter::new(provided_gas_limit);
@@ -675,7 +677,7 @@ impl MoveRuntime {
         } = options;
 
         let vm_guard = self.vm.read().unwrap();
-        let mut session = vm_guard.new_session(self.resolver.clone());
+        let mut session = self.create_session_with_storage_ext(&vm_guard);
 
         let mut auto_merged_coin_ids = Vec::new();
         let mut merged_coin_types = std::collections::HashSet::new();
@@ -836,12 +838,23 @@ impl MoveRuntime {
         use kanari_system_natives::object::{DeletedObjectsExt, SavedObjectsExt};
         use kanari_system_natives::transfer_natives::TransferredObjectsExt;
 
+        // Add extensions only if they don't already exist (avoid "multiple extensions" panic)
         let exts = session.get_native_extensions();
-        exts.add(TransferredObjectsExt::default());
-        exts.add(EventsExt::default());
-        exts.add(SavedObjectsExt::default());
-        exts.add(DeletedObjectsExt::default());
-        exts.add(DynamicFieldsExt::default());
+
+        // Helper to safely add extension without panicking if it already exists
+        macro_rules! safe_add_ext {
+            ($ext_type:ty) => {
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    exts.add(<$ext_type>::default());
+                }));
+            };
+        }
+
+        safe_add_ext!(TransferredObjectsExt);
+        safe_add_ext!(EventsExt);
+        safe_add_ext!(SavedObjectsExt);
+        safe_add_ext!(DeletedObjectsExt);
+        safe_add_ext!(DynamicFieldsExt);
 
         let execution_result = if bypass_entry_check {
             let mut unmetered_gas = UnmeteredGasMeter;
@@ -1048,6 +1061,30 @@ impl MoveRuntime {
                 Err(anyhow::anyhow!("exec error: {:?}", e))
             }
         }
+    }
+
+    /// Create a new session with all required extensions injected
+    fn create_session_with_storage_ext<'r>(
+        &'r self,
+        vm_guard: &'r std::sync::RwLockReadGuard<'r, MoveVM>,
+    ) -> Session<'r, 'r, KanariMoveResolver> {
+        use kanari_system_natives::{
+            dynamic_field::DynamicFieldsExt,
+            event::EventsExt,
+            object::{DeletedObjectsExt, SavedObjectsExt},
+            transfer_natives::TransferredObjectsExt,
+        };
+
+        // Create extensions container and add all required extensions
+        let mut extensions = NativeContextExtensions::default();
+        extensions.add(DynamicFieldsExt::default());
+        extensions.add(EventsExt::default());
+        extensions.add(SavedObjectsExt::default());
+        extensions.add(DeletedObjectsExt::default());
+        extensions.add(TransferredObjectsExt::default());
+
+        // Create session with extensions
+        vm_guard.new_session_with_extensions(self.resolver.clone(), extensions)
     }
 
     pub fn execute_block_prologue(
