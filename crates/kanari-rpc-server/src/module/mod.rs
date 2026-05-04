@@ -214,9 +214,10 @@ pub async fn handle_get_owned_objects(state: &RpcServerState, request: &RpcReque
         if let Ok(Some(obj)) = state_guard.get_object(&uid) {
             // If object_type filter is specified, check if it matches
             if let Some(ref filter_type) = req.object_type
-                && !obj.type_.contains(filter_type) {
-                    continue;
-                }
+                && !obj.type_.contains(filter_type)
+            {
+                continue;
+            }
 
             let info = kanari_rpc_api::ObjectInfo {
                 id: uid.clone(),

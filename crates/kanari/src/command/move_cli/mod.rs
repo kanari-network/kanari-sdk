@@ -9,7 +9,9 @@ pub mod publish;
 pub mod test;
 pub mod verify;
 
+use kanari_system_natives::dynamic_field::DynamicFieldsExt;
 use kanari_system_natives::event::EventsExt;
+use kanari_system_natives::object::{DeletedObjectsExt, SavedObjectsExt};
 use kanari_system_natives::transfer_natives::TransferredObjectsExt;
 use kanari_types::address::Address as KanariAddress;
 use move_core_types::{account_address::AccountAddress, identifier::Identifier};
@@ -79,6 +81,9 @@ impl MoveCommand {
                 set_extension_hook(Box::new(|exts| {
                     exts.add(EventsExt::default());
                     exts.add(TransferredObjectsExt::default());
+                    exts.add(DeletedObjectsExt::default());
+                    exts.add(SavedObjectsExt::default());
+                    exts.add(DynamicFieldsExt::default());
                 }));
 
                 // Merge all natives and pass into test runner

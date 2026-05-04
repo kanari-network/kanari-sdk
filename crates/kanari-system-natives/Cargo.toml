@@ -32,3 +32,6 @@ better_any = { workspace = true }
 num-integer = { workspace = true }
 
 hex = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }

@@ -91,32 +91,33 @@ impl Objects {
                     eprintln!("  Version: {}", version);
 
                     if self.detailed
-                        && let Some(data) = obj.get("data").and_then(|d| d.as_array()) {
-                            eprintln!("  Data ({} bytes):", data.len());
-                            // Display first 32 bytes and last 32 bytes if data is long
-                            if data.len() <= 64 {
-                                let hex_data: Vec<String> = data
-                                    .iter()
-                                    .map(|b| format!("{:02x}", b.as_u64().unwrap_or(0)))
-                                    .collect();
-                                eprintln!("    {}", hex_data.join(" "));
-                            } else {
-                                let first_32: Vec<String> = data
-                                    .iter()
-                                    .take(32)
-                                    .map(|b| format!("{:02x}", b.as_u64().unwrap_or(0)))
-                                    .collect();
-                                let last_32: Vec<String> = data
-                                    .iter()
-                                    .rev()
-                                    .take(32)
-                                    .rev()
-                                    .map(|b| format!("{:02x}", b.as_u64().unwrap_or(0)))
-                                    .collect();
-                                eprintln!("    {} ... {}", first_32.join(" "), last_32.join(" "));
-                                eprintln!("    ({} bytes total)", data.len());
-                            }
+                        && let Some(data) = obj.get("data").and_then(|d| d.as_array())
+                    {
+                        eprintln!("  Data ({} bytes):", data.len());
+                        // Display first 32 bytes and last 32 bytes if data is long
+                        if data.len() <= 64 {
+                            let hex_data: Vec<String> = data
+                                .iter()
+                                .map(|b| format!("{:02x}", b.as_u64().unwrap_or(0)))
+                                .collect();
+                            eprintln!("    {}", hex_data.join(" "));
+                        } else {
+                            let first_32: Vec<String> = data
+                                .iter()
+                                .take(32)
+                                .map(|b| format!("{:02x}", b.as_u64().unwrap_or(0)))
+                                .collect();
+                            let last_32: Vec<String> = data
+                                .iter()
+                                .rev()
+                                .take(32)
+                                .rev()
+                                .map(|b| format!("{:02x}", b.as_u64().unwrap_or(0)))
+                                .collect();
+                            eprintln!("    {} ... {}", first_32.join(" "), last_32.join(" "));
+                            eprintln!("    ({} bytes total)", data.len());
                         }
+                    }
                     eprintln!();
                 }
 
