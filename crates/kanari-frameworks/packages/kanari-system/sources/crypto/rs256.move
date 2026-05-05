@@ -119,34 +119,30 @@ module kanari_system::rs256 {
         };
     }
 
-    /// Helper function to check that exponent is not all zeros using recursion
+    /// Helper function to check that exponent is not all zeros
     /// Returns true if at least one non-zero byte is found
-    fun check_exponent_not_all_zeros(e: &vector<u8>, len: u64, index: u64): bool {
-        if (index >= len) {
-            // Reached end without finding non-zero byte - invalid exponent
-            false
-        } else if (*vector::borrow(e, index) != 0) {
-            // Found a non-zero byte - valid exponent
-            true
-        } else {
-            // Continue checking next byte recursively
-            check_exponent_not_all_zeros(e, len, index + 1)
-        }
+    fun check_exponent_not_all_zeros(e: &vector<u8>, len: u64, _index: u64): bool {
+        let index = 0;
+        while (index < len) {
+            if (*vector::borrow(e, index) != 0) {
+                return true
+            };
+            index = index + 1;
+        };
+        false
     }
 
-    /// Count leading zero bytes in exponent using recursion
+    /// Count leading zero bytes in exponent
     /// Returns the number of consecutive zero bytes from the start
-    fun count_leading_zeros(e: &vector<u8>, len: u64, index: u64): u64 {
-        if (index >= len) {
-            // Reached end of vector
-            0
-        } else if (*vector::borrow(e, index) != 0) {
-            // Found first non-zero byte
-            0
-        } else {
-            // Count this zero and continue
-            1 + count_leading_zeros(e, len, index + 1)
-        }
+    fun count_leading_zeros(e: &vector<u8>, len: u64, _index: u64): u64 {
+        let index = 0;
+        while (index < len) {
+            if (*vector::borrow(e, index) != 0) {
+                return index
+            };
+            index = index + 1;
+        };
+        len
     }
 
     fun check_conditions_verify_prehash(signature: &vector<u8>, n: &vector<u8>, e: &vector<u8>, msg: &vector<u8>, hash_type: u8) {

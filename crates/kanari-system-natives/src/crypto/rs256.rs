@@ -186,3 +186,89 @@ pub fn make_rs256_natives(gas_cost: InternalGas) -> impl Iterator<Item = (String
 
     crate::helpers::make_module_natives(natives)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rsa::sha2::{Digest as RsaDigest, Sha256 as RsaSha256};
+    use rsa::{
+        RsaPrivateKey, RsaPublicKey, pkcs1v15::SigningKey, rand_core::OsRng, signature::Signer,
+        traits::PublicKeyParts,
+    };
+
+    #[test]
+    fn test_rs256_verify_valid_signature() {
+        let mut rng = OsRng;
+        let private_key = RsaPrivateKey::new(&mut rng, 2048).expect("Failed to generate RSA key");
+        let public_key = RsaPublicKey::from(&private_key);
+
+        let msg = b"Kanari RS256 test";
+        let hashed_msg = RsaSha256::digest(msg);
+
+        let signing_key = SigningKey::<RsaSha256>::new(private_key);
+        let signature = signing_key.sign(msg);
+        let signature_bytes: Box<[u8]> = signature.into();
+
+        let result = verify_rs256(
+            public_key.n().to_bytes_be().as_slice(),
+            public_key.e().to_bytes_be().as_slice(),
+            hashed_msg.as_slice(),
+            signature_bytes.as_ref(),
+        );
+
+        assert!(result, "RS256 signature should verify successfully");
+    }
+
+    #[test]
+    fn test_rs256_verify_invalid_signature() {
+        let mut rng = OsRng;
+        let private_key = RsaPrivateKey::new(&mut rng, 2048).expect("Failed to generate RSA key");
+        let public_key = RsaPublicKey::from(&private_key);
+
+        let msg = b"Kanari RS256 test";
+        let hashed_msg = RsaSha256::digest(msg);
+
+        let signing_key = SigningKey::<RsaSha256>::new(private_key);
+        let signature = signing_key.sign(msg);
+        let signature_bytes: Box<[u8]> = signature.into();
+        let mut bad_signature = signature_bytes.to_vec();
+        bad_signature[0] ^= 0xff;
+
+        let result = verify_rs256(
+            public_key.n().to_bytes_be().as_slice(),
+            public_key.e().to_bytes_be().as_slice(),
+            hashed_msg.as_slice(),
+            &bad_signature,
+        );
+
+        assert!(!result, "Tampered RS256 signature should not verify");
+    }
+
+    #[test]
+    fn test_rs256_verify_invalid_pubkey_returns_false() {
+        let mut rng = OsRng;
+        let private_key = RsaPrivateKey::new(&mut rng, 2048).expect("Failed to generate RSA key");
+
+        let msg = b"Kanari RS256 test";
+        let hashed_msg = RsaSha256::digest(msg);
+
+        let signing_key = SigningKey::<RsaSha256>::new(private_key);
+        let signature = signing_key.sign(msg);
+        let signature_bytes: Box<[u8]> = signature.into();
+
+        let invalid_n = vec![0u8; 16];
+        let invalid_e = vec![0u8; 1];
+
+        let result = verify_rs256(
+            invalid_n.as_slice(),
+            invalid_e.as_slice(),
+            hashed_msg.as_slice(),
+            signature_bytes.as_ref(),
+        );
+
+        assert!(
+            !result,
+            "RS256 verification should fail for invalid public key"
+        );
+    }
+}
