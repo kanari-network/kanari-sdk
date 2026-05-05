@@ -4,6 +4,7 @@
 use move_core_types::account_address::AccountAddress;
 use move_vm_runtime::native_functions::{NativeFunctionTable, make_table_from_iter};
 
+pub mod base64;
 pub mod crypto;
 pub mod dynamic_field;
 pub mod event;
@@ -16,6 +17,7 @@ pub mod tx_context;
 
 #[derive(Debug, Clone)]
 pub struct GasParameters {
+    pub base64: base64::GasParameters,
     pub crypto: crypto::GasParameters,
     pub event: event::GasParameters,
     pub math_calculate: math_calculate::GasParameters,
@@ -28,6 +30,7 @@ pub struct GasParameters {
 impl GasParameters {
     pub fn zeros() -> Self {
         Self {
+            base64: base64::GasParameters::zeros(),
             crypto: crypto::GasParameters::zeros(),
             event: event::GasParameters::zeros(),
             math_calculate: math_calculate::GasParameters::zeros(),
@@ -51,9 +54,11 @@ pub fn all_natives(move_addr: AccountAddress, gas_params: GasParameters) -> Nati
         };
     }
 
+    add_module_natives!("base64", base64::make_base64_natives(gas_params.base64));
     add_module_natives!("ecdsa_k1", crypto::make_ecdsa_k1(gas_params.crypto.clone()));
     add_module_natives!("ecdsa_r1", crypto::make_ecdsa_r1(gas_params.crypto.clone()));
-    add_module_natives!("ed25519", crypto::make_ed25519(gas_params.crypto));
+    add_module_natives!("ed25519", crypto::make_ed25519(gas_params.crypto.clone()));
+    add_module_natives!("rs256", crypto::make_rs256(gas_params.crypto));
 
     add_module_natives!("event", event::make_all(gas_params.event));
     add_module_natives!("math", math_calculate::make_all(gas_params.math_calculate));

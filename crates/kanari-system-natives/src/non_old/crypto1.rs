@@ -68,7 +68,7 @@ impl GasParameters {
     }
 }
 
-fn make_native<F>(f: F) -> NativeFunction
+pub fn make_native<F>(f: F) -> NativeFunction
 where
     F: Fn(&mut NativeContext, Vec<Type>, VecDeque<Value>) -> PartialVMResult<NativeResult>
         + Send

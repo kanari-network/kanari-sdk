@@ -12,7 +12,6 @@ module kanari_system::ecdsa_r1 {
     // Error codes
     const ErrorInvalidSignature: u64 = 1;
     const ErrorInvalidPubKey: u64 = 2;
-    const ErrorInvalidHashType: u64 = 3;
 
     // Hash type
     const HASH_TYPE_SHA256: u8 = 1;

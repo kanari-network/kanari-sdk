@@ -10,10 +10,6 @@ module kanari_system::kanari {
     use std::option;
     use kanari_system::transfer;
 
-    const EAlreadyMinted: u64 = 0;
-    /// Sender is not @0x0 the system address.
-    const ENotSystemAddress: u64 = 1;
-
     #[allow(unused_const)]
     /// The amount of Mist per Kanari token based on the fact that mist is
     /// 10^-9 of a Kanari token

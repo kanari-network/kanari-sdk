@@ -3,11 +3,9 @@
 
 module kanari_system::coin {
     use std::option;
-    use std::option::{Option};
     use std::string;
     use std::ascii;
     use kanari_system::url;
-    use kanari_system::url::{Url};
     use kanari_system::object;
     use kanari_system::balance::Balance;
     use kanari_system::tx_context::TxContext;

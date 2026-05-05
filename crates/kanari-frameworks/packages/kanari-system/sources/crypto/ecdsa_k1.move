@@ -6,7 +6,6 @@ module kanari_system::ecdsa_k1 {
 
     /// constant codes
     const ECDSA_K1_COMPRESSED_PUBKEY_LENGTH: u64 = 33;
-    const ECDSA_K1_SIG_LENGTH: u64 = 64;
     const ECDSA_K1_UNCOMPRESSED_PUBKEY_LENGTH: u64 = 65;
 
     /// Hash function name that are valid for ecrecover and verify.
@@ -26,8 +25,6 @@ module kanari_system::ecdsa_k1 {
     /// Error if the public key is invalid.
     const ErrorInvalidPubKey: u64 = 3;
 
-    /// Invalid hash function.
-    const ErrorInvalidHashType: u64 = 4;
 
     /// Error if the x only public key is invalid.
     const ErrorInvalidXOnlyPubKey: u64 = 5;

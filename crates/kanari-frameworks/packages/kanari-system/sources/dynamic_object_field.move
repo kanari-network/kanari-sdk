@@ -4,9 +4,12 @@
 module kanari_system::dynamic_object_field {
     use kanari_system::object::UID;
 
+    #[allow(unused_const)]
     /// Error codes
     const EFieldAlreadyExists: u64 = 1;
+    #[allow(unused_const)]
     const EFieldDoesNotExist: u64 = 2;
+    #[allow(unused_const)]
     const ENotObject: u64 = 3;
 
     public native fun add<Name: copy + drop + store, Value: key + store>(

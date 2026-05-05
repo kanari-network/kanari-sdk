@@ -7,6 +7,7 @@ module kanari_system::math {
     // Error Codes
     // (These errors will be thrown (aborted) from the Native Rust side)
     // =================================================================
+    #[allow(unused_const)]
     const E_OVERFLOW: u64 = 1;
     const E_DIVIDE_BY_ZERO: u64 = 2;
 

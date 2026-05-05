@@ -35,7 +35,7 @@ module kanari_system::math_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = 2)] // คาดหวังว่าจะพังด้วย E_DIVIDE_BY_ZERO
+    #[expected_failure(location = kanari_system::math, abort_code = math::E_DIVIDE_BY_ZERO)]
     fun test_divide_and_round_up_zero_denominator() {
         math::divide_and_round_up(10, 0);
     }

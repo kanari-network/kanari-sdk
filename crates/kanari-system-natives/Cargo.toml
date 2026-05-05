@@ -25,6 +25,8 @@ sha2 = { workspace = true }
 secp256k1 = { workspace = true }
 p256 = { workspace = true }
 k256 = { workspace = true }
+rsa = { workspace = true, features = ["hazmat", "sha2"] }
+
 smallvec = { workspace = true }
 kanari-crypto = { workspace = true }
 # better_any is needed for NativeContextExtensions `Tid` derive
@@ -32,6 +34,7 @@ better_any = { workspace = true }
 num-integer = { workspace = true }
 
 hex = { workspace = true }
+base64 = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true }

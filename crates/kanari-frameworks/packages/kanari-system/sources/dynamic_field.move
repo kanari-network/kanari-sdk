@@ -4,8 +4,10 @@
 module kanari_system::dynamic_field {
     use kanari_system::object::UID;
 
+    #[allow(unused_const)]
     /// Error codes
     const EFieldAlreadyExists: u64 = 1;
+    #[allow(unused_const)]
     const EFieldDoesNotExist: u64 = 2;
 
     /// Adds a dynamic field to the object `object` with key `name` and value `value`.

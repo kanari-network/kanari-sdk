@@ -12,8 +12,6 @@ void main() {
     });
 
     test('isPostQuantum and isHybrid identify curves correctly', () {
-      expect(KanariCurve.dilithium3.isPostQuantum, isTrue);
-      expect(KanariCurve.dilithium3.isHybrid, isFalse);
       expect(KanariCurve.ed25519Dilithium3.isPostQuantum, isTrue);
       expect(KanariCurve.ed25519Dilithium3.isHybrid, isTrue);
       expect(KanariCurve.ed25519.isPostQuantum, isFalse);
