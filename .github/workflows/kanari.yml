@@ -1,0 +1,313 @@
+name: Build and Release Kanari Binaries
+
+on:
+  push:
+    branches:
+      - "kanari-sdk"
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  BINARY_NAME: kanari
+
+jobs:
+  build-linux:
+    name: Build for Linux (x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release binary
+        run: cargo build --release --bin kanari
+
+      - name: Create tarball
+        run: |
+          mkdir -p dist
+          cp target/release/kanari dist/
+          cd dist
+          tar -czvf kanari-linux-x86_64.tar.gz kanari
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kanari-linux-x86_64
+          path: dist/kanari-linux-x86_64.tar.gz
+
+  build-macos-intel:
+    name: Build for macOS (Intel x86_64)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/sccache
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release binary (x86_64)
+        run: cargo build --release --bin kanari
+
+      - name: Create tarball (x86_64)
+        run: |
+          mkdir -p dist
+          cp target/release/kanari dist/
+          cd dist
+          tar -czvf kanari-macos-x86_64.tar.gz kanari
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kanari-macos-x86_64
+          path: dist/kanari-macos-x86_64.tar.gz
+
+  build-macos-arm:
+    name: Build for macOS (ARM64)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Add ARM64 target
+        run: rustup target add aarch64-apple-darwin
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/sccache
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-arm-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release binary (ARM64)
+        run: cargo build --release --bin kanari --target aarch64-apple-darwin
+
+      - name: Create tarball (ARM64)
+        run: |
+          mkdir -p dist
+          cp target/aarch64-apple-darwin/release/kanari dist/
+          cd dist
+          tar -czvf kanari-macos-arm64.tar.gz kanari
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kanari-macos-arm64
+          path: dist/kanari-macos-arm64.tar.gz
+
+  build-windows:
+    name: Build for Windows (x86_64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\sccache
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release binary
+        run: cargo build --release --bin kanari
+
+      - name: Create ZIP archive
+        run: |
+          mkdir dist
+          Copy-Item target\release\kanari.exe dist\
+          cd dist
+          Compress-Archive -Path kanari.exe -DestinationPath kanari-windows-x86_64.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kanari-windows-x86_64
+          path: dist/kanari-windows-x86_64.zip
+
+  create-release:
+    name: Create GitHub Release
+    needs: [ build-linux, build-macos-intel, build-macos-arm, build-windows ]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          # Extract version from tag (remove 'v' prefix)
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Calculate SHA256 for Windows binary
+        run: |
+          curl -L -o kanari-windows-x86_64.zip \
+            "https://github.com/${{ github.repository }}/releases/download/v${{ steps.get_version.outputs.VERSION }}/kanari-windows-x86_64.zip" || true
+          if [ -f kanari-windows-x86_64.zip ]; then
+            sha256sum kanari-windows-x86_64.zip > sha256.txt
+            echo "SHA256=$(cat sha256.txt | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          else
+            echo "SHA256=placeholder" >> $GITHUB_OUTPUT
+          fi
+        id: calculate_sha
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir release-assets
+          cp artifacts/kanari-linux-x86_64/*.tar.gz release-assets/
+          cp artifacts/kanari-macos-x86_64/*.tar.gz release-assets/
+          cp artifacts/kanari-macos-arm64/*.tar.gz release-assets/
+          cp artifacts/kanari-windows-x86_64/*.zip release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ steps.get_version.outputs.VERSION }}
+          files: release-assets/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## Kanari Release v${{ steps.get_version.outputs.VERSION }}
+
+            Automatically built from tag: `${{ github.ref_name }}`
+
+            ### Build Artifacts
+            -  Linux (x86_64)
+            - 🍎 macOS (Intel x86_64)
+            -  macOS (ARM64)
+            - 🪟 Windows (x86_64)
+
+            **Version**: v${{ steps.get_version.outputs.VERSION }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-scoop-bucket:
+    name: Publish to Scoop Bucket
+    needs: create-release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Get version from tag
+        id: get_version
+        run: |
+          # Extract version from tag (remove 'v' prefix)
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Calculate SHA256 for Windows binary
+        run: |
+          curl -L -o kanari-windows-x86_64.zip \
+            "https://github.com/${{ github.repository }}/releases/download/v${{ steps.get_version.outputs.VERSION }}/kanari-windows-x86_64.zip" || true
+          if [ -f kanari-windows-x86_64.zip ]; then
+            sha256sum kanari-windows-x86_64.zip > sha256.txt
+            echo "SHA256=$(cat sha256.txt | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          else
+            echo "SHA256=placeholder" >> $GITHUB_OUTPUT
+          fi
+        id: calculate_sha
+
+      - name: Update Scoop manifest
+        run: |
+          cat > manifest.json << EOF
+          {
+            "version": "${{ steps.get_version.outputs.VERSION }}",
+            "description": "Kanari Network CLI - A command-line interface for interacting with Kanari Network blockchain",
+            "homepage": "https://kanari.network",
+            "license": "Apache-2.0",
+            "url": "https://github.com/${{ github.repository }}/releases/download/v${{ steps.get_version.outputs.VERSION }}/kanari-windows-x86_64.zip",
+            "hash": "${{ steps.calculate_sha.SHA256 }}",
+            "bin": ["kanari.exe"],
+            "architecture": {
+              "64bit": {
+                "url": "https://github.com/${{ github.repository }}/releases/download/v${{ steps.get_version.outputs.VERSION }}/kanari-windows-x86_64.zip",
+                "hash": "${{ steps.calculate_sha.SHA256 }}"
+              }
+            }
+          }
+          EOF
+          cat manifest.json
+
+      - name: Checkout Scoop bucket repository
+        uses: actions/checkout@v4
+        with:
+          repository: kanari-network/scoop-bucket
+          token: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          path: scoop-bucket
+        continue-on-error: true
+
+      - name: Update Scoop bucket
+        if: success()
+        run: |
+          cd scoop-bucket
+          cp ../manifest.json bucket/kanari.json
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add bucket/kanari.json
+          git commit -m "Update kanari to ${{ steps.get_version.outputs.VERSION }}" || echo "No changes to commit"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+        continue-on-error: true
+
+      - name: Create PR to main Scoop bucket
+        run: |
+          echo "Scoop manifest created for version ${{ steps.get_version.outputs.VERSION }}"
+          echo "SHA256: ${{ steps.calculate_sha.SHA256 }}"
+          echo ""
+          echo "To add kanari to Scoop, users can run:"
+          echo "  scoop bucket add kanari https://github.com/kanari-network/scoop-bucket"
+          echo "  scoop install kanari"
