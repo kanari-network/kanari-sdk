@@ -683,6 +683,9 @@ impl MoveRuntime {
         let vm_guard = self.vm.read().unwrap();
         let mut session = self.create_session_with_storage_ext(&vm_guard);
 
+        // Preload potential object arguments into LoadedObjectsExt for native_borrow_global_mut support
+        self.preload_objects_for_execution(&mut session, &args)?;
+
         let mut auto_merged_coin_ids = Vec::new();
         let mut merged_coin_types = std::collections::HashSet::new();
         let mut total_merge_reads: u64 = 0;
@@ -1059,6 +1062,9 @@ impl MoveRuntime {
         extensions.add(SavedObjectsExt::default());
         extensions.add(DeletedObjectsExt::default());
         extensions.add(TransferredObjectsExt::default());
+        // Add object tracking extensions for proper borrow_global_mut support
+        extensions.add(kanari_system_natives::object::LoadedObjectsExt::default());
+        extensions.add(kanari_system_natives::object::BorrowedObjectsExt::default());
 
         // Create session with extensions
         vm_guard.new_session_with_extensions(self.resolver.clone(), extensions)

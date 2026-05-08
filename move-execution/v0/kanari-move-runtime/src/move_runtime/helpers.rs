@@ -13,6 +13,43 @@ const UID_SIZE: usize = 32;
 const U64_SIZE: usize = 8;
 
 impl super::MoveRuntime {
+    /// Preload potential object arguments into LoadedObjectsExt before execution
+    /// This enables native_borrow_global_mut to resolve objects during VM execution
+    pub(crate) fn preload_objects_for_execution(
+        &self,
+        session: &mut move_vm_runtime::session::Session<
+            crate::storage::resolver::KanariMoveResolver,
+        >,
+        args: &[Vec<u8>],
+    ) -> anyhow::Result<()> {
+        use kanari_system_natives::object::LoadedObjectsExt;
+
+        // Scan through arguments to find potential object IDs (32-byte addresses)
+        for arg in args {
+            if arg.len() == 32 {
+                let object_id = format!("0x{}", hex::encode(arg));
+
+                // Try to load object from storage
+                if let Some(stored_obj) = self.object_storage.get_object(&object_id) {
+                    // Insert into LoadedObjectsExt so native_borrow_global_mut can find it
+                    let exts = session.get_native_extensions();
+                    let loaded_ext = exts.get_mut::<LoadedObjectsExt>();
+                    loaded_ext.insert(
+                        object_id.clone(),
+                        stored_obj.type_name.clone(),
+                        stored_obj.data.clone(),
+                    );
+                    log::debug!(
+                        "[RUNTIME] Preloaded object {} into LoadedObjectsExt",
+                        object_id
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Check if struct tag represents a balance/coin resource
     pub(crate) fn is_balance_resource(&self, struct_tag: &StructTag) -> bool {
         let module_name = struct_tag.module.as_str();

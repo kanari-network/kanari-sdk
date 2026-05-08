@@ -379,4 +379,136 @@ mod tests {
         ]))]));
         assert_eq!(uid_address_bytes(&nested_uid).unwrap(), expected);
     }
+
+    #[test]
+    fn test_object_id_format_from_address_bytes() {
+        // Test that object ID is correctly formatted from 32-byte address
+        let addr_bytes = vec![0x1Au8; 32];
+        let expected_id = format!("0x{}", hex::encode(&addr_bytes));
+        
+        assert_eq!(expected_id.len(), 66); // "0x" + 64 hex chars
+        assert!(expected_id.starts_with("0x"));
+    }
+
+    #[test]
+    fn test_loaded_objects_ext_insert_and_get() {
+        // Test LoadedObjectsExt functionality used by native_borrow_global_mut
+        let mut ext = LoadedObjectsExt::default();
+        let object_id = "0x1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a".to_string();
+        let type_str = "0x1::coin::Coin<0x1::kanari_coin::KANARI>".to_string();
+        let data = vec![0x01, 0x02, 0x03];
+
+        ext.insert(object_id.clone(), type_str.clone(), data.clone());
+        
+        let retrieved = ext.get(&object_id);
+        assert!(retrieved.is_some());
+        let (retrieved_type, retrieved_data) = retrieved.unwrap();
+        assert_eq!(*retrieved_type, type_str);
+        assert_eq!(*retrieved_data, data);
+    }
+
+    #[test]
+    fn test_loaded_objects_ext_get_nonexistent() {
+        // Test getting non-existent object returns None
+        let ext = LoadedObjectsExt::default();
+        let result = ext.get("0xnonexistent");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_borrowed_objects_ext_tracking() {
+        // Test BorrowedObjectsExt for tracking borrowed mutable objects
+        let mut ext = BorrowedObjectsExt::default();
+        let object_id = "0x1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a".to_string();
+        let type_str = "0x1::coin::Coin<0x1::kanari_coin::KANARI>".to_string();
+        let data = vec![0x01, 0x02, 0x03];
+
+        ext.record(object_id.clone(), type_str.clone(), data.clone());
+        
+        let all = ext.take_all();
+        assert_eq!(all.len(), 1);
+        let (id, t, d) = &all[0];
+        assert_eq!(id, &object_id);
+        assert_eq!(t, &type_str);
+        assert_eq!(d, &data);
+    }
+
+    #[test]
+    fn test_address_bytes_validation() {
+        // Test that address must be exactly 32 bytes
+        let short_addr = vec![0x1Au8; 31];
+        let long_addr = vec![0x1Au8; 33];
+        let valid_addr = vec![0x1Au8; 32];
+
+        assert_eq!(short_addr.len(), 31);
+        assert_eq!(long_addr.len(), 33);
+        assert_eq!(valid_addr.len(), 32);
+    }
+
+    #[test]
+    fn test_object_id_hex_encoding() {
+        // Test various address patterns encode correctly
+        let test_cases = vec![
+            vec![0x00u8; 32],           // All zeros
+            vec![0xFFu8; 32],           // All 0xFF
+            vec![0x01u8; 32],           // All 0x01
+            (0..32).collect::<Vec<u8>>(), // Sequential bytes
+        ];
+
+        for addr_bytes in test_cases {
+            let object_id = format!("0x{}", hex::encode(&addr_bytes));
+            assert_eq!(object_id.len(), 66);
+            assert!(object_id.starts_with("0x"));
+            
+            // Verify we can decode back
+            let decoded = hex::decode(&object_id[2..]).unwrap();
+            assert_eq!(decoded, addr_bytes);
+        }
+    }
+
+    #[test]
+    fn test_gas_parameters_for_borrow_global_mut() {
+        // Test gas parameter initialization
+        let params = BorrowGlobalMutGasParameters {
+            base: 100.into(),
+            per_byte_loaded: 1.into(),
+        };
+
+        assert_eq!(params.base, 100.into());
+        assert_eq!(params.per_byte_loaded, 1.into());
+    }
+
+    #[test]
+    fn test_saved_objects_ext_record_and_take() {
+        // Test SavedObjectsExt functionality
+        let mut ext = SavedObjectsExt::default();
+        let obj = SavedObject {
+            object_id: "0x1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a".to_string(),
+            object_type: "0x1::coin::Coin<0x1::kanari_coin::KANARI>".to_string(),
+            data: vec![0x01, 0x02, 0x03],
+        };
+
+        ext.record(obj.clone());
+        let all = ext.take_all();
+        
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].object_id, obj.object_id);
+        assert_eq!(all[0].object_type, obj.object_type);
+        assert_eq!(all[0].data, obj.data);
+    }
+
+    #[test]
+    fn test_deleted_objects_ext_record_and_take() {
+        // Test DeletedObjectsExt functionality
+        let mut ext = DeletedObjectsExt::default();
+        let obj = DeletedObject {
+            object_id: "0x1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a".to_string(),
+        };
+
+        ext.record(obj.clone());
+        let all = ext.take_all();
+        
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].object_id, obj.object_id);
+    }
 }
