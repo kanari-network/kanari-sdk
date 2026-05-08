@@ -4,13 +4,15 @@
 
 This document describes the improvements made to `kanari-move-runtime` for better object management through native function integration.
 
+**Latest Update**: Added support for both immutable (`borrow_global`) and mutable (`borrow_global_mut`) object access.
+
 ## ✅ Changes Made
 
 ### 1. Enhanced Session Extensions (`mod.rs`)
 
 **File**: `src/move_runtime/mod.rs`
 
-Added two critical extensions to support proper object lifecycle management:
+Added critical extensions to support proper object lifecycle management:
 
 ```rust
 // Added to create_session_with_storage_ext()
@@ -20,14 +22,14 @@ extensions.add(kanari_system_natives::object::BorrowedObjectsExt::default());
 
 **Purpose**:
 
-- `LoadedObjectsExt`: Stores preloaded objects that can be accessed by `native_borrow_global_mut`
+- `LoadedObjectsExt`: Stores preloaded objects that can be accessed by `native_borrow_global` and `native_borrow_global_mut`
 - `BorrowedObjectsExt`: Tracks mutable borrows for proper writeback after execution
 
 ### 2. Object Preloading Mechanism (`helpers.rs`)
 
 **File**: `src/move_runtime/helpers.rs`
 
-Added new helper function `preload_objects_for_execution()`:
+Helper function `preload_objects_for_execution()` enables both immutable and mutable object access:
 
 ```rust
 pub(crate) fn preload_objects_for_execution(
@@ -41,8 +43,8 @@ pub(crate) fn preload_objects_for_execution(
 
 - Scans transaction arguments for potential object IDs (32-byte addresses)
 - Loads objects from `ObjectStorage` before VM execution
-- Populates `LoadedObjectsExt` so `native_borrow_global_mut` can find them
-- Enables proper object resolution during Move VM execution
+- Populates `LoadedObjectsExt` so `native_borrow_global` and `native_borrow_global_mut` can find them
+- Enables proper object resolution during Move VM execution for both read and write operations
 
 **Integration Point**:
 Called in `execute_entry_function_internal()` right after session creation:
@@ -56,7 +58,7 @@ self.preload_objects_for_execution(&mut session, &args)?;
 
 ### 1. Proper Native Function Integration
 
-- `native_borrow_global_mut` now has access to preloaded objects
+- `native_borrow_global` and `native_borrow_global_mut` now have access to preloaded objects
 - Objects are resolved through proper extension mechanism instead of manual loading
 - Follows Move VM architecture patterns
 
@@ -82,23 +84,56 @@ self.preload_objects_for_execution(&mut session, &args)?;
 
 ### Object Loading Flow (Before)
 
-```
+```md
 Transaction Args → Manual ObjectStorage Lookup → Direct Data Injection
 ```
 
 ### Object Loading Flow (After)
 
-```
-Transaction Args → Preload to LoadedObjectsExt → native_borrow_global_mut Resolution
+```md
+Transaction Args → Preload to LoadedObjectsExt → native_borrow_global/borrow_global_mut Resolution
 ```
 
 ### Extension Lifecycle
 
-1. **Session Creation**: All extensions initialized
-2. **Preloading**: Objects loaded into `LoadedObjectsExt`
-3. **Execution**: VM calls `native_borrow_global_mut` which accesses `LoadedObjectsExt`
-4. **Post-Execution**: `BorrowedObjectsExt` contains tracked borrows for writeback
-5. **Changeset Application**: Tracked objects written back to storage
+1. **Session Creation**: All extensions initialized (`LoadedObjectsExt`, `BorrowedObjectsExt`)
+2. **Preloading**: Objects loaded into `LoadedObjectsExt` before execution
+3. **Execution**:
+   - VM calls `native_borrow_global()` for immutable access
+   - VM calls `native_borrow_global_mut()` for mutable access
+   - Both read from `LoadedObjectsExt`
+   - Mutable borrows tracked in `BorrowedObjectsExt`
+4. **Post-Execution**:
+   - Extract `saved_objects` from `SavedObjectsExt`
+   - Extract `borrowed_objects` from `BorrowedObjectsExt` ← NEW!
+   - Process all modified objects and update ChangeSet
+   - Persist changes to ObjectStorage
+
+### Data Structures
+
+#### BorrowedObject Struct
+
+```rust
+#[derive(Clone, Debug)]
+pub struct BorrowedObject {
+    pub object_id: String,      // Hex-encoded object ID (0x...)
+    pub object_type: String,    // Move type tag (e.g., "0x1::coin::Coin<...>")
+    pub data: Vec<u8>,          // BCS-serialized object data
+}
+```
+
+**Purpose**: Tracks objects that were modified through `borrow_global_mut()` during execution.
+
+**Usage**: After VM execution, the runtime extracts all borrowed objects and processes them similarly to saved objects, ensuring proper state persistence.
+
+#### Comparison: SavedObject vs BorrowedObject
+
+| Feature | SavedObject | BorrowedObject |
+|---------|-------------|----------------|
+| Source | Explicit `save_object()` call | Implicit via `borrow_global_mut()` |
+| Tracking | `SavedObjectsExt` | `BorrowedObjectsExt` |
+| Use Case | Manual save after modification | Automatic tracking of mutable borrows |
+| Processing | Post-execution writeback | Post-execution writeback |
 
 ## 📊 Testing
 

@@ -14,7 +14,7 @@ const U64_SIZE: usize = 8;
 
 impl super::MoveRuntime {
     /// Preload potential object arguments into LoadedObjectsExt before execution
-    /// This enables native_borrow_global_mut to resolve objects during VM execution
+    /// This enables native_borrow_global and borrow_global_mut to resolve objects during VM execution
     pub(crate) fn preload_objects_for_execution(
         &self,
         session: &mut move_vm_runtime::session::Session<
@@ -31,7 +31,7 @@ impl super::MoveRuntime {
 
                 // Try to load object from storage
                 if let Some(stored_obj) = self.object_storage.get_object(&object_id) {
-                    // Insert into LoadedObjectsExt so native_borrow_global_mut can find it
+                    // Insert into LoadedObjectsExt so native_borrow_global and borrow_global_mut can find it
                     let exts = session.get_native_extensions();
                     let loaded_ext = exts.get_mut::<LoadedObjectsExt>();
                     loaded_ext.insert(

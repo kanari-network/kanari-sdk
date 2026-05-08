@@ -18,6 +18,7 @@ use crate::helpers::make_module_natives;
 pub struct GasParameters {
     pub save_object: SaveObjectGasParameters,
     pub delete_object: DeleteObjectGasParameters,
+    pub borrow_global: BorrowGlobalGasParameters,
     pub borrow_global_mut: BorrowGlobalMutGasParameters,
 }
 
@@ -30,6 +31,12 @@ pub struct SaveObjectGasParameters {
 #[derive(Debug, Clone)]
 pub struct DeleteObjectGasParameters {
     pub base: InternalGas,
+}
+
+#[derive(Debug, Clone)]
+pub struct BorrowGlobalGasParameters {
+    pub base: InternalGas,
+    pub per_byte_loaded: InternalGasPerByte,
 }
 
 #[derive(Debug, Clone)]
@@ -46,6 +53,10 @@ impl GasParameters {
                 per_byte_serialized: 0.into(),
             },
             delete_object: DeleteObjectGasParameters { base: 0.into() },
+            borrow_global: BorrowGlobalGasParameters {
+                base: 0.into(),
+                per_byte_loaded: 0.into(),
+            },
             borrow_global_mut: BorrowGlobalMutGasParameters {
                 base: 0.into(),
                 per_byte_loaded: 0.into(),
@@ -72,6 +83,13 @@ fn uid_address_bytes(uid_val: &move_vm_types::values::Value) -> Option<Vec<u8>> 
 
 #[derive(Clone, Debug)]
 pub struct SavedObject {
+    pub object_id: String,
+    pub object_type: String,
+    pub data: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+pub struct BorrowedObject {
     pub object_id: String,
     pub object_type: String,
     pub data: Vec<u8>,
@@ -128,14 +146,18 @@ impl LoadedObjectsExt {
 /// Extension for tracking borrowed mutable objects
 #[derive(Tid, Default)]
 pub struct BorrowedObjectsExt {
-    pub objects: Vec<(String, String, Vec<u8>)>, // (object_id, type_str, original_data)
+    pub objects: Vec<BorrowedObject>,
 }
 
 impl BorrowedObjectsExt {
     pub fn record(&mut self, object_id: String, type_str: String, data: Vec<u8>) {
-        self.objects.push((object_id, type_str, data));
+        self.objects.push(BorrowedObject {
+            object_id,
+            object_type: type_str,
+            data,
+        });
     }
-    pub fn take_all(&mut self) -> Vec<(String, String, Vec<u8>)> {
+    pub fn take_all(&mut self) -> Vec<BorrowedObject> {
         std::mem::take(&mut self.objects)
     }
 }
@@ -143,7 +165,8 @@ impl BorrowedObjectsExt {
 pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, NativeFunction)> {
     let save_params = gas_params.save_object.clone();
     let delete_params = gas_params.delete_object.clone();
-    let borrow_params = gas_params.borrow_global_mut.clone();
+    let borrow_params = gas_params.borrow_global.clone();
+    let borrow_mut_params = gas_params.borrow_global_mut.clone();
 
     let save_object: NativeFunction = Arc::new(move |context, ty_args, args| {
         native_save_object(&save_params, context, ty_args, args)
@@ -151,14 +174,103 @@ pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, Nati
     let delete_impl: NativeFunction = Arc::new(move |context, ty_args, args| {
         native_delete_object(&delete_params, context, ty_args, args)
     });
+    let borrow_global: NativeFunction = Arc::new(move |context, ty_args, args| {
+        native_borrow_global(&borrow_params, context, ty_args, args)
+    });
     let borrow_global_mut: NativeFunction = Arc::new(move |context, ty_args, args| {
-        native_borrow_global_mut(&borrow_params, context, ty_args, args)
+        native_borrow_global_mut(&borrow_mut_params, context, ty_args, args)
     });
     make_module_natives([
         ("save_object", save_object),
         ("delete_impl", delete_impl),
+        ("borrow_global", borrow_global),
         ("borrow_global_mut", borrow_global_mut),
     ])
+}
+
+/// Native function: borrow_global<T>(address): &T
+/// Loads an object from storage and returns an immutable reference.
+/// This allows reading any object's data without requiring ownership or mutability.
+fn native_borrow_global(
+    gas_params: &BorrowGlobalGasParameters,
+    context: &mut NativeContext,
+    ty_args: Vec<move_vm_types::loaded_data::runtime_types::Type>,
+    mut arguments: VecDeque<move_vm_types::values::Value>,
+) -> PartialVMResult<NativeResult> {
+    use move_core_types::account_address::AccountAddress;
+    use move_core_types::vm_status::StatusCode;
+    use move_vm_types::natives::function::NativeResult as NR;
+    use move_vm_types::pop_arg;
+
+    native_charge_gas_early_exit!(context, gas_params.base);
+
+    // Arguments: address (as AccountAddress directly from Move VM)
+    let object_addr = pop_arg!(arguments, AccountAddress);
+    let object_id = format!("0x{}", hex::encode(object_addr.as_ref()));
+
+    // Load object from storage via context's extension
+    let loaded_data =
+        crate::native_ext::with_ext_mut_or_default::<LoadedObjectsExt, _>(context, |ext| {
+            ext.get(&object_id).cloned()
+        });
+
+    let Some((type_str, obj_data)) = loaded_data.flatten() else {
+        return Ok(NR::err(
+            context.gas_used(),
+            StatusCode::FAILED_TO_DESERIALIZE_ARGUMENT as u64,
+        ));
+    };
+
+    native_charge_gas_early_exit!(
+        context,
+        gas_params.per_byte_loaded * NumBytes::new(obj_data.len() as u64)
+    );
+
+    // Deserialize the object data into a Move value
+    let layout = match context.type_to_type_layout(&ty_args[0]) {
+        Ok(Some(layout)) => layout,
+        _ => {
+            return Ok(NR::err(
+                context.gas_used(),
+                StatusCode::TYPE_MISMATCH as u64,
+            ));
+        }
+    };
+
+    // Verify that the loaded object type matches the requested type
+    let requested_type = match context.type_to_type_tag(&ty_args[0]) {
+        Ok(tag) => format!("{}", tag),
+        Err(_) => {
+            return Ok(NR::err(
+                context.gas_used(),
+                StatusCode::TYPE_MISMATCH as u64,
+            ));
+        }
+    };
+
+    if type_str != requested_type {
+        return Ok(NR::err(
+            context.gas_used(),
+            StatusCode::TYPE_MISMATCH as u64,
+        ));
+    }
+
+    // Deserialize object data into Move value
+    let obj_val = match move_vm_types::values::Value::simple_deserialize(&obj_data, &layout) {
+        Some(val) => val,
+        None => {
+            return Ok(NR::err(
+                context.gas_used(),
+                StatusCode::FAILED_TO_DESERIALIZE_ARGUMENT as u64,
+            ));
+        }
+    };
+
+    // Create an immutable reference to the object using borrow_global
+    let obj_ref =
+        move_vm_types::values::Value::borrow_global(object_addr, ty_args[0].clone(), obj_val)?;
+
+    Ok(NR::ok(context.gas_used(), smallvec![obj_ref]))
 }
 
 /// Native function: borrow_global_mut<T>(address): &mut T
@@ -422,10 +534,9 @@ mod tests {
 
         let all = ext.take_all();
         assert_eq!(all.len(), 1);
-        let (id, t, d) = &all[0];
-        assert_eq!(id, &object_id);
-        assert_eq!(t, &type_str);
-        assert_eq!(d, &data);
+        assert_eq!(all[0].object_id, object_id);
+        assert_eq!(all[0].object_type, type_str);
+        assert_eq!(all[0].data, data);
     }
 
     #[test]

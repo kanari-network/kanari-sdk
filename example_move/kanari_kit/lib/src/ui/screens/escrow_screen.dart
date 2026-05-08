@@ -37,6 +37,8 @@ class _EscrowScreenState extends State<EscrowScreen>
   final _amountController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _buyerAddressController = TextEditingController();
+  final _disputeReasonController =
+      TextEditingController(); // เพิ่ม controller สำหรับเหตุผล dispute
 
   bool _isLoading = false;
   bool _isLoadingTokens = false;
@@ -46,7 +48,8 @@ class _EscrowScreenState extends State<EscrowScreen>
   String? _successMessage;
   List<String> _spendableCoinTypes = const [];
   int? _currentDealState;
-  int? _proofCount;
+  Map<String, dynamic>? _dealDetails; // เพิ่มสำหรับเก็บรายละเอียด deal
+  bool? _stateMatchResult; // เพิ่มสำหรับเก็บผล check_deal_state
 
   @override
   void initState() {
@@ -300,9 +303,17 @@ class _EscrowScreenState extends State<EscrowScreen>
       if (buyer.isEmpty) {
         throw Exception('Buyer address is required');
       }
+      if (_disputeReasonController.text.trim().isEmpty) {
+        throw Exception('Dispute reason is required');
+      }
 
       final result = await escrow
-          .raiseDispute(wallet: wallet, buyerAddress: buyer)
+          .raiseDispute(
+            wallet: wallet,
+            buyerAddress: buyer,
+            reason: _disputeReasonController.text
+                .trim(), // ส่ง reason parameter
+          )
           .timeout(const Duration(seconds: 30));
       await walletState.refreshBalance();
       if (!mounted) return;
@@ -310,28 +321,59 @@ class _EscrowScreenState extends State<EscrowScreen>
         _successMessage =
             'Dispute raised! Tx Hash: ${result.hash.substring(0, 16)}...';
       });
+      _disputeReasonController.clear(); // เคลียร์หลังจากสำเร็จ
     });
   }
 
   Future<void> _checkDealState() async {
-    await _runAction((escrow, _) async {
+    await _runAction((escrow, walletState) async {
+      final wallet = walletState.wallet!;
       final buyer = _buyerAddressController.text.trim();
       if (buyer.isEmpty) {
         throw Exception('Buyer address is required');
       }
 
+      // ใช้ view functions ใหม่ที่ efficient กว่า
       final state = await escrow
-          .getDealState(buyer)
+          .getDealState(wallet: wallet, buyerAddress: buyer)
           .timeout(const Duration(seconds: 30));
-      final proofCount = await escrow
-          .getProofCount(buyer)
+
+      final details = await escrow
+          .getDealDetails(wallet: wallet, buyerAddress: buyer)
           .timeout(const Duration(seconds: 30));
 
       if (!mounted) return;
       setState(() {
         _currentDealState = state;
-        _proofCount = proofCount;
+        _dealDetails = details;
         _successMessage = 'Deal state retrieved successfully!';
+      });
+    });
+  }
+
+  /// Check if deal matches expected state (new feature)
+  Future<void> _verifyDealState(int expectedState) async {
+    await _runAction((escrow, walletState) async {
+      final wallet = walletState.wallet!;
+      final buyer = _buyerAddressController.text.trim();
+      if (buyer.isEmpty) {
+        throw Exception('Buyer address is required');
+      }
+
+      final isMatch = await escrow
+          .checkDealState(
+            wallet: wallet,
+            buyerAddress: buyer,
+            expectedState: expectedState,
+          )
+          .timeout(const Duration(seconds: 30));
+
+      if (!mounted) return;
+      setState(() {
+        _stateMatchResult = isMatch;
+        _successMessage = isMatch
+            ? '✅ Deal is in ${_stateName(expectedState)} state'
+            : '❌ Deal is NOT in ${_stateName(expectedState)} state';
       });
     });
   }
@@ -631,6 +673,17 @@ class _EscrowScreenState extends State<EscrowScreen>
             label: Text(_isLoading ? 'Processing...' : 'Release Funds'),
           ),
           const SizedBox(height: 12),
+          // เพิ่ม input field สำหรับเหตุผล dispute
+          TextFormField(
+            controller: _disputeReasonController,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              labelText: 'Dispute Reason',
+              hintText: 'Explain why you are raising a dispute',
+              prefixIcon: Icon(Icons.gavel),
+            ),
+          ),
+          const SizedBox(height: 12),
           OutlinedButton.icon(
             onPressed: _isLoading ? null : _raiseDispute,
             icon: _buildInlineLoader(colorScheme.error, Icons.gavel),
@@ -669,12 +722,15 @@ class _EscrowScreenState extends State<EscrowScreen>
             label: Text(_isLoading ? 'Checking...' : 'Check Status'),
           ),
           const SizedBox(height: 24),
+
+          // แสดงสถานะ deal
           if (_currentDealState != null)
             Card(
               color: _stateColor(_currentDealState!).withOpacity(0.12),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -702,24 +758,148 @@ class _EscrowScreenState extends State<EscrowScreen>
                         ),
                       ],
                     ),
-                    if (_proofCount != null) ...[
+
+                    // แสดงรายละเอียด deal ถ้ามี
+                    if (_dealDetails != null && _dealDetails!.isNotEmpty) ...[
                       const Divider(height: 24),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Proof Entries'),
-                          Text(
-                            '$_proofCount',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                        ],
+                      _buildDetailRow('Buyer', _dealDetails!['buyer'] ?? 'N/A'),
+                      const SizedBox(height: 8),
+                      _buildDetailRow(
+                        'Seller',
+                        _dealDetails!['seller'] ?? 'N/A',
+                      ),
+                      const SizedBox(height: 8),
+                      _buildDetailRow(
+                        'Amount',
+                        '${_dealDetails!['amount']} units',
                       ),
                     ],
                   ],
                 ),
               ),
             ),
+
+          const SizedBox(height: 16),
+
+          // เพิ่มปุ่มตรวจสอบสถานะเฉพาะ
+          if (_currentDealState != null) ...[
+            Text(
+              'Quick Verification',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _buildVerifyButton(
+                  label: 'Is Locked?',
+                  state: 1,
+                  color: Colors.orange,
+                  icon: Icons.lock_outline,
+                ),
+                _buildVerifyButton(
+                  label: 'Is Delivered?',
+                  state: 2,
+                  color: Colors.blue,
+                  icon: Icons.local_shipping,
+                ),
+                _buildVerifyButton(
+                  label: 'Is Completed?',
+                  state: 3,
+                  color: Colors.green,
+                  icon: Icons.check_circle_outline,
+                ),
+                _buildVerifyButton(
+                  label: 'Is Disputed?',
+                  state: 4,
+                  color: Colors.red,
+                  icon: Icons.gavel,
+                ),
+              ],
+            ),
+
+            // แสดงผลการ verify
+            if (_stateMatchResult != null) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _stateMatchResult!
+                      ? Colors.green.withOpacity(0.1)
+                      : Colors.red.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: _stateMatchResult!
+                        ? Colors.green.withOpacity(0.3)
+                        : Colors.red.withOpacity(0.3),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _stateMatchResult! ? Icons.check_circle : Icons.cancel,
+                      color: _stateMatchResult! ? Colors.green : Colors.red,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _stateMatchResult!
+                            ? '✅ Verified: Deal is in expected state'
+                            : '❌ Not verified: Deal is in different state',
+                        style: TextStyle(
+                          color: _stateMatchResult! ? Colors.green : Colors.red,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontWeight: FontWeight.w500,
+            color: Colors.grey,
+          ),
+        ),
+        Flexible(
+          child: Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildVerifyButton({
+    required String label,
+    required int state,
+    required Color color,
+    required IconData icon,
+  }) {
+    return OutlinedButton.icon(
+      onPressed: _isLoading ? null : () => _verifyDealState(state),
+      icon: Icon(icon, size: 18),
+      label: Text(label),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: color,
+        side: BorderSide(color: color.withOpacity(0.5)),
       ),
     );
   }

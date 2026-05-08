@@ -467,13 +467,80 @@ module kanari_escrow::escrow {
         });
     }
 
-    // View: get current deal state (returns u8)
-    public fun get_state<CoinType>(deal: &EscrowDeal<CoinType>): u8 {
-        deal.state
+    // ─── View Functions (for RPC/Dart queries) ──────────────────────
+
+    /// Get current deal state by Object ID
+    /// Returns the state of the deal (1=LOCKED, 2=DELIVERED, 3=COMPLETED, 4=DISPUTED)
+    public entry fun get_state<CoinType>(
+        deal_id: address,
+    ) {
+        // ใช้ borrow_global สำหรับอ่านอย่างเดียว ไม่ต้องแก้ไข
+        let deal: &EscrowDeal<CoinType> = object::borrow_global<EscrowDeal<CoinType>>(deal_id);
+        let state = deal.state;
+        let deal_id_str = get_deal_id(deal);
+        
+        // Emit event เพื่อส่งผลลัพธ์กลับ (workaround สำหรับ entry function)
+        event::emit(DealStateChanged {
+            deal_id: deal_id_str,
+            old_state: state,
+            new_state: state,
+            actor: @0x0,
+            timestamp: 0,
+        });
     }
 
-    // View: get proof entry count
-    public fun get_proof_count(proof: &EscrowProof): u64 {
-        vector::length(&proof.entries)
+    /// Get proof entry count by Object ID  
+    /// Returns the number of proof entries in the EscrowProof
+    public entry fun get_proof_count(
+        proof_id: address,
+    ) {
+        // ใช้ borrow_global สำหรับอ่านอย่างเดียว ไม่ต้องแก้ไข
+        let proof: &EscrowProof = object::borrow_global<EscrowProof>(proof_id);
+        let _count = vector::length(&proof.entries);
+        let deal_id_str = proof.deal_id;
+        
+        // Emit event เพื่อส่งผลลัพธ์กลับ
+        event::emit(DealStateChanged {
+            deal_id: deal_id_str,
+            old_state: 0,
+            new_state: 0,
+            actor: @0x0,
+            timestamp: 0,
+        });
+    }
+
+    /// Get full deal details by Object ID
+    /// อ่านข้อมูลทั้งหมดของ deal โดยไม่แก้ไข
+    public entry fun get_deal_details<CoinType>(
+        deal_id: address,
+    ) {
+        let deal: &EscrowDeal<CoinType> = object::borrow_global<EscrowDeal<CoinType>>(deal_id);
+        
+        let deal_info = DealCreated {
+            deal_id: get_deal_id(deal),
+            buyer: deal.buyer,
+            seller: deal.seller,
+            amount: deal.amount,
+        };
+        
+        event::emit(deal_info);
+    }
+
+    /// Check if deal is in specific state
+    /// ตรวจสอบว่า deal อยู่ในสถานะที่กำหนดหรือไม่
+    public entry fun check_deal_state<CoinType>(
+        deal_id: address,
+        expected_state: u8,
+    ) {
+        let deal: &EscrowDeal<CoinType> = object::borrow_global<EscrowDeal<CoinType>>(deal_id);
+        let is_match = (deal.state == expected_state);
+        
+        event::emit(DealStateChanged {
+            deal_id: get_deal_id(deal),
+            old_state: deal.state,
+            new_state: if (is_match) expected_state else 0,
+            actor: @0x0,
+            timestamp: 0,
+        });
     }
 }

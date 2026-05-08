@@ -90,6 +90,16 @@ module kanari_system::object {
     /// ```
     public native fun borrow_global_mut<T: key>(addr: address): &mut T;
 
+    /// Load an object from storage by its address and return an immutable reference.
+    /// This allows reading any object's data without requiring ownership or mutability.
+    /// 
+    /// # Example
+    /// ```move
+    /// let coin_ref = borrow_global<Coin<USDC>>(coin_object_id);
+    /// let balance = coin::value(coin_ref);
+    /// ```
+    public native fun borrow_global<T: key>(addr: address): &T;
+
     /// Delete an object by consuming its UID.
     /// This removes the object from storage and potentially triggers a storage rebate.
     public fun delete(id: UID) {

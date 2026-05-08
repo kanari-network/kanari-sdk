@@ -6,7 +6,9 @@ use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
 use kanari_system_natives::dynamic_field::DynamicFieldsExt;
 use kanari_system_natives::event::EventsExt;
-use kanari_system_natives::object::{DeletedObjectsExt, SavedObjectsExt};
+use kanari_system_natives::object::{
+    BorrowedObjectsExt, DeletedObjectsExt, LoadedObjectsExt, SavedObjectsExt,
+};
 use kanari_system_natives::transfer_natives::TransferredObjectsExt;
 use kanari_types::clock::ClockModule;
 use kanari_types::event::Event;
@@ -874,6 +876,7 @@ impl MoveRuntime {
                     saved_objects,
                     deleted_objects,
                     dynamic_fields_ops,
+                    borrowed_objects,
                 ) = {
                     let exts_after = session.get_native_extensions();
                     (
@@ -882,6 +885,7 @@ impl MoveRuntime {
                         exts_after.get_mut::<SavedObjectsExt>().take_all(),
                         exts_after.get_mut::<DeletedObjectsExt>().take_all(),
                         exts_after.get_mut::<DynamicFieldsExt>().take_all(),
+                        exts_after.get_mut::<BorrowedObjectsExt>().take_all(),
                     )
                 };
 
@@ -964,6 +968,40 @@ impl MoveRuntime {
                     cs.created_objects
                         .push((saved.object_id.clone(), updated_obj));
                     processed_ids.insert(saved.object_id);
+                }
+
+                // Process borrowed objects (modified via borrow_global_mut)
+                for borrowed in borrowed_objects {
+                    if processed_ids.contains(&borrowed.object_id) {
+                        continue;
+                    }
+
+                    let (owner, version) = self.resolve_saved_owner_and_version(
+                        &loaded_mutable_objects,
+                        &borrowed.object_id,
+                    );
+
+                    let updated_obj = crate::changeset::CreatedObject {
+                        owner,
+                        uid: Self::uid_from_object_id(&borrowed.object_id),
+                        type_: borrowed.object_type.clone(),
+                        data: borrowed.data.clone(),
+                        version,
+                    };
+
+                    self.maybe_add_token_balance(
+                        &mut cs,
+                        owner,
+                        &borrowed.object_type,
+                        &borrowed.data,
+                        &borrowed.object_id,
+                        "borrowed_mut",
+                    );
+
+                    cs.created_objects.retain(|(k, _)| k != &borrowed.object_id);
+                    cs.created_objects
+                        .push((borrowed.object_id.clone(), updated_obj));
+                    processed_ids.insert(borrowed.object_id);
                 }
 
                 self.add_transferred_objects_to_changeset(&mut cs, transferred);
@@ -1062,9 +1100,10 @@ impl MoveRuntime {
         extensions.add(SavedObjectsExt::default());
         extensions.add(DeletedObjectsExt::default());
         extensions.add(TransferredObjectsExt::default());
-        // Add object tracking extensions for proper borrow_global_mut support
-        extensions.add(kanari_system_natives::object::LoadedObjectsExt::default());
-        extensions.add(kanari_system_natives::object::BorrowedObjectsExt::default());
+
+        // Add object tracking extensions for proper borrow_global and borrow_global_mut support
+        extensions.add(LoadedObjectsExt::default());
+        extensions.add(BorrowedObjectsExt::default());
 
         // Create session with extensions
         vm_guard.new_session_with_extensions(self.resolver.clone(), extensions)

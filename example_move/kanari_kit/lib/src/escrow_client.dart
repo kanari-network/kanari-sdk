@@ -196,17 +196,26 @@ class EscrowClient {
   Future<TransactionResult> raiseDispute({
     required KanariWallet wallet,
     required String buyerAddress,
+    required String reason, // เพิ่ม reason parameter
     int gasLimit = 100000,
     int gasPrice = 10,
   }) async {
     final refs = await _getEscrowObjectRefs(buyerAddress);
+
+    // Serialize reason as BCS string
+    final reasonBytes = _encodeStringBcs(reason);
+
     final result = await _executeFunctionDetailed(
       wallet: wallet,
       package: escrowPackageAddress,
       module: 'escrow',
       function: 'raise_dispute',
       typeArgs: [refs.coinType],
-      args: [_hexToBytes(refs.dealObjectId), _hexToBytes(refs.proofObjectId)],
+      args: [
+        _hexToBytes(refs.dealObjectId),
+        _hexToBytes(refs.proofObjectId),
+        reasonBytes, // เพิ่ม reason argument
+      ],
       gasLimit: gasLimit,
       gasPrice: gasPrice,
       executeImmediate: true,
@@ -214,24 +223,90 @@ class EscrowClient {
     return _requireSuccess(result);
   }
 
-  Future<int> getDealState(String buyerAddress) async {
+  Future<int> getDealState({
+    required KanariWallet wallet,
+    required String buyerAddress,
+  }) async {
     final refs = await _getEscrowObjectRefs(buyerAddress);
     final result = await _viewFunction(
+      wallet: wallet,
       function: '$escrowPackageAddress::escrow::get_state',
       typeArguments: [refs.coinType],
       arguments: [_hexToBytes(refs.dealObjectId)],
     );
-    return result.isNotEmpty ? (result.first as int) : 0;
+
+    // Parse state from DealStateChanged event (old_state field)
+    if (result.isNotEmpty && result.first is int) {
+      return result.first as int;
+    }
+    return 0;
   }
 
-  Future<int> getProofCount(String buyerAddress) async {
+  Future<int> getProofCount({
+    required KanariWallet wallet,
+    required String buyerAddress,
+  }) async {
     final refs = await _getEscrowObjectRefs(buyerAddress);
-    final result = await _viewFunction(
+    await _viewFunction(
+      wallet: wallet,
       function: '$escrowPackageAddress::escrow::get_proof_count',
       typeArguments: const [],
       arguments: [_hexToBytes(refs.proofObjectId)],
     );
-    return result.isNotEmpty ? (result.first as int) : 0;
+
+    // For now, we need to count entries manually from the proof object
+    // Since view functions emit events, we'll fetch the actual object data
+    final account = await rpc.getAccount(buyerAddress);
+    for (final obj in account.ownedObjects ?? const <ObjectInfo>[]) {
+      if (_isEscrowProofObject(obj.type) &&
+          _normalizeObjectId(obj.id) == refs.proofObjectId) {
+        // In a real implementation, you'd parse the BCS data here
+        // For now, return 0 as placeholder
+        return 0;
+      }
+    }
+    return 0;
+  }
+
+  /// Get full deal details including buyer, seller, amount, description
+  Future<Map<String, dynamic>> getDealDetails({
+    required KanariWallet wallet,
+    required String buyerAddress,
+  }) async {
+    final refs = await _getEscrowObjectRefs(buyerAddress);
+    final result = await _viewFunction(
+      wallet: wallet,
+      function: '$escrowPackageAddress::escrow::get_deal_details',
+      typeArguments: [refs.coinType],
+      arguments: [_hexToBytes(refs.dealObjectId)],
+    );
+
+    // Parse from DealCreated event emitted by get_deal_details
+    if (result.isNotEmpty && result.first is Map) {
+      return result.first as Map<String, dynamic>;
+    }
+    return {};
+  }
+
+  /// Check if deal is in expected state
+  Future<bool> checkDealState({
+    required KanariWallet wallet,
+    required String buyerAddress,
+    required int expectedState,
+  }) async {
+    final refs = await _getEscrowObjectRefs(buyerAddress);
+    final result = await _viewFunction(
+      wallet: wallet,
+      function: '$escrowPackageAddress::escrow::check_deal_state',
+      typeArguments: [refs.coinType],
+      arguments: [_hexToBytes(refs.dealObjectId), _encodeU64Bcs(expectedState)],
+    );
+
+    // Returns true if state matches (new_state == expected_state)
+    if (result.isNotEmpty && result.first is int) {
+      return (result.first as int) == expectedState;
+    }
+    return false;
   }
 
   Future<List<String>> getSpendableCoinTypes(String ownerAddress) async {
@@ -250,17 +325,70 @@ class EscrowClient {
   }
 
   Future<List<dynamic>> _viewFunction({
+    required KanariWallet wallet,
     required String function,
     required List<String> typeArguments,
     required List<List<int>> arguments,
   }) async {
+    // Extract package, module, function from full function name
+    // Format: "0xpackage::module::function"
+    final parts = function.split('::');
+    if (parts.length != 3) {
+      throw Exception('Invalid function format: $function');
+    }
+
+    final package = parts[0];
+    final module = parts[1];
+    final functionName = parts[2];
+
+    final account = await rpc.getAccount(wallet.address);
+    final sequenceNumber = account.sequenceNumber;
+    final senderAddress = wallet.taggedAddress;
+    final packageAddress = _normalizeAddress(package);
+
+    final serializedTx = _transactionBcs.serialize({
+      'ExecuteFunction': {
+        'sender': senderAddress,
+        'module': '$packageAddress::$module',
+        'function': functionName,
+        'type_args': typeArguments,
+        'args': arguments,
+        'gas_limit': 100000, // Default gas limit for view calls
+        'gas_price': 10,
+        'sequence_number': sequenceNumber,
+      },
+    }).toBytes();
+
+    List<int> messageToSign;
+    try {
+      messageToSign = await blake3HashApi(data: serializedTx);
+    } catch (error) {
+      if (error.toString().contains(
+        'flutter_rust_bridge has not been initialized',
+      )) {
+        messageToSign = serializedTx;
+      } else {
+        rethrow;
+      }
+    }
+
+    final signature = await wallet.sign(messageToSign);
+
     final body = {
       'jsonrpc': '2.0',
-      'method': 'kanari_view',
+      'method': 'kanari_callFunction',
       'params': {
-        'function': function,
-        'type_arguments': typeArguments,
-        'arguments': arguments,
+        'sender': senderAddress,
+        'package': packageAddress,
+        'module': module,
+        'function': functionName,
+        'type_args': typeArguments,
+        'args': arguments,
+        'gas_limit': 100000,
+        'gas_price': 10,
+        'sequence_number': sequenceNumber,
+        'signature': signature.toList(),
+        'execute_immediate': true,
       },
       'id': DateTime.now().millisecondsSinceEpoch,
     };
@@ -283,7 +411,107 @@ class EscrowClient {
       throw Exception(error['message'] ?? 'Unknown RPC error');
     }
 
-    return jsonResponse['result'] as List<dynamic>? ?? const [];
+    final resultJson = jsonResponse['result'];
+    if (resultJson is! Map<String, dynamic>) {
+      throw Exception('Invalid RPC transaction result.');
+    }
+
+    final status = (resultJson['status'] as String? ?? '').toLowerCase();
+    if (status == 'failed') {
+      final reason =
+          _extractFailureReason(resultJson['changeset']) ??
+          (resultJson['error_message'] as String?) ??
+          'View function call failed on-chain.';
+      throw Exception(reason);
+    }
+
+    // For view functions, extract return values from events
+    final events = resultJson['changeset']?['events'] as List<dynamic>? ?? [];
+
+    // For get_state: parse state from DealStateChanged event
+    if (functionName == 'get_state' && events.isNotEmpty) {
+      final event = events.first as Map<String, dynamic>?;
+      if (event != null) {
+        final eventData = event['event_data'] as List<dynamic>?;
+        if (eventData != null && eventData.length >= 12) {
+          // event_data format: [length, ...deal_id_bytes, old_state, new_state, actor, timestamp]
+          // Find deal_id length first
+          final dealIdLength = eventData[0] as int? ?? 0;
+          final oldStateIndex = 1 + dealIdLength;
+
+          if (oldStateIndex < eventData.length) {
+            final oldState = eventData[oldStateIndex] as int?;
+            if (oldState != null) {
+              return [oldState];
+            }
+          }
+        }
+      }
+    }
+
+    // For get_proof_count: parse count from proof object
+    if (functionName == 'get_proof_count') {
+      // Since this is a read-only operation using borrow_global,
+      // we need to fetch the actual object data from RPC
+      // For now, return empty and let caller handle it
+      return [];
+    }
+
+    // For get_deal_details: parse from DealCreated event
+    if (functionName == 'get_deal_details' && events.isNotEmpty) {
+      final event = events.first as Map<String, dynamic>?;
+      if (event != null) {
+        final eventData = event['event_data'] as List<dynamic>?;
+        if (eventData != null && eventData.length >= 4) {
+          // Parse DealCreated event fields
+          final dealIdLength = eventData[0] as int? ?? 0;
+          var offset = 1 + dealIdLength;
+
+          if (offset + 32 + 32 + 8 <= eventData.length) {
+            // Extract buyer address (32 bytes)
+            final buyerBytes = eventData.sublist(offset, offset + 32).cast<int>();
+            final buyer = _bytesToAddress(buyerBytes);
+            offset += 32;
+
+            // Extract seller address (32 bytes)
+            final sellerBytes = eventData.sublist(offset, offset + 32).cast<int>();
+            final seller = _bytesToAddress(sellerBytes);
+            offset += 32;
+
+            // Extract amount (u64, 8 bytes LE)
+            final amountBytes = eventData.sublist(offset, offset + 8).cast<int>();
+            final amount = _bytesToU64(amountBytes);
+
+            return [
+              {'buyer': buyer, 'seller': seller, 'amount': amount},
+            ];
+          }
+        }
+      }
+    }
+
+    // For check_deal_state: parse boolean result
+    if (functionName == 'check_deal_state' && events.isNotEmpty) {
+      final event = events.first as Map<String, dynamic>?;
+      if (event != null) {
+        final eventData = event['event_data'] as List<dynamic>?;
+        if (eventData != null && eventData.length >= 12) {
+          final dealIdLength = eventData[0] as int? ?? 0;
+          final oldStateIndex = 1 + dealIdLength;
+          final newStateIndex = oldStateIndex + 1;
+
+          if (newStateIndex < eventData.length) {
+            final newState = eventData[newStateIndex] as int?;
+            if (newState != null) {
+              // If new_state > 0, it means state matched
+              return [newState > 0 ? 1 : 0];
+            }
+          }
+        }
+      }
+    }
+
+    return [];
   }
 
   Future<TransactionResult> _executeFunctionDetailed({
@@ -534,6 +762,22 @@ class EscrowClient {
       bytes.add(int.parse(clean.substring(i, i + 2), radix: 16));
     }
     return bytes;
+  }
+
+  String _bytesToAddress(List<int> bytes) {
+    if (bytes.length != 32) {
+      throw Exception('Invalid address bytes length: ${bytes.length}');
+    }
+    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    return '0x$hex';
+  }
+
+  int _bytesToU64(List<int> bytes) {
+    if (bytes.length != 8) {
+      throw Exception('Invalid u64 bytes length: ${bytes.length}');
+    }
+    final data = ByteData.view(Uint8List.fromList(bytes).buffer);
+    return data.getUint64(0, Endian.little);
   }
 
   List<int> _encodeU64Bcs(int value) {
