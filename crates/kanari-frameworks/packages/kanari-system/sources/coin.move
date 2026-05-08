@@ -200,6 +200,14 @@ module kanari_system::coin {
         object::save_object(coin);
     }
 
+    /// Destroy a zero-balance coin. This function can only be called on coins with 0 balance.
+    /// Useful for cleaning up empty coin objects to save storage.
+    public fun destroy_zero<T>(coin: Coin<T>) {
+        let Coin { id: _, balance } = coin;
+        assert!(kanari_system::balance::value(&balance) == 0, EZERO_AMOUNT);
+        kanari_system::balance::destroy<T>(balance);
+    }
+
 
     // ==========================================
     // 🟢 Functions to update CoinMetadata

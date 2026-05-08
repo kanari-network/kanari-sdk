@@ -80,6 +80,16 @@ module kanari_system::object {
     // This is required because entry functions do not automatically write back modified arguments.
     public native fun save_object<T: key>(obj: &T);
 
+    /// Load an object from storage by its address and return a mutable reference.
+    /// This enables runtime resolution of object IDs passed from CLI.
+    /// 
+    /// # Example
+    /// ```move
+    /// let coin_ref = borrow_global_mut<Coin<USDC>>(coin_object_id);
+    /// // Use coin_ref to modify the coin
+    /// ```
+    public native fun borrow_global_mut<T: key>(addr: address): &mut T;
+
     /// Delete an object by consuming its UID.
     /// This removes the object from storage and potentially triggers a storage rebate.
     public fun delete(id: UID) {

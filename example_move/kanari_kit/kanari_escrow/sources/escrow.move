@@ -2,7 +2,7 @@ module kanari_escrow::escrow {
     use std::string::{Self, String};
     use std::vector;
     use std::option::{Self, Option};
-    use kanari_system::coin::{Self, Coin};
+    use kanari_system::coin::{Self, Coin, TreasuryCap};
     use kanari_system::event;
     use kanari_system::tx_context::{Self, TxContext};
     use kanari_system::transfer;
@@ -13,6 +13,7 @@ module kanari_escrow::escrow {
     const E_NOT_SELLER:        u64 = 2;
     const E_WRONG_STATE:       u64 = 3;
     const E_NOT_AUTHORIZED:    u64 = 6;
+    const E_NOT_ENOUGH_BALANCE: u64 = 7;
 
     // ─── Deal states ─────────────────────────────────────────────────
     const STATE_LOCKED:     u8 = 1; // crypto locked, waiting delivery
@@ -78,13 +79,25 @@ module kanari_escrow::escrow {
         seller:         address,
         amount:         u64,
         description:    String,
-        buyer_coin:     &mut Coin<CoinType>,
+        buyer_coin:     Coin<CoinType>,
         ctx:            &mut TxContext,
     ) {
         let buyer_addr = tx_context::sender(ctx);
         let now = now_ms(ctx);
         let deal_id_copy = copy deal_id;
-        let funds = coin::split(buyer_coin, amount, ctx);
+        
+        // Verify the coin has sufficient balance
+        assert!(coin::value(&buyer_coin) >= amount, E_NOT_ENOUGH_BALANCE);
+        
+        // Split the required amount from the buyer's coin
+        let funds = coin::split(&mut buyer_coin, amount, ctx);
+        
+        // Destroy remaining zero-balance coin or transfer back to buyer if any balance remains
+        if (coin::value(&buyer_coin) > 0) {
+            transfer::public_transfer(buyer_coin, buyer_addr);
+        } else {
+            coin::destroy_zero(buyer_coin);
+        };
 
         // Store deal under a fresh object address (not buyer's address directly)
         let deal = EscrowDeal<CoinType> {

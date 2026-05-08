@@ -11,7 +11,7 @@ use kanari_rpc_api::{CallFunctionRequest, RpcRequest, RpcResponse, methods};
 use kanari_types::gas_v2::{GasEstimate, GasOperation};
 use kanari_types::transaction::{SignedTransaction, Transaction};
 use log::error;
-use move_core_types::{parser, runtime_value::MoveValue};
+use move_core_types::{account_address::AccountAddress, parser, runtime_value::MoveValue};
 
 /// Call a Move function on the blockchain
 #[derive(Parser)]
@@ -250,7 +250,35 @@ impl Call {
                 .ok_or_else(|| anyhow::anyhow!("Fail to serialize vector<String>"));
         }
 
-        // 2. Handle Address (Hex 0x...)
+        // 2. Handle Object IDs (Kanari convention for passing object references)
+        // Supports both formats:
+        //   - x<hex_64_chars> (Kanari-specific prefix)
+        //   - 0x<hex_64_chars> (Standard format)
+        let hex_part = if s.starts_with('x') && !s.starts_with("0x") {
+            Some(&s[1..])
+        } else if s.starts_with("0x") {
+            Some(&s[2..])
+        } else {
+            None
+        };
+
+        if let Some(raw_hex) = hex_part {
+            // Check if it's a 32-byte object ID (64 hex chars)
+            if raw_hex.len() == AccountAddress::LENGTH * 2
+                && raw_hex.chars().all(|c| c.is_ascii_hexdigit())
+            {
+                // Convert to AccountAddress
+                let obj_id = AccountAddress::from_hex_literal(&format!("0x{}", raw_hex))
+                    .map_err(|e| anyhow::anyhow!("Invalid object ID format: {}", e))?;
+                
+                eprintln!("[CLI] 📦 Detected Object ID: 0x{}", raw_hex);
+                
+                // Return raw 32-byte address for runtime object resolution
+                return Ok(obj_id.to_vec());
+            }
+        }
+
+        // 3. Handle Address (Hex 0x...) - for non-object addresses
         if s.starts_with("0x")
             && s.len() > 10
             && let Ok(addr) = parser::parse_transaction_argument(s)
@@ -260,7 +288,8 @@ impl Call {
                 .context("addr fail");
         }
 
-        // 3. Handle Numbers (u64)
+
+        // 4. Handle Numbers (u64)
         // Filter out "001" to become String (Fallback)
         if (!s.starts_with('0') || s == "0")
             && let Ok(val) = s.parse::<u64>()
@@ -268,7 +297,7 @@ impl Call {
             return MoveValue::U64(val).simple_serialize().context("u64 fail");
         }
 
-        // 4. Fallback: Treat everything else as vector<u8> (Move String)
+        // 5. Fallback: Treat everything else as vector<u8> (Move String)
         // Examples: "test #1", "First NFT", "001", "https://..."
         let bytes = s.as_bytes().to_vec();
         Ok(bcs::to_bytes(&bytes)?)

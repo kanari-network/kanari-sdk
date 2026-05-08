@@ -1129,6 +1129,26 @@ impl Value {
         )))
     }
 
+    /// Create a mutable borrow global reference for native functions
+    pub fn mutable_borrow_global(
+        _addr: AccountAddress,
+        _ty: crate::loaded_data::runtime_types::Type,
+        val: Value,
+    ) -> PartialVMResult<Self> {
+        let container = match val.0 {
+            ValueImpl::Container(c) => c,
+            _ => {
+                // Wrap in a struct container
+                Container::Struct(Rc::new(RefCell::new(vec![val.0])))
+            }
+        };
+        let container_ref = ContainerRef::Global {
+            container,
+            status: Rc::new(RefCell::new(GlobalDataStatus::Clean)),
+        };
+        Ok(Self(ValueImpl::ContainerRef(container_ref)))
+    }
+
     pub fn struct_(s: Struct) -> Self {
         Self(ValueImpl::Container(Container::Struct(Rc::new(
             RefCell::new(s.fields),

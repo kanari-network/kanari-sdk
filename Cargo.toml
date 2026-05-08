@@ -79,7 +79,7 @@ libp2p = { version = "0.56.0", features = ["tcp", "noise", "yamux", "gossipsub",
 ## HTTP/Web APIs
 reqwest = { version = "0.13.2", features = ["json"] }
 axum = "0.8.9"
-tower-http = { version = "0.6.8", features = ["cors"] }
+tower-http = { version = "0.6.10", features = ["cors"] }
 
 # ============================================================================
 # Serialization & Data Formats
