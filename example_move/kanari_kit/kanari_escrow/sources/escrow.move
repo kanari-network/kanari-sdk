@@ -2,7 +2,7 @@ module kanari_escrow::escrow {
     use std::string::{Self, String};
     use std::vector;
     use std::option::{Self, Option};
-    use kanari_system::coin::{Self, Coin, TreasuryCap};
+    use kanari_system::coin::{Self, Coin};
     use kanari_system::event;
     use kanari_system::tx_context::{Self, TxContext};
     use kanari_system::transfer;
@@ -39,7 +39,6 @@ module kanari_escrow::escrow {
     }
 
     // On-chain proof record — Kanari metadata layer
-    // Every state transition appends a ProofEntry here
     struct EscrowProof has key, store {
         id:         object::UID,
         deal_id:    String,
@@ -54,15 +53,13 @@ module kanari_escrow::escrow {
     }
 
     // ─── Events ──────────────────────────────────────────────────────
-    // Deal creation event
     struct DealCreated has copy, drop, store {
         deal_id:    String,
         buyer:      address,
-        seller:      address,
+        seller:     address,
         amount:     u64,
     }
 
-    // State change event
     struct DealStateChanged has copy, drop, store {
         deal_id:    String,
         old_state:  u8,
@@ -71,33 +68,27 @@ module kanari_escrow::escrow {
         timestamp:  u64,
     }
 
-    // ─── Functions ───────────────────────────────────────────────────
+    // ─── Internal Helper ───────────────────────────────────────────
 
-    // Step 1: Buyer creates deal and locks crypto
-    public entry fun create_deal<CoinType>(
+    /// Internal function to create deal from Coin reference
+    /// Used by both entry function and tests
+    fun create_deal_internal<CoinType>(
         deal_id:        String,
         seller:         address,
         amount:         u64,
         description:    String,
-        buyer_coin:     Coin<CoinType>,
+        buyer_coin:     &mut Coin<CoinType>,
         ctx:            &mut TxContext,
     ) {
         let buyer_addr = tx_context::sender(ctx);
-        let now = now_ms(ctx);
+        let now = tx_context::epoch_timestamp_ms(ctx);
         let deal_id_copy = copy deal_id;
         
         // Verify the coin has sufficient balance
-        assert!(coin::value(&buyer_coin) >= amount, E_NOT_ENOUGH_BALANCE);
+        assert!(coin::value(buyer_coin) >= amount, E_NOT_ENOUGH_BALANCE);
         
         // Split the required amount from the buyer's coin
-        let funds = coin::split(&mut buyer_coin, amount, ctx);
-        
-        // Destroy remaining zero-balance coin or transfer back to buyer if any balance remains
-        if (coin::value(&buyer_coin) > 0) {
-            transfer::public_transfer(buyer_coin, buyer_addr);
-        } else {
-            coin::destroy_zero(buyer_coin);
-        };
+        let funds = coin::split(buyer_coin, amount, ctx);
 
         // Store deal under a fresh object address (not buyer's address directly)
         let deal = EscrowDeal<CoinType> {
@@ -145,6 +136,53 @@ module kanari_escrow::escrow {
         });
     }
 
+    // ─── Entry Functions ────────────────────────────────────────────
+
+    // Step 1: Buyer creates deal and locks crypto
+    // For CLI usage: Uses borrow_global_mut to load Coin object from storage by Object ID
+    public entry fun create_deal<CoinType>(
+        deal_id:        String,
+        seller:         address,
+        amount:         u64,
+        description:    String,
+        buyer_coin_id:  address,  // Object ID ของ Coin ที่ต้องการใช้
+        ctx:            &mut TxContext,
+    ) {
+        // Load Coin object from storage using borrow_global_mut
+        let buyer_coin: &mut Coin<CoinType> = object::borrow_global_mut<Coin<CoinType>>(buyer_coin_id);
+        
+        // Delegate to internal function
+        create_deal_internal(
+            deal_id,
+            seller,
+            amount,
+            description,
+            buyer_coin,
+            ctx,
+        );
+    }
+
+    // Test-only: Create deal from Coin reference directly
+    // For testing purposes where we have Coin object in memory
+    #[test_only]
+    public fun create_deal_from_coin<CoinType>(
+        deal_id:        String,
+        seller:         address,
+        amount:         u64,
+        description:    String,
+        buyer_coin:     &mut Coin<CoinType>,
+        ctx:            &mut TxContext,
+    ) {
+        create_deal_internal(
+            deal_id,
+            seller,
+            amount,
+            description,
+            buyer_coin,
+            ctx,
+        );
+    }
+
     // Helper function to get deal_id from deal reference
     fun get_deal_id<CoinType>(deal: &EscrowDeal<CoinType>): String {
         let EscrowDeal { 
@@ -164,7 +202,53 @@ module kanari_escrow::escrow {
     }
 
     // Step 2: Seller confirms delivery
+    // For CLI usage: Uses borrow_global_mut to load objects from storage by Object ID
     public entry fun confirm_delivery<CoinType>(
+        deal_id:        address,  // Object ID ของ EscrowDeal
+        proof_id:       address,  // Object ID ของ EscrowProof
+        ctx:            &mut TxContext,
+    ) {
+        // Load objects from storage using borrow_global_mut
+        let deal: &mut EscrowDeal<CoinType> = object::borrow_global_mut<EscrowDeal<CoinType>>(deal_id);
+        let proof: &mut EscrowProof = object::borrow_global_mut<EscrowProof>(proof_id);
+        
+        let seller_addr = tx_context::sender(ctx);
+        
+        assert!(deal.seller == seller_addr, E_NOT_SELLER);
+        assert!(deal.state == STATE_LOCKED, E_WRONG_STATE);
+
+        let now = tx_context::epoch_timestamp_ms(ctx);
+        let old_state = deal.state;
+        deal.state = STATE_DELIVERED;
+        deal.delivered_at = now;
+        let deal_id_str = get_deal_id(deal);
+
+        // Append proof entry
+        let entry = ProofEntry {
+            state:      STATE_DELIVERED,
+            actor:      seller_addr,
+            timestamp:  now,
+            note:       string::utf8(b"Seller confirmed delivery"),
+        };
+        vector::push_back(&mut proof.entries, entry);
+
+        // Save updated objects
+        object::save_object(deal);
+        object::save_object(proof);
+
+        // Emit event
+        event::emit(DealStateChanged {
+            deal_id: deal_id_str,
+            old_state,
+            new_state: STATE_DELIVERED,
+            actor: seller_addr,
+            timestamp: now,
+        });
+    }
+
+    // Internal helper for testing with object references
+    #[test_only]
+    public fun confirm_delivery_internal<CoinType>(
         deal:           &mut EscrowDeal<CoinType>,
         proof:          &mut EscrowProof,
         ctx:            &mut TxContext,
@@ -174,27 +258,87 @@ module kanari_escrow::escrow {
         assert!(deal.seller == seller_addr, E_NOT_SELLER);
         assert!(deal.state == STATE_LOCKED, E_WRONG_STATE);
 
-        let now = now_ms(ctx);
+        let now = tx_context::epoch_timestamp_ms(ctx);
         let old_state = deal.state;
         deal.state = STATE_DELIVERED;
         deal.delivered_at = now;
         let deal_id = get_deal_id(deal);
 
-        // Append proof
-        append_proof(proof, STATE_DELIVERED, seller_addr, now,
-            string::utf8(b"Seller confirmed delivery"));
+        // Append proof entry
+        let entry = ProofEntry {
+            state:      STATE_DELIVERED,
+            actor:      seller_addr,
+            timestamp:  now,
+            note:       string::utf8(b"Seller confirmed delivery"),
+        };
+        vector::push_back(&mut proof.entries, entry);
 
+        // Save updated objects
+        object::save_object(deal);
+        object::save_object(proof);
+
+        // Emit event
         event::emit(DealStateChanged {
             deal_id,
             old_state,
-            new_state:  STATE_DELIVERED,
-            actor:      seller_addr,
-            timestamp:  now,
+            new_state: STATE_DELIVERED,
+            actor: seller_addr,
+            timestamp: now,
         });
     }
 
-    // Step 3: Buyer confirms receipt → funds auto-released to seller
+    // Step 3: Buyer releases funds to seller
+    // For CLI usage: Uses borrow_global_mut to load objects from storage by Object ID
     public entry fun release_funds<CoinType>(
+        deal_id:        address,  // Object ID ของ EscrowDeal
+        proof_id:       address,  // Object ID ของ EscrowProof
+        ctx:            &mut TxContext,
+    ) {
+        // Load objects from storage using borrow_global_mut
+        let deal: &mut EscrowDeal<CoinType> = object::borrow_global_mut<EscrowDeal<CoinType>>(deal_id);
+        let proof: &mut EscrowProof = object::borrow_global_mut<EscrowProof>(proof_id);
+        
+        let buyer_addr = tx_context::sender(ctx);
+        
+        assert!(deal.buyer == buyer_addr, E_NOT_BUYER);
+        assert!(deal.state == STATE_DELIVERED, E_WRONG_STATE);
+
+        let now = tx_context::epoch_timestamp_ms(ctx);
+        let old_state = deal.state;
+        deal.state = STATE_COMPLETED;
+        deal.completed_at = now;
+        let deal_id_str = get_deal_id(deal);
+
+        // Transfer funds to seller
+        let funds = option::extract(&mut deal.funds);
+        transfer::public_transfer(funds, deal.seller);
+
+        // Append proof entry
+        let entry = ProofEntry {
+            state:      STATE_COMPLETED,
+            actor:      buyer_addr,
+            timestamp:  now,
+            note:       string::utf8(b"Buyer released funds to seller"),
+        };
+        vector::push_back(&mut proof.entries, entry);
+
+        // Save updated objects
+        object::save_object(deal);
+        object::save_object(proof);
+
+        // Emit event
+        event::emit(DealStateChanged {
+            deal_id: deal_id_str,
+            old_state,
+            new_state: STATE_COMPLETED,
+            actor: buyer_addr,
+            timestamp: now,
+        });
+    }
+
+    // Internal helper for testing with object references
+    #[test_only]
+    public fun release_funds_internal<CoinType>(
         deal:           &mut EscrowDeal<CoinType>,
         proof:          &mut EscrowProof,
         ctx:            &mut TxContext,
@@ -204,64 +348,122 @@ module kanari_escrow::escrow {
         assert!(deal.buyer == buyer_addr, E_NOT_BUYER);
         assert!(deal.state == STATE_DELIVERED, E_WRONG_STATE);
 
-        // Get current timestamp using transaction context
-        let now = now_ms(ctx);
+        let now = tx_context::epoch_timestamp_ms(ctx);
         let old_state = deal.state;
-        let seller = deal.seller;
         deal.state = STATE_COMPLETED;
         deal.completed_at = now;
         let deal_id = get_deal_id(deal);
 
-        // Extract funds from Option
+        // Transfer funds to seller
         let funds = option::extract(&mut deal.funds);
-        
-        let balance = coin::into_balance(funds);
-        let seller_coin = coin::from_balance(balance, ctx);
-        transfer::public_transfer(seller_coin, seller);
+        transfer::public_transfer(funds, deal.seller);
 
-        append_proof(proof, STATE_COMPLETED, buyer_addr, now,
-            string::utf8(b"Buyer confirmed — funds released to seller"));
+        // Append proof entry
+        let entry = ProofEntry {
+            state:      STATE_COMPLETED,
+            actor:      buyer_addr,
+            timestamp:  now,
+            note:       string::utf8(b"Buyer released funds to seller"),
+        };
+        vector::push_back(&mut proof.entries, entry);
 
+        // Save updated objects
+        object::save_object(deal);
+        object::save_object(proof);
+
+        // Emit event
         event::emit(DealStateChanged {
             deal_id,
             old_state,
-            new_state:  STATE_COMPLETED,
-            actor:      buyer_addr,
-            timestamp:  now,
+            new_state: STATE_COMPLETED,
+            actor: buyer_addr,
+            timestamp: now,
         });
     }
 
-    // Raise dispute (either party)
+    // Raise dispute
+    // For CLI usage: Uses borrow_global_mut to load objects from storage by Object ID
     public entry fun raise_dispute<CoinType>(
-        deal:           &mut EscrowDeal<CoinType>,
-        proof:          &mut EscrowProof,
+        deal_id:        address,  // Object ID ของ EscrowDeal
+        proof_id:       address,  // Object ID ของ EscrowProof
+        reason:         String,
         ctx:            &mut TxContext,
     ) {
-        let caller_addr = tx_context::sender(ctx);
+        // Load objects from storage using borrow_global_mut
+        let deal: &mut EscrowDeal<CoinType> = object::borrow_global_mut<EscrowDeal<CoinType>>(deal_id);
+        let proof: &mut EscrowProof = object::borrow_global_mut<EscrowProof>(proof_id);
         
-        assert!(
-            caller_addr == deal.buyer || caller_addr == deal.seller,
-            E_NOT_AUTHORIZED
-        );
-        assert!(
-            deal.state == STATE_LOCKED || deal.state == STATE_DELIVERED,
-            E_WRONG_STATE
-        );
+        let caller = tx_context::sender(ctx);
+        
+        assert!(caller == deal.buyer || caller == deal.seller, E_NOT_AUTHORIZED);
+        assert!(deal.state != STATE_COMPLETED, E_WRONG_STATE);
 
-        let now = now_ms(ctx);
+        let now = tx_context::epoch_timestamp_ms(ctx);
+        let old_state = deal.state;
+        deal.state = STATE_DISPUTED;
+        let deal_id_str = get_deal_id(deal);
+
+        // Append proof entry with dispute reason
+        let entry = ProofEntry {
+            state:      STATE_DISPUTED,
+            actor:      caller,
+            timestamp:  now,
+            note:       reason,
+        };
+        vector::push_back(&mut proof.entries, entry);
+
+        // Save updated objects
+        object::save_object(deal);
+        object::save_object(proof);
+
+        // Emit event
+        event::emit(DealStateChanged {
+            deal_id: deal_id_str,
+            old_state,
+            new_state: STATE_DISPUTED,
+            actor: caller,
+            timestamp: now,
+        });
+    }
+
+    // Internal helper for testing with object references
+    #[test_only]
+    public fun raise_dispute_internal<CoinType>(
+        deal:           &mut EscrowDeal<CoinType>,
+        proof:          &mut EscrowProof,
+        reason:         String,
+        ctx:            &mut TxContext,
+    ) {
+        let caller = tx_context::sender(ctx);
+        
+        assert!(caller == deal.buyer || caller == deal.seller, E_NOT_AUTHORIZED);
+        assert!(deal.state != STATE_COMPLETED, E_WRONG_STATE);
+
+        let now = tx_context::epoch_timestamp_ms(ctx);
         let old_state = deal.state;
         deal.state = STATE_DISPUTED;
         let deal_id = get_deal_id(deal);
 
-        append_proof(proof, STATE_DISPUTED, caller_addr, now,
-            string::utf8(b"Dispute raised — awaiting resolution"));
+        // Append proof entry with dispute reason
+        let entry = ProofEntry {
+            state:      STATE_DISPUTED,
+            actor:      caller,
+            timestamp:  now,
+            note:       reason,
+        };
+        vector::push_back(&mut proof.entries, entry);
 
+        // Save updated objects
+        object::save_object(deal);
+        object::save_object(proof);
+
+        // Emit event
         event::emit(DealStateChanged {
             deal_id,
             old_state,
-            new_state:  STATE_DISPUTED,
-            actor:      caller_addr,
-            timestamp:  now,
+            new_state: STATE_DISPUTED,
+            actor: caller,
+            timestamp: now,
         });
     }
 
@@ -273,26 +475,5 @@ module kanari_escrow::escrow {
     // View: get proof entry count
     public fun get_proof_count(proof: &EscrowProof): u64 {
         vector::length(&proof.entries)
-    }
-
-    // ─── Internal helpers ────────────────────────────────────────────
-
-    /// Get current timestamp from transaction context
-    /// Note: This uses epoch_timestamp_ms from TxContext which provides 
-    /// the same functionality as clock::timestamp_ms but is simpler to use
-    fun now_ms(ctx: &TxContext): u64 {
-        tx_context::epoch_timestamp_ms(ctx)
-    }
-
-    fun append_proof(
-        proof:      &mut EscrowProof,
-        state:      u8,
-        actor:      address,
-        timestamp:  u64,
-        note:       String,
-    ) {
-        vector::push_back(&mut proof.entries, ProofEntry {
-            state, actor, timestamp, note,
-        });
     }
 }

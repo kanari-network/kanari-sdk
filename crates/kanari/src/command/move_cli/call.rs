@@ -254,12 +254,14 @@ impl Call {
         // Supports both formats:
         //   - x<hex_64_chars> (Kanari-specific prefix)
         //   - 0x<hex_64_chars> (Standard format)
-        let hex_part = if s.starts_with('x') && !s.starts_with("0x") {
-            Some(&s[1..])
-        } else if s.starts_with("0x") {
-            Some(&s[2..])
+        let hex_part = if let Some(stripped) = s.strip_prefix('x') {
+            if !stripped.starts_with("0x") {
+                Some(stripped)
+            } else {
+                None
+            }
         } else {
-            None
+            s.strip_prefix("0x")
         };
 
         if let Some(raw_hex) = hex_part {
@@ -270,9 +272,9 @@ impl Call {
                 // Convert to AccountAddress
                 let obj_id = AccountAddress::from_hex_literal(&format!("0x{}", raw_hex))
                     .map_err(|e| anyhow::anyhow!("Invalid object ID format: {}", e))?;
-                
+
                 eprintln!("[CLI] 📦 Detected Object ID: 0x{}", raw_hex);
-                
+
                 // Return raw 32-byte address for runtime object resolution
                 return Ok(obj_id.to_vec());
             }
@@ -287,7 +289,6 @@ impl Call {
                 .simple_serialize()
                 .context("addr fail");
         }
-
 
         // 4. Handle Numbers (u64)
         // Filter out "001" to become String (Fallback)

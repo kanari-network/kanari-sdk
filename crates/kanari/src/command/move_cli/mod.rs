@@ -84,6 +84,8 @@ impl MoveCommand {
                     exts.add(DeletedObjectsExt::default());
                     exts.add(SavedObjectsExt::default());
                     exts.add(DynamicFieldsExt::default());
+                    exts.add(kanari_system_natives::object::LoadedObjectsExt::default());
+                    exts.add(kanari_system_natives::object::BorrowedObjectsExt::default());
                 }));
 
                 // Merge all natives and pass into test runner

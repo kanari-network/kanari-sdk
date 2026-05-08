@@ -11,11 +11,12 @@ module kanari_escrow::escrow_tests {
     struct TestUSDC has drop {}
 
     // Helper function to create TestUSDC with balance for testing
+    // Returns the Coin object directly (for test-only usage)
     #[test_only]
-    public fun create_test_usdc(amount: u64, ctx: &mut TxContext): Coin<TestUSDC> {
+    public fun create_test_usdc_coin(amount: u64, ctx: &mut TxContext): Coin<TestUSDC> {
         // Create a temporary TreasuryCap for testing
         let witness = TestUSDC {};
-        let (treasury_cap, _metadata) = coin::create_currency<TestUSDC>(
+        let ( treasury_cap, _metadata) = coin::create_currency<TestUSDC>(
             witness,
             6,
             b"TestUSDC",
@@ -31,17 +32,19 @@ module kanari_escrow::escrow_tests {
 
     // ═══════════════════════════════════════════════════════════════
     // Test 1: Create Deal with USDC - Basic Flow
+    // Note: In test environment, we pass Coin object directly because
+    // borrow_global_mut requires runtime storage which is not available in tests
     // ═══════════════════════════════════════════════════════════════
     #[test]
     fun test_create_deal_with_usdc_basic() {
         let ctx = tx_context::dummy();
         let seller_addr = @0x2;
         
-        // Create TestUSDC coin with sufficient balance for testing
-        let buyer_coin = create_test_usdc(10000, &mut ctx);
+        // Create TestUSDC coin for testing
+        let buyer_coin = create_test_usdc_coin(10000, &mut ctx);
         
-        // Create escrow deal using TestUSDC
-        escrow::create_deal<TestUSDC>(
+        // Create escrow deal using Coin object directly
+        escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"deal_001"),
             seller_addr,
             1000,
@@ -61,10 +64,10 @@ module kanari_escrow::escrow_tests {
         let ctx = tx_context::dummy();
         let seller_addr = @0x2;
         
-        let buyer_coin = create_test_usdc(10000, &mut ctx);
+        let buyer_coin = create_test_usdc_coin(10000, &mut ctx);
         
         // Create first deal
-        escrow::create_deal<TestUSDC>(
+        escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"deal_001"),
             seller_addr,
             1000,
@@ -74,7 +77,7 @@ module kanari_escrow::escrow_tests {
         );
         
         // Create second deal
-        escrow::create_deal<TestUSDC>(
+        escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"deal_002"),
             seller_addr,
             2000,
@@ -84,7 +87,7 @@ module kanari_escrow::escrow_tests {
         );
         
         // Create third deal
-        escrow::create_deal<TestUSDC>(
+        escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"deal_003"),
             seller_addr,
             1500,
@@ -102,10 +105,10 @@ module kanari_escrow::escrow_tests {
         let ctx = tx_context::dummy();
         let seller_addr = @0x2;
         
-        let buyer_coin = create_test_usdc(1000, &mut ctx);
+        let buyer_coin = create_test_usdc_coin(1000, &mut ctx);
         
         // Test deal ID and description with special characters
-        escrow::create_deal<TestUSDC>(
+        escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"deal-2024-001"),
             seller_addr,
             1000,
@@ -115,18 +118,18 @@ module kanari_escrow::escrow_tests {
         );
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════
     // Test 4: Deal with Long Description (USDC)
-    // ═══════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════
     #[test]
     fun test_deal_with_long_description() {
         let ctx = tx_context::dummy();
         let seller_addr = @0x2;
         
-        let buyer_coin = create_test_usdc(1000000, &mut ctx);
+        let buyer_coin = create_test_usdc_coin(1000000, &mut ctx);
         
         // Test with longer description
-        escrow::create_deal<TestUSDC>(
+        escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"long_desc_deal"),
             seller_addr,
             999999,
@@ -144,13 +147,13 @@ module kanari_escrow::escrow_tests {
         let ctx = tx_context::dummy();
         let seller_addr = @0x2;
         
-        let buyer_coin = create_test_usdc(1000, &mut ctx);
+        let buyer_coin = create_test_usdc_coin(1000, &mut ctx);
         
         // Get initial timestamp
         let initial_ts = tx_context::epoch_timestamp_ms(&ctx);
         
         // Create deal
-        escrow::create_deal<TestUSDC>(
+        escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"timestamp_test"),
             seller_addr,
             1000,
@@ -175,8 +178,8 @@ module kanari_escrow::escrow_tests {
         
         // Test with amount = 1 (minimum)
         let ctx1 = tx_context::dummy();
-        let coin1 = create_test_usdc(1, &mut ctx1);
-        escrow::create_deal<TestUSDC>(
+        let coin1 = create_test_usdc_coin(1, &mut ctx1);
+        escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"amount_1"),
             seller_addr,
             1,
@@ -187,8 +190,8 @@ module kanari_escrow::escrow_tests {
         
         // Test with amount = 1000
         let ctx2 = tx_context::dummy();
-        let coin2 = create_test_usdc(1000, &mut ctx2);
-        escrow::create_deal<TestUSDC>(
+        let coin2 = create_test_usdc_coin(1000, &mut ctx2);
+        escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"amount_1000"),
             seller_addr,
             1000,
@@ -199,8 +202,8 @@ module kanari_escrow::escrow_tests {
         
         // Test with large amount
         let ctx3 = tx_context::dummy();
-        let coin3 = create_test_usdc(1000000000, &mut ctx3);
-        escrow::create_deal<TestUSDC>(
+        let coin3 = create_test_usdc_coin(1000000000, &mut ctx3);
+        escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"amount_large"),
             seller_addr,
             1000000000,
@@ -210,7 +213,7 @@ module kanari_escrow::escrow_tests {
         );
     }
 
-    // ═══════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════
     // Test 7: Different Seller Addresses (USDC)
     // ═══════════════════════════════════════════════════════════════
     #[test]
@@ -222,8 +225,8 @@ module kanari_escrow::escrow_tests {
         let seller2 = @0x2;
         let seller3 = @0xdeadbeef;
         
-        let coin1 = create_test_usdc(100, &mut ctx);
-        escrow::create_deal<TestUSDC>(
+        let coin1 = create_test_usdc_coin(100, &mut ctx);
+        escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"seller_1"),
             seller1,
             100,
@@ -232,8 +235,8 @@ module kanari_escrow::escrow_tests {
             &mut ctx
         );
         
-        let coin2 = create_test_usdc(200, &mut ctx);
-        escrow::create_deal<TestUSDC>(
+        let coin2 = create_test_usdc_coin(200, &mut ctx);
+        escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"seller_2"),
             seller2,
             200,
@@ -242,8 +245,8 @@ module kanari_escrow::escrow_tests {
             &mut ctx
         );
         
-        let coin3 = create_test_usdc(300, &mut ctx);
-        escrow::create_deal<TestUSDC>(
+        let coin3 = create_test_usdc_coin(300, &mut ctx);
+        escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"seller_3"),
             seller3,
             300,
@@ -261,10 +264,10 @@ module kanari_escrow::escrow_tests {
         let ctx = tx_context::dummy();
         let seller_addr = @0x2;
         
-        let buyer_coin = create_test_usdc(1000, &mut ctx);
+        let buyer_coin = create_test_usdc_coin(1000, &mut ctx);
         
         // Test with empty deal ID and description
-        escrow::create_deal<TestUSDC>(
+        escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b""),
             seller_addr,
             1000,
@@ -282,10 +285,10 @@ module kanari_escrow::escrow_tests {
         let ctx = tx_context::dummy();
         let seller_addr = @0x2;
         
-        let buyer_coin = create_test_usdc(500, &mut ctx);
+        let buyer_coin = create_test_usdc_coin(500, &mut ctx);
         
         // Test with UTF-8 content (emoji, special chars)
-        escrow::create_deal<TestUSDC>(
+        escrow::create_deal_from_coin<TestUSDC>(
             string::utf8(b"unicode_deal_✅"),
             seller_addr,
             500,

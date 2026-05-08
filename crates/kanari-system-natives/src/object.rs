@@ -177,17 +177,10 @@ fn native_borrow_global_mut(
 
     native_charge_gas_early_exit!(context, gas_params.base);
 
-    // Arguments: address (32 bytes)
-    let addr_bytes = pop_arg!(arguments, Vec<u8>);
-    if addr_bytes.len() != 32 {
-        return Ok(NR::err(
-            context.gas_used(),
-            StatusCode::FAILED_TO_DESERIALIZE_ARGUMENT as u64,
-        ));
-    }
+    // Arguments: address (as AccountAddress directly from Move VM)
+    let object_addr = pop_arg!(arguments, AccountAddress);
+    let object_id = format!("0x{}", hex::encode(object_addr.as_ref()));
 
-    let object_id = format!("0x{}", hex::encode(&addr_bytes));
-    let object_addr = AccountAddress::new(addr_bytes.try_into().unwrap());
     // Load object from storage via context's extension
     let loaded_data =
         crate::native_ext::with_ext_mut_or_default::<LoadedObjectsExt, _>(context, |ext| {
@@ -385,7 +378,7 @@ mod tests {
         // Test that object ID is correctly formatted from 32-byte address
         let addr_bytes = vec![0x1Au8; 32];
         let expected_id = format!("0x{}", hex::encode(&addr_bytes));
-        
+
         assert_eq!(expected_id.len(), 66); // "0x" + 64 hex chars
         assert!(expected_id.starts_with("0x"));
     }
@@ -394,12 +387,13 @@ mod tests {
     fn test_loaded_objects_ext_insert_and_get() {
         // Test LoadedObjectsExt functionality used by native_borrow_global_mut
         let mut ext = LoadedObjectsExt::default();
-        let object_id = "0x1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a".to_string();
+        let object_id =
+            "0x1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a".to_string();
         let type_str = "0x1::coin::Coin<0x1::kanari_coin::KANARI>".to_string();
         let data = vec![0x01, 0x02, 0x03];
 
         ext.insert(object_id.clone(), type_str.clone(), data.clone());
-        
+
         let retrieved = ext.get(&object_id);
         assert!(retrieved.is_some());
         let (retrieved_type, retrieved_data) = retrieved.unwrap();
@@ -419,12 +413,13 @@ mod tests {
     fn test_borrowed_objects_ext_tracking() {
         // Test BorrowedObjectsExt for tracking borrowed mutable objects
         let mut ext = BorrowedObjectsExt::default();
-        let object_id = "0x1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a".to_string();
+        let object_id =
+            "0x1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a".to_string();
         let type_str = "0x1::coin::Coin<0x1::kanari_coin::KANARI>".to_string();
         let data = vec![0x01, 0x02, 0x03];
 
         ext.record(object_id.clone(), type_str.clone(), data.clone());
-        
+
         let all = ext.take_all();
         assert_eq!(all.len(), 1);
         let (id, t, d) = &all[0];
@@ -449,9 +444,9 @@ mod tests {
     fn test_object_id_hex_encoding() {
         // Test various address patterns encode correctly
         let test_cases = vec![
-            vec![0x00u8; 32],           // All zeros
-            vec![0xFFu8; 32],           // All 0xFF
-            vec![0x01u8; 32],           // All 0x01
+            vec![0x00u8; 32],             // All zeros
+            vec![0xFFu8; 32],             // All 0xFF
+            vec![0x01u8; 32],             // All 0x01
             (0..32).collect::<Vec<u8>>(), // Sequential bytes
         ];
 
@@ -459,7 +454,7 @@ mod tests {
             let object_id = format!("0x{}", hex::encode(&addr_bytes));
             assert_eq!(object_id.len(), 66);
             assert!(object_id.starts_with("0x"));
-            
+
             // Verify we can decode back
             let decoded = hex::decode(&object_id[2..]).unwrap();
             assert_eq!(decoded, addr_bytes);
@@ -483,14 +478,15 @@ mod tests {
         // Test SavedObjectsExt functionality
         let mut ext = SavedObjectsExt::default();
         let obj = SavedObject {
-            object_id: "0x1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a".to_string(),
+            object_id: "0x1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a"
+                .to_string(),
             object_type: "0x1::coin::Coin<0x1::kanari_coin::KANARI>".to_string(),
             data: vec![0x01, 0x02, 0x03],
         };
 
         ext.record(obj.clone());
         let all = ext.take_all();
-        
+
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].object_id, obj.object_id);
         assert_eq!(all[0].object_type, obj.object_type);
@@ -502,12 +498,13 @@ mod tests {
         // Test DeletedObjectsExt functionality
         let mut ext = DeletedObjectsExt::default();
         let obj = DeletedObject {
-            object_id: "0x1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a".to_string(),
+            object_id: "0x1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a"
+                .to_string(),
         };
 
         ext.record(obj.clone());
         let all = ext.take_all();
-        
+
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].object_id, obj.object_id);
     }
