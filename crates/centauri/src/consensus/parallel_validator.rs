@@ -248,7 +248,10 @@ impl ParallelValidator {
 
         if let Some(store) = &self.persistent_store {
             let is_in_bloom = {
-                let bloom = self.disk_bloom_filter.read().unwrap();
+                let bloom = self
+                    .disk_bloom_filter
+                    .read()
+                    .unwrap_or_else(|e| e.into_inner());
                 bloom.contains(&vertex_id)
             };
 
@@ -335,7 +338,10 @@ impl ParallelValidator {
 
             if let Some(store) = &self.persistent_store {
                 let is_in_bloom = {
-                    let bloom = self.disk_bloom_filter.read().unwrap();
+                    let bloom = self
+                        .disk_bloom_filter
+                        .read()
+                        .unwrap_or_else(|e| e.into_inner());
                     bloom.contains(&vertex.id)
                 };
 
@@ -393,7 +399,10 @@ impl ParallelValidator {
         // FIX #4: Round progression validation must work in both Persistent and In-Memory modes
         // Previously, this check was skipped if persistent_store was None, allowing invalid rounds
 
-        let bloom = self.disk_bloom_filter.read().unwrap();
+        let bloom = self
+            .disk_bloom_filter
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
 
         for parent_id in &vertex.parents {
             // Check Bloom filter first (fast path - covers both disk and cache)

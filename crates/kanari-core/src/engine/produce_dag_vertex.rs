@@ -62,7 +62,7 @@ impl DagEngine {
     ) -> Result<Self> {
         // Enable DAG mode on blockchain
         {
-            let mut blockchain = engine.blockchain.write().unwrap();
+            let mut blockchain = engine.blockchain.write().unwrap_or_else(|e| e.into_inner());
             blockchain.enable_dag_mode();
         }
 
@@ -84,7 +84,9 @@ impl DagEngine {
             engine,
             consensus: Arc::new(RwLock::new(consensus)),
             authority_id,
-            state_cache: Arc::new(RwLock::new(LruCache::new(NonZeroUsize::new(10).unwrap()))),
+            state_cache: Arc::new(RwLock::new(LruCache::new(
+                NonZeroUsize::new(10).expect("Failed to create NonZeroUsize for state cache."),
+            ))),
         })
     }
 
@@ -131,7 +133,7 @@ impl DagEngine {
     /// Produce a DAG vertex with pending transactions
     pub fn produce_vertex(&self) -> Result<DagBlockInfo> {
         let (history_vertices, history_tx_hashes) = {
-            let consensus = self.consensus.read().unwrap();
+            let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
             let current_round = consensus.store().current_round();
             let parents: Vec<VertexId> = consensus
                 .store()
@@ -153,9 +155,29 @@ impl DagEngine {
         };
 
         let (transactions, tx_to_remove_from_pending) = {
-            let _state = self.engine.state.read().unwrap();
-            let chain = self.engine.blockchain.read().unwrap();
-            let pending = self.engine.pending_txs.read().unwrap();
+            let _state = match self.engine.state.read() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    error!("State lock poisoned during transaction collection, recovering...");
+                    poisoned.into_inner()
+                }
+            };
+            let chain = match self.engine.blockchain.read() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    error!("Blockchain lock poisoned during transaction collection, recovering...");
+                    poisoned.into_inner()
+                }
+            };
+            let pending = match self.engine.pending_txs.read() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    error!(
+                        "Pending txs lock poisoned during transaction collection, recovering..."
+                    );
+                    poisoned.into_inner()
+                }
+            };
 
             let mut to_include = Vec::new();
             let mut to_remove = Vec::new();
@@ -176,7 +198,13 @@ impl DagEngine {
         };
 
         if !tx_to_remove_from_pending.is_empty() {
-            let mut pending = self.engine.pending_txs.write().unwrap();
+            let mut pending = match self.engine.pending_txs.write() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    error!("Pending txs lock poisoned during removal, recovering...");
+                    poisoned.into_inner()
+                }
+            };
             let remove_set: std::collections::HashSet<_> =
                 tx_to_remove_from_pending.into_iter().collect();
             pending.retain(|tx| !remove_set.contains(&tx.hash()));
@@ -195,9 +223,21 @@ impl DagEngine {
 
         // Process transactions using the engine helper
         let (executed_state, state_root, executed, failed) = {
-            let state_guard = self.engine.state.read().unwrap();
+            let state_guard = match self.engine.state.read() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    error!("State lock poisoned during produce_vertex, recovering...");
+                    poisoned.into_inner()
+                }
+            };
             let state_clone = state_guard.clone();
-            let chain = self.engine.blockchain.read().unwrap();
+            let chain = match self.engine.blockchain.read() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    error!("Blockchain lock poisoned during produce_vertex, recovering...");
+                    poisoned.into_inner()
+                }
+            };
             let state_arc = Arc::new(RwLock::new(state_clone));
 
             // Fetch all TXs using Helper
@@ -221,7 +261,13 @@ impl DagEngine {
                 )
                 .unwrap_or((0, 0));
 
-            let root = state_arc.write().unwrap().compute_state_root();
+            let root = match state_arc.write() {
+                Ok(guard) => guard.compute_state_root(),
+                Err(poisoned) => {
+                    error!("State arc lock poisoned during compute_state_root, recovering...");
+                    poisoned.into_inner().compute_state_root()
+                }
+            };
             (state_arc, root, executed_count, failed_count)
         };
 
@@ -238,7 +284,7 @@ impl DagEngine {
         };
 
         {
-            let mut cache = self.state_cache.write().unwrap();
+            let mut cache = self.state_cache.write().unwrap_or_else(|e| e.into_inner());
             cache.put(vertex.id.to_vec(), executed_state);
         }
 
@@ -263,7 +309,7 @@ impl DagEngine {
                 if checkpoint.vertices.len() == 1 {
                     let v_id = checkpoint.vertices[0];
                     let cached_state = {
-                        let mut cache = self.state_cache.write().unwrap();
+                        let mut cache = self.state_cache.write().unwrap_or_else(|e| e.into_inner());
                         cache.get(&v_id.to_vec()).cloned()
                     };
 
@@ -334,7 +380,13 @@ impl DagEngine {
         );
 
         {
-            let consensus = self.consensus.read().unwrap();
+            let consensus = match self.consensus.read() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    error!("Consensus lock poisoned during vertex check, recovering...");
+                    poisoned.into_inner()
+                }
+            };
             if consensus.has_vertex(&vertex.id) {
                 info!(
                     "[DAG SYNC] Vertex {} (round {}) already exists, skipping",
@@ -348,7 +400,13 @@ impl DagEngine {
 
         if !transactions.is_empty() {
             {
-                let mut pending = self.engine.pending_txs.write().unwrap();
+                let mut pending = match self.engine.pending_txs.write() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => {
+                        error!("Pending txs lock poisoned during sync removal, recovering...");
+                        poisoned.into_inner()
+                    }
+                };
                 let tx_hashes: std::collections::HashSet<Vec<u8>> =
                     transactions.iter().map(|tx| tx.hash()).collect();
                 pending.retain(|tx| !tx_hashes.contains(&tx.hash()));
@@ -364,12 +422,32 @@ impl DagEngine {
 
             // Process network vertex transactions using the engine helper
             let (computed_state_root, executed, failed) = {
-                let state_clone = self.engine.state.read().unwrap().clone();
-                let chain = self.engine.blockchain.read().unwrap();
+                let state_clone = match self.engine.state.read() {
+                    Ok(guard) => guard.clone(),
+                    Err(poisoned) => {
+                        error!("State lock poisoned during sync clone, recovering...");
+                        poisoned.into_inner().clone()
+                    }
+                };
+                let chain = match self.engine.blockchain.read() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => {
+                        error!("Blockchain lock poisoned during sync, recovering...");
+                        poisoned.into_inner()
+                    }
+                };
                 let state_arc = Arc::new(RwLock::new(state_clone));
 
                 let history_vertices = {
-                    let consensus = self.consensus.read().unwrap();
+                    let consensus = match self.consensus.read() {
+                        Ok(guard) => guard,
+                        Err(poisoned) => {
+                            error!(
+                                "Consensus lock poisoned during history collection, recovering..."
+                            );
+                            poisoned.into_inner()
+                        }
+                    };
                     consensus.collect_history_for_parents(&vertex.parents)?
                 };
 
@@ -401,7 +479,15 @@ impl DagEngine {
                     )
                     .unwrap_or((0, 0));
 
-                let root = state_arc.write().unwrap().compute_state_root();
+                let root = match state_arc.write() {
+                    Ok(guard) => guard.compute_state_root(),
+                    Err(poisoned) => {
+                        error!(
+                            "State arc lock poisoned during sync compute_state_root, recovering..."
+                        );
+                        poisoned.into_inner().compute_state_root()
+                    }
+                };
                 (root, executed_count, failed_count)
             };
 
