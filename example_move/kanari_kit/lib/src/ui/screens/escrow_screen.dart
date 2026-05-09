@@ -2,12 +2,12 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:provider/provider.dart';
 
 import '../../escrow_client.dart';
 import '../../models/account.dart';
 import '../../providers/wallet_provider.dart';
+import '../widgets/app_ui.dart'; // ✅ ใช้ shared widgets
 
 class _EscrowTokenOption {
   final String tokenType;
@@ -55,6 +55,9 @@ class _EscrowScreenState extends State<EscrowScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+
+    // สร้าง Deal ID อัตโนมัติเมื่อเริ่มหน้าจอ
+    _dealIdController.text = _generateDealId();
   }
 
   @override
@@ -450,7 +453,7 @@ class _EscrowScreenState extends State<EscrowScreen>
       );
     }
 
-    return Scaffold(
+    return AppGradientScaffold(
       appBar: AppBar(
         title: const Text('Escrow'),
         bottom: TabBar(
@@ -564,22 +567,19 @@ class _EscrowScreenState extends State<EscrowScreen>
           ),
           const SizedBox(height: 16),
           _buildFeedback(colorScheme),
-          TextFormField(
-            controller: _dealIdController,
-            decoration: const InputDecoration(
-              labelText: 'Deal ID',
-              hintText: 'e.g. deal-001',
-              prefixIcon: Icon(Icons.tag),
-            ),
-          ),
+
+          // ใช้ reusable widgets
+          _buildDealIdInput(),
+
           const SizedBox(height: 12),
-          TextFormField(
+
+          _buildAddressInput(
             controller: _sellerAddressController,
-            decoration: const InputDecoration(
-              labelText: 'Seller Address',
-              hintText: '0x...',
-              prefixIcon: Icon(Icons.person),
-            ),
+            label: 'Seller Address',
+            hintText: '0x...',
+            prefixIcon: Icons.person,
+            onAutofill: _autofillSellerAddress,
+            helperText: 'Address of the seller',
           ),
           const SizedBox(height: 12),
           TextFormField(
@@ -602,23 +602,12 @@ class _EscrowScreenState extends State<EscrowScreen>
             ),
           ),
           const SizedBox(height: 24),
-          ElevatedButton.icon(
-            onPressed: _isLoading || spendableOptions.isEmpty
-                ? null
-                : _createDeal,
-            icon: _isLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: SpinKitFadingCircle(color: Colors.white, size: 20),
-                  )
-                : const Icon(Icons.lock_outline),
-            label: Text(
-              _isLoading ? 'Creating...' : 'Create Deal & Lock Funds',
-            ),
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-            ),
+          // ใช้ AppWideButton แทน ElevatedButton
+          _buildPrimaryButton(
+            onPressed: _createDeal,
+            icon: Icons.lock_outline,
+            label: 'Create Deal & Lock Funds',
+            isLoading: _isLoading || spendableOptions.isEmpty,
           ),
         ],
       ),
@@ -638,39 +627,32 @@ class _EscrowScreenState extends State<EscrowScreen>
           ),
           const SizedBox(height: 16),
           _buildFeedback(colorScheme),
-          TextFormField(
+
+          // ใช้ reusable widget สำหรับ buyer address
+          _buildAddressInput(
             controller: _buyerAddressController,
-            decoration: const InputDecoration(
-              labelText: 'Buyer Address',
-              hintText: '0x...',
-              prefixIcon: Icon(Icons.account_balance_wallet),
-            ),
+            label: 'Buyer Address',
+            hintText: '0x...',
+            prefixIcon: Icons.account_balance_wallet,
+            onAutofill: _autofillBuyerAddress,
+            helperText: 'Address of the buyer who created the deal',
           ),
           const SizedBox(height: 24),
-          Text(
-            'Seller Actions',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-          ),
+          AppSectionTitle('Seller Actions'),
           const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: _isLoading ? null : _confirmDelivery,
-            icon: _buildInlineLoader(colorScheme.primary, Icons.local_shipping),
-            label: Text(_isLoading ? 'Processing...' : 'Confirm Delivery'),
+          _buildOutlinedButton(
+            onPressed: _confirmDelivery,
+            icon: Icons.local_shipping,
+            label: 'Confirm Delivery',
+            color: colorScheme.primary,
           ),
           const SizedBox(height: 24),
-          Text(
-            'Buyer Actions',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-          ),
+          AppSectionTitle('Buyer Actions'),
           const SizedBox(height: 8),
-          ElevatedButton.icon(
-            onPressed: _isLoading ? null : _releaseFunds,
-            icon: _buildInlineLoader(Colors.white, Icons.payment),
-            label: Text(_isLoading ? 'Processing...' : 'Release Funds'),
+          _buildPrimaryButton(
+            onPressed: _releaseFunds,
+            icon: Icons.payment,
+            label: 'Release Funds',
           ),
           const SizedBox(height: 12),
           // เพิ่ม input field สำหรับเหตุผล dispute
@@ -684,11 +666,11 @@ class _EscrowScreenState extends State<EscrowScreen>
             ),
           ),
           const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: _isLoading ? null : _raiseDispute,
-            icon: _buildInlineLoader(colorScheme.error, Icons.gavel),
-            label: Text(_isLoading ? 'Processing...' : 'Raise Dispute'),
-            style: OutlinedButton.styleFrom(foregroundColor: colorScheme.error),
+          _buildOutlinedButton(
+            onPressed: _raiseDispute,
+            icon: Icons.gavel,
+            label: 'Raise Dispute',
+            color: colorScheme.error,
           ),
         ],
       ),
@@ -707,89 +689,58 @@ class _EscrowScreenState extends State<EscrowScreen>
           ),
           const SizedBox(height: 16),
           _buildFeedback(colorScheme),
-          TextFormField(
+          _buildAddressInput(
             controller: _buyerAddressController,
-            decoration: const InputDecoration(
-              labelText: 'Buyer Address',
-              hintText: '0x...',
-              prefixIcon: Icon(Icons.search),
-            ),
+            label: 'Buyer Address',
+            hintText: '0x...',
+            prefixIcon: Icons.search,
+            onAutofill: _autofillBuyerAddress,
+            helperText: 'Address to check deal status',
           ),
           const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: _isLoading ? null : _checkDealState,
-            icon: _buildInlineLoader(Colors.white, Icons.search),
-            label: Text(_isLoading ? 'Checking...' : 'Check Status'),
+          _buildPrimaryButton(
+            onPressed: _checkDealState,
+            icon: Icons.search,
+            label: 'Check Status',
           ),
           const SizedBox(height: 24),
 
           // แสดงสถานะ deal
           if (_currentDealState != null)
-            Card(
-              color: _stateColor(_currentDealState!).withOpacity(0.12),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Current State',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _stateColor(_currentDealState!),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            _stateName(_currentDealState!),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    // แสดงรายละเอียด deal ถ้ามี
-                    if (_dealDetails != null && _dealDetails!.isNotEmpty) ...[
-                      const Divider(height: 24),
-                      _buildDetailRow('Buyer', _dealDetails!['buyer'] ?? 'N/A'),
-                      const SizedBox(height: 8),
-                      _buildDetailRow(
-                        'Seller',
-                        _dealDetails!['seller'] ?? 'N/A',
-                      ),
-                      const SizedBox(height: 8),
-                      _buildDetailRow(
-                        'Amount',
-                        '${_dealDetails!['amount']} units',
-                      ),
+            AppPanel(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      AppSectionTitle('Current State'),
+                      _buildStateBadge(_currentDealState!),
                     ],
+                  ),
+                  if (_dealDetails != null && _dealDetails!.isNotEmpty) ...[
+                    const Divider(height: 24),
+                    _buildDetailRow('Buyer', _dealDetails!['buyer'] ?? 'N/A'),
+                    const SizedBox(height: 8),
+                    _buildDetailRow('Seller', _dealDetails!['seller'] ?? 'N/A'),
+                    const SizedBox(height: 8),
+                    _buildDetailRow(
+                      'Amount',
+                      '${_dealDetails!['amount']} units',
+                    ),
                   ],
-                ),
+                ],
               ),
             ),
-
           const SizedBox(height: 16),
 
           // เพิ่มปุ่มตรวจสอบสถานะเฉพาะ
           if (_currentDealState != null) ...[
-            Text(
-              'Quick Verification',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-            ),
+            const SizedBox(height: 16),
+            AppSectionTitle('Quick Verification'),
             const SizedBox(height: 8),
+
+            // ใช้ reusable widgets สำหรับ verification buttons
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -865,6 +816,224 @@ class _EscrowScreenState extends State<EscrowScreen>
     );
   }
 
+  Widget _buildBanner({
+    required String title,
+    required String subtitle,
+    Widget? child,
+  }) {
+    return AppPanel(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppSectionTitle(title),
+          const SizedBox(height: 8),
+          Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+          if (child != null) child,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFeedback(ColorScheme colorScheme) {
+    if (_errorMessage == null && _successMessage == null) {
+      return const SizedBox.shrink();
+    }
+
+    final isError = _errorMessage != null;
+    final message = isError ? _errorMessage! : _successMessage!;
+
+    return Column(
+      children: [
+        if (isError)
+          AppErrorBanner(message: message)
+        else
+          Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.green.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.green.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.check_circle_outline_rounded,
+                  color: Colors.green,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    message,
+                    style: const TextStyle(color: Colors.green),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () {
+                    setState(() {
+                      _errorMessage = null;
+                      _successMessage = null;
+                    });
+                  },
+                  icon: const Icon(Icons.close, color: Colors.green),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildPrimaryButton({
+    required VoidCallback onPressed,
+    required IconData icon,
+    required String label,
+    bool isLoading = false,
+  }) {
+    return AppWideButton(
+      onPressed: isLoading ? null : onPressed,
+      icon: icon,
+      label: isLoading ? 'Processing...' : label,
+      style: AppWideButtonStyle.primary,
+    );
+  }
+
+  Widget _buildOutlinedButton({
+    required VoidCallback onPressed,
+    required IconData icon,
+    required String label,
+    Color? color,
+    bool isLoading = false,
+  }) {
+    return AppWideButton(
+      onPressed: isLoading ? null : onPressed,
+      icon: icon,
+      label: isLoading ? 'Processing...' : label,
+      style: AppWideButtonStyle.outlined,
+    );
+  }
+
+  /// สร้าง Deal ID อัตโนมัติในรูปแบบ deal-{timestamp}-{random}
+  String _generateDealId() {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final random = DateTime.now().microsecondsSinceEpoch % 10000;
+    return 'deal-${timestamp}-${random.toString().padLeft(4, '0')}';
+  }
+
+  /// ดึง wallet address ปัจจุบัน
+  String? _getCurrentWalletAddress() {
+    try {
+      final walletState = context.read<WalletState>();
+      return walletState.wallet?.address;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// เติม Seller Address ด้วย wallet address ปัจจุบัน
+  void _autofillSellerAddress() {
+    final address = _getCurrentWalletAddress();
+    if (address != null) {
+      setState(() {
+        _sellerAddressController.text = address;
+      });
+    }
+  }
+
+  /// เติม Buyer Address ด้วย wallet address ปัจจุบัน
+  void _autofillBuyerAddress() {
+    final address = _getCurrentWalletAddress();
+    if (address != null) {
+      setState(() {
+        _buyerAddressController.text = address;
+      });
+    }
+  }
+
+  /// รีเฟรช Deal ID ใหม่
+  void _refreshDealId() {
+    setState(() {
+      _dealIdController.text = _generateDealId();
+    });
+  }
+
+  /// Widget สำหรับ Address input พร้อมปุ่ม autofill
+  Widget _buildAddressInput({
+    required TextEditingController controller,
+    required String label,
+    required String hintText,
+    required IconData prefixIcon,
+    required VoidCallback onAutofill,
+    String? helperText,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: TextFormField(
+            controller: controller,
+            decoration: InputDecoration(
+              labelText: label,
+              hintText: hintText,
+              prefixIcon: Icon(prefixIcon),
+              helperText: helperText,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        IconButton(
+          onPressed: _isLoading ? null : onAutofill,
+          icon: const Icon(Icons.person_pin),
+          tooltip: 'Use my wallet address',
+        ),
+      ],
+    );
+  }
+
+  /// Widget สำหรับ Deal ID input พร้อมปุ่ม refresh
+  Widget _buildDealIdInput() {
+    return Row(
+      children: [
+        Expanded(
+          child: TextFormField(
+            controller: _dealIdController,
+            decoration: const InputDecoration(
+              labelText: 'Deal ID',
+              hintText: 'Auto-generated',
+              prefixIcon: Icon(Icons.tag),
+              helperText: 'Auto-generated, but you can edit it',
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        IconButton(
+          onPressed: _isLoading ? null : _refreshDealId,
+          icon: const Icon(Icons.refresh),
+          tooltip: 'Generate new Deal ID',
+        ),
+      ],
+    );
+  }
+
+  /// Widget สำหรับแสดง state badge
+  Widget _buildStateBadge(int state) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: _stateColor(state),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        _stateName(state),
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  /// Widget สำหรับ detail row
   Widget _buildDetailRow(String label, String value) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -887,6 +1056,7 @@ class _EscrowScreenState extends State<EscrowScreen>
     );
   }
 
+  /// Widget สำหรับ verification button
   Widget _buildVerifyButton({
     required String label,
     required int state,
@@ -902,83 +1072,5 @@ class _EscrowScreenState extends State<EscrowScreen>
         side: BorderSide(color: color.withOpacity(0.5)),
       ),
     );
-  }
-
-  Widget _buildBanner({
-    required String title,
-    required String subtitle,
-    Widget? child,
-  }) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
-            if (child != null) child,
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFeedback(ColorScheme colorScheme) {
-    if (_errorMessage == null && _successMessage == null) {
-      return const SizedBox.shrink();
-    }
-
-    final isError = _errorMessage != null;
-    final message = isError ? _errorMessage! : _successMessage!;
-    final color = isError ? colorScheme.error : Colors.green;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            isError ? Icons.error_outline : Icons.check_circle_outline,
-            color: color,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(message, style: TextStyle(color: color)),
-          ),
-          IconButton(
-            onPressed: () {
-              setState(() {
-                _errorMessage = null;
-                _successMessage = null;
-              });
-            },
-            icon: Icon(Icons.close, color: color),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInlineLoader(Color color, IconData fallbackIcon) {
-    if (_isLoading) {
-      return SizedBox(
-        width: 20,
-        height: 20,
-        child: SpinKitFadingCircle(color: color, size: 20),
-      );
-    }
-    return Icon(fallbackIcon);
   }
 }
