@@ -419,7 +419,6 @@ class _EscrowScreenState extends State<EscrowScreen>
 
     if (walletState.wallet == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Escrow')),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -453,26 +452,34 @@ class _EscrowScreenState extends State<EscrowScreen>
       );
     }
 
-    return AppGradientScaffold(
-      appBar: AppBar(
-        title: const Text('Escrow'),
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(icon: Icon(Icons.add_circle_outline), text: 'Create'),
-            Tab(icon: Icon(Icons.check_circle_outline), text: 'Actions'),
-            Tab(icon: Icon(Icons.search), text: 'Check'),
-          ],
+    return Column(
+      children: [
+        // TabBar - แสดงตลอดเวลา
+        Material(
+          color: colorScheme.surface,
+          child: TabBar(
+            controller: _tabController,
+            tabs: const [
+              Tab(icon: Icon(Icons.add_circle_outline), text: 'Create'),
+              Tab(icon: Icon(Icons.check_circle_outline), text: 'Actions'),
+              Tab(icon: Icon(Icons.search), text: 'Check'),
+            ],
+          ),
         ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildCreateTab(walletState, colorScheme),
-          _buildActionsTab(colorScheme),
-          _buildCheckTab(colorScheme),
-        ],
-      ),
+        // Content
+        Expanded(
+          child: AppGradientScaffold(
+            body: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildCreateTab(walletState, colorScheme),
+                _buildActionsTab(walletState, colorScheme),
+                _buildCheckTab(walletState, colorScheme),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -614,7 +621,7 @@ class _EscrowScreenState extends State<EscrowScreen>
     );
   }
 
-  Widget _buildActionsTab(ColorScheme colorScheme) {
+  Widget _buildActionsTab(WalletState walletState, ColorScheme colorScheme) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -677,7 +684,7 @@ class _EscrowScreenState extends State<EscrowScreen>
     );
   }
 
-  Widget _buildCheckTab(ColorScheme colorScheme) {
+  Widget _buildCheckTab(WalletState walletState, ColorScheme colorScheme) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(

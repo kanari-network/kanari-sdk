@@ -6,12 +6,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'src/auth_client.dart';
 import 'src/providers/theme_mode_provider.dart';
 import 'src/providers/wallet_provider.dart';
-import 'src/ui/screens/home_screen.dart';
 import 'src/ui/screens/login_screen.dart';
 import 'src/ui/screens/register_screen.dart';
 import 'src/ui/screens/setting_screen.dart';
 import 'src/ui/screens/welcome_screen.dart';
-import 'src/ui/screens/escrow_screen.dart';
+import 'src/ui/widgets/kanari_bottom_nav.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -192,10 +191,10 @@ class KanariApp extends StatelessWidget {
           if (canEnterHome) {
             debugPrint(
               authClient.isAuthenticated
-                  ? 'Authenticated -> Navigate to HomeScreen'
-                  : 'Local wallet unlocked -> Navigate to HomeScreen',
+                  ? 'Authenticated -> Navigate to KanariBottomNav'
+                  : 'Local wallet unlocked -> Navigate to KanariBottomNav',
             );
-            return const HomeScreen();
+            return const KanariBottomNav();
           }
 
           debugPrint('Stay on WelcomeScreen');
@@ -229,9 +228,9 @@ class KanariApp extends StatelessWidget {
             },
           );
         },
-        '/home': (context) => const HomeScreen(),
+        '/home': (context) => const KanariBottomNav(),
         '/settings': (context) => const SettingScreen(),
-        '/escrow': (context) => const EscrowScreen(),
+        '/escrow': (context) => const KanariBottomNav(currentIndex: 1),
       },
     );
   }
