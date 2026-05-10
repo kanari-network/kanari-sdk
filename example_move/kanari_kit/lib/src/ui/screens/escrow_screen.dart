@@ -51,6 +51,11 @@ class _EscrowScreenState extends State<EscrowScreen>
   Map<String, dynamic>? _dealDetails; // เพิ่มสำหรับเก็บรายละเอียด deal
   bool? _stateMatchResult; // เพิ่มสำหรับเก็บผล check_deal_state
 
+  // เพิ่มสำหรับจัดการ multiple deals
+  List<Map<String, dynamic>> _allDeals = [];
+  String? _selectedDealId;
+  Map<String, dynamic>? _selectedDeal;
+
   @override
   void initState() {
     super.initState();
@@ -221,11 +226,13 @@ class _EscrowScreenState extends State<EscrowScreen>
     await _runAction((escrow, walletState) async {
       final wallet = walletState.wallet!;
       final tokenType = _selectedTokenType;
+      final buyerAddress = wallet.address;
+      final sellerAddress = _sellerAddressController.text.trim();
 
       if (_dealIdController.text.trim().isEmpty) {
         throw Exception('Deal ID is required');
       }
-      if (_sellerAddressController.text.trim().isEmpty) {
+      if (sellerAddress.isEmpty) {
         throw Exception('Seller address is required');
       }
       if (_amountController.text.trim().isEmpty) {
@@ -235,11 +242,19 @@ class _EscrowScreenState extends State<EscrowScreen>
         throw Exception('Escrow token is required');
       }
 
+      // ตรวจสอบว่า buyer ≠ seller
+      if (buyerAddress.toLowerCase() == sellerAddress.toLowerCase()) {
+        throw Exception(
+          'Buyer and seller cannot be the same address. '
+          'Please enter a different seller address.',
+        );
+      }
+
       final result = await escrow
           .createDeal(
             wallet: wallet,
             dealId: _dealIdController.text.trim(),
-            sellerAddress: _sellerAddressController.text.trim(),
+            sellerAddress: sellerAddress,
             amount: int.parse(_amountController.text.trim()),
             description: _descriptionController.text.trim(),
             tokenType: tokenType,
@@ -259,72 +274,93 @@ class _EscrowScreenState extends State<EscrowScreen>
     });
   }
 
+  /// Seller: Confirm delivery
   Future<void> _confirmDelivery() async {
-    await _runAction((escrow, walletState) async {
-      final wallet = walletState.wallet!;
-      final buyer = _buyerAddressController.text.trim();
-      if (buyer.isEmpty) {
-        throw Exception('Buyer address is required');
-      }
-
-      final result = await escrow
-          .confirmDelivery(wallet: wallet, buyerAddress: buyer)
-          .timeout(const Duration(seconds: 30));
-      await walletState.refreshBalance();
-      if (!mounted) return;
+    if (_selectedDeal == null) {
       setState(() {
-        _successMessage =
-            'Delivery confirmed! Tx Hash: ${result.hash.substring(0, 16)}...';
+        _errorMessage = 'Please select a deal first';
       });
-    });
-  }
+      return;
+    }
 
-  Future<void> _releaseFunds() async {
-    await _runAction((escrow, walletState) async {
-      final wallet = walletState.wallet!;
-      final buyer = _buyerAddressController.text.trim();
-      if (buyer.isEmpty) {
-        throw Exception('Buyer address is required');
-      }
+    final objectId = _selectedDeal!['object_id'] as String?;
+    final coinType = _selectedDeal!['coin_type'] as String?;
 
-      final result = await escrow
-          .releaseFunds(wallet: wallet, buyerAddress: buyer)
-          .timeout(const Duration(seconds: 30));
-      await walletState.refreshBalance();
-      if (!mounted) return;
+    if (objectId == null || coinType == null) {
       setState(() {
-        _successMessage =
-            'Funds released successfully! Tx Hash: ${result.hash.substring(0, 16)}...';
+        _errorMessage = 'Missing deal information';
       });
-    });
-  }
+      return;
+    }
 
-  Future<void> _raiseDispute() async {
     await _runAction((escrow, walletState) async {
-      final wallet = walletState.wallet!;
-      final buyer = _buyerAddressController.text.trim();
-      if (buyer.isEmpty) {
-        throw Exception('Buyer address is required');
-      }
-      if (_disputeReasonController.text.trim().isEmpty) {
-        throw Exception('Dispute reason is required');
-      }
-
-      final result = await escrow
-          .raiseDispute(
-            wallet: wallet,
-            buyerAddress: buyer,
-            reason: _disputeReasonController.text
-                .trim(), // ส่ง reason parameter
+      await escrow
+          .confirmDeliveryByObjectId(
+            wallet: walletState.wallet!,
+            dealObjectId: objectId,
+            coinType: coinType,
           )
           .timeout(const Duration(seconds: 30));
-      await walletState.refreshBalance();
-      if (!mounted) return;
+    });
+  }
+
+  /// Buyer: Release funds
+  Future<void> _releaseFunds() async {
+    if (_selectedDeal == null) {
       setState(() {
-        _successMessage =
-            'Dispute raised! Tx Hash: ${result.hash.substring(0, 16)}...';
+        _errorMessage = 'Please select a deal first';
       });
-      _disputeReasonController.clear(); // เคลียร์หลังจากสำเร็จ
+      return;
+    }
+
+    final objectId = _selectedDeal!['object_id'] as String?;
+    final coinType = _selectedDeal!['coin_type'] as String?;
+
+    if (objectId == null || coinType == null) {
+      setState(() {
+        _errorMessage = 'Missing deal information';
+      });
+      return;
+    }
+
+    await _runAction((escrow, walletState) async {
+      await escrow
+          .releaseFundsByObjectId(
+            wallet: walletState.wallet!,
+            dealObjectId: objectId,
+            coinType: coinType,
+          )
+          .timeout(const Duration(seconds: 30));
+    });
+  }
+
+  /// Buyer or Seller: Raise dispute
+  Future<void> _raiseDispute() async {
+    if (_selectedDeal == null) {
+      setState(() {
+        _errorMessage = 'Please select a deal first';
+      });
+      return;
+    }
+
+    final objectId = _selectedDeal!['object_id'] as String?;
+    final coinType = _selectedDeal!['coin_type'] as String?;
+
+    if (objectId == null || coinType == null) {
+      setState(() {
+        _errorMessage = 'Missing deal information';
+      });
+      return;
+    }
+
+    await _runAction((escrow, walletState) async {
+      await escrow
+          .raiseDisputeByObjectId(
+            wallet: walletState.wallet!,
+            dealObjectId: objectId,
+            coinType: coinType,
+          )
+          .timeout(const Duration(seconds: 30));
     });
   }
 
@@ -352,6 +388,107 @@ class _EscrowScreenState extends State<EscrowScreen>
         _successMessage = 'Deal state retrieved successfully!';
       });
     });
+  }
+
+  /// Auto-check state when buyer address changes
+  Future<void> _autoCheckDealState() async {
+    final buyer = _buyerAddressController.text.trim();
+    if (buyer.isEmpty) {
+      setState(() {
+        _currentDealState = null;
+        _dealDetails = null;
+        _allDeals = [];
+        _selectedDealId = null;
+        _selectedDeal = null;
+      });
+      return;
+    }
+
+    await _fetchAllDeals(buyer);
+  }
+
+  /// Fetch all deals for a buyer address
+  Future<void> _fetchAllDeals(String buyerAddress) async {
+    final walletState = context.read<WalletState>();
+    final escrow = _escrowClient(walletState);
+    if (walletState.wallet == null || escrow == null) return;
+
+    try {
+      final deals = await escrow
+          .getAllDeals(wallet: walletState.wallet!, buyerAddress: buyerAddress)
+          .timeout(const Duration(seconds: 15));
+
+      if (!mounted) return;
+      setState(() {
+        _allDeals = deals;
+        _selectedDealId = deals.isNotEmpty ? deals.first['deal_id'] : null;
+        _selectedDeal = deals.isNotEmpty ? deals.first : null;
+        _currentDealState = null;
+        _dealDetails = null;
+      });
+
+      if (deals.isNotEmpty) {
+        await _loadSelectedDeal();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _allDeals = [];
+        _selectedDealId = null;
+        _selectedDeal = null;
+        _currentDealState = null;
+        _dealDetails = null;
+        _errorMessage = 'Failed to fetch deals: $e';
+      });
+    }
+  }
+
+  /// Load details for selected deal
+  Future<void> _loadSelectedDeal() async {
+    if (_selectedDeal == null) return;
+
+    final walletState = context.read<WalletState>();
+    final escrow = _escrowClient(walletState);
+    if (walletState.wallet == null || escrow == null) return;
+
+    try {
+      final objectId = _selectedDeal!['object_id'] as String?;
+      final coinType = _selectedDeal!['coin_type'] as String?;
+
+      if (objectId == null || coinType == null) {
+        throw Exception('Missing object_id or coin_type in deal data');
+      }
+
+      final state = await escrow
+          .getDealStateByObjectId(
+            wallet: walletState.wallet!,
+            dealObjectId: objectId,
+            coinType: coinType,
+          )
+          .timeout(const Duration(seconds: 10));
+
+      final details = await escrow
+          .getDealDetailsByObjectId(
+            wallet: walletState.wallet!,
+            dealObjectId: objectId,
+            coinType: coinType,
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (!mounted) return;
+      setState(() {
+        _currentDealState = state;
+        _dealDetails = details;
+        _errorMessage = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _currentDealState = null;
+        _dealDetails = null;
+        _errorMessage = 'Failed to load deal: $e';
+      });
+    }
   }
 
   /// Check if deal matches expected state (new feature)
@@ -635,31 +772,95 @@ class _EscrowScreenState extends State<EscrowScreen>
           const SizedBox(height: 16),
           _buildFeedback(colorScheme),
 
+          // แสดง current deal state ถ้ามี
+          if (_currentDealState != null) ...[
+            AppPanel(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Current State:',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurface.withOpacity(0.7),
+                    ),
+                  ),
+                  _buildStateBadge(_currentDealState!),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // เพิ่ม dropdown สำหรับเลือก Deal ID ถ้ามีหลาย deal
+          if (_allDeals.length > 1) ...[
+            AppSectionTitle('Select Deal'),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: _selectedDealId,
+              decoration: const InputDecoration(
+                labelText: 'Deal ID',
+                border: OutlineInputBorder(),
+              ),
+              items: _allDeals.map((deal) {
+                final dealId = deal['deal_id'] as String? ?? 'Unknown';
+                final amount = deal['amount'] as int? ?? 0;
+                final coinType = deal['coin_type'] as String? ?? '';
+                final coinName = coinType.split('::').lastOrNull ?? '';
+                return DropdownMenuItem<String>(
+                  value: dealId,
+                  child: Text('$dealId ($amount $coinName)'),
+                );
+              }).toList(),
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() {
+                    _selectedDealId = value;
+                    _selectedDeal = _allDeals.firstWhere(
+                      (deal) => deal['deal_id'] == value,
+                      orElse: () => {},
+                    );
+                  });
+                  _loadSelectedDeal();
+                }
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
+
           // ใช้ reusable widget สำหรับ buyer address
           _buildAddressInput(
             controller: _buyerAddressController,
             label: 'Buyer Address',
             hintText: '0x...',
             prefixIcon: Icons.account_balance_wallet,
-            onAutofill: _autofillBuyerAddress,
+            onAutofill: () {
+              _autofillBuyerAddress();
+              _autoCheckDealState();
+            },
             helperText: 'Address of the buyer who created the deal',
+            onChanged: _autoCheckDealState,
           ),
           const SizedBox(height: 24),
           AppSectionTitle('Seller Actions'),
           const SizedBox(height: 8),
           _buildOutlinedButton(
-            onPressed: _confirmDelivery,
+            onPressed: _currentDealState == 1 ? _confirmDelivery : null,
             icon: Icons.local_shipping,
-            label: 'Confirm Delivery',
+            label: _currentDealState == 1
+                ? 'Confirm Delivery'
+                : 'Deal is not in LOCKED state',
             color: colorScheme.primary,
           ),
           const SizedBox(height: 24),
           AppSectionTitle('Buyer Actions'),
           const SizedBox(height: 8),
           _buildPrimaryButton(
-            onPressed: _releaseFunds,
+            onPressed: _currentDealState == 2 ? _releaseFunds : null,
             icon: Icons.payment,
-            label: 'Release Funds',
+            label: _currentDealState == 2
+                ? 'Release Funds'
+                : 'Deal is not in DELIVERED state',
+            isLoading: false,
           ),
           const SizedBox(height: 12),
           // เพิ่ม input field สำหรับเหตุผล dispute
@@ -674,9 +875,13 @@ class _EscrowScreenState extends State<EscrowScreen>
           ),
           const SizedBox(height: 12),
           _buildOutlinedButton(
-            onPressed: _raiseDispute,
+            onPressed: (_currentDealState == null || _currentDealState == 3)
+                ? null
+                : _raiseDispute,
             icon: Icons.gavel,
-            label: 'Raise Dispute',
+            label: (_currentDealState == null || _currentDealState == 3)
+                ? 'Deal is completed or not found'
+                : 'Raise Dispute',
             color: colorScheme.error,
           ),
         ],
@@ -701,8 +906,12 @@ class _EscrowScreenState extends State<EscrowScreen>
             label: 'Buyer Address',
             hintText: '0x...',
             prefixIcon: Icons.search,
-            onAutofill: _autofillBuyerAddress,
+            onAutofill: () {
+              _autofillBuyerAddress();
+              _autoCheckDealState();
+            },
             helperText: 'Address to check deal status',
+            onChanged: _autoCheckDealState,
           ),
           const SizedBox(height: 16),
           _buildPrimaryButton(
@@ -727,6 +936,11 @@ class _EscrowScreenState extends State<EscrowScreen>
                   ),
                   if (_dealDetails != null && _dealDetails!.isNotEmpty) ...[
                     const Divider(height: 24),
+                    _buildDetailRow(
+                      'Deal ID',
+                      _dealDetails!['deal_id'] ?? 'N/A',
+                    ),
+                    const SizedBox(height: 8),
                     _buildDetailRow('Buyer', _dealDetails!['buyer'] ?? 'N/A'),
                     const SizedBox(height: 8),
                     _buildDetailRow('Seller', _dealDetails!['seller'] ?? 'N/A'),
@@ -893,13 +1107,13 @@ class _EscrowScreenState extends State<EscrowScreen>
   }
 
   Widget _buildPrimaryButton({
-    required VoidCallback onPressed,
+    required VoidCallback? onPressed,
     required IconData icon,
     required String label,
     bool isLoading = false,
   }) {
     return AppWideButton(
-      onPressed: isLoading ? null : onPressed,
+      onPressed: (isLoading || onPressed == null) ? null : onPressed,
       icon: icon,
       label: isLoading ? 'Processing...' : label,
       style: AppWideButtonStyle.primary,
@@ -907,14 +1121,14 @@ class _EscrowScreenState extends State<EscrowScreen>
   }
 
   Widget _buildOutlinedButton({
-    required VoidCallback onPressed,
+    required VoidCallback? onPressed,
     required IconData icon,
     required String label,
     Color? color,
     bool isLoading = false,
   }) {
     return AppWideButton(
-      onPressed: isLoading ? null : onPressed,
+      onPressed: (isLoading || onPressed == null) ? null : onPressed,
       icon: icon,
       label: isLoading ? 'Processing...' : label,
       style: AppWideButtonStyle.outlined,
@@ -973,25 +1187,44 @@ class _EscrowScreenState extends State<EscrowScreen>
     required IconData prefixIcon,
     required VoidCallback onAutofill,
     String? helperText,
+    VoidCallback? onChanged,
   }) {
     return Row(
       children: [
         Expanded(
           child: TextFormField(
             controller: controller,
+            onChanged: (value) {
+              if (onChanged != null) {
+                onChanged();
+              }
+            },
             decoration: InputDecoration(
               labelText: label,
               hintText: hintText,
-              prefixIcon: Icon(prefixIcon),
+              prefixIcon: Icon(prefixIcon, size: 20),
+              prefixIconConstraints: const BoxConstraints(
+                minWidth: 40,
+                minHeight: 40,
+              ),
               helperText: helperText,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 16,
+              ),
             ),
           ),
         ),
-        const SizedBox(width: 8),
-        IconButton(
-          onPressed: _isLoading ? null : onAutofill,
-          icon: const Icon(Icons.person_pin),
-          tooltip: 'Use my wallet address',
+        const SizedBox(width: 4),
+        SizedBox(
+          width: 40,
+          height: 40,
+          child: IconButton(
+            onPressed: _isLoading ? null : onAutofill,
+            icon: const Icon(Icons.person_pin, size: 20),
+            tooltip: 'Use my wallet address',
+            padding: EdgeInsets.zero,
+          ),
         ),
       ],
     );
@@ -1007,16 +1240,29 @@ class _EscrowScreenState extends State<EscrowScreen>
             decoration: const InputDecoration(
               labelText: 'Deal ID',
               hintText: 'Auto-generated',
-              prefixIcon: Icon(Icons.tag),
+              prefixIcon: Icon(Icons.tag, size: 20),
+              prefixIconConstraints: BoxConstraints(
+                minWidth: 40,
+                minHeight: 40,
+              ),
               helperText: 'Auto-generated, but you can edit it',
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 16,
+              ),
             ),
           ),
         ),
-        const SizedBox(width: 8),
-        IconButton(
-          onPressed: _isLoading ? null : _refreshDealId,
-          icon: const Icon(Icons.refresh),
-          tooltip: 'Generate new Deal ID',
+        const SizedBox(width: 4),
+        SizedBox(
+          width: 40,
+          height: 40,
+          child: IconButton(
+            onPressed: _isLoading ? null : _refreshDealId,
+            icon: const Icon(Icons.refresh, size: 20),
+            tooltip: 'Generate new Deal ID',
+            padding: EdgeInsets.zero,
+          ),
         ),
       ],
     );
@@ -1043,16 +1289,15 @@ class _EscrowScreenState extends State<EscrowScreen>
   /// Widget สำหรับ detail row
   Widget _buildDetailRow(String label, String value) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(
-          label,
+          '$label: ',
           style: const TextStyle(
             fontWeight: FontWeight.w500,
             color: Colors.grey,
           ),
         ),
-        Flexible(
+        Expanded(
           child: Text(
             value,
             style: const TextStyle(fontWeight: FontWeight.bold),

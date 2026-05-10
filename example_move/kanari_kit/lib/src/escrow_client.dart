@@ -151,6 +151,64 @@ class EscrowClient {
     return _requireSuccess(result);
   }
 
+  /// Confirm delivery by Object ID
+  Future<void> confirmDeliveryByObjectId({
+    required KanariWallet wallet,
+    required String dealObjectId,
+    required String coinType,
+  }) async {
+    final result = await _executeFunctionDetailed(
+      wallet: wallet,
+      package: escrowPackageAddress,
+      module: 'escrow',
+      function: 'confirm_delivery',
+      typeArgs: [coinType],
+      args: [_hexToBytes(dealObjectId)],
+      gasLimit: 5000000,
+      gasPrice: 100,
+    );
+    _requireSuccess(result);
+  }
+
+  /// Release funds by Object ID
+  Future<void> releaseFundsByObjectId({
+    required KanariWallet wallet,
+    required String dealObjectId,
+    required String coinType,
+  }) async {
+    final result = await _executeFunctionDetailed(
+      wallet: wallet,
+      package: escrowPackageAddress,
+      module: 'escrow',
+      function: 'release_funds',
+      typeArgs: [coinType],
+      args: [_hexToBytes(dealObjectId)],
+      gasLimit: 5000000,
+      gasPrice: 100,
+    );
+    _requireSuccess(result);
+  }
+
+  /// Raise dispute by Object ID
+  Future<void> raiseDisputeByObjectId({
+    required KanariWallet wallet,
+    required String dealObjectId,
+    required String coinType,
+  }) async {
+    final result = await _executeFunctionDetailed(
+      wallet: wallet,
+      package: escrowPackageAddress,
+      module: 'escrow',
+      function: 'raise_dispute',
+      typeArgs: [coinType],
+      args: [_hexToBytes(dealObjectId)],
+      gasLimit: 5000000,
+      gasPrice: 100,
+    );
+    _requireSuccess(result);
+  }
+
+  /// Confirm delivery (backward compatible - uses first deal)
   Future<TransactionResult> confirmDelivery({
     required KanariWallet wallet,
     required String buyerAddress,
@@ -158,6 +216,21 @@ class EscrowClient {
     int gasPrice = 10,
   }) async {
     final refs = await _getEscrowObjectRefs(buyerAddress);
+
+    // Debug: Check current state before confirming
+    final currentState = await getDealState(
+      wallet: wallet,
+      buyerAddress: buyerAddress,
+    );
+    print('[ESCROW] Current deal state: $currentState (expected: 1=LOCKED)');
+
+    if (currentState != 1) {
+      throw Exception(
+        'Deal is not in LOCKED state. Current state: ${_getStateName(currentState)}. '
+        'Cannot confirm delivery. Please create a new deal first.',
+      );
+    }
+
     final result = await _executeFunctionDetailed(
       wallet: wallet,
       package: escrowPackageAddress,
@@ -179,6 +252,21 @@ class EscrowClient {
     int gasPrice = 10,
   }) async {
     final refs = await _getEscrowObjectRefs(buyerAddress);
+
+    // Debug: Check current state before releasing
+    final currentState = await getDealState(
+      wallet: wallet,
+      buyerAddress: buyerAddress,
+    );
+    print('[ESCROW] Current deal state: $currentState (expected: 2=DELIVERED)');
+
+    if (currentState != 2) {
+      throw Exception(
+        'Deal is not in DELIVERED state. Current state: ${_getStateName(currentState)}. '
+        'Seller must confirm delivery first.',
+      );
+    }
+
     final result = await _executeFunctionDetailed(
       wallet: wallet,
       package: escrowPackageAddress,
@@ -223,52 +311,58 @@ class EscrowClient {
     return _requireSuccess(result);
   }
 
-  Future<int> getDealState({
+  /// Get deal state by Object ID
+  Future<int> getDealStateByObjectId({
     required KanariWallet wallet,
-    required String buyerAddress,
+    required String dealObjectId,
+    required String coinType,
   }) async {
-    final refs = await _getEscrowObjectRefs(buyerAddress);
     final result = await _viewFunction(
       wallet: wallet,
       function: '$escrowPackageAddress::escrow::get_state',
-      typeArguments: [refs.coinType],
-      arguments: [_hexToBytes(refs.dealObjectId)],
+      typeArguments: [coinType],
+      arguments: [_hexToBytes(dealObjectId)],
     );
 
-    // Parse state from DealStateChanged event (old_state field)
     if (result.isNotEmpty && result.first is int) {
       return result.first as int;
     }
     return 0;
   }
 
-  Future<int> getProofCount({
+  /// Get full deal details by Object ID
+  Future<Map<String, dynamic>> getDealDetailsByObjectId({
+    required KanariWallet wallet,
+    required String dealObjectId,
+    required String coinType,
+  }) async {
+    final result = await _viewFunction(
+      wallet: wallet,
+      function: '$escrowPackageAddress::escrow::get_deal_details',
+      typeArguments: [coinType],
+      arguments: [_hexToBytes(dealObjectId)],
+    );
+
+    if (result.isNotEmpty && result.first is Map) {
+      return result.first as Map<String, dynamic>;
+    }
+    return {};
+  }
+
+  /// Get deal state by buyer address (backward compatible)
+  Future<int> getDealState({
     required KanariWallet wallet,
     required String buyerAddress,
   }) async {
     final refs = await _getEscrowObjectRefs(buyerAddress);
-    await _viewFunction(
+    return getDealStateByObjectId(
       wallet: wallet,
-      function: '$escrowPackageAddress::escrow::get_proof_count',
-      typeArguments: const [],
-      arguments: [_hexToBytes(refs.proofObjectId)],
+      dealObjectId: refs.dealObjectId,
+      coinType: refs.coinType,
     );
-
-    // For now, we need to count entries manually from the proof object
-    // Since view functions emit events, we'll fetch the actual object data
-    final account = await rpc.getAccount(buyerAddress);
-    for (final obj in account.ownedObjects ?? const <ObjectInfo>[]) {
-      if (_isEscrowProofObject(obj.type) &&
-          _normalizeObjectId(obj.id) == refs.proofObjectId) {
-        // In a real implementation, you'd parse the BCS data here
-        // For now, return 0 as placeholder
-        return 0;
-      }
-    }
-    return 0;
   }
 
-  /// Get full deal details including buyer, seller, amount, description
+  /// Get full deal details by buyer address (backward compatible)
   Future<Map<String, dynamic>> getDealDetails({
     required KanariWallet wallet,
     required String buyerAddress,
@@ -286,6 +380,44 @@ class EscrowClient {
       return result.first as Map<String, dynamic>;
     }
     return {};
+  }
+
+  /// Get all deals for a buyer address
+  Future<List<Map<String, dynamic>>> getAllDeals({
+    required KanariWallet wallet,
+    required String buyerAddress,
+  }) async {
+    final account = await rpc.getAccount(buyerAddress);
+    final deals = <Map<String, dynamic>>[];
+
+    for (final obj in account.ownedObjects ?? const <ObjectInfo>[]) {
+      if (_isEscrowDealObject(obj.type)) {
+        final dealObjectId = _normalizeObjectId(obj.id);
+        final coinType = _extractCoinTypeFromObjectType(obj.type);
+
+        if (coinType != null) {
+          try {
+            final result = await _viewFunction(
+              wallet: wallet,
+              function: '$escrowPackageAddress::escrow::get_deal_details',
+              typeArguments: [coinType],
+              arguments: [_hexToBytes(dealObjectId)],
+            );
+
+            if (result.isNotEmpty && result.first is Map) {
+              final dealData = result.first as Map<String, dynamic>;
+              dealData['object_id'] = dealObjectId;
+              dealData['coin_type'] = coinType;
+              deals.add(dealData);
+            }
+          } catch (_) {
+            continue;
+          }
+        }
+      }
+    }
+
+    return deals;
   }
 
   /// Check if deal is in expected state
@@ -463,29 +595,61 @@ class EscrowClient {
       if (event != null) {
         final eventData = event['event_data'] as List<dynamic>?;
         if (eventData != null && eventData.length >= 4) {
-          // Parse DealCreated event fields
-          final dealIdLength = eventData[0] as int? ?? 0;
-          var offset = 1 + dealIdLength;
+          // DealCreated struct: { deal_id: String, buyer: address, seller: address, amount: u64 }
+          // BCS event_data format: [deal_id_length, deal_id_bytes..., buyer_address(32), seller_address(32), amount(8 bytes LE)]
 
-          if (offset + 32 + 32 + 8 <= eventData.length) {
-            // Extract buyer address (32 bytes)
-            final buyerBytes = eventData.sublist(offset, offset + 32).cast<int>();
-            final buyer = _bytesToAddress(buyerBytes);
-            offset += 32;
+          var offset = 0;
 
-            // Extract seller address (32 bytes)
-            final sellerBytes = eventData.sublist(offset, offset + 32).cast<int>();
-            final seller = _bytesToAddress(sellerBytes);
-            offset += 32;
-
-            // Extract amount (u64, 8 bytes LE)
-            final amountBytes = eventData.sublist(offset, offset + 8).cast<int>();
-            final amount = _bytesToU64(amountBytes);
-
-            return [
-              {'buyer': buyer, 'seller': seller, 'amount': amount},
-            ];
+          // 1. Parse deal_id (String with length prefix)
+          final dealIdLength = eventData[offset++] as int? ?? 0;
+          if (offset + dealIdLength > eventData.length) {
+            return [];
           }
+          final dealIdBytes = eventData
+              .sublist(offset, offset + dealIdLength)
+              .cast<int>();
+          final dealId = String.fromCharCodes(dealIdBytes);
+          offset += dealIdLength;
+
+          // 2. Parse buyer address (32 bytes)
+          if (offset + 32 > eventData.length) {
+            return [];
+          }
+          final buyerBytes = eventData.sublist(offset, offset + 32).cast<int>();
+          final buyer = _bytesToAddress(buyerBytes);
+          offset += 32;
+
+          // 3. Parse seller address (32 bytes)
+          if (offset + 32 > eventData.length) {
+            return [];
+          }
+          final sellerBytes = eventData
+              .sublist(offset, offset + 32)
+              .cast<int>();
+          final seller = _bytesToAddress(sellerBytes);
+          offset += 32;
+
+          // 4. Parse amount (u64, 8 bytes little-endian)
+          if (offset + 8 > eventData.length) {
+            return [];
+          }
+          final amountBytes = eventData.sublist(offset, offset + 8).cast<int>();
+          final amount = _bytesToU64(amountBytes);
+
+          print('[ESCROW] Parsed deal details:');
+          print('[ESCROW]   Deal ID: $dealId');
+          print('[ESCROW]   Buyer: $buyer');
+          print('[ESCROW]   Seller: $seller');
+          print('[ESCROW]   Amount: $amount');
+
+          return [
+            {
+              'deal_id': dealId,
+              'buyer': buyer,
+              'seller': seller,
+              'amount': amount,
+            },
+          ];
         }
       }
     }
@@ -738,6 +902,15 @@ class EscrowClient {
     return objectType.contains('::escrow::EscrowDeal<');
   }
 
+  String? _extractCoinTypeFromObjectType(String objectType) {
+    final start = objectType.indexOf('<');
+    final end = objectType.lastIndexOf('>');
+    if (start != -1 && end != -1) {
+      return objectType.substring(start + 1, end);
+    }
+    return null;
+  }
+
   bool _isEscrowProofObject(String objectType) {
     return objectType.contains('::escrow::EscrowProof');
   }
@@ -807,6 +980,21 @@ class EscrowClient {
       );
     }
     return '0x${clean.toLowerCase()}';
+  }
+
+  String _getStateName(int state) {
+    switch (state) {
+      case 1:
+        return 'LOCKED (1)';
+      case 2:
+        return 'DELIVERED (2)';
+      case 3:
+        return 'COMPLETED (3)';
+      case 4:
+        return 'DISPUTED (4)';
+      default:
+        return 'UNKNOWN ($state)';
+    }
   }
 
   String? _extractFailureReason(dynamic changeset) {
