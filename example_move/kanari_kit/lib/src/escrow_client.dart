@@ -156,14 +156,20 @@ class EscrowClient {
     required KanariWallet wallet,
     required String dealObjectId,
     required String coinType,
+    required String proofObjectId,
   }) async {
+    print('[ESCROW CLIENT] confirmDeliveryByObjectId:');
+    print('[ESCROW CLIENT]   dealObjectId: $dealObjectId');
+    print('[ESCROW CLIENT]   coinType: $coinType');
+    print('[ESCROW CLIENT]   proofObjectId: $proofObjectId');
+
     final result = await _executeFunctionDetailed(
       wallet: wallet,
       package: escrowPackageAddress,
       module: 'escrow',
       function: 'confirm_delivery',
       typeArgs: [coinType],
-      args: [_hexToBytes(dealObjectId)],
+      args: [_hexToBytes(dealObjectId), _hexToBytes(proofObjectId)],
       gasLimit: 5000000,
       gasPrice: 100,
     );
@@ -175,6 +181,7 @@ class EscrowClient {
     required KanariWallet wallet,
     required String dealObjectId,
     required String coinType,
+    required String proofObjectId,
   }) async {
     final result = await _executeFunctionDetailed(
       wallet: wallet,
@@ -182,7 +189,7 @@ class EscrowClient {
       module: 'escrow',
       function: 'release_funds',
       typeArgs: [coinType],
-      args: [_hexToBytes(dealObjectId)],
+      args: [_hexToBytes(dealObjectId), _hexToBytes(proofObjectId)],
       gasLimit: 5000000,
       gasPrice: 100,
     );
@@ -194,14 +201,26 @@ class EscrowClient {
     required KanariWallet wallet,
     required String dealObjectId,
     required String coinType,
+    required String proofObjectId,
+    String? reason,
   }) async {
+    final args = <List<int>>[
+      _hexToBytes(dealObjectId),
+      _hexToBytes(proofObjectId),
+    ];
+
+    if (reason != null && reason.isNotEmpty) {
+      // Add reason as String argument
+      args.add(reason.codeUnits);
+    }
+
     final result = await _executeFunctionDetailed(
       wallet: wallet,
       package: escrowPackageAddress,
       module: 'escrow',
       function: 'raise_dispute',
       typeArgs: [coinType],
-      args: [_hexToBytes(dealObjectId)],
+      args: args,
       gasLimit: 5000000,
       gasPrice: 100,
     );
@@ -408,6 +427,14 @@ class EscrowClient {
               final dealData = result.first as Map<String, dynamic>;
               dealData['object_id'] = dealObjectId;
               dealData['coin_type'] = coinType;
+
+              // Find proof object for this deal
+              final proofId = await _findProofForDeal(
+                buyerAddress,
+                dealObjectId,
+              );
+              dealData['proof_id'] = proofId;
+
               deals.add(dealData);
             }
           } catch (_) {
@@ -925,7 +952,43 @@ class EscrowClient {
     if (genericStart == -1 || genericEnd == -1 || genericEnd <= genericStart) {
       return null;
     }
-    return objectType.substring(genericStart + 1, genericEnd).trim();
+    return objectType.substring(genericStart + 1, genericEnd);
+  }
+
+  /// Find proof object for a given deal
+  Future<String?> _findProofForDeal(
+    String buyerAddress,
+    String dealObjectId,
+  ) async {
+    try {
+      print(
+        '[ESCROW CLIENT] Finding proof for deal: ${dealObjectId.substring(0, 8)}...',
+      );
+
+      // Use getAccount which returns ownedObjects
+      final account = await rpc.getAccount(buyerAddress);
+      final objects = account.ownedObjects ?? [];
+
+      for (final obj in objects) {
+        final objectType = obj.type;
+        if (_isEscrowProofObject(objectType)) {
+          final objectId = obj.id;
+          print(
+            '[ESCROW CLIENT] Found EscrowProof object: ${objectId.substring(0, 8)}...',
+          );
+
+          // For now, assume the first proof object belongs to the deal
+          // TODO: Verify by reading proof object data if needed
+          return objectId;
+        }
+      }
+
+      print('[ESCROW CLIENT] No EscrowProof object found for buyer');
+      return null;
+    } catch (e) {
+      print('[ESCROW CLIENT] Error finding proof: $e');
+      return null;
+    }
   }
 
   List<int> _hexToBytes(String hexStr) {

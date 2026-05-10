@@ -160,6 +160,37 @@ class _EscrowScreenState extends State<EscrowScreen>
     return (token.amount / divisor).toStringAsFixed(4);
   }
 
+  /// Convert human-readable amount to raw amount based on decimals
+  int _toRawAmount(String humanAmount, int decimals) {
+    try {
+      final amount = double.parse(humanAmount);
+      return (amount * math.pow(10, decimals)).toInt();
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  /// Convert raw amount to human-readable amount based on decimals
+  String _toHumanAmount(int rawAmount, int decimals) {
+    if (rawAmount == 0) return '0';
+    final divisor = math.pow(10, decimals).toDouble();
+    return (rawAmount / divisor).toStringAsFixed(6);
+  }
+
+  /// Get decimals for a token type
+  int _getDecimalsForTokenType(String tokenType) {
+    // USDC and USDT typically use 6 decimals
+    if (tokenType.contains('USDC') || tokenType.contains('USDT')) {
+      return 6;
+    }
+    // KANARI typically uses 9 decimals
+    if (tokenType.contains('KANARI')) {
+      return 9;
+    }
+    // Default to 6 decimals for other tokens
+    return 6;
+  }
+
   String _friendlyError(Object error) {
     final text = error.toString();
 
@@ -250,12 +281,26 @@ class _EscrowScreenState extends State<EscrowScreen>
         );
       }
 
+      // Convert human-readable amount to raw amount based on token decimals
+      final decimals = _getDecimalsForTokenType(tokenType);
+      final rawAmount = _toRawAmount(_amountController.text.trim(), decimals);
+
+      if (rawAmount <= 0) {
+        throw Exception('Invalid amount. Please enter a valid number.');
+      }
+
+      print('[ESCROW UI] Creating deal:');
+      print('[ESCROW UI]   Human amount: ${_amountController.text.trim()}');
+      print('[ESCROW UI]   Token: $tokenType');
+      print('[ESCROW UI]   Decimals: $decimals');
+      print('[ESCROW UI]   Raw amount: $rawAmount');
+
       final result = await escrow
           .createDeal(
             wallet: wallet,
             dealId: _dealIdController.text.trim(),
             sellerAddress: sellerAddress,
-            amount: int.parse(_amountController.text.trim()),
+            amount: rawAmount,
             description: _descriptionController.text.trim(),
             tokenType: tokenType,
           )
@@ -285,10 +330,18 @@ class _EscrowScreenState extends State<EscrowScreen>
 
     final objectId = _selectedDeal!['object_id'] as String?;
     final coinType = _selectedDeal!['coin_type'] as String?;
+    final proofId = _selectedDeal!['proof_id'] as String?;
 
     if (objectId == null || coinType == null) {
       setState(() {
         _errorMessage = 'Missing deal information';
+      });
+      return;
+    }
+
+    if (proofId == null) {
+      setState(() {
+        _errorMessage = 'Proof object not found for this deal';
       });
       return;
     }
@@ -299,6 +352,7 @@ class _EscrowScreenState extends State<EscrowScreen>
             wallet: walletState.wallet!,
             dealObjectId: objectId,
             coinType: coinType,
+            proofObjectId: proofId,
           )
           .timeout(const Duration(seconds: 30));
     });
@@ -315,10 +369,18 @@ class _EscrowScreenState extends State<EscrowScreen>
 
     final objectId = _selectedDeal!['object_id'] as String?;
     final coinType = _selectedDeal!['coin_type'] as String?;
+    final proofId = _selectedDeal!['proof_id'] as String?;
 
     if (objectId == null || coinType == null) {
       setState(() {
         _errorMessage = 'Missing deal information';
+      });
+      return;
+    }
+
+    if (proofId == null) {
+      setState(() {
+        _errorMessage = 'Proof object not found for this deal';
       });
       return;
     }
@@ -329,6 +391,7 @@ class _EscrowScreenState extends State<EscrowScreen>
             wallet: walletState.wallet!,
             dealObjectId: objectId,
             coinType: coinType,
+            proofObjectId: proofId,
           )
           .timeout(const Duration(seconds: 30));
     });
@@ -345,10 +408,18 @@ class _EscrowScreenState extends State<EscrowScreen>
 
     final objectId = _selectedDeal!['object_id'] as String?;
     final coinType = _selectedDeal!['coin_type'] as String?;
+    final proofId = _selectedDeal!['proof_id'] as String?;
 
     if (objectId == null || coinType == null) {
       setState(() {
         _errorMessage = 'Missing deal information';
+      });
+      return;
+    }
+
+    if (proofId == null) {
+      setState(() {
+        _errorMessage = 'Proof object not found for this deal';
       });
       return;
     }
@@ -359,6 +430,10 @@ class _EscrowScreenState extends State<EscrowScreen>
             wallet: walletState.wallet!,
             dealObjectId: objectId,
             coinType: coinType,
+            proofObjectId: proofId,
+            reason: _disputeReasonController.text.trim().isEmpty
+                ? 'No reason provided'
+                : _disputeReasonController.text.trim(),
           )
           .timeout(const Duration(seconds: 30));
     });
@@ -803,12 +878,17 @@ class _EscrowScreenState extends State<EscrowScreen>
               ),
               items: _allDeals.map((deal) {
                 final dealId = deal['deal_id'] as String? ?? 'Unknown';
-                final amount = deal['amount'] as int? ?? 0;
+                final rawAmount = deal['amount'] as int? ?? 0;
                 final coinType = deal['coin_type'] as String? ?? '';
                 final coinName = coinType.split('::').lastOrNull ?? '';
+
+                // Convert raw amount to human-readable
+                final decimals = _getDecimalsForTokenType(coinType);
+                final humanAmount = _toHumanAmount(rawAmount, decimals);
+
                 return DropdownMenuItem<String>(
                   value: dealId,
-                  child: Text('$dealId ($amount $coinName)'),
+                  child: Text('$dealId ($humanAmount $coinName)'),
                 );
               }).toList(),
               onChanged: (value) {
@@ -947,7 +1027,9 @@ class _EscrowScreenState extends State<EscrowScreen>
                     const SizedBox(height: 8),
                     _buildDetailRow(
                       'Amount',
-                      '${_dealDetails!['amount']} units',
+                      _dealDetails!['amount'] != null
+                          ? '${_toHumanAmount(_dealDetails!['amount'] as int, _getDecimalsForTokenType(_dealDetails!['coin_type'] ?? ''))} ${(_dealDetails!['coin_type'] as String? ?? '').split('::').lastOrNull ?? 'units'}'
+                          : 'N/A',
                     ),
                   ],
                 ],
