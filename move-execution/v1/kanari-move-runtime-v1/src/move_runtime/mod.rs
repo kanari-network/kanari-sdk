@@ -1146,4 +1146,116 @@ impl MoveRuntime {
             }
         }
     }
+
+    /// Execute a view function (read-only, no state changes, no transaction submission)
+    /// This is for calling public/friend functions that don't modify state
+    pub fn execute_view_function(
+        &self,
+        package_addr: &str,
+        module_name: &str,
+        function_name: &str,
+        type_args: &[String],
+        args: &[Vec<u8>],
+    ) -> Result<serde_json::Value> {
+        use move_core_types::account_address::AccountAddress;
+        use std::str::FromStr;
+
+        // Parse package address
+        let addr = AccountAddress::from_str(package_addr.trim_start_matches("0x"))
+            .map_err(|e| anyhow::anyhow!("Invalid package address: {}", e))?;
+
+        let module_id = ModuleId::new(addr, Identifier::new(module_name)?);
+
+        // Load type arguments
+        let vm_guard = self.vm.read().unwrap();
+        let mut session = self.create_session_with_storage_ext(&vm_guard);
+
+        let mut ty_args_loaded = vec![];
+        for type_arg in type_args {
+            // Parse type tag from string (e.g., "0x1::aptos_coin::AptosCoin")
+            let type_tag = Self::parse_type_tag(type_arg)?;
+            ty_args_loaded.push(
+                session
+                    .load_type(&type_tag)
+                    .map_err(|e| anyhow::anyhow!("Failed to load type {}: {:?}", type_arg, e))?,
+            );
+        }
+
+        let ident = IdentStr::new(function_name)
+            .map_err(|e| anyhow::anyhow!("Invalid function name: {}", e))?;
+
+        // Execute function bypassing visibility check (for view functions)
+        let mut unmetered_gas = UnmeteredGasMeter;
+        let execution_result = session.execute_function_bypass_visibility(
+            &module_id,
+            ident,
+            ty_args_loaded,
+            args.to_vec(),
+            &mut unmetered_gas,
+        );
+
+        // Finish session without persisting changes
+        let (res, _new_storage) = session.finish();
+        let (_move_changeset, _events) =
+            res.map_err(|e| anyhow::anyhow!("Session error: {:?}", e))?;
+
+        // Process return values
+        match execution_result {
+            Ok(return_values) => {
+                // Convert return values to JSON
+                let results: Vec<serde_json::Value> = return_values
+                    .return_values
+                    .into_iter()
+                    .map(|(bytes, _layout)| {
+                        // Try to deserialize as BCS and convert to JSON
+                        serde_json::to_value(&bytes)
+                            .unwrap_or_else(|_| serde_json::Value::String(hex::encode(&bytes)))
+                    })
+                    .collect();
+
+                if results.len() == 1 {
+                    Ok(results.into_iter().next().unwrap())
+                } else {
+                    Ok(serde_json::Value::Array(results))
+                }
+            }
+            Err(e) => Err(anyhow::anyhow!("View function execution failed: {:?}", e)),
+        }
+    }
+
+    /// Helper to parse type tag string into TypeTag
+    fn parse_type_tag(type_str: &str) -> Result<TypeTag> {
+        use move_core_types::language_storage::TypeTag;
+
+        // Simple parsing - for now just handle basic cases
+        // TODO: Add full type tag parsing support
+        if type_str.contains("::") {
+            // It's a struct type like "0x1::aptos_coin::AptosCoin"
+            Ok(TypeTag::Struct(Box::new(StructTag {
+                address: AccountAddress::from_hex_literal(
+                    type_str.split("::").next().unwrap_or("0x0"),
+                )
+                .map_err(|e| anyhow::anyhow!("Invalid address in type: {}", e))?,
+                module: Identifier::new(type_str.split("::").nth(1).unwrap_or(""))
+                    .map_err(|e| anyhow::anyhow!("Invalid module in type: {}", e))?,
+                name: Identifier::new(type_str.split("::").nth(2).unwrap_or(""))
+                    .map_err(|e| anyhow::anyhow!("Invalid name in type: {}", e))?,
+                type_params: vec![],
+            })))
+        } else {
+            // Handle primitive types
+            match type_str {
+                "u8" => Ok(TypeTag::U8),
+                "u16" => Ok(TypeTag::U16),
+                "u32" => Ok(TypeTag::U32),
+                "u64" => Ok(TypeTag::U64),
+                "u128" => Ok(TypeTag::U128),
+                "u256" => Ok(TypeTag::U256),
+                "bool" => Ok(TypeTag::Bool),
+                "address" => Ok(TypeTag::Address),
+                "signer" => Ok(TypeTag::Signer),
+                _ => Err(anyhow::anyhow!("Unsupported type: {}", type_str)),
+            }
+        }
+    }
 }

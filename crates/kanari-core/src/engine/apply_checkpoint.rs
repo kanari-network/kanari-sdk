@@ -4,7 +4,7 @@
 use super::BlockchainEngine;
 use anyhow::{Context, Result};
 use centauri::consensus::Checkpoint;
-use kanari_move_runtime::state::StateManager;
+use kanari_move_runtime_v1::state::StateManager;
 use kanari_types::transaction::SignedTransaction;
 use log::{error, info, warn};
 use std::sync::{Arc, RwLock};

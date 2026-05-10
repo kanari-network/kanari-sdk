@@ -42,7 +42,7 @@ fn main() -> Result<()> {
         for kp in &senders {
             if let Ok(addr) = AccountAddress::from_hex_literal(kp.address.as_str()) {
                 let mut acc = state.get_account(&addr).unwrap_or_else(|| {
-                    kanari_core::kanari_move_runtime::state::Account::new(addr, 0)
+                    kanari_core::kanari_move_runtime_v1::state::Account::new(addr, 0)
                 });
                 acc.balance = 1_000_000_000_000; // large balance
                 state.save_account(&acc).expect("Failed to save account");

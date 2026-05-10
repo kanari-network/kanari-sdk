@@ -232,7 +232,6 @@ kanari-common = { path = "crates/kanari-common" }
 kanari-crypto = { path = "crates/kanari-crypto" }
 kanari-auth = { path = "crates/kanari-auth" }
 kanari-types = { path = "crates/kanari-types" }
-kanari-move-runtime = { path = "move-execution/v0/kanari-move-runtime" }
 kanari-framework-builder = { path = "crates/kanari-framework-builder" }
 kanari-frameworks = { path = "crates/kanari-frameworks" }
 kanari-rpc-api = { path = "crates/kanari-rpc-api" }
@@ -247,6 +246,9 @@ kanari-db-common = { path = "crates/kanari-db-common" }
 smt = { path = "crates/smt" }
 centauri = { path = "crates/centauri" }
 
+# Move Runtime
+kanari-move-runtime = { path = "move-execution/v0/kanari-move-runtime" }
+kanari-move-runtime-v1 = { path = "move-execution/v1/kanari-move-runtime-v1" }
 
 # Move dependencies
 move-binary-format = { path = "third_party/move/crates/move-binary-format" }

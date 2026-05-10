@@ -14,9 +14,11 @@ description.workspace = true
 [dependencies]
 move-core-types = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 hex = { workspace = true }
 sha3 = { workspace = true }
-kanari-move-runtime = { workspace = true }
+# kanari-move-runtime = { workspace = true }
+kanari-move-runtime-v1 = { workspace = true }
 kanari-types = { workspace = true }
 kanari-rpc-api = { workspace = true }
 kanari-crypto = { workspace = true }

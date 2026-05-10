@@ -290,6 +290,16 @@ pub struct CallFunctionRequest {
     pub execute_immediate: Option<bool>,
 }
 
+/// View function request (read-only, no transaction submission)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ViewFunctionRequest {
+    pub package: String,
+    pub module: String,
+    pub function: String,
+    pub type_args: Vec<String>,
+    pub args: Vec<Vec<u8>>,
+}
+
 /// Module query response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModuleInfo {
@@ -372,6 +382,7 @@ pub mod methods {
 
     // Function calls
     pub const CALL_FUNCTION: &str = "kanari_callFunction";
+    pub const VIEW_FUNCTION: &str = "kanari_viewFunction";
 
     // Object queries
     pub const GET_OBJECT: &str = "kanari_getObject";

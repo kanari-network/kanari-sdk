@@ -1,5 +1,5 @@
 use super::{RpcError, RpcRequest, RpcResponse, RpcServerState, respond_with_serialize};
-use kanari_move_runtime::state::StateManager;
+use kanari_move_runtime_v1::state::StateManager;
 use kanari_rpc_api::{GetAllBalancesRequest, GetTokenBalanceRequest};
 use move_core_types::language_storage::TypeTag;
 use serde_json;
