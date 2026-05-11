@@ -336,17 +336,38 @@ class EscrowClient {
     required String dealObjectId,
     required String coinType,
   }) async {
-    final result = await _viewFunction(
-      wallet: wallet,
-      function: '$escrowPackageAddress::escrow::get_state',
-      typeArguments: [coinType],
-      arguments: [_hexToBytes(dealObjectId)],
-    );
+    try {
+      final result = await _viewFunction(
+        wallet: wallet,
+        function: '$escrowPackageAddress::escrow::get_state',
+        typeArguments: [coinType],
+        arguments: [_hexToBytes(dealObjectId)],
+      );
 
-    if (result.isNotEmpty && result.first is int) {
-      return result.first as int;
+      if (result.isEmpty) {
+        print('[ESCROW] getDealStateByObjectId: Empty result');
+        return 0;
+      }
+
+      final firstResult = result.first;
+      print('[ESCROW] getDealStateByObjectId raw result: $firstResult');
+
+      // Parse based on type (same logic as getDealState)
+      if (firstResult is int) {
+        return firstResult;
+      } else if (firstResult is Map<String, dynamic>) {
+        final resultValue = firstResult['result'];
+        if (resultValue is int) {
+          return resultValue;
+        }
+      }
+
+      print('[ESCROW] getDealStateByObjectId: Failed to parse result');
+      return 0;
+    } catch (e) {
+      print('[ESCROW] getDealStateByObjectId error: $e');
+      rethrow;
     }
-    return 0;
   }
 
   /// Get full deal details by Object ID
@@ -355,30 +376,136 @@ class EscrowClient {
     required String dealObjectId,
     required String coinType,
   }) async {
-    final result = await _viewFunction(
-      wallet: wallet,
-      function: '$escrowPackageAddress::escrow::get_deal_details',
-      typeArguments: [coinType],
-      arguments: [_hexToBytes(dealObjectId)],
-    );
+    try {
+      final result = await _viewFunction(
+        wallet: wallet,
+        function: '$escrowPackageAddress::escrow::get_deal_details',
+        typeArguments: [coinType],
+        arguments: [_hexToBytes(dealObjectId)],
+      );
 
-    if (result.isNotEmpty && result.first is Map) {
-      return result.first as Map<String, dynamic>;
+      if (result.isEmpty) {
+        print('[ESCROW] getDealDetailsByObjectId: Empty result');
+        return {};
+      }
+
+      final firstResult = result.first;
+      print('[ESCROW] getDealDetailsByObjectId raw result: $firstResult');
+
+      // Parse from {action: view, result: [deal_id, buyer, seller, amount], status: success}
+      if (firstResult is Map<String, dynamic>) {
+        final resultValue = firstResult['result'];
+        if (resultValue is List && resultValue.length >= 4) {
+          return {
+            'deal_id': resultValue[0] as String,
+            'buyer': resultValue[1] as String,
+            'seller': resultValue[2] as String,
+            'amount': resultValue[3] as int,
+          };
+        }
+      }
+
+      print('[ESCROW] getDealDetailsByObjectId: Failed to parse result');
+      return {};
+    } catch (e) {
+      print('[ESCROW] getDealDetailsByObjectId error: $e');
+      rethrow;
     }
-    return {};
   }
 
-  /// Get deal state by buyer address (backward compatible)
+  /// Get deal state by buyer address (using view function - now working!)
   Future<int> getDealState({
     required KanariWallet wallet,
     required String buyerAddress,
   }) async {
-    final refs = await _getEscrowObjectRefs(buyerAddress);
-    return getDealStateByObjectId(
-      wallet: wallet,
-      dealObjectId: refs.dealObjectId,
-      coinType: refs.coinType,
-    );
+    try {
+      // Query objects via RPC
+      final deals = await _getEscrowDealsByOwner(wallet, buyerAddress);
+
+      if (deals.isEmpty) {
+        print('[ESCROW] No deals found for buyer: $buyerAddress');
+        return 0; // STATE_NONE
+      }
+
+      // Get the first (latest) deal
+      final firstDeal = deals.first;
+      final dealObjectId = firstDeal['object_id'] as String;
+      final coinType = firstDeal['coin_type'] as String;
+
+      print('[ESCROW] Found ${deals.length} deal(s), using: $dealObjectId');
+      print('[ESCROW] Coin type: $coinType');
+
+      // Use view function to get state (now works with object preloading!)
+      final result = await _viewFunction(
+        wallet: wallet,
+        function: '$escrowPackageAddress::escrow::get_state',
+        typeArguments: [coinType],
+        arguments: [_hexToBytes(dealObjectId)],
+      );
+
+      if (result.isEmpty) {
+        print('[ESCROW] ⚠️ View function returned empty result');
+        return 0;
+      }
+
+      // 🔥 FIXED: Parse result based on actual type
+      final firstResult = result.first;
+      print('[ESCROW] Raw result type: ${firstResult.runtimeType}');
+      print('[ESCROW] Raw result value: $firstResult');
+
+      int state;
+
+      if (firstResult is int) {
+        // Direct integer value
+        state = firstResult;
+        print('[ESCROW] ✅ Parsed direct int: $state');
+      } else if (firstResult is Map<String, dynamic>) {
+        // Result is wrapped in a Map: {action: view, result: 1, status: success}
+        if (firstResult.containsKey('result')) {
+          final resultValue = firstResult['result'];
+          if (resultValue is int) {
+            state = resultValue;
+            print('[ESCROW] ✅ Parsed from Map.result: $state');
+          } else if (resultValue is List) {
+            // For functions returning arrays
+            state = resultValue.isNotEmpty ? resultValue.first as int : 0;
+            print('[ESCROW] ✅ Parsed from Map.result (List): $state');
+          } else {
+            print(
+              '[ESCROW] ⚠️ Unexpected result value type: ${resultValue.runtimeType}',
+            );
+            return 0;
+          }
+        } else {
+          // Unknown Map structure - log keys for debugging
+          print(
+            '[ESCROW] ⚠️ Unknown Map structure with keys: ${firstResult.keys}',
+          );
+          print('[ESCROW] Full Map: $firstResult');
+          return 0;
+        }
+      } else if (firstResult is List) {
+        // Result is nested in a List
+        if (firstResult.isNotEmpty && firstResult.first is int) {
+          state = firstResult.first as int;
+          print('[ESCROW] ✅ Parsed from nested List: $state');
+        } else {
+          print('[ESCROW] ⚠️ Unexpected nested List: $firstResult');
+          return 0;
+        }
+      } else {
+        print('[ESCROW] ⚠️ Unexpected result type: ${firstResult.runtimeType}');
+        print('[ESCROW] Value: $firstResult');
+        return 0;
+      }
+
+      print('[ESCROW] ✅ View function returned state: $state');
+      return state;
+    } catch (e, stack) {
+      print('[ESCROW] ❌ Error getting deal state: $e');
+      print('[ESCROW] Stack: $stack');
+      rethrow;
+    }
   }
 
   /// Get full deal details by buyer address (backward compatible)
@@ -386,19 +513,55 @@ class EscrowClient {
     required KanariWallet wallet,
     required String buyerAddress,
   }) async {
-    final refs = await _getEscrowObjectRefs(buyerAddress);
-    final result = await _viewFunction(
-      wallet: wallet,
-      function: '$escrowPackageAddress::escrow::get_deal_details',
-      typeArguments: [refs.coinType],
-      arguments: [_hexToBytes(refs.dealObjectId)],
-    );
+    try {
+      final refs = await _getEscrowObjectRefs(buyerAddress);
+      final result = await _viewFunction(
+        wallet: wallet,
+        function: '$escrowPackageAddress::escrow::get_deal_details',
+        typeArguments: [refs.coinType],
+        arguments: [_hexToBytes(refs.dealObjectId)],
+      );
 
-    // Parse from DealCreated event emitted by get_deal_details
-    if (result.isNotEmpty && result.first is Map) {
-      return result.first as Map<String, dynamic>;
+      // Parse from view function result
+      // Format: {action: view, result: [deal_id, buyer, seller, amount], status: success}
+      if (result.isNotEmpty) {
+        final firstResult = result.first;
+        print('[ESCROW] get_deal_details raw result: $firstResult');
+
+        if (firstResult is Map<String, dynamic>) {
+          final resultValue = firstResult['result'];
+          if (resultValue is List && resultValue.length >= 4) {
+            // Extract deal details from array
+            final dealId = resultValue[0] as String;
+            final buyer = resultValue[1] as String;
+            final seller = resultValue[2] as String;
+            final amount = resultValue[3] as int;
+
+            print('[ESCROW] ✅ Parsed deal details:');
+            print('[ESCROW]   Deal ID: $dealId');
+            print('[ESCROW]   Buyer: $buyer');
+            print('[ESCROW]   Seller: $seller');
+            print('[ESCROW]   Amount: $amount');
+
+            return {
+              'deal_id': dealId,
+              'buyer': buyer,
+              'seller': seller,
+              'amount': amount,
+              'object_id': refs.dealObjectId,
+              'coin_type': refs.coinType,
+            };
+          }
+        }
+      }
+
+      print('[ESCROW] ⚠️ Failed to parse deal details');
+      return {};
+    } catch (e, stack) {
+      print('[ESCROW] ❌ Error getting deal details: $e');
+      print('[ESCROW] Stack: $stack');
+      rethrow;
     }
-    return {};
   }
 
   /// Get all deals for a buyer address
@@ -423,21 +586,38 @@ class EscrowClient {
               arguments: [_hexToBytes(dealObjectId)],
             );
 
-            if (result.isNotEmpty && result.first is Map) {
-              final dealData = result.first as Map<String, dynamic>;
-              dealData['object_id'] = dealObjectId;
-              dealData['coin_type'] = coinType;
+            // Parse from view function result
+            // Format: {action: view, result: [deal_id, buyer, seller, amount], status: success}
+            if (result.isNotEmpty) {
+              final firstResult = result.first;
 
-              // Find proof object for this deal
-              final proofId = await _findProofForDeal(
-                buyerAddress,
-                dealObjectId,
-              );
-              dealData['proof_id'] = proofId;
+              if (firstResult is Map<String, dynamic>) {
+                final resultValue = firstResult['result'];
+                if (resultValue is List && resultValue.length >= 4) {
+                  final dealData = {
+                    'deal_id': resultValue[0] as String,
+                    'buyer': resultValue[1] as String,
+                    'seller': resultValue[2] as String,
+                    'amount': resultValue[3] as int,
+                    'object_id': dealObjectId,
+                    'coin_type': coinType,
+                  };
 
-              deals.add(dealData);
+                  // Find proof object for this deal
+                  final proofId = await _findProofForDeal(
+                    buyerAddress,
+                    dealObjectId,
+                  );
+                  if (proofId != null) {
+                    dealData['proof_id'] = proofId;
+                  }
+
+                  deals.add(dealData);
+                }
+              }
             }
-          } catch (_) {
+          } catch (e) {
+            print('[ESCROW] Failed to get details for deal $dealObjectId: $e');
             continue;
           }
         }
@@ -500,57 +680,38 @@ class EscrowClient {
     final module = parts[1];
     final functionName = parts[2];
 
-    final account = await rpc.getAccount(wallet.address);
-    final sequenceNumber = account.sequenceNumber;
     final senderAddress = wallet.taggedAddress;
     final packageAddress = _normalizeAddress(package);
 
-    final serializedTx = _transactionBcs.serialize({
-      'ExecuteFunction': {
-        'sender': senderAddress,
-        'module': '$packageAddress::$module',
-        'function': functionName,
-        'type_args': typeArguments,
-        'args': arguments,
-        'gas_limit': 100000, // Default gas limit for view calls
-        'gas_price': 10,
-        'sequence_number': sequenceNumber,
-      },
-    }).toBytes();
+    // 🔥 FIXED: Convert args to hex strings for RPC (like CLI does)
+    final argsHex = arguments
+        .map(
+          (bytes) =>
+              '0x${bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}',
+        )
+        .toList();
 
-    List<int> messageToSign;
-    try {
-      messageToSign = await blake3HashApi(data: serializedTx);
-    } catch (error) {
-      if (error.toString().contains(
-        'flutter_rust_bridge has not been initialized',
-      )) {
-        messageToSign = serializedTx;
-      } else {
-        rethrow;
-      }
-    }
+    // Build request data object
+    final requestData = {
+      'sender': senderAddress,
+      'package': packageAddress,
+      'module': module,
+      'function': functionName,
+      'type_args': typeArguments,
+      'args': argsHex,
+    };
 
-    final signature = await wallet.sign(messageToSign);
-
+    // 🔥 CRITICAL: params must be an ARRAY containing the request object
+    // NOT the request object directly!
     final body = {
       'jsonrpc': '2.0',
-      'method': 'kanari_callFunction',
-      'params': {
-        'sender': senderAddress,
-        'package': packageAddress,
-        'module': module,
-        'function': functionName,
-        'type_args': typeArguments,
-        'args': arguments,
-        'gas_limit': 100000,
-        'gas_price': 10,
-        'sequence_number': sequenceNumber,
-        'signature': signature.toList(),
-        'execute_immediate': true,
-      },
+      'method': 'kanari_viewFunction',
+      'params': [requestData], // ✅ Array wrapper around request data
       'id': DateTime.now().millisecondsSinceEpoch,
     };
+
+    print('[ESCROW] Calling view function: $functionName');
+    print('[ESCROW] Params: $body');
 
     final response = await http.post(
       Uri.parse(rpc.url),
@@ -565,144 +726,39 @@ class EscrowClient {
     }
 
     final jsonResponse = jsonDecode(response.body) as Map<String, dynamic>;
+
     if (jsonResponse['error'] != null) {
       final error = jsonResponse['error'] as Map<String, dynamic>;
-      throw Exception(error['message'] ?? 'Unknown RPC error');
+      final errorMessage = error['message'] as String? ?? 'Unknown RPC error';
+
+      print('[ESCROW] ❌ View function error: $errorMessage');
+      throw Exception('View function execution failed: $errorMessage');
     }
 
     final resultJson = jsonResponse['result'];
-    if (resultJson is! Map<String, dynamic>) {
-      throw Exception('Invalid RPC transaction result.');
-    }
 
-    final status = (resultJson['status'] as String? ?? '').toLowerCase();
-    if (status == 'failed') {
-      final reason =
-          _extractFailureReason(resultJson['changeset']) ??
-          (resultJson['error_message'] as String?) ??
-          'View function call failed on-chain.';
-      throw Exception(reason);
-    }
-
-    // For view functions, extract return values from events
-    final events = resultJson['changeset']?['events'] as List<dynamic>? ?? [];
-
-    // For get_state: parse state from DealStateChanged event
-    if (functionName == 'get_state' && events.isNotEmpty) {
-      final event = events.first as Map<String, dynamic>?;
-      if (event != null) {
-        final eventData = event['event_data'] as List<dynamic>?;
-        if (eventData != null && eventData.length >= 12) {
-          // event_data format: [length, ...deal_id_bytes, old_state, new_state, actor, timestamp]
-          // Find deal_id length first
-          final dealIdLength = eventData[0] as int? ?? 0;
-          final oldStateIndex = 1 + dealIdLength;
-
-          if (oldStateIndex < eventData.length) {
-            final oldState = eventData[oldStateIndex] as int?;
-            if (oldState != null) {
-              return [oldState];
-            }
-          }
-        }
-      }
-    }
-
-    // For get_proof_count: parse count from proof object
-    if (functionName == 'get_proof_count') {
-      // Since this is a read-only operation using borrow_global,
-      // we need to fetch the actual object data from RPC
-      // For now, return empty and let caller handle it
+    // View function returns result directly (not wrapped in transaction response)
+    if (resultJson == null) {
+      print('[ESCROW] ⚠️ View function returned null result');
       return [];
     }
 
-    // For get_deal_details: parse from DealCreated event
-    if (functionName == 'get_deal_details' && events.isNotEmpty) {
-      final event = events.first as Map<String, dynamic>?;
-      if (event != null) {
-        final eventData = event['event_data'] as List<dynamic>?;
-        if (eventData != null && eventData.length >= 4) {
-          // DealCreated struct: { deal_id: String, buyer: address, seller: address, amount: u64 }
-          // BCS event_data format: [deal_id_length, deal_id_bytes..., buyer_address(32), seller_address(32), amount(8 bytes LE)]
+    print('[ESCROW] ✅ View function result: $resultJson');
 
-          var offset = 0;
-
-          // 1. Parse deal_id (String with length prefix)
-          final dealIdLength = eventData[offset++] as int? ?? 0;
-          if (offset + dealIdLength > eventData.length) {
-            return [];
-          }
-          final dealIdBytes = eventData
-              .sublist(offset, offset + dealIdLength)
-              .cast<int>();
-          final dealId = String.fromCharCodes(dealIdBytes);
-          offset += dealIdLength;
-
-          // 2. Parse buyer address (32 bytes)
-          if (offset + 32 > eventData.length) {
-            return [];
-          }
-          final buyerBytes = eventData.sublist(offset, offset + 32).cast<int>();
-          final buyer = _bytesToAddress(buyerBytes);
-          offset += 32;
-
-          // 3. Parse seller address (32 bytes)
-          if (offset + 32 > eventData.length) {
-            return [];
-          }
-          final sellerBytes = eventData
-              .sublist(offset, offset + 32)
-              .cast<int>();
-          final seller = _bytesToAddress(sellerBytes);
-          offset += 32;
-
-          // 4. Parse amount (u64, 8 bytes little-endian)
-          if (offset + 8 > eventData.length) {
-            return [];
-          }
-          final amountBytes = eventData.sublist(offset, offset + 8).cast<int>();
-          final amount = _bytesToU64(amountBytes);
-
-          print('[ESCROW] Parsed deal details:');
-          print('[ESCROW]   Deal ID: $dealId');
-          print('[ESCROW]   Buyer: $buyer');
-          print('[ESCROW]   Seller: $seller');
-          print('[ESCROW]   Amount: $amount');
-
-          return [
-            {
-              'deal_id': dealId,
-              'buyer': buyer,
-              'seller': seller,
-              'amount': amount,
-            },
-          ];
-        }
-      }
+    // Parse result based on type
+    if (resultJson is int) {
+      // Single integer (e.g., state value)
+      return [resultJson];
+    } else if (resultJson is List) {
+      // Array of values
+      return resultJson;
+    } else if (resultJson is Map) {
+      // Complex object
+      return [resultJson];
     }
 
-    // For check_deal_state: parse boolean result
-    if (functionName == 'check_deal_state' && events.isNotEmpty) {
-      final event = events.first as Map<String, dynamic>?;
-      if (event != null) {
-        final eventData = event['event_data'] as List<dynamic>?;
-        if (eventData != null && eventData.length >= 12) {
-          final dealIdLength = eventData[0] as int? ?? 0;
-          final oldStateIndex = 1 + dealIdLength;
-          final newStateIndex = oldStateIndex + 1;
-
-          if (newStateIndex < eventData.length) {
-            final newState = eventData[newStateIndex] as int?;
-            if (newState != null) {
-              // If new_state > 0, it means state matched
-              return [newState > 0 ? 1 : 0];
-            }
-          }
-        }
-      }
-    }
-
-    return [];
+    // Fallback: try to parse as JSON string
+    return [resultJson.toString()];
   }
 
   Future<TransactionResult> _executeFunctionDetailed({
@@ -955,6 +1011,99 @@ class EscrowClient {
     return objectType.substring(genericStart + 1, genericEnd);
   }
 
+  /// Get EscrowDeal objects by owner address (uses RPC query)
+  Future<List<Map<String, dynamic>>> _getEscrowDealsByOwner(
+    KanariWallet wallet,
+    String ownerAddress,
+  ) async {
+    print('[ESCROW] Querying deals for owner: $ownerAddress');
+
+    try {
+      // Use RPC endpoint directly via HTTP POST
+      final body = {
+        'jsonrpc': '2.0',
+        'method': 'kanari_getOwnedObjects',
+        'params': {
+          'owner': ownerAddress,
+          'object_type':
+              'escrow::EscrowDeal', // Simple filter works with any prefix
+        },
+        'id': DateTime.now().millisecondsSinceEpoch,
+      };
+
+      print('[ESCROW] RPC Request: $body');
+
+      final response = await http.post(
+        Uri.parse(rpc.url),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      );
+
+      print('[ESCROW] RPC Response Status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        print(
+          '[ESCROW] RPC Response Body: ${response.body.substring(0, [200, response.body.length].reduce((a, b) => a < b ? a : b))}...',
+        );
+
+        final jsonResponse = jsonDecode(response.body) as Map<String, dynamic>;
+
+        if (jsonResponse['result'] != null &&
+            jsonResponse['result']['objects'] != null) {
+          final objects = (jsonResponse['result']['objects'] as List)
+              .cast<Map<String, dynamic>>();
+          print('[ESCROW] Parsed ${objects.length} objects from RPC response');
+
+          final deals = <Map<String, dynamic>>[];
+
+          for (final obj in objects) {
+            // Extract object ID and type
+            final objectId = obj['id'] as String?;
+            final objectType =
+                obj['type_'] as String?; // Rust uses type_ (with underscore)
+
+            if (objectId != null && objectType != null) {
+              print('[ESCROW] Found escrow deal:');
+              print('[ESCROW]   Object ID: $objectId');
+              print('[ESCROW]   Object Type: $objectType');
+
+              // Extract coin type from object type
+              // Format: 0xPKG::escrow::EscrowDeal<0xPKG::usdc::USDC>
+              final coinType = _extractCoinTypeFromObjectType(objectType);
+
+              if (coinType != null) {
+                deals.add({
+                  'object_id': objectId,
+                  'coin_type': coinType,
+                  'object_type': objectType,
+                });
+                print('[ESCROW]   ✅ Extracted Coin Type: $coinType');
+              } else {
+                print(
+                  '[ESCROW]   ⚠️ Could not extract coin type from: $objectType',
+                );
+              }
+            }
+          }
+
+          print('[ESCROW] Found ${deals.length} escrow deals');
+          if (deals.isNotEmpty) {
+            print('[ESCROW] First object keys: ${deals.first.keys}');
+          }
+
+          return deals;
+        }
+      }
+
+      print('[ESCROW] No escrow deals found');
+      return [];
+    } catch (e, stack) {
+      print('[ESCROW] Error querying deals: $e');
+      print('[ESCROW] Stack: $stack');
+      return [];
+    }
+  }
+
   /// Find proof object for a given deal
   Future<String?> _findProofForDeal(
     String buyerAddress,
@@ -998,22 +1147,6 @@ class EscrowClient {
       bytes.add(int.parse(clean.substring(i, i + 2), radix: 16));
     }
     return bytes;
-  }
-
-  String _bytesToAddress(List<int> bytes) {
-    if (bytes.length != 32) {
-      throw Exception('Invalid address bytes length: ${bytes.length}');
-    }
-    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-    return '0x$hex';
-  }
-
-  int _bytesToU64(List<int> bytes) {
-    if (bytes.length != 8) {
-      throw Exception('Invalid u64 bytes length: ${bytes.length}');
-    }
-    final data = ByteData.view(Uint8List.fromList(bytes).buffer);
-    return data.getUint64(0, Endian.little);
   }
 
   List<int> _encodeU64Bcs(int value) {

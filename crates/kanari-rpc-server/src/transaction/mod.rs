@@ -819,7 +819,30 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
 
 /// Handle view function request (read-only, no transaction submission)
 pub async fn handle_view_function(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let view_data: ViewFunctionRequest = match serde_json::from_value(request.params.clone()) {
+    // Parse params as array and extract first element
+    let params_array = match request.params.as_array() {
+        Some(arr) => arr,
+        None => {
+            return RpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(RpcError::invalid_params("Expected array params")),
+                id: request.id,
+            };
+        }
+    };
+
+    if params_array.is_empty() {
+        return RpcResponse {
+            jsonrpc: "2.0".into(),
+            result: None,
+            error: Some(RpcError::invalid_params("Empty params array")),
+            id: request.id,
+        };
+    }
+
+    // Parse the view function request from JSON
+    let view_data: ViewFunctionRequest = match serde_json::from_value(params_array[0].clone()) {
         Ok(data) => data,
         Err(e) => {
             return RpcResponse {

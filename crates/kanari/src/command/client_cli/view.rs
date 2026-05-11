@@ -91,12 +91,18 @@ impl View {
             })
             .collect();
 
+        // Convert bytes to hex strings for RPC (more compact than array of numbers)
+        let args_hex: Vec<String> = args_bytes
+            .iter()
+            .map(|bytes| format!("0x{}", hex::encode(bytes)))
+            .collect();
+
         let request_data = serde_json::json!({
             "package": self.package,
             "module": self.module,
             "function": self.function,
             "type_args": self.type_args,
-            "args": args_bytes.iter().map(|b| b.iter().map(|byte| serde_json::Value::Number(serde_json::Number::from(*byte))).collect::<Vec<_>>()).collect::<Vec<_>>()
+            "args": args_hex
         });
 
         let rpc_request = RpcRequest {
@@ -127,7 +133,7 @@ impl View {
         if let Some(result) = rpc_response.result {
             if self.raw {
                 // Print raw JSON
-                println!("{}", serde_json::to_string_pretty(&result)?);
+                eprintln!("{}", serde_json::to_string_pretty(&result)?);
             } else {
                 // Pretty print the result
                 if let Some(status) = result.get("status").and_then(|s| s.as_str()) {
@@ -139,8 +145,30 @@ impl View {
                 }
 
                 if let Some(view_result) = result.get("result") {
-                    eprintln!("\n📊 Result:");
-                    eprintln!("{}", serde_json::to_string_pretty(view_result)?);
+                    eprintln!("\n📊 Return Value:");
+
+                    // Try to format based on type
+                    match view_result {
+                        serde_json::Value::Number(n) => {
+                            eprintln!("   {}", n);
+                        }
+                        serde_json::Value::Bool(b) => {
+                            eprintln!("   {}", b);
+                        }
+                        serde_json::Value::String(s) => {
+                            eprintln!("   \"{}\"", s);
+                        }
+                        serde_json::Value::Array(arr) => {
+                            eprintln!("   [");
+                            for (i, item) in arr.iter().enumerate() {
+                                eprintln!("     {}: {}", i, item);
+                            }
+                            eprintln!("   ]");
+                        }
+                        _ => {
+                            eprintln!("{}", serde_json::to_string_pretty(view_result)?);
+                        }
+                    }
                 }
             }
         } else {

@@ -49,7 +49,6 @@ class _EscrowScreenState extends State<EscrowScreen>
   List<String> _spendableCoinTypes = const [];
   int? _currentDealState;
   Map<String, dynamic>? _dealDetails; // เพิ่มสำหรับเก็บรายละเอียด deal
-  bool? _stateMatchResult; // เพิ่มสำหรับเก็บผล check_deal_state
 
   // เพิ่มสำหรับจัดการ multiple deals
   List<Map<String, dynamic>> _allDeals = [];
@@ -447,21 +446,65 @@ class _EscrowScreenState extends State<EscrowScreen>
         throw Exception('Buyer address is required');
       }
 
-      // ใช้ view functions ใหม่ที่ efficient กว่า
-      final state = await escrow
-          .getDealState(wallet: wallet, buyerAddress: buyer)
-          .timeout(const Duration(seconds: 30));
+      //  FIXED: Use selected deal if available, otherwise fetch latest
+      if (_selectedDeal != null) {
+        // User selected a specific deal from dropdown
+        final objectId = _selectedDeal!['object_id'] as String?;
+        final coinType = _selectedDeal!['coin_type'] as String?;
+        final dealId = _selectedDeal!['deal_id'] as String?;
 
-      final details = await escrow
-          .getDealDetails(wallet: wallet, buyerAddress: buyer)
-          .timeout(const Duration(seconds: 30));
+        if (objectId == null || coinType == null || dealId == null) {
+          throw Exception('Invalid selected deal data');
+        }
 
-      if (!mounted) return;
-      setState(() {
-        _currentDealState = state;
-        _dealDetails = details;
-        _successMessage = 'Deal state retrieved successfully!';
-      });
+        print('[ESCROW] Loading selected deal: $dealId');
+
+        final state = await escrow
+            .getDealStateByObjectId(
+              wallet: wallet,
+              dealObjectId: objectId,
+              coinType: coinType,
+            )
+            .timeout(const Duration(seconds: 30));
+
+        // Parse details from selected deal
+        final rawAmount = _selectedDeal!['amount'] as int? ?? 0;
+        final buyerAddr = _selectedDeal!['buyer'] as String? ?? buyer;
+        final sellerAddr = _selectedDeal!['seller'] as String? ?? 'N/A';
+
+        final details = {
+          'deal_id': dealId,
+          'buyer': buyerAddr,
+          'seller': sellerAddr,
+          'amount': rawAmount,
+          'coin_type': coinType,
+        };
+
+        if (!mounted) return;
+        setState(() {
+          _currentDealState = state;
+          _dealDetails = details;
+          _successMessage = 'Deal state retrieved successfully!';
+        });
+      } else {
+        // Fallback: Get latest deal for buyer address
+        print('[ESCROW] No deal selected, fetching latest for: $buyer');
+
+        final state = await escrow
+            .getDealState(wallet: wallet, buyerAddress: buyer)
+            .timeout(const Duration(seconds: 30));
+
+        final details = await escrow
+            .getDealDetails(wallet: wallet, buyerAddress: buyer)
+            .timeout(const Duration(seconds: 30));
+
+        if (!mounted) return;
+        setState(() {
+          _currentDealState = state;
+          _dealDetails = details;
+          _successMessage = 'Deal state retrieved successfully!';
+        });
+      }
     });
   }
 
@@ -534,6 +577,9 @@ class _EscrowScreenState extends State<EscrowScreen>
         throw Exception('Missing object_id or coin_type in deal data');
       }
 
+      print('[ESCROW] Loading selected deal: $objectId');
+
+      //  FIXED: Only query state, details already in _selectedDeal
       final state = await escrow
           .getDealStateByObjectId(
             wallet: walletState.wallet!,
@@ -542,13 +588,21 @@ class _EscrowScreenState extends State<EscrowScreen>
           )
           .timeout(const Duration(seconds: 10));
 
-      final details = await escrow
-          .getDealDetailsByObjectId(
-            wallet: walletState.wallet!,
-            dealObjectId: objectId,
-            coinType: coinType,
-          )
-          .timeout(const Duration(seconds: 10));
+      // Extract details from selectedDeal (already have from getAllDeals)
+      final dealId = _selectedDeal!['deal_id'] as String? ?? objectId;
+      final buyer = _selectedDeal!['buyer'] as String? ?? 'N/A';
+      final seller = _selectedDeal!['seller'] as String? ?? 'N/A';
+      final amount = _selectedDeal!['amount'] as int? ?? 0;
+
+      final details = {
+        'deal_id': dealId,
+        'buyer': buyer,
+        'seller': seller,
+        'amount': amount,
+        'coin_type': coinType,
+      };
+
+      print('[ESCROW] Deal loaded successfully, state: $state');
 
       if (!mounted) return;
       setState(() {
@@ -556,7 +610,9 @@ class _EscrowScreenState extends State<EscrowScreen>
         _dealDetails = details;
         _errorMessage = null;
       });
-    } catch (e) {
+    } catch (e, stack) {
+      print('[ESCROW] Failed to load selected deal: $e');
+      print('[ESCROW] Stack: $stack');
       if (!mounted) return;
       setState(() {
         _currentDealState = null;
@@ -564,33 +620,6 @@ class _EscrowScreenState extends State<EscrowScreen>
         _errorMessage = 'Failed to load deal: $e';
       });
     }
-  }
-
-  /// Check if deal matches expected state (new feature)
-  Future<void> _verifyDealState(int expectedState) async {
-    await _runAction((escrow, walletState) async {
-      final wallet = walletState.wallet!;
-      final buyer = _buyerAddressController.text.trim();
-      if (buyer.isEmpty) {
-        throw Exception('Buyer address is required');
-      }
-
-      final isMatch = await escrow
-          .checkDealState(
-            wallet: wallet,
-            buyerAddress: buyer,
-            expectedState: expectedState,
-          )
-          .timeout(const Duration(seconds: 30));
-
-      if (!mounted) return;
-      setState(() {
-        _stateMatchResult = isMatch;
-        _successMessage = isMatch
-            ? '✅ Deal is in ${_stateName(expectedState)} state'
-            : '❌ Deal is NOT in ${_stateName(expectedState)} state';
-      });
-    });
   }
 
   String _stateName(int state) {
@@ -1001,6 +1030,86 @@ class _EscrowScreenState extends State<EscrowScreen>
           ),
           const SizedBox(height: 24),
 
+          // 🔥 NEW: แสดง Deal List ทั้งหมดเป็น card
+          if (_allDeals.isNotEmpty) ...[
+            AppSectionTitle('All Deals (${_allDeals.length})'),
+            const SizedBox(height: 12),
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _allDeals.length,
+              itemBuilder: (context, index) {
+                final deal = _allDeals[index];
+                final dealId = deal['deal_id'] as String? ?? 'N/A';
+                final amount = deal['amount'] as int? ?? 0;
+                final coinType = deal['coin_type'] as String? ?? '';
+                final buyer = deal['buyer'] as String? ?? 'N/A';
+                final seller = deal['seller'] as String? ?? 'N/A';
+                final coinName = coinType.split('::').lastOrNull ?? 'COIN';
+                final decimals = _getDecimalsForTokenType(coinType);
+                final humanAmount = _toHumanAmount(amount, decimals);
+                final isSelected = _selectedDealId == dealId;
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  color: isSelected
+                      ? colorScheme.primaryContainer.withOpacity(0.3)
+                      : null,
+                  child: InkWell(
+                    onTap: () {
+                      setState(() {
+                        _selectedDealId = dealId;
+                        _selectedDeal = deal;
+                      });
+                      // Auto load details for selected deal
+                      _checkDealState();
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Deal #$index',
+                                  style: Theme.of(context).textTheme.titleMedium
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                        color: isSelected
+                                            ? colorScheme.primary
+                                            : null,
+                                      ),
+                                ),
+                              ),
+                              if (isSelected)
+                                Icon(
+                                  Icons.check_circle,
+                                  color: colorScheme.primary,
+                                  size: 20,
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          _buildDetailRow('Deal ID', dealId.substring(0, 20)),
+                          const SizedBox(height: 4),
+                          _buildDetailRow('Amount', '$humanAmount $coinName'),
+                          const SizedBox(height: 4),
+                          _buildDetailRow('Buyer', buyer.substring(0, 20)),
+                          const SizedBox(height: 4),
+                          _buildDetailRow('Seller', seller.substring(0, 20)),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 24),
+          ],
+
           // แสดงสถานะ deal
           if (_currentDealState != null)
             AppPanel(
@@ -1036,84 +1145,6 @@ class _EscrowScreenState extends State<EscrowScreen>
               ),
             ),
           const SizedBox(height: 16),
-
-          // เพิ่มปุ่มตรวจสอบสถานะเฉพาะ
-          if (_currentDealState != null) ...[
-            const SizedBox(height: 16),
-            AppSectionTitle('Quick Verification'),
-            const SizedBox(height: 8),
-
-            // ใช้ reusable widgets สำหรับ verification buttons
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _buildVerifyButton(
-                  label: 'Is Locked?',
-                  state: 1,
-                  color: Colors.orange,
-                  icon: Icons.lock_outline,
-                ),
-                _buildVerifyButton(
-                  label: 'Is Delivered?',
-                  state: 2,
-                  color: Colors.blue,
-                  icon: Icons.local_shipping,
-                ),
-                _buildVerifyButton(
-                  label: 'Is Completed?',
-                  state: 3,
-                  color: Colors.green,
-                  icon: Icons.check_circle_outline,
-                ),
-                _buildVerifyButton(
-                  label: 'Is Disputed?',
-                  state: 4,
-                  color: Colors.red,
-                  icon: Icons.gavel,
-                ),
-              ],
-            ),
-
-            // แสดงผลการ verify
-            if (_stateMatchResult != null) ...[
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: _stateMatchResult!
-                      ? Colors.green.withOpacity(0.1)
-                      : Colors.red.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: _stateMatchResult!
-                        ? Colors.green.withOpacity(0.3)
-                        : Colors.red.withOpacity(0.3),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      _stateMatchResult! ? Icons.check_circle : Icons.cancel,
-                      color: _stateMatchResult! ? Colors.green : Colors.red,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _stateMatchResult!
-                            ? '✅ Verified: Deal is in expected state'
-                            : '❌ Not verified: Deal is in different state',
-                        style: TextStyle(
-                          color: _stateMatchResult! ? Colors.green : Colors.red,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ],
         ],
       ),
     );
@@ -1387,24 +1418,6 @@ class _EscrowScreenState extends State<EscrowScreen>
           ),
         ),
       ],
-    );
-  }
-
-  /// Widget สำหรับ verification button
-  Widget _buildVerifyButton({
-    required String label,
-    required int state,
-    required Color color,
-    required IconData icon,
-  }) {
-    return OutlinedButton.icon(
-      onPressed: _isLoading ? null : () => _verifyDealState(state),
-      icon: Icon(icon, size: 18),
-      label: Text(label),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: color,
-        side: BorderSide(color: color.withOpacity(0.5)),
-      ),
     );
   }
 }
