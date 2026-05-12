@@ -43,6 +43,7 @@ class EscrowClient {
     required KanariWallet wallet,
     required String dealObjectId,
     required String coinType,
+    required String proofObjectId,
     int gasLimit = 100000,
     int gasPrice = 10,
   }) {
@@ -50,6 +51,7 @@ class EscrowClient {
       wallet: wallet,
       dealObjectId: dealObjectId,
       coinType: coinType,
+      proofObjectId: proofObjectId,
       gasLimit: gasLimit,
       gasPrice: gasPrice,
     );
@@ -59,6 +61,7 @@ class EscrowClient {
     required KanariWallet wallet,
     required String dealObjectId,
     required String coinType,
+    required String proofObjectId,
     int gasLimit = 100000,
     int gasPrice = 10,
   }) {
@@ -66,6 +69,7 @@ class EscrowClient {
       wallet: wallet,
       dealObjectId: dealObjectId,
       coinType: coinType,
+      proofObjectId: proofObjectId,
       gasLimit: gasLimit,
       gasPrice: gasPrice,
     );
@@ -76,6 +80,7 @@ class EscrowClient {
     required String dealObjectId,
     required String coinType,
     required String reason,
+    required String proofObjectId,
     int gasLimit = 100000,
     int gasPrice = 10,
   }) {
@@ -84,6 +89,7 @@ class EscrowClient {
       dealObjectId: dealObjectId,
       coinType: coinType,
       reason: reason,
+      proofObjectId: proofObjectId,
       gasLimit: gasLimit,
       gasPrice: gasPrice,
     );
@@ -131,117 +137,50 @@ class EscrowClient {
   bool isState(int actual, int expected) =>
       EscrowConstants.isState(actual, expected);
 
-  // ==================== BACKWARD COMPATIBILITY ====================
-  // These methods are kept for backward compatibility with escrow_screen.dart
-
-  /// Confirm delivery (backward compatibility wrapper)
-  Future<TransactionResult> confirmDeliveryByObjectId({
-    required KanariWallet wallet,
-    required String dealObjectId,
-    required String coinType,
-    String? proofObjectId, // Ignored for backward compatibility
-    int gasLimit = 100000,
-    int gasPrice = 10,
-  }) {
-    return confirmDelivery(
-      wallet: wallet,
-      dealObjectId: dealObjectId,
-      coinType: coinType,
-      gasLimit: gasLimit,
-      gasPrice: gasPrice,
-    );
-  }
-
-  /// Release funds (backward compatibility wrapper)
-  Future<TransactionResult> releaseFundsByObjectId({
-    required KanariWallet wallet,
-    required String dealObjectId,
-    required String coinType,
-    String? proofObjectId, // Ignored for backward compatibility
-    int gasLimit = 100000,
-    int gasPrice = 10,
-  }) {
-    return releaseFunds(
-      wallet: wallet,
-      dealObjectId: dealObjectId,
-      coinType: coinType,
-      gasLimit: gasLimit,
-      gasPrice: gasPrice,
-    );
-  }
-
-  /// Raise dispute (backward compatibility wrapper)
-  Future<TransactionResult> raiseDisputeByObjectId({
-    required KanariWallet wallet,
-    required String dealObjectId,
-    required String coinType,
-    required String reason,
-    String? proofObjectId, // Ignored for backward compatibility
-    int gasLimit = 100000,
-    int gasPrice = 10,
-  }) {
-    return raiseDispute(
-      wallet: wallet,
-      dealObjectId: dealObjectId,
-      coinType: coinType,
-      reason: reason,
-      gasLimit: gasLimit,
-      gasPrice: gasPrice,
-    );
-  }
-
-  /// Get deal state (backward compatibility wrapper)
-  Future<int> getDealState({
-    required KanariWallet wallet,
-    required String buyerAddress,
-  }) async {
-    // Get all deals for buyer
-    final deals = await getAllDeals(wallet: wallet, buyerAddress: buyerAddress);
-
-    if (deals.isEmpty) {
-      return 0; // STATE_NONE
-    }
-
-    // Get state from first deal
-    final firstDeal = deals.first;
-    final dealObjectId = firstDeal['object_id'] as String;
-    final coinType = firstDeal['coin_type'] as String;
-
-    return getDealStateByObjectId(
-      wallet: wallet,
-      dealObjectId: dealObjectId,
-      coinType: coinType,
-    );
-  }
-
-  /// Get deal details (backward compatibility wrapper)
-  Future<Map<String, dynamic>> getDealDetails({
-    required KanariWallet wallet,
-    required String buyerAddress,
-  }) async {
-    // Get all deals for buyer
-    final deals = await getAllDeals(wallet: wallet, buyerAddress: buyerAddress);
-
-    if (deals.isEmpty) {
-      return {};
-    }
-
-    // Get details from first deal
-    final firstDeal = deals.first;
-    final dealObjectId = firstDeal['object_id'] as String;
-    final coinType = firstDeal['coin_type'] as String;
-
-    return getDealDetailsByObjectId(
-      wallet: wallet,
-      dealObjectId: dealObjectId,
-      coinType: coinType,
-    );
-  }
-
-  /// Get spendable coin types (backward compatibility wrapper)
+  /// Get spendable coin types from user's owned objects
   Future<List<String>> getSpendableCoinTypes(String address) async {
-    // For now, return empty list
-    // TODO: Implement proper coin type detection based on user's owned objects
-    return [];
+    try {
+      print('[ESCROW CLIENT] getSpendableCoinTypes for: $address');
+
+      final account = await rpc.getAccount(address);
+      print(
+        '[ESCROW CLIENT] Total owned objects: ${account.ownedObjects?.length ?? 0}',
+      );
+
+      final coinTypes = <String>{};
+
+      for (final obj in account.ownedObjects ?? const []) {
+        final tokenType = _extractCoinTypeFromObjectType(obj.type);
+        if (tokenType != null) {
+          print('[ESCROW CLIENT] Found coin object:');
+          print('[ESCROW CLIENT]   ID: ${obj.id}');
+          print('[ESCROW CLIENT]   Type: ${obj.type}');
+          print('[ESCROW CLIENT]   Token: $tokenType');
+          coinTypes.add(tokenType);
+        }
+      }
+
+      final sorted = coinTypes.toList()..sort();
+      print('[ESCROW CLIENT] Spendable coin types: $sorted');
+      return sorted;
+    } catch (e) {
+      print('[ESCROW CLIENT] Error getting spendable coin types: $e');
+      return [];
+    }
+  }
+
+  /// Extract coin type from object type string
+  /// Example: "0x2::coin::Coin<0xPKG::usdc::USDC>" -> "0xPKG::usdc::USDC"
+  String? _extractCoinTypeFromObjectType(String objectType) {
+    final start = objectType.indexOf('<');
+    final end = objectType.lastIndexOf('>');
+    if (start != -1 && end != -1) {
+      final outer = objectType.substring(0, start);
+      if (outer.endsWith('::coin::Coin') ||
+          outer.endsWith('::coin::coin::Coin')) {
+        return objectType.substring(start + 1, end);
+      }
+    }
+    return null;
   }
 }

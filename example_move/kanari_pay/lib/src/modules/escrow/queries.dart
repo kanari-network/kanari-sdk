@@ -63,97 +63,105 @@ class EscrowQueries {
     print('[ESCROW] Querying deals for owner: $buyerAddress');
 
     try {
-      // 🔥 FIXED: Params must be an OBJECT, not an array
-      final body = {
-        'jsonrpc': '2.0',
-        'method': 'kanari_getOwnedObjects',
-        'params': {
-          'owner': buyerAddress,
-          'object_type': '${EscrowConstants.packageAddress}::${EscrowConstants.module}::${EscrowConstants.objectTypeDeal}', // Filter for EscrowDeal objects only
-        },
-        'id': DateTime.now().millisecondsSinceEpoch,
-      };
+      // Get account info to access all owned objects
+      final account = await rpc.getAccount(buyerAddress);
+      final allObjects = account.ownedObjects ?? [];
 
-      print('[ESCROW] Request params: ${body['params']}');
+      print('[ESCROW] Total owned objects: ${allObjects.length}');
 
-      final response = await http.post(
-        Uri.parse(rpc.url),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(body),
-      );
+      // Separate deal objects and proof objects
+      final dealObjects = <Map<String, dynamic>>[];
 
-      if (response.statusCode != 200) {
-        print('[ESCROW] RPC error: ${response.statusCode}');
-        print('[ESCROW] Response body: ${response.body}');
-        return [];
+      for (final obj in allObjects) {
+        final objectType = obj.type;
+        final objectId = obj.id;
+
+        if (objectType.contains('::escrow::EscrowDeal<')) {
+          dealObjects.add({'id': objectId, 'type': objectType});
+          print('[ESCROW] Found EscrowDeal: $objectId');
+        } else if (objectType.contains('::escrow::EscrowProof')) {
+          // Try to extract deal_id from proof object
+          // For now, we'll match them by checking proof objects after loading deals
+          print('[ESCROW] Found EscrowProof: $objectId');
+        }
       }
 
-      final jsonResponse = jsonDecode(response.body) as Map<String, dynamic>;
-      
-      if (jsonResponse['error'] != null) {
-        print('[ESCROW] RPC error response: ${jsonResponse['error']}');
-        return [];
-      }
-      
-      if (jsonResponse['result'] != null &&
-          jsonResponse['result']['objects'] != null) {
-        final objects = (jsonResponse['result']['objects'] as List)
-            .cast<Map<String, dynamic>>();
-        print('[ESCROW] Parsed ${objects.length} objects from RPC response');
+      print('[ESCROW] Found ${dealObjects.length} EscrowDeal objects');
 
-        final deals = <Map<String, dynamic>>[];
+      final deals = <Map<String, dynamic>>[];
 
-        for (final obj in objects) {
-          final objectId = obj['id'] as String?;
-          final objectType = obj['type_'] as String?; // Rust uses type_ (with underscore)
+      for (final dealObj in dealObjects) {
+        final objectId = dealObj['id'] as String;
+        final objectType = dealObj['type'] as String;
 
-          if (objectId != null && objectType != null) {
-            print('[ESCROW] Found escrow deal:');
-            print('[ESCROW]   Object ID: $objectId');
-            print('[ESCROW]   Object Type: $objectType');
+        // Extract coin type from object type
+        final coinType = _extractCoinTypeFromObjectType(objectType);
 
-            // Extract coin type from object type
-            // Format: 0xPKG::escrow::EscrowDeal<0xPKG::usdc::USDC>
-            final coinType = _extractCoinTypeFromObjectType(objectType);
-
-            if (coinType != null) {
-              //  NEW: Get deal details via view function
-              print('[ESCROW] Fetching deal details for: $objectId');
-              final dealDetails = await getDealDetailsByObjectId(
-                wallet: wallet,
-                dealObjectId: objectId,
-                coinType: coinType,
-              );
-
-              deals.add({
-                'object_id': objectId,
-                'coin_type': coinType,
-                'object_type': objectType,
-                ...dealDetails, // Merge deal details (deal_id, buyer, seller, amount)
-              });
-              print('[ESCROW]   ✅ Deal details loaded: ${dealDetails.keys}');
-            } else {
-              print('[ESCROW]   ⚠️ Could not extract coin type from: $objectType');
-            }
-          }
+        if (coinType == null) {
+          print('[ESCROW]   ⚠️ Could not extract coin type from: $objectType');
+          continue;
         }
 
-        print('[ESCROW] Found ${deals.length} escrow deals');
-        if (deals.isNotEmpty) {
-          print('[ESCROW] First deal keys: ${deals.first.keys}');
-          print('[ESCROW] First deal: ${deals.first}');
+        print('[ESCROW] Fetching deal details for: $objectId');
+        final dealDetails = await getDealDetailsByObjectId(
+          wallet: wallet,
+          dealObjectId: objectId,
+          coinType: coinType,
+        );
+
+        // Find matching proof object for this deal
+        final proofId = await _findProofForDeal(
+          allObjects: allObjects,
+          dealObjectId: objectId,
+        );
+
+        if (proofId != null) {
+          print('[ESCROW]   ✅ Found proof object: $proofId');
+        } else {
+          print('[ESCROW]   ⚠️ No proof object found for deal: $objectId');
         }
 
-        return deals;
+        deals.add({
+          'object_id': objectId,
+          'coin_type': coinType,
+          'object_type': objectType,
+          'proof_id': proofId, // Add proof_id to deal data
+          ...dealDetails,
+        });
       }
 
-      print('[ESCROW] No escrow deals found');
-      return [];
+      print('[ESCROW] Found ${deals.length} escrow deals');
+      if (deals.isNotEmpty) {
+        print('[ESCROW] First deal keys: ${deals.first.keys}');
+        print('[ESCROW] First deal: ${deals.first}');
+      }
+
+      return deals;
     } catch (e, stack) {
       print('[ESCROW] Error querying deals: $e');
       print('[ESCROW] Stack: $stack');
       return [];
     }
+  }
+
+  /// Find proof object that belongs to a specific deal
+  Future<String?> _findProofForDeal({
+    required List<dynamic> allObjects,
+    required String dealObjectId,
+  }) async {
+    // Strategy: Find EscrowProof objects and match them to deals
+    // Since we can't read proof object data directly without a view function,
+    // we'll try to find proof objects owned by the same address
+
+    for (final obj in allObjects) {
+      if (obj.type.contains('::escrow::EscrowProof')) {
+        // For now, return the first proof object we find
+        // TODO: Add a view function to match proof to deal properly
+        return obj.id as String?;
+      }
+    }
+
+    return null;
   }
 
   /// Get deal details by Object ID

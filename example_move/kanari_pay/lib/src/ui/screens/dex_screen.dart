@@ -1277,16 +1277,4 @@ class _DEXScreenState extends State<DEXScreen>
       }
     }
   }
-
-  String _getShortTokenName(String tokenType) {
-    // Extract last part after ::
-    final parts = tokenType.split('::');
-    if (parts.length >= 3) {
-      return parts.last;
-    }
-    // If format is different, just truncate
-    return tokenType.length > 20
-        ? '${tokenType.substring(0, 20)}...'
-        : tokenType;
-  }
 }

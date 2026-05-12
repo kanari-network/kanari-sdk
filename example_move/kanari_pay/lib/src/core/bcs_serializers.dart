@@ -23,6 +23,27 @@ class BcsSerializers {
     return data.buffer.asUint8List();
   }
 
+  /// Encode string to BCS format (ULEB128 length prefix + UTF-8 bytes)
+  static List<int> encodeString(String value) {
+    final utf8Bytes = value.codeUnits;
+    final lengthBytes = encodeULEB128(utf8Bytes.length);
+    return [...lengthBytes, ...utf8Bytes];
+  }
+
+  /// Encode integer as ULEB128
+  static List<int> encodeULEB128(int value) {
+    final bytes = <int>[];
+    do {
+      int byte = value & 0x7F;
+      value >>= 7;
+      if (value != 0) {
+        byte |= 0x80;
+      }
+      bytes.add(byte);
+    } while (value != 0);
+    return bytes;
+  }
+
   /// Normalize address to 0x followed by 64 hex characters
   static String normalizeAddress(String addr) {
     var clean = addr.startsWith('0x') ? addr.substring(2) : addr;
