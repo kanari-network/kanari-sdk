@@ -1,0 +1,76 @@
+// core/bcs_serializers.dart
+/// BCS serialization utilities for Kanari SDK
+
+import 'dart:typed_data';
+
+class BcsSerializers {
+  const BcsSerializers._();
+
+  /// Convert hex string to bytes
+  static List<int> hexToBytes(String hexStr) {
+    final clean = hexStr.startsWith('0x') ? hexStr.substring(2) : hexStr;
+    List<int> bytes = [];
+    for (int i = 0; i < clean.length; i += 2) {
+      bytes.add(int.parse(clean.substring(i, i + 2), radix: 16));
+    }
+    return bytes;
+  }
+
+  /// Encode u64 to little-endian bytes (BCS format)
+  static List<int> encodeU64(int value) {
+    final data = ByteData(8);
+    data.setUint64(0, value, Endian.little);
+    return data.buffer.asUint8List();
+  }
+
+  /// Normalize address to 0x followed by 64 hex characters
+  static String normalizeAddress(String addr) {
+    var clean = addr.startsWith('0x') ? addr.substring(2) : addr;
+
+    // Validate hex characters
+    if (!RegExp(r'^[0-9a-fA-F]+$').hasMatch(clean)) {
+      throw ArgumentError('Invalid hexadecimal characters in address: $clean');
+    }
+
+    // CRITICAL: Address MUST be exactly 64 hex characters (32 bytes)
+    if (clean.length != 64) {
+      throw ArgumentError(
+        'Address must be exactly 64 hex characters (32 bytes). '
+        'Got ${clean.length} characters. '
+        'Example: 0x${'1'.padLeft(64, '0')}',
+      );
+    }
+
+    return '0x${clean.toLowerCase()}';
+  }
+
+  /// Normalize object ID
+  static String normalizeObjectId(String objectId) {
+    var clean = objectId.startsWith('0x') ? objectId.substring(2) : objectId;
+    if (clean.isEmpty || !RegExp(r'^[0-9a-fA-F]+$').hasMatch(clean)) {
+      throw ArgumentError('Invalid object ID format: $objectId');
+    }
+    clean = clean.padLeft(64, '0').toLowerCase();
+    if (clean.length != 64) {
+      throw ArgumentError(
+        'Object ID must be 32 bytes (64 hex chars) after normalization. '
+        'Got ${clean.length} characters for $objectId.',
+      );
+    }
+    return '0x$clean';
+  }
+
+  /// Extract coin type from object type
+  static String? extractCoinTypeFromObjectType(String objectType) {
+    final start = objectType.indexOf('<');
+    final end = objectType.lastIndexOf('>');
+    if (start != -1 && end != -1) {
+      final outer = objectType.substring(0, start);
+      if (outer.endsWith('::coin::Coin') ||
+          outer.endsWith('::coin::coin::Coin')) {
+        return objectType.substring(start + 1, end);
+      }
+    }
+    return null;
+  }
+}
