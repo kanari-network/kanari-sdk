@@ -401,7 +401,7 @@ async fn run_node(
         let stats = engine.get_stats();
         let wallets = list_wallet_files().unwrap_or_default();
         tracing::info!(
-            "Block height: {}, Transactions: {}, Pending: {}, Wallets: {}",
+            "Event height: {}, Transactions: {}, Pending: {}, Wallets: {}",
             stats.height,
             stats.total_transactions,
             stats.pending_transactions,

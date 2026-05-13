@@ -6,6 +6,12 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use kanari_rpc_api::{GetOwnedObjectsRequest, RpcRequest, RpcResponse, methods};
 
+/// Format token type for display - shows full type string
+fn format_token_type(type_: &str) -> String {
+    // Always show full token type for consistency
+    type_.to_string()
+}
+
 /// List owned objects
 #[derive(Parser, Debug)]
 pub struct Objects {
@@ -87,7 +93,7 @@ impl Objects {
                     eprintln!("Object #{}:", i + 1);
                     eprintln!("  ID: {}", id);
                     eprintln!("  Owner: {}", owner);
-                    eprintln!("  Type: {}", type_);
+                    eprintln!("  Type: {}", format_token_type(type_));
                     eprintln!("  Version: {}", version);
 
                     if self.detailed
