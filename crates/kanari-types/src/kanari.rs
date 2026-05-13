@@ -9,6 +9,7 @@ use move_core_types::{
 
 /// Kanari module constants and utilities
 pub struct KanariModule;
+pub const KANARI_TOKEN_TYPE: &str = "0x2::kanari::KANARI";
 
 impl KanariModule {
     pub const KANARI_MODULE: &'static str = "kanari";

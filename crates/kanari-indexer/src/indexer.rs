@@ -7,8 +7,8 @@ use crate::db::IndexerDB;
 use crate::models::IndexedCoin;
 use anyhow::{Context, Result};
 use chrono::Utc;
-use kanari_types::block::Block;
 use kanari_types::transaction::Transaction;
+use kanari_types::{block::Block, kanari::KANARI_TOKEN_TYPE};
 use std::path::PathBuf;
 use tracing::{debug, error, info, warn};
 
@@ -92,7 +92,7 @@ impl Indexer {
                     let coin = IndexedCoin {
                         id: format!("{}-{}", tx_hash, 0),
                         owner: to.clone(),
-                        coin_type: "0x2::kanari::KANARI".to_string(),
+                        coin_type: KANARI_TOKEN_TYPE.to_string(),
                         balance: *amount,
                         is_frozen: false,
                         created_tx_hash: Some(tx_hash.clone()),

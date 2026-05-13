@@ -1311,9 +1311,10 @@ impl MoveRuntime {
                 return serde_json::Value::Number(serde_json::Number::from(bytes[0]));
             }
             if bytes.len() == 8
-                && let Ok(num) = bcs::from_bytes::<u64>(bytes) {
-                    return serde_json::Value::Number(serde_json::Number::from(num));
-                }
+                && let Ok(num) = bcs::from_bytes::<u64>(bytes)
+            {
+                return serde_json::Value::Number(serde_json::Number::from(num));
+            }
         }
 
         // For addresses (32 bytes)

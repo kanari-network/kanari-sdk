@@ -1,6 +1,7 @@
 use super::{RpcError, RpcRequest, RpcResponse, RpcServerState, respond_with_serialize};
 use kanari_move_runtime_v1::state::StateManager;
 use kanari_rpc_api::{GetAllBalancesRequest, GetTokenBalanceRequest};
+use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use move_core_types::language_storage::TypeTag;
 use serde_json;
 use std::collections::BTreeMap;
@@ -13,7 +14,8 @@ use std::str::FromStr;
 /// Helper to get token decimals from engine state.
 /// OPTIMIZED: Requires an already acquired state guard to prevent lock contention in loops.
 fn get_token_decimals(state_guard: &StateManager, token_type: &str) -> u8 {
-    if token_type.to_uppercase().contains("KANARI") {
+    // Check for KANARI token (full type or short form for backward compatibility)
+    if token_type == KANARI_TOKEN_TYPE || token_type.to_uppercase() == "KANARI" {
         return 9;
     }
     if let Ok(Some(decimals)) = state_guard.get_token_decimals(token_type) {
@@ -132,7 +134,11 @@ pub async fn handle_get_token_balance(state: &RpcServerState, request: &RpcReque
     let target_token = normalize_token_type(&req_data.token_type);
     let mut final_balance = 0;
 
-    if target_token.to_uppercase() == "KANARI" || target_token.contains("::kanari::KANARI") {
+    // Check for KANARI token (full type or short form for backward compatibility)
+    if target_token == KANARI_TOKEN_TYPE
+        || target_token.to_uppercase() == "KANARI"
+        || target_token.contains("::kanari::KANARI")
+    {
         final_balance = account_info.balance;
     } else if let Some(record) = account_info.token_balances.get(&target_token) {
         final_balance = *record;
@@ -178,9 +184,10 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
     let mut coin_sums: BTreeMap<String, u128> = BTreeMap::new();
 
     // 1. Use Native Balance as initial KANARI token balance
-    coin_sums.insert("KANARI".to_string(), account_info.balance as u128);
+    // Use the standardized full type string constant
+    coin_sums.insert(KANARI_TOKEN_TYPE.to_string(), account_info.balance as u128);
 
-    // 🚨 2. Loop through token_balances for non-KANARI tokens only to prevent double counting
+    //  2. Loop through token_balances for non-KANARI tokens only to prevent double counting
     for (token_type, amount) in account_info.token_balances {
         // Skip KANARI token since we already use Native Balance as primary source in step 1
         if token_type.to_uppercase().contains("KANARI") {
@@ -194,7 +201,7 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
     let mut balances = Vec::new();
 
     for (token_type, amount128) in coin_sums {
-        if amount128 == 0 && token_type != "KANARI" {
+        if amount128 == 0 && token_type != KANARI_TOKEN_TYPE {
             continue;
         }
 
@@ -216,7 +223,7 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
             .get_token_description(&token_type)
             .unwrap_or(None);
 
-        let is_kanari = token_type.to_uppercase().contains("KANARI");
+        let is_kanari = token_type == KANARI_TOKEN_TYPE;
 
         let (final_name, final_symbol, icon_url) = if is_kanari {
             // Enforce exact KANARI token metadata
@@ -255,21 +262,22 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
     }
 }
 
-/// Handle list tokens request (⚡ O(1) Optimized from Global Cache)
+/// Handle list tokens request ( O(1) Optimized from Global Cache)
 pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let state_guard = state.engine.state.read().unwrap_or_else(|p| p.into_inner());
 
-    // 🚨 1. Fetch cached Global Token Supplies from RAM immediately (no Deep Scan needed!)
+    //  1. Fetch cached Global Token Supplies from RAM immediately (no Deep Scan needed!)
     let mut global_tokens = state_guard.global_token_supplies.clone();
 
-    // 🚨 2. Always include Native Token (KANARI) balance
-    global_tokens.insert("KANARI".to_string(), state_guard.total_supply);
+    //  2. Always include Native Token (KANARI) balance with full type string from constant
+    global_tokens.insert(KANARI_TOKEN_TYPE.to_string(), state_guard.total_supply);
 
-    // 🚨 3. Check for Treasury-enabled tokens with zero mint (display 0 balance)
+    //  3. Check for Treasury-enabled tokens with zero mint (display 0 balance)
     if let Ok(Some(keys)) = state_guard.store.load::<Vec<String>>(b"treasury_index") {
         for key in keys {
             let token_type = key.strip_prefix("treasury:").unwrap_or(&key).to_string();
-            if !token_type.to_uppercase().contains("KANARI") {
+            // Skip KANARI tokens as they're already added above
+            if token_type != KANARI_TOKEN_TYPE && !token_type.to_uppercase().contains("KANARI") {
                 global_tokens.entry(token_type).or_insert(0);
             }
         }
@@ -296,7 +304,7 @@ pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) ->
                 .get_token_description(&token_type)
                 .unwrap_or(None);
 
-            let is_kanari = token_type.to_uppercase().contains("KANARI");
+            let is_kanari = token_type == KANARI_TOKEN_TYPE;
 
             let (final_name, final_symbol, icon_url) = if is_kanari {
                 if description.is_none() {

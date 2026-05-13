@@ -78,11 +78,6 @@ impl Balance {
                         .and_then(|t| t.as_str())
                         .unwrap_or("UNKNOWN");
 
-                    let symbol = balance
-                        .get("symbol")
-                        .and_then(|s| s.as_str())
-                        .unwrap_or(token_type);
-
                     let amount = balance.get("balance").and_then(|a| a.as_u64()).unwrap_or(0);
 
                     let decimals = balance
@@ -96,21 +91,20 @@ impl Balance {
                     let fraction = amount % divisor;
 
                     if self.detailed {
-                        eprintln!("Token: {}", symbol);
+                        eprintln!("Token Type: {}", token_type);
                         eprintln!(
-                            "  Balance: {}.{:0width$} {}",
+                            "  Balance: {}.{:0width$} ({})",
                             whole,
                             fraction,
-                            symbol,
+                            token_type,
                             width = decimals as usize
                         );
-                        eprintln!("  Type: {}", token_type);
                         eprintln!("  Raw Amount: {}", amount);
                         eprintln!("------------------------------");
                     } else {
                         eprintln!(
                             "  {} {}.{:0width$}",
-                            symbol,
+                            token_type,
                             whole,
                             fraction,
                             width = decimals as usize
@@ -118,89 +112,6 @@ impl Balance {
                     }
                 }
                 eprintln!("\nTotal tokens: {}", balances.len());
-
-                // If only the native KANARI balance is present, attempt a best-effort
-                // fallback: inspect account `owned_objects` for token metadata (e.g., TreasuryCap/CoinMetadata)
-                if balances.len() == 1
-                    && let Some(first) = balances.first()
-                    && first.get("token_type").and_then(|t| t.as_str()) == Some("KANARI")
-                {
-                    // Fetch full account info and look for token objects
-                    let acct_req = RpcRequest {
-                        jsonrpc: "2.0".to_string(),
-                        method: methods::GET_ACCOUNT.to_string(),
-                        params: serde_json::json!({ "address": address_normalized }),
-                        id: 1,
-                    };
-
-                    if let Ok(resp) = http_client.post(&rpc).json(&acct_req).send().await
-                        && let Ok(val) = resp.json::<RpcResponse>().await
-                        && let Some(result_acc) = val.result
-                        && let Some(owned) =
-                            result_acc.get("owned_objects").and_then(|v| v.as_array())
-                    {
-                        eprintln!("\nDetected owned objects (possible tokens):");
-                        for obj in owned.iter() {
-                            let id = obj.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-                            let ty = obj.get("type_").and_then(|v| v.as_str()).unwrap_or("?");
-
-                            // If this looks like a coin object, try fetching the object
-                            // and parsing the last 8 bytes as a little-endian u64 amount.
-                            if ty.contains("::coin::Coin<") {
-                                let obj_req = RpcRequest {
-                                    jsonrpc: "2.0".to_string(),
-                                    method: methods::GET_OBJECT.to_string(),
-                                    params: serde_json::json!({ "object_id": id }),
-                                    id: 1,
-                                };
-
-                                if let Ok(resp) = http_client.post(&rpc).json(&obj_req).send().await
-                                    && let Ok(val) = resp.json::<RpcResponse>().await
-                                    && let Some(res) = val.result
-                                    && let Some(data_arr) =
-                                        res.get("data").and_then(|d| d.as_array())
-                                    && data_arr.len() >= 8
-                                {
-                                    let n = data_arr.len();
-                                    let mut bytes = [0u8; 8];
-                                    let mut ok = true;
-                                    for i in 0..8 {
-                                        match data_arr[n - 8 + i].as_u64() {
-                                            Some(b) if b <= 0xff => bytes[i] = b as u8,
-                                            _ => {
-                                                ok = false;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                    if ok {
-                                        let amount = u64::from_le_bytes(bytes);
-                                        // Display using same formatting as other balances (9 decimals default)
-                                        let decimals = 9u32;
-                                        let divisor = 10u64.pow(decimals);
-                                        let whole = amount / divisor;
-                                        let fraction = amount % divisor;
-                                        eprintln!(
-                                            "  {}  ({}) -> TOKEN {}.{:0width$}",
-                                            id,
-                                            ty,
-                                            whole,
-                                            fraction,
-                                            width = decimals as usize
-                                        );
-                                        continue;
-                                    }
-                                }
-                            }
-
-                            // Fallback: just print id and type
-                            eprintln!("  {}  ({})", id, ty);
-                        }
-                        eprintln!(
-                            "\nTip: use `kanari client account get --address <addr>` to inspect object data and determine token types."
-                        );
-                    }
-                }
             } else {
                 eprintln!("No balances found");
             }
