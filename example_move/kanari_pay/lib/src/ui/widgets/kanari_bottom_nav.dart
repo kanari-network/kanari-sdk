@@ -123,7 +123,7 @@ class _KanariBottomNavState extends State<KanariBottomNav> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
           decoration: BoxDecoration(
             color: isActive
-                ? colorScheme.primaryContainer.withOpacity(0.3)
+                ? colorScheme.surfaceContainerHighest.withOpacity(0.5)
                 : Colors.transparent,
             borderRadius: BorderRadius.circular(24),
           ),

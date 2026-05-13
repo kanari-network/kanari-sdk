@@ -157,7 +157,7 @@ class _KanariLoginScreenState extends State<KanariLoginScreen> {
     return AppGradientScaffold(
       appBar: AppBar(title: const Text('Login'), centerTitle: true),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(16),
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 520),
@@ -166,20 +166,20 @@ class _KanariLoginScreenState extends State<KanariLoginScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
                   const AuthHero(
                     icon: Icons.login_rounded,
                     title: 'Welcome Back',
                     subtitle:
                         'Sign in to access your Kanari wallet and synced sessions.',
                   ),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 16),
                   AppPanel(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         const AppSectionTitle('Account'),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 12),
                         TextFormField(
                           controller: _emailController,
                           keyboardType: TextInputType.emailAddress,

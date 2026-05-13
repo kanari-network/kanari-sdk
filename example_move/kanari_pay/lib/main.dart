@@ -3,6 +3,7 @@ import 'package:kanari_crypto/kanari_crypto.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'theme.dart';
 import 'src/client/auth_client.dart';
 import 'src/providers/theme_mode_provider.dart';
 import 'src/providers/wallet_provider.dart';
@@ -115,66 +116,14 @@ class KanariApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final themeMode = context.watch<ThemeModeProvider>().themeMode;
+    final textTheme = createTextTheme(context, 'Inter', 'Inter');
 
     return MaterialApp(
       title: 'Kanari Wallet',
       debugShowCheckedModeBanner: false,
       themeMode: themeMode,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blueAccent,
-          brightness: Brightness.light,
-        ),
-        appBarTheme: const AppBarTheme(
-          centerTitle: true,
-          scrolledUnderElevation: 0,
-          backgroundColor: Colors.transparent,
-        ),
-        cardTheme: CardThemeData(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-          color: const ColorScheme.light().surfaceVariant.withOpacity(0.3),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide.none,
-          ),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 16,
-          ),
-        ),
-      ),
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blueAccent,
-          brightness: Brightness.dark,
-        ),
-        appBarTheme: const AppBarTheme(
-          centerTitle: true,
-          scrolledUnderElevation: 0,
-          backgroundColor: Colors.transparent,
-        ),
-        cardTheme: CardThemeData(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide.none,
-          ),
-        ),
-      ),
+      theme: MaterialTheme(textTheme).light(),
+      darkTheme: MaterialTheme(textTheme).dark(),
       initialRoute: '/',
       routes: {
         '/': (context) {

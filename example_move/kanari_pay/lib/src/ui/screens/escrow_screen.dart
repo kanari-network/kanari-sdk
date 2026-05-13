@@ -801,25 +801,48 @@ class _EscrowScreenState extends State<EscrowScreen>
                   // TabBar in Sliver
                   SliverToBoxAdapter(
                     child: Container(
-                      margin: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
+                      margin: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(4),
                       decoration: BoxDecoration(
-                        color: colorScheme.surfaceContainerHigh,
-                        borderRadius: BorderRadius.circular(12),
+                        color: colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(16),
                       ),
                       child: TabBar(
                         controller: _tabController,
-                        labelColor: colorScheme.primary,
+                        labelColor: colorScheme.onSurface,
                         unselectedLabelColor: colorScheme.onSurfaceVariant,
-                        indicatorColor: colorScheme.primary,
-                        indicatorWeight: 3,
+                        indicator: BoxDecoration(
+                          color: colorScheme.surface,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            // ignore: deprecated_member_use
+                            color: colorScheme.outline.withOpacity(0.2),
+                            width: 1,
+                          ),
+                        ),
+                        indicatorWeight: 0,
                         dividerColor: Colors.transparent,
+                        labelStyle: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                        unselectedLabelStyle: const TextStyle(
+                          fontWeight: FontWeight.w500,
+                          fontSize: 14,
+                        ),
                         tabs: const [
-                          Tab(icon: Icon(Icons.add_business), text: 'Create'),
-                          Tab(icon: Icon(Icons.list), text: 'Deals'),
-                          Tab(icon: Icon(Icons.history), text: 'History'),
+                          Tab(
+                            icon: Icon(Icons.add_business_rounded, size: 20),
+                            text: 'Create',
+                          ),
+                          Tab(
+                            icon: Icon(Icons.list_rounded, size: 20),
+                            text: 'Deals',
+                          ),
+                          Tab(
+                            icon: Icon(Icons.history_rounded, size: 20),
+                            text: 'History',
+                          ),
                         ],
                       ),
                     ),
@@ -865,7 +888,7 @@ class _EscrowScreenState extends State<EscrowScreen>
     }
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1232,12 +1255,12 @@ class _EscrowScreenState extends State<EscrowScreen>
     Widget? child,
   }) {
     return AppPanel(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           AppSectionTitle(title),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
           if (child != null) child,
         ],

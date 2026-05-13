@@ -140,29 +140,29 @@ class _KanariRegisterScreenState extends State<KanariRegisterScreen> {
     return AppGradientScaffold(
       appBar: AppBar(title: const Text('Register'), centerTitle: true),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(16),
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 560),
+            constraints: const BoxConstraints(maxWidth: 520),
             child: Form(
               key: _formKey,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
                   const AuthHero(
                     icon: Icons.person_add_alt_1_rounded,
                     title: 'Create Your Account',
                     subtitle:
                         'Set up your Kanari account and choose the wallet cryptography that fits your use case.',
                   ),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 16),
                   AppPanel(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         const AppSectionTitle('Account Details'),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 12),
                         TextFormField(
                           controller: _emailController,
                           keyboardType: TextInputType.emailAddress,
@@ -329,8 +329,9 @@ class _RequirementsCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: colorScheme.primaryContainer.withOpacity(0.35),
-        borderRadius: BorderRadius.circular(18),
+        color: colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.outline.withOpacity(0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

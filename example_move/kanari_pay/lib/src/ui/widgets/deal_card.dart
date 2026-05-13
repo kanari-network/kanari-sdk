@@ -32,7 +32,11 @@ class DealCard extends StatelessWidget {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      color: isSelected ? colorScheme.primaryContainer.withOpacity(0.3) : null,
+      color: isSelected ? colorScheme.surfaceContainerHighest : null,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: colorScheme.outline.withOpacity(0.2)),
+      ),
       child: InkWell(
         onTap: onTap,
         child: Padding(
@@ -48,14 +52,13 @@ class DealCard extends StatelessWidget {
                       'Deal ID',
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.bold,
-                            color: isSelected ? colorScheme.primary : null,
                           ),
                     ),
                   ),
                   if (isSelected)
                     Icon(
                       Icons.check_circle,
-                      color: colorScheme.primary,
+                      color: colorScheme.onSurface,
                       size: 20,
                     ),
                 ],

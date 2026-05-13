@@ -30,10 +30,10 @@ class _SecurityCardState extends State<SecurityCard> {
     return Container(
       padding: EdgeInsets.all(containerPadding),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceVariant.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(24),
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: theme.colorScheme.outline.withOpacity(0.06),
+          color: theme.colorScheme.outline.withOpacity(0.2),
           width: 1,
         ),
       ),
@@ -47,12 +47,12 @@ class _SecurityCardState extends State<SecurityCard> {
                 Container(
                   padding: EdgeInsets.all(iconPadding),
                   decoration: BoxDecoration(
-                    color: Colors.orangeAccent.withOpacity(0.1),
+                    color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: Icon(
                     Icons.security_rounded,
-                    color: Colors.orangeAccent,
+                    color: theme.colorScheme.onSurface,
                     size: iconSize,
                   ),
                 ),
@@ -109,15 +109,15 @@ class _SecurityCardState extends State<SecurityCard> {
             Container(
               padding: EdgeInsets.all(warningPadding),
               decoration: BoxDecoration(
-                color: Colors.orangeAccent.withOpacity(0.08),
+                color: theme.colorScheme.errorContainer.withOpacity(0.3),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.orangeAccent.withOpacity(0.2)),
+                border: Border.all(color: theme.colorScheme.error.withOpacity(0.3)),
               ),
               child: Row(
                 children: [
                   Icon(
                     Icons.warning_amber_rounded,
-                    color: Colors.orangeAccent,
+                    color: theme.colorScheme.error,
                     size: isSmallScreen ? 18 : 20,
                   ),
                   SizedBox(width: isSmallScreen ? 8 : 12),
@@ -126,7 +126,7 @@ class _SecurityCardState extends State<SecurityCard> {
                       'NEVER share these with anyone. They grant full access to your funds.',
                       style: TextStyle(
                         fontSize: isSmallScreen ? 10 : 12,
-                        color: Colors.orangeAccent.shade100,
+                        color: theme.colorScheme.onErrorContainer,
                         fontWeight: FontWeight.w500,
                         height: 1.4,
                       ),

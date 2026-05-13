@@ -53,7 +53,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           SliverFillRemaining(
             hasScrollBody: false,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
               child: Column(
                 children: [
                   const Spacer(),
@@ -86,7 +86,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                         tooltip: 'Logout',
                       ),
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 16),
                   ],
 
                   // Wallet Actions
@@ -96,7 +96,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                       icon: Icons.lock_open_rounded,
                       label: 'Unlock Saved Wallet',
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
                     TextButton.icon(
                       onPressed: () => _showDeleteConfirm(context, state),
                       icon: const Icon(Icons.delete_outline_rounded, size: 20),
@@ -105,7 +105,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                         foregroundColor: colorScheme.error,
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                   ],
 
                   AppWideButton(
@@ -114,18 +114,18 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                     label: 'Create New Wallet',
                     style: AppWideButtonStyle.tonal,
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
                   AppWideButton(
                     onPressed: () => _showImportDialog(context),
                     icon: Icons.file_download_outlined,
                     label: 'Import Existing Wallet',
                     style: AppWideButtonStyle.outlined,
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
 
                   // Divider
                   const AppLabeledDivider(),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
 
                   // Login / Register buttons
                   AppWideButton(
@@ -136,7 +136,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                     label: 'Login',
                     style: AppWideButtonStyle.text,
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 4),
                   AppWideButton(
                     onPressed: () {
                       Navigator.of(context).pushNamed('/register');
@@ -147,7 +147,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                   ),
 
                   const Spacer(),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
                 ],
               ),
             ),

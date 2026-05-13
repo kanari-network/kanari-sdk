@@ -39,10 +39,10 @@ class WalletInfoCard extends StatelessWidget {
         Container(
           padding: EdgeInsets.all(cardPadding),
           decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceVariant.withOpacity(0.2),
-            borderRadius: BorderRadius.circular(24),
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: theme.colorScheme.outline.withOpacity(0.08),
+              color: theme.colorScheme.outline.withOpacity(0.2),
               width: 1,
             ),
           ),
@@ -51,12 +51,12 @@ class WalletInfoCard extends StatelessWidget {
               Container(
                 padding: EdgeInsets.all(iconPadding),
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.primary.withOpacity(0.08),
+                  color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Icon(
                   Icons.account_circle_rounded,
-                  color: theme.colorScheme.primary,
+                  color: theme.colorScheme.onSurface,
                   size: iconSize,
                 ),
               ),

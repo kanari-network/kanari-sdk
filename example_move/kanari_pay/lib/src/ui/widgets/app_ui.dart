@@ -49,21 +49,7 @@ class AppGradientScaffold extends StatelessWidget {
     return Scaffold(
       backgroundColor: backgroundColor ?? colorScheme.surface,
       appBar: appBar,
-      body: SizedBox.expand(
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                colorScheme.surface,
-                colorScheme.primaryContainer.withOpacity(0.12),
-              ],
-            ),
-          ),
-          child: SafeArea(child: body),
-        ),
-      ),
+      body: SafeArea(child: body),
     );
   }
 }
@@ -75,7 +61,7 @@ class AppPanel extends StatelessWidget {
   const AppPanel({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(24),
+    this.padding = const EdgeInsets.all(16),
   });
 
   @override
@@ -85,9 +71,9 @@ class AppPanel extends StatelessWidget {
     return Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withOpacity(0.55),
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: colorScheme.outline.withOpacity(0.12)),
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.outline.withOpacity(0.2)),
       ),
       child: child,
     );
@@ -130,23 +116,24 @@ class AuthHero extends StatelessWidget {
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: colorScheme.primaryContainer,
-            borderRadius: BorderRadius.circular(28),
+            color: colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: colorScheme.outline.withOpacity(0.2)),
           ),
-          child: Icon(icon, size: 48, color: colorScheme.onPrimaryContainer),
+          child: Icon(icon, size: 40, color: colorScheme.onSurface),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
         Text(
           title,
           style: theme.textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w700,
             letterSpacing: -0.5,
           ),
           textAlign: TextAlign.center,
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         Text(
           subtitle,
           style: theme.textTheme.bodyLarge?.copyWith(
@@ -171,8 +158,8 @@ class AppErrorBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: colorScheme.errorContainer.withOpacity(0.85),
-        borderRadius: BorderRadius.circular(16),
+        color: colorScheme.errorContainer,
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [
@@ -236,15 +223,16 @@ class AppAccountSummaryPanel extends StatelessWidget {
     final colorScheme = theme.colorScheme;
 
     return AppPanel(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       child: Row(
         children: [
           CircleAvatar(
-            backgroundColor: colorScheme.primaryContainer,
+            backgroundColor: colorScheme.surfaceContainerHighest,
+            radius: 20,
             child: Icon(
               Icons.account_circle,
-              color: colorScheme.onPrimaryContainer,
-              size: 32,
+              color: colorScheme.onSurface,
+              size: 24,
             ),
           ),
           const SizedBox(width: 12),
@@ -255,12 +243,12 @@ class AppAccountSummaryPanel extends StatelessWidget {
                 Text(
                   title,
                   style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w600,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
                 if (subtitle != null) ...[
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2),
                   Text(
                     subtitle!,
                     style: theme.textTheme.bodySmall?.copyWith(

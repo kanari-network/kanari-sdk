@@ -98,11 +98,10 @@ class HomeScreenState extends State<HomeScreen> {
                               vertical: 8,
                             ),
                             decoration: BoxDecoration(
-                              color: colorScheme.surfaceContainerHigh
-                                  .withOpacity(0.6),
-                              borderRadius: BorderRadius.circular(24),
+                              color: colorScheme.surface,
+                              borderRadius: BorderRadius.circular(16),
                               border: Border.all(
-                                color: colorScheme.outline.withOpacity(0.1),
+                                color: colorScheme.outline.withOpacity(0.2),
                               ),
                             ),
                             child: Row(
@@ -113,12 +112,17 @@ class HomeScreenState extends State<HomeScreen> {
                                     Container(
                                       padding: const EdgeInsets.all(10),
                                       decoration: BoxDecoration(
-                                        color: colorScheme.primaryContainer,
+                                        color:
+                                            colorScheme.surfaceContainerHighest,
                                         borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: colorScheme.outline
+                                              .withOpacity(0.2),
+                                        ),
                                       ),
                                       child: Icon(
                                         Icons.hexagon_rounded,
-                                        color: colorScheme.onPrimaryContainer,
+                                        color: colorScheme.onSurface,
                                         size: 20,
                                       ),
                                     ),
@@ -303,12 +307,9 @@ class HomeScreenState extends State<HomeScreen> {
         ),
         Container(
           decoration: BoxDecoration(
-            color: colorScheme.surfaceVariant.withOpacity(0.15),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(
-              color: colorScheme.outline.withOpacity(0.06),
-              width: 1,
-            ),
+            color: colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colorScheme.outline.withOpacity(0.2)),
           ),
           child: ListView.separated(
             shrinkWrap: true,
@@ -326,7 +327,6 @@ class HomeScreenState extends State<HomeScreen> {
                   token.amount / math.pow(10, token.decimals);
               final isKanari = token.tokenType == 'KANARI';
 
-              final iconColor = isKanari ? colorScheme.primary : Colors.teal;
               final iconData = isKanari
                   ? Icons.hexagon_rounded
                   : Icons.toll_rounded;
@@ -342,10 +342,17 @@ class HomeScreenState extends State<HomeScreen> {
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: iconColor.withOpacity(0.1),
+                        color: colorScheme.surfaceContainerHighest,
                         shape: BoxShape.circle,
+                        border: Border.all(
+                          color: colorScheme.outline.withOpacity(0.2),
+                        ),
                       ),
-                      child: Icon(iconData, color: iconColor, size: 20),
+                      child: Icon(
+                        iconData,
+                        color: colorScheme.onSurface,
+                        size: 20,
+                      ),
                     ),
                     SizedBox(width: isSmallScreen ? 12 : 16),
                     Expanded(
@@ -590,13 +597,16 @@ class HomeScreenState extends State<HomeScreen> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: colorScheme.primaryContainer,
+                  color: colorScheme.surfaceContainerHighest,
                   shape: BoxShape.circle,
+                  border: Border.all(
+                    color: colorScheme.outline.withOpacity(0.3),
+                  ),
                 ),
                 child: Icon(
                   Icons.add_rounded,
                   size: 32,
-                  color: colorScheme.onPrimaryContainer,
+                  color: colorScheme.onSurface,
                 ),
               ),
               const SizedBox(height: 16),

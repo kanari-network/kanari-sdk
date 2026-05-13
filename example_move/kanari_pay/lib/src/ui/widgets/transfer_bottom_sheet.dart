@@ -281,7 +281,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
         title: const Text('Scan QR Code'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.flashlight_on_rounded, color: Colors.yellow),
+            icon: const Icon(Icons.flashlight_on_rounded, color: Colors.white),
             onPressed: () => cameraController.toggleTorch(),
           ),
           IconButton(

@@ -23,17 +23,15 @@ class ActionButton extends StatelessWidget {
     return Card(
       elevation: 0,
       color: isPrimary
-          ? colorScheme.primaryContainer
-          : colorScheme.surfaceVariant.withOpacity(0.3),
+          ? colorScheme.surfaceContainerHighest
+          : colorScheme.surface,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: isPrimary
-            ? BorderSide.none
-            : BorderSide(color: colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: colorScheme.outline.withOpacity(0.2)),
       ),
       child: InkWell(
         onTap: onPressed,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Row(
@@ -41,14 +39,14 @@ class ActionButton extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: isPrimary ? colorScheme.primary : colorScheme.surface,
+                  color: isPrimary ? colorScheme.onSurface : colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
                   icon,
                   color: isPrimary
-                      ? colorScheme.onPrimary
-                      : colorScheme.primary,
+                      ? colorScheme.surface
+                      : colorScheme.onSurface,
                 ),
               ),
               const SizedBox(width: 16),

@@ -23,20 +23,6 @@ class StateBadge extends StatelessWidget {
     }
   }
 
-  Color _getStateColor(ColorScheme colorScheme) {
-    switch (state) {
-      case 1:
-        return Colors.orange;
-      case 2:
-        return Colors.blue;
-      case 3:
-        return Colors.green;
-      case 4:
-        return Colors.red;
-      default:
-        return Colors.grey;
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,14 +30,14 @@ class StateBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: _getStateColor(colorScheme).withOpacity(0.2),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _getStateColor(colorScheme)),
+        color: colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.outline.withOpacity(0.3)),
       ),
       child: Text(
         _getStateName(),
         style: TextStyle(
-          color: _getStateColor(colorScheme),
+          color: colorScheme.onSurface,
           fontWeight: FontWeight.bold,
           fontSize: 12,
         ),
