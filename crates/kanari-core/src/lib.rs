@@ -7,4 +7,4 @@ pub use engine::{
     BlockData, BlockInfo, BlockchainEngine, BlockchainStats, DagBlockInfo, FullBlockData,
 };
 
-pub use kanari_move_runtime;
+pub use kanari_move_runtime_v1;

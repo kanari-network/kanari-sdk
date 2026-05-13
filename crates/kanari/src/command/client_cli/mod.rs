@@ -13,6 +13,7 @@ pub mod objects;
 pub mod stats;
 pub mod token_transfer;
 pub mod transfer;
+pub mod view;
 
 #[derive(Subcommand, Debug)]
 pub enum ClientCommand {
@@ -37,6 +38,8 @@ pub enum ClientCommand {
     Envs(envs::Envs),
     /// List owned objects
     Objects(objects::Objects),
+    /// Call view functions (read-only, no transaction)
+    View(view::View),
 }
 
 impl ClientCommand {
@@ -51,6 +54,7 @@ impl ClientCommand {
             ClientCommand::Account { command } => command.execute().await,
             ClientCommand::Envs(cmd) => cmd.execute(),
             ClientCommand::Objects(cmd) => cmd.execute().await,
+            ClientCommand::View(cmd) => cmd.execute().await,
         }
     }
 }

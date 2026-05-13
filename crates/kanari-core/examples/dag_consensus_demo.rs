@@ -9,7 +9,7 @@
 
 use anyhow::Result;
 use kanari_core::engine::{BlockchainEngine, DagEngine};
-use kanari_core::kanari_move_runtime::state::Account;
+use kanari_core::kanari_move_runtime_v1::state::Account;
 use kanari_crypto::keys::CurveType;
 use kanari_types::transaction::{SignedTransaction, Transaction};
 use move_core_types::account_address::AccountAddress;

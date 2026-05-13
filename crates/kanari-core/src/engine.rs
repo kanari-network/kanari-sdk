@@ -5,10 +5,10 @@ use anyhow::{Context, Result};
 use centauri::blockchain::Blockchain;
 use centauri::calculate_quorum;
 use centauri::consensus::{Checkpoint, PersistentDagState};
-use kanari_move_runtime::changeset::ChangeSet;
-use kanari_move_runtime::move_runtime::MoveRuntime;
-use kanari_move_runtime::state::StateManager;
-use kanari_move_runtime::storage::persistent_store::PersistentStore;
+use kanari_move_runtime_v1::changeset::ChangeSet;
+use kanari_move_runtime_v1::move_runtime::MoveRuntime;
+use kanari_move_runtime_v1::state::StateManager;
+use kanari_move_runtime_v1::storage::persistent_store::PersistentStore;
 pub use kanari_rpc_api::{AccountInfo, BlockData, BlockchainStats, FullBlockData, ObjectInfo};
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::event::Event;
@@ -46,7 +46,7 @@ pub struct BlockchainEngine {
     pub pending_txs: Arc<RwLock<Vec<SignedTransaction>>>,
     pub persistent_store: Option<Arc<PersistentStore>>,
     // Reusable pool of MoveRuntime instances for parallel execution
-    pub runtime_pool: Vec<kanari_move_runtime::move_runtime::MoveRuntime>,
+    pub runtime_pool: Vec<kanari_move_runtime_v1::move_runtime::MoveRuntime>,
     // LRU cache for frequently requested merkle proofs
     // Cache key: (block_height, tx_index), Value: (tx_hash, proof)
     pub proof_cache: Arc<RwLock<ProofCache>>,
@@ -194,7 +194,7 @@ impl BlockchainEngine {
     fn preload_objects_for_args(
         args: &[Vec<u8>],
         state: &StateManager,
-        runtime: &kanari_move_runtime::move_runtime::MoveRuntime,
+        runtime: &kanari_move_runtime_v1::move_runtime::MoveRuntime,
     ) {
         for arg in args.iter() {
             let mut possible_ids = Vec::new();
@@ -286,7 +286,7 @@ impl BlockchainEngine {
         let mut executed_count = 0;
         let mut failed_count = 0;
 
-        let waves = kanari_move_runtime::TransactionScheduler::schedule(transactions);
+        let waves = kanari_move_runtime_v1::TransactionScheduler::schedule(transactions);
 
         for wave in waves {
             let results: Vec<Result<ChangeSet>> = wave
@@ -794,7 +794,7 @@ impl BlockchainEngine {
     fn execute_transaction_with_runtime(
         &self,
         tx: &Transaction,
-        runtime: &kanari_move_runtime::move_runtime::MoveRuntime,
+        runtime: &kanari_move_runtime_v1::move_runtime::MoveRuntime,
         state_arc: &Arc<RwLock<StateManager>>,
         timestamp: Option<u64>,
     ) -> Result<ChangeSet> {
@@ -806,7 +806,7 @@ impl BlockchainEngine {
     pub(crate) fn execute_transaction_with_runtime_internal(
         &self,
         tx: &Transaction,
-        runtime: &kanari_move_runtime::move_runtime::MoveRuntime,
+        runtime: &kanari_move_runtime_v1::move_runtime::MoveRuntime,
         state_arc: &Arc<RwLock<StateManager>>,
         validate_sequence: bool,
         timestamp: Option<u64>,
@@ -1338,5 +1338,21 @@ impl BlockchainEngine {
         );
 
         Ok(())
+    }
+
+    /// Execute a view function (read-only, no state changes, no transaction submission)
+    /// This is for calling public/friend functions that don't modify state
+    pub fn execute_view_function(
+        &self,
+        package_addr: &str,
+        module_name: &str,
+        function_name: &str,
+        type_args: &[String],
+        args: &[Vec<u8>],
+    ) -> Result<serde_json::Value> {
+        // Use the first runtime from the pool
+        let runtime = &self.runtime_pool[0];
+
+        runtime.execute_view_function(package_addr, module_name, function_name, type_args, args)
     }
 }

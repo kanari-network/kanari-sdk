@@ -217,6 +217,19 @@ impl MoveVMState {
         self.store.load::<Vec<u8>>(key.as_bytes()).ok().flatten()
     }
 
+    /// Get object data from persistent storage (Sui-style objects)
+    pub fn get_object(&self, object_id: &AccountAddress) -> Option<Vec<u8>> {
+        let obj_key = format!("object:{}", object_id.to_hex_literal());
+        if let Ok(Some(obj_bytes)) = self.store.load::<Vec<u8>>(obj_key.as_bytes()) {
+            // Extract data from CreatedObject wrapper
+            if let Ok(created_obj) = bcs::from_bytes::<crate::changeset::CreatedObject>(&obj_bytes)
+            {
+                return Some(created_obj.data);
+            }
+        }
+        None
+    }
+
     /// Delete a resource blob keyed by address and struct tag.
     pub fn delete_resource(
         &self,

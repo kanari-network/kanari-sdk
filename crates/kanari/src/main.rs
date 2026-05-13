@@ -15,6 +15,7 @@ use command::move_cli;
 #[derive(Parser)]
 #[command(name = "kanari")]
 #[command(about = "Money transfer system using Move language", long_about = None)]
+#[command(version)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -22,7 +23,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Client operations (transfer, faucet, burn, stats, balance, account)
+    /// Client operations (transfer, faucet, burn, stats, balance, account, view)
     Client {
         #[command(subcommand)]
         command: client_cli::ClientCommand,

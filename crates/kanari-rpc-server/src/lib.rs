@@ -30,7 +30,7 @@ use crate::{
     nft::{handle_get_nfts_by_collection, handle_get_owned_nfts, handle_list_collections},
     transaction::{
         handle_call_function, handle_get_transaction, handle_publish_module,
-        handle_submit_transaction,
+        handle_submit_transaction, handle_view_function,
     },
 };
 
@@ -129,6 +129,7 @@ async fn handle_rpc(
 
         // Function calls
         methods::CALL_FUNCTION => handle_call_function(&state, &request).await,
+        methods::VIEW_FUNCTION => handle_view_function(&state, &request).await,
 
         // Object queries
         methods::GET_OBJECT => handle_get_object(&state, &request).await,

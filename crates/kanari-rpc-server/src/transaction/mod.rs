@@ -1,9 +1,10 @@
 use crate::respond_with_serialize;
 
 use super::{RpcError, RpcRequest, RpcResponse, RpcServerState};
-use kanari_move_runtime::changeset::ChangeSet;
+use kanari_move_runtime_v1::changeset::ChangeSet;
 use kanari_rpc_api::{
     CallFunctionRequest, PublishModuleRequest, SignedTransactionData, TransactionDetails,
+    ViewFunctionRequest,
 };
 use kanari_types::address::Address;
 use kanari_types::transaction::{SignedTransaction, Transaction};
@@ -812,6 +813,98 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
                 ))),
                 id: request.id,
             },
+        }
+    }
+}
+
+/// Handle view function request (read-only, no transaction submission)
+pub async fn handle_view_function(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    // Parse params as array and extract first element
+    let params_array = match request.params.as_array() {
+        Some(arr) => arr,
+        None => {
+            return RpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(RpcError::invalid_params("Expected array params")),
+                id: request.id,
+            };
+        }
+    };
+
+    if params_array.is_empty() {
+        return RpcResponse {
+            jsonrpc: "2.0".into(),
+            result: None,
+            error: Some(RpcError::invalid_params("Empty params array")),
+            id: request.id,
+        };
+    }
+
+    // Parse the view function request from JSON
+    let view_data: ViewFunctionRequest = match serde_json::from_value(params_array[0].clone()) {
+        Ok(data) => data,
+        Err(e) => {
+            return RpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(RpcError::invalid_params(format!(
+                    "Invalid view function data: {}",
+                    e
+                ))),
+                id: request.id,
+            };
+        }
+    };
+
+    // Validate package address format
+    if let Err(e) = Address::from_hex_literal(&view_data.package) {
+        return RpcResponse {
+            jsonrpc: "2.0".into(),
+            result: None,
+            error: Some(RpcError::invalid_params(format!(
+                "Invalid package address: {}",
+                e
+            ))),
+            id: request.id,
+        };
+    }
+
+    info!(
+        "Executing view function: {}::{}::{}",
+        view_data.package, view_data.module, view_data.function
+    );
+
+    // Execute view function without creating a transaction
+    match state.engine.execute_view_function(
+        &view_data.package,
+        &view_data.module,
+        &view_data.function,
+        &view_data.type_args,
+        &view_data.args,
+    ) {
+        Ok(result) => {
+            info!("View function executed successfully");
+            respond_with_serialize(
+                request.id,
+                serde_json::json!({
+                    "status": "success",
+                    "action": "view",
+                    "result": result
+                }),
+            )
+        }
+        Err(e) => {
+            error!("View function execution failed: {}", e);
+            RpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(RpcError::internal_error(format!(
+                    "View function execution failed: {}",
+                    e
+                ))),
+                id: request.id,
+            }
         }
     }
 }
