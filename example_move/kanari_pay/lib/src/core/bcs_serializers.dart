@@ -8,16 +8,40 @@ class BcsSerializers {
 
   /// Convert hex string to bytes
   static List<int> hexToBytes(String hexStr) {
+    // Remove 0x prefix if present
     final clean = hexStr.startsWith('0x') ? hexStr.substring(2) : hexStr;
+    
+    // Validate hex string
+    if (clean.isEmpty) {
+      throw ArgumentError('Empty hex string');
+    }
+    
+    if (!RegExp(r'^[0-9a-fA-F]+$').hasMatch(clean)) {
+      throw ArgumentError('Invalid hex string: $hexStr');
+    }
+    
+    // Ensure even length by padding with leading zero if needed
+    final padded = clean.length.isOdd ? '0$clean' : clean;
+    
     List<int> bytes = [];
-    for (int i = 0; i < clean.length; i += 2) {
-      bytes.add(int.parse(clean.substring(i, i + 2), radix: 16));
+    for (int i = 0; i < padded.length; i += 2) {
+      // Ensure we don't go out of bounds
+      if (i + 2 > padded.length) {
+        throw ArgumentError(
+          'Invalid hex string length. Expected even number of characters, got ${clean.length}. '
+          'Original: $hexStr, Cleaned: $clean, Padded: $padded'
+        );
+      }
+      bytes.add(int.parse(padded.substring(i, i + 2), radix: 16));
     }
     return bytes;
   }
 
   /// Encode u64 to little-endian bytes (BCS format)
   static List<int> encodeU64(int value) {
+    if (value < 0 || value > 0xFFFFFFFFFFFFFFFF) {
+      throw ArgumentError('Value out of u64 range: $value');
+    }
     final data = ByteData(8);
     data.setUint64(0, value, Endian.little);
     return data.buffer.asUint8List();
@@ -32,6 +56,9 @@ class BcsSerializers {
 
   /// Encode integer as ULEB128
   static List<int> encodeULEB128(int value) {
+    if (value < 0) {
+      throw ArgumentError('ULEB128 value must be non-negative: $value');
+    }
     final bytes = <int>[];
     do {
       int byte = value & 0x7F;

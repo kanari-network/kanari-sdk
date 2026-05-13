@@ -13,7 +13,7 @@ class WalletState extends ChangeNotifier {
   String? _error;
   String? _activeWalletId;
   String? _authenticatedWalletId;
-  KanariEnvironment _environment = KanariEnvironment.local;
+  KanariEnvironment _environment = KanariEnvironment.dev;
 
   bool _isUnlocked = false;
 

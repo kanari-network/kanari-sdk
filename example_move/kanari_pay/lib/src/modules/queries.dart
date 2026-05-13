@@ -186,6 +186,26 @@ class QueriesModule {
     return resp.result!;
   }
 
+  /// Get all objects owned by an address
+  Future<List<Map<String, dynamic>>> getOwnedObjects(String address) async {
+    final account = await getAccount(address);
+    
+    // Convert ObjectInfo list to Map list for easier handling
+    if (account.ownedObjects == null || account.ownedObjects!.isEmpty) {
+      return [];
+    }
+    
+    return account.ownedObjects!.map((obj) {
+      return {
+        'id': obj.id,
+        'objectId': obj.id,
+        'type': obj.type,
+        'owner': obj.owner,
+        'data': obj.data,
+      };
+    }).toList();
+  }
+
   /// Normalize address to 0x followed by 64 hex characters
   String _normalizeAddress(String addr) {
     var clean = addr.startsWith('0x') ? addr.substring(2) : addr;

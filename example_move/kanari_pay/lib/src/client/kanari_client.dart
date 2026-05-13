@@ -9,7 +9,6 @@ import '../models/transaction.dart';
 import '../models/module.dart';
 import '../models/health.dart';
 import '../kanari_wallet.dart';
-import '../core/core.dart';
 import '../modules/modules.dart';
 
 /// KanariClient - Facade that delegates to specialized modules
@@ -19,15 +18,11 @@ class KanariClient {
 
   late final QueriesModule _queries;
   late final TransactionOperations _transactions;
-  late final DexOperations _dexOps;
-  late final DexQueries _dexQueries;
 
   KanariClient(this.url, {http.Client? client})
     : _client = client ?? http.Client() {
     _queries = QueriesModule(url, _client);
     _transactions = TransactionOperations(url, _queries, _client);
-    _dexOps = DexOperations(url, _queries, _client);
-    _dexQueries = DexQueries(url, _queries, _client);
   }
 
   factory KanariClient.fromEnvironment(
@@ -194,187 +189,5 @@ class KanariClient {
       gasLimit: gasLimit,
       gasPrice: gasPrice,
     );
-  }
-
-  // ==================== DEX OPERATIONS ====================
-
-  /// Create a new liquidity pool
-  Future<TransactionResult> createPool({
-    required KanariWallet wallet,
-    required String coinTypeA,
-    required String coinTypeB,
-    int feePercent = 30,
-    int gasLimit = 100000,
-    int gasPrice = 1000,
-  }) {
-    return _dexOps.createPool(
-      wallet: wallet,
-      coinTypeA: coinTypeA,
-      coinTypeB: coinTypeB,
-      feePercent: feePercent,
-      gasLimit: gasLimit,
-      gasPrice: gasPrice,
-    );
-  }
-
-  /// Add liquidity to an existing pool
-  Future<TransactionResult> addLiquidity({
-    required KanariWallet wallet,
-    required String poolObjectId,
-    required String coinTypeA,
-    required String coinTypeB,
-    required int amountA,
-    required int amountB,
-    int gasLimit = 200000,
-    int gasPrice = 1000,
-  }) {
-    return _dexOps.addLiquidity(
-      wallet: wallet,
-      poolObjectId: poolObjectId,
-      coinTypeA: coinTypeA,
-      coinTypeB: coinTypeB,
-      amountA: amountA,
-      amountB: amountB,
-      gasLimit: gasLimit,
-      gasPrice: gasPrice,
-    );
-  }
-
-  /// Remove liquidity from a pool
-  Future<TransactionResult> removeLiquidity({
-    required KanariWallet wallet,
-    required String poolObjectId,
-    required String coinTypeA,
-    required String coinTypeB,
-    required int lpTokenAmount,
-    int gasLimit = 200000,
-    int gasPrice = 1000,
-  }) {
-    return _dexOps.removeLiquidity(
-      wallet: wallet,
-      poolObjectId: poolObjectId,
-      coinTypeA: coinTypeA,
-      coinTypeB: coinTypeB,
-      lpTokenAmount: lpTokenAmount,
-      gasLimit: gasLimit,
-      gasPrice: gasPrice,
-    );
-  }
-
-  /// Swap Coin A for Coin B
-  Future<TransactionResult> swapAForB({
-    required KanariWallet wallet,
-    required String poolObjectId,
-    required String coinTypeA,
-    required String coinTypeB,
-    required int amountIn,
-    int gasLimit = 150000,
-    int gasPrice = 1000,
-  }) {
-    return _dexOps.swapAForB(
-      wallet: wallet,
-      poolObjectId: poolObjectId,
-      coinTypeA: coinTypeA,
-      coinTypeB: coinTypeB,
-      amountIn: amountIn,
-      gasLimit: gasLimit,
-      gasPrice: gasPrice,
-    );
-  }
-
-  /// Swap Coin B for Coin A
-  Future<TransactionResult> swapBForA({
-    required KanariWallet wallet,
-    required String poolObjectId,
-    required String coinTypeA,
-    required String coinTypeB,
-    required int amountIn,
-    int gasLimit = 150000,
-    int gasPrice = 1000,
-  }) {
-    return _dexOps.swapBForA(
-      wallet: wallet,
-      poolObjectId: poolObjectId,
-      coinTypeA: coinTypeA,
-      coinTypeB: coinTypeB,
-      amountIn: amountIn,
-      gasLimit: gasLimit,
-      gasPrice: gasPrice,
-    );
-  }
-
-  // ==================== DEX QUERIES ====================
-
-  /// Get pool information
-  Future<Map<String, dynamic>> getPoolInfo({
-    required String poolObjectId,
-    required String coinTypeA,
-    required String coinTypeB,
-  }) {
-    return _dexQueries.getPoolInfo(
-      poolObjectId: poolObjectId,
-      coinTypeA: coinTypeA,
-      coinTypeB: coinTypeB,
-    );
-  }
-
-  /// Calculate swap output amount
-  Future<int> calculateSwapOutput({
-    required String poolObjectId,
-    required String coinTypeIn,
-    required String coinTypeOut,
-    required int amountIn,
-  }) {
-    return _dexQueries.calculateSwapAForBOutput(
-      poolObjectId: poolObjectId,
-      coinTypeA: coinTypeIn,
-      coinTypeB: coinTypeOut,
-      amountIn: amountIn,
-    );
-  }
-
-  /// Get user's LP token balance for a pool
-  Future<int> getLpTokenBalance({
-    required String userAddress,
-    required String poolObjectId,
-    required String coinTypeA,
-    required String coinTypeB,
-  }) {
-    return _dexQueries.getLpTokenBalance(
-      userAddress: userAddress,
-      poolObjectId: poolObjectId,
-      coinTypeA: coinTypeA,
-      coinTypeB: coinTypeB,
-    );
-  }
-
-  /// List all pools created by user
-  Future<List<Map<String, dynamic>>> getUserPools(String userAddress) {
-    return _dexQueries.getUserPools(userAddress);
-  }
-
-  // ==================== UTILS ====================
-
-  /// Close the HTTP client
-  void close() {
-    _client.close();
-  }
-
-  // ==================== BACKWARD COMPATIBILITY ====================
-  // These methods are kept for backward compatibility
-
-  /// Normalize address (backward compatibility)
-  String normalizeAddress(String addr) {
-    return BcsSerializers.normalizeAddress(addr);
-  }
-
-  /// Hex to bytes (backward compatibility)
-  List<int> hexToBytes(String hexStr) {
-    return BcsSerializers.hexToBytes(hexStr);
-  }
-
-  /// Encode U64 to BCS format (backward compatibility)
-  List<int> encodeU64Bcs(int value) {
-    return BcsSerializers.encodeU64(value);
   }
 }

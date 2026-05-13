@@ -29,9 +29,9 @@ module dex_v1::dex_v1 {
     }
 
     // =================================================================
-    // 1. Create Pool
+    // 1. Create Pool (Entry Function)
     // =================================================================
-    public fun create_pool<CoinTypeA, CoinTypeB>(
+    public entry fun create_pool<CoinTypeA, CoinTypeB>(
         fee_percent: u64,
         ctx: &mut TxContext
     ) {
@@ -51,7 +51,6 @@ module dex_v1::dex_v1 {
         object::save_object(&pool);
 
         // 🚨 ส่งตัว Pool ตัวจริง (pool) ไปให้ผู้สร้าง (Sender) ถือครองไว้
-        // เพื่อล้างค่า (Consume) ออกจากฟังก์ชันตามกฎของ Move
         transfer::public_transfer(pool, tx_context::sender(ctx));
     }
 
@@ -74,9 +73,36 @@ module dex_v1::dex_v1 {
     }
 
     // =================================================================
-    // 2. Add Liquidity
+    // 2. Add Liquidity (Entry Function with Object ID and Amounts)
     // =================================================================
-    public fun add_liquidity<CoinTypeA, CoinTypeB>(
+    public entry fun add_liquidity<CoinTypeA, CoinTypeB>(
+        pool_id: address,
+        coin_a_id: address,
+        coin_b_id: address,
+        amount_a: u64,
+        amount_b: u64,
+        ctx: &mut TxContext
+    ) {
+        // Load Pool object from storage
+        let pool: &mut Pool<CoinTypeA, CoinTypeB> = object::borrow_global_mut<Pool<CoinTypeA, CoinTypeB>>(pool_id);
+        
+        // Load Coin objects from storage
+        let coin_a: &mut Coin<CoinTypeA> = object::borrow_global_mut<Coin<CoinTypeA>>(coin_a_id);
+        let coin_b: &mut Coin<CoinTypeB> = object::borrow_global_mut<Coin<CoinTypeB>>(coin_b_id);
+        
+        // Split specific amounts from coins
+        let coin_a_obj = coin::split(coin_a, amount_a, ctx);
+        let coin_b_obj = coin::split(coin_b, amount_b, ctx);
+        
+        // Call internal function
+        let lp_token = add_liquidity_internal(pool, coin_a_obj, coin_b_obj, ctx);
+        
+        // Transfer LP token to sender
+        transfer::public_transfer(lp_token, tx_context::sender(ctx));
+    }
+
+    // Internal function
+    fun add_liquidity_internal<CoinTypeA, CoinTypeB>(
         pool: &mut Pool<CoinTypeA, CoinTypeB>,
         coin_a: Coin<CoinTypeA>,
         coin_b: Coin<CoinTypeB>,
@@ -89,7 +115,6 @@ module dex_v1::dex_v1 {
         let reserve_a = balance::value(&pool.reserve_a);
         let reserve_b = balance::value(&pool.reserve_b);
         
-        // ✅ แก้เป็น supply_total ตาม balance.move
         let total_lp_supply = balance::supply_total(&pool.lp_supply);
 
         let liquidity: u64;
@@ -106,7 +131,6 @@ module dex_v1::dex_v1 {
 
         assert!(liquidity > 0, E_INSUFFICIENT_LIQUIDITY_MINTED);
 
-        // ✅ แก้เป็น merge แทน join ตาม balance.move
         balance::merge(&mut pool.reserve_a, coin::into_balance(coin_a));
         balance::merge(&mut pool.reserve_b, coin::into_balance(coin_b));
 
@@ -115,9 +139,35 @@ module dex_v1::dex_v1 {
     }
 
     // =================================================================
-    // 3. Remove Liquidity
+    // 3. Remove Liquidity (Entry Function with Object ID)
     // =================================================================
-    public fun remove_liquidity<CoinTypeA, CoinTypeB>(
+    public entry fun remove_liquidity<CoinTypeA, CoinTypeB>(
+        pool_id: address,
+        lp_coin_id: address,
+        ctx: &mut TxContext
+    ) {
+        // Load Pool object from storage
+        let pool: &mut Pool<CoinTypeA, CoinTypeB> = object::borrow_global_mut<Pool<CoinTypeA, CoinTypeB>>(pool_id);
+        
+        // Load LP Coin object from storage
+        let lp_coin: &mut Coin<LP_TOKEN<CoinTypeA, CoinTypeB>> = object::borrow_global_mut<Coin<LP_TOKEN<CoinTypeA, CoinTypeB>>>(lp_coin_id);
+        
+        // Get amount first before splitting
+        let lp_amount = coin::value(lp_coin);
+        
+        // Split LP coin to get the full amount
+        let lp_coin_obj = coin::split(lp_coin, lp_amount, ctx);
+        
+        // Call internal function
+        let (coin_a, coin_b) = remove_liquidity_internal(pool, lp_coin_obj, ctx);
+        
+        // Transfer coins back to sender
+        transfer::public_transfer(coin_a, tx_context::sender(ctx));
+        transfer::public_transfer(coin_b, tx_context::sender(ctx));
+    }
+
+    // Internal function
+    fun remove_liquidity_internal<CoinTypeA, CoinTypeB>(
         pool: &mut Pool<CoinTypeA, CoinTypeB>,
         lp_coin: Coin<LP_TOKEN<CoinTypeA, CoinTypeB>>,
         ctx: &mut TxContext
@@ -128,7 +178,6 @@ module dex_v1::dex_v1 {
         let reserve_a = balance::value(&pool.reserve_a);
         let reserve_b = balance::value(&pool.reserve_b);
         
-        // ✅ แก้เป็น supply_total
         let total_lp_supply = balance::supply_total(&pool.lp_supply);
 
         let amount_a = math::mul_div_u64(liquidity, reserve_a, total_lp_supply);
@@ -136,9 +185,8 @@ module dex_v1::dex_v1 {
 
         assert!(amount_a > 0 && amount_b > 0, E_INSUFFICIENT_AMOUNT);
 
-        // ✅ แก้ไขวิธี Burn LP ให้ตรงกับ decrease_supply ที่รับค่าเป็น u64
         let lp_balance = coin::into_balance(lp_coin);
-        let burned_amount = balance::destroy(lp_balance); // ดึงค่ายอดเงินออกมาแล้วทำลายกล่อง
+        let burned_amount = balance::destroy(lp_balance);
         balance::decrease_supply(&mut pool.lp_supply, burned_amount);
 
         let balance_a_out = balance::split(&mut pool.reserve_a, amount_a);
@@ -151,9 +199,32 @@ module dex_v1::dex_v1 {
     }
 
     // =================================================================
-    // 4. Swap A for B
+    // 4. Swap A for B (Entry Function with Object ID and Amount)
     // =================================================================
-    public fun swap_a_for_b<CoinTypeA, CoinTypeB>(
+    public entry fun swap_a_for_b<CoinTypeA, CoinTypeB>(
+        pool_id: address,
+        coin_in_id: address,
+        amount_in: u64,
+        ctx: &mut TxContext
+    ) {
+        // Load Pool object from storage
+        let pool: &mut Pool<CoinTypeA, CoinTypeB> = object::borrow_global_mut<Pool<CoinTypeA, CoinTypeB>>(pool_id);
+        
+        // Load input Coin object from storage
+        let coin_in: &mut Coin<CoinTypeA> = object::borrow_global_mut<Coin<CoinTypeA>>(coin_in_id);
+        
+        // Split specific amount from coin
+        let coin_in_obj = coin::split(coin_in, amount_in, ctx);
+        
+        // Call internal function
+        let coin_out = swap_a_for_b_internal(pool, coin_in_obj, ctx);
+        
+        // Transfer output coin to sender
+        transfer::public_transfer(coin_out, tx_context::sender(ctx));
+    }
+
+    // Internal function
+    fun swap_a_for_b_internal<CoinTypeA, CoinTypeB>(
         pool: &mut Pool<CoinTypeA, CoinTypeB>,
         coin_in: Coin<CoinTypeA>,
         ctx: &mut TxContext
@@ -169,7 +240,6 @@ module dex_v1::dex_v1 {
         assert!(amount_out > 0, E_INSUFFICIENT_OUTPUT_AMOUNT);
         assert!(amount_out < reserve_out, E_INSUFFICIENT_LIQUIDITY);
 
-        // ✅ แก้เป็น merge แทน join
         balance::merge(&mut pool.reserve_a, coin::into_balance(coin_in));
 
         let balance_out = balance::split(&mut pool.reserve_b, amount_out);
@@ -178,9 +248,32 @@ module dex_v1::dex_v1 {
     }
 
     // =================================================================
-    // 5. Swap B for A
+    // 5. Swap B for A (Entry Function with Object ID and Amount)
     // =================================================================
-    public fun swap_b_for_a<CoinTypeA, CoinTypeB>(
+    public entry fun swap_b_for_a<CoinTypeA, CoinTypeB>(
+        pool_id: address,
+        coin_in_id: address,
+        amount_in: u64,
+        ctx: &mut TxContext
+    ) {
+        // Load Pool object from storage
+        let pool: &mut Pool<CoinTypeA, CoinTypeB> = object::borrow_global_mut<Pool<CoinTypeA, CoinTypeB>>(pool_id);
+        
+        // Load input Coin object from storage
+        let coin_in: &mut Coin<CoinTypeB> = object::borrow_global_mut<Coin<CoinTypeB>>(coin_in_id);
+        
+        // Split specific amount from coin
+        let coin_in_obj = coin::split(coin_in, amount_in, ctx);
+        
+        // Call internal function
+        let coin_out = swap_b_for_a_internal(pool, coin_in_obj, ctx);
+        
+        // Transfer output coin to sender
+        transfer::public_transfer(coin_out, tx_context::sender(ctx));
+    }
+
+    // Internal function
+    fun swap_b_for_a_internal<CoinTypeA, CoinTypeB>(
         pool: &mut Pool<CoinTypeA, CoinTypeB>,
         coin_in: Coin<CoinTypeB>,
         ctx: &mut TxContext
@@ -196,7 +289,6 @@ module dex_v1::dex_v1 {
         assert!(amount_out > 0, E_INSUFFICIENT_OUTPUT_AMOUNT);
         assert!(amount_out < reserve_out, E_INSUFFICIENT_LIQUIDITY);
 
-        // ✅ แก้เป็น merge แทน join
         balance::merge(&mut pool.reserve_b, coin::into_balance(coin_in));
 
         let balance_out = balance::split(&mut pool.reserve_a, amount_out);
