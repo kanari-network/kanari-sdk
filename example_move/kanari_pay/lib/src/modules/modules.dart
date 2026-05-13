@@ -16,7 +16,6 @@ export 'queries.dart';
 
 // Feature modules (templates - ready for implementation)
 
-export 'dex/dex.dart';
 
 // Future modules (uncomment when implemented)
 // export 'governance/governance.dart';

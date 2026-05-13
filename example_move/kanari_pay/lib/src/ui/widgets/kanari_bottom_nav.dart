@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:kanari_pay/src/ui/screens/dex_screen.dart';
+
 import 'package:kanari_pay/src/ui/screens/escrow_screen.dart';
 import 'package:kanari_pay/src/ui/screens/home_screen.dart';
 import 'package:kanari_pay/src/ui/widgets/transfer_bottom_sheet.dart';
@@ -17,8 +17,8 @@ class KanariBottomNav extends StatefulWidget {
 class _KanariBottomNavState extends State<KanariBottomNav> {
   int _currentIndex = 0;
 
-  // มี 3 หน้า - Send เป็น popup ไม่ใช่อีกหน้า
-  final List<Widget> _screens = [HomeScreen(), const EscrowScreen(), const DEXScreen()];
+  // มี 2 หน้า - Send เป็น popup ไม่ใช่อีกหน้า
+  final List<Widget> _screens = [HomeScreen(), const EscrowScreen()];
 
   @override
   void initState() {
@@ -80,14 +80,6 @@ class _KanariBottomNavState extends State<KanariBottomNav> {
                 'Escrow',
                 _currentIndex == 1,
                 () => _onTabTapped(1),
-              ),
-              _buildNavItem(
-                context,
-                Icons.swap_horiz_rounded,
-                Icons.swap_horiz_outlined,
-                'DEX',
-                _currentIndex == 2,
-                () => _onTabTapped(2),
               ),
             ],
           ),

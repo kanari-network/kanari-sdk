@@ -10,7 +10,6 @@ import 'src/ui/screens/login_screen.dart';
 import 'src/ui/screens/register_screen.dart';
 import 'src/ui/screens/setting_screen.dart';
 import 'src/ui/screens/welcome_screen.dart';
-import 'src/ui/screens/dex_screen.dart';
 import 'src/ui/widgets/kanari_bottom_nav.dart';
 
 void main() async {
@@ -232,7 +231,6 @@ class KanariApp extends StatelessWidget {
         '/home': (context) => const KanariBottomNav(),
         '/settings': (context) => const SettingScreen(),
         '/escrow': (context) => const KanariBottomNav(currentIndex: 1),
-        '/dex': (context) => const DEXScreen(),
       },
     );
   }
