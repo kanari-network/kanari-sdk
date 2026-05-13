@@ -17,13 +17,14 @@ class DEXScreen extends StatefulWidget {
   State<DEXScreen> createState() => _DEXScreenState();
 }
 
-class _DEXScreenState extends State<DEXScreen> with SingleTickerProviderStateMixin {
+class _DEXScreenState extends State<DEXScreen>
+    with SingleTickerProviderStateMixin {
   late final TabController _tabController;
   late DexClient _dexClient;
   bool _isLoading = false;
   String? _errorMessage;
   String? _successMessage;
-  
+
   List<Map<String, dynamic>> _pools = [];
   List<String> _tokens = [];
   String? _selectedPoolId;
@@ -128,7 +129,8 @@ class _DEXScreenState extends State<DEXScreen> with SingleTickerProviderStateMix
 
       if (mounted) {
         setState(() {
-          _successMessage = 'Pool created! TX: ${result.hash.substring(0, 16)}...';
+          _successMessage =
+              'Pool created! TX: ${result.hash.substring(0, 16)}...';
         });
         await _loadPoolsAndTokens();
       }
@@ -211,7 +213,8 @@ class _DEXScreenState extends State<DEXScreen> with SingleTickerProviderStateMix
 
       if (mounted) {
         setState(() {
-          _successMessage = 'Liquidity added! TX: ${result.hash.substring(0, 16)}...';
+          _successMessage =
+              'Liquidity added! TX: ${result.hash.substring(0, 16)}...';
         });
         await _loadPoolsAndTokens();
         _amountAController.clear();
@@ -303,7 +306,8 @@ class _DEXScreenState extends State<DEXScreen> with SingleTickerProviderStateMix
 
       if (mounted) {
         setState(() {
-          _successMessage = 'Swap successful! TX: ${result.hash.substring(0, 16)}...';
+          _successMessage =
+              'Swap successful! TX: ${result.hash.substring(0, 16)}...';
         });
         await _loadPoolsAndTokens();
         _swapAmountController.clear();
@@ -495,12 +499,17 @@ class _DEXScreenState extends State<DEXScreen> with SingleTickerProviderStateMix
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.info_outline, color: colorScheme.onSurfaceVariant),
+                        Icon(
+                          Icons.info_outline,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
                             'No pools found. Create one first!',
-                            style: TextStyle(color: colorScheme.onSurfaceVariant),
+                            style: TextStyle(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
                           ),
                         ),
                       ],
@@ -516,7 +525,7 @@ class _DEXScreenState extends State<DEXScreen> with SingleTickerProviderStateMix
                       final poolId = pool['pool_id'] as String? ?? '';
                       final coinA = pool['coin_type_a']?.toString() ?? '';
                       final coinB = pool['coin_type_b']?.toString() ?? '';
-                      
+
                       return Card(
                         margin: const EdgeInsets.only(bottom: 8),
                         child: ListTile(
@@ -532,8 +541,13 @@ class _DEXScreenState extends State<DEXScreen> with SingleTickerProviderStateMix
                             style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                           subtitle: Text(
-                            poolId.length > 20 ? '${poolId.substring(0, 20)}...' : poolId,
-                            style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                            poolId.length > 20
+                                ? '${poolId.substring(0, 20)}...'
+                                : poolId,
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                            ),
                           ),
                           trailing: IconButton(
                             icon: const Icon(Icons.arrow_forward_ios, size: 16),
@@ -612,7 +626,8 @@ class _DEXScreenState extends State<DEXScreen> with SingleTickerProviderStateMix
                   TextFormField(
                     controller: _amountAController,
                     decoration: InputDecoration(
-                      labelText: 'Amount ${_selectedCoinTypeA?.split('::').last}',
+                      labelText:
+                          'Amount ${_selectedCoinTypeA?.split('::').last}',
                       prefixIcon: const Icon(Icons.currency_bitcoin),
                     ),
                     keyboardType: TextInputType.number,
@@ -621,7 +636,8 @@ class _DEXScreenState extends State<DEXScreen> with SingleTickerProviderStateMix
                   TextFormField(
                     controller: _amountBController,
                     decoration: InputDecoration(
-                      labelText: 'Amount ${_selectedCoinTypeB?.split('::').last}',
+                      labelText:
+                          'Amount ${_selectedCoinTypeB?.split('::').last}',
                       prefixIcon: const Icon(Icons.currency_bitcoin),
                     ),
                     keyboardType: TextInputType.number,
@@ -641,12 +657,17 @@ class _DEXScreenState extends State<DEXScreen> with SingleTickerProviderStateMix
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.info_outline, color: colorScheme.onSurfaceVariant),
+                        Icon(
+                          Icons.info_outline,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
                             'Please select a pool first',
-                            style: TextStyle(color: colorScheme.onSurfaceVariant),
+                            style: TextStyle(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
                           ),
                         ),
                       ],
@@ -720,7 +741,8 @@ class _DEXScreenState extends State<DEXScreen> with SingleTickerProviderStateMix
                         child: _buildOutlinedButton(
                           onPressed: _isLoading ? null : () => _swap('A'),
                           icon: Icons.arrow_forward,
-                          label: '${_selectedCoinTypeA?.split('::').last} → ${_selectedCoinTypeB?.split('::').last}',
+                          label:
+                              '${_selectedCoinTypeA?.split('::').last} → ${_selectedCoinTypeB?.split('::').last}',
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -728,7 +750,8 @@ class _DEXScreenState extends State<DEXScreen> with SingleTickerProviderStateMix
                         child: _buildOutlinedButton(
                           onPressed: _isLoading ? null : () => _swap('B'),
                           icon: Icons.arrow_back,
-                          label: '${_selectedCoinTypeB?.split('::').last} → ${_selectedCoinTypeA?.split('::').last}',
+                          label:
+                              '${_selectedCoinTypeB?.split('::').last} → ${_selectedCoinTypeA?.split('::').last}',
                         ),
                       ),
                     ],
@@ -742,12 +765,17 @@ class _DEXScreenState extends State<DEXScreen> with SingleTickerProviderStateMix
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.info_outline, color: colorScheme.onSurfaceVariant),
+                        Icon(
+                          Icons.info_outline,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
                             'Please select a pool first',
-                            style: TextStyle(color: colorScheme.onSurfaceVariant),
+                            style: TextStyle(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
                           ),
                         ),
                       ],
