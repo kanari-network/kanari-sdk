@@ -4,7 +4,7 @@
 // Parser functions for Move VM changesets and events
 use crate::changeset::ChangeSet;
 use kanari_types::event::Event;
-use kanari_types::object::UIDRecord;
+use kanari_types::object::{IDRecord, UIDRecord};
 use log::debug;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::effects::Op as MoveOp;
@@ -43,6 +43,7 @@ impl super::MoveRuntime {
 
                 match op {
                     MoveOp::New(bytes) | MoveOp::Modify(bytes) => {
+                        // Extract UID from first 32 bytes if available (for Sui-style objects)
                         let uid_opt = if bytes.len() >= 32 {
                             let mut arr = [0u8; 32];
                             arr.copy_from_slice(&bytes[0..32]);
@@ -51,18 +52,32 @@ impl super::MoveRuntime {
                             None
                         };
 
+                        // Create IDRecord for DEX/DeFi copyable ID tracking
+                        let id_opt = if bytes.len() >= 32 {
+                            let mut arr = [0u8; 32];
+                            arr.copy_from_slice(&bytes[0..32]);
+                            Some(IDRecord::new(AccountAddress::new(arr)))
+                        } else {
+                            None
+                        };
+
+                        // Determine final object ID: prefer UID, then ID, fallback to deterministic
                         let final_object_id = if let Some(uid) = &uid_opt {
                             uid.address().to_hex_literal()
+                        } else if let Some(id) = &id_opt {
+                            id.address().to_hex_literal()
                         } else {
                             deterministic_id.clone()
                         };
 
+                        // Add created object with both UID and ID records
                         kanari_cs.add_created_object(
                             *addr,
                             format!("{}", struct_tag),
                             bytes.to_vec(),
                             0,
-                            uid_opt,
+                            uid_opt, // For ownership tracking
+                            id_opt,  // For DEX/DeFi copyable IDs
                             Some(final_object_id),
                         );
                     }

@@ -412,10 +412,18 @@ impl MoveRuntime {
         .map_err(Into::into)
     }
 
+    // Helper function to convert object ID string to UID (for event data)
     fn uid_from_object_id(object_id: &str) -> Option<kanari_types::object::UIDRecord> {
         AccountAddress::from_hex_literal(object_id)
             .ok()
             .map(kanari_types::object::UIDRecord::new)
+    }
+
+    // Helper function to convert object ID string to IDRecord, which is used in changesets and events
+    fn id_from_object_id(object_id: &str) -> Option<kanari_types::object::IDRecord> {
+        AccountAddress::from_hex_literal(object_id)
+            .ok()
+            .map(kanari_types::object::IDRecord::new)
     }
 
     fn maybe_add_token_balance(
@@ -921,6 +929,7 @@ impl MoveRuntime {
                         let updated_obj = crate::changeset::CreatedObject {
                             owner: *owner,
                             uid: Self::uid_from_object_id(id),
+                            id: Self::id_from_object_id(id),
                             type_: type_name.clone(),
                             data: data.clone(),
                             version: version + 1,
@@ -954,6 +963,7 @@ impl MoveRuntime {
                     let updated_obj = crate::changeset::CreatedObject {
                         owner,
                         uid: Self::uid_from_object_id(&saved.object_id),
+                        id: Self::id_from_object_id(&saved.object_id),
                         type_: saved.object_type.clone(),
                         data: saved.data.clone(),
                         version,
@@ -988,6 +998,7 @@ impl MoveRuntime {
                     let updated_obj = crate::changeset::CreatedObject {
                         owner,
                         uid: Self::uid_from_object_id(&borrowed.object_id),
+                        id: Self::id_from_object_id(&borrowed.object_id),
                         type_: borrowed.object_type.clone(),
                         data: borrowed.data.clone(),
                         version,

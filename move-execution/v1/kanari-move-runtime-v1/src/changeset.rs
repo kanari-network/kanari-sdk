@@ -4,6 +4,7 @@
 use hex;
 use kanari_crypto::hash_data_blake3;
 use kanari_types::coin::TreasuryCap;
+use kanari_types::object::IDRecord;
 use kanari_types::object::UIDRecord;
 use kanari_types::{balance::BalanceRecord, event::Event};
 use move_core_types::account_address::AccountAddress;
@@ -14,8 +15,10 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreatedObject {
     pub owner: AccountAddress,
-    /// Optional UIDRecord when object follows UID pattern
+    /// Optional UIDRecord when object follows UID pattern (for ownership tracking)
     pub uid: Option<UIDRecord>,
+    /// Optional IDRecord for DEX/DeFi objects that need copyable IDs
+    pub id: Option<IDRecord>,
     #[serde(rename = "type")]
     pub type_: String,
     pub data: Vec<u8>,
@@ -311,6 +314,7 @@ impl ChangeSet {
         data: Vec<u8>,
         version: u64,
         uid: Option<UIDRecord>,
+        id: Option<IDRecord>,
         object_id: Option<String>,
     ) {
         let canonical_id = if let Some(id) = &object_id {
@@ -321,6 +325,8 @@ impl ChangeSet {
             }
         } else if let Some(ref u) = uid {
             u.address().to_hex_literal()
+        } else if let Some(ref i) = id {
+            i.address().to_hex_literal()
         } else {
             let mut input = Vec::new();
             input.extend_from_slice(owner.as_ref());
@@ -344,12 +350,16 @@ impl ChangeSet {
             if let Some(u) = uid {
                 existing_obj.uid = Some(u);
             }
+            if let Some(i) = id {
+                existing_obj.id = Some(i);
+            }
         } else {
             self.created_objects.push((
                 canonical_id,
                 CreatedObject {
                     owner,
                     uid,
+                    id,
                     type_,
                     data,
                     version,
@@ -366,9 +376,12 @@ impl ChangeSet {
         type_: &str,
         data: &[u8],
         uid: &Option<UIDRecord>,
+        id: &Option<IDRecord>,
     ) -> String {
         if let Some(u) = uid {
             format!("{:#x}", u.address())
+        } else if let Some(i) = id {
+            format!("{:#x}", i.address())
         } else {
             let mut input = Vec::new();
             input.extend_from_slice(owner.as_ref());
@@ -377,6 +390,20 @@ impl ChangeSet {
             let hash = hash_data_blake3(&input);
             format!("0x{}", hex::encode(&hash[0..32]))
         }
+    }
+
+    /// Helper to create IDRecord from object ID string (for DEX/DeFi use cases)
+    pub fn create_id_record(object_id: &str) -> Option<IDRecord> {
+        AccountAddress::from_hex_literal(object_id)
+            .ok()
+            .map(IDRecord::new)
+    }
+
+    /// Helper to create UIDRecord from object ID string (for ownership tracking)
+    pub fn create_uid_record(object_id: &str) -> Option<UIDRecord> {
+        AccountAddress::from_hex_literal(object_id)
+            .ok()
+            .map(UIDRecord::new)
     }
 }
 
