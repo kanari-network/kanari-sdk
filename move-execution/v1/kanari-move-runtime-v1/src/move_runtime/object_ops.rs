@@ -5,6 +5,7 @@
 use crate::{changeset::ChangeSet, storage::object_storage::StoredObject};
 use anyhow::Result;
 use kanari_system_natives::transfer_natives::TransferredObject;
+use kanari_types::object::{IDRecord, UIDRecord};
 use log::debug;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::StructTag;
@@ -123,7 +124,14 @@ impl super::MoveRuntime {
             // Add to created_objects in changeset (after storage to avoid double clone).
             // Pass the explicit ID to ensure ChangeSet uses the same ID as ObjectStorage.
             let uid = if let Ok(addr) = AccountAddress::from_hex_literal(&canonical_id) {
-                Some(kanari_types::object::UIDRecord::new(addr))
+                Some(UIDRecord::new(addr))
+            } else {
+                None
+            };
+
+            // For DEX/DeFi objects, also create IDRecord for copyable ID tracking
+            let id_record = if let Ok(addr) = AccountAddress::from_hex_literal(&canonical_id) {
+                Some(IDRecord::new(addr))
             } else {
                 None
             };
@@ -152,7 +160,25 @@ impl super::MoveRuntime {
                 }
             }
 
-            cs.add_created_object(owner, obj_type, data, next_version, uid, Some(canonical_id));
+            // Log object type for debugging
+            if id_record.is_some() {
+                debug!(
+                    "Object {} - UID: {:?}, ID: {:?}",
+                    canonical_id,
+                    uid.as_ref().map(|u| u.address()),
+                    id_record.as_ref().map(|i| i.address())
+                );
+            }
+
+            cs.add_created_object(
+                owner,
+                obj_type,
+                data,
+                next_version,
+                uid,
+                id_record,
+                Some(canonical_id),
+            );
         }
 
         if count > 0 {

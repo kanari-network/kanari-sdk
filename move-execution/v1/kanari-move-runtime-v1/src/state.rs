@@ -10,6 +10,7 @@ use kanari_types::balance::BalanceModule;
 use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::{CoinModule, TreasuryCap};
 use kanari_types::kanari::KanariModule;
+use kanari_types::object::{IDRecord, UIDRecord};
 use kanari_types::{address::Address as KanariAddress, event::Event};
 use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::{StructTag, TypeTag};
@@ -772,9 +773,20 @@ impl StateManager {
     pub fn get_object(&self, object_id: &str) -> Result<Option<CreatedObject>> {
         let obj_key = Self::object_key(object_id);
         if let Some(stored) = self.load_internal::<StoredObject>(&obj_key)? {
+            // Create UIDRecord from object ID for ownership tracking
+            let uid = AccountAddress::from_hex_literal(object_id)
+                .ok()
+                .map(UIDRecord::new);
+
+            // Create IDRecord from object ID for DEX/DeFi copyable ID tracking
+            let id = AccountAddress::from_hex_literal(object_id)
+                .ok()
+                .map(IDRecord::new);
+
             return Ok(Some(CreatedObject {
                 owner: stored.owner,
-                uid: None,
+                uid,
+                id,
                 type_: stored.type_name,
                 data: stored.data,
                 version: stored.version,

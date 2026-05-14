@@ -20,6 +20,7 @@ fn test_ownership_transfer() -> Result<()> {
     let created_obj = CreatedObject {
         owner: alice,
         uid: None,
+        id: None,
         type_: object_type.to_string(),
         data: object_data.clone(),
         version: 1,
@@ -51,6 +52,7 @@ fn test_ownership_transfer() -> Result<()> {
     let updated_obj = CreatedObject {
         owner: bob, // New owner
         uid: None,
+        id: None,
         type_: object_type.to_string(),
         data: object_data.clone(),
         version: 2, // Version incremented
@@ -97,6 +99,7 @@ fn test_object_transfer_removes_from_old_owner() -> Result<()> {
     let created_obj = CreatedObject {
         owner: alice,
         uid: None,
+        id: None,
         type_: object_type.to_string(),
         data: object_data.clone(),
         version: 1,
@@ -119,6 +122,7 @@ fn test_object_transfer_removes_from_old_owner() -> Result<()> {
     let transferred_obj = CreatedObject {
         owner: bob,
         uid: None,
+        id: None,
         type_: object_type.to_string(),
         data: object_data.clone(),
         version: 2,
@@ -146,6 +150,7 @@ fn test_object_transfer_removes_from_old_owner() -> Result<()> {
     let transferred_obj2 = CreatedObject {
         owner: charlie,
         uid: None,
+        id: None,
         type_: object_type.to_string(),
         data: object_data.clone(),
         version: 3,
@@ -190,6 +195,7 @@ fn test_coin_split_inflation() -> Result<()> {
     let created_a = CreatedObject {
         owner: alice,
         uid: None,
+        id: None,
         type_: object_type.to_string(),
         data: coin_a_data.clone(),
         version: 1,
@@ -216,6 +222,7 @@ fn test_coin_split_inflation() -> Result<()> {
     let updated_a = CreatedObject {
         owner: alice,
         uid: None,
+        id: None,
         type_: object_type.to_string(),
         data: coin_a_data_500,
         version: 2,
@@ -229,6 +236,7 @@ fn test_coin_split_inflation() -> Result<()> {
     let created_b = CreatedObject {
         owner: bob,
         uid: None,
+        id: None,
         type_: object_type.to_string(),
         data: coin_b_data_500,
         version: 1,
@@ -281,6 +289,7 @@ fn test_transfer_with_same_version_is_not_treated_as_collision() -> Result<()> {
         CreatedObject {
             owner: alice,
             uid: None,
+            id: None,
             type_: coin_type.to_string(),
             data: coin_data.clone(),
             version: 2,
@@ -295,6 +304,7 @@ fn test_transfer_with_same_version_is_not_treated_as_collision() -> Result<()> {
         CreatedObject {
             owner: bob,
             uid: None,
+            id: None,
             type_: coin_type.to_string(),
             data: coin_data,
             version: 2,
@@ -338,6 +348,7 @@ fn test_duplicate_created_object_id_keeps_latest_owner() -> Result<()> {
         CreatedObject {
             owner: alice,
             uid: None,
+            id: None,
             type_: coin_type.to_string(),
             data: init_data.clone(),
             version: 1,
@@ -355,6 +366,7 @@ fn test_duplicate_created_object_id_keeps_latest_owner() -> Result<()> {
         CreatedObject {
             owner: alice,
             uid: None,
+            id: None,
             type_: coin_type.to_string(),
             data: init_data,
             version: 2,
@@ -365,6 +377,7 @@ fn test_duplicate_created_object_id_keeps_latest_owner() -> Result<()> {
         CreatedObject {
             owner: bob,
             uid: None,
+            id: None,
             type_: coin_type.to_string(),
             data: new_data,
             version: 2,

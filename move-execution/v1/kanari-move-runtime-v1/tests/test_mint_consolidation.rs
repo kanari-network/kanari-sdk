@@ -211,6 +211,7 @@ fn test_balance_updates_immediately_after_second_mint_object() -> Result<()> {
         first_coin_data,
         1,
         None,
+        None,
         Some("0xaaa1".to_string()),
     );
     cs1.add_token_balance_set(alice, token_type.to_string(), 100);
@@ -232,6 +233,7 @@ fn test_balance_updates_immediately_after_second_mint_object() -> Result<()> {
         CreatedObject {
             owner: alice,
             uid: None,
+            id: None,
             type_: coin_type.to_string(),
             data: second_coin_data,
             version: 1,
@@ -282,6 +284,7 @@ fn test_self_transfer_should_not_duplicate_coins() -> Result<()> {
     let coin_1 = CreatedObject {
         owner: alice,
         uid: None,
+        id: None,
         type_: format!("0x2::coin::Coin<{}>", token_type),
         data: coin_1_data,
         version: 1,
@@ -310,6 +313,7 @@ fn test_self_transfer_should_not_duplicate_coins() -> Result<()> {
     let coin_2 = CreatedObject {
         owner: alice,
         uid: None,
+        id: None,
         type_: format!("0x2::coin::Coin<{}>", token_type),
         data: coin_2_data,
         version: 1,
@@ -345,6 +349,7 @@ fn test_self_transfer_should_not_duplicate_coins() -> Result<()> {
     let coin_1_remaining = CreatedObject {
         owner: alice,
         uid: None,
+        id: None,
         type_: format!("0x2::coin::Coin<{}>", token_type),
         data: coin_1_v2_data,
         version: 2,
@@ -360,6 +365,7 @@ fn test_self_transfer_should_not_duplicate_coins() -> Result<()> {
     let coin_1_split = CreatedObject {
         owner: alice,
         uid: None,
+        id: None,
         type_: format!("0x2::coin::Coin<{}>", token_type),
         data: coin_1_split_data,
         version: 1,
@@ -411,6 +417,7 @@ fn test_mint_then_self_transfer_real_scenario() -> Result<()> {
         CreatedObject {
             owner: alice,
             uid: None,
+            id: None,
             type_: format!("0x2::coin::Coin<{}>", token_type),
             data: coin1_data,
             version: 1,
@@ -437,6 +444,7 @@ fn test_mint_then_self_transfer_real_scenario() -> Result<()> {
         CreatedObject {
             owner: alice,
             uid: None,
+            id: None,
             type_: format!("0x2::coin::Coin<{}>", token_type),
             data: coin2_data,
             version: 1,
