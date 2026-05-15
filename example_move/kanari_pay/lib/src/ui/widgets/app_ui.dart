@@ -626,14 +626,15 @@ class _AppPinCirclesDisplay extends StatelessWidget {
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
       children: List.generate(totalLength, (index) {
         final isFilled = index < length;
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10.0),
+        return Flexible(
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
-            width: 20,
-            height: 20,
+            width: 18,
+            height: 18,
+            margin: const EdgeInsets.symmetric(horizontal: 6.0),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: isFilled ? primaryColor : Colors.transparent,
@@ -687,14 +688,14 @@ class _AppCustomNumberPad extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              const SizedBox(width: 80, height: 80),
+              SizedBox(width: 64, height: 64), // ← ลดขนาดลงจาก 80
               _AppNumberButton(
                 number: '0',
                 onPressed: () => onNumberPressed('0'),
               ),
               SizedBox(
-                width: 80,
-                height: 80,
+                width: 64, // ← ลดขนาดลงจาก 80
+                height: 64,
                 child: IconButton(
                   onPressed: onBackspacePressed,
                   icon: const Icon(Icons.backspace_outlined),
@@ -722,8 +723,8 @@ class _AppNumberButton extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Container(
-      width: 80,
-      height: 80,
+      width: 64, // ← ลดขนาดลงจาก 80
+      height: 64,
       decoration: BoxDecoration(
         color: colorScheme.surfaceVariant.withOpacity(0.3),
         shape: BoxShape.circle,
@@ -736,7 +737,7 @@ class _AppNumberButton extends StatelessWidget {
           child: Center(
             child: Text(
               number,
-              style: theme.textTheme.headlineMedium?.copyWith(
+              style: theme.textTheme.titleLarge?.copyWith( // ← ลดขนาด font ลง
                 fontWeight: FontWeight.w600,
                 color: colorScheme.onSurface,
               ),

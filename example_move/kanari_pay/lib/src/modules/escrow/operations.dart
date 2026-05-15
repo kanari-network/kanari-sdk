@@ -1,8 +1,8 @@
 // modules/escrow/operations.dart
 /// Escrow transaction operations
 
-import '../../core/bcs_serializers.dart';
 import '../../client/kanari_client.dart';
+import '../../core/bcs_utils.dart';
 import '../../kanari_wallet.dart';
 import '../../models/transaction.dart';
 import 'constants.dart';
@@ -14,8 +14,7 @@ class EscrowOperations {
 
   /// Validate transaction result
   TransactionResult requireSuccess(TransactionResult result) {
-    final status = result.status.toLowerCase();
-    if (status == 'failed') {
+    if (result.status.toLowerCase() == 'failed') {
       throw Exception(
         result.errorMessage?.isNotEmpty == true
             ? result.errorMessage!
@@ -36,7 +35,7 @@ class EscrowOperations {
     int gasLimit = 100000,
     int gasPrice = 10,
   }) async {
-    final normalizedToken = _normalizeTokenType(tokenType);
+    final normalizedToken = BcsUtils.normalizeTokenType(tokenType);
 
     print('[ESCROW] Creating deal:');
     print('[ESCROW]   Wallet: ${wallet.address}');
@@ -47,38 +46,23 @@ class EscrowOperations {
     print('[ESCROW]   Description: $description');
 
     try {
-      //  CRITICAL: Find owned Coin object for this token type
+      // CRITICAL: Find owned Coin object for this token type
       final coinObjectId = await _findOwnedCoinObjectId(
-        client: rpc,
         ownerAddress: wallet.address,
         tokenType: normalizedToken,
       );
 
-      final normalizedCoinObjectId = _normalizeObjectId(coinObjectId);
       print('[ESCROW]   Coin Object ID: $coinObjectId');
-      print('[ESCROW]   Normalized Coin Object ID: $normalizedCoinObjectId');
 
-      // Move VM expects raw 32-byte object ID for &mut Coin reference
-      final coinObjectBytes = _hexToBytes(normalizedCoinObjectId);
-      print('[ESCROW]   Coin Object bytes length: ${coinObjectBytes.length}');
+      // Build args using TransactionArgs builder
+      final args = TransactionArgs()
+        ..addString(dealId)
+        ..addAddress(sellerAddress)
+        ..addAmount(amount)
+        ..addString(description)
+        ..addObjectId(coinObjectId);
 
-      final args = [
-        BcsSerializers.encodeString(dealId),
-        BcsSerializers.hexToBytes(
-          BcsSerializers.normalizeAddress(sellerAddress),
-        ),
-        _u64ToBytes(amount),
-        BcsSerializers.encodeString(description),
-        coinObjectBytes, // buyer_coin: &mut Coin<CoinType>
-      ];
-
-      print('[ESCROW] Encoded args:');
-      print('[ESCROW]   dealId bytes: ${args[0]}');
-      print('[ESCROW]   sellerAddress bytes: ${args[1]}');
-      print('[ESCROW]   amount bytes: ${args[2]}');
-      print('[ESCROW]   description bytes: ${args[3]}');
-      print('[ESCROW]   coinObject bytes: ${args[4]}');
-      print('[ESCROW]   Total args: 5');
+      print('[ESCROW] Encoded args: ${args.length} total');
 
       final result = await rpc.executeFunction(
         wallet: wallet,
@@ -86,7 +70,7 @@ class EscrowOperations {
         module: EscrowConstants.module,
         function: EscrowConstants.fnCreateDeal,
         typeArgs: [normalizedToken],
-        args: args,
+        args: args.build(),
         gasLimit: gasLimit,
         gasPrice: gasPrice,
       );
@@ -98,9 +82,6 @@ class EscrowOperations {
         print('[ESCROW]   Error: ${result.errorMessage}');
       } else if (result.status.toLowerCase() == 'failed') {
         print('[ESCROW]   ⚠️ Transaction failed but no error message returned');
-        print(
-          '[ESCROW]   This may indicate a Move VM abort without error details',
-        );
       }
 
       return result;
@@ -113,7 +94,6 @@ class EscrowOperations {
 
   /// Find owned Coin object for a specific token type
   Future<String> _findOwnedCoinObjectId({
-    required KanariClient client,
     required String ownerAddress,
     required String tokenType,
   }) async {
@@ -121,15 +101,15 @@ class EscrowOperations {
     print('[ESCROW]   Owner: $ownerAddress');
     print('[ESCROW]   Token Type: $tokenType');
 
-    final account = await client.getAccount(ownerAddress);
+    final account = await rpc.getAccount(ownerAddress);
     print(
       '[ESCROW]   Total owned objects: ${account.ownedObjects?.length ?? 0}',
     );
 
     for (final obj in account.ownedObjects ?? const []) {
-      final objToken = _coinTokenFromObjectType(obj.type);
+      final objToken = BcsUtils.extractCoinTypeFromObjectType(obj.type);
       if (objToken != null && objToken == tokenType) {
-        final normalizedId = _normalizeObjectId(obj.id);
+        final normalizedId = BcsUtils.normalizeObjectId(obj.id);
         print('[ESCROW]   Found coin object: ${obj.id}');
         print('[ESCROW]   Object type: ${obj.type}');
         return normalizedId;
@@ -143,45 +123,6 @@ class EscrowOperations {
     );
   }
 
-  /// Extract coin token type from object type string
-  String? _coinTokenFromObjectType(String objectType) {
-    final start = objectType.indexOf('<');
-    final end = objectType.lastIndexOf('>');
-    if (start != -1 && end != -1) {
-      final outer = objectType.substring(0, start);
-      if (outer.endsWith('::coin::Coin') ||
-          outer.endsWith('::coin::coin::Coin')) {
-        return objectType.substring(start + 1, end);
-      }
-    }
-    return null;
-  }
-
-  /// Normalize object ID to standard format
-  String _normalizeObjectId(String objectId) {
-    var clean = objectId.startsWith('0x') ? objectId.substring(2) : objectId;
-    if (clean.isEmpty || !RegExp(r'^[0-9a-fA-F]+$').hasMatch(clean)) {
-      throw ArgumentError('Invalid object ID format: $objectId');
-    }
-    clean = clean.padLeft(64, '0').toLowerCase();
-    if (clean.length != 64) {
-      throw ArgumentError(
-        'Object ID must be 32 bytes (64 hex chars). Got ${clean.length} characters.',
-      );
-    }
-    return '0x$clean';
-  }
-
-  /// Convert hex string to bytes
-  List<int> _hexToBytes(String hexStr) {
-    final clean = hexStr.startsWith('0x') ? hexStr.substring(2) : hexStr;
-    final bytes = <int>[];
-    for (var i = 0; i < clean.length; i += 2) {
-      bytes.add(int.parse(clean.substring(i, i + 2), radix: 16));
-    }
-    return bytes;
-  }
-
   /// Confirm delivery (Seller only)
   Future<TransactionResult> confirmDelivery({
     required KanariWallet wallet,
@@ -190,24 +131,17 @@ class EscrowOperations {
     required String proofObjectId,
     int gasLimit = 100000,
     int gasPrice = 10,
-  }) async {
-    print('[ESCROW] Confirming delivery:');
-    print('[ESCROW]   Deal: $dealObjectId');
-    print('[ESCROW]   Proof: $proofObjectId');
-
-    return _executeEscrowAction(
-      wallet: wallet,
-      coinType: coinType,
-      functionName: EscrowConstants.fnConfirmDelivery,
-      args: [
-        BcsSerializers.hexToBytes(dealObjectId),
-        _prepareProofObject(proofObjectId),
-      ],
-      actionName: 'Confirming delivery',
-      gasLimit: gasLimit,
-      gasPrice: gasPrice,
-    );
-  }
+  }) => _executeAction(
+    wallet: wallet,
+    coinType: coinType,
+    functionName: EscrowConstants.fnConfirmDelivery,
+    actionName: 'Confirming delivery',
+    args: TransactionArgs()
+      ..addObjectId(dealObjectId)
+      ..addObjectId(proofObjectId),
+    gasLimit: gasLimit,
+    gasPrice: gasPrice,
+  );
 
   /// Release funds (Buyer only)
   Future<TransactionResult> releaseFunds({
@@ -217,23 +151,17 @@ class EscrowOperations {
     required String proofObjectId,
     int gasLimit = 100000,
     int gasPrice = 10,
-  }) async {
-    print('[ESCROW] Releasing funds: $dealObjectId');
-    print('[ESCROW]   Proof: $proofObjectId');
-
-    return _executeEscrowAction(
-      wallet: wallet,
-      coinType: coinType,
-      functionName: EscrowConstants.fnReleaseFunds,
-      args: [
-        BcsSerializers.hexToBytes(dealObjectId),
-        _prepareProofObject(proofObjectId),
-      ],
-      actionName: 'Releasing funds',
-      gasLimit: gasLimit,
-      gasPrice: gasPrice,
-    );
-  }
+  }) => _executeAction(
+    wallet: wallet,
+    coinType: coinType,
+    functionName: EscrowConstants.fnReleaseFunds,
+    actionName: 'Releasing funds',
+    args: TransactionArgs()
+      ..addObjectId(dealObjectId)
+      ..addObjectId(proofObjectId),
+    gasLimit: gasLimit,
+    gasPrice: gasPrice,
+  );
 
   /// Raise dispute
   Future<TransactionResult> raiseDispute({
@@ -244,71 +172,55 @@ class EscrowOperations {
     required String proofObjectId,
     int gasLimit = 100000,
     int gasPrice = 10,
-  }) async {
-    print('[ESCROW] Raising dispute: $dealObjectId');
-    print('[ESCROW]   Proof: $proofObjectId');
-
-    return _executeEscrowAction(
-      wallet: wallet,
-      coinType: coinType,
-      functionName: EscrowConstants.fnRaiseDispute,
-      args: [
-        BcsSerializers.hexToBytes(dealObjectId),
-        _prepareProofObject(proofObjectId),
-        BcsSerializers.encodeString(reason),
-      ],
-      actionName: 'Raising dispute',
-      gasLimit: gasLimit,
-      gasPrice: gasPrice,
-    );
-  }
+  }) => _executeAction(
+    wallet: wallet,
+    coinType: coinType,
+    functionName: EscrowConstants.fnRaiseDispute,
+    actionName: 'Raising dispute',
+    args: TransactionArgs()
+      ..addObjectId(dealObjectId)
+      ..addObjectId(proofObjectId)
+      ..addString(reason),
+    gasLimit: gasLimit,
+    gasPrice: gasPrice,
+  );
 
   /// Generic escrow action executor
-  Future<TransactionResult> _executeEscrowAction({
+  Future<TransactionResult> _executeAction({
     required KanariWallet wallet,
     required String coinType,
     required String functionName,
-    required List<List<int>> args,
     required String actionName,
+    required TransactionArgs args,
     int gasLimit = 100000,
     int gasPrice = 10,
-  }) {
-    return rpc.executeFunction(
-      wallet: wallet,
-      package: EscrowConstants.packageAddress,
-      module: EscrowConstants.module,
-      function: functionName,
-      typeArgs: [_normalizeTokenType(coinType)],
-      args: args,
-      gasLimit: gasLimit,
-      gasPrice: gasPrice,
-    );
-  }
+  }) async {
+    print('[ESCROW] Executing: $actionName');
+    print('[ESCROW]   Function: $functionName');
+    print('[ESCROW]   Coin Type: ${BcsUtils.normalizeTokenType(coinType)}');
+    print('[ESCROW]   Args count: ${args.length}');
 
-  /// Prepare proof object for transaction
-  List<int> _prepareProofObject(String proofObjectId) {
-    final normalizedId = _normalizeObjectId(proofObjectId);
-    final proofBytes = _hexToBytes(normalizedId);
+    try {
+      final result = await rpc.executeFunction(
+        wallet: wallet,
+        package: EscrowConstants.packageAddress,
+        module: EscrowConstants.module,
+        function: functionName,
+        typeArgs: [BcsUtils.normalizeTokenType(coinType)],
+        args: args.build(),
+        gasLimit: gasLimit,
+        gasPrice: gasPrice,
+      );
 
-    print(
-      '[ESCROW]   Normalized Proof: $normalizedId (${proofBytes.length} bytes)',
-    );
+      print('[ESCROW] Result status: ${result.status}');
+      if (result.errorMessage != null) {
+        print('[ESCROW] Error: ${result.errorMessage}');
+      }
 
-    return proofBytes;
-  }
-
-  /// Normalize token type
-  String _normalizeTokenType(String tokenType) {
-    if (tokenType.startsWith('0x')) return tokenType;
-    return '0x$tokenType';
-  }
-
-  /// Convert u64 to bytes (little endian)
-  List<int> _u64ToBytes(int value) {
-    final bytes = <int>[];
-    for (var i = 0; i < 8; i++) {
-      bytes.add((value >> (i * 8)) & 0xFF);
+      return result;
+    } catch (e) {
+      print('[ESCROW] Failed to execute $actionName: $e');
+      rethrow;
     }
-    return bytes;
   }
 }

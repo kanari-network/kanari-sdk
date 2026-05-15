@@ -916,16 +916,26 @@ class _EscrowScreenState extends State<EscrowScreen>
                   Padding(
                     padding: const EdgeInsets.only(top: 12),
                     child: DropdownButtonFormField<String>(
-                      value: _selectedTokenType,
+                      initialValue: _selectedTokenType,
+                      isExpanded:
+                          true, // ← เพิ่มเพื่อให้ dropdown ใช้พื้นที่เต็มที่
                       decoration: const InputDecoration(
                         labelText: 'Escrow Token',
                         prefixIcon: Icon(Icons.account_balance_wallet_outlined),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 16,
+                        ),
                       ),
                       items: spendableOptions
                           .map(
                             (option) => DropdownMenuItem<String>(
                               value: option.tokenType,
-                              child: Text(option.label),
+                              child: Text(
+                                option.label,
+                                overflow:
+                                    TextOverflow.ellipsis, // ← เพิ่ม ellipsis
+                              ),
                             ),
                           )
                           .toList(),
@@ -1048,9 +1058,14 @@ class _EscrowScreenState extends State<EscrowScreen>
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
               value: _selectedDealId,
+              isExpanded: true, // ← เพิ่มเพื่อใช้พื้นที่เต็มที่
               decoration: const InputDecoration(
                 labelText: 'Deal ID',
                 border: OutlineInputBorder(),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 16,
+                ),
               ),
               items: _allDeals.map((deal) {
                 final dealId = deal['deal_id'] as String? ?? 'Unknown';
@@ -1062,9 +1077,17 @@ class _EscrowScreenState extends State<EscrowScreen>
                 final decimals = _getDecimalsForTokenType(coinType);
                 final humanAmount = _toHumanAmount(rawAmount, decimals);
 
+                // แสดงเฉพาะส่วนสั้นๆ ของ deal ID
+                final shortDealId = dealId.length > 16 
+                    ? '${dealId.substring(0, 8)}...${dealId.substring(dealId.length - 6)}' 
+                    : dealId;
+
                 return DropdownMenuItem<String>(
                   value: dealId,
-                  child: Text('$dealId ($humanAmount $coinName)'),
+                  child: Text(
+                    '$shortDealId • $humanAmount $coinName',
+                    overflow: TextOverflow.ellipsis, // ← เพิ่ม ellipsis
+                  ),
                 );
               }).toList(),
               onChanged: (value) {

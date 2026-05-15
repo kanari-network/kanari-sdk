@@ -4,8 +4,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
-import '../../core/bcs_serializers.dart';
 import '../../client/kanari_client.dart';
+import '../../core/bcs_utils.dart';
 import '../../kanari_wallet.dart';
 import 'constants.dart';
 
@@ -21,30 +21,23 @@ class EscrowQueries {
     required String coinType,
   }) async {
     try {
-      final result = await _viewFunction(
+      final result = await _callViewFunction(
         wallet: wallet,
-        function:
-            '${EscrowConstants.packageAddress}::${EscrowConstants.module}::${EscrowConstants.fnGetState}',
-        typeArguments: [_normalizeTokenType(coinType)],
-        arguments: [BcsSerializers.hexToBytes(dealObjectId)],
+        functionName: EscrowConstants.fnGetState,
+        coinType: coinType,
+        args: TransactionArgs()..addObjectId(dealObjectId),
       );
 
-      if (result.isEmpty) {
-        print('[ESCROW] getDealStateByObjectId: Empty result');
-        return 0;
-      }
+      if (result.isEmpty) return 0;
 
       final firstResult = result.first;
       print('[ESCROW] getDealStateByObjectId raw result: $firstResult');
 
       // Parse based on type
-      if (firstResult is int) {
-        return firstResult;
-      } else if (firstResult is Map<String, dynamic>) {
+      if (firstResult is int) return firstResult;
+      if (firstResult is Map<String, dynamic>) {
         final resultValue = firstResult['result'];
-        if (resultValue is int) {
-          return resultValue;
-        }
+        if (resultValue is int) return resultValue;
       }
 
       print('[ESCROW] getDealStateByObjectId: Failed to parse result');
@@ -63,39 +56,23 @@ class EscrowQueries {
     print('[ESCROW] Querying deals for owner: $buyerAddress');
 
     try {
-      // Get account info to access all owned objects
       final account = await rpc.getAccount(buyerAddress);
       final allObjects = account.ownedObjects ?? [];
-
       print('[ESCROW] Total owned objects: ${allObjects.length}');
 
-      // Separate deal objects and proof objects
-      final dealObjects = <Map<String, dynamic>>[];
-
-      for (final obj in allObjects) {
-        final objectType = obj.type;
-        final objectId = obj.id;
-
-        if (objectType.contains('::escrow::EscrowDeal<')) {
-          dealObjects.add({'id': objectId, 'type': objectType});
-          print('[ESCROW] Found EscrowDeal: $objectId');
-        } else if (objectType.contains('::escrow::EscrowProof')) {
-          // Try to extract deal_id from proof object
-          // For now, we'll match them by checking proof objects after loading deals
-          print('[ESCROW] Found EscrowProof: $objectId');
-        }
-      }
+      // Filter deal objects
+      final dealObjects = allObjects
+          .where((obj) => obj.type.contains('::escrow::EscrowDeal<'))
+          .toList();
 
       print('[ESCROW] Found ${dealObjects.length} EscrowDeal objects');
 
       final deals = <Map<String, dynamic>>[];
 
-      for (final dealObj in dealObjects) {
-        final objectId = dealObj['id'] as String;
-        final objectType = dealObj['type'] as String;
-
-        // Extract coin type from object type
-        final coinType = _extractCoinTypeFromObjectType(objectType);
+      for (final obj in dealObjects) {
+        final objectId = obj.id;
+        final objectType = obj.type;
+        final coinType = BcsUtils.extractCoinTypeFromObjectType(objectType);
 
         if (coinType == null) {
           print('[ESCROW]   ⚠️ Could not extract coin type from: $objectType');
@@ -109,11 +86,11 @@ class EscrowQueries {
           coinType: coinType,
         );
 
-        // Find matching proof object for this deal
-        final proofId = await _findProofForDeal(
-          allObjects: allObjects,
-          dealObjectId: objectId,
-        );
+        // Find matching proof object
+        final proofObj = allObjects
+            .where((o) => o.type.contains('::escrow::EscrowProof'))
+            .firstOrNull;
+        final proofId = proofObj?.id;
 
         if (proofId != null) {
           print('[ESCROW]   ✅ Found proof object: $proofId');
@@ -125,7 +102,7 @@ class EscrowQueries {
           'object_id': objectId,
           'coin_type': coinType,
           'object_type': objectType,
-          'proof_id': proofId, // Add proof_id to deal data
+          'proof_id': proofId,
           ...dealDetails,
         });
       }
@@ -144,26 +121,6 @@ class EscrowQueries {
     }
   }
 
-  /// Find proof object that belongs to a specific deal
-  Future<String?> _findProofForDeal({
-    required List<dynamic> allObjects,
-    required String dealObjectId,
-  }) async {
-    // Strategy: Find EscrowProof objects and match them to deals
-    // Since we can't read proof object data directly without a view function,
-    // we'll try to find proof objects owned by the same address
-
-    for (final obj in allObjects) {
-      if (obj.type.contains('::escrow::EscrowProof')) {
-        // For now, return the first proof object we find
-        // TODO: Add a view function to match proof to deal properly
-        return obj.id as String?;
-      }
-    }
-
-    return null;
-  }
-
   /// Get deal details by Object ID
   Future<Map<String, dynamic>> getDealDetailsByObjectId({
     required KanariWallet wallet,
@@ -171,12 +128,11 @@ class EscrowQueries {
     required String coinType,
   }) async {
     try {
-      final result = await _viewFunction(
+      final result = await _callViewFunction(
         wallet: wallet,
-        function:
-            '${EscrowConstants.packageAddress}::${EscrowConstants.module}::${EscrowConstants.fnGetDealDetails}',
-        typeArguments: [_normalizeTokenType(coinType)],
-        arguments: [BcsSerializers.hexToBytes(dealObjectId)],
+        functionName: EscrowConstants.fnGetDealDetails,
+        coinType: coinType,
+        args: TransactionArgs()..addObjectId(dealObjectId),
       );
 
       if (result.isEmpty) {
@@ -208,7 +164,27 @@ class EscrowQueries {
     }
   }
 
-  /// Execute view function
+  /// Generic view function caller
+  Future<List<dynamic>> _callViewFunction({
+    required KanariWallet wallet,
+    required String functionName,
+    required String coinType,
+    required TransactionArgs args,
+  }) async {
+    final normalizedToken = BcsUtils.normalizeTokenType(coinType);
+    final packageAddr = BcsUtils.normalizeAddress(
+      EscrowConstants.packageAddress,
+    );
+
+    return await _viewFunction(
+      wallet: wallet,
+      function: '$packageAddr::${EscrowConstants.module}::$functionName',
+      typeArguments: [normalizedToken],
+      arguments: args.build(),
+    );
+  }
+
+  /// Execute view function via RPC
   Future<List<dynamic>> _viewFunction({
     required KanariWallet wallet,
     required String function,
@@ -221,12 +197,9 @@ class EscrowQueries {
       throw Exception('Invalid function format: $function');
     }
 
-    final package = parts[0];
+    final package = BcsUtils.normalizeAddress(parts[0]);
     final module = parts[1];
     final functionName = parts[2];
-
-    final senderAddress = wallet.taggedAddress;
-    final packageAddress = _normalizeAddress(package);
 
     // Convert args to hex strings for RPC
     final argsHex = arguments
@@ -238,8 +211,8 @@ class EscrowQueries {
 
     // Build request data object
     final requestData = {
-      'sender': senderAddress,
-      'package': packageAddress,
+      'sender': wallet.taggedAddress,
+      'package': package,
       'module': module,
       'function': functionName,
       'type_args': typeArguments,
@@ -275,29 +248,6 @@ class EscrowQueries {
     final result = jsonResponse['result'];
     print('[ESCROW] View function result: $result');
 
-    if (result is List) {
-      return result;
-    }
-
-    return [result];
-  }
-
-  /// Extract coin type from object type
-  String? _extractCoinTypeFromObjectType(String objectType) {
-    // Format: 0xPKG::escrow::EscrowDeal<0xPKG::usdc::USDC>
-    final match = RegExp(r'<([^>]+)>').firstMatch(objectType);
-    return match?.group(1);
-  }
-
-  /// Normalize address
-  String _normalizeAddress(String addr) {
-    final clean = addr.startsWith('0x') ? addr.substring(2) : addr;
-    return '0x${clean.padLeft(64, '0')}';
-  }
-
-  /// Normalize token type
-  String _normalizeTokenType(String tokenType) {
-    if (tokenType.startsWith('0x')) return tokenType;
-    return '0x$tokenType';
+    return result is List ? result : [result];
   }
 }
