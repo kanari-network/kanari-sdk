@@ -51,8 +51,8 @@ class DealCard extends StatelessWidget {
                     child: Text(
                       'Deal ID',
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                   if (isSelected)
@@ -84,16 +84,15 @@ class DealCard extends StatelessWidget {
       children: [
         Text(
           label,
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-          ),
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
         ),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 12,
-            fontFamily: 'monospace',
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+            textAlign: TextAlign.end,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ],

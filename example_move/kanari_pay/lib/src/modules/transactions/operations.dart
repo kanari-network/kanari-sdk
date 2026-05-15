@@ -5,7 +5,7 @@ import 'package:bcs/bcs.dart';
 import 'package:http/http.dart' as http;
 import 'package:kanari_crypto/kanari_crypto.dart';
 
-import '../../core/bcs_serializers.dart';
+import '../../core/bcs_utils.dart';
 import '../../core/rpc_utils.dart';
 import '../../kanari_wallet.dart';
 import '../../models/transaction.dart';
@@ -167,7 +167,7 @@ class TransactionOperations {
 
     // Normalize addresses
     final senderAddress = _getSenderForTx(wallet);
-    final normalizedRecipient = BcsSerializers.normalizeAddress(recipient);
+    final normalizedRecipient = BcsUtils.normalizeAddress(recipient);
 
     // Prepare transaction data
     final txData = {
@@ -217,7 +217,7 @@ class TransactionOperations {
 
     // Normalize addresses
     final senderAddress = _getSenderForTx(wallet);
-    final packageAddress = BcsSerializers.normalizeAddress(package);
+    final packageAddress = BcsUtils.normalizeAddress(package);
 
     // Prepare transaction data
     final txData = {
@@ -308,13 +308,12 @@ class TransactionOperations {
   }) async {
     // Get Account & Objects
     final account = await queries.getAccount(wallet.address);
-    final normalizedRecipient = BcsSerializers.normalizeAddress(recipient);
 
     // Find the coin object ID matching the token type
     String? coinObjectId;
     if (account.ownedObjects != null) {
       for (final obj in account.ownedObjects!) {
-        final objToken = BcsSerializers.extractCoinTypeFromObjectType(obj.type);
+        final objToken = BcsUtils.extractCoinTypeFromObjectType(obj.type);
         if (objToken == tokenType) {
           coinObjectId = obj.id;
           break;
@@ -339,10 +338,11 @@ class TransactionOperations {
     final packageAddress = parts[0];
     final moduleName = parts[1];
 
-    // Prepare Arguments
-    final objectIdBytes = BcsSerializers.hexToBytes(coinObjectId);
-    final amountBytes = BcsSerializers.encodeU64(amount);
-    final recipientBytes = BcsSerializers.hexToBytes(normalizedRecipient);
+    // Prepare Arguments using TransactionArgs builder
+    final args = TransactionArgs()
+      ..addObjectId(coinObjectId)
+      ..addAmount(amount)
+      ..addAddress(recipient);
 
     // Submit transaction using ExecuteFunction
     return executeFunction(
@@ -351,7 +351,7 @@ class TransactionOperations {
       module: moduleName,
       function: 'transfer_amount',
       typeArgs: [],
-      args: [objectIdBytes, amountBytes, recipientBytes],
+      args: args.build(),
       gasLimit: gasLimit,
       gasPrice: gasPrice,
       executeImmediate: true,

@@ -51,12 +51,16 @@ class TokenBalance extends Equatable {
 
   final int decimals;
   final String symbol;
+  
+  @JsonKey(name: 'icon_url')
+  final String? iconUrl;
 
   const TokenBalance({
     required this.tokenType,
     required this.amount,
     required this.decimals,
     required this.symbol,
+    this.iconUrl,
   });
 
   factory TokenBalance.fromJson(Map<String, dynamic> json) =>
@@ -65,7 +69,7 @@ class TokenBalance extends Equatable {
   Map<String, dynamic> toJson() => _$TokenBalanceToJson(this);
 
   @override
-  List<Object?> get props => [tokenType, amount, decimals, symbol];
+  List<Object?> get props => [tokenType, amount, decimals, symbol, iconUrl];
 }
 
 @JsonSerializable()

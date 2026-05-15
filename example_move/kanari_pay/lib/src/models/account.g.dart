@@ -32,6 +32,7 @@ TokenBalance _$TokenBalanceFromJson(Map<String, dynamic> json) => TokenBalance(
   amount: (json['balance'] as num).toInt(),
   decimals: (json['decimals'] as num).toInt(),
   symbol: json['symbol'] as String,
+  iconUrl: json['icon_url'] as String?,
 );
 
 Map<String, dynamic> _$TokenBalanceToJson(TokenBalance instance) =>
@@ -40,6 +41,7 @@ Map<String, dynamic> _$TokenBalanceToJson(TokenBalance instance) =>
       'balance': instance.amount,
       'decimals': instance.decimals,
       'symbol': instance.symbol,
+      'icon_url': instance.iconUrl,
     };
 
 ObjectInfo _$ObjectInfoFromJson(Map<String, dynamic> json) => ObjectInfo(

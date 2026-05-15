@@ -381,7 +381,7 @@ module kanari_escrow::escrow {
         });
     }
 
-    // Raise dispute
+    // Raise dispute - refunds buyer immediately
     // For CLI usage: Uses borrow_global_mut to load objects from storage by Object ID
     public entry fun raise_dispute<CoinType>(
         deal_id:        address,  // Object ID ของ EscrowDeal
@@ -396,12 +396,21 @@ module kanari_escrow::escrow {
         let caller = tx_context::sender(ctx);
         
         assert!(caller == deal.buyer || caller == deal.seller, E_NOT_AUTHORIZED);
-        assert!(deal.state != STATE_COMPLETED, E_WRONG_STATE);
+        
+        // ✅ Only allow dispute in LOCKED (1) or DELIVERED (2) states
+        assert!(deal.state == STATE_LOCKED || deal.state == STATE_DELIVERED, E_WRONG_STATE);
+        
+        //  Cannot dispute if deal is already COMPLETED (3) or DISPUTED (4)
+        // This prevents refunding after deal completion
 
         let now = tx_context::epoch_timestamp_ms(ctx);
         let old_state = deal.state;
         deal.state = STATE_DISPUTED;
         let deal_id_str = get_deal_id(deal);
+
+        // 🔥 Refund funds to buyer immediately
+        let funds = option::extract(&mut deal.funds);
+        transfer::public_transfer(funds, deal.buyer);
 
         // Append proof entry with dispute reason
         let entry = ProofEntry {
@@ -437,12 +446,21 @@ module kanari_escrow::escrow {
         let caller = tx_context::sender(ctx);
         
         assert!(caller == deal.buyer || caller == deal.seller, E_NOT_AUTHORIZED);
-        assert!(deal.state != STATE_COMPLETED, E_WRONG_STATE);
+        
+        // ✅ Only allow dispute in LOCKED (1) or DELIVERED (2) states
+        assert!(deal.state == STATE_LOCKED || deal.state == STATE_DELIVERED, E_WRONG_STATE);
+        
+        // ❌ Cannot dispute if deal is already COMPLETED (3) or DISPUTED (4)
+        // This prevents refunding after deal completion
 
         let now = tx_context::epoch_timestamp_ms(ctx);
         let old_state = deal.state;
         deal.state = STATE_DISPUTED;
         let deal_id = get_deal_id(deal);
+
+        // 🔥 Refund funds to buyer immediately
+        let funds = option::extract(&mut deal.funds);
+        transfer::public_transfer(funds, deal.buyer);
 
         // Append proof entry with dispute reason
         let entry = ProofEntry {

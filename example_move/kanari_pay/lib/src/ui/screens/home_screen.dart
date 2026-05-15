@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
+import 'package:kanari_pay/src/ui/widgets/token_logo.dart';
 import 'package:provider/provider.dart';
 
 import 'package:kanari_pay/src/providers/wallet_provider.dart';
@@ -327,10 +328,6 @@ class HomeScreenState extends State<HomeScreen> {
                   token.amount / math.pow(10, token.decimals);
               final isKanari = token.tokenType == 'KANARI';
 
-              final iconData = isKanari
-                  ? Icons.hexagon_rounded
-                  : Icons.toll_rounded;
-
               return Padding(
                 padding: EdgeInsets.symmetric(
                   horizontal: isSmallScreen ? 16 : 20,
@@ -339,20 +336,11 @@ class HomeScreenState extends State<HomeScreen> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: colorScheme.surfaceContainerHighest,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: colorScheme.outline.withOpacity(0.2),
-                        ),
-                      ),
-                      child: Icon(
-                        iconData,
-                        color: colorScheme.onSurface,
-                        size: 20,
-                      ),
+                    TokenLogo(
+                      tokenType: token.tokenType,
+                      symbol: token.symbol,
+                      size: isSmallScreen ? 40 : 44,
+                      logoUrl: token.iconUrl,
                     ),
                     SizedBox(width: isSmallScreen ? 12 : 16),
                     Expanded(
