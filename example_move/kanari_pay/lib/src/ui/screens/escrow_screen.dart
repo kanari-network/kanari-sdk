@@ -801,11 +801,20 @@ class _EscrowScreenState extends State<EscrowScreen>
                   // TabBar in Sliver
                   SliverToBoxAdapter(
                     child: Container(
-                      margin: const EdgeInsets.all(12),
-                      padding: const EdgeInsets.all(4),
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
                       decoration: BoxDecoration(
                         color: colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.03),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                       ),
                       child: TabBar(
                         controller: _tabController,
@@ -813,35 +822,75 @@ class _EscrowScreenState extends State<EscrowScreen>
                         unselectedLabelColor: colorScheme.onSurfaceVariant,
                         indicator: BoxDecoration(
                           color: colorScheme.surface,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(16),
                           border: Border.all(
                             // ignore: deprecated_member_use
-                            color: colorScheme.outline.withOpacity(0.2),
-                            width: 1,
+                            color: colorScheme.outline.withOpacity(0.15),
+                            width: 1.5,
                           ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.04),
+                              blurRadius: 4,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
                         ),
                         indicatorWeight: 0,
                         dividerColor: Colors.transparent,
-                        labelStyle: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
+                        labelPadding: EdgeInsets.zero,
+                        tabAlignment: TabAlignment.fill,
+                        isScrollable: false,
+                        labelStyle: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          letterSpacing: 0.3,
                         ),
-                        unselectedLabelStyle: const TextStyle(
+                        unselectedLabelStyle: TextStyle(
                           fontWeight: FontWeight.w500,
-                          fontSize: 14,
+                          fontSize: 13,
+                          letterSpacing: 0.3,
                         ),
+                        overlayColor: WidgetStateProperty.resolveWith((states) {
+                          if (states.contains(WidgetState.pressed)) {
+                            return colorScheme.primary.withOpacity(0.08);
+                          }
+                          return null;
+                        }),
+                        splashFactory: InkSplash.splashFactory,
                         tabs: const [
                           Tab(
-                            icon: Icon(Icons.add_business_rounded, size: 20),
-                            text: 'Create',
+                            height: 48,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.add_business_rounded, size: 18),
+                                SizedBox(width: 6),
+                                Text('Create'),
+                              ],
+                            ),
                           ),
                           Tab(
-                            icon: Icon(Icons.list_rounded, size: 20),
-                            text: 'Deals',
+                            height: 48,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.list_rounded, size: 18),
+                                SizedBox(width: 6),
+                                Text('Deals'),
+                              ],
+                            ),
                           ),
                           Tab(
-                            icon: Icon(Icons.history_rounded, size: 20),
-                            text: 'History',
+                            height: 48,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.history_rounded, size: 18),
+                                SizedBox(width: 6),
+                                Text('History'),
+                              ],
+                            ),
                           ),
                         ],
                       ),
@@ -1078,8 +1127,8 @@ class _EscrowScreenState extends State<EscrowScreen>
                 final humanAmount = _toHumanAmount(rawAmount, decimals);
 
                 // แสดงเฉพาะส่วนสั้นๆ ของ deal ID
-                final shortDealId = dealId.length > 16 
-                    ? '${dealId.substring(0, 8)}...${dealId.substring(dealId.length - 6)}' 
+                final shortDealId = dealId.length > 16
+                    ? '${dealId.substring(0, 8)}...${dealId.substring(dealId.length - 6)}'
                     : dealId;
 
                 return DropdownMenuItem<String>(
@@ -1153,14 +1202,41 @@ class _EscrowScreenState extends State<EscrowScreen>
             ),
           ),
           const SizedBox(height: 12),
+          // Warning: Dispute will refund immediately
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: colorScheme.errorContainer.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: colorScheme.error.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  color: colorScheme.error,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Dispute will refund funds to buyer immediately. Cannot be reversed.',
+                    style: TextStyle(
+                      color: colorScheme.onErrorContainer,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
           _buildOutlinedButton(
-            onPressed: (_currentDealState == null || _currentDealState == 3)
-                ? null
-                : _raiseDispute,
+            onPressed: (_currentDealState == 1 || _currentDealState == 2)
+                ? _raiseDispute
+                : null,
             icon: Icons.gavel,
-            label: (_currentDealState == null || _currentDealState == 3)
-                ? 'Deal is completed or not found'
-                : 'Raise Dispute',
+            label: _getDisputeButtonLabel(),
             color: colorScheme.error,
           ),
         ],
@@ -1404,6 +1480,22 @@ class _EscrowScreenState extends State<EscrowScreen>
       setState(() {
         _buyerAddressController.text = address;
       });
+    }
+  }
+
+  /// Get button label based on deal state
+  String _getDisputeButtonLabel() {
+    switch (_currentDealState) {
+      case 1: // STATE_LOCKED
+        return 'Raise Dispute & Refund Buyer';
+      case 2: // STATE_DELIVERED
+        return 'Raise Dispute & Refund Buyer';
+      case 3: // STATE_COMPLETED
+        return 'Deal is already completed';
+      case 4: // STATE_DISPUTED
+        return 'Dispute already raised';
+      default:
+        return 'Deal is not found';
     }
   }
 
