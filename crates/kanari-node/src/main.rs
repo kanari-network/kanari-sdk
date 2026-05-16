@@ -4,8 +4,8 @@
 // Main entry point for Kanari blockchain node
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use kanari_core::engine::AccountInfo;
 use kanari_core::BlockchainEngine;
+use kanari_core::engine::AccountInfo;
 use kanari_crypto::wallet::list_wallet_files;
 use kanari_rpc_server::start_server;
 use kanari_types::address::Address as KanariAddress;

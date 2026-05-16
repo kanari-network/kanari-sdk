@@ -47,16 +47,13 @@ impl ResourceResolver for KanariMoveResolver {
         address: &AccountAddress,
         tag: &StructTag,
     ) -> Result<Option<Vec<u8>>, Self::Error> {
-        // First try to get as regular resource (Aptos-style)
         if let Some(data) = self.state.get_resource(address, tag) {
             return Ok(Some(data));
         }
 
-        // If not found, try to get as Sui-style object
-        // For Sui-style objects with `has key`, they are stored at their own address
-        if let Some(obj_data) = self.state.get_object(address) {
+        if let Some(data) = self.state.get_object(address) {
             log::debug!("[RESOLVER] Loaded Sui-style object at {}", address);
-            return Ok(Some(obj_data));
+            return Ok(Some(data));
         }
 
         Ok(None)

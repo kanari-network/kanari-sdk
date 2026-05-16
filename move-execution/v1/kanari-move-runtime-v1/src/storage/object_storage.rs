@@ -140,6 +140,36 @@ impl ObjectStorage {
         key
     }
 
+    fn load_id_index(
+        store: &PersistentStore,
+        key: &[u8],
+    ) -> Result<Vec<String>, ObjectStorageError> {
+        Ok(store.load(key)?.unwrap_or_default())
+    }
+
+    fn save_id_index(
+        store: &PersistentStore,
+        key: &[u8],
+        ids: &[String],
+    ) -> Result<(), ObjectStorageError> {
+        store.save(key, ids)?;
+        Ok(())
+    }
+
+    fn add_index_id(ids: &mut Vec<String>, id: &str) -> bool {
+        if ids.iter().any(|existing| existing == id) {
+            return false;
+        }
+        ids.push(id.to_string());
+        true
+    }
+
+    fn remove_index_id(ids: &mut Vec<String>, id: &str) -> bool {
+        let initial_len = ids.len();
+        ids.retain(|existing| existing != id);
+        ids.len() != initial_len
+    }
+
     pub fn new() -> Self {
         Self {
             state: Arc::new(RwLock::new(InnerState {
@@ -237,38 +267,29 @@ impl ObjectStorage {
 
             if let Some(old) = old_owner {
                 if old != owner {
-                    // Remove from old owner's wallet
                     let old_key = Self::owner_key(&old);
-                    let mut old_ids: Vec<String> = store.load(&old_key)?.unwrap_or_default();
-                    old_ids.retain(|oid| oid != &id);
-                    store.save(&old_key, &old_ids)?;
+                    let mut old_ids = Self::load_id_index(store, &old_key)?;
+                    if Self::remove_index_id(&mut old_ids, &id) {
+                        Self::save_id_index(store, &old_key, &old_ids)?;
+                    }
 
-                    // Add to new owner's wallet
                     let new_key = Self::owner_key(&owner);
-                    let mut new_ids: Vec<String> = store.load(&new_key)?.unwrap_or_default();
-                    if !new_ids.contains(&id) {
-                        new_ids.push(id.clone());
-                        store.save(&new_key, &new_ids)?;
+                    let mut new_ids = Self::load_id_index(store, &new_key)?;
+                    if Self::add_index_id(&mut new_ids, &id) {
+                        Self::save_id_index(store, &new_key, &new_ids)?;
                     }
                 }
             } else {
-                // New Object
                 let new_key = Self::owner_key(&owner);
-                let mut new_ids: Vec<String> = store.load(&new_key)?.unwrap_or_default();
-                if !new_ids.contains(&id) {
-                    new_ids.push(id.clone());
-                    store.save(&new_key, &new_ids)?;
+                let mut new_ids = Self::load_id_index(store, &new_key)?;
+                if Self::add_index_id(&mut new_ids, &id) {
+                    Self::save_id_index(store, &new_key, &new_ids)?;
                 }
             }
 
-            // Update Global Object Index
-            let mut ids: Vec<String> = store
-                .load(Self::OBJECT_INDEX_KEY.as_bytes())?
-                .unwrap_or_default();
-
-            if !ids.iter().any(|x| x == &id) {
-                ids.push(id.clone());
-                store.save(Self::OBJECT_INDEX_KEY.as_bytes(), &ids)?;
+            let mut ids = Self::load_id_index(store, Self::OBJECT_INDEX_KEY.as_bytes())?;
+            if Self::add_index_id(&mut ids, &id) {
+                Self::save_id_index(store, Self::OBJECT_INDEX_KEY.as_bytes(), &ids)?;
             }
         }
 
@@ -299,7 +320,7 @@ impl ObjectStorage {
         // 🚨 Read Owner Index from DB directly if persistent
         if let Some(store) = &self.persistent {
             let key = Self::owner_key(owner);
-            let ids: Vec<String> = store.load(&key).unwrap_or(None).unwrap_or_default();
+            let ids = Self::load_id_index(store, &key).unwrap_or_default();
 
             let mut results = Vec::new();
             for id in ids {
@@ -343,20 +364,18 @@ impl ObjectStorage {
         };
 
         if let Some(store) = &self.persistent {
-            // No need to check if let Some(obj) again because we already have the value
             store.save(format!("object:{}", id).as_bytes(), &obj_to_persist)?;
 
             let old_key = Self::owner_key(&old_owner);
-            let mut old_ids: Vec<String> = store.load(&old_key)?.unwrap_or_default();
-            old_ids.retain(|oid| oid != id);
-            store.save(&old_key, &old_ids)?;
+            let mut old_ids = Self::load_id_index(store, &old_key)?;
+            if Self::remove_index_id(&mut old_ids, id) {
+                Self::save_id_index(store, &old_key, &old_ids)?;
+            }
 
             let new_key = Self::owner_key(&new_owner);
-            let mut new_ids: Vec<String> = store.load(&new_key)?.unwrap_or_default();
-            let id_str = id.to_string();
-            if !new_ids.contains(&id_str) {
-                new_ids.push(id_str);
-                store.save(&new_key, &new_ids)?;
+            let mut new_ids = Self::load_id_index(store, &new_key)?;
+            if Self::add_index_id(&mut new_ids, id) {
+                Self::save_id_index(store, &new_key, &new_ids)?;
             }
         }
 
@@ -379,17 +398,15 @@ impl ObjectStorage {
 
             if let Some(owner) = old_owner {
                 let owner_key = Self::owner_key(&owner);
-                let mut ids: Vec<String> = store.load(&owner_key)?.unwrap_or_default();
-                ids.retain(|oid| oid != id);
-                store.save(&owner_key, &ids)?;
+                let mut ids = Self::load_id_index(store, &owner_key)?;
+                if Self::remove_index_id(&mut ids, id) {
+                    Self::save_id_index(store, &owner_key, &ids)?;
+                }
             }
 
-            let mut ids: Vec<String> = store
-                .load(Self::OBJECT_INDEX_KEY.as_bytes())?
-                .unwrap_or_default();
-            if let Some(pos) = ids.iter().position(|x| x == id) {
-                ids.remove(pos);
-                store.save(Self::OBJECT_INDEX_KEY.as_bytes(), &ids)?;
+            let mut ids = Self::load_id_index(store, Self::OBJECT_INDEX_KEY.as_bytes())?;
+            if Self::remove_index_id(&mut ids, id) {
+                Self::save_id_index(store, Self::OBJECT_INDEX_KEY.as_bytes(), &ids)?;
             }
         }
 

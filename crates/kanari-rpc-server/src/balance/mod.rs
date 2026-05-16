@@ -13,8 +13,7 @@ fn parse_params<T: serde::de::DeserializeOwned>(
     id: u64,
     params: &serde_json::Value,
 ) -> Result<T, RpcResponse> {
-    serde_json::from_value(params.clone())
-        .map_err(|e| invalid_params_response(id, e.to_string()))
+    serde_json::from_value(params.clone()).map_err(|e| invalid_params_response(id, e.to_string()))
 }
 
 fn get_token_decimals(state_guard: &StateManager, token_type: &str) -> u8 {

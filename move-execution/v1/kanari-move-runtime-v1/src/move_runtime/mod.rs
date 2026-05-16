@@ -49,7 +49,7 @@ pub struct MoveRuntime {
     pub(crate) state: MoveVMState,
     pub(crate) published_modules: Arc<RwLock<HashSet<ModuleId>>>,
     pub(crate) object_storage: Arc<dyn ObjectStore>,
-    // Optimization: Cache for parsed type tags to avoid re-parsing
+    // Cache parsed type tags to avoid repeated string parsing.
     pub(crate) type_tag_cache: Arc<RwLock<HashMap<String, TypeTag>>>,
 }
 
@@ -70,6 +70,34 @@ struct ExecutionOptions {
     tx_hash: Option<Vec<u8>>,
     persist_runtime_state: bool,
     bypass_entry_check: bool,
+}
+
+impl ExecutionOptions {
+    fn new(
+        sender: Option<AccountAddress>,
+        gas_info: Option<(u64, u64)>,
+        timestamp: Option<u64>,
+        tx_hash: Option<Vec<u8>>,
+    ) -> Self {
+        Self {
+            sender,
+            gas_info,
+            timestamp,
+            tx_hash,
+            persist_runtime_state: true,
+            bypass_entry_check: false,
+        }
+    }
+
+    fn with_persistence(mut self, persist_runtime_state: bool) -> Self {
+        self.persist_runtime_state = persist_runtime_state;
+        self
+    }
+
+    fn bypass_entry_check(mut self) -> Self {
+        self.bypass_entry_check = true;
+        self
+    }
 }
 
 impl MoveRuntime {
@@ -179,19 +207,18 @@ impl MoveRuntime {
         })
     }
 
-    // 🟢 Create new function for Hot-Reload
+    /// Rebuild the VM instance so cached module state is refreshed.
     pub fn reload_vm_cache(&self) -> Result<()> {
         let new_vm = MoveVM::new(self.all_natives.as_ref().clone())
             .map_err(|e| anyhow::anyhow!("Failed to reload MoveVM: {:?}", e))?;
 
-        // Overwrite old MoveVM with newly created one, clearing all caches
+        // Replace the VM instance to clear internal caches.
         *self.vm.write().unwrap() = new_vm;
 
-        // Preload essential system modules into the new VM's cache to ensure dependencies are available
-        // This is critical for module upgrades where dependencies must be resolvable
+        // Preload published modules so follow-up executions can resolve dependencies immediately.
         self.preload_system_modules_into_vm()?;
 
-        log::info!("[RUNTIME] MoveVM cache cleared and reloaded (Hot-Reload successful)");
+        log::info!("[RUNTIME] MoveVM cache cleared and reloaded");
         Ok(())
     }
 
@@ -200,7 +227,7 @@ impl MoveRuntime {
         let vm_guard = self.vm.read().unwrap();
         let session = self.create_session_with_storage_ext(&vm_guard);
 
-        // Get all published module IDs from our index
+        // Read the published module set from the runtime index.
         let module_ids: Vec<ModuleId> = self
             .published_modules
             .read()
@@ -209,17 +236,15 @@ impl MoveRuntime {
             .cloned()
             .collect();
 
-        // Load each module into the VM cache by accessing it through the session
+        // Deserialize published modules so the fresh VM repopulates its caches.
         for module_id in module_ids {
             if let Some(module_bytes) = self.state.get_module(&module_id) {
-                // Deserialize to trigger caching in the VM
                 if CompiledModule::deserialize_with_defaults(&module_bytes).is_ok() {
                     log::debug!("[RUNTIME] Preloaded module into cache: {}", module_id);
                 }
             }
         }
 
-        // Finish session without making changes (just for caching)
         drop(session);
         drop(vm_guard);
 
@@ -350,14 +375,7 @@ impl MoveRuntime {
             "init",
             vec![],
             args,
-            ExecutionOptions {
-                sender: Some(module_addr),
-                gas_info: None,
-                timestamp: None,
-                tx_hash: None,
-                persist_runtime_state: true,
-                bypass_entry_check: true,
-            },
+            ExecutionOptions::new(Some(module_addr), None, None, None).bypass_entry_check(),
         )
         .map_err(|e| anyhow::anyhow!("Failed to execute init(): {:?}", e))
     }
@@ -516,14 +534,14 @@ impl MoveRuntime {
         move_value.simple_serialize()
     }
 
-    // Helper function to convert object ID string to UID (for event data)
+    /// Convert an object-id string into a `UIDRecord` when possible.
     fn uid_from_object_id(object_id: &str) -> Option<kanari_types::object::UIDRecord> {
         AccountAddress::from_hex_literal(object_id)
             .ok()
             .map(kanari_types::object::UIDRecord::new)
     }
 
-    // Helper function to convert object ID string to IDRecord, which is used in changesets and events
+    /// Convert an object-id string into an `IDRecord` when possible.
     fn id_from_object_id(object_id: &str) -> Option<kanari_types::object::IDRecord> {
         AccountAddress::from_hex_literal(object_id)
             .ok()
@@ -567,6 +585,40 @@ impl MoveRuntime {
             return (stored.owner, stored.version + 1);
         }
         (AccountAddress::ZERO, 1)
+    }
+
+    fn build_created_object(
+        owner: AccountAddress,
+        object_id: &str,
+        type_name: &str,
+        data: Vec<u8>,
+        version: u64,
+    ) -> crate::changeset::CreatedObject {
+        crate::changeset::CreatedObject {
+            owner,
+            uid: Self::uid_from_object_id(object_id),
+            id: Self::id_from_object_id(object_id),
+            type_: type_name.to_string(),
+            data,
+            version,
+        }
+    }
+
+    fn upsert_created_object(
+        &self,
+        cs: &mut ChangeSet,
+        owner: AccountAddress,
+        object_id: &str,
+        type_name: &str,
+        data: Vec<u8>,
+        version: u64,
+        source: &str,
+    ) {
+        self.maybe_add_token_balance(cs, owner, type_name, &data, object_id, source);
+        let updated_obj = Self::build_created_object(owner, object_id, type_name, data, version);
+        cs.created_objects.retain(|(k, _)| k != object_id);
+        cs.created_objects
+            .push((object_id.to_string(), updated_obj));
     }
 
     pub fn persist_created_objects(&self, cs: &ChangeSet) {
@@ -687,14 +739,7 @@ impl MoveRuntime {
             function_name,
             type_args,
             args,
-            ExecutionOptions {
-                sender,
-                gas_info,
-                timestamp,
-                tx_hash: None,
-                persist_runtime_state: true,
-                bypass_entry_check: false,
-            },
+            ExecutionOptions::new(sender, gas_info, timestamp, None),
         )
     }
 
@@ -714,14 +759,7 @@ impl MoveRuntime {
             function_name,
             type_args,
             args,
-            ExecutionOptions {
-                sender,
-                gas_info,
-                timestamp,
-                tx_hash,
-                persist_runtime_state: true,
-                bypass_entry_check: false,
-            },
+            ExecutionOptions::new(sender, gas_info, timestamp, tx_hash),
         )
     }
 
@@ -742,14 +780,8 @@ impl MoveRuntime {
             function_name,
             type_args,
             args,
-            ExecutionOptions {
-                sender,
-                gas_info,
-                timestamp,
-                tx_hash,
-                persist_runtime_state,
-                bypass_entry_check: false,
-            },
+            ExecutionOptions::new(sender, gas_info, timestamp, tx_hash)
+                .with_persistence(persist_runtime_state),
         )
     }
 
@@ -770,14 +802,9 @@ impl MoveRuntime {
             function_name,
             type_args,
             args,
-            ExecutionOptions {
-                sender,
-                gas_info,
-                timestamp,
-                tx_hash,
-                persist_runtime_state,
-                bypass_entry_check: true,
-            },
+            ExecutionOptions::new(sender, gas_info, timestamp, tx_hash)
+                .with_persistence(persist_runtime_state)
+                .bypass_entry_check(),
         )
     }
 
@@ -801,7 +828,7 @@ impl MoveRuntime {
         let vm_guard = self.vm.read().unwrap();
         let mut session = self.create_session_with_storage_ext(&vm_guard);
 
-        // Preload potential object arguments into LoadedObjectsExt for native_borrow_global_mut support
+        // Preload object arguments so native object borrows can resolve them from extensions.
         self.preload_objects_for_execution(&mut session, &args)?;
 
         let mut auto_merged_coin_ids = Vec::new();
@@ -1034,28 +1061,16 @@ impl MoveRuntime {
                         .iter()
                         .find(|(i, _, _, _, _)| *i == idx as usize)
                     {
-                        let updated_obj = crate::changeset::CreatedObject {
-                            owner: *owner,
-                            uid: Self::uid_from_object_id(id),
-                            id: Self::id_from_object_id(id),
-                            type_: type_name.clone(),
-                            data: data.clone(),
-                            version: version + 1,
-                        };
-
-                        self.maybe_add_token_balance(
+                        auto_merged_coin_ids.retain(|merged_id| merged_id != id);
+                        self.upsert_created_object(
                             &mut cs,
                             *owner,
-                            type_name,
-                            &data,
                             id,
+                            type_name,
+                            data.clone(),
+                            version + 1,
                             "writeback",
                         );
-
-                        auto_merged_coin_ids.retain(|merged_id| merged_id != id);
-
-                        cs.created_objects.retain(|(k, _)| k != id);
-                        cs.created_objects.push((id.clone(), updated_obj));
                         processed_ids.insert(id.clone());
                     }
                 }
@@ -1068,31 +1083,19 @@ impl MoveRuntime {
                     let (owner, version) = self
                         .resolve_saved_owner_and_version(&loaded_mutable_objects, &saved.object_id);
 
-                    let updated_obj = crate::changeset::CreatedObject {
-                        owner,
-                        uid: Self::uid_from_object_id(&saved.object_id),
-                        id: Self::id_from_object_id(&saved.object_id),
-                        type_: saved.object_type.clone(),
-                        data: saved.data.clone(),
-                        version,
-                    };
-
-                    self.maybe_add_token_balance(
+                    self.upsert_created_object(
                         &mut cs,
                         owner,
-                        &saved.object_type,
-                        &saved.data,
                         &saved.object_id,
+                        &saved.object_type,
+                        saved.data.clone(),
+                        version,
                         "saved",
                     );
-
-                    cs.created_objects.retain(|(k, _)| k != &saved.object_id);
-                    cs.created_objects
-                        .push((saved.object_id.clone(), updated_obj));
                     processed_ids.insert(saved.object_id);
                 }
 
-                // Process borrowed objects (modified via borrow_global_mut)
+                // Record objects that were updated through `borrow_global_mut`.
                 for borrowed in borrowed_objects {
                     if processed_ids.contains(&borrowed.object_id) {
                         continue;
@@ -1103,27 +1106,15 @@ impl MoveRuntime {
                         &borrowed.object_id,
                     );
 
-                    let updated_obj = crate::changeset::CreatedObject {
-                        owner,
-                        uid: Self::uid_from_object_id(&borrowed.object_id),
-                        id: Self::id_from_object_id(&borrowed.object_id),
-                        type_: borrowed.object_type.clone(),
-                        data: borrowed.data.clone(),
-                        version,
-                    };
-
-                    self.maybe_add_token_balance(
+                    self.upsert_created_object(
                         &mut cs,
                         owner,
-                        &borrowed.object_type,
-                        &borrowed.data,
                         &borrowed.object_id,
+                        &borrowed.object_type,
+                        borrowed.data.clone(),
+                        version,
                         "borrowed_mut",
                     );
-
-                    cs.created_objects.retain(|(k, _)| k != &borrowed.object_id);
-                    cs.created_objects
-                        .push((borrowed.object_id.clone(), updated_obj));
                     processed_ids.insert(borrowed.object_id);
                 }
 
@@ -1211,12 +1202,12 @@ impl MoveRuntime {
         }
     }
 
-    /// Create a new session with all required extensions injected
+    /// Create a session with the native extensions required by the runtime.
     fn create_session_with_storage_ext<'r>(
         &'r self,
         vm_guard: &'r std::sync::RwLockReadGuard<'r, MoveVM>,
     ) -> Session<'r, 'r, KanariMoveResolver> {
-        // Create extensions container and add all required extensions
+        // Register the core extensions used by object, event, and dynamic-field natives.
         let mut extensions = NativeContextExtensions::default();
         extensions.add(DynamicFieldsExt::default());
         extensions.add(EventsExt::default());
@@ -1224,11 +1215,10 @@ impl MoveRuntime {
         extensions.add(DeletedObjectsExt::default());
         extensions.add(TransferredObjectsExt::default());
 
-        // Add object tracking extensions for proper borrow_global and borrow_global_mut support
+        // Track objects loaded and mutated through object native functions.
         extensions.add(LoadedObjectsExt::default());
         extensions.add(BorrowedObjectsExt::default());
 
-        // Create session with extensions
         vm_guard.new_session_with_extensions(self.resolver.clone(), extensions)
     }
 
@@ -1270,9 +1260,7 @@ impl MoveRuntime {
         }
     }
 
-    /// Execute a view function (read-only, no state changes, no transaction submission)
-    /// This is for calling public/friend functions that don't modify state
-    /// Optimized for 5-10ms execution time
+    /// Execute a read-only function without persisting any state changes.
     pub fn execute_view_function(
         &self,
         package_addr: &str,
@@ -1283,7 +1271,7 @@ impl MoveRuntime {
     ) -> Result<serde_json::Value> {
         use move_core_types::account_address::AccountAddress;
 
-        // Optimization 1: Fast address parsing (avoid string operations)
+        // Normalize the package address before constructing the module id.
         let addr_hex = if package_addr.starts_with("0x") || package_addr.starts_with("0X") {
             &package_addr[2..]
         } else {
@@ -1294,17 +1282,15 @@ impl MoveRuntime {
 
         let module_id = ModuleId::new(addr, Identifier::new(module_name)?);
 
-        // Create session with storage resolver (same as entry functions)
+        // Reuse the same session setup as entry-function execution.
         let vm_guard = self.vm.read().unwrap();
         let mut session = self.create_session_with_storage_ext(&vm_guard);
 
-        // 🔥 CRITICAL: Preload objects from args into LoadedObjectsExt
-        // This is required for view functions that use object::borrow_global
-        // Same as execute_entry_function does!
+        // Preload object arguments so view functions can borrow them through natives.
         self.preload_objects_for_execution(&mut session, args)
             .map_err(|e| anyhow::anyhow!("Failed to preload objects: {}", e))?;
 
-        // Optimization 3: Pre-allocate type arguments vector with caching
+        // Parse and load type arguments before invocation.
         let mut ty_args_loaded = Vec::with_capacity(type_args.len());
         for type_arg in type_args {
             // Parse type tag from string (e.g., "0x1::aptos_coin::AptosCoin") - uses cache
@@ -1319,7 +1305,7 @@ impl MoveRuntime {
         let ident = IdentStr::new(function_name)
             .map_err(|e| anyhow::anyhow!("Invalid function name: {}", e))?;
 
-        // Optimization 4: Execute with unmetered gas (no overhead)
+        // View calls run with the unmetered gas meter.
         let mut unmetered_gas = UnmeteredGasMeter;
         let execution_result = session.execute_function_bypass_visibility(
             &module_id,
@@ -1329,22 +1315,18 @@ impl MoveRuntime {
             &mut unmetered_gas,
         );
 
-        // Finish session without persisting changes
+        // Finish the session without persisting any writes.
         let (res, _new_storage) = session.finish();
         let (_move_changeset, _events) =
             res.map_err(|e| anyhow::anyhow!("Session error: {:?}", e))?;
 
-        // Optimization 5: Fast return value processing
         match execution_result {
             Ok(return_values) => {
-                // Convert return values to JSON efficiently (simplified for speed)
+                // Convert return values into JSON without layout-heavy decoding.
                 let results: Vec<serde_json::Value> = return_values
                     .return_values
                     .into_iter()
-                    .map(|(bytes, _layout)| {
-                        // Fast path: serialize bytes directly without complex type analysis
-                        Self::bytes_to_json_fast(&bytes)
-                    })
+                    .map(|(bytes, _layout)| Self::bytes_to_json_fast(&bytes))
                     .collect();
 
                 if results.len() == 1 {
@@ -1357,16 +1339,16 @@ impl MoveRuntime {
         }
     }
 
-    /// Fast type tag parser with caching support
+    /// Parse type tags with a small in-memory cache for repeated lookups.
     fn parse_type_tag_fast(&self, type_str: &str) -> Result<TypeTag> {
         use move_core_types::language_storage::TypeTag;
 
-        // Optimization: Check cache first (avoid re-parsing common types)
+        // Check the cache before parsing common type strings again.
         if let Some(cached) = self.get_cached_type_tag(type_str) {
             return Ok(cached);
         }
 
-        // Fast path: check for primitive types first (most common)
+        // Handle primitive types directly before falling back to struct parsing.
         let result = match type_str {
             "u8" => TypeTag::U8,
             "u16" => TypeTag::U16,
@@ -1378,7 +1360,7 @@ impl MoveRuntime {
             "address" => TypeTag::Address,
             "signer" => TypeTag::Signer,
             _ => {
-                // Slow path: struct types
+                // Fall back to simple `address::module::name` struct parsing.
                 if type_str.contains("::") {
                     let parts: Vec<&str> = type_str.split("::").collect();
                     if parts.len() >= 3 {
@@ -1400,30 +1382,29 @@ impl MoveRuntime {
             }
         };
 
-        // Cache the result for future use
+        // Cache the parsed result for later calls.
         self.cache_type_tag(type_str.to_string(), result.clone());
         Ok(result)
     }
 
-    /// Get cached type tag (lock-free read optimization)
+    /// Read a cached type tag if present.
     fn get_cached_type_tag(&self, type_str: &str) -> Option<TypeTag> {
-        // Try read lock first (faster than write lock)
         if let Ok(cache) = self.type_tag_cache.read() {
             return cache.get(type_str).cloned();
         }
         None
     }
 
-    /// Cache type tag for future use
+    /// Store a parsed type tag in the cache.
     fn cache_type_tag(&self, type_str: String, type_tag: TypeTag) {
         if let Ok(mut cache) = self.type_tag_cache.write() {
             cache.insert(type_str, type_tag);
         }
     }
 
-    /// Fast JSON conversion from bytes (optimized for 5-10ms target)
+    /// Convert return bytes into JSON with a lightweight best-effort strategy.
     fn bytes_to_json_fast(bytes: &[u8]) -> serde_json::Value {
-        // For simple types, try direct deserialization
+        // Try a few simple decodings before falling back to hex.
         if bytes.len() <= 8 {
             // Likely a primitive type (u8, u16, u32, u64, bool)
             if bytes.len() == 1 {

@@ -36,14 +36,14 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
 
     log::info!("Loading framework modules from: {}", bytecode_dir.display());
 
-    // Create MoveRuntime with Kanari natives and system modules pre-loaded
+    // Build an in-memory runtime and preload framework/system natives.
     let runtime = MoveRuntime::new_with_kanari_natives_in_memory()
         .context("MoveRuntime initialization failed")?;
     log::info!("✓ MoveRuntime initialized with system modules");
 
     let system_addr = KanariAddress::kanari_system_account_address();
 
-    // Use load_system_modules to discover and sort modules
+    // Discover framework modules and publish them in dependency order.
     let sorted_modules = load_system_modules::load_system_modules_from_dir(&bytecode_dir)
         .context("Failed to load system modules")?;
 
@@ -53,7 +53,7 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
         sorted_modules.len()
     );
 
-    // Publish each module
+    // Publish each module and apply the resulting changeset immediately.
     for (idx, module) in sorted_modules.iter().enumerate() {
         let module_name = &module.file_name;
         log::info!(
@@ -76,7 +76,7 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
                     changeset.events.len()
                 );
 
-                // Log details of created objects for debugging
+                // Log created objects for genesis diagnostics.
                 if !changeset.created_objects.is_empty() {
                     for (obj_id, obj) in &changeset.created_objects {
                         log::info!(
@@ -88,7 +88,7 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
                     }
                 }
 
-                // Log events if any
+                // Log emitted events for genesis diagnostics.
                 if !changeset.events.is_empty() {
                     for event in &changeset.events {
                         log::info!(
@@ -100,12 +100,12 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
                     }
                 }
 
-                // Apply changeset to state
+                // Persist state and object side effects for this module publish.
                 state.apply_changeset(&changeset)?;
                 runtime.persist_created_objects(&changeset);
                 runtime.persist_deleted_objects(&changeset);
 
-                // If this is the kanari module, execute its init function via Move VM
+                // Run `kanari::init()` after publishing the main kanari module.
                 if *module_name == "kanari.mv" {
                     log::info!("   Executing kanari::init() via Move VM...");
 
@@ -129,7 +129,7 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
                                 init_changeset.events.len()
                             );
 
-                            // Log details of created objects for debugging
+                            // Log created objects for genesis diagnostics.
                             for (obj_id, obj) in &init_changeset.created_objects {
                                 log::info!(
                                     "      Created object: {} (type: {}, owner: {})",
@@ -139,7 +139,7 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
                                 );
                             }
 
-                            // Log events if any
+                            // Log emitted events for genesis diagnostics.
                             if !init_changeset.events.is_empty() {
                                 for event in &init_changeset.events {
                                     log::info!(
@@ -171,7 +171,7 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
     log::info!("✓ All framework modules published");
     log::info!("=== Genesis initialization complete ===");
 
-    // Commit to persist all genesis state
+    // Commit the accumulated genesis overlay to persistent storage.
     state.commit()?;
 
     Ok(())

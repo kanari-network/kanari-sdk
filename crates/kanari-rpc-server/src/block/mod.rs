@@ -21,8 +21,7 @@ fn internal_error_response(id: u64, message: impl Into<String>) -> RpcResponse {
 }
 
 fn parse_height(id: u64, params: &serde_json::Value) -> Result<u64, RpcResponse> {
-    serde_json::from_value(params.clone())
-        .map_err(|e| invalid_params_response(id, e.to_string()))
+    serde_json::from_value(params.clone()).map_err(|e| invalid_params_response(id, e.to_string()))
 }
 
 fn to_rpc_block_info(block: kanari_rpc_api::BlockData) -> BlockInfo {

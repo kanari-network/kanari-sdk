@@ -95,18 +95,38 @@ impl PersistentStore {
         })
     }
 
+    fn read_raw(&self, key: &[u8]) -> std::result::Result<Option<Vec<u8>>, PersistentStoreError> {
+        if let Some(db) = &self.db {
+            return Ok(db.get(key)?);
+        }
+
+        if let Some(store) = &self.memory_store {
+            return Ok(store.read().unwrap().get(key).cloned());
+        }
+
+        Ok(None)
+    }
+
+    fn write_raw(
+        &self,
+        key: &[u8],
+        value: Vec<u8>,
+    ) -> std::result::Result<(), PersistentStoreError> {
+        if let Some(db) = &self.db {
+            db.put(key, value)?;
+        } else if let Some(store) = &self.memory_store {
+            store.write().unwrap().insert(key.to_vec(), value);
+        }
+        Ok(())
+    }
+
     /// Save raw bytes under `key`.
     pub fn save_raw(
         &self,
         key: &[u8],
         value: &[u8],
     ) -> std::result::Result<(), PersistentStoreError> {
-        if let Some(db) = &self.db {
-            db.put(key, value)?;
-        } else if let Some(store) = &self.memory_store {
-            store.write().unwrap().insert(key.to_vec(), value.to_vec());
-        }
-        Ok(())
+        self.write_raw(key, value.to_vec())
     }
 
     /// Save a serializable value under `key`.
@@ -116,14 +136,7 @@ impl PersistentStore {
         value: &T,
     ) -> std::result::Result<(), PersistentStoreError> {
         let bytes = bcs::to_bytes(value)?;
-
-        if let Some(db) = &self.db {
-            db.put(key, &bytes)?;
-        } else if let Some(store) = &self.memory_store {
-            store.write().unwrap().insert(key.to_vec(), bytes);
-        }
-
-        Ok(())
+        self.write_raw(key, bytes)
     }
 
     /// Load a deserializable value from `key`.
@@ -131,25 +144,9 @@ impl PersistentStore {
         &self,
         key: &[u8],
     ) -> std::result::Result<Option<T>, PersistentStoreError> {
-        if let Some(db) = &self.db {
-            match db.get(key)? {
-                Some(bytes) => {
-                    let value = bcs::from_bytes(&bytes)?;
-                    Ok(Some(value))
-                }
-                None => Ok(None),
-            }
-        } else if let Some(store) = &self.memory_store {
-            let guard = store.read().unwrap();
-            match guard.get(key) {
-                Some(bytes) => {
-                    let value = bcs::from_bytes(bytes)?;
-                    Ok(Some(value))
-                }
-                None => Ok(None),
-            }
-        } else {
-            Ok(None)
+        match self.read_raw(key)? {
+            Some(bytes) => Ok(Some(bcs::from_bytes(&bytes)?)),
+            None => Ok(None),
         }
     }
 

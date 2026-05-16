@@ -49,10 +49,7 @@ impl Account {
     pub fn with_native_balance(address: AccountAddress, balance: u64) -> Self {
         let mut account = Self::new(address);
         if balance > 0 {
-            account.set_token_balance(
-                KANARI_TOKEN_TYPE.to_string(),
-                BalanceRecord::new(balance),
-            );
+            account.set_token_balance(KANARI_TOKEN_TYPE.to_string(), BalanceRecord::new(balance));
         }
         account
     }
@@ -109,10 +106,52 @@ pub struct StateManager {
 }
 
 impl StateManager {
+    fn load_index_list(&self, key: &[u8]) -> Result<Vec<String>> {
+        Ok(self.load_internal(key)?.unwrap_or_default())
+    }
+
+    fn save_index_list(&mut self, key: &[u8], ids: &[String]) -> Result<()> {
+        self.save_internal(key, ids)
+    }
+
+    fn add_to_index_list(&mut self, key: &[u8], value: String) -> Result<()> {
+        let mut index = self.load_index_list(key)?;
+        if !index.contains(&value) {
+            index.push(value);
+            self.save_index_list(key, &index)?;
+        }
+        Ok(())
+    }
+
+    fn remove_from_index_list(&mut self, key: &[u8], value: &str) -> Result<()> {
+        let mut index = self.load_index_list(key)?;
+        let initial_len = index.len();
+        index.retain(|entry| entry != value);
+        if index.len() != initial_len {
+            self.save_index_list(key, &index)?;
+        }
+        Ok(())
+    }
+
+    fn metadata_key(prefix: &[u8], token_type: &str) -> Vec<u8> {
+        let mut key = prefix.to_vec();
+        key.extend_from_slice(token_type.as_bytes());
+        key
+    }
+
+    fn save_token_metadata_field<T: Serialize + ?Sized>(
+        &mut self,
+        prefix: &[u8],
+        token_type: &str,
+        value: &T,
+    ) {
+        let key = Self::metadata_key(prefix, token_type);
+        let _ = self.save_internal(&key, value);
+    }
+
     /// Retrieves all Collection IDs from the index
     pub fn get_all_collection_ids(&self) -> Vec<String> {
-        self.load_internal::<Vec<String>>(b"nft_collection_index")
-            .unwrap_or(None)
+        self.load_index_list(b"nft_collection_index")
             .unwrap_or_default()
     }
 
@@ -120,10 +159,7 @@ impl StateManager {
     pub fn get_collection_nft_ids(&self, collection_id: &str) -> Vec<String> {
         let mut key = b"collection_members:".to_vec();
         key.extend_from_slice(collection_id.as_bytes());
-
-        self.load_internal::<Vec<String>>(&key)
-            .unwrap_or(None)
-            .unwrap_or_default()
+        self.load_index_list(&key).unwrap_or_default()
     }
 
     fn normalize_token_type(token_type: &str) -> String {
@@ -171,6 +207,51 @@ impl StateManager {
             return Some(format!("{}", st));
         }
         None
+    }
+
+    fn persist_coin_metadata(&mut self, token_type: &str, data: &[u8]) {
+        #[derive(Deserialize)]
+        struct MoveString {
+            bytes: Vec<u8>,
+        }
+        #[derive(Deserialize)]
+        struct MoveUrl {
+            inner: MoveString,
+        }
+        #[derive(Deserialize)]
+        struct MoveOption<T> {
+            vec: Vec<T>,
+        }
+        #[derive(Deserialize)]
+        struct ParsedCoinMetadata {
+            _id: AccountAddress,
+            decimals: u8,
+            symbol: MoveString,
+            name: MoveString,
+            description: MoveString,
+            icon_url: MoveOption<MoveUrl>,
+        }
+
+        if let Ok(meta) = bcs::from_bytes::<ParsedCoinMetadata>(data) {
+            self.save_token_metadata_field(b"metadata_decimals:", token_type, &meta.decimals);
+
+            if let Ok(name) = String::from_utf8(meta.name.bytes) {
+                self.save_token_metadata_field(b"metadata_name:", token_type, &name);
+            }
+            if let Ok(symbol) = String::from_utf8(meta.symbol.bytes) {
+                self.save_token_metadata_field(b"metadata_symbol:", token_type, &symbol);
+            }
+            if let Ok(description) = String::from_utf8(meta.description.bytes) {
+                self.save_token_metadata_field(b"metadata_description:", token_type, &description);
+            }
+            if let Some(url_obj) = meta.icon_url.vec.into_iter().next()
+                && let Ok(url) = String::from_utf8(url_obj.inner.bytes)
+            {
+                self.save_token_metadata_field(b"metadata_icon_url:", token_type, &url);
+            }
+        } else if data.len() > 32 {
+            self.save_token_metadata_field(b"metadata_decimals:", token_type, &data[32]);
+        }
     }
 
     fn adjust_global_supplies_for_account_delta(
@@ -537,13 +618,7 @@ impl StateManager {
             key_owner.extend_from_slice(token_type.as_bytes());
             self.save_internal(&key_owner, owner)?;
 
-            // Update treasury index
-            let mut index: Vec<String> = self.load_internal(b"treasury_index")?.unwrap_or_default();
-            let key_str = format!("treasury:{}", token_type);
-            if !index.contains(&key_str) {
-                index.push(key_str);
-                self.save_internal(b"treasury_index", &index)?;
-            }
+            self.add_to_index_list(b"treasury_index", format!("treasury:{}", token_type))?;
         }
 
         // Apply NFT capability creations/updates
@@ -579,9 +654,7 @@ impl StateManager {
             if let Some(existing) = self.load_internal::<StoredObject>(&obj_key)? {
                 owners_to_recompute.insert(existing.owner);
                 let owner_key = Self::owned_objects_key(&existing.owner);
-                let mut owned: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
-                owned.retain(|x| x != obj_id);
-                self.save_internal(&owner_key, &owned)?;
+                self.remove_from_index_list(&owner_key, obj_id)?;
             }
             self.overlay.insert(obj_key, None);
         }
@@ -590,13 +663,7 @@ impl StateManager {
         for (obj_id, created) in &changeset.created_objects {
             // If this is a Collection type Object, record it in the global index
             if created.type_.contains("::collection::Collection") {
-                let mut index: Vec<String> = self
-                    .load_internal(b"nft_collection_index")?
-                    .unwrap_or_default();
-                if !index.contains(obj_id) {
-                    index.push(obj_id.clone());
-                    self.save_internal(b"nft_collection_index", &index)?;
-                }
+                self.add_to_index_list(b"nft_collection_index", obj_id.clone())?;
             }
         }
 
@@ -615,12 +682,7 @@ impl StateManager {
                     // Record in Collection member index (O(1) Access)
                     let mut key = b"collection_members:".to_vec();
                     key.extend_from_slice(coll_id.as_bytes());
-
-                    let mut members: Vec<String> = self.load_internal(&key)?.unwrap_or_default();
-                    if !members.contains(&nft_id) {
-                        members.push(nft_id);
-                        self.save_internal(&key, &members)?;
-                    }
+                    self.add_to_index_list(&key, nft_id)?;
                 }
             }
         }
@@ -641,10 +703,7 @@ impl StateManager {
                 }
                 if existing.owner != new_obj.owner {
                     let old_owner_key = Self::owned_objects_key(&existing.owner);
-                    let mut old_owned: Vec<String> =
-                        self.load_internal(&old_owner_key)?.unwrap_or_default();
-                    old_owned.retain(|x| x != obj_id);
-                    self.save_internal(&old_owner_key, &old_owned)?;
+                    self.remove_from_index_list(&old_owner_key, obj_id)?;
                 }
             } else {
                 // For new objects, use version from ChangeSet or default to 1
@@ -664,76 +723,15 @@ impl StateManager {
             self.save_internal(&obj_key, &stored_obj)?;
 
             let owner_key = Self::owned_objects_key(&new_obj.owner);
-            let mut owned: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
-            owned.retain(|x| x != obj_id);
-            owned.push(obj_id.clone());
-            self.save_internal(&owner_key, &owned)?;
+            self.remove_from_index_list(&owner_key, obj_id)?;
+            self.add_to_index_list(&owner_key, obj_id.clone())?;
 
             if new_obj.type_.contains("::coin::CoinMetadata<")
                 && let Some(start) = new_obj.type_.find('<')
                 && let Some(end) = new_obj.type_.rfind('>')
             {
                 let token_type = &new_obj.type_[start + 1..end];
-
-                #[derive(Deserialize)]
-                struct MoveString {
-                    bytes: Vec<u8>,
-                }
-                #[derive(Deserialize)]
-                struct MoveUrl {
-                    inner: MoveString,
-                }
-
-                #[derive(Deserialize)]
-                struct MoveOption<T> {
-                    vec: Vec<T>,
-                }
-                #[derive(Deserialize)]
-                struct ParsedCoinMetadata {
-                    _id: AccountAddress,
-                    decimals: u8,
-                    symbol: MoveString,
-                    name: MoveString,
-                    description: MoveString,
-                    icon_url: MoveOption<MoveUrl>,
-                }
-
-                if let Ok(meta) = bcs::from_bytes::<ParsedCoinMetadata>(&new_obj.data) {
-                    let mut key_dec = b"metadata_decimals:".to_vec();
-                    key_dec.extend_from_slice(token_type.as_bytes());
-                    let _ = self.save_internal(&key_dec, &meta.decimals);
-
-                    if let Ok(name) = String::from_utf8(meta.name.bytes) {
-                        let mut key_name = b"metadata_name:".to_vec();
-                        key_name.extend_from_slice(token_type.as_bytes());
-                        let _ = self.save_internal(&key_name, &name);
-                    }
-
-                    if let Ok(symbol) = String::from_utf8(meta.symbol.bytes) {
-                        let mut key_sym = b"metadata_symbol:".to_vec();
-                        key_sym.extend_from_slice(token_type.as_bytes());
-                        let _ = self.save_internal(&key_sym, &symbol);
-                    }
-
-                    if let Ok(description) = String::from_utf8(meta.description.bytes) {
-                        let mut key_desc = b"metadata_description:".to_vec();
-                        key_desc.extend_from_slice(token_type.as_bytes());
-                        let _ = self.save_internal(&key_desc, &description);
-                    }
-
-                    if let Some(url_obj) = meta.icon_url.vec.into_iter().next()
-                        && let Ok(url) = String::from_utf8(url_obj.inner.bytes)
-                    {
-                        let mut key_url = b"metadata_icon_url:".to_vec();
-                        key_url.extend_from_slice(token_type.as_bytes());
-                        let _ = self.save_internal(&key_url, &url);
-                    }
-                } else if new_obj.data.len() > 32 {
-                    let decimals = new_obj.data[32];
-                    let mut key = b"metadata_decimals:".to_vec();
-                    key.extend_from_slice(token_type.as_bytes());
-                    let _ = self.save_internal(&key, &decimals);
-                }
+                self.persist_coin_metadata(token_type, &new_obj.data);
             }
         }
 
