@@ -9,7 +9,7 @@ use kanari_rpc_client::RpcClient;
 /// Account subcommands
 #[derive(Subcommand, Debug)]
 pub enum AccountCommand {
-    /// Get account info (address, balance, modules, token balances)
+    /// Get account info (address, sequence, modules, token balances, owned objects)
     Get {
         /// Address to query
         #[clap(long = "address")]

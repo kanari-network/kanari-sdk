@@ -3,6 +3,31 @@ use move_binary_format::CompiledModule;
 
 use crate::{RpcServerState, respond_with_serialize};
 
+fn invalid_params_response(id: u64, message: impl Into<String>) -> RpcResponse {
+    RpcResponse {
+        jsonrpc: "2.0".to_string(),
+        result: None,
+        error: Some(RpcError::invalid_params(message.into())),
+        id,
+    }
+}
+
+fn internal_error_response(id: u64, message: impl Into<String>) -> RpcResponse {
+    RpcResponse {
+        jsonrpc: "2.0".to_string(),
+        result: None,
+        error: Some(RpcError::internal_error(message.into())),
+        id,
+    }
+}
+
+fn parse_params<T: serde::de::DeserializeOwned>(
+    id: u64,
+    params: &serde_json::Value,
+) -> Result<T, RpcResponse> {
+    serde_json::from_value(params.clone()).map_err(|e| invalid_params_response(id, e.to_string()))
+}
+
 /// Handle get module
 pub async fn handle_get_module(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     #[derive(serde::Deserialize)]
@@ -11,16 +36,9 @@ pub async fn handle_get_module(state: &RpcServerState, request: &RpcRequest) -> 
         name: String,
     }
 
-    let params: GetModuleParams = match serde_json::from_value(request.params.clone()) {
+    let params: GetModuleParams = match parse_params(request.id, &request.params) {
         Ok(p) => p,
-        Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: None,
-                error: Some(RpcError::invalid_params(e.to_string())),
-                id: request.id,
-            };
-        }
+        Err(response) => return response,
     };
 
     // Get module bytecode from Move storage
@@ -38,12 +56,7 @@ pub async fn handle_get_module(state: &RpcServerState, request: &RpcRequest) -> 
             };
             respond_with_serialize(request.id, module_info)
         }
-        None => RpcResponse {
-            jsonrpc: "2.0".to_string(),
-            result: None,
-            error: Some(RpcError::module_error("Module not found")),
-            id: request.id,
-        },
+        None => internal_error_response(request.id, "Module not found"),
     }
 }
 
@@ -78,16 +91,9 @@ pub async fn handle_verify_module(_state: &RpcServerState, request: &RpcRequest)
         module_bytes: Vec<u8>,
     }
 
-    let params: VerifyParams = match serde_json::from_value(request.params.clone()) {
+    let params: VerifyParams = match parse_params(request.id, &request.params) {
         Ok(p) => p,
-        Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: None,
-                error: Some(RpcError::invalid_params(e.to_string())),
-                id: request.id,
-            };
-        }
+        Err(response) => return response,
     };
 
     // Try to deserialize module
@@ -119,17 +125,9 @@ pub async fn handle_verify_module(_state: &RpcServerState, request: &RpcRequest)
 
 /// Handle get object request
 pub async fn handle_get_object(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let req: kanari_rpc_api::GetObjectRequest = match serde_json::from_value(request.params.clone())
-    {
+    let req: kanari_rpc_api::GetObjectRequest = match parse_params(request.id, &request.params) {
         Ok(r) => r,
-        Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: None,
-                error: Some(RpcError::invalid_params(e.to_string())),
-                id: request.id,
-            };
-        }
+        Err(response) => return response,
     };
 
     // Try to look up object in engine state
@@ -151,42 +149,22 @@ pub async fn handle_get_object(state: &RpcServerState, request: &RpcRequest) -> 
         }
     }
 
-    RpcResponse {
-        jsonrpc: "2.0".to_string(),
-        result: None,
-        error: Some(RpcError::internal_error("Object not found")),
-        id: request.id,
-    }
+    internal_error_response(request.id, "Object not found")
 }
 
 /// Handle get owned objects request
 pub async fn handle_get_owned_objects(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let req: kanari_rpc_api::GetOwnedObjectsRequest =
-        match serde_json::from_value(request.params.clone()) {
+        match parse_params(request.id, &request.params) {
             Ok(r) => r,
-            Err(e) => {
-                return RpcResponse {
-                    jsonrpc: "2.0".to_string(),
-                    result: None,
-                    error: Some(RpcError::invalid_params(e.to_string())),
-                    id: request.id,
-                };
-            }
+            Err(response) => return response,
         };
 
     // Parse owner address using kanari_types::address::Address::parse_to_account_address
     let owner_addr = match kanari_types::address::Address::parse_to_account_address(&req.owner) {
         Ok(addr) => addr,
         Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: None,
-                error: Some(RpcError::invalid_params(format!(
-                    "Invalid owner address: {}",
-                    e
-                ))),
-                id: request.id,
-            };
+            return invalid_params_response(request.id, format!("Invalid owner address: {}", e));
         }
     };
 
@@ -196,15 +174,10 @@ pub async fn handle_get_owned_objects(state: &RpcServerState, request: &RpcReque
     let owned_ids = match state_guard.get_owned_objects(&owner_addr) {
         Ok(ids) => ids,
         Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: None,
-                error: Some(RpcError::internal_error(format!(
-                    "Failed to get owned objects: {}",
-                    e
-                ))),
-                id: request.id,
-            };
+            return internal_error_response(
+                request.id,
+                format!("Failed to get owned objects: {}", e),
+            );
         }
     };
 

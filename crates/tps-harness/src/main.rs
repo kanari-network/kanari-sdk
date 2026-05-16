@@ -4,6 +4,8 @@
 use anyhow::Result;
 use kanari_core::BlockchainEngine;
 use kanari_crypto::keys::{CurveType, generate_keypair};
+use kanari_types::balance::BalanceRecord;
+use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use kanari_types::transaction::{SignedTransaction, Transaction};
 use move_core_types::account_address::AccountAddress;
 use std::time::Instant;
@@ -42,9 +44,12 @@ fn main() -> Result<()> {
         for kp in &senders {
             if let Ok(addr) = AccountAddress::from_hex_literal(kp.address.as_str()) {
                 let mut acc = state.get_account(&addr).unwrap_or_else(|| {
-                    kanari_core::kanari_move_runtime_v1::state::Account::new(addr, 0)
+                    kanari_core::kanari_move_runtime_v1::state::Account::new(addr)
                 });
-                acc.balance = 1_000_000_000_000; // large balance
+                acc.set_token_balance(
+                    KANARI_TOKEN_TYPE.to_string(),
+                    BalanceRecord::new(1_000_000_000_000),
+                ); // large balance
                 state.save_account(&acc).expect("Failed to save account");
             }
         }

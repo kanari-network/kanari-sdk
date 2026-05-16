@@ -52,7 +52,15 @@ impl RpcServerState {
     }
 }
 
-// Helper to safely serialize response values and avoid panics from `to_value().unwrap()`
+fn error_response(id: u64, error: RpcError) -> RpcResponse {
+    RpcResponse {
+        jsonrpc: "2.0".to_string(),
+        result: None,
+        error: Some(error),
+        id,
+    }
+}
+
 fn respond_with_value(id: u64, val: serde_json::Value) -> RpcResponse {
     RpcResponse {
         jsonrpc: "2.0".to_string(),
@@ -62,18 +70,18 @@ fn respond_with_value(id: u64, val: serde_json::Value) -> RpcResponse {
     }
 }
 
+pub(crate) fn invalid_params_response(id: u64, message: impl Into<String>) -> RpcResponse {
+    error_response(id, RpcError::invalid_params(message.into()))
+}
+
+pub(crate) fn internal_error_response(id: u64, message: impl Into<String>) -> RpcResponse {
+    error_response(id, RpcError::internal_error(message.into()))
+}
+
 fn respond_with_serialize<T: serde::Serialize>(id: u64, v: T) -> RpcResponse {
     match serde_json::to_value(v) {
         Ok(val) => respond_with_value(id, val),
-        Err(e) => RpcResponse {
-            jsonrpc: "2.0".to_string(),
-            result: None,
-            error: Some(RpcError::internal_error(format!(
-                "Serialization failed: {}",
-                e
-            ))),
-            id,
-        },
+        Err(e) => internal_error_response(id, format!("Serialization failed: {}", e)),
     }
 }
 
@@ -142,12 +150,7 @@ async fn handle_rpc(
         methods::LIST_COLLECTIONS => handle_list_collections(&state, &request).await,
         methods::GET_NFTS_BY_COLLECTION => handle_get_nfts_by_collection(&state, &request).await,
 
-        _ => RpcResponse {
-            jsonrpc: "2.0".to_string(),
-            result: None,
-            error: Some(RpcError::method_not_found(&request.method)),
-            id: request.id,
-        },
+        _ => error_response(request.id, RpcError::method_not_found(&request.method)),
     };
 
     (StatusCode::OK, Json(response))

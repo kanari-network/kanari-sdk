@@ -119,7 +119,7 @@ impl TokenTransfer {
             };
 
             anyhow::bail!(
-                "No Coin<{}> objects found for address {}.\n  - token balance in account state: {}\n  - available coin object types: {}\nThis usually means your account has a tracked balance entry but no spendable Coin object for that token.",
+                "No Coin<{}> objects found for address {}.\n  - token balance in token_balances: {}\n  - available coin object types: {}\nThis usually means the account state tracks the token, but there is no spendable Coin object for that token.",
                 wanted_token,
                 from_addr,
                 state_balance,

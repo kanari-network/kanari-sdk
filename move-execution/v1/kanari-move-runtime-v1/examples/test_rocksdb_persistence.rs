@@ -6,6 +6,7 @@ use kanari_move_runtime_v1::{
     storage::persistent_store::PersistentStore,
 };
 use kanari_types::address::Address;
+use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -26,7 +27,7 @@ fn main() -> Result<()> {
 
     // Create an account
     println!("2. Creating account {:?} with balance 1000", addr);
-    let mut account = Account::new(acc_addr, 1000);
+    let mut account = Account::with_native_balance(acc_addr, 1000);
     account.increment_sequence();
     state1.save_account(&account)?;
 
@@ -53,11 +54,18 @@ fn main() -> Result<()> {
     println!("5. Verifying account state...");
     let account = state2.get_account(&acc_addr).expect("Account should exist");
 
-    assert_eq!(account.balance, 1000, "Balance should be 1000");
+    assert_eq!(
+        account.get_token_balance(KANARI_TOKEN_TYPE),
+        1000,
+        "Balance should be 1000"
+    );
     assert_eq!(account.sequence_number, 1, "Sequence number should be 1");
 
     println!("   Account verification successful!");
-    println!("   Balance: {}", account.balance);
+    println!(
+        "   Balance: {}",
+        account.get_token_balance(KANARI_TOKEN_TYPE)
+    );
     println!("   Sequence: {}", account.sequence_number);
 
     // Verify state root matches

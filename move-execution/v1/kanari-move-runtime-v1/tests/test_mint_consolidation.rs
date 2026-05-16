@@ -264,7 +264,7 @@ fn test_self_transfer_should_not_duplicate_coins() -> Result<()> {
     let mut state = StateManager::new_in_memory();
 
     // Initialize Alice's account with balance for storing Coins
-    let account = kanari_move_runtime_v1::state::Account::new(alice, 0);
+    let account = kanari_move_runtime_v1::state::Account::new(alice);
     state.save_account(&account)?;
 
     let token_type = "0x2::james::JAMES";
@@ -400,7 +400,7 @@ fn test_mint_then_self_transfer_real_scenario() -> Result<()> {
 
     let alice = AccountAddress::from_hex_literal("0x01").unwrap();
     let mut state = StateManager::new_in_memory();
-    let account = kanari_move_runtime_v1::state::Account::new(alice, 0);
+    let account = kanari_move_runtime_v1::state::Account::new(alice);
     state.save_account(&account)?;
 
     let token_type = "0x2::james::JAMES";

@@ -5,6 +5,7 @@ use crate::p2p::{P2PMessage, PeerInfoMsg, decompress_block};
 use centauri::consensus::DagVertex;
 use kanari_core::{BlockchainEngine, FullBlockData, engine::DagEngine};
 use kanari_types::transaction::SignedTransaction;
+use serde::de::DeserializeOwned;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
@@ -112,9 +113,102 @@ impl SyncManager {
         }
     }
 
+    fn parse_message<T: DeserializeOwned>(data: &str, context: &str) -> Option<T> {
+        match serde_json::from_str(data) {
+            Ok(value) => Some(value),
+            Err(e) => {
+                error!("Failed to deserialize {}: {}", context, e);
+                None
+            }
+        }
+    }
+
+    fn send_network_message(&self, msg: P2PMessage, context: &str) -> bool {
+        match self.network_tx.send(msg) {
+            Ok(_) => true,
+            Err(e) => {
+                error!("{}: {}", context, e);
+                false
+            }
+        }
+    }
+
+    fn current_timestamp() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+    }
+
+    fn buffer_block(&self, block: FullBlockData, label: &str) -> Option<usize> {
+        let block_height = block.height;
+        let mut buffer = self.block_buffer.lock().unwrap();
+        if buffer.len() >= self.max_buffer_size {
+            warn!(
+                "[SYNC] Block buffer full (max: {}). Dropping block #{}",
+                self.max_buffer_size, block_height
+            );
+            return None;
+        }
+        buffer.insert(block_height, block);
+        let buffer_len = buffer.len();
+        info!(
+            "[SYNC] Buffered {} #{}. Buffer size: {}/{}",
+            label, block_height, buffer_len, self.max_buffer_size
+        );
+        Some(buffer_len)
+    }
+
+    fn latest_buffered_height(&self) -> u64 {
+        let buffer = self.block_buffer.lock().unwrap();
+        buffer.keys().last().copied().unwrap_or(0)
+    }
+
+    async fn process_incoming_block(
+        &self,
+        block: FullBlockData,
+        received_label: &str,
+        buffered_label: &str,
+        check_for_gap: bool,
+    ) {
+        let stats = self.engine.get_stats();
+        info!(
+            "[SYNC] Processing {} #{} (current height: {}, txs: {})",
+            received_label, block.height, stats.height, block.tx_count
+        );
+
+        if block.height <= stats.height {
+            info!(
+                "[SYNC] Received old {} #{} (current: {}) - ignoring",
+                received_label, block.height, stats.height
+            );
+            return;
+        }
+
+        let block_height = block.height;
+        if self.buffer_block(block, buffered_label).is_none() {
+            return;
+        }
+
+        self.try_apply_buffered_blocks().await;
+
+        if check_for_gap {
+            let new_stats = self.engine.get_stats();
+            let latest_buffered = self.latest_buffered_height();
+            if latest_buffered > new_stats.height + 1 {
+                info!(
+                    "[SYNC] Gap detected after {} #{}. Current: {}, buffered: {}. Requesting missing blocks...",
+                    received_label, block_height, new_stats.height, latest_buffered
+                );
+                self.request_blocks(new_stats.height + 1, latest_buffered - 1)
+                    .await;
+            }
+        }
+    }
+
     async fn handle_new_transaction(&self, tx_data: String) {
-        match serde_json::from_str::<SignedTransaction>(&tx_data) {
-            Ok(signed_tx) => match self.engine.submit_transaction(signed_tx.clone()) {
+        if let Some(signed_tx) = Self::parse_message::<SignedTransaction>(&tx_data, "transaction") {
+            match self.engine.submit_transaction(signed_tx.clone()) {
                 Ok(tx_hash) => {
                     info!(
                         "Received transaction from network: 0x{}",
@@ -124,72 +218,14 @@ impl SyncManager {
                 Err(e) => {
                     warn!("Failed to submit transaction from network: {}", e);
                 }
-            },
-            Err(e) => {
-                error!("Failed to deserialize transaction: {}", e);
             }
         }
     }
 
     async fn handle_new_block(&self, block_data: String) {
-        match serde_json::from_str::<FullBlockData>(&block_data) {
-            Ok(block) => {
-                let stats = self.engine.get_stats();
-                info!(
-                    "[SYNC] Processing NewBlock #{} from network (current height: {}, txs: {})",
-                    block.height, stats.height, block.tx_count
-                );
-
-                let block_height = block.height;
-                if block_height > stats.height {
-                    // Buffer the block
-                    {
-                        let mut buffer = self.block_buffer.lock().unwrap();
-                        // Check if buffer is full
-                        if buffer.len() >= self.max_buffer_size {
-                            warn!(
-                                "[SYNC] Block buffer full (max: {}). Dropping block #{}",
-                                self.max_buffer_size, block_height
-                            );
-                            return;
-                        }
-                        buffer.insert(block_height, block);
-                        info!(
-                            "[SYNC] Buffered NewBlock #{}. Buffer size: {}/{}",
-                            block_height,
-                            buffer.len(),
-                            self.max_buffer_size
-                        );
-                    }
-
-                    // Try to apply consecutive blocks from the buffer
-                    self.try_apply_buffered_blocks().await;
-
-                    // If we're still behind, request missing blocks
-                    let new_stats = self.engine.get_stats();
-                    let latest_buffered = {
-                        let buffer = self.block_buffer.lock().unwrap();
-                        buffer.keys().last().cloned().unwrap_or(0)
-                    };
-
-                    if latest_buffered > new_stats.height + 1 {
-                        info!(
-                            "[SYNC] Gap detected after NewBlock #{}. Current: {}, buffered: {}. Requesting missing blocks...",
-                            block_height, new_stats.height, latest_buffered
-                        );
-                        self.request_blocks(new_stats.height + 1, latest_buffered - 1)
-                            .await;
-                    }
-                } else {
-                    info!(
-                        "[SYNC] Received old NewBlock #{} (current: {}) - ignoring",
-                        block.height, stats.height
-                    );
-                }
-            }
-            Err(e) => {
-                error!("Failed to deserialize new block: {}", e);
-            }
+        if let Some(block) = Self::parse_message::<FullBlockData>(&block_data, "new block") {
+            self.process_incoming_block(block, "NewBlock", "NewBlock", true)
+                .await;
         }
     }
 
@@ -287,80 +323,75 @@ impl SyncManager {
         // DAG vertices are serialized as centauri::consensus::DagVertex
         // NOT as DagBlockInfo which is just metadata
 
-        match serde_json::from_str::<DagVertex>(&vertex_data) {
-            Ok(vertex) => {
-                let stats = self.engine.get_stats();
-                info!(
-                    "Received DAG vertex {} (round {}) from network with {} transactions",
-                    hex::encode(vertex.id),
-                    vertex.round,
-                    vertex.transactions.len()
-                );
+        if let Some(vertex) = Self::parse_message::<DagVertex>(&vertex_data, "DAG vertex") {
+            let stats = self.engine.get_stats();
+            info!(
+                "Received DAG vertex {} (round {}) from network with {} transactions",
+                hex::encode(vertex.id),
+                vertex.round,
+                vertex.transactions.len()
+            );
 
-                // Add vertex to local DAG consensus
-                // Auto-initialize DAG engine if not already initialized
-                if let Some(dag_engine_arc) = self.engine.get_dag_engine() {
-                    // Check and initialize with write lock to prevent TOCTOU race
-                    {
-                        let mut guard = dag_engine_arc.write().unwrap();
+            // Add vertex to local DAG consensus
+            // Auto-initialize DAG engine if not already initialized
+            if let Some(dag_engine_arc) = self.engine.get_dag_engine() {
+                // Check and initialize with write lock to prevent TOCTOU race
+                {
+                    let mut guard = dag_engine_arc.write().unwrap();
 
-                        // Only initialize if still None after acquiring write lock
-                        if guard.is_none() {
-                            info!(
-                                "[DAG SYNC] Auto-initializing DAG engine for vertex round {}",
-                                vertex.round
-                            );
+                    // Only initialize if still None after acquiring write lock
+                    if guard.is_none() {
+                        info!(
+                            "[DAG SYNC] Auto-initializing DAG engine for vertex round {}",
+                            vertex.round
+                        );
 
-                            // Initialize DAG engine with same authorities as the network
-                            let authority_id = self.engine.get_authority_id();
-                            let authorities = self.engine.get_authorities();
+                        // Initialize DAG engine with same authorities as the network
+                        let authority_id = self.engine.get_authority_id();
+                        let authorities = self.engine.get_authorities();
 
-                            match DagEngine::new(self.engine.clone(), authority_id, authorities) {
-                                Ok(engine) => {
-                                    *guard = Some(engine);
-                                    info!("[DAG SYNC] DAG engine initialized successfully");
-                                }
-                                Err(e) => {
-                                    error!("[DAG SYNC] Failed to initialize DAG engine: {}", e);
-                                }
-                            }
-                        }
-                        // Write lock is released here when guard goes out of scope
-                    }
-
-                    // Get the engine with a read lock for processing
-                    let dag_engine_opt = {
-                        let guard = dag_engine_arc.read().unwrap();
-                        guard.as_ref().cloned()
-                    };
-
-                    if let Some(dag_engine) = dag_engine_opt {
-                        match dag_engine.add_network_vertex(vertex.clone()) {
-                            Ok(_) => {
-                                info!(
-                                    "Successfully added DAG vertex {} to local consensus",
-                                    hex::encode(vertex.id)
-                                );
-                                // Check if height changed to broadcast new info
-                                let new_stats = self.engine.get_stats();
-                                if new_stats.height > stats.height {
-                                    info!("New height reached via DAG: {}", new_stats.height);
-                                    self.broadcast_peer_info().await;
-                                }
+                        match DagEngine::new(self.engine.clone(), authority_id, authorities) {
+                            Ok(engine) => {
+                                *guard = Some(engine);
+                                info!("[DAG SYNC] DAG engine initialized successfully");
                             }
                             Err(e) => {
-                                warn!("Failed to add DAG vertex to consensus: {}", e);
+                                error!("[DAG SYNC] Failed to initialize DAG engine: {}", e);
                             }
                         }
-                    } else {
-                        warn!("DAG engine not initialized, cannot process vertex");
+                    }
+                    // Write lock is released here when guard goes out of scope
+                }
+
+                // Get the engine with a read lock for processing
+                let dag_engine_opt = {
+                    let guard = dag_engine_arc.read().unwrap();
+                    guard.as_ref().cloned()
+                };
+
+                if let Some(dag_engine) = dag_engine_opt {
+                    match dag_engine.add_network_vertex(vertex.clone()) {
+                        Ok(_) => {
+                            info!(
+                                "Successfully added DAG vertex {} to local consensus",
+                                hex::encode(vertex.id)
+                            );
+                            // Check if height changed to broadcast new info
+                            let new_stats = self.engine.get_stats();
+                            if new_stats.height > stats.height {
+                                info!("New height reached via DAG: {}", new_stats.height);
+                                self.broadcast_peer_info().await;
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Failed to add DAG vertex to consensus: {}", e);
+                        }
                     }
                 } else {
-                    warn!("DAG mode not enabled, ignoring vertex");
+                    warn!("DAG engine not initialized, cannot process vertex");
                 }
-            }
-            Err(e) => {
-                error!("Failed to deserialize DAG vertex: {}", e);
+            } else {
+                warn!("DAG mode not enabled, ignoring vertex");
             }
         }
     }
@@ -373,10 +404,10 @@ impl SyncManager {
                 height, full_block_data.tx_count
             );
             if let Ok(data_str) = serde_json::to_string(&full_block_data) {
-                let msg = P2PMessage::BlockResponse(data_str);
-                if let Err(e) = self.network_tx.send(msg) {
-                    error!("[SYNC] Failed to send block response: {}", e);
-                }
+                self.send_network_message(
+                    P2PMessage::BlockResponse(data_str),
+                    "[SYNC] Failed to send block response",
+                );
             }
         } else {
             warn!(
@@ -387,48 +418,9 @@ impl SyncManager {
     }
 
     async fn handle_block_response(&self, block_data: String) {
-        match serde_json::from_str::<FullBlockData>(&block_data) {
-            Ok(block) => {
-                let stats = self.engine.get_stats();
-
-                info!(
-                    "[SYNC] Processing block response #{} (current height: {}, txs: {}, from network)",
-                    block.height, stats.height, block.tx_count
-                );
-
-                if block.height > stats.height {
-                    // Buffer the block with size limit check
-                    let buffer_len = {
-                        let mut buffer = self.block_buffer.lock().unwrap();
-                        // Check if buffer is full
-                        if buffer.len() >= self.max_buffer_size {
-                            warn!(
-                                "[SYNC] Block buffer full (max: {}). Dropping block #{}",
-                                self.max_buffer_size, block.height
-                            );
-                            return;
-                        }
-                        buffer.insert(block.height, block.clone());
-                        buffer.len()
-                    };
-
-                    info!(
-                        "[SYNC] Buffered block #{}. Buffer size: {}/{}",
-                        block.height, buffer_len, self.max_buffer_size
-                    );
-
-                    // Try to apply consecutive blocks
-                    self.try_apply_buffered_blocks().await;
-                } else {
-                    info!(
-                        "[SYNC] Received old block response #{} (current: {}) - ignoring",
-                        block.height, stats.height
-                    );
-                }
-            }
-            Err(e) => {
-                error!("[SYNC] Failed to deserialize block response: {}", e);
-            }
+        if let Some(block) = Self::parse_message::<FullBlockData>(&block_data, "block response") {
+            self.process_incoming_block(block, "block response", "block", false)
+                .await;
         }
     }
 
@@ -491,10 +483,7 @@ impl SyncManager {
             "[SYNC] Requesting blocks from {} to {} (our current height: {})",
             from, to, stats.height
         );
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let timestamp = Self::current_timestamp();
 
         // Limit the number of blocks requested at once to avoid network congestion
         // Increased from 50 to 200 for better performance in large networks (200+ nodes)
@@ -510,12 +499,10 @@ impl SyncManager {
                 }
             }
 
-            let msg = P2PMessage::BlockRequest(height, timestamp);
-            if let Err(e) = self.network_tx.send(msg) {
-                error!(
-                    "[SYNC] Failed to send block request for height {}: {}",
-                    height, e
-                );
+            if !self.send_network_message(
+                P2PMessage::BlockRequest(height, timestamp),
+                &format!("[SYNC] Failed to send block request for height {}", height),
+            ) {
                 break;
             }
         }
@@ -529,10 +516,7 @@ impl SyncManager {
     /// Broadcast local chain height to peers
     pub async fn broadcast_peer_info(&self) {
         let stats = self.engine.get_stats();
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let timestamp = Self::current_timestamp();
 
         let msg = P2PMessage::PeerInfo(PeerInfoMsg {
             height: stats.height,
@@ -540,9 +524,7 @@ impl SyncManager {
             timestamp,
         });
 
-        if let Err(e) = self.network_tx.send(msg) {
-            error!("Failed to broadcast peer info: {}", e);
-        }
+        self.send_network_message(msg, "Failed to broadcast peer info");
     }
 
     /// Index a block using the indexer (helper method)

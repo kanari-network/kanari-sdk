@@ -860,7 +860,7 @@ impl BlockchainEngine {
             };
             let balance = state
                 .get_account(&sender_addr)
-                .map(|acc| acc.balance)
+                .map(|acc| acc.native_balance())
                 .unwrap_or(0);
             if balance < total_required {
                 let msg = if required_amount > 0 {
@@ -1166,7 +1166,6 @@ impl BlockchainEngine {
 
             AccountInfo {
                 address: format!("{:#x}", acc.address),
-                balance: acc.balance,
                 sequence_number,
                 modules: acc.modules.iter().cloned().collect(),
                 token_balances: actual_token_balances,

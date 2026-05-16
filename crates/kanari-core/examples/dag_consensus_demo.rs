@@ -11,6 +11,8 @@ use anyhow::Result;
 use kanari_core::engine::{BlockchainEngine, DagEngine};
 use kanari_core::kanari_move_runtime_v1::state::Account;
 use kanari_crypto::keys::CurveType;
+use kanari_types::balance::BalanceRecord;
+use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use kanari_types::transaction::{SignedTransaction, Transaction};
 use move_core_types::account_address::AccountAddress;
 use std::sync::Arc;
@@ -79,12 +81,16 @@ fn main() -> Result<()> {
         let addr = AccountAddress::from_hex_literal(&raw_address)?;
         let mut account = state
             .get_account(&addr)
-            .unwrap_or_else(|| Account::new(addr, 0));
-        account.balance = 10_000_000_000_000;
+            .unwrap_or_else(|| Account::new(addr));
+        account.set_token_balance(
+            KANARI_TOKEN_TYPE.to_string(),
+            BalanceRecord::new(10_000_000_000_000),
+        );
         state.save_account(&account).unwrap();
         println!(
             "   ✓ Funded sender {} with {} MIST",
-            raw_address, account.balance
+            raw_address,
+            account.native_balance()
         );
     }
 

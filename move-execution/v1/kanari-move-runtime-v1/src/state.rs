@@ -10,6 +10,7 @@ use kanari_types::balance::BalanceModule;
 use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::{CoinModule, TreasuryCap};
 use kanari_types::event::Event;
+use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use kanari_types::object::{IDRecord, UIDRecord};
 use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::{StructTag, TypeTag};
@@ -28,7 +29,6 @@ const U64_SIZE: usize = 8;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Account {
     pub address: AccountAddress,
-    pub balance: u64,
     pub sequence_number: u64,
     pub modules: BTreeSet<String>,
     /// Token balances: token_type -> BalanceRecord
@@ -37,14 +37,24 @@ pub struct Account {
 }
 
 impl Account {
-    pub fn new(address: AccountAddress, balance: u64) -> Self {
+    pub fn new(address: AccountAddress) -> Self {
         Self {
             address,
-            balance,
             sequence_number: 0,
             modules: BTreeSet::new(),
             token_balances: BTreeMap::new(),
         }
+    }
+
+    pub fn with_native_balance(address: AccountAddress, balance: u64) -> Self {
+        let mut account = Self::new(address);
+        if balance > 0 {
+            account.set_token_balance(
+                KANARI_TOKEN_TYPE.to_string(),
+                BalanceRecord::new(balance),
+            );
+        }
+        account
     }
 
     pub fn add_module(&mut self, module_name: String) {
@@ -60,6 +70,10 @@ impl Account {
             .get(token_type)
             .map(|b| b.value())
             .unwrap_or(0)
+    }
+
+    pub fn native_balance(&self) -> u64 {
+        self.get_token_balance(KANARI_TOKEN_TYPE)
     }
 
     pub fn to_hex_string(&self) -> String {
@@ -432,13 +446,13 @@ impl StateManager {
     fn load_account_or_default(&self, address: AccountAddress) -> Result<Account> {
         Ok(self
             .load_account(&address)?
-            .unwrap_or_else(|| Account::new(address, 0)))
+            .unwrap_or_else(|| Account::new(address)))
     }
 
     pub fn get_account(&self, address: &AccountAddress) -> Option<Account> {
         Some(
             self.load_account_or_default(*address)
-                .unwrap_or_else(|_| Account::new(*address, 0)),
+                .unwrap_or_else(|_| Account::new(*address)),
         )
     }
 
@@ -464,18 +478,24 @@ impl StateManager {
 
         for (address, change) in &changeset.account_changes {
             let mut account = self.load_account_or_default(*address)?;
+            let old_balances = account.token_balances.clone();
+            let native_token = KANARI_TOKEN_TYPE.to_string();
 
             if change.balance_delta > 0 {
                 let amount = change.balance_delta as u64;
-                account.balance = account
-                    .balance
-                    .checked_add(amount)
-                    .unwrap_or(account.balance);
+                let next = account.native_balance().saturating_add(amount);
+                account.set_token_balance(native_token.clone(), BalanceRecord::new(next));
                 supply_delta += change.balance_delta;
             } else if change.balance_delta < 0 {
                 let debit = (-change.balance_delta) as u64;
-                if account.balance >= debit {
-                    account.balance -= debit;
+                let current = account.native_balance();
+                if current >= debit {
+                    let next = current - debit;
+                    if next == 0 {
+                        account.token_balances.remove(KANARI_TOKEN_TYPE);
+                    } else {
+                        account.set_token_balance(native_token.clone(), BalanceRecord::new(next));
+                    }
                     supply_delta += change.balance_delta;
                 }
             }
@@ -484,6 +504,10 @@ impl StateManager {
                 account.add_module(module_name.clone());
             }
             self.save_account(&account)?;
+            if self.adjust_global_supplies_for_account_delta(&old_balances, &account.token_balances)
+            {
+                supplies_dirty = true;
+            }
         }
 
         // Update total supply if there was mint/burn (supply_delta != 0)

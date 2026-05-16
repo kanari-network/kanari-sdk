@@ -4,12 +4,14 @@
 // Main entry point for Kanari blockchain node
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use kanari_core::engine::AccountInfo;
 use kanari_core::BlockchainEngine;
 use kanari_crypto::wallet::list_wallet_files;
 use kanari_rpc_server::start_server;
 use kanari_types::address::Address as KanariAddress;
-use kanari_types::kanari::KanariModule;
+use kanari_types::kanari::{KANARI_TOKEN_TYPE, KanariModule};
 use libp2p::identity::Keypair;
+use serde::Serialize;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -100,6 +102,61 @@ fn create_engine(data_dir: &Option<std::path::PathBuf>) -> Result<BlockchainEngi
     }
 }
 
+fn native_balance(info: &AccountInfo) -> u64 {
+    info.token_balances
+        .get(KANARI_TOKEN_TYPE)
+        .copied()
+        .unwrap_or(0)
+}
+
+fn log_shutdown() {
+    tracing::info!("Shutdown signal received. Cleaning up and exiting...");
+}
+
+fn genesis_root_info(engine: &BlockchainEngine) -> (String, usize) {
+    match engine.get_block(0) {
+        Some(block) => {
+            let size = block.hash.len() / 2;
+            (block.hash, size)
+        }
+        None => ("unknown".to_string(), 0),
+    }
+}
+
+fn queue_network_message(
+    network_tx: &tokio::sync::mpsc::UnboundedSender<P2PMessage>,
+    msg: P2PMessage,
+    failure_context: &str,
+) -> bool {
+    match network_tx.send(msg) {
+        Ok(_) => true,
+        Err(e) => {
+            tracing::warn!("{}: {}", failure_context, e);
+            false
+        }
+    }
+}
+
+fn serialize_and_queue_message<T: Serialize>(
+    network_tx: &tokio::sync::mpsc::UnboundedSender<P2PMessage>,
+    value: &T,
+    wrap: impl FnOnce(String) -> P2PMessage,
+    serialize_context: &str,
+    send_context: &str,
+) -> Option<usize> {
+    match serde_json::to_string(value) {
+        Ok(payload) => {
+            let payload_len = payload.len();
+            queue_network_message(network_tx, wrap(payload), send_context);
+            Some(payload_len)
+        }
+        Err(e) => {
+            tracing::error!("{}: {}", serialize_context, e);
+            None
+        }
+    }
+}
+
 fn print_stats() -> Result<()> {
     let stats = BlockchainEngine::new()?.get_stats();
     tracing::info!("Blockchain Statistics:");
@@ -116,7 +173,7 @@ fn print_account(address: &str) -> Result<()> {
     match BlockchainEngine::new()?.get_account_info(address) {
         Some(info) => {
             tracing::info!("  Account: {}", info.address);
-            tracing::info!("  Balance: {}", info.balance);
+            tracing::info!("  Balance: {}", native_balance(&info));
             tracing::info!("  Sequence: {}", info.sequence_number);
             tracing::info!("  Modules: {}", info.modules.len());
             for module in &info.modules {
@@ -247,15 +304,7 @@ async fn run_node(
         total_supply_str
     );
 
-    // Get genesis/root object state from block 0 if available
-    let (genesis_root, size_bytes) = match engine.get_block(0) {
-        Some(b) => {
-            let hash = b.hash;
-            let size = hash.len() / 2;
-            (hash, size)
-        }
-        None => ("unknown".to_string(), 0),
-    };
+    let (genesis_root, size_bytes) = genesis_root_info(&engine);
     let dao_addr = KanariAddress::DAO_ADDRESS;
     tracing::info!(
         "The latest Root object state root: 0x{}, size: {} bytes",
@@ -414,24 +463,17 @@ async fn run_node(
             && stats.height.is_multiple_of(10)
         {
             match node_idx.get_stats() {
-                Ok(idx_stats) => {
-                    tracing::info!("[INDEXER] {}", idx_stats);
-                }
-                Err(e) => {
-                    tracing::warn!("[INDEXER] Failed to get stats: {}", e);
-                }
+                Ok(idx_stats) => tracing::info!("[INDEXER] {}", idx_stats),
+                Err(e) => tracing::warn!("[INDEXER] Failed to get stats: {}", e),
             }
         }
 
-        // ✅ 1. Add flag to track whether block was produced in this iteration
         let mut did_work = false;
 
-        // Only produce blocks when there are pending transactions
-        // This avoids consensus validation issues with empty blocks in both local and networked modes
         if stats.pending_transactions > 0 {
             match engine.produce_block() {
                 Ok(block_info) => {
-                    did_work = true; // ✅ 2. Update status to indicate work was just completed
+                    did_work = true;
 
                     tracing::info!(
                         "DAG Vertex (Round #{}) produced: {} txs ({} executed, {} failed)",
@@ -441,39 +483,29 @@ async fn run_node(
                         block_info.failed
                     );
 
-                    // Broadcast the DAG vertex to other nodes
                     if let Some(vertex) = block_info.vertex {
-                        match serde_json::to_string(&vertex) {
-                            Ok(vertex_str) => {
-                                tracing::info!(
-                                    "Broadcasting DAG vertex {} (round {}) to network ({} bytes)",
-                                    block_info.vertex_id,
-                                    block_info.round,
-                                    vertex_str.len()
-                                );
-                                let msg = P2PMessage::NewDagVertex(vertex_str);
-                                if let Err(e) = network_tx.send(msg) {
-                                    tracing::warn!("Failed to queue DAG vertex broadcast: {}", e);
-                                } else {
-                                    tracing::info!("DAG vertex queued for broadcast successfully");
-                                }
-                            }
-                            Err(e) => {
-                                tracing::error!(
-                                    "Failed to serialize DAG vertex for broadcast: {}",
-                                    e
-                                );
-                            }
+                        if let Some(vertex_len) = serialize_and_queue_message(
+                            &network_tx,
+                            &vertex,
+                            P2PMessage::NewDagVertex,
+                            "Failed to serialize DAG vertex for broadcast",
+                            "Failed to queue DAG vertex broadcast",
+                        ) {
+                            tracing::info!(
+                                "Broadcasting DAG vertex {} (round {}) to network ({} bytes)",
+                                block_info.vertex_id,
+                                block_info.round,
+                                vertex_len
+                            );
+                            tracing::info!("DAG vertex queued for broadcast successfully");
                         }
                     } else {
                         tracing::warn!("No vertex in block_info to broadcast");
                     }
 
-                    // Index the locally produced block
                     if let Some(ref node_idx) = node_indexer {
                         let current_height = engine.blockchain.read().unwrap().height();
                         if let Some(full_block_data) = engine.get_full_block(current_height) {
-                            // Use the same conversion logic as in sync.rs
                             use kanari_types::block::{Block, BlockHeader};
                             use smt::compute_merkle_root;
 
@@ -519,22 +551,20 @@ async fn run_node(
                         }
                     }
 
-                    // If a checkpoint was created, broadcast the new blocks as well
                     if block_info.checkpoint.is_some() {
                         let current_height = engine.blockchain.read().unwrap().height();
-                        if let Some(full_block_data) = engine.get_full_block(current_height)
-                            && let Ok(block_str) = serde_json::to_string(&full_block_data)
-                        {
-                            let msg = P2PMessage::NewBlock(block_str);
-                            if let Err(e) = network_tx.send(msg) {
-                                tracing::warn!("Failed to queue block broadcast: {}", e);
-                            }
+                        if let Some(full_block_data) = engine.get_full_block(current_height) {
+                            serialize_and_queue_message(
+                                &network_tx,
+                                &full_block_data,
+                                P2PMessage::NewBlock,
+                                "Failed to serialize block for broadcast",
+                                "Failed to queue block broadcast",
+                            );
                         }
                     }
                 }
                 Err(e) => {
-                    // If not ready yet (waiting for Quorum), it will throw "DAG not ready" error
-                    // This is normal behavior, let it continue waiting
                     if !e.to_string().contains("DAG not ready") {
                         tracing::error!("Block production failed: {}", e);
                     }
@@ -542,26 +572,20 @@ async fn run_node(
             }
         }
 
-        // ✅ 3. Throttle Control Logic
         if !did_work {
-            // If no work to do, sleep to save CPU
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
-                    tracing::info!("Shutdown signal received. Cleaning up and exiting...");
+                    log_shutdown();
                     break;
                 }
                 _ = sleep(Duration::from_secs(1)) => {}
             }
-        } else {
-            // If work was just completed, loop immediately without sleep
-            // But still check for shutdown signal (Ctrl+C) in non-blocking mode (1ms timeout)
-            if tokio::time::timeout(Duration::from_millis(1), tokio::signal::ctrl_c())
-                .await
-                .is_ok()
-            {
-                tracing::info!("Shutdown signal received. Cleaning up and exiting...");
-                break;
-            }
+        } else if tokio::time::timeout(Duration::from_millis(1), tokio::signal::ctrl_c())
+            .await
+            .is_ok()
+        {
+            log_shutdown();
+            break;
         }
     }
 

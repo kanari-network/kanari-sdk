@@ -99,7 +99,6 @@ impl RpcError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccountInfo {
     pub address: String,
-    pub balance: u64, // Native KANARI balance
     pub sequence_number: u64,
     pub modules: Vec<String>,
     /// Token balances: token_type -> amount
