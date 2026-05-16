@@ -9,9 +9,8 @@ use kanari_crypto::hash_data_blake3;
 use kanari_types::balance::BalanceModule;
 use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::{CoinModule, TreasuryCap};
-use kanari_types::kanari::KanariModule;
+use kanari_types::event::Event;
 use kanari_types::object::{IDRecord, UIDRecord};
-use kanari_types::{address::Address as KanariAddress, event::Event};
 use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::{StructTag, TypeTag};
 use serde::de::DeserializeOwned;
@@ -288,36 +287,12 @@ impl StateManager {
 
         // If total supply is 0, initialize genesis
         if state.total_supply == 0 {
-            let _ = state.init_genesis();
+            let _ = crate::genesis::init_genesis(&mut state);
             // Flush genesis state to DB immediately
             let _ = state.commit();
         }
 
         state
-    }
-
-    fn init_genesis(&mut self) -> Result<()> {
-        // Total supply in Mist (from kanari-types constants)
-        let total_supply_mist: u64 = KanariModule::TOTAL_SUPPLY_MIST;
-
-        // Initialize system accounts using safe helper functions
-        let genesis_addr = KanariAddress::genesis_account_address();
-        let std_addr = KanariAddress::std_account_address();
-        let system_addr = KanariAddress::kanari_system_account_address();
-        let dao_addr = KanariAddress::dao_account_address();
-        let dev_addr = KanariAddress::dev_account_address();
-
-        self.save_account(&Account::new(genesis_addr, 0))?;
-        self.save_account(&Account::new(std_addr, 0))?;
-        self.save_account(&Account::new(system_addr, 0))?;
-        self.save_account(&Account::new(dao_addr, 0))?;
-        self.save_account(&Account::new(dev_addr, total_supply_mist))?;
-
-        self.total_supply = total_supply_mist;
-        let supply = self.total_supply;
-        self.save_internal(b"total_supply", &supply)?;
-
-        Ok(())
     }
 
     /// Commit pending overlay changes to the persistent store and update SMT
@@ -378,15 +353,19 @@ impl StateManager {
         self.overlay.clear();
     }
 
-    // Helper to write to overlay
-    fn save_internal<T: Serialize + ?Sized>(&mut self, key: &[u8], value: &T) -> Result<()> {
+    // Helper to write to overlay (pub for genesis module)
+    pub(crate) fn save_internal<T: Serialize + ?Sized>(
+        &mut self,
+        key: &[u8],
+        value: &T,
+    ) -> Result<()> {
         let bytes = bcs::to_bytes(value)?;
         self.overlay.insert(key.to_vec(), Some(bytes));
         Ok(())
     }
 
     // Helper to read from overlay then store
-    fn load_internal<T: DeserializeOwned>(&self, key: &[u8]) -> Result<Option<T>> {
+    pub(crate) fn load_internal<T: DeserializeOwned>(&self, key: &[u8]) -> Result<Option<T>> {
         if let Some(val_opt) = self.overlay.get(key) {
             match val_opt {
                 Some(bytes) => return Ok(Some(bcs::from_bytes(bytes)?)),
@@ -628,7 +607,11 @@ impl StateManager {
 
             if let Ok(Some(existing)) = self.load_internal::<StoredObject>(&obj_key) {
                 owners_to_recompute.insert(existing.owner);
-                new_obj.version = existing.version + 1;
+                // Use the version from the ChangeSet (already calculated by MoveRuntime)
+                // Only recalculate if the ChangeSet version seems wrong (0 or less than existing)
+                if new_obj.version == 0 || new_obj.version <= existing.version {
+                    new_obj.version = existing.version + 1;
+                }
                 if new_obj.owner.to_hex_literal() == *obj_id {
                     new_obj.owner = existing.owner;
                 }
@@ -640,7 +623,10 @@ impl StateManager {
                     self.save_internal(&old_owner_key, &old_owned)?;
                 }
             } else {
-                new_obj.version = 1;
+                // For new objects, use version from ChangeSet or default to 1
+                if new_obj.version == 0 {
+                    new_obj.version = 1;
+                }
             }
             owners_to_recompute.insert(new_obj.owner);
 

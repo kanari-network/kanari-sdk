@@ -326,7 +326,10 @@ class HomeScreenState extends State<HomeScreen> {
               final token = tokens[index];
               final formattedAmount =
                   token.amount / math.pow(10, token.decimals);
-              final isKanari = token.tokenType == 'KANARI';
+              final isKanari =
+                  token.tokenType == WalletState.kanariTokenType ||
+                  token.tokenType == 'KANARI' ||
+                  token.tokenType.contains('::kanari::KANARI');
 
               return Padding(
                 padding: EdgeInsets.symmetric(
@@ -497,7 +500,7 @@ class HomeScreenState extends State<HomeScreen> {
     final state = context.watch<WalletState>();
     final isActive = walletData['id'] == state.activeWalletId;
     final displayBalance = isActive
-        ? (state.balance / 1000000000).toStringAsFixed(6)
+        ? (state.kanariBalance / 1000000000).toStringAsFixed(6)
         : "---";
 
     return Container(

@@ -25,13 +25,15 @@ fn mv_filename(name: &str) -> String {
 }
 
 #[derive(Clone)]
-struct DiscoveredModule {
-    module_id: ModuleId,
-    module_name: String,
-    file_name: String,
-    bytes: Vec<u8>,
-    compiled: CompiledModule,
-    deps: Vec<ModuleId>,
+pub struct DiscoveredModule {
+    pub module_id: ModuleId,
+    pub module_name: String,
+    pub file_name: String,
+    pub bytes: Vec<u8>,
+    #[allow(dead_code)]
+    pub compiled: CompiledModule,
+    #[allow(dead_code)]
+    pub deps: Vec<ModuleId>,
 }
 
 fn discover_modules_in_dir(
@@ -487,4 +489,25 @@ impl super::MoveRuntime {
         eprintln!("Loaded {} kanari-system modules (0x2::*)", count);
         Ok(())
     }
+}
+
+/// Public API: Load and sort system modules from a directory
+pub fn load_system_modules_from_dir(modules_dir: &Path) -> Result<Vec<DiscoveredModule>> {
+    let system_addr = KanariAddress::kanari_system_account_address();
+    let move_system_addr = AccountAddress::from_hex_literal(system_addr.to_hex_literal().as_str())?;
+
+    // Discover all modules in the directory
+    let discovered_modules = discover_modules_in_dir(modules_dir, move_system_addr);
+
+    if discovered_modules.is_empty() {
+        return Err(anyhow!(
+            "No valid framework modules found in {}",
+            modules_dir.display()
+        ));
+    }
+
+    // Sort modules in topological order (dependencies first)
+    let sorted_modules = topo_sort_modules(discovered_modules)?;
+
+    Ok(sorted_modules)
 }

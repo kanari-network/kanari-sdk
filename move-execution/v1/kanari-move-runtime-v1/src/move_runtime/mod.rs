@@ -17,6 +17,7 @@ use move_binary_format::file_format::CompiledModule;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::{IdentStr, Identifier};
 use move_core_types::language_storage::{ModuleId, StructTag, TypeTag};
+use move_core_types::runtime_value::{MoveStruct, MoveTypeLayout, MoveValue};
 use move_vm_runtime::move_vm::MoveVM;
 use move_vm_runtime::native_extensions::NativeContextExtensions;
 use move_vm_runtime::native_functions::NativeFunctionTable;
@@ -24,7 +25,7 @@ use move_vm_runtime::session::Session;
 use move_vm_types::gas::UnmeteredGasMeter;
 mod gas_ops;
 mod helpers;
-mod load_system_modules;
+pub mod load_system_modules;
 mod object_ops;
 mod parsers;
 use kanari_types::address::Address as KanariAddress;
@@ -35,7 +36,6 @@ use crate::changeset::ChangeSet;
 use crate::state::StateManager;
 use crate::storage::move_vm_state::MoveVMState;
 use crate::storage::object_storage::{ObjectStorage, ObjectStore, StoredObject};
-use kanari_types::tx_context::TxContextRecord;
 use move_vm_types::loaded_data::runtime_types::Type as RuntimeType;
 
 use std::collections::{HashMap, HashSet};
@@ -331,6 +331,103 @@ impl MoveRuntime {
         Ok(cs)
     }
 
+    /// Execute the init() function from a module (used for genesis initialization)
+    pub fn execute_init_function(
+        &self,
+        module_addr: AccountAddress,
+        module_name: &str,
+        args: Vec<Vec<u8>>,
+    ) -> Result<ChangeSet> {
+        log::info!(
+            "Executing {}.init() with {} arguments",
+            module_name,
+            args.len()
+        );
+
+        let module_id = ModuleId::new(module_addr, Identifier::new(module_name)?);
+        self.execute_entry_function_internal(
+            &module_id,
+            "init",
+            vec![],
+            args,
+            ExecutionOptions {
+                sender: Some(module_addr),
+                gas_info: None,
+                timestamp: None,
+                tx_hash: None,
+                persist_runtime_state: true,
+                bypass_entry_check: true,
+            },
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to execute init(): {:?}", e))
+    }
+
+    /// Execute init function with a type witness (for coin initialization)
+    pub fn execute_init_function_with_type_witness(
+        &self,
+        module_addr: AccountAddress,
+        module_name: &str,
+        witness_type_name: &str,
+        args: Vec<Vec<u8>>,
+    ) -> Result<ChangeSet> {
+        log::info!(
+            "Executing {}.init() with type witness {} and {} arguments",
+            module_name,
+            witness_type_name,
+            args.len()
+        );
+
+        let module_id = ModuleId::new(module_addr, Identifier::new(module_name)?);
+        let function_name = Identifier::new("init")?;
+
+        // Create type tag for the witness
+        let witness_type_tag = TypeTag::Struct(Box::new(StructTag {
+            address: module_addr,
+            module: Identifier::new(module_name)?,
+            name: Identifier::new(witness_type_name)?,
+            type_params: vec![],
+        }));
+
+        let vm_guard = self.vm.read().unwrap();
+        let mut session = self.create_session_with_storage_ext(&vm_guard);
+
+        // Load the type into the VM to get the runtime Type
+        let loaded_type = session
+            .load_type(&witness_type_tag)
+            .map_err(|e| anyhow::anyhow!("Failed to load witness type: {:?}", e))?;
+
+        // Call the init function with type witness
+        session
+            .execute_function_bypass_visibility(
+                &module_id,
+                &function_name,
+                vec![loaded_type], // Type arguments - single loaded witness type
+                args,              // Function arguments (TxContext)
+                &mut crate::kanari_gas_meter::KanariGasMeter::new(10_000_000),
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to execute init() with witness: {:?}", e))?;
+
+        log::info!("Init function with witness executed, finishing session...");
+
+        // Finish the session to get changeset and events
+        let (move_changeset, events) = session
+            .finish()
+            .0
+            .map_err(|e| anyhow::anyhow!("Session finish failed: {:?}", e))?;
+
+        log::info!("Move changeset processed, applying to state...");
+
+        // Apply the changeset to update state
+        self.apply_move_changeset(move_changeset.clone())?;
+
+        // Parse the changeset into our ChangeSet format
+        let mut cs = ChangeSet::new();
+        self.parse_move_changeset(&move_changeset, &mut cs);
+        self.parse_move_events(&events, &mut cs);
+
+        Ok(cs)
+    }
+
     fn preprocess_entry_args(args: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
         args.into_iter()
             .map(|arg| {
@@ -366,10 +463,6 @@ impl MoveRuntime {
 
     fn build_tx_context_bytes(
         &self,
-        module_id: &ModuleId,
-        function_name: &str,
-        type_args: &[TypeTag],
-        args: &[Vec<u8>],
         sender: Option<AccountAddress>,
         timestamp: Option<u64>,
         tx_hash: Option<&[u8]>,
@@ -392,24 +485,35 @@ impl MoveRuntime {
             input.extend_from_slice(b"kanari-txctx-v1");
             input.extend_from_slice(sender_addr.as_ref());
             input.extend_from_slice(&epoch_timestamp_ms.to_le_bytes());
-            input.extend_from_slice(module_id.address().as_ref());
-            input.extend_from_slice(module_id.name().as_str().as_bytes());
-            input.extend_from_slice(function_name.as_bytes());
-            input.extend_from_slice(&bcs::to_bytes(type_args)?);
-            for arg in args {
-                input.extend_from_slice(&(arg.len() as u64).to_le_bytes());
-                input.extend_from_slice(arg);
-            }
             hash_data_blake3(&input).to_vec()
         };
-        bcs::to_bytes(&TxContextRecord::from_address(
-            sender_addr,
-            tx_hash,
-            0,
-            epoch_timestamp_ms,
-            0,
-        ))
-        .map_err(Into::into)
+        let move_value = MoveValue::Struct(MoveStruct(vec![
+            MoveValue::Address(sender_addr),
+            MoveValue::vector_u8(tx_hash),
+            MoveValue::U64(0),
+            MoveValue::U64(epoch_timestamp_ms),
+            MoveValue::U64(0),
+        ]));
+        move_value
+            .simple_serialize()
+            .ok_or_else(|| anyhow::anyhow!("Failed to serialize TxContext MoveValue"))
+    }
+
+    fn synthesize_otw_bytes_from_layout(layout: &MoveTypeLayout) -> Option<Vec<u8>> {
+        let move_value = match layout {
+            MoveTypeLayout::Struct(struct_layout) if struct_layout.0.is_empty() => {
+                MoveValue::Struct(MoveStruct(vec![]))
+            }
+            MoveTypeLayout::Struct(struct_layout)
+                if struct_layout.0.len() == 1
+                    && matches!(struct_layout.0.first(), Some(MoveTypeLayout::Bool)) =>
+            {
+                MoveValue::Struct(MoveStruct(vec![MoveValue::Bool(true)]))
+            }
+            _ => return None,
+        };
+
+        move_value.simple_serialize()
     }
 
     // Helper function to convert object ID string to UID (for event data)
@@ -717,15 +821,8 @@ impl MoveRuntime {
         let ident = IdentStr::new(function_name).map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
         let mut final_args = Self::preprocess_entry_args(args);
-        let tx_context_bytes = self.build_tx_context_bytes(
-            module_id,
-            function_name,
-            &type_args,
-            &final_args,
-            sender,
-            timestamp,
-            tx_hash.as_deref(),
-        )?;
+        let tx_context_bytes =
+            self.build_tx_context_bytes(sender, timestamp, tx_hash.as_deref())?;
 
         let mut loaded_mutable_objects: Vec<LoadedMutableObject> = Vec::new();
 
@@ -745,6 +842,17 @@ impl MoveRuntime {
             for (i, param_type) in func.parameters.iter().enumerate() {
                 if i >= final_args.len() {
                     break;
+                }
+
+                if final_args[i].is_empty()
+                    && let Some(TypeTag::Struct(struct_tag)) = type_tag_for_param(param_type)
+                    && struct_tag.address == *module_id.address()
+                    && struct_tag.module.as_str() == module_id.name().as_str()
+                    && struct_tag.name.as_str() == module_id.name().as_str().to_ascii_uppercase()
+                    && let Ok(layout) = session.type_to_type_layout(param_type)
+                    && let Some(otw_bytes) = Self::synthesize_otw_bytes_from_layout(&layout)
+                {
+                    final_args[i] = otw_bytes;
                 }
 
                 let is_potential_id = final_args[i].len() == 32;

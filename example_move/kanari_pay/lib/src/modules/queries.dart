@@ -206,7 +206,8 @@ class QueriesModule {
     }).toList();
   }
 
-  /// Normalize address to 0x followed by 64 hex characters
+  /// Normalize address to 0x followed by 64 hex characters.
+  /// Short-form addresses like `0x2` are left-padded to 32 bytes.
   String _normalizeAddress(String addr) {
     var clean = addr.startsWith('0x') ? addr.substring(2) : addr;
 
@@ -215,8 +216,8 @@ class QueriesModule {
       throw ArgumentError('Invalid hexadecimal characters in address: $clean');
     }
 
-    // CRITICAL: Address MUST be exactly 64 hex characters (32 bytes)
-    if (clean.length != 64) {
+    // Canonicalize to the 32-byte form expected by RPC.
+    if (clean.length > 64) {
       throw ArgumentError(
         'Address must be exactly 64 hex characters (32 bytes). '
         'Got ${clean.length} characters. '
@@ -224,6 +225,6 @@ class QueriesModule {
       );
     }
 
-    return '0x${clean.toLowerCase()}';
+    return '0x${clean.padLeft(64, '0').toLowerCase()}';
   }
 }

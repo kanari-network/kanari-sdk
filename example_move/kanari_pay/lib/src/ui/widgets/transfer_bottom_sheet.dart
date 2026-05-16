@@ -47,7 +47,8 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
 
   /// Helper to check if a token is KANARI
   bool _isKanariToken(TokenBalance token) {
-    return token.tokenType == 'KANARI' ||
+    return token.tokenType == WalletState.kanariTokenType ||
+        token.tokenType == 'KANARI' ||
         token.tokenType.contains('::kanari::KANARI') ||
         token.symbol.toUpperCase() == 'KANARI';
   }
@@ -83,14 +84,17 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
     final colorScheme = theme.colorScheme;
     final isSmallScreen = MediaQuery.of(context).size.width < 360;
     final walletState = context.watch<WalletState>();
+    final selectedTokenValue = _selectedTokenType.isEmpty
+        ? WalletState.kanariTokenType
+        : _selectedTokenType;
 
     // Find KANARI token from balances list to get iconUrl and metadata
     final kanariToken = walletState.tokenBalances.firstWhere(
       _isKanariToken,
       orElse: () => TokenBalance(
-        tokenType: 'KANARI',
+        tokenType: WalletState.kanariTokenType,
         symbol: 'KANARI',
-        amount: walletState.balance,
+        amount: walletState.kanariBalance,
         decimals: 9,
         iconUrl: null,
       ),
@@ -99,7 +103,7 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
     // Build token list: KANARI first, then other tokens
     final tokenItems = [
       DropdownMenuItem(
-        value: '',
+        value: WalletState.kanariTokenType,
         child: Row(
           children: [
             TokenLogo(
@@ -111,7 +115,7 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'KANARI (${(walletState.balance / 1000000000).toStringAsFixed(4)})',
+                'KANARI (${(walletState.kanariBalance / 1000000000).toStringAsFixed(4)})',
                 style: const TextStyle(fontWeight: FontWeight.bold),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -171,7 +175,7 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
             SizedBox(height: isSmallScreen ? 12 : 16),
 
             DropdownButtonFormField<String>(
-              initialValue: _selectedTokenType,
+              initialValue: selectedTokenValue,
               isExpanded: true,
               decoration: const InputDecoration(labelText: 'Asset to send'),
               items: tokenItems,
@@ -194,12 +198,12 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
                 prefixIcon: const Icon(Icons.account_balance_wallet_rounded),
                 suffixIcon: TextButton(
                   onPressed: () {
-                    if (_selectedTokenType.isEmpty) {
-                      final balance = walletState.balance / 1000000000;
+                    if (selectedTokenValue == WalletState.kanariTokenType) {
+                      final balance = walletState.kanariBalance / 1000000000;
                       _amountController.text = balance.toStringAsFixed(6);
                     } else {
                       final token = walletState.tokenBalances.firstWhere(
-                        (t) => t.tokenType == _selectedTokenType,
+                        (t) => t.tokenType == selectedTokenValue,
                       );
                       final maxAmount =
                           token.amount / math.pow(10, token.decimals);
@@ -259,18 +263,22 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
     Navigator.pop(context);
 
     String? result;
-    if (_selectedTokenType.isEmpty) {
+    final selectedTokenValue = _selectedTokenType.isEmpty
+        ? WalletState.kanariTokenType
+        : _selectedTokenType;
+
+    if (selectedTokenValue == WalletState.kanariTokenType) {
       final amountMist = (amountDouble * 1000000000).round();
       result = await ws.transfer(recipient, amountMist);
     } else {
       final selectedToken = ws.tokenBalances.firstWhere(
-        (t) => t.tokenType == _selectedTokenType,
+        (t) => t.tokenType == selectedTokenValue,
       );
       final amountBaseUnits =
           (amountDouble * math.pow(10, selectedToken.decimals)).round();
       result = await ws.transferToken(
         recipient,
-        _selectedTokenType,
+        selectedTokenValue,
         amountBaseUnits,
       );
     }

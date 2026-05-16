@@ -283,6 +283,33 @@ class _EscrowScreenState extends State<EscrowScreen>
         );
       }
 
+      // CRITICAL: Validate and normalize seller address format
+      // Remove '0x' prefix if present
+      var cleanAddress = sellerAddress;
+      if (cleanAddress.toLowerCase().startsWith('0x')) {
+        cleanAddress = cleanAddress.substring(2);
+      }
+      
+      // Validate hex characters
+      if (!RegExp(r'^[0-9a-fA-F]+$').hasMatch(cleanAddress)) {
+        throw Exception(
+          'Invalid seller address format. Address must contain only hex characters (0-9, a-f).',
+        );
+      }
+      
+      // Validate address length
+      // Kanari supports both short addresses (like 0x2) and full addresses (64 hex chars)
+      if (cleanAddress.length > 64) {
+        throw Exception(
+          'Invalid seller address length. Address must be at most 64 hex characters.\n'
+          'Current length: ${cleanAddress.length} characters',
+        );
+      }
+      
+      if (cleanAddress.isEmpty) {
+        throw Exception('Seller address cannot be empty.');
+      }
+
       // Convert human-readable amount to raw amount based on token decimals
       final decimals = _getDecimalsForTokenType(tokenType);
       final rawAmount = _toRawAmount(_amountController.text.trim(), decimals);

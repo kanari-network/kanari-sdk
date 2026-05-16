@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:kanari_pay/kanari_pay.dart';
 
 class WalletState extends ChangeNotifier {
+  static const String kanariTokenType = '0x2::kanari::KANARI';
+
   KanariClient? _client;
   KanariWallet? _wallet;
   List<Map<String, dynamic>> _wallets = [];
@@ -23,6 +25,18 @@ class WalletState extends ChangeNotifier {
 
   int get balance => _balance;
   List<TokenBalance> get tokenBalances => _tokenBalances;
+  TokenBalance? get kanariTokenBalance {
+    for (final token in _tokenBalances) {
+      if (token.tokenType == kanariTokenType ||
+          token.tokenType.contains('::kanari::KANARI') ||
+          token.symbol.toUpperCase() == 'KANARI') {
+        return token;
+      }
+    }
+    return null;
+  }
+
+  int get kanariBalance => kanariTokenBalance?.amount ?? _balance;
 
   bool get isLoading => _isLoading;
   String? get error => _error;
@@ -351,6 +365,7 @@ class WalletState extends ChangeNotifier {
         _balance = await _client!.getBalance(_wallet!.address);
         try {
           _tokenBalances = await _client!.getAllBalances(_wallet!.address);
+          _balance = kanariBalance;
         } catch (e) {
           _tokenBalances = [];
         }

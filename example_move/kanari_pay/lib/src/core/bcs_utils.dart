@@ -24,14 +24,21 @@ import 'package:bcs/bcs.dart';
 
 /// BCS utilities class
 class BcsUtils {
-  /// Normalize address to 0x followed by 64 hex characters
-  static String normalizeAddress(String addr) {
+  /// Normalize address to standard format
+  /// Supports both short addresses (0x2) and full addresses (0x + 64 hex chars)
+  static String normalizeAnyAddress(String addr) {
     var clean = addr.startsWith('0x') ? addr.substring(2) : addr;
 
     if (!RegExp(r'^[0-9a-fA-F]+$').hasMatch(clean)) {
       throw ArgumentError('Invalid hexadecimal characters in address: $clean');
     }
 
+    // Short address - keep as-is
+    if (clean.length < 64) {
+      return '0x${clean.toLowerCase()}';
+    }
+
+    // Full address - validate length
     if (clean.length != 64) {
       throw ArgumentError(
         'Address must be exactly 64 hex characters (32 bytes). '
@@ -40,6 +47,25 @@ class BcsUtils {
     }
 
     return '0x${clean.toLowerCase()}';
+  }
+
+  /// Normalize address to 0x followed by 64 hex characters.
+  /// Short-form addresses like `0x2` are left-padded to 32 bytes.
+  static String normalizeAddress(String addr) {
+    var clean = addr.startsWith('0x') ? addr.substring(2) : addr;
+
+    if (!RegExp(r'^[0-9a-fA-F]+$').hasMatch(clean)) {
+      throw ArgumentError('Invalid hexadecimal characters in address: $clean');
+    }
+
+    if (clean.length > 64) {
+      throw ArgumentError(
+        'Address must be exactly 64 hex characters (32 bytes). '
+        'Got ${clean.length} characters.',
+      );
+    }
+
+    return '0x${clean.padLeft(64, '0').toLowerCase()}';
   }
 
   /// Normalize object ID to standard format (0x + 64 hex chars)
@@ -204,12 +230,30 @@ class BcsUtils {
       );
     }
 
-    // Normalize package address to 0x + 64 hex chars
+    // Normalize package address
     var packageAddr = parts[0];
-    if (!packageAddr.startsWith('0x')) {
+    
+    // Handle short address format (0x2, 0x1, etc.)
+    // Short addresses are valid and should be kept as-is
+    if (packageAddr.startsWith('0x')) {
+      final hexPart = packageAddr.substring(2);
+      // If it's a short address (< 64 chars), keep it as-is
+      if (hexPart.length < 64) {
+        // Already normalized short address
+        return '$packageAddr::${parts[1]}::${parts[2]}';
+      }
+      // Full address - validate and normalize
+      packageAddr = normalizeAddress(packageAddr);
+    } else {
+      // No 0x prefix - add it
       packageAddr = '0x$packageAddr';
+      final hexPart = packageAddr.substring(2);
+      if (hexPart.length < 64) {
+        // Short address
+        return '$packageAddr::${parts[1]}::${parts[2]}';
+      }
+      packageAddr = normalizeAddress(packageAddr);
     }
-    packageAddr = normalizeAddress(packageAddr);
 
     return '$packageAddr::${parts[1]}::${parts[2]}';
   }
@@ -220,14 +264,20 @@ class TransactionArgs {
   final List<List<int>> _args = [];
 
   TransactionArgs addAddress(String address) {
-    final normalized = BcsUtils.normalizeAddress(address);
-    _args.add(BcsUtils.hexToBytes(normalized));
+    final normalized = BcsUtils.normalizeAnyAddress(address);
+    final hexPart = normalized.substring(2);
+    // Pad to 64 characters for BCS encoding
+    final padded = hexPart.padLeft(64, '0');
+    _args.add(BcsUtils.hexToBytes('0x$padded'));
     return this;
   }
 
   TransactionArgs addObjectId(String objectId) {
-    final normalized = BcsUtils.normalizeObjectId(objectId);
-    _args.add(BcsUtils.hexToBytes(normalized));
+    final normalized = BcsUtils.normalizeAnyAddress(objectId);
+    final hexPart = normalized.substring(2);
+    // Pad to 64 characters for BCS encoding
+    final padded = hexPart.padLeft(64, '0');
+    _args.add(BcsUtils.hexToBytes('0x$padded'));
     return this;
   }
 

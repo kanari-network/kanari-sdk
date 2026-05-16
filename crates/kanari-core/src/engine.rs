@@ -1133,12 +1133,36 @@ impl BlockchainEngine {
         state.get_account_by_hex(address).map(|acc| {
             let final_owned_objects = self.resolve_account_objects(&state, &acc.address);
             let sequence_number = self.get_expected_sequence(address);
+            let mut actual_token_balances = std::collections::BTreeMap::new();
 
-            let actual_token_balances = acc
-                .token_balances
-                .into_iter()
-                .map(|(k, v)| (k, v.value()))
-                .collect();
+            for obj in &final_owned_objects {
+                if !obj.type_.contains("::coin::Coin<") || obj.data.len() < 40 {
+                    continue;
+                }
+
+                let Some(start) = obj.type_.find('<') else {
+                    continue;
+                };
+                let Some(end) = obj.type_.rfind('>') else {
+                    continue;
+                };
+
+                let token_type = obj.type_[start + 1..end].to_string();
+                let mut amount_bytes = [0u8; 8];
+                amount_bytes.copy_from_slice(&obj.data[32..40]);
+                let amount = u64::from_le_bytes(amount_bytes);
+
+                let entry = actual_token_balances.entry(token_type).or_insert(0u64);
+                *entry = entry.saturating_add(amount);
+            }
+
+            if actual_token_balances.is_empty() {
+                actual_token_balances = acc
+                    .token_balances
+                    .into_iter()
+                    .map(|(k, v)| (k, v.value()))
+                    .collect();
+            }
 
             AccountInfo {
                 address: format!("{:#x}", acc.address),

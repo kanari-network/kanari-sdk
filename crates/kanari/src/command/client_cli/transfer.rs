@@ -3,11 +3,13 @@
 
 use crate::command::common::{
     check_node_connection, get_rpc_endpoint, get_sender_for_tx, load_wallet_for, normalize_addr,
-    resolve_sender, sign_and_submit_transaction,
+    resolve_sender,
 };
 use anyhow::{Context, Result};
 use clap::Parser;
+use kanari_rpc_api::CallFunctionRequest;
 use kanari_rpc_client::RpcClient;
+use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use kanari_types::transaction::Transaction;
 
 #[derive(Parser, Debug)]
@@ -59,24 +61,98 @@ impl Transfer {
 
         let sender_tagged = get_sender_for_tx(&wallet, &from_addr)?;
 
-        let tx = Transaction::Transfer {
-            from: sender_tagged.clone(),
-            to: to_addr.clone(),
-            amount: amount_mist,
+        let owned_objects = account
+            .owned_objects
+            .as_ref()
+            .context("Sender account has no owned object list from RPC")?;
+
+        let mut selected_coin_id = None;
+        let mut selected_coin_balance = 0u64;
+
+        for obj in owned_objects {
+            if obj.type_ != format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE) {
+                continue;
+            }
+
+            if obj.data.len() < 40 {
+                continue;
+            }
+
+            let mut amount_bytes = [0u8; 8];
+            amount_bytes.copy_from_slice(&obj.data[32..40]);
+            let coin_balance = u64::from_le_bytes(amount_bytes);
+
+            if coin_balance >= amount_mist {
+                selected_coin_id = Some(obj.id.clone());
+                selected_coin_balance = coin_balance;
+                break;
+            }
+        }
+
+        let coin_object_id = selected_coin_id.with_context(|| {
+            format!(
+                "No Coin<{}> object with enough balance found for {} (needed {} Mist)",
+                KANARI_TOKEN_TYPE, from_addr, amount_mist
+            )
+        })?;
+
+        eprintln!("  Using coin object: {}", coin_object_id);
+        eprintln!("  Coin Balance (Mist): {}", selected_coin_balance);
+
+        let call_req = CallFunctionRequest {
+            sender: sender_tagged.clone(),
+            package: "0x2".to_string(),
+            module: "kanari".to_string(),
+            function: "transfer_amount".to_string(),
+            type_args: vec![],
+            args: vec![
+                hex::decode(coin_object_id.strip_prefix("0x").unwrap_or(&coin_object_id))
+                    .context("Invalid coin object ID")?,
+                bcs::to_bytes(&amount_mist).context("Failed to serialize amount")?,
+                bcs::to_bytes(
+                    &move_core_types::account_address::AccountAddress::from_hex_literal(&to_addr)?,
+                )
+                .context("Failed to serialize recipient address")?,
+            ],
             gas_limit: 100_000,
             gas_price: 1000,
             sequence_number: account.sequence_number,
+            signature: None,
+            execute_immediate: Some(true),
         };
 
-        sign_and_submit_transaction(
-            &client,
-            tx,
-            &wallet,
-            sender_tagged,
-            Some(to_addr),
-            Some(amount_mist),
-        )
-        .await?;
+        let dummy_tx = Transaction::ExecuteFunction {
+            sender: sender_tagged.clone(),
+            module: "0x2::kanari".to_string(),
+            function: "transfer_amount".to_string(),
+            type_args: vec![],
+            args: call_req.args.clone(),
+            gas_limit: call_req.gas_limit,
+            gas_price: call_req.gas_price,
+            sequence_number: call_req.sequence_number,
+        };
+
+        let mut signed_tx = kanari_types::transaction::SignedTransaction::new(dummy_tx);
+        signed_tx
+            .sign(&wallet.private_key, wallet.curve_type)
+            .context("Failed to sign transaction")?;
+
+        let mut final_call_req = call_req;
+        final_call_req.signature = Some(signed_tx.signature.clone());
+
+        eprintln!("  Gas Limit: {}", final_call_req.gas_limit);
+        eprintln!("  Gas Price: {} Mist/gas", final_call_req.gas_price);
+        eprintln!("  Transaction signed");
+        eprintln!("  Submitting transaction to node...");
+
+        let status = client
+            .call_function(final_call_req)
+            .await
+            .context("Failed to submit transaction")?;
+
+        eprintln!("  Transaction submitted successfully");
+        eprintln!("  Transaction hash: {}", status.hash);
+        eprintln!("  Status: {}", status.status);
 
         Ok(())
     }

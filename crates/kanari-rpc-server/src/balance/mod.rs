@@ -94,7 +94,7 @@ pub async fn handle_get_balance(state: &RpcServerState, request: &RpcRequest) ->
     let balance = state
         .engine
         .get_account_info(&address)
-        .map(|info| info.balance)
+        .and_then(|info| info.token_balances.get(KANARI_TOKEN_TYPE).copied())
         .unwrap_or(0);
 
     RpcResponse {
@@ -134,12 +134,12 @@ pub async fn handle_get_token_balance(state: &RpcServerState, request: &RpcReque
     let target_token = normalize_token_type(&req_data.token_type);
     let mut final_balance = 0;
 
-    // Check for KANARI token (full type or short form for backward compatibility)
-    if target_token == KANARI_TOKEN_TYPE
-        || target_token.to_uppercase() == "KANARI"
-        || target_token.contains("::kanari::KANARI")
-    {
-        final_balance = account_info.balance;
+    if target_token == KANARI_TOKEN_TYPE {
+        final_balance = account_info
+            .token_balances
+            .get(KANARI_TOKEN_TYPE)
+            .copied()
+            .unwrap_or(0);
     } else if let Some(record) = account_info.token_balances.get(&target_token) {
         final_balance = *record;
     }
@@ -183,14 +183,14 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
 
     let mut coin_sums: BTreeMap<String, u128> = BTreeMap::new();
 
-    // 1. Use Native Balance as initial KANARI token balance
-    // Use the standardized full type string constant
-    coin_sums.insert(KANARI_TOKEN_TYPE.to_string(), account_info.balance as u128);
+    if let Some(balance) = account_info.token_balances.get(KANARI_TOKEN_TYPE).copied() {
+        coin_sums.insert(KANARI_TOKEN_TYPE.to_string(), balance as u128);
+    }
 
     //  2. Loop through token_balances for non-KANARI tokens only to prevent double counting
     for (token_type, amount) in account_info.token_balances {
         // Skip KANARI token since we already use Native Balance as primary source in step 1
-        if token_type.to_uppercase().contains("KANARI") {
+        if token_type == KANARI_TOKEN_TYPE {
             continue;
         }
 
@@ -219,36 +219,18 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
             .unwrap_or(None)
             .unwrap_or_else(|| symbol.clone());
 
-        let mut description = state_guard
+        let description = state_guard
             .get_token_description(&token_type)
             .unwrap_or(None);
 
-        let is_kanari = token_type == KANARI_TOKEN_TYPE;
-
-        let (final_name, final_symbol, icon_url) = if is_kanari {
-            // Enforce exact KANARI token metadata
-            if description.is_none() {
-                description = Some("The native token of Kanari Network".to_string());
-            }
-            (
-                "Kanari Network Coin".to_string(),
-                "KANARI".to_string(),
-                Some("https://avatars.githubusercontent.com/u/127471673?s=200&v=4".to_string()),
-            )
-        } else {
-            (
-                name,
-                symbol,
-                state_guard.get_token_icon_url(&token_type).unwrap_or(None),
-            )
-        };
+        let icon_url = state_guard.get_token_icon_url(&token_type).unwrap_or(None);
 
         balances.push(serde_json::json!({
             "token_type": token_type,
             "balance": amount,
             "decimals": get_token_decimals(&state_guard, &token_type),
-            "symbol": final_symbol,
-            "name": final_name,
+            "symbol": symbol,
+            "name": name,
             "description": description,
             "icon_url": icon_url
         }));
@@ -300,35 +282,18 @@ pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) ->
                 .unwrap_or(None)
                 .unwrap_or_else(|| symbol.clone());
 
-            let mut description = state_guard
+            let description = state_guard
                 .get_token_description(&token_type)
                 .unwrap_or(None);
 
-            let is_kanari = token_type == KANARI_TOKEN_TYPE;
-
-            let (final_name, final_symbol, icon_url) = if is_kanari {
-                if description.is_none() {
-                    description = Some("The native token of Kanari Network".to_string());
-                }
-                (
-                    "Kanari Network Coin".to_string(),
-                    "KANARI".to_string(),
-                    Some("https://avatars.githubusercontent.com/u/127471673?s=200&v=4".to_string()),
-                )
-            } else {
-                (
-                    name,
-                    symbol,
-                    state_guard.get_token_icon_url(&token_type).unwrap_or(None),
-                )
-            };
+            let icon_url = state_guard.get_token_icon_url(&token_type).unwrap_or(None);
 
             serde_json::json!({
                 "token_type": token_type,
                 "total_supply": supply,
                 "decimals": get_token_decimals(&state_guard, &token_type),
-                "symbol": final_symbol,
-                "name": final_name,
+                "symbol": symbol,
+                "name": name,
                 "description": description,
                 "icon_url": icon_url
             })

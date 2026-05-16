@@ -1,6 +1,8 @@
 // modules/transactions/operations.dart
 /// Transaction operations module
 
+import 'dart:typed_data';
+
 import 'package:bcs/bcs.dart';
 import 'package:http/http.dart' as http;
 import 'package:kanari_crypto/kanari_crypto.dart';
@@ -54,6 +56,8 @@ class TransactionOperations {
   });
 
   TransactionOperations(this.url, this.queries, this.client);
+
+  static const String _kanariTokenType = '0x2::kanari::KANARI';
 
   /// Get sender address for transaction (tagged format)
   String _getSenderForTx(KanariWallet wallet) {
@@ -159,43 +163,54 @@ class TransactionOperations {
     required String recipient,
     required int amount,
     int gasLimit = TransactionConstants.defaultGasLimit,
-    int gasPrice = TransactionConstants.defaultGasPrice,
+    int gasPrice = 0,
   }) async {
-    // Get current sequence number
     final account = await queries.getAccount(wallet.address);
-    final sequenceNumber = account.sequenceNumber;
+    String? coinObjectId;
 
-    // Normalize addresses
-    final senderAddress = _getSenderForTx(wallet);
-    final normalizedRecipient = BcsUtils.normalizeAddress(recipient);
+    for (final obj in account.ownedObjects ?? const []) {
+      final objToken = BcsUtils.extractCoinTypeFromObjectType(obj.type);
+      if (objToken != _kanariTokenType) {
+        continue;
+      }
 
-    // Prepare transaction data
-    final txData = {
-      'Transfer': {
-        'from': senderAddress,
-        'to': normalizedRecipient,
-        'amount': amount,
-        'gas_limit': gasLimit,
-        'gas_price': gasPrice,
-        'sequence_number': sequenceNumber,
-      },
-    };
+      if (obj.data.length < 40) {
+        continue;
+      }
 
-    // Prepare RPC params
-    final params = {
-      'sender': senderAddress,
-      'recipient': normalizedRecipient,
-      'amount': amount,
-      'gas_limit': gasLimit,
-      'gas_price': gasPrice,
-      'sequence_number': sequenceNumber,
-    };
+      final balanceBytes = Uint8List.fromList(obj.data.sublist(32, 40));
+      final coinBalance = ByteData.sublistView(
+        balanceBytes,
+      ).getUint64(0, Endian.little);
 
-    return _signAndSubmit(
+      if (coinBalance >= amount) {
+        coinObjectId = obj.id;
+        break;
+      }
+    }
+
+    if (coinObjectId == null) {
+      throw Exception(
+        "No spendable Coin<$_kanariTokenType> object with enough balance found.\n"
+        "You need a KANARI coin object that holds at least $amount base units.",
+      );
+    }
+
+    final args = TransactionArgs()
+      ..addObjectId(coinObjectId)
+      ..addAmount(amount)
+      ..addAddress(recipient);
+
+    return executeFunction(
       wallet: wallet,
-      txData: txData,
-      rpcMethod: TransactionConstants.rpcSubmitTransaction,
-      params: params,
+      package: '0x2',
+      module: 'kanari',
+      function: 'transfer_amount',
+      typeArgs: const [],
+      args: args.build(),
+      gasLimit: gasLimit,
+      gasPrice: gasPrice,
+      executeImmediate: true,
     );
   }
 
