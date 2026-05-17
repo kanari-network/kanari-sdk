@@ -1,6 +1,3 @@
-// modules/transactions/operations.dart
-/// Transaction operations module
-
 import 'dart:typed_data';
 
 import 'package:bcs/bcs.dart';
@@ -8,8 +5,10 @@ import 'package:http/http.dart' as http;
 import 'package:kanari_crypto/kanari_crypto.dart';
 
 import '../../core/bcs_utils.dart';
+import '../../core/token_utils.dart' as token_utils;
 import '../../core/rpc_utils.dart';
 import '../../kanari_wallet.dart';
+import '../../models/account.dart';
 import '../../models/transaction.dart';
 import '../queries.dart';
 import 'constants.dart';
@@ -57,27 +56,42 @@ class TransactionOperations {
 
   TransactionOperations(this.url, this.queries, this.client);
 
-  static const String _kanariTokenType = '0x2::kanari::KANARI';
+  String _getSenderForTx(KanariWallet wallet) => wallet.taggedAddress;
 
-  /// Get sender address for transaction (tagged format)
-  String _getSenderForTx(KanariWallet wallet) {
-    // CRITICAL: Always use tagged address for ALL curve types
-    // This is required for timing-safe signature verification per security spec
-    // Format: CURVE:0xPUBKEY (e.g., 'K256:0xabc...', 'Ed25519:0x123...')
-    return wallet.taggedAddress;
+  String? _normalizedTokenTypeFromCoinObject(String objectType) {
+    final start = objectType.indexOf('<');
+    final end = objectType.lastIndexOf('>');
+    if (start == -1 || end == -1 || end <= start) {
+      return null;
+    }
+
+    final outerType = objectType.substring(0, start);
+    if (!outerType.endsWith('::coin::Coin') &&
+        !outerType.endsWith('::coin::coin::Coin')) {
+      return null;
+    }
+
+    final tokenType = objectType.substring(start + 1, end);
+    return BcsUtils.normalizeTokenType(tokenType);
   }
 
-  /// Sign and submit transaction
+  int? _readCoinBalance(List<int> data) {
+    if (data.length < 40) {
+      return null;
+    }
+
+    final balanceBytes = Uint8List.fromList(data.sublist(32, 40));
+    return ByteData.sublistView(balanceBytes).getUint64(0, Endian.little);
+  }
+
   Future<TransactionResult> _signAndSubmit({
     required KanariWallet wallet,
     required Map<String, dynamic> txData,
     required String rpcMethod,
     required Map<String, dynamic> params,
   }) async {
-    // Serialize transaction
     final serializedTx = _transactionBcs.serialize(txData).toBytes();
 
-    // Hash with Blake3
     List<int> messageToSign;
     try {
       messageToSign = await blake3HashApi(data: serializedTx);
@@ -91,13 +105,9 @@ class TransactionOperations {
       }
     }
 
-    // Sign
     final signature = await wallet.sign(messageToSign);
-
-    // Add signature to params
     params['signature'] = signature.toList();
 
-    // Submit via RPC
     final resp = await RpcUtils.request(
       client,
       url,
@@ -107,10 +117,23 @@ class TransactionOperations {
     );
 
     if (resp.error != null) throw Exception(resp.error!.message);
-    return resp.result!;
+
+    final result = resp.result!;
+    final status = result.status.toLowerCase();
+    if (status != 'pending' &&
+        status != 'executed' &&
+        status != 'committed' &&
+        status != 'success') {
+      throw Exception(
+        result.errorMessage?.isNotEmpty == true
+            ? result.errorMessage
+            : 'Transaction was not successful (status: ${result.status}, hash: ${result.hash})',
+      );
+    }
+
+    return result;
   }
 
-  /// Publish a Move module to the blockchain
   Future<TransactionResult> publishModule({
     required KanariWallet wallet,
     required List<int> moduleBytes,
@@ -119,14 +142,9 @@ class TransactionOperations {
     int gasPrice = TransactionConstants.defaultGasPrice,
     bool? executeImmediate,
   }) async {
-    // Get current sequence number
     final account = await queries.getAccount(wallet.address);
-    final sequenceNumber = account.sequenceNumber;
-
-    // Normalize sender address
     final senderAddress = _getSenderForTx(wallet);
 
-    // Prepare transaction data
     final txData = {
       'PublishModule': {
         'sender': senderAddress,
@@ -134,18 +152,17 @@ class TransactionOperations {
         'module_name': moduleName,
         'gas_limit': gasLimit,
         'gas_price': gasPrice,
-        'sequence_number': sequenceNumber,
+        'sequence_number': account.sequenceNumber,
       },
     };
 
-    // Prepare RPC params
     final params = {
       'sender': senderAddress,
       'module_bytes': moduleBytes,
       'module_name': moduleName,
       'gas_limit': gasLimit,
       'gas_price': gasPrice,
-      'sequence_number': sequenceNumber,
+      'sequence_number': account.sequenceNumber,
       'execute_immediate': executeImmediate,
     };
 
@@ -157,64 +174,84 @@ class TransactionOperations {
     );
   }
 
-  /// Transfer KANARI tokens from one account to another
-  Future<TransactionResult> transfer({
-    required KanariWallet wallet,
-    required String recipient,
-    required int amount,
-    int gasLimit = TransactionConstants.defaultGasLimit,
-    int gasPrice = 0,
-  }) async {
-    final account = await queries.getAccount(wallet.address);
-    String? coinObjectId;
+  String _findSpendableCoinObjectId(AccountInfo account, String tokenType) {
+    final wantedToken = BcsUtils.normalizeTokenType(tokenType);
 
     for (final obj in account.ownedObjects ?? const []) {
-      final objToken = BcsUtils.extractCoinTypeFromObjectType(obj.type);
-      if (objToken != _kanariTokenType) {
+      if (_normalizedTokenTypeFromCoinObject(obj.type) != wantedToken) {
         continue;
       }
 
-      if (obj.data.length < 40) {
+      final coinBalance = _readCoinBalance(obj.data);
+      if (coinBalance == null || coinBalance == 0) {
         continue;
       }
 
-      final balanceBytes = Uint8List.fromList(obj.data.sublist(32, 40));
-      final coinBalance = ByteData.sublistView(
-        balanceBytes,
-      ).getUint64(0, Endian.little);
-
-      if (coinBalance >= amount) {
-        coinObjectId = obj.id;
-        break;
-      }
+      return obj.id;
     }
 
-    if (coinObjectId == null) {
-      throw Exception(
-        "No spendable Coin<$_kanariTokenType> object with enough balance found.\n"
-        "You need a KANARI coin object that holds at least $amount base units.",
+    throw Exception(
+      'No spendable Coin<$tokenType> object found.\n'
+      'This wallet needs a spendable Coin object for the selected token.',
+    );
+  }
+
+  Future<TransactionResult> _transferCoinObject({
+    required KanariWallet wallet,
+    required String recipient,
+    required String tokenType,
+    required int amount,
+    required int gasLimit,
+    required int gasPrice,
+  }) async {
+    final account = await queries.getAccount(wallet.address);
+    final normalizedRecipient = BcsUtils.normalizeAddress(recipient);
+    final wantedToken = BcsUtils.normalizeTokenType(tokenType);
+    final coinObjectId = _findSpendableCoinObjectId(account, wantedToken);
+
+    final parts = wantedToken.split('::');
+    if (parts.length < 3) {
+      throw ArgumentError(
+        'Invalid token format. Expected: address::module::struct',
       );
     }
 
-    final args = TransactionArgs()
-      ..addObjectId(coinObjectId)
-      ..addAmount(amount)
-      ..addAddress(recipient);
+    final args = <List<int>>[
+      BcsUtils.hexToBytes(BcsUtils.normalizeObjectId(coinObjectId)),
+      BcsUtils.encodeU64(amount),
+      BcsUtils.hexToBytes(normalizedRecipient),
+    ];
 
     return executeFunction(
       wallet: wallet,
-      package: '0x2',
-      module: 'kanari',
+      package: parts[0],
+      module: parts[1],
       function: 'transfer_amount',
-      typeArgs: const [],
-      args: args.build(),
+      typeArgs: const <String>[],
+      args: args,
       gasLimit: gasLimit,
       gasPrice: gasPrice,
       executeImmediate: true,
     );
   }
 
-  /// Execute a Move function
+  Future<TransactionResult> transfer({
+    required KanariWallet wallet,
+    required String recipient,
+    required int amount,
+    int gasLimit = TransactionConstants.defaultGasLimit,
+    int gasPrice = TransactionConstants.defaultGasPrice,
+  }) {
+    return _transferCoinObject(
+      wallet: wallet,
+      recipient: recipient,
+      tokenType: token_utils.kanariTokenType,
+      amount: amount,
+      gasLimit: gasLimit,
+      gasPrice: gasPrice,
+    );
+  }
+
   Future<TransactionResult> executeFunction({
     required KanariWallet wallet,
     required String package,
@@ -226,15 +263,10 @@ class TransactionOperations {
     int gasPrice = 0,
     bool? executeImmediate,
   }) async {
-    // Get current sequence number
     final account = await queries.getAccount(wallet.address);
-    final sequenceNumber = account.sequenceNumber;
-
-    // Normalize addresses
     final senderAddress = _getSenderForTx(wallet);
-    final packageAddress = BcsUtils.normalizeAddress(package);
+    final packageAddress = BcsUtils.normalizeAnyAddress(package);
 
-    // Prepare transaction data
     final txData = {
       'ExecuteFunction': {
         'sender': senderAddress,
@@ -244,11 +276,10 @@ class TransactionOperations {
         'args': args,
         'gas_limit': gasLimit,
         'gas_price': gasPrice,
-        'sequence_number': sequenceNumber,
+        'sequence_number': account.sequenceNumber,
       },
     };
 
-    // Prepare RPC params
     final params = {
       'sender': senderAddress,
       'package': packageAddress,
@@ -258,7 +289,7 @@ class TransactionOperations {
       'args': args,
       'gas_limit': gasLimit,
       'gas_price': gasPrice,
-      'sequence_number': sequenceNumber,
+      'sequence_number': account.sequenceNumber,
       'execute_immediate': executeImmediate,
     };
 
@@ -270,38 +301,31 @@ class TransactionOperations {
     );
   }
 
-  /// Burn KANARI tokens (restricted to system/admin)
   Future<TransactionResult> burn({
     required KanariWallet wallet,
     required int amount,
     int gasLimit = TransactionConstants.defaultGasLimit,
     int gasPrice = TransactionConstants.defaultGasPrice,
   }) async {
-    // Get current sequence number
     final account = await queries.getAccount(wallet.address);
-    final sequenceNumber = account.sequenceNumber;
-
-    // Normalize sender address
     final senderAddress = _getSenderForTx(wallet);
 
-    // Prepare transaction data
     final txData = {
       'Burn': {
         'from': senderAddress,
         'amount': amount,
         'gas_limit': gasLimit,
         'gas_price': gasPrice,
-        'sequence_number': sequenceNumber,
+        'sequence_number': account.sequenceNumber,
       },
     };
 
-    // Prepare RPC params
     final params = {
       'sender': senderAddress,
       'amount': amount,
       'gas_limit': gasLimit,
       'gas_price': gasPrice,
-      'sequence_number': sequenceNumber,
+      'sequence_number': account.sequenceNumber,
     };
 
     return _signAndSubmit(
@@ -312,7 +336,6 @@ class TransactionOperations {
     );
   }
 
-  /// Transfer Custom Token
   Future<TransactionResult> transferToken({
     required KanariWallet wallet,
     required String recipient,
@@ -321,55 +344,13 @@ class TransactionOperations {
     int gasLimit = TransactionConstants.defaultGasLimit,
     int gasPrice = 0,
   }) async {
-    // Get Account & Objects
-    final account = await queries.getAccount(wallet.address);
-
-    // Find the coin object ID matching the token type
-    String? coinObjectId;
-    if (account.ownedObjects != null) {
-      for (final obj in account.ownedObjects!) {
-        final objToken = BcsUtils.extractCoinTypeFromObjectType(obj.type);
-        if (objToken == tokenType) {
-          coinObjectId = obj.id;
-          break;
-        }
-      }
-    }
-
-    if (coinObjectId == null) {
-      throw Exception(
-        "No Coin<$tokenType> objects found.\n"
-        "This usually means you don't have a spendable Coin object for this token.",
-      );
-    }
-
-    // Parse token format: address::module::struct
-    final parts = tokenType.split('::');
-    if (parts.length < 3) {
-      throw ArgumentError(
-        "Invalid token format. Expected: address::module::struct",
-      );
-    }
-    final packageAddress = parts[0];
-    final moduleName = parts[1];
-
-    // Prepare Arguments using TransactionArgs builder
-    final args = TransactionArgs()
-      ..addObjectId(coinObjectId)
-      ..addAmount(amount)
-      ..addAddress(recipient);
-
-    // Submit transaction using ExecuteFunction
-    return executeFunction(
+    return _transferCoinObject(
       wallet: wallet,
-      package: packageAddress,
-      module: moduleName,
-      function: 'transfer_amount',
-      typeArgs: [],
-      args: args.build(),
+      recipient: recipient,
+      tokenType: tokenType,
+      amount: amount,
       gasLimit: gasLimit,
       gasPrice: gasPrice,
-      executeImmediate: true,
     );
   }
 }

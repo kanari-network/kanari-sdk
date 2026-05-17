@@ -37,23 +37,6 @@ void main() {
       expect(health.syncStatus, 'synced');
     });
 
-    test('getBalance returns correct amount', () async {
-      final mockClient = MockClient((request) async {
-        return http.Response(
-          jsonEncode({'jsonrpc': '2.0', 'result': 1000, 'id': 1}),
-          200,
-        );
-      });
-
-      final client = KanariClient(
-        'http://localhost:19001/rpc',
-        client: mockClient,
-      );
-      final balance = await client.getBalance('0x1');
-
-      expect(balance, 1000);
-    });
-
     test('fromEnvironment uses correct URL', () {
       final clientDev = KanariClient.fromEnvironment(KanariEnvironment.dev);
       expect(clientDev.url, 'https://dev-seed.kanari.network/rpc');

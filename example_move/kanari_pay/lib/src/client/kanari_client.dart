@@ -39,11 +39,6 @@ class KanariClient {
     return _queries.getAccount(address);
   }
 
-  /// Get KANARI balance
-  Future<int> getBalance(String address) {
-    return _queries.getBalance(address);
-  }
-
   /// Get token balance
   Future<TokenBalance> getTokenBalance(String address, String tokenType) {
     return _queries.getTokenBalance(address, tokenType);
@@ -52,6 +47,11 @@ class KanariClient {
   /// Get all token balances
   Future<List<TokenBalance>> getAllBalances(String address) {
     return _queries.getAllBalances(address);
+  }
+
+  /// List registered tokens and DeFi-aware supply accounting.
+  Future<List<TokenInfo>> listTokens() {
+    return _queries.listTokens();
   }
 
   /// Get block by height
