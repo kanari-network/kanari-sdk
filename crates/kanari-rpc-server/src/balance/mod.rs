@@ -8,7 +8,9 @@ use kanari_rpc_api::{GetAllBalancesRequest, GetTokenBalanceRequest};
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use move_core_types::language_storage::TypeTag;
 use serde_json;
+use std::collections::BTreeSet;
 use std::str::FromStr;
+use tracing::warn;
 
 fn get_token_decimals(state_guard: &StateManager, token_type: &str) -> u8 {
     if token_type == KANARI_TOKEN_TYPE {
@@ -84,27 +86,6 @@ pub async fn handle_get_account(state: &RpcServerState, request: &RpcRequest) ->
     }
 }
 
-/// Handle get balance request
-pub async fn handle_get_balance(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let address: String = match parse_params(request.id, &request.params) {
-        Ok(addr) => addr,
-        Err(response) => return *response,
-    };
-
-    let balance = state
-        .engine
-        .get_account_info(&address)
-        .and_then(|info| info.token_balances.get(KANARI_TOKEN_TYPE).copied())
-        .unwrap_or(0);
-
-    RpcResponse {
-        jsonrpc: "2.0".into(),
-        result: Some(serde_json::json!(balance)),
-        error: None,
-        id: request.id,
-    }
-}
-
 /// Handle get token balance request
 pub async fn handle_get_token_balance(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let req_data: GetTokenBalanceRequest = match parse_params(request.id, &request.params) {
@@ -167,22 +148,30 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
 pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let state_guard = state.engine.state.read().unwrap_or_else(|p| p.into_inner());
 
-    let mut global_tokens = state_guard.global_token_supplies.clone();
-
-    global_tokens.insert(KANARI_TOKEN_TYPE.to_string(), state_guard.total_supply);
+    let mut token_types: BTreeSet<String> =
+        state_guard.global_token_supplies.keys().cloned().collect();
+    token_types.insert(KANARI_TOKEN_TYPE.to_string());
 
     if let Ok(Some(keys)) = state_guard.store.load::<Vec<String>>(b"treasury_index") {
         for key in keys {
             let token_type = key.strip_prefix("treasury:").unwrap_or(&key).to_string();
-            if token_type != KANARI_TOKEN_TYPE {
-                global_tokens.entry(token_type).or_insert(0);
-            }
+            token_types.insert(token_type);
         }
     }
 
-    let vals: Vec<serde_json::Value> = global_tokens
+    let vals: Vec<serde_json::Value> = token_types
         .into_iter()
-        .map(|(token_type, supply)| {
+        .filter_map(|token_type| {
+            let summary = match state_guard.token_supply_summary(&token_type) {
+                Ok(summary) => summary,
+                Err(e) => {
+                    warn!(
+                        "[RPC] Failed to build supply summary for token {}: {}",
+                        token_type, e
+                    );
+                    return None;
+                }
+            };
             let db_symbol = state_guard.get_token_symbol(&token_type).unwrap_or(None);
             let symbol = db_symbol.unwrap_or_else(|| extract_symbol(&token_type));
 
@@ -197,15 +186,20 @@ pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) ->
 
             let icon_url = state_guard.get_token_icon_url(&token_type).unwrap_or(None);
 
-            serde_json::json!({
-                "token_type": token_type,
-                "total_supply": supply,
+            Some(serde_json::json!({
+                "token_type": summary.token_type,
+                "total_supply": summary.total_supply,
+                "wallet_visible_supply": summary.wallet_visible_supply,
+                "circulating_supply": summary.wallet_visible_supply,
+                "object_locked_supply": summary.object_locked_supply,
+                "accounted_supply": summary.accounted_supply,
+                "untracked_supply": summary.untracked_supply,
                 "decimals": get_token_decimals(&state_guard, &token_type),
                 "symbol": symbol,
                 "name": name,
                 "description": description,
                 "icon_url": icon_url
-            })
+            }))
         })
         .collect();
 

@@ -216,10 +216,14 @@ impl DagEngine {
 
         let tx_count = transactions.len();
         // FIX: Use as_secs() instead of as_millis() to match validation expectations (seconds, not milliseconds)
-        let timestamp = std::time::SystemTime::now()
+        let proposed_timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs()) // ✅ CORRECT - seconds
             .unwrap_or(0);
+        let timestamp = {
+            let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
+            consensus.suggest_vertex_timestamp(proposed_timestamp)
+        };
 
         // Process transactions using the engine helper
         let (executed_state, state_root, executed, failed) = {

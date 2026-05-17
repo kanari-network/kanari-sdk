@@ -106,6 +106,15 @@ impl StateSynchronizer {
             .unwrap_or(0)
     }
 
+    fn remove_orphan(&mut self, orphan_id: VertexId) {
+        self.orphan_buffer.remove(&orphan_id);
+        self.orphan_insertion_order.retain(|id| id != &orphan_id);
+        self.waiting_for.retain(|_, children| {
+            children.retain(|child_id| child_id != &orphan_id);
+            !children.is_empty()
+        });
+    }
+
     fn collect_vertices_after_round_limited(
         &self,
         last_round: Round,
@@ -225,9 +234,7 @@ impl StateSynchronizer {
             if self.orphan_buffer.len() >= MAX_ORPHAN_SIZE {
                 // FIX #14: Evict oldest orphan by insertion order (FIFO), not hash order
                 if let Some(oldest_key) = self.orphan_insertion_order.pop_front() {
-                    self.orphan_buffer.remove(&oldest_key);
-                    // Also clean up waiting_for references
-                    self.waiting_for.remove(&oldest_key);
+                    self.remove_orphan(oldest_key);
                 }
             }
 
@@ -280,9 +287,7 @@ impl StateSynchronizer {
                             .any(|p| !self.vertex_lookup.contains_key(p));
 
                         if !still_missing {
-                            // FIX #14: Remove from insertion order tracking
-                            self.orphan_insertion_order.retain(|id| id != &child_id);
-                            self.orphan_buffer.remove(&child_id);
+                            self.remove_orphan(child_id);
                             // Push child onto stack instead of making recursive call immediately
                             stack.push(child);
                         }
@@ -513,7 +518,15 @@ impl StateSynchronizer {
         }
 
         // Prune orphans that are too old and have never had their parent arrive (prevent memory leak)
-        self.orphan_buffer.retain(|_, v| v.round >= before_round);
+        let stale_orphans: Vec<_> = self
+            .orphan_buffer
+            .iter()
+            .filter(|(_, v)| v.round < before_round)
+            .map(|(id, _)| *id)
+            .collect();
+        for orphan_id in stale_orphans {
+            self.remove_orphan(orphan_id);
+        }
         let valid_orphans: HashSet<_> = self.orphan_buffer.keys().copied().collect();
         self.waiting_for.retain(|_, children| {
             children.retain(|c| valid_orphans.contains(c));

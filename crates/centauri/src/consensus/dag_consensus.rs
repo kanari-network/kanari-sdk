@@ -46,6 +46,28 @@ pub type Round = u64;
 /// Authority/validator identifier
 pub type AuthorityId = String;
 
+fn timestamp_bounds(parent_timestamps: &[u64]) -> Option<(u64, u64)> {
+    const MAX_TIMESTAMP_DRIFT_SECS: u64 = 300;
+
+    if parent_timestamps.is_empty() {
+        return None;
+    }
+
+    let mut sorted = parent_timestamps.to_vec();
+    sorted.sort_unstable();
+
+    let median_timestamp = sorted[sorted.len() / 2];
+    let max_parent_timestamp = sorted.last().copied().unwrap_or(median_timestamp);
+    let min_allowed = median_timestamp.max(max_parent_timestamp);
+    let max_allowed = median_timestamp.saturating_add(MAX_TIMESTAMP_DRIFT_SECS);
+
+    Some(if min_allowed > max_allowed {
+        (min_allowed, min_allowed)
+    } else {
+        (min_allowed, max_allowed)
+    })
+}
+
 /// DAG Vertex - represents a batch of transactions in the DAG
 /// Each vertex can reference multiple parent vertices, forming a DAG
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -493,6 +515,52 @@ impl DagStore {
         self.index_vertex(vertex_id, round, author);
     }
 
+    fn validate_checkpoint_payload(&self, checkpoint: &Checkpoint) -> Result<()> {
+        let mut seen_vertices = HashSet::new();
+        let mut seen_tx_hashes = HashSet::new();
+        let mut expected_tx_hashes = Vec::new();
+        let mut expected_state_root = None;
+
+        for vertex_id in &checkpoint.vertices {
+            if !seen_vertices.insert(*vertex_id) {
+                anyhow::bail!(
+                    "Checkpoint contains duplicate vertex {}",
+                    hex::encode(vertex_id)
+                );
+            }
+
+            let vertex = self.vertices.get(vertex_id).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Checkpoint references missing vertex {}",
+                    hex::encode(vertex_id)
+                )
+            })?;
+
+            expected_state_root = Some(vertex.metadata.state_root.clone());
+
+            for tx in &vertex.transactions {
+                let tx_hash = tx.hash();
+                if seen_tx_hashes.insert(tx_hash.clone()) {
+                    expected_tx_hashes.push(tx_hash);
+                }
+            }
+        }
+
+        let actual_tx_hashes: Vec<Vec<u8>> =
+            checkpoint.transactions.iter().map(|tx| tx.hash()).collect();
+        if actual_tx_hashes != expected_tx_hashes {
+            anyhow::bail!("Checkpoint transactions do not match referenced DAG vertices");
+        }
+
+        if let Some(expected_state_root) = expected_state_root
+            && checkpoint.state_root != expected_state_root
+        {
+            anyhow::bail!("Checkpoint state root does not match referenced DAG vertices");
+        }
+
+        Ok(())
+    }
+
     fn validate_new_vertex(&self, vertex: &DagVertex, total_authorities: usize) -> Result<()> {
         vertex.verify()?;
         if self.vertices.contains_key(&vertex.id) {
@@ -533,50 +601,20 @@ impl DagStore {
                 parent_timestamps.push(parent.timestamp);
             }
 
-            // FIX #2: Validate timestamp against median of parents (not SystemTime)
-            // This prevents consensus splits due to clock skew between nodes
-            if !parent_timestamps.is_empty() {
-                parent_timestamps.sort_unstable();
-                let median_timestamp = parent_timestamps[parent_timestamps.len() / 2];
-
-                // Vertex timestamp must be >= median parent timestamp
-                if vertex.timestamp < median_timestamp {
+            if let Some((min_allowed, max_allowed)) = timestamp_bounds(&parent_timestamps) {
+                if vertex.timestamp < min_allowed {
                     anyhow::bail!(
-                        "Vertex timestamp {} is older than median parent timestamp {}",
+                        "Vertex timestamp {} is older than allowed minimum {}",
                         vertex.timestamp,
-                        median_timestamp
+                        min_allowed
                     );
                 }
 
-                // Allow reasonable future tolerance based on parent median
-                // FIX #5: Handle node restart scenarios where parents are very old
-                // If parent median is more than 10 minutes behind current time, assume node just restarted/paused
-                // and use current time as baseline instead of old parent timestamps
-                let current_time = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
-
-                const MAX_TIMESTAMP_DRIFT_SECS: u64 = 300; // 5 minutes for normal operation
-                const RESTART_THRESHOLD_SECS: u64 = 600; // 10 minutes threshold for restart detection (reduced from 15min)
-
-                let max_allowed =
-                    if current_time.saturating_sub(median_timestamp) > RESTART_THRESHOLD_SECS {
-                        // Node likely just restarted or paused - use current time as baseline
-                        // Allow vertex timestamp to be close to current time (±30 seconds)
-                        current_time.saturating_add(30)
-                    } else {
-                        // Normal operation - use parent median as baseline
-                        median_timestamp.saturating_add(MAX_TIMESTAMP_DRIFT_SECS)
-                    };
-
                 if vertex.timestamp > max_allowed {
                     anyhow::bail!(
-                        "Vertex timestamp {} too far ahead of parent median {} (drift: {}s, max allowed: {}s)",
+                        "Vertex timestamp {} exceeds allowed maximum {}",
                         vertex.timestamp,
-                        median_timestamp,
-                        vertex.timestamp.saturating_sub(median_timestamp),
-                        max_allowed.saturating_sub(median_timestamp)
+                        max_allowed
                     );
                 }
             }
@@ -780,6 +818,8 @@ impl DagStore {
         if checkpoint.prev_checkpoint_hash != prev_hash {
             anyhow::bail!("Invalid previous checkpoint hash");
         }
+
+        self.validate_checkpoint_payload(&checkpoint)?;
 
         for tx in &checkpoint.transactions {
             self.executed_tx_hashes.insert(tx.hash());
@@ -1280,6 +1320,20 @@ impl DagConsensus {
         ))
     }
 
+    pub fn suggest_vertex_timestamp(&self, proposed_timestamp: u64) -> u64 {
+        let current_round = self.store.current_round();
+        let parent_ids = self.store.get_vertex_ids_in_round(current_round);
+        let parent_timestamps: Vec<u64> = parent_ids
+            .iter()
+            .filter_map(|parent_id| self.store.get_vertex(parent_id).map(|v| v.timestamp))
+            .collect();
+
+        timestamp_bounds(&parent_timestamps)
+            .map_or(proposed_timestamp, |(min_allowed, max_allowed)| {
+                proposed_timestamp.clamp(min_allowed, max_allowed)
+            })
+    }
+
     /// Create a new vertex for current round
     pub fn create_vertex(
         &mut self,
@@ -1295,9 +1349,10 @@ impl DagConsensus {
 
         let mut unique_authors = HashSet::new();
         for parent_id in &parents {
-            if let Some(parent_vertex) = self.store.get_vertex(parent_id) {
-                unique_authors.insert(parent_vertex.author.clone());
-            }
+            if let Some(parent_vertex) = self.store.get_vertex(parent_id)
+                && self.store.is_authority_trusted(&parent_vertex.author) {
+                    unique_authors.insert(parent_vertex.author.clone());
+                }
         }
 
         let total_authorities = self.committee.validators.len();
@@ -1313,6 +1368,7 @@ impl DagConsensus {
         }
 
         parents.sort(); // Ensure deterministic parent order for state root consistency
+        let timestamp = self.suggest_vertex_timestamp(timestamp);
 
         let mut vertex = DagVertex::new(
             next_round,
@@ -1608,7 +1664,16 @@ impl DagConsensus {
                         latest.sequence + 1,
                         vertices_to_commit.clone(),
                         all_transactions,
-                        vec![0u8; 32],
+                        self.store
+                            .get_vertex(
+                                vertices_to_commit
+                                    .last()
+                                    .ok_or_else(|| anyhow::anyhow!("Checkpoint has no vertices"))?,
+                            )
+                            .map(|vertex| vertex.metadata.state_root.clone())
+                            .ok_or_else(|| {
+                                anyhow::anyhow!("Checkpoint references missing final vertex")
+                            })?,
                         leader_vertex.timestamp,
                         prev_hash,
                     );
@@ -1875,7 +1940,7 @@ mod tests {
                 latest.sequence + 1,
                 vec![vertex_id],
                 vec![tx.clone()],
-                vec![2u8; 32],
+                vec![1u8; 32],
                 1,
                 prev_hash,
             ))
@@ -1932,10 +1997,7 @@ mod tests {
     }
 
     #[test]
-    fn test_node_restart_timestamp_recovery() {
-        // Test FIX #5: Node restart scenario where parent timestamps are very old
-        // This simulates a node that was offline for a long time and then comes back online
-
+    fn test_reject_timestamp_far_ahead_of_old_parents() {
         let authorities = vec![
             "auth1".to_string(),
             "auth2".to_string(),
@@ -1950,11 +2012,8 @@ mod tests {
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
-        // Simulate very old parents (node was offline) - need 3 for quorum
-        let old_timestamp = current_time - 1200; // 20 minutes ago (beyond 15-min threshold)
+        let old_timestamp = current_time - 1200;
 
-        // Add parent vertices with very old timestamps from ALL authorities to satisfy quorum
-        // Need at least 2f+1 = 3 out of 4 authorities for quorum
         let parent1 = DagVertex::new_for_test(
             0,
             "auth1".to_string(),
@@ -1984,45 +2043,26 @@ mod tests {
         store.add_vertex(parent2, store.num_authorities()).unwrap();
         store.add_vertex(parent3, store.num_authorities()).unwrap();
 
-        // Now simulate node restart: create a new vertex with current timestamp
-        // This should be ACCEPTED because we detect the restart scenario
         let child_parents = store.get_vertex_ids_in_round(0);
-
-        // Use current time as vertex timestamp (simulating fresh vertex after restart)
         let restart_vertex = DagVertex::new_for_test(
             1,
             "auth1".to_string(),
             child_parents.clone(),
             vec![],
             vec![4u8; 32],
-            current_time, // Current time after restart
+            current_time,
         );
 
-        // Debug: Print validation parameters
-        eprintln!("Current time: {}", current_time);
-        eprintln!("Old timestamp: {}", old_timestamp);
-        eprintln!("Restart vertex timestamp: {}", restart_vertex.timestamp);
-        eprintln!("Drift from old: {} seconds", current_time - old_timestamp);
-        eprintln!("RESTART_THRESHOLD_SECS: 900 (15 minutes)");
-
-        // This should succeed because of restart detection logic
-        // The validation will use current_time + 30 as max_allowed instead of old_median + 300
-        let result = store.add_vertex(restart_vertex, store.num_authorities());
-
-        if let Err(ref e) = result {
-            eprintln!("❌ Validation failed with error: {}", e);
-        }
-
         assert!(
-            result.is_ok(),
-            "Node restart vertex should be accepted when parent timestamps are very old"
+            store
+                .add_vertex(restart_vertex, store.num_authorities())
+                .is_err(),
+            "Validation must reject timestamps that exceed parent-derived bounds"
         );
     }
 
     #[test]
-    fn test_acceptable_timestamp_after_restart() {
-        // Test that vertices with reasonable timestamps are accepted after restart
-
+    fn test_accept_timestamp_within_parent_derived_window() {
         let authorities = vec![
             "auth1".to_string(),
             "auth2".to_string(),
@@ -2037,8 +2077,7 @@ mod tests {
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
-        // Simulate very old parents (node was offline) - need 3 for quorum
-        let old_timestamp = current_time - 7200; // 2 hours ago
+        let old_timestamp = current_time - 7200;
 
         let parent1 = DagVertex::new_for_test(
             0,
@@ -2069,7 +2108,6 @@ mod tests {
         store.add_vertex(parent2, store.num_authorities()).unwrap();
         store.add_vertex(parent3, store.num_authorities()).unwrap();
 
-        // Create vertex with timestamp slightly in the future (within ±30s tolerance)
         let child_parents = store.get_vertex_ids_in_round(0);
         let acceptable_vertex = DagVertex::new_for_test(
             1,
@@ -2077,27 +2115,14 @@ mod tests {
             child_parents.clone(),
             vec![],
             vec![4u8; 32],
-            current_time + 20, // Within the ±30s tolerance for restart scenario
+            old_timestamp + 300,
         );
-
-        // Debug output
-        eprintln!("Current time: {}", current_time);
-        eprintln!("Vertex timestamp: {}", acceptable_vertex.timestamp);
-        eprintln!(
-            "Drift from current: {} seconds",
-            acceptable_vertex.timestamp as i64 - current_time as i64
-        );
-
-        // Should succeed
-        let result = store.add_vertex(acceptable_vertex, store.num_authorities());
-
-        if let Err(ref e) = result {
-            eprintln!("❌ Validation failed: {}", e);
-        }
 
         assert!(
-            result.is_ok(),
-            "Vertex within ±30s of current time should be accepted after restart"
+            store
+                .add_vertex(acceptable_vertex, store.num_authorities())
+                .is_ok(),
+            "Vertex at the parent-derived upper bound should be accepted"
         );
     }
 

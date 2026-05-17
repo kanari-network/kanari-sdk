@@ -285,6 +285,9 @@ impl DagPruner {
             cutoff_round
         );
 
+        let mut next_round_to_scan = cutoff_round;
+        let mut blocked_round = None;
+
         for round in start_round..cutoff_round {
             let vertex_ids = store.get_vertices_by_round(round)?;
 
@@ -294,6 +297,7 @@ impl DagPruner {
 
             // Check each vertex individually
             let mut vertices_to_prune = Vec::new();
+            let mut round_skipped = 0;
 
             for vertex_id in &vertex_ids {
                 let vertex = match store.get_vertex(vertex_id)? {
@@ -312,6 +316,7 @@ impl DagPruner {
                     }
                     // Cannot prune - not checkpointed and not old enough
                     skipped += 1;
+                    round_skipped += 1;
                     continue;
                 }
 
@@ -319,6 +324,7 @@ impl DagPruner {
                     && !self.is_vertex_old_enough(&vertex, retention_secs)
                 {
                     skipped += 1;
+                    round_skipped += 1;
                     continue;
                 }
 
@@ -342,15 +348,22 @@ impl DagPruner {
                     }
                 }
             }
+
+            if round_skipped > 0 && blocked_round.is_none() {
+                blocked_round = Some(round);
+            }
         }
 
         // Update tracking state
-        self.last_cleaned_round = cutoff_round;
+        if let Some(blocked_round) = blocked_round {
+            next_round_to_scan = blocked_round;
+        }
+        self.last_cleaned_round = next_round_to_scan;
         tracing::debug!(
             "Pruned {} vertices, skipped {}, updated last_cleaned_round to {}",
             pruned,
             skipped,
-            cutoff_round
+            next_round_to_scan
         );
 
         Ok((pruned, skipped, pruned_ids))

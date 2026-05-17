@@ -16,8 +16,7 @@ use tracing::info;
 
 use crate::{
     balance::{
-        handle_get_account, handle_get_all_balances, handle_get_balance, handle_get_token_balance,
-        handle_list_tokens,
+        handle_get_account, handle_get_all_balances, handle_get_token_balance, handle_list_tokens,
     },
     block::{
         handle_get_block, handle_get_block_height, handle_get_full_block, handle_get_stats,
@@ -141,7 +140,6 @@ async fn handle_rpc(
     let response = match request.method.as_str() {
         // Account & Balance
         methods::GET_ACCOUNT => handle_get_account(&state, &request).await,
-        methods::GET_BALANCE => handle_get_balance(&state, &request).await,
         methods::GET_TOKEN_BALANCE => handle_get_token_balance(&state, &request).await,
         methods::LIST_TOKENS => handle_list_tokens(&state, &request).await,
         methods::GET_ALL_BALANCES => handle_get_all_balances(&state, &request).await,

@@ -257,6 +257,7 @@ impl ByzantineDetector {
                     ),
                 };
                 self.report_fault(fault)?;
+                anyhow::bail!("Invalid vertex: insufficient parents for quorum");
             }
         }
         Ok(())

@@ -23,6 +23,7 @@ use std::sync::Arc;
 
 const SYSTEM_CLOCK_OBJECT_ID_KEY: &[u8] = b"system:clock_object_id";
 const ACCOUNT_INDEX_KEY: &[u8] = b"account_index";
+const OBJECT_LOCKED_COIN_RECORDS_KEY: &[u8] = b"object_locked_coin_records";
 const UID_SIZE: usize = 32;
 const U64_SIZE: usize = 8;
 
@@ -81,6 +82,25 @@ impl Account {
     pub fn increment_sequence(&mut self) {
         self.sequence_number += 1;
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TokenSupplySummary {
+    pub token_type: String,
+    pub total_supply: u64,
+    pub wallet_visible_supply: u64,
+    pub object_locked_supply: u64,
+    pub accounted_supply: u64,
+    pub untracked_supply: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ObjectLockedCoinRecord {
+    pub holder_object_id: String,
+    pub holder_type: String,
+    pub owner: AccountAddress,
+    pub token_type: String,
+    pub amount: u64,
 }
 
 /// Global state manager for accounts and balances
@@ -148,6 +168,79 @@ impl StateManager {
             .flatten()
             .map(|cap| cap.total_supply)
             .or_else(|| store.load::<u64>(&key).ok().flatten())
+    }
+
+    pub fn issued_supply_for_token(&self, token_type: &str) -> u64 {
+        if token_type == KANARI_TOKEN_TYPE {
+            return self.total_supply;
+        }
+
+        let supply_key = Self::supply_key(token_type);
+        self.load_internal::<TreasuryCap>(&supply_key)
+            .ok()
+            .flatten()
+            .map(|cap| cap.total_supply)
+            .or_else(|| self.load_internal::<u64>(&supply_key).ok().flatten())
+            .or_else(|| self.global_token_supplies.get(token_type).copied())
+            .unwrap_or(0)
+    }
+
+    pub fn indexed_wallet_supply(&self, token_type: &str) -> Result<u64> {
+        let token_type = Self::normalize_token_type(token_type);
+        Ok(self
+            .load_account_addresses()?
+            .into_iter()
+            .filter_map(|address| self.load_account(&address).ok().flatten())
+            .map(|account| account.get_token_balance(&token_type))
+            .fold(0u64, |acc, balance| acc.saturating_add(balance)))
+    }
+
+    pub fn load_object_locked_coin_records(&self) -> Result<Vec<ObjectLockedCoinRecord>> {
+        Ok(self
+            .load_internal(OBJECT_LOCKED_COIN_RECORDS_KEY)?
+            .unwrap_or_default())
+    }
+
+    fn save_object_locked_coin_records(
+        &mut self,
+        records: &[ObjectLockedCoinRecord],
+    ) -> Result<()> {
+        self.save_internal(OBJECT_LOCKED_COIN_RECORDS_KEY, records)
+    }
+
+    pub fn object_locked_supply_for_token(&self, token_type: &str) -> Result<u64> {
+        let token_type = Self::normalize_token_type(token_type);
+        Ok(self
+            .load_object_locked_coin_records()?
+            .into_iter()
+            .filter(|record| record.token_type == token_type)
+            .map(|record| record.amount)
+            .fold(0u64, |acc, amount| acc.saturating_add(amount)))
+    }
+
+    pub fn token_supply_summary(&self, token_type: &str) -> Result<TokenSupplySummary> {
+        let token_type = Self::normalize_token_type(token_type);
+        let total_supply = self.issued_supply_for_token(&token_type);
+        let cached_visible = self
+            .global_token_supplies
+            .get(&token_type)
+            .copied()
+            .unwrap_or(0);
+        let indexed_visible = self.indexed_wallet_supply(&token_type)?;
+        let wallet_visible_supply = cached_visible.max(indexed_visible);
+        let ledger_locked_supply = self.object_locked_supply_for_token(&token_type)?;
+        let inferred_locked_supply = total_supply.saturating_sub(wallet_visible_supply);
+        let object_locked_supply = ledger_locked_supply.max(inferred_locked_supply);
+        let accounted_supply = wallet_visible_supply.saturating_add(object_locked_supply);
+
+        Ok(TokenSupplySummary {
+            token_type,
+            total_supply,
+            wallet_visible_supply,
+            object_locked_supply,
+            accounted_supply,
+            untracked_supply: total_supply.saturating_sub(accounted_supply),
+        })
     }
 
     pub fn supply_invariant_fail_fast_enabled() -> bool {
@@ -678,11 +771,211 @@ impl StateManager {
         }
     }
 
+    fn balance_token_amount(type_name: &str, data: &[u8]) -> Option<(String, u64)> {
+        let struct_tag = StructTag::from_str(type_name).ok()?;
+        if !Self::is_balance_struct(&struct_tag) {
+            return None;
+        }
+        let token_type = Self::token_type_from_balance_struct(&struct_tag)?;
+        let amount = Self::extract_balance_from_object_bytes(data, &struct_tag)?;
+        Some((Self::normalize_token_type(&token_type), amount))
+    }
+
+    fn is_object_locked_coin_holder_type(type_name: &str) -> bool {
+        let Ok(struct_tag) = StructTag::from_str(type_name) else {
+            return false;
+        };
+
+        if Self::is_balance_struct(&struct_tag) {
+            return false;
+        }
+
+        let module_name = struct_tag.module.as_str();
+        let struct_name = struct_tag.name.as_str();
+        !(module_name == CoinModule::COIN_MODULE
+            && (struct_name == CoinModule::TREASURY_CAP_STRUCT || struct_name == "CoinMetadata"))
+    }
+
+    fn supply_tracking_token_types(&self, changeset: &ChangeSet) -> BTreeSet<String> {
+        let mut token_types: BTreeSet<String> =
+            self.global_token_supplies.keys().cloned().collect();
+        token_types.insert(KANARI_TOKEN_TYPE.to_string());
+
+        for (_, token_type, _) in &changeset.treasuries {
+            token_types.insert(Self::normalize_token_type(token_type));
+        }
+        for (_, token_type, _) in &changeset.token_balance_sets {
+            token_types.insert(Self::normalize_token_type(token_type));
+        }
+        for (_, created) in &changeset.created_objects {
+            if let Some((token_type, _)) = Self::balance_token_amount(&created.type_, &created.data)
+            {
+                token_types.insert(token_type);
+            }
+        }
+
+        token_types
+    }
+
+    fn visible_supply_snapshot(&self, token_type: &str) -> Result<u64> {
+        let token_type = Self::normalize_token_type(token_type);
+        let cached = self
+            .global_token_supplies
+            .get(&token_type)
+            .copied()
+            .unwrap_or(0);
+        Ok(cached.max(self.indexed_wallet_supply(&token_type)?))
+    }
+
+    fn add_locked_coin_record(
+        records: &mut Vec<ObjectLockedCoinRecord>,
+        holder: &(String, CreatedObject),
+        token_type: &str,
+        amount: u64,
+    ) {
+        if amount == 0 {
+            return;
+        }
+
+        if let Some(existing) = records
+            .iter_mut()
+            .find(|record| record.holder_object_id == holder.0 && record.token_type == token_type)
+        {
+            existing.amount = existing.amount.saturating_add(amount);
+            existing.holder_type = holder.1.type_.clone();
+            existing.owner = holder.1.owner;
+            return;
+        }
+
+        records.push(ObjectLockedCoinRecord {
+            holder_object_id: holder.0.clone(),
+            holder_type: holder.1.type_.clone(),
+            owner: holder.1.owner,
+            token_type: token_type.to_string(),
+            amount,
+        });
+    }
+
+    fn release_locked_coin_records(
+        records: &mut Vec<ObjectLockedCoinRecord>,
+        holder_ids: &HashSet<String>,
+        token_type: &str,
+        amount: u64,
+    ) {
+        let mut remaining = amount;
+
+        for prefer_holder in [true, false] {
+            if remaining == 0 {
+                break;
+            }
+
+            for record in records.iter_mut() {
+                if remaining == 0 {
+                    break;
+                }
+                if record.token_type != token_type {
+                    continue;
+                }
+                if prefer_holder && !holder_ids.contains(&record.holder_object_id) {
+                    continue;
+                }
+
+                let release = record.amount.min(remaining);
+                record.amount -= release;
+                remaining -= release;
+            }
+        }
+
+        records.retain(|record| record.amount > 0);
+    }
+
+    fn reconcile_object_locked_coin_records(
+        &mut self,
+        changeset: &ChangeSet,
+        issued_before: &BTreeMap<String, u64>,
+        visible_before: &BTreeMap<String, u64>,
+    ) -> Result<()> {
+        let holder_candidates: Vec<(String, CreatedObject)> = changeset
+            .created_objects
+            .iter()
+            .filter(|(_, created)| Self::is_object_locked_coin_holder_type(&created.type_))
+            .map(|(id, created)| (id.clone(), created.clone()))
+            .collect();
+
+        if holder_candidates.is_empty() && issued_before.is_empty() {
+            return Ok(());
+        }
+
+        let holder_ids: HashSet<String> =
+            holder_candidates.iter().map(|(id, _)| id.clone()).collect();
+        let deleted_ids: HashSet<String> = changeset.deleted_objects.iter().cloned().collect();
+        let mut records = self.load_object_locked_coin_records()?;
+        let original_records = records.clone();
+
+        if !deleted_ids.is_empty() {
+            records.retain(|record| !deleted_ids.contains(&record.holder_object_id));
+        }
+
+        let token_types: BTreeSet<String> = issued_before
+            .keys()
+            .chain(visible_before.keys())
+            .cloned()
+            .collect();
+
+        for token_type in token_types {
+            let issued_before_value = issued_before.get(&token_type).copied().unwrap_or(0);
+            let visible_before_value = visible_before.get(&token_type).copied().unwrap_or(0);
+            let issued_after_value = self.issued_supply_for_token(&token_type);
+            let visible_after_value = self.visible_supply_snapshot(&token_type)?;
+
+            let issued_delta = issued_after_value as i128 - issued_before_value as i128;
+            let visible_delta = visible_after_value as i128 - visible_before_value as i128;
+            let locked_delta = issued_delta - visible_delta;
+
+            if locked_delta > 0 {
+                if let Some(holder) = holder_candidates.first() {
+                    Self::add_locked_coin_record(
+                        &mut records,
+                        holder,
+                        &token_type,
+                        locked_delta as u64,
+                    );
+                }
+            } else if locked_delta < 0 {
+                Self::release_locked_coin_records(
+                    &mut records,
+                    &holder_ids,
+                    &token_type,
+                    (-locked_delta) as u64,
+                );
+            }
+        }
+
+        if records != original_records {
+            self.save_object_locked_coin_records(&records)?;
+        }
+
+        Ok(())
+    }
+
     /// Apply ChangeSet from Move VM execution
     /// This is the ONLY way to modify state - all changes must come from Move VM
     pub fn apply_changeset(&mut self, changeset: &ChangeSet) -> Result<()> {
         let mut supply_delta: i64 = 0;
         let mut supplies_dirty = false;
+        let token_types_before = self.supply_tracking_token_types(changeset);
+        let mut issued_before = BTreeMap::new();
+        let mut visible_before = BTreeMap::new();
+        for token_type in token_types_before {
+            issued_before.insert(
+                token_type.clone(),
+                self.issued_supply_for_token(&token_type),
+            );
+            visible_before.insert(
+                token_type.clone(),
+                self.visible_supply_snapshot(&token_type)?,
+            );
+        }
 
         for (address, change) in &changeset.account_changes {
             let mut account = self.load_account_or_default(*address)?;
@@ -873,6 +1166,8 @@ impl StateManager {
             }
         }
 
+        self.reconcile_object_locked_coin_records(changeset, &issued_before, &visible_before)?;
+
         if supplies_dirty {
             let supplies_clone = self.global_token_supplies.clone();
             self.save_internal(b"global_token_supplies", &supplies_clone)?;
@@ -1024,34 +1319,27 @@ impl StateManager {
             );
         }
 
-        let native_global_supply = self
-            .global_token_supplies
-            .get(KANARI_TOKEN_TYPE)
-            .copied()
-            .unwrap_or(0);
-        if native_global_supply != self.total_supply {
+        let native_supply = self.token_supply_summary(KANARI_TOKEN_TYPE)?;
+        // Wallet-visible balance caches only reflect top-level wallet-owned
+        // coin objects. Coins can also be held inside DeFi objects (for
+        // example escrow funds), so visible supply may be lower than issued
+        // supply without implying a burn. It must never exceed total supply.
+        if native_supply.wallet_visible_supply > native_supply.total_supply {
             anyhow::bail!(
-                "native supply mismatch: state.total_supply={} global_token_supplies={}",
-                self.total_supply,
-                native_global_supply
+                "native supply overcount: total_supply={} wallet_visible_supply={} object_locked_supply={}",
+                native_supply.total_supply,
+                native_supply.wallet_visible_supply,
+                native_supply.object_locked_supply
             );
         }
-
-        let indexed_accounts = self.load_account_addresses()?;
-        if !indexed_accounts.is_empty() {
-            let indexed_native_total = indexed_accounts
-                .into_iter()
-                .filter_map(|address| self.load_account(&address).ok().flatten())
-                .map(|account| account.native_balance())
-                .fold(0u64, |acc, balance| acc.saturating_add(balance));
-
-            if indexed_native_total != self.total_supply {
-                anyhow::bail!(
-                    "native supply mismatch: state.total_supply={} indexed_account_total={}",
-                    self.total_supply,
-                    indexed_native_total
-                );
-            }
+        if native_supply.accounted_supply > native_supply.total_supply {
+            anyhow::bail!(
+                "native supply overcount: total_supply={} accounted_supply={} wallet_visible_supply={} object_locked_supply={}",
+                native_supply.total_supply,
+                native_supply.accounted_supply,
+                native_supply.wallet_visible_supply,
+                native_supply.object_locked_supply
+            );
         }
 
         Ok(())
@@ -1076,7 +1364,27 @@ mod tests {
     }
 
     #[test]
-    fn validate_supply_invariants_detects_native_supply_mismatch() -> Result<()> {
+    fn validate_supply_invariants_detects_native_supply_overcount() -> Result<()> {
+        let alice = AccountAddress::from_hex_literal("0x1111")?;
+        let mut state = StateManager::new_in_memory();
+
+        let account = Account::with_native_balance(alice, 500);
+        state.save_account(&account)?;
+        state.total_supply = 400;
+        state
+            .global_token_supplies
+            .insert(KANARI_TOKEN_TYPE.to_string(), 500);
+
+        let err = state
+            .validate_supply_invariants()
+            .expect_err("validation should detect overcount");
+        assert!(err.to_string().contains("wallet_visible_supply=500"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn validate_supply_invariants_allows_native_supply_locked_in_objects() -> Result<()> {
         let alice = AccountAddress::from_hex_literal("0x1111")?;
         let mut state = StateManager::new_in_memory();
 
@@ -1085,12 +1393,129 @@ mod tests {
         state.total_supply = 600;
         state
             .global_token_supplies
-            .insert(KANARI_TOKEN_TYPE.to_string(), 600);
+            .insert(KANARI_TOKEN_TYPE.to_string(), 500);
 
-        let err = state
-            .validate_supply_invariants()
-            .expect_err("validation should detect mismatch");
-        assert!(err.to_string().contains("indexed_account_total=500"));
+        let summary = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+        assert_eq!(summary.total_supply, 600);
+        assert_eq!(summary.wallet_visible_supply, 500);
+        assert_eq!(summary.object_locked_supply, 100);
+
+        state.validate_supply_invariants()?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn token_supply_summary_uses_treasury_supply_for_custom_tokens() -> Result<()> {
+        let owner = AccountAddress::from_hex_literal("0x1111")?;
+        let token_type = "0x2::test::TEST";
+        let mut state = StateManager::new_in_memory();
+
+        let mut cs = ChangeSet::new();
+        cs.add_treasury(owner, token_type.to_string(), 1_000);
+        cs.add_token_balance_set(owner, token_type.to_string(), 250);
+        state.apply_changeset(&cs)?;
+
+        let summary = state.token_supply_summary(token_type)?;
+        assert_eq!(summary.total_supply, 1_000);
+        assert_eq!(summary.wallet_visible_supply, 250);
+        assert_eq!(summary.object_locked_supply, 750);
+
+        Ok(())
+    }
+
+    #[test]
+    fn object_locked_coin_ledger_tracks_defi_lock_and_release() -> Result<()> {
+        let owner = AccountAddress::from_hex_literal("0x1111")?;
+        let token_type = "0x2::test::TEST";
+        let coin_type = format!("0x2::coin::Coin<{}>", token_type);
+        let deal_type = format!("0x2::escrow::EscrowDeal<{}>", token_type);
+        let mut state = StateManager::new_in_memory();
+
+        let mut full_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
+        full_coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+        let mut init = ChangeSet::new();
+        init.add_treasury(owner, token_type.to_string(), 1_000);
+        init.created_objects.push((
+            "0xaaaa".to_string(),
+            CreatedObject {
+                owner,
+                uid: None,
+                id: None,
+                type_: coin_type.clone(),
+                data: full_coin_data,
+                version: 1,
+            },
+        ));
+        state.apply_changeset(&init)?;
+
+        let mut remaining_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
+        remaining_coin_data[UID_SIZE..].copy_from_slice(&900u64.to_le_bytes());
+        let mut lock = ChangeSet::new();
+        lock.created_objects.push((
+            "0xaaaa".to_string(),
+            CreatedObject {
+                owner,
+                uid: None,
+                id: None,
+                type_: coin_type.clone(),
+                data: remaining_coin_data,
+                version: 2,
+            },
+        ));
+        lock.created_objects.push((
+            "0xbbbb".to_string(),
+            CreatedObject {
+                owner,
+                uid: None,
+                id: None,
+                type_: deal_type.clone(),
+                data: vec![1, 2, 3],
+                version: 1,
+            },
+        ));
+        state.apply_changeset(&lock)?;
+
+        let summary = state.token_supply_summary(token_type)?;
+        assert_eq!(summary.total_supply, 1_000);
+        assert_eq!(summary.wallet_visible_supply, 900);
+        assert_eq!(summary.object_locked_supply, 100);
+        let locked_records = state.load_object_locked_coin_records()?;
+        assert_eq!(locked_records.len(), 1);
+        assert_eq!(locked_records[0].holder_object_id, "0xbbbb");
+        assert_eq!(locked_records[0].amount, 100);
+
+        let mut released_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
+        released_coin_data[UID_SIZE..].copy_from_slice(&100u64.to_le_bytes());
+        let mut release = ChangeSet::new();
+        release.created_objects.push((
+            "0xbbbb".to_string(),
+            CreatedObject {
+                owner,
+                uid: None,
+                id: None,
+                type_: deal_type,
+                data: vec![4, 5, 6],
+                version: 2,
+            },
+        ));
+        release.created_objects.push((
+            "0xcccc".to_string(),
+            CreatedObject {
+                owner,
+                uid: None,
+                id: None,
+                type_: coin_type,
+                data: released_coin_data,
+                version: 1,
+            },
+        ));
+        state.apply_changeset(&release)?;
+
+        let summary = state.token_supply_summary(token_type)?;
+        assert_eq!(summary.wallet_visible_supply, 1_000);
+        assert_eq!(summary.object_locked_supply, 0);
+        assert!(state.load_object_locked_coin_records()?.is_empty());
 
         Ok(())
     }
