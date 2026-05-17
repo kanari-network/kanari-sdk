@@ -13,24 +13,17 @@ use anyhow::{Context, Result};
 use kanari_types::address::Address as KanariAddress;
 
 use std::format;
-use std::fs;
-use std::path::PathBuf;
-
-/// Path to compiled framework bytecode directory (relative to workspace root)
-const FRAMEWORK_BYTECODE_DIR: &str =
-    "crates/kanari-frameworks/packages/kanari-system/build/KanariSystem/bytecode_modules";
 
 /// Initialize genesis state by executing framework modules from bytecode files
 pub fn init_genesis(state: &mut StateManager) -> Result<()> {
     log::info!("=== Executing framework modules for genesis ===");
 
     // Find the framework bytecode directory
-    let workspace_root = find_workspace_root()?;
-    let bytecode_dir = workspace_root.join(FRAMEWORK_BYTECODE_DIR);
+    let bytecode_dir = load_system_modules::find_kanari_system_modules_dir();
 
     if !bytecode_dir.exists() {
         anyhow::bail!(
-            "Framework bytecode directory not found at {}. Please run 'kanari move build' first.",
+            "Framework bytecode directory not found at {}. Set KANARI_FRAMEWORK_PATH or run 'kanari move build' first.",
             bytecode_dir.display()
         );
     }
@@ -176,35 +169,4 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
     state.commit()?;
 
     Ok(())
-}
-
-/// Find the workspace root by looking for Cargo.toml or similar markers
-fn find_workspace_root() -> Result<PathBuf> {
-    fn is_workspace_root(path: &std::path::Path) -> bool {
-        let cargo_toml = path.join("Cargo.toml");
-        if !cargo_toml.exists() {
-            return false;
-        }
-        fs::read_to_string(cargo_toml)
-            .map(|contents| contents.contains("[workspace]"))
-            .unwrap_or(false)
-    }
-
-    let candidates = vec![
-        std::env::current_dir()?,
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")),
-    ];
-
-    for mut path in candidates {
-        loop {
-            if is_workspace_root(&path) {
-                return Ok(path);
-            }
-            if !path.pop() {
-                break;
-            }
-        }
-    }
-
-    anyhow::bail!("Failed to locate workspace root containing Cargo.toml with [workspace] section")
 }

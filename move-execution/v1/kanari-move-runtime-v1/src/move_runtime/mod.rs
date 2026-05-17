@@ -36,10 +36,13 @@ use crate::changeset::ChangeSet;
 use crate::state::StateManager;
 use crate::storage::move_vm_state::MoveVMState;
 use crate::storage::object_storage::{ObjectStorage, ObjectStore, StoredObject};
+use move_binary_format::compatibility::Compatibility;
+use move_binary_format::normalized;
+use move_bytecode_verifier::verifier::verify_module_unmetered;
 use move_vm_types::loaded_data::runtime_types::Type as RuntimeType;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 #[derive(Clone)]
 pub struct MoveRuntime {
@@ -51,6 +54,8 @@ pub struct MoveRuntime {
     pub(crate) object_storage: Arc<dyn ObjectStore>,
     // Cache parsed type tags to avoid repeated string parsing.
     pub(crate) type_tag_cache: Arc<RwLock<HashMap<String, TypeTag>>>,
+    // Serialize module publishes so compatibility checks and storage writes cannot race.
+    pub(crate) module_publish_lock: Arc<Mutex<()>>,
 }
 
 #[derive(serde::Serialize)]
@@ -159,6 +164,7 @@ impl MoveRuntime {
             published_modules: Arc::new(RwLock::new(published_modules)),
             object_storage,
             type_tag_cache: Arc::new(RwLock::new(HashMap::new())),
+            module_publish_lock: Arc::new(Mutex::new(())),
         })
     }
 
@@ -204,6 +210,7 @@ impl MoveRuntime {
             published_modules: self.published_modules.clone(),
             object_storage: self.object_storage.clone(),
             type_tag_cache: self.type_tag_cache.clone(),
+            module_publish_lock: self.module_publish_lock.clone(),
         })
     }
 
@@ -307,8 +314,13 @@ impl MoveRuntime {
         gas_info: Option<(u64, u64)>,
         persist_runtime_state: bool,
     ) -> Result<ChangeSet> {
+        let _publish_guard = self
+            .module_publish_lock
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         let compiled = CompiledModule::deserialize_with_defaults(&module_bytes)?;
         let module_id = compiled.self_id();
+        self.verify_module_publish_safety(sender, &module_id, &compiled, &module_bytes)?;
 
         let (move_changeset, events) = {
             // 🟢 Separate Lock into a variable first to prevent it from being dropped immediately
@@ -354,6 +366,57 @@ impl MoveRuntime {
         }
 
         Ok(cs)
+    }
+
+    fn verify_module_publish_safety(
+        &self,
+        sender: AccountAddress,
+        module_id: &ModuleId,
+        compiled: &CompiledModule,
+        module_bytes: &[u8],
+    ) -> Result<()> {
+        if module_id.address() != &sender {
+            anyhow::bail!(
+                "Module publish rejected: sender {} cannot publish module {}. \
+                 Module address must match the transaction sender.",
+                sender,
+                module_id
+            );
+        }
+
+        verify_module_unmetered(compiled)
+            .map_err(|e| anyhow::anyhow!("Module bytecode verification failed: {:?}", e))?;
+        self.verify_module(compiled)?;
+        self.verify_module_upgrade_compatibility(module_id, compiled, module_bytes)
+    }
+
+    fn verify_module_upgrade_compatibility(
+        &self,
+        module_id: &ModuleId,
+        compiled: &CompiledModule,
+        module_bytes: &[u8],
+    ) -> Result<()> {
+        let Some(old_bytes) = self.state.get_module(module_id) else {
+            return Ok(());
+        };
+        if old_bytes == module_bytes {
+            return Ok(());
+        }
+
+        let old_compiled = CompiledModule::deserialize_with_defaults(&old_bytes)?;
+        let old_norm = normalized::Module::new(&old_compiled);
+        let new_norm = normalized::Module::new(compiled);
+
+        Compatibility::full_check()
+            .check(&old_norm, &new_norm)
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Incompatible module upgrade for {} rejected: {:?}. \
+                     Existing resources/objects must remain layout-compatible; publish a compatible module or run an explicit migration path first.",
+                    module_id,
+                    e
+                )
+            })
     }
 
     /// Execute the init() function from a module (used for genesis initialization)
@@ -1335,7 +1398,32 @@ impl MoveRuntime {
                     Ok(serde_json::Value::Array(results))
                 }
             }
-            Err(e) => Err(anyhow::anyhow!("View function execution failed: {:?}", e)),
+            Err(e) => Err(anyhow::anyhow!(
+                "View function execution failed: {} ({:?})",
+                Self::explain_view_vm_error(&e),
+                e
+            )),
+        }
+    }
+
+    fn explain_view_vm_error(e: &move_binary_format::errors::VMError) -> &'static str {
+        match e.sub_status() {
+            Some(kanari_system_natives::object::E_OBJECT_NOT_FOUND) => {
+                "object not found; the object id may be wrong, deleted, or not indexed yet"
+            }
+            Some(kanari_system_natives::object::E_OBJECT_LAYOUT_UNAVAILABLE) => {
+                "object type layout is unavailable for this view call"
+            }
+            Some(kanari_system_natives::object::E_OBJECT_TYPE_MISMATCH) => {
+                "object type mismatch; this commonly happens after calling a newer package version with an object created by an older package address/type"
+            }
+            Some(kanari_system_natives::object::E_OBJECT_DESERIALIZE_FAILED) => {
+                "object data could not be deserialized with the current struct layout; this commonly happens after an incompatible contract upgrade"
+            }
+            Some(1100) => {
+                "object data could not be deserialized or loaded; check object id, type args, and contract version"
+            }
+            _ => "VM aborted during view function execution",
         }
     }
 

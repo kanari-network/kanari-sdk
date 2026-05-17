@@ -7,6 +7,9 @@ module kanari_escrow::usdc {
     use std::option;
     use kanari_system::transfer;
     use kanari_system::url;
+
+    use std::string;
+    use std::ascii;
     
     /// Name of the coin
     struct USDC has drop {}
@@ -21,7 +24,7 @@ module kanari_escrow::usdc {
             b"USDC",
             b"USDC Token",
             b"",
-            option::some(url::new_unsafe_from_bytes(b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4")),
+            option::some(url::new_unsafe_from_bytes(b"https://assets.coingecko.com/coins/images/6319/standard/USDC.png?1769615602")),
             ctx,
         );
         // Return both TreasuryCap and Metadata so callers can persist them.
@@ -83,7 +86,7 @@ module kanari_escrow::usdc {
     }
 
 
-/// Burn a specific `amount` of USDC from a mutable Coin held by the caller
+    /// Burn a specific `amount` of USDC from a mutable Coin held by the caller
     /// Usage: provide the TreasuryCap, a mutable coin owned by caller, amount to burn, and tx context
     public entry fun burn_amount(
     treasury_cap: &mut TreasuryCap<USDC>,
@@ -93,5 +96,49 @@ module kanari_escrow::usdc {
     ) {
         let to_burn = coin::split(c, amount, ctx);
         let _burned = coin::burn(treasury_cap, to_burn);
+    }
+
+    // ==========================================
+    // 🟢 Entry wrappers for CLI calling
+    // ==========================================
+
+    /// Usage: kanari move call --function update_icon --args <TreasuryCap_ID> <Metadata_ID> "https://..."
+    public entry fun update_icon(
+        treasury_cap: &TreasuryCap<USDC>,
+        metadata: &mut coin::CoinMetadata<USDC>,
+        new_url: vector<u8>,
+    ) {
+        let new_url_obj = url::new_unsafe_from_bytes(new_url);
+        coin::update_icon_url<USDC>(treasury_cap, metadata, option::some(new_url_obj));
+    }
+
+    /// Usage: kanari move call --function update_name --args <TreasuryCap_ID> <Metadata_ID> "Thai Baht"
+    public entry fun update_name(
+        treasury_cap: &TreasuryCap<USDC>,
+        metadata: &mut coin::CoinMetadata<USDC>,
+        new_name: vector<u8>,
+    ) {
+        let name_str = string::utf8(new_name);
+        coin::update_name<USDC>(treasury_cap, metadata, name_str);
+    }
+
+    /// Usage: kanari move call --function update_symbol --args <TreasuryCap_ID> <Metadata_ID> "USDC"
+    public entry fun update_symbol(
+        treasury_cap: &TreasuryCap<USDC>,
+        metadata: &mut coin::CoinMetadata<USDC>,
+        new_symbol: vector<u8>,
+    ) {
+        let symbol_str = ascii::string(new_symbol);
+        coin::update_symbol<USDC>(treasury_cap, metadata, symbol_str);
+    }
+
+    /// Usage: kanari move call --function update_description --args <TreasuryCap_ID> <Metadata_ID> "My new USDC description"
+    public entry fun update_description(
+        treasury_cap: &TreasuryCap<USDC>,
+        metadata: &mut coin::CoinMetadata<USDC>,
+        new_description: vector<u8>,
+    ) {
+        let desc_str = string::utf8(new_description);
+        coin::update_description<USDC>(treasury_cap, metadata, desc_str);
     }
 }

@@ -6,6 +6,10 @@ module james::euro {
 
     use std::option;
     use kanari_system::transfer;
+    use kanari_system::url;
+
+    use std::string;
+    use std::ascii;
 
     /// Name of the coin
     struct EURO has drop {}
@@ -20,7 +24,7 @@ module james::euro {
             b"EURO",
             b"EURO Token",
             b"",
-            option::none<kanari_system::url::Url>(),
+            option::some(url::new_unsafe_from_bytes(b"https://assets.coingecko.com/coins/images/26045/standard/EURC.png?1769615705")),
             ctx,
         );
         // Return both TreasuryCap and Metadata so callers can persist them.

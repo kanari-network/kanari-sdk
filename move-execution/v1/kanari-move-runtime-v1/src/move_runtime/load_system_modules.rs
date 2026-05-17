@@ -16,6 +16,26 @@ use move_core_types::language_storage::ModuleId;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
+pub(crate) const MOVE_STDLIB_BYTECODE_SEGMENTS: &[&str] = &[
+    "crates",
+    "kanari-frameworks",
+    "packages",
+    "move-stdlib",
+    "build",
+    "MoveStdlib",
+    "bytecode_modules",
+];
+
+pub(crate) const KANARI_SYSTEM_BYTECODE_SEGMENTS: &[&str] = &[
+    "crates",
+    "kanari-frameworks",
+    "packages",
+    "kanari-system",
+    "build",
+    "KanariSystem",
+    "bytecode_modules",
+];
+
 fn mv_filename(name: &str) -> String {
     if name.ends_with(".mv") {
         name.to_owned()
@@ -300,7 +320,7 @@ fn save_framework_modules(
     Ok(count)
 }
 
-fn find_modules_dir(env_var: &str, segments: &[&str]) -> PathBuf {
+pub(crate) fn find_modules_dir(env_var: &str, segments: &[&str]) -> PathBuf {
     if let Ok(path_str) = std::env::var(env_var) {
         return PathBuf::from(path_str);
     }
@@ -323,20 +343,19 @@ fn find_modules_dir(env_var: &str, segments: &[&str]) -> PathBuf {
     p
 }
 
+pub(crate) fn find_move_stdlib_modules_dir() -> PathBuf {
+    find_modules_dir("MOVE_STDLIB_PATH", MOVE_STDLIB_BYTECODE_SEGMENTS)
+}
+
+pub(crate) fn find_kanari_system_modules_dir() -> PathBuf {
+    find_modules_dir("KANARI_FRAMEWORK_PATH", KANARI_SYSTEM_BYTECODE_SEGMENTS)
+}
+
 /// Load move-stdlib and kanari-system modules as methods on `MoveRuntime`
 impl super::MoveRuntime {
     /// Load move-stdlib modules (0x1::*)
     pub fn load_move_stdlib(&self) -> Result<()> {
-        let segments = [
-            "crates",
-            "kanari-frameworks",
-            "packages",
-            "move-stdlib",
-            "build",
-            "MoveStdlib",
-            "bytecode_modules",
-        ];
-        let modules_dir = find_modules_dir("MOVE_STDLIB_PATH", &segments);
+        let modules_dir = find_move_stdlib_modules_dir();
 
         eprintln!("✓ Looking for Move stdlib modules at: {:?}", modules_dir);
 
@@ -383,16 +402,7 @@ impl super::MoveRuntime {
 
     /// Load Kanari system modules (0x2::*)
     pub fn load_kanari_system(&self) -> Result<()> {
-        let segments = [
-            "crates",
-            "kanari-frameworks",
-            "packages",
-            "kanari-system",
-            "build",
-            "KanariSystem",
-            "bytecode_modules",
-        ];
-        let modules_dir = find_modules_dir("KANARI_FRAMEWORK_PATH", &segments);
+        let modules_dir = find_kanari_system_modules_dir();
 
         eprintln!("Looking for Kanari system modules at: {:?}", modules_dir);
 
@@ -428,16 +438,7 @@ impl super::MoveRuntime {
             "Warning: system framework hash changed (db: {prev}, disk: {hash}). Ensure all validators upgrade together.",
         )?;
 
-        let stdlib_segments = [
-            "crates",
-            "kanari-frameworks",
-            "packages",
-            "move-stdlib",
-            "build",
-            "MoveStdlib",
-            "bytecode_modules",
-        ];
-        let stdlib_dir = find_modules_dir("MOVE_STDLIB_PATH", &stdlib_segments);
+        let stdlib_dir = find_move_stdlib_modules_dir();
         let std_addr = AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS)?;
         let stdlib_modules = topo_sort_modules(discover_modules_in_dir(&stdlib_dir, std_addr))?;
         let all_deps: Vec<&CompiledModule> = stdlib_modules

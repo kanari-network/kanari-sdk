@@ -12,7 +12,12 @@ use smallvec::smallvec;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use crate::helpers::make_module_natives;
+use crate::helpers::{expect_native_args, expect_native_signature, make_module_natives};
+
+pub const E_OBJECT_NOT_FOUND: u64 = 9_001;
+pub const E_OBJECT_LAYOUT_UNAVAILABLE: u64 = 9_002;
+pub const E_OBJECT_TYPE_MISMATCH: u64 = 9_003;
+pub const E_OBJECT_DESERIALIZE_FAILED: u64 = 9_004;
 
 #[derive(Debug, Clone)]
 pub struct GasParameters {
@@ -198,11 +203,11 @@ fn native_borrow_global(
     mut arguments: VecDeque<move_vm_types::values::Value>,
 ) -> PartialVMResult<NativeResult> {
     use move_core_types::account_address::AccountAddress;
-    use move_core_types::vm_status::StatusCode;
     use move_vm_types::natives::function::NativeResult as NR;
     use move_vm_types::pop_arg;
 
     native_charge_gas_early_exit!(context, gas_params.base);
+    expect_native_signature(arguments.len(), 1, ty_args.len(), 1)?;
 
     // Arguments: address (as AccountAddress directly from Move VM)
     let object_addr = pop_arg!(arguments, AccountAddress);
@@ -215,10 +220,7 @@ fn native_borrow_global(
         });
 
     let Some((type_str, obj_data)) = loaded_data.flatten() else {
-        return Ok(NR::err(
-            context.gas_used(),
-            StatusCode::FAILED_TO_DESERIALIZE_ARGUMENT as u64,
-        ));
+        return Ok(NR::err(context.gas_used(), E_OBJECT_NOT_FOUND));
     };
 
     native_charge_gas_early_exit!(
@@ -230,10 +232,7 @@ fn native_borrow_global(
     let layout = match context.type_to_type_layout(&ty_args[0]) {
         Ok(Some(layout)) => layout,
         _ => {
-            return Ok(NR::err(
-                context.gas_used(),
-                StatusCode::TYPE_MISMATCH as u64,
-            ));
+            return Ok(NR::err(context.gas_used(), E_OBJECT_LAYOUT_UNAVAILABLE));
         }
     };
 
@@ -241,28 +240,19 @@ fn native_borrow_global(
     let requested_type = match context.type_to_type_tag(&ty_args[0]) {
         Ok(tag) => format!("{}", tag),
         Err(_) => {
-            return Ok(NR::err(
-                context.gas_used(),
-                StatusCode::TYPE_MISMATCH as u64,
-            ));
+            return Ok(NR::err(context.gas_used(), E_OBJECT_LAYOUT_UNAVAILABLE));
         }
     };
 
     if type_str != requested_type {
-        return Ok(NR::err(
-            context.gas_used(),
-            StatusCode::TYPE_MISMATCH as u64,
-        ));
+        return Ok(NR::err(context.gas_used(), E_OBJECT_TYPE_MISMATCH));
     }
 
     // Deserialize object data into Move value
     let obj_val = match move_vm_types::values::Value::simple_deserialize(&obj_data, &layout) {
         Some(val) => val,
         None => {
-            return Ok(NR::err(
-                context.gas_used(),
-                StatusCode::FAILED_TO_DESERIALIZE_ARGUMENT as u64,
-            ));
+            return Ok(NR::err(context.gas_used(), E_OBJECT_DESERIALIZE_FAILED));
         }
     };
 
@@ -283,11 +273,11 @@ fn native_borrow_global_mut(
     mut arguments: VecDeque<move_vm_types::values::Value>,
 ) -> PartialVMResult<NativeResult> {
     use move_core_types::account_address::AccountAddress;
-    use move_core_types::vm_status::StatusCode;
     use move_vm_types::natives::function::NativeResult as NR;
     use move_vm_types::pop_arg;
 
     native_charge_gas_early_exit!(context, gas_params.base);
+    expect_native_signature(arguments.len(), 1, ty_args.len(), 1)?;
 
     // Arguments: address (as AccountAddress directly from Move VM)
     let object_addr = pop_arg!(arguments, AccountAddress);
@@ -300,10 +290,7 @@ fn native_borrow_global_mut(
         });
 
     let Some((type_str, obj_data)) = loaded_data.flatten() else {
-        return Ok(NR::err(
-            context.gas_used(),
-            StatusCode::FAILED_TO_DESERIALIZE_ARGUMENT as u64,
-        ));
+        return Ok(NR::err(context.gas_used(), E_OBJECT_NOT_FOUND));
     };
 
     native_charge_gas_early_exit!(
@@ -315,10 +302,7 @@ fn native_borrow_global_mut(
     let layout = match context.type_to_type_layout(&ty_args[0]) {
         Ok(Some(layout)) => layout,
         _ => {
-            return Ok(NR::err(
-                context.gas_used(),
-                StatusCode::TYPE_MISMATCH as u64,
-            ));
+            return Ok(NR::err(context.gas_used(), E_OBJECT_LAYOUT_UNAVAILABLE));
         }
     };
 
@@ -326,28 +310,19 @@ fn native_borrow_global_mut(
     let requested_type = match context.type_to_type_tag(&ty_args[0]) {
         Ok(tag) => format!("{}", tag),
         Err(_) => {
-            return Ok(NR::err(
-                context.gas_used(),
-                StatusCode::TYPE_MISMATCH as u64,
-            ));
+            return Ok(NR::err(context.gas_used(), E_OBJECT_LAYOUT_UNAVAILABLE));
         }
     };
 
     if type_str != requested_type {
-        return Ok(NR::err(
-            context.gas_used(),
-            StatusCode::TYPE_MISMATCH as u64,
-        ));
+        return Ok(NR::err(context.gas_used(), E_OBJECT_TYPE_MISMATCH));
     }
 
     // Deserialize object data into Move value
     let obj_val = match move_vm_types::values::Value::simple_deserialize(&obj_data, &layout) {
         Some(val) => val,
         None => {
-            return Ok(NR::err(
-                context.gas_used(),
-                StatusCode::FAILED_TO_DESERIALIZE_ARGUMENT as u64,
-            ));
+            return Ok(NR::err(context.gas_used(), E_OBJECT_DESERIALIZE_FAILED));
         }
     };
 
@@ -378,6 +353,7 @@ fn native_delete_object(
     use move_vm_types::natives::function::PartialVMError;
 
     native_charge_gas_early_exit!(context, gas_params.base);
+    expect_native_args(arguments.len(), 1)?;
 
     // Arguments: uid (UID) - passed by value
     let uid_val = arguments.pop_back().ok_or_else(|| {
@@ -412,10 +388,7 @@ fn native_save_object(
     use move_vm_types::values::values_impl::Reference;
 
     native_charge_gas_early_exit!(context, gas_params.base);
-
-    if ty_args.is_empty() {
-        return Ok(NR::err(context.gas_used(), 1));
-    }
+    expect_native_signature(arguments.len(), 1, ty_args.len(), 1)?;
 
     let type_tag = context.type_to_type_tag(&ty_args[0])?;
     let type_str = format!("{}", type_tag);

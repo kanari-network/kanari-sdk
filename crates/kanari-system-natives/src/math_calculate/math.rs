@@ -15,6 +15,8 @@ use num_integer::Roots;
 use smallvec::smallvec;
 use std::collections::VecDeque;
 
+use crate::helpers::expect_native_signature;
+
 // =================================================================
 // Error Codes (must match math.move)
 // =================================================================
@@ -79,7 +81,7 @@ pub fn native_sqrt_u128(
 ) -> PartialVMResult<NativeResult> {
     use move_vm_types::natives::function::NativeResult as NR;
 
-    debug_assert!(args.len() == 1);
+    expect_native_signature(args.len(), 1, _ty_args.len(), 0)?;
     native_charge_gas_early_exit!(context, gas_params.base);
     let x: u128 = pop_arg!(args, u128);
     let result = x.sqrt();
@@ -96,7 +98,7 @@ pub fn native_sqrt_u64(
 ) -> PartialVMResult<NativeResult> {
     use move_vm_types::natives::function::NativeResult as NR;
 
-    debug_assert!(args.len() == 1);
+    expect_native_signature(args.len(), 1, _ty_args.len(), 0)?;
     native_charge_gas_early_exit!(context, gas_params.base);
     let x: u64 = pop_arg!(args, u64);
     let result = x.sqrt();
@@ -113,7 +115,7 @@ pub fn native_pow_u64(
 ) -> PartialVMResult<NativeResult> {
     use move_vm_types::natives::function::NativeResult as NR;
 
-    debug_assert!(args.len() == 2);
+    expect_native_signature(args.len(), 2, _ty_args.len(), 0)?;
     native_charge_gas_early_exit!(context, gas_params.base);
     // Pop arguments in LIFO order
     let exponent: u8 = pop_arg!(args, u8);
@@ -135,7 +137,7 @@ pub fn native_mul_div_u128(
 ) -> PartialVMResult<NativeResult> {
     use move_vm_types::natives::function::NativeResult as NR;
 
-    debug_assert!(args.len() == 3);
+    expect_native_signature(args.len(), 3, _ty_args.len(), 0)?;
     native_charge_gas_early_exit!(context, gas_params.base);
     // Pop arguments in LIFO order
     let z: u128 = pop_arg!(args, u128);

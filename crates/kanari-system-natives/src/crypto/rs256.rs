@@ -22,6 +22,7 @@ use sha2::Sha256;
 use move_core_types::gas_algebra::InternalGas;
 
 use crate::crypto::make_native;
+use crate::helpers::expect_native_signature;
 
 // Error codes for RS256 native functions
 pub const E_INVALID_SIGNATURE: u64 = 1;
@@ -67,8 +68,9 @@ fn verify_rs256(n_bytes: &[u8], e_bytes: &[u8], msg_hash: &[u8], sig_bytes: &[u8
 
 /// Native function for RS256 signature verification (with internal hashing)
 pub fn make_verify_native(gas_cost: InternalGas) -> NativeFunction {
-    make_native(move |context, _ty_args, mut args| {
+    make_native(move |context, ty_args, mut args| {
         native_charge_gas_early_exit!(context, gas_cost);
+        expect_native_signature(args.len(), 4, ty_args.len(), 0)?;
 
         let msg: VectorRef = pop_arg!(args, VectorRef);
         let e: VectorRef = pop_arg!(args, VectorRef);
@@ -120,8 +122,9 @@ pub fn make_verify_native(gas_cost: InternalGas) -> NativeFunction {
 
 /// Native function for RS256 signature verification (pre-hashed message)
 pub fn make_verify_prehash_native(gas_cost: InternalGas) -> NativeFunction {
-    make_native(move |context, _ty_args, mut args| {
+    make_native(move |context, ty_args, mut args| {
         native_charge_gas_early_exit!(context, gas_cost);
+        expect_native_signature(args.len(), 5, ty_args.len(), 0)?;
 
         let hash_type: u8 = pop_arg!(args, u8);
         let msg: VectorRef = pop_arg!(args, VectorRef);

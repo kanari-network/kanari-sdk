@@ -35,7 +35,7 @@ module james::thb {
             b"THB",
             b"THB Token",
             b"",
-            option::some(url::new_unsafe_from_bytes(b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4")),
+                        option::none<kanari_system::url::Url>(),
             ctx,
         );
         // Return both TreasuryCap and Metadata so callers can persist them.

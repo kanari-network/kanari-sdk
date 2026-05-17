@@ -31,6 +31,7 @@ use std::convert::TryInto;
 use move_core_types::gas_algebra::InternalGas;
 
 use crate::crypto::make_native;
+use crate::helpers::expect_native_signature;
 
 // Error codes for ECDSA K1 native functions
 pub const E_INVALID_RECOVERY: u64 = 1;
@@ -46,10 +47,11 @@ pub const MAX_MSG_BYTES: usize = 1_000_000; // 1 MB
 /// Creates the ecdsa_k1::ecrecover native function
 pub fn make_ecrecover_native(gas_cost: InternalGas) -> NativeFunction {
     make_native(
-        move |context, _ty_args, mut arguments| -> PartialVMResult<NativeResult> {
+        move |context, ty_args, mut arguments| -> PartialVMResult<NativeResult> {
             use move_vm_types::natives::function::NativeResult as NR;
 
             native_charge_gas_early_exit!(context, gas_cost);
+            expect_native_signature(arguments.len(), 3, ty_args.len(), 0)?;
 
             // pop in reverse order: hash, msg, signature
             let hash_type: u8 = pop_arg!(arguments, u8);
@@ -141,9 +143,10 @@ fn recover_public_key(signature: &[u8], msg_hash: &[u8]) -> Result<Vec<u8>, u64>
 /// Creates the ecdsa_k1::decompress_pubkey native function
 pub fn make_decompress_pubkey_native(gas_cost: InternalGas) -> NativeFunction {
     make_native(
-        move |context, _ty_args, mut arguments| -> PartialVMResult<NativeResult> {
+        move |context, ty_args, mut arguments| -> PartialVMResult<NativeResult> {
             use move_vm_types::natives::function::NativeResult as NR;
             native_charge_gas_early_exit!(context, gas_cost);
+            expect_native_signature(arguments.len(), 1, ty_args.len(), 0)?;
 
             let pubkey_ref: VectorRef = pop_arg!(arguments, VectorRef);
             let mut pubkey: Vec<u8> = pubkey_ref.as_bytes_ref().to_vec();
@@ -174,9 +177,10 @@ pub fn make_decompress_pubkey_native(gas_cost: InternalGas) -> NativeFunction {
 /// Creates the ecdsa_k1::verify native function
 pub fn make_verify_k1_native(gas_cost: InternalGas) -> NativeFunction {
     make_native(
-        move |context, _ty_args, mut arguments| -> PartialVMResult<NativeResult> {
+        move |context, ty_args, mut arguments| -> PartialVMResult<NativeResult> {
             use move_vm_types::natives::function::NativeResult as NR;
             native_charge_gas_early_exit!(context, gas_cost);
+            expect_native_signature(arguments.len(), 4, ty_args.len(), 0)?;
 
             let hash_type: u8 = pop_arg!(arguments, u8);
             let msg_ref: VectorRef = pop_arg!(arguments, VectorRef);

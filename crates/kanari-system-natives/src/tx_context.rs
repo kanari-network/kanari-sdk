@@ -15,7 +15,7 @@ use smallvec::smallvec;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use crate::helpers::make_module_natives;
+use crate::helpers::{expect_native_signature, make_module_natives};
 
 #[derive(Debug, Clone)]
 pub struct GasParameters {
@@ -55,7 +55,7 @@ fn native_derive_id(
 ) -> PartialVMResult<NativeResult> {
     use move_vm_types::natives::function::NativeResult as NR;
 
-    debug_assert!(arguments.len() == 2);
+    expect_native_signature(arguments.len(), 2, _ty_args.len(), 0)?;
 
     let ids_created = pop_arg!(arguments, u64);
     let tx_hash = pop_arg!(arguments, Vec<u8>);

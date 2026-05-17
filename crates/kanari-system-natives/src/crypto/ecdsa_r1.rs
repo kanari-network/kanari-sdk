@@ -18,6 +18,7 @@ use sha2::{Digest, Sha256};
 use move_core_types::gas_algebra::InternalGas;
 
 use crate::crypto::make_native;
+use crate::helpers::expect_native_signature;
 
 // Error codes for ECDSA R1 native functions
 pub const E_INVALID_SIGNATURE: u64 = 2;
@@ -40,9 +41,10 @@ pub fn make_ecdsa_r1_natives(
 /// Creates the ecdsa_r1::native_verify native function
 fn make_verify_r1_native(gas_cost: InternalGas) -> NativeFunction {
     make_native(
-        move |context, _ty_args, mut arguments| -> PartialVMResult<NativeResult> {
+        move |context, ty_args, mut arguments| -> PartialVMResult<NativeResult> {
             use move_vm_types::natives::function::NativeResult as NR;
             native_charge_gas_early_exit!(context, gas_cost);
+            expect_native_signature(arguments.len(), 4, ty_args.len(), 0)?;
 
             let hash_type: u8 = pop_arg!(arguments, u8);
             let msg_ref: VectorRef = pop_arg!(arguments, VectorRef);

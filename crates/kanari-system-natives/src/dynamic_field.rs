@@ -15,7 +15,7 @@ use smallvec::smallvec;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use crate::helpers::make_module_natives;
+use crate::helpers::{expect_native_args, expect_native_signature, make_module_natives};
 
 // ==============================================================================
 // Error Codes (must match declarations in dynamic_field.move)
@@ -125,15 +125,16 @@ fn native_add(
 
     native_charge_gas_early_exit!(context, gas_base);
 
-    // Validate arguments
-    if ty_args.len() != 2 || arguments.len() != 3 {
-        return Err(PartialVMError::new(
-            StatusCode::NUMBER_OF_TYPE_ARGUMENTS_MISMATCH,
-        ));
-    }
+    expect_native_signature(arguments.len(), 3, ty_args.len(), 2)?;
 
-    let value = arguments.pop_back().unwrap();
-    let name = arguments.pop_back().unwrap();
+    let value = arguments.pop_back().ok_or_else(|| {
+        PartialVMError::new(StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH)
+            .with_message("Missing dynamic field value argument".to_string())
+    })?;
+    let name = arguments.pop_back().ok_or_else(|| {
+        PartialVMError::new(StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH)
+            .with_message("Missing dynamic field name argument".to_string())
+    })?;
     let uid_ref = pop_arg!(arguments, Reference);
 
     // 1. Serialize Name safely (avoid unwrap)
@@ -196,7 +197,11 @@ fn native_borrow_mut(
 ) -> PartialVMResult<NativeResult> {
     native_charge_gas_early_exit!(context, gas_base);
 
-    let _name = arguments.pop_back().unwrap();
+    expect_native_args(arguments.len(), 2)?;
+    let _name = arguments.pop_back().ok_or_else(|| {
+        PartialVMError::new(StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH)
+            .with_message("Missing dynamic field name argument".to_string())
+    })?;
     let _uid_ref = pop_arg!(arguments, Reference);
 
     // Safest approach: Creating fake Reference will crash VM
@@ -216,7 +221,11 @@ fn native_borrow(
 ) -> PartialVMResult<NativeResult> {
     native_charge_gas_early_exit!(context, gas_base);
 
-    let _name = arguments.pop_back().unwrap();
+    expect_native_args(arguments.len(), 2)?;
+    let _name = arguments.pop_back().ok_or_else(|| {
+        PartialVMError::new(StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH)
+            .with_message("Missing dynamic field name argument".to_string())
+    })?;
     let _uid_ref = pop_arg!(arguments, Reference);
 
     // Safest approach: Abort contract if called
@@ -234,7 +243,11 @@ fn native_remove(
 ) -> PartialVMResult<NativeResult> {
     native_charge_gas_early_exit!(context, gas_base);
 
-    let _name = arguments.pop_back().unwrap();
+    expect_native_args(arguments.len(), 2)?;
+    let _name = arguments.pop_back().ok_or_else(|| {
+        PartialVMError::new(StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH)
+            .with_message("Missing dynamic field name argument".to_string())
+    })?;
     let _uid_ref = pop_arg!(arguments, Reference);
 
     // Safest approach: Abort because system cannot yet convert data from Bytes back to 'Value' for Move
@@ -254,13 +267,12 @@ fn native_exists_(
 
     native_charge_gas_early_exit!(context, gas_base);
 
-    if ty_args.is_empty() || arguments.len() != 2 {
-        return Err(PartialVMError::new(
-            StatusCode::NUMBER_OF_TYPE_ARGUMENTS_MISMATCH,
-        ));
-    }
+    expect_native_signature(arguments.len(), 2, ty_args.len(), 1)?;
 
-    let name = arguments.pop_back().unwrap();
+    let name = arguments.pop_back().ok_or_else(|| {
+        PartialVMError::new(StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH)
+            .with_message("Missing dynamic field name argument".to_string())
+    })?;
     let _uid_ref = pop_arg!(arguments, Reference);
 
     // Serialize Name safely

@@ -17,7 +17,7 @@ use smallvec::smallvec;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use crate::helpers::make_module_natives;
+use crate::helpers::{expect_native_signature, make_module_natives};
 
 #[derive(Debug, Clone)]
 pub struct GasParameters {
@@ -75,6 +75,7 @@ fn native_emit(
     use move_vm_types::natives::function::NativeResult as NR;
 
     native_charge_gas_early_exit!(context, gas_params.base);
+    expect_native_signature(arguments.len(), 1, ty_args.len(), 1)?;
 
     // Expect a single argument: the event value
     let evt_val = arguments.pop_back().ok_or_else(|| {
@@ -82,24 +83,15 @@ fn native_emit(
             .with_message("Missing event argument".to_string())
     })?;
 
-    if ty_args.is_empty() {
-        // no type arg: we still attempt to serialize
-    }
-
     // Determine a human-readable type tag if possible
-    let type_tag_str = if let Some(ty) = ty_args.first() {
-        match context.type_to_type_tag(ty) {
-            Ok(tag) => format!("{}", tag),
-            Err(_) => "<unknown>".to_string(),
-        }
-    } else {
-        "<unknown>".to_string()
+    let type_tag_str = match context.type_to_type_tag(&ty_args[0]) {
+        Ok(tag) => format!("{}", tag),
+        Err(_) => "<unknown>".to_string(),
     };
 
     // Try to obtain layout and simple_serialize the event value
     let mut serialized: Vec<u8> = Vec::new();
-    if let Some(ty) = ty_args.first()
-        && let Ok(Some(layout)) = context.type_to_type_layout(ty)
+    if let Ok(Some(layout)) = context.type_to_type_layout(&ty_args[0])
         && let Some(bytes) = evt_val.simple_serialize(&layout)
     {
         serialized = bytes;

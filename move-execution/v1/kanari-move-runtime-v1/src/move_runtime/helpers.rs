@@ -5,6 +5,7 @@
 use kanari_types::balance::BalanceModule;
 use kanari_types::coin::CoinModule;
 
+use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::{StructTag, TypeTag};
 
 /// Size of a Move object UID in bytes (address)
@@ -13,6 +14,28 @@ const UID_SIZE: usize = 32;
 const U64_SIZE: usize = 8;
 
 impl super::MoveRuntime {
+    fn candidate_object_ids(object_id: &str) -> Vec<String> {
+        let mut candidates = Vec::new();
+        let mut push_unique = |candidate: String| {
+            if !candidates.iter().any(|existing| existing == &candidate) {
+                candidates.push(candidate);
+            }
+        };
+
+        push_unique(object_id.to_string());
+
+        if let Ok(addr) = AccountAddress::from_hex_literal(object_id) {
+            let canonical = addr.to_hex_literal();
+            push_unique(canonical.clone());
+
+            let trimmed = canonical.trim_start_matches("0x").trim_start_matches('0');
+            let suffix = if trimmed.is_empty() { "0" } else { trimmed };
+            push_unique(format!("0x{}", suffix));
+        }
+
+        candidates
+    }
+
     /// Preload potential object arguments into LoadedObjectsExt before execution
     /// This enables native_borrow_global and borrow_global_mut to resolve objects during VM execution
     pub(crate) fn preload_objects_for_execution(
@@ -29,8 +52,12 @@ impl super::MoveRuntime {
             if arg.len() == 32 {
                 let object_id = format!("0x{}", hex::encode(arg));
 
+                let stored_obj = Self::candidate_object_ids(&object_id)
+                    .into_iter()
+                    .find_map(|candidate| self.object_storage.get_object(&candidate));
+
                 // Try to load object from storage
-                if let Some(stored_obj) = self.object_storage.get_object(&object_id) {
+                if let Some(stored_obj) = stored_obj {
                     // Insert into LoadedObjectsExt so native_borrow_global and borrow_global_mut can find it
                     let exts = session.get_native_extensions();
                     let loaded_ext = exts.get_mut::<LoadedObjectsExt>();
@@ -39,9 +66,15 @@ impl super::MoveRuntime {
                         stored_obj.type_name.clone(),
                         stored_obj.data.clone(),
                     );
+                    loaded_ext.insert(
+                        stored_obj.id.clone(),
+                        stored_obj.type_name.clone(),
+                        stored_obj.data.clone(),
+                    );
                     log::debug!(
-                        "[RUNTIME] Preloaded object {} into LoadedObjectsExt",
-                        object_id
+                        "[RUNTIME] Preloaded object {} (stored as {}) into LoadedObjectsExt",
+                        object_id,
+                        stored_obj.id
                     );
                 }
             }
