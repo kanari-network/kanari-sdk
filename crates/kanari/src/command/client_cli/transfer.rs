@@ -12,6 +12,16 @@ use kanari_rpc_client::RpcClient;
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use kanari_types::transaction::Transaction;
 
+fn read_coin_balance(data: &[u8]) -> Option<u64> {
+    if data.len() < 40 {
+        return None;
+    }
+
+    let mut amount_bytes = [0u8; 8];
+    amount_bytes.copy_from_slice(&data[32..40]);
+    Some(u64::from_le_bytes(amount_bytes))
+}
+
 #[derive(Parser, Debug)]
 pub struct Transfer {
     /// Sender wallet address (optional). If omitted, uses selected wallet in config.
@@ -68,36 +78,48 @@ impl Transfer {
 
         let mut selected_coin_id = None;
         let mut selected_coin_balance = 0u64;
+        let mut total_coin_balance = 0u64;
 
         for obj in owned_objects {
             if obj.type_ != format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE) {
                 continue;
             }
 
-            if obj.data.len() < 40 {
+            let Some(coin_balance) = read_coin_balance(&obj.data) else {
                 continue;
-            }
+            };
 
-            let mut amount_bytes = [0u8; 8];
-            amount_bytes.copy_from_slice(&obj.data[32..40]);
-            let coin_balance = u64::from_le_bytes(amount_bytes);
+            total_coin_balance = total_coin_balance.saturating_add(coin_balance);
 
-            if coin_balance >= amount_mist {
+            if selected_coin_id.is_none() && coin_balance > 0 {
                 selected_coin_id = Some(obj.id.clone());
                 selected_coin_balance = coin_balance;
-                break;
             }
         }
 
         let coin_object_id = selected_coin_id.with_context(|| {
             format!(
-                "No Coin<{}> object with enough balance found for {} (needed {} Mist)",
-                KANARI_TOKEN_TYPE, from_addr, amount_mist
+                "No spendable Coin<{}> object found for {}",
+                KANARI_TOKEN_TYPE, from_addr
             )
         })?;
 
+        if total_coin_balance < amount_mist {
+            anyhow::bail!(
+                "Insufficient Coin<{}> balance for {}.\n  - requested: {} Mist\n  - spendable in coin objects: {} Mist",
+                KANARI_TOKEN_TYPE,
+                from_addr,
+                amount_mist,
+                total_coin_balance
+            );
+        }
+
         eprintln!("  Using coin object: {}", coin_object_id);
-        eprintln!("  Coin Balance (Mist): {}", selected_coin_balance);
+        eprintln!("  Selected Coin Balance (Mist): {}", selected_coin_balance);
+        eprintln!(
+            "  Total Spendable Coin Balance (Mist): {}",
+            total_coin_balance
+        );
 
         let call_req = CallFunctionRequest {
             sender: sender_tagged.clone(),
@@ -106,8 +128,9 @@ impl Transfer {
             function: "transfer_amount".to_string(),
             type_args: vec![],
             args: vec![
-                hex::decode(coin_object_id.strip_prefix("0x").unwrap_or(&coin_object_id))
-                    .context("Invalid coin object ID")?,
+                move_core_types::account_address::AccountAddress::from_hex_literal(&coin_object_id)
+                    .context("Invalid coin object ID")?
+                    .to_vec(),
                 bcs::to_bytes(&amount_mist).context("Failed to serialize amount")?,
                 bcs::to_bytes(
                     &move_core_types::account_address::AccountAddress::from_hex_literal(&to_addr)?,

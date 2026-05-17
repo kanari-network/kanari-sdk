@@ -42,6 +42,16 @@ fn coin_token_type_from_object_type(object_type: &str) -> Option<String> {
     None
 }
 
+fn read_coin_balance(data: &[u8]) -> Option<u64> {
+    if data.len() < 40 {
+        return None;
+    }
+
+    let mut amount_bytes = [0u8; 8];
+    amount_bytes.copy_from_slice(&data[32..40]);
+    Some(u64::from_le_bytes(amount_bytes))
+}
+
 #[derive(Parser, Debug)]
 pub struct TokenTransfer {
     /// Sender wallet address (optional). If omitted, uses selected wallet in config.
@@ -91,20 +101,29 @@ impl TokenTransfer {
 
         // Find coin objects of the specified token type
         let wanted_token = normalize_token_type(&self.token);
-        let mut coin_objects = Vec::new();
+        let mut selected_coin_id = None;
+        let mut selected_coin_balance = 0u64;
+        let mut total_coin_balance = 0u64;
         let mut seen_coin_types = std::collections::BTreeSet::new();
         if let Some(owned_objects) = &account.owned_objects {
             for obj in owned_objects {
                 if let Some(obj_token) = coin_token_type_from_object_type(&obj.type_) {
                     seen_coin_types.insert(obj_token.clone());
                     if obj_token == wanted_token {
-                        coin_objects.push(obj.id.clone());
+                        let Some(coin_balance) = read_coin_balance(&obj.data) else {
+                            continue;
+                        };
+                        total_coin_balance = total_coin_balance.saturating_add(coin_balance);
+                        if selected_coin_id.is_none() && coin_balance > 0 {
+                            selected_coin_id = Some(obj.id.clone());
+                            selected_coin_balance = coin_balance;
+                        }
                     }
                 }
             }
         }
 
-        if coin_objects.is_empty() {
+        if selected_coin_id.is_none() {
             let state_balance = account
                 .token_balances
                 .iter()
@@ -127,9 +146,26 @@ impl TokenTransfer {
             );
         }
 
-        // For now, use the first coin object found as the source
-        let coin_object_id = &coin_objects[0];
+        if total_coin_balance < self.amount {
+            anyhow::bail!(
+                "Insufficient Coin<{}> balance for address {}.\n  - requested: {}\n  - spendable in coin objects: {}",
+                wanted_token,
+                from_addr,
+                self.amount,
+                total_coin_balance
+            );
+        }
+
+        let coin_object_id = selected_coin_id.as_ref().expect("selected coin checked");
         eprintln!("  Using coin object: {}", coin_object_id);
+        eprintln!(
+            "  Selected Coin Balance: {} (base units)",
+            selected_coin_balance
+        );
+        eprintln!(
+            "  Total Spendable Coin Balance: {} (base units)",
+            total_coin_balance
+        );
         eprintln!("  Amount: {} (base units)", self.amount);
 
         let sender_tagged = get_sender_for_tx(&wallet, &from_addr)?;
@@ -151,8 +187,9 @@ impl TokenTransfer {
             function: "transfer_amount".to_string(),
             type_args: vec![],
             args: vec![
-                hex::decode(coin_object_id.strip_prefix("0x").unwrap_or(coin_object_id))
-                    .context("Invalid coin object ID")?,
+                move_core_types::account_address::AccountAddress::from_hex_literal(coin_object_id)
+                    .context("Invalid coin object ID")?
+                    .to_vec(),
                 bcs::to_bytes(&self.amount).context("Failed to serialize amount")?,
                 bcs::to_bytes(
                     &move_core_types::account_address::AccountAddress::from_hex_literal(&to_addr)?,

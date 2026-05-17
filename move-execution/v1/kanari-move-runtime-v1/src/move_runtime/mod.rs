@@ -239,9 +239,10 @@ impl MoveRuntime {
         // Deserialize published modules so the fresh VM repopulates its caches.
         for module_id in module_ids {
             if let Some(module_bytes) = self.state.get_module(&module_id)
-                && CompiledModule::deserialize_with_defaults(&module_bytes).is_ok() {
-                    log::debug!("[RUNTIME] Preloaded module into cache: {}", module_id);
-                }
+                && CompiledModule::deserialize_with_defaults(&module_bytes).is_ok()
+            {
+                log::debug!("[RUNTIME] Preloaded module into cache: {}", module_id);
+            }
         }
 
         drop(session);

@@ -35,7 +35,7 @@ impl Stats {
         eprintln!("  Pending Transactions: {}", stats.pending_transactions);
         eprintln!("  Total Accounts: {}", stats.total_accounts);
         eprintln!("  Total Supply: {:.0} KANARI", total_supply_kanari);
-        eprintln!("─────────────────────────────────");
+        eprintln!("----------------------------------------");
 
         Ok(())
     }

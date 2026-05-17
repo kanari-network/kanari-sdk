@@ -523,8 +523,7 @@ impl P2PEventHandler {
                             _ => {}
                         }
 
-                        if !self.forward_message(msg, "[P2P] Failed to forward P2P message") {
-                        }
+                        if !self.forward_message(msg, "[P2P] Failed to forward P2P message") {}
                     }
                     Err(e) => {
                         warn!("[P2P] Failed to decode P2P message: {}", e);

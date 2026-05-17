@@ -1,10 +1,80 @@
-use kanari_rpc_api::{ModuleInfo, RpcRequest, RpcResponse};
+use kanari_rpc_api::{ModuleInfo, ObjectInfo, RpcRequest, RpcResponse};
 use move_binary_format::CompiledModule;
+use std::collections::BTreeMap;
 
 use crate::{
     RpcServerState, internal_error_response, invalid_params_response, parse_params,
     respond_with_serialize,
 };
+
+fn build_object_info(
+    id: String,
+    obj: kanari_move_runtime_v1::changeset::CreatedObject,
+) -> ObjectInfo {
+    ObjectInfo {
+        id,
+        owner: format!("{:#x}", obj.owner),
+        type_: obj.type_,
+        data: obj.data,
+        version: obj.version,
+    }
+}
+
+fn read_coin_balance(data: &[u8]) -> Option<u64> {
+    if data.len() < 40 {
+        return None;
+    }
+
+    let mut balance_bytes = [0u8; 8];
+    balance_bytes.copy_from_slice(&data[32..40]);
+    Some(u64::from_le_bytes(balance_bytes))
+}
+
+fn write_coin_balance(data: &mut [u8], balance: u64) -> bool {
+    if data.len() < 40 {
+        return false;
+    }
+
+    data[32..40].copy_from_slice(&balance.to_le_bytes());
+    true
+}
+
+fn is_coin_object(object_type: &str) -> bool {
+    object_type.contains("::coin::Coin<")
+}
+
+pub(crate) fn aggregate_owned_objects(objects: Vec<ObjectInfo>) -> Vec<ObjectInfo> {
+    let mut aggregated = Vec::new();
+    let mut coin_indices = BTreeMap::<(String, String), usize>::new();
+
+    for obj in objects {
+        if !is_coin_object(&obj.type_) {
+            aggregated.push(obj);
+            continue;
+        }
+
+        let Some(balance) = read_coin_balance(&obj.data) else {
+            aggregated.push(obj);
+            continue;
+        };
+
+        let key = (obj.owner.clone(), obj.type_.clone());
+        if let Some(index) = coin_indices.get(&key).copied() {
+            if let Some(existing) = aggregated.get_mut(index)
+                && let Some(existing_balance) = read_coin_balance(&existing.data)
+            {
+                let merged_balance = existing_balance.saturating_add(balance);
+                let _ = write_coin_balance(&mut existing.data, merged_balance);
+                existing.version = existing.version.max(obj.version);
+            }
+        } else {
+            coin_indices.insert(key, aggregated.len());
+            aggregated.push(obj);
+        }
+    }
+
+    aggregated
+}
 
 /// Handle get module
 pub async fn handle_get_module(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
@@ -108,23 +178,11 @@ pub async fn handle_get_object(state: &RpcServerState, request: &RpcRequest) -> 
         Err(response) => return *response,
     };
 
-    // Try to look up object in engine state
     let id = req.object_id;
     let state_guard = state.engine.state.read().unwrap_or_else(|e| e.into_inner());
 
-    // Try both with and without 0x prefix
-    let candidates = vec![id.clone(), id.trim_start_matches("0x").to_string()];
-    for uid in candidates {
-        if let Ok(Some(obj)) = state_guard.get_object(&uid) {
-            let info = kanari_rpc_api::ObjectInfo {
-                id: uid.clone(),
-                owner: format!("{:#x}", obj.owner),
-                type_: obj.type_.clone(),
-                data: obj.data.clone(),
-                version: obj.version,
-            };
-            return respond_with_serialize(request.id, info);
-        }
+    if let Ok(Some(obj)) = state_guard.get_object(&id) {
+        return respond_with_serialize(request.id, build_object_info(id, obj));
     }
 
     internal_error_response(request.id, "Object not found")
@@ -170,16 +228,11 @@ pub async fn handle_get_owned_objects(state: &RpcServerState, request: &RpcReque
                 continue;
             }
 
-            let info = kanari_rpc_api::ObjectInfo {
-                id: uid.clone(),
-                owner: format!("{:#x}", obj.owner),
-                type_: obj.type_.clone(),
-                data: obj.data.clone(),
-                version: obj.version,
-            };
-            objects.push(info);
+            objects.push(build_object_info(uid, obj));
         }
     }
+
+    let objects = aggregate_owned_objects(objects);
 
     // Return the filtered list of objects
     RpcResponse {

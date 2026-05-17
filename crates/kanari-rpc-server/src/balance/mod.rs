@@ -2,6 +2,7 @@ use super::{
     RpcRequest, RpcResponse, RpcServerState, internal_error_response, parse_params,
     respond_with_serialize,
 };
+use crate::module::aggregate_owned_objects;
 use kanari_move_runtime_v1::state::StateManager;
 use kanari_rpc_api::{GetAllBalancesRequest, GetTokenBalanceRequest};
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
@@ -73,7 +74,12 @@ pub async fn handle_get_account(state: &RpcServerState, request: &RpcRequest) ->
     };
 
     match state.engine.get_account_info(&address) {
-        Some(info) => respond_with_serialize(request.id, info),
+        Some(mut info) => {
+            if let Some(objects) = info.owned_objects.take() {
+                info.owned_objects = Some(aggregate_owned_objects(objects));
+            }
+            respond_with_serialize(request.id, info)
+        }
         None => internal_error_response(request.id, "Account not found"),
     }
 }

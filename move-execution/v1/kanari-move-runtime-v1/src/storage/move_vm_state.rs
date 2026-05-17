@@ -205,13 +205,13 @@ impl MoveVMState {
             if let Ok(Some(obj_bytes)) = self.store.load::<Vec<u8>>(obj_key.as_bytes())
                 && let Ok(mut created_obj) =
                     bcs::from_bytes::<crate::changeset::CreatedObject>(&obj_bytes)
-                {
-                    created_obj.data = blob.to_vec();
-                    created_obj.version += 1;
+            {
+                created_obj.data = blob.to_vec();
+                created_obj.version += 1;
 
-                    let updated_bytes = bcs::to_bytes(&created_obj)?;
-                    self.store.save(obj_key.as_bytes(), &updated_bytes)?;
-                }
+                let updated_bytes = bcs::to_bytes(&created_obj)?;
+                self.store.save(obj_key.as_bytes(), &updated_bytes)?;
+            }
         }
 
         Ok(())
@@ -232,9 +232,9 @@ impl MoveVMState {
         let obj_key = Self::object_key(object_id);
         if let Ok(Some(obj_bytes)) = self.store.load::<Vec<u8>>(obj_key.as_bytes())
             && let Ok(created_obj) = bcs::from_bytes::<crate::changeset::CreatedObject>(&obj_bytes)
-            {
-                return Some(created_obj.data);
-            }
+        {
+            return Some(created_obj.data);
+        }
         None
     }
 

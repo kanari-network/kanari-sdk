@@ -567,6 +567,41 @@ impl StateManager {
         key
     }
 
+    fn canonical_object_id(id: &str) -> Option<String> {
+        AccountAddress::from_hex_literal(id)
+            .ok()
+            .map(|addr| addr.to_hex_literal())
+    }
+
+    fn legacy_object_id(id: &str) -> Option<String> {
+        let canonical = Self::canonical_object_id(id)?;
+        let trimmed = canonical.trim_start_matches("0x").trim_start_matches('0');
+        let suffix = if trimmed.is_empty() { "0" } else { trimmed };
+        Some(format!("0x{}", suffix))
+    }
+
+    fn candidate_object_ids(id: &str) -> Vec<String> {
+        let mut candidates = Vec::new();
+
+        let mut push_unique = |candidate: String| {
+            if !candidates.iter().any(|existing| existing == &candidate) {
+                candidates.push(candidate);
+            }
+        };
+
+        push_unique(id.to_string());
+
+        if let Some(canonical) = Self::canonical_object_id(id) {
+            push_unique(canonical);
+        }
+
+        if let Some(legacy) = Self::legacy_object_id(id) {
+            push_unique(legacy);
+        }
+
+        candidates
+    }
+
     // Helper to construct DB key for owned objects
     fn owned_objects_key(owner: &AccountAddress) -> Vec<u8> {
         let mut key = b"owned_objects:".to_vec();
@@ -880,27 +915,27 @@ impl StateManager {
 
     /// Get a specific object by ID
     pub fn get_object(&self, object_id: &str) -> Result<Option<CreatedObject>> {
-        let obj_key = Self::object_key(object_id);
-        if let Some(stored) = self.load_internal::<StoredObject>(&obj_key)? {
-            // Create UIDRecord from object ID for ownership tracking
-            let uid = AccountAddress::from_hex_literal(object_id)
-                .ok()
-                .map(UIDRecord::new);
+        for candidate in Self::candidate_object_ids(object_id) {
+            let obj_key = Self::object_key(&candidate);
+            if let Some(stored) = self.load_internal::<StoredObject>(&obj_key)? {
+                let uid = AccountAddress::from_hex_literal(&candidate)
+                    .ok()
+                    .map(UIDRecord::new);
+                let id = AccountAddress::from_hex_literal(&candidate)
+                    .ok()
+                    .map(IDRecord::new);
 
-            // Create IDRecord from object ID for DEX/DeFi copyable ID tracking
-            let id = AccountAddress::from_hex_literal(object_id)
-                .ok()
-                .map(IDRecord::new);
-
-            return Ok(Some(CreatedObject {
-                owner: stored.owner,
-                uid,
-                id,
-                type_: stored.type_name,
-                data: stored.data,
-                version: stored.version,
-            }));
+                return Ok(Some(CreatedObject {
+                    owner: stored.owner,
+                    uid,
+                    id,
+                    type_: stored.type_name,
+                    data: stored.data,
+                    version: stored.version,
+                }));
+            }
         }
+
         Ok(None)
     }
 
