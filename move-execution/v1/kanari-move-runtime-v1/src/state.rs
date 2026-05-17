@@ -22,6 +22,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 const SYSTEM_CLOCK_OBJECT_ID_KEY: &[u8] = b"system:clock_object_id";
+const ACCOUNT_INDEX_KEY: &[u8] = b"account_index";
 const UID_SIZE: usize = 32;
 const U64_SIZE: usize = 8;
 
@@ -131,6 +132,48 @@ impl StateManager {
             self.save_index_list(key, &index)?;
         }
         Ok(())
+    }
+
+    fn supply_key(token_type: &str) -> Vec<u8> {
+        let mut key = b"supply:".to_vec();
+        key.extend_from_slice(token_type.as_bytes());
+        key
+    }
+
+    fn load_persisted_supply_from_store(store: &PersistentStore, token_type: &str) -> Option<u64> {
+        let key = Self::supply_key(token_type);
+        store
+            .load::<TreasuryCap>(&key)
+            .ok()
+            .flatten()
+            .map(|cap| cap.total_supply)
+            .or_else(|| store.load::<u64>(&key).ok().flatten())
+    }
+
+    pub fn supply_invariant_fail_fast_enabled() -> bool {
+        std::env::var("KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH")
+            .map(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+            .unwrap_or(false)
+    }
+
+    fn report_supply_invariant_violation(context: &str, error: &anyhow::Error) {
+        log::error!(
+            "[StateManager] Supply invariant check failed {}: {}",
+            context,
+            error
+        );
+
+        assert!(
+            !Self::supply_invariant_fail_fast_enabled(),
+            "Supply invariant check failed {}: {}",
+            context,
+            error
+        );
     }
 
     fn metadata_key(prefix: &[u8], token_type: &str) -> Vec<u8> {
@@ -355,7 +398,7 @@ impl StateManager {
     /// Dev address gets entire supply according to kanari.move
     pub fn new(store: Arc<PersistentStore>) -> Self {
         // Try to load total supply from DB
-        let total_supply = store
+        let persisted_total_supply = store
             .load::<u64>(b"total_supply")
             .unwrap_or(None)
             .unwrap_or(0);
@@ -366,6 +409,16 @@ impl StateManager {
             .unwrap_or(None)
             .unwrap_or_default();
 
+        // Recover native total supply from older databases that persisted the
+        // native treasury/global balances but never backfilled `total_supply`.
+        let recovered_total_supply = if persisted_total_supply == 0 {
+            Self::load_persisted_supply_from_store(store.as_ref(), KANARI_TOKEN_TYPE)
+                .or_else(|| global_token_supplies.get(KANARI_TOKEN_TYPE).copied())
+                .unwrap_or(0)
+        } else {
+            persisted_total_supply
+        };
+
         // Initialize SMT if store is backed by RocksDB
         let smt = store
             .get_db()
@@ -374,17 +427,38 @@ impl StateManager {
         let mut state = Self {
             store,
             overlay: BTreeMap::new(),
-            total_supply,
+            total_supply: recovered_total_supply,
             global_token_supplies,
             smt,
             events: Vec::new(),
         };
 
+        if persisted_total_supply == 0 && recovered_total_supply > 0 {
+            if let Err(e) = state.save_internal(b"total_supply", &recovered_total_supply) {
+                panic!("Failed to backfill recovered total_supply: {}", e);
+            }
+            if let Err(e) = state.commit() {
+                panic!("Failed to persist recovered total_supply: {}", e);
+            }
+        }
+
         // If total supply is 0, initialize genesis
         if state.total_supply == 0 {
-            let _ = crate::genesis::init_genesis(&mut state);
+            if let Err(e) = crate::genesis::init_genesis(&mut state) {
+                panic!("Genesis initialization failed: {}", e);
+            }
             // Flush genesis state to DB immediately
-            let _ = state.commit();
+            if let Err(e) = state.commit() {
+                panic!("Failed to commit genesis state: {}", e);
+            }
+            assert!(
+                state.total_supply > 0,
+                "Genesis initialization completed but total_supply is still 0"
+            );
+        }
+
+        if let Err(e) = state.validate_supply_invariants() {
+            Self::report_supply_invariant_violation("on startup", &e);
         }
 
         state
@@ -521,7 +595,16 @@ impl StateManager {
     }
 
     pub fn save_account(&mut self, account: &Account) -> Result<()> {
-        self.save_internal(&Self::account_key(&account.address), account)
+        self.save_internal(&Self::account_key(&account.address), account)?;
+        self.add_to_index_list(ACCOUNT_INDEX_KEY, account.address.to_hex_literal())
+    }
+
+    pub fn load_account_addresses(&self) -> Result<Vec<AccountAddress>> {
+        let ids = self.load_index_list(ACCOUNT_INDEX_KEY)?;
+        Ok(ids
+            .into_iter()
+            .filter_map(|id| AccountAddress::from_hex_literal(&id).ok())
+            .collect())
     }
 
     fn load_account_or_default(&self, address: AccountAddress) -> Result<Account> {
@@ -610,8 +693,7 @@ impl StateManager {
 
         // Apply treasury creations/updates
         for (owner, token_type, total_supply) in &changeset.treasuries {
-            let mut key = b"supply:".to_vec();
-            key.extend_from_slice(token_type.as_bytes());
+            let key = Self::supply_key(token_type);
             self.save_internal(&key, total_supply)?;
 
             let mut key_owner = b"treasury:".to_vec();
@@ -619,6 +701,12 @@ impl StateManager {
             self.save_internal(&key_owner, owner)?;
 
             self.add_to_index_list(b"treasury_index", format!("treasury:{}", token_type))?;
+
+            if token_type == KANARI_TOKEN_TYPE {
+                self.total_supply = total_supply.total_supply;
+                let supply = self.total_supply;
+                self.save_internal(b"total_supply", &supply)?;
+            }
         }
 
         // Apply NFT capability creations/updates
@@ -760,6 +848,10 @@ impl StateManager {
             self.overlay.insert(df_key, None);
         }
 
+        if let Err(e) = self.validate_supply_invariants() {
+            Self::report_supply_invariant_violation("after apply_changeset", &e);
+        }
+
         Ok(())
     }
 
@@ -835,17 +927,9 @@ impl StateManager {
 
     /// Get the total number of accounts
     pub fn account_count(&self) -> usize {
-        // Count all account keys in the overlay and DB
-        let mut count = 0;
-        let prefix = b"account:";
-
-        // Count from overlay
-        for key in self.overlay.keys() {
-            if key.starts_with(prefix) {
-                count += 1;
-            }
-        }
-        count
+        self.load_index_list(ACCOUNT_INDEX_KEY)
+            .map(|accounts| accounts.len())
+            .unwrap_or(0)
     }
 
     /// Get token decimals for a specific token type
@@ -881,5 +965,89 @@ impl StateManager {
         let mut key = b"metadata_icon_url:".to_vec();
         key.extend_from_slice(token_type.as_bytes());
         self.load_internal::<String>(&key)
+    }
+
+    pub fn validate_supply_invariants(&self) -> Result<()> {
+        let persisted_native_supply =
+            Self::load_persisted_supply_from_store(self.store.as_ref(), KANARI_TOKEN_TYPE);
+        if let Some(persisted) = persisted_native_supply
+            && persisted != self.total_supply
+        {
+            anyhow::bail!(
+                "native total supply mismatch: state.total_supply={} persisted_treasury={}",
+                self.total_supply,
+                persisted
+            );
+        }
+
+        let native_global_supply = self
+            .global_token_supplies
+            .get(KANARI_TOKEN_TYPE)
+            .copied()
+            .unwrap_or(0);
+        if native_global_supply != self.total_supply {
+            anyhow::bail!(
+                "native supply mismatch: state.total_supply={} global_token_supplies={}",
+                self.total_supply,
+                native_global_supply
+            );
+        }
+
+        let indexed_accounts = self.load_account_addresses()?;
+        if !indexed_accounts.is_empty() {
+            let indexed_native_total = indexed_accounts
+                .into_iter()
+                .filter_map(|address| self.load_account(&address).ok().flatten())
+                .map(|account| account.native_balance())
+                .fold(0u64, |acc, balance| acc.saturating_add(balance));
+
+            if indexed_native_total != self.total_supply {
+                anyhow::bail!(
+                    "native supply mismatch: state.total_supply={} indexed_account_total={}",
+                    self.total_supply,
+                    indexed_native_total
+                );
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn treasury_update_syncs_native_total_supply() -> Result<()> {
+        let mut state = StateManager::new_in_memory();
+        let owner = AccountAddress::from_hex_literal("0x1")?;
+
+        let mut cs = ChangeSet::new();
+        cs.add_treasury(owner, KANARI_TOKEN_TYPE.to_string(), 777);
+        state.apply_changeset(&cs)?;
+
+        assert_eq!(state.total_supply, 777);
+        Ok(())
+    }
+
+    #[test]
+    fn validate_supply_invariants_detects_native_supply_mismatch() -> Result<()> {
+        let alice = AccountAddress::from_hex_literal("0x1111")?;
+        let mut state = StateManager::new_in_memory();
+
+        let account = Account::with_native_balance(alice, 500);
+        state.save_account(&account)?;
+        state.total_supply = 600;
+        state
+            .global_token_supplies
+            .insert(KANARI_TOKEN_TYPE.to_string(), 600);
+
+        let err = state
+            .validate_supply_invariants()
+            .expect_err("validation should detect mismatch");
+        assert!(err.to_string().contains("indexed_account_total=500"));
+
+        Ok(())
     }
 }

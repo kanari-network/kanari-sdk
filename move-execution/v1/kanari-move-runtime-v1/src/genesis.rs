@@ -13,6 +13,7 @@ use anyhow::{Context, Result};
 use kanari_types::address::Address as KanariAddress;
 
 use std::format;
+use std::fs;
 use std::path::PathBuf;
 
 /// Path to compiled framework bytecode directory (relative to workspace root)
@@ -179,16 +180,30 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
 
 /// Find the workspace root by looking for Cargo.toml or similar markers
 fn find_workspace_root() -> Result<PathBuf> {
-    // Start from current directory and walk up
-    let mut path = std::env::current_dir()?;
-    loop {
-        if path.join("Cargo.toml").exists() {
-            return Ok(path);
+    fn is_workspace_root(path: &std::path::Path) -> bool {
+        let cargo_toml = path.join("Cargo.toml");
+        if !cargo_toml.exists() {
+            return false;
         }
-        if !path.pop() {
-            break;
+        fs::read_to_string(cargo_toml)
+            .map(|contents| contents.contains("[workspace]"))
+            .unwrap_or(false)
+    }
+
+    let mut candidates = Vec::new();
+    candidates.push(std::env::current_dir()?);
+    candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+
+    for mut path in candidates {
+        loop {
+            if is_workspace_root(&path) {
+                return Ok(path);
+            }
+            if !path.pop() {
+                break;
+            }
         }
     }
-    // Fallback to current directory if not found
-    Ok(std::env::current_dir()?)
+
+    anyhow::bail!("Failed to locate workspace root containing Cargo.toml with [workspace] section")
 }

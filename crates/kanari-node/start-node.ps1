@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory=$true)]
     [int]$NodeId = 1,
     
+    [string]$DataDir = "",
     [string]$BaseDataDir = "$env:USERPROFILE\.kanari\node-db",
     [int]$BasePeerPort = 19000,
     [int]$BaseRpcPort = 19001,
@@ -12,7 +13,7 @@ param(
 
 $p2pPort = $BasePeerPort + (($NodeId - 1) * 10)
 $rpcPort = $BaseRpcPort + (($NodeId - 1) * 10)
-$dataDir = "$BaseDataDir\node$NodeId"
+$dataDir = if ($DataDir -ne "") { $DataDir } else { "$BaseDataDir\node$NodeId" }
 $authId = "0x$NodeId"
 
 # Create data directory if it doesn't exist

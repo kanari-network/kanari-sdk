@@ -169,12 +169,27 @@ pub async fn start_server(engine: Arc<BlockchainEngine>, addr: &str) -> Result<(
 }
 
 /// Handle health check
-async fn handle_health(_state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+async fn handle_health(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    let state_guard = state.engine.state.read().unwrap_or_else(|p| p.into_inner());
+    let supply_invariant_error = state_guard
+        .validate_supply_invariants()
+        .err()
+        .map(|e| e.to_string());
+    let supply_invariants_ok = supply_invariant_error.is_none();
+
     let health = HealthStatus {
-        status: "ok".to_string(),
+        status: if supply_invariants_ok {
+            "ok".to_string()
+        } else {
+            "degraded".to_string()
+        },
         version: env!("CARGO_PKG_VERSION").to_string(),
         uptime_seconds: 0, // TODO: Track actual uptime
         sync_status: "synced".to_string(),
+        supply_invariants_ok,
+        supply_invariant_error,
+        fail_fast_enabled:
+            kanari_move_runtime_v1::state::StateManager::supply_invariant_fail_fast_enabled(),
     };
 
     respond_with_serialize(request.id, health)
