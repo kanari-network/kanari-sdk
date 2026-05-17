@@ -23,6 +23,7 @@ use move_core_types::{
 };
 use num_cpus;
 use rayon::prelude::*;
+use std::env;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
 
@@ -38,6 +39,32 @@ pub type ExecutionResult = Result<(Vec<u8>, ChangeSet)>;
 pub type ParallelTxResult = (SignedTransaction, ExecutionResult);
 
 const MAX_MEMPOOL_SIZE: usize = 50_000;
+
+#[derive(Debug, Clone)]
+pub struct RuntimeGuardConfig {
+    pub network: String,
+    pub fail_fast_supply_enabled: bool,
+    pub strict_persistence_required: bool,
+    pub strict_checkpoint_roots: bool,
+    pub persistent_storage_available: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct RuntimeHealthReport {
+    pub guards: RuntimeGuardConfig,
+    pub supply_invariants_ok: bool,
+    pub supply_invariant_error: Option<String>,
+}
+
+impl RuntimeHealthReport {
+    pub fn status(&self) -> &'static str {
+        if self.supply_invariants_ok {
+            "ok"
+        } else {
+            "degraded"
+        }
+    }
+}
 
 /// Complete blockchain engine with Move VM integration
 pub struct BlockchainEngine {
@@ -146,6 +173,62 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
 }
 
 impl BlockchainEngine {
+    pub fn network_name() -> String {
+        env::var("KANARI_NETWORK").unwrap_or_else(|_| "testnet".to_string())
+    }
+
+    pub fn strict_persistence_required() -> bool {
+        env::var("KANARI_REQUIRE_PERSISTENT_STORAGE")
+            .map(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+            .unwrap_or_else(|_| Self::network_name().eq_ignore_ascii_case("mainnet"))
+    }
+
+    pub fn strict_checkpoint_roots_required() -> bool {
+        env::var("KANARI_STRICT_CHECKPOINT_ROOTS")
+            .map(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+            .unwrap_or_else(|_| Self::network_name().eq_ignore_ascii_case("mainnet"))
+    }
+
+    pub fn fail_fast_supply_enabled() -> bool {
+        StateManager::supply_invariant_fail_fast_enabled()
+    }
+
+    pub fn runtime_guard_config(&self) -> RuntimeGuardConfig {
+        RuntimeGuardConfig {
+            network: Self::network_name(),
+            fail_fast_supply_enabled: Self::fail_fast_supply_enabled(),
+            strict_persistence_required: Self::strict_persistence_required(),
+            strict_checkpoint_roots: Self::strict_checkpoint_roots_required(),
+            persistent_storage_available: self.persistent_store.is_some(),
+        }
+    }
+
+    pub fn runtime_health_report(&self) -> RuntimeHealthReport {
+        let supply_invariant_error = self
+            .state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .validate_supply_invariants()
+            .err()
+            .map(|e| e.to_string());
+
+        RuntimeHealthReport {
+            guards: self.runtime_guard_config(),
+            supply_invariants_ok: supply_invariant_error.is_none(),
+            supply_invariant_error,
+        }
+    }
+
     // =====================================================================
     // ⏰ System Prologue
     // =====================================================================
@@ -351,30 +434,38 @@ impl BlockchainEngine {
         let persistent_store = Self::try_open_store(
             || PersistentStore::open_with_path(Some(std::path::PathBuf::from(dir))),
             &format!("at '{}'", dir),
-        );
+        )?;
         Self::init(persistent_store)
     }
 
     pub fn new() -> Result<Self> {
-        let persistent_store = Self::try_open_store(PersistentStore::open_default, "default");
+        let persistent_store = Self::try_open_store(PersistentStore::open_default, "default")?;
         Self::init(persistent_store)
     }
 
-    fn try_open_store<F>(opener: F, context: &str) -> Option<Arc<PersistentStore>>
+    fn try_open_store<F>(opener: F, context: &str) -> Result<Option<Arc<PersistentStore>>>
     where
         F: FnOnce() -> Result<PersistentStore>,
     {
         if cfg!(miri) {
-            None
+            Ok(None)
         } else {
             match opener() {
-                Ok(s) => Some(Arc::new(s)),
+                Ok(s) => Ok(Some(Arc::new(s))),
                 Err(e) => {
+                    if Self::strict_persistence_required() {
+                        anyhow::bail!(
+                            "Failed to open {} persistent store in {} mode: {}",
+                            context,
+                            Self::network_name(),
+                            e
+                        );
+                    }
                     eprintln!(
                         "WARN: Failed to open {} persistent store: {}. Falling back to in-memory mode.",
                         context, e
                     );
-                    None
+                    Ok(None)
                 }
             }
         }
@@ -496,6 +587,40 @@ impl BlockchainEngine {
         } else {
             None
         }
+    }
+
+    pub fn validate_runtime_health(&self) -> Result<()> {
+        let report = self.runtime_health_report();
+        if let Some(error) = report.supply_invariant_error {
+            anyhow::bail!(error);
+        }
+
+        if report.guards.strict_persistence_required && !report.guards.persistent_storage_available
+        {
+            anyhow::bail!("persistent storage is required but engine is running in-memory");
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn checkpoint_root_matches(
+        &self,
+        checkpoint_sequence: u64,
+        computed_root: &[u8],
+        checkpoint_root: &[u8],
+    ) -> Result<bool> {
+        if computed_root == checkpoint_root {
+            return Ok(true);
+        }
+
+        if Self::strict_checkpoint_roots_required() {
+            anyhow::bail!(
+                "[ENGINE] Strict checkpoint root verification failed for checkpoint {}",
+                checkpoint_sequence
+            );
+        }
+
+        Ok(false)
     }
 
     fn apply_gas_and_sequence(
@@ -1377,5 +1502,44 @@ impl BlockchainEngine {
         let runtime = &self.runtime_pool[0];
 
         runtime.execute_view_function(package_addr, module_name, function_name, type_args, args)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BlockchainEngine;
+
+    #[test]
+    fn mainnet_defaults_enable_strict_runtime_guards() {
+        unsafe {
+            std::env::set_var("KANARI_NETWORK", "mainnet");
+            std::env::remove_var("KANARI_REQUIRE_PERSISTENT_STORAGE");
+            std::env::remove_var("KANARI_STRICT_CHECKPOINT_ROOTS");
+        }
+
+        assert!(BlockchainEngine::strict_persistence_required());
+        assert!(BlockchainEngine::strict_checkpoint_roots_required());
+
+        unsafe {
+            std::env::remove_var("KANARI_NETWORK");
+        }
+    }
+
+    #[test]
+    fn explicit_env_overrides_strict_runtime_guards() {
+        unsafe {
+            std::env::set_var("KANARI_NETWORK", "mainnet");
+            std::env::set_var("KANARI_REQUIRE_PERSISTENT_STORAGE", "false");
+            std::env::set_var("KANARI_STRICT_CHECKPOINT_ROOTS", "0");
+        }
+
+        assert!(!BlockchainEngine::strict_persistence_required());
+        assert!(!BlockchainEngine::strict_checkpoint_roots_required());
+
+        unsafe {
+            std::env::remove_var("KANARI_NETWORK");
+            std::env::remove_var("KANARI_REQUIRE_PERSISTENT_STORAGE");
+            std::env::remove_var("KANARI_STRICT_CHECKPOINT_ROOTS");
+        }
     }
 }

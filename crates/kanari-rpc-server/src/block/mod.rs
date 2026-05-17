@@ -1,27 +1,13 @@
-use super::{RpcError, RpcRequest, RpcResponse, RpcServerState, respond_with_serialize};
+use super::{
+    RpcRequest, RpcResponse, RpcServerState, internal_error_response, invalid_params_response,
+    respond_with_serialize,
+};
 use kanari_rpc_api::{BlockInfo, RpcEvent};
 use serde_json;
 
-fn invalid_params_response(id: u64, message: impl Into<String>) -> RpcResponse {
-    RpcResponse {
-        jsonrpc: "2.0".to_string(),
-        result: None,
-        error: Some(RpcError::invalid_params(message.into())),
-        id,
-    }
-}
-
-fn internal_error_response(id: u64, message: impl Into<String>) -> RpcResponse {
-    RpcResponse {
-        jsonrpc: "2.0".to_string(),
-        result: None,
-        error: Some(RpcError::internal_error(message.into())),
-        id,
-    }
-}
-
-fn parse_height(id: u64, params: &serde_json::Value) -> Result<u64, RpcResponse> {
-    serde_json::from_value(params.clone()).map_err(|e| invalid_params_response(id, e.to_string()))
+fn parse_height(id: u64, params: &serde_json::Value) -> Result<u64, Box<RpcResponse>> {
+    serde_json::from_value(params.clone())
+        .map_err(|e| Box::new(invalid_params_response(id, e.to_string())))
 }
 
 fn to_rpc_block_info(block: kanari_rpc_api::BlockData) -> BlockInfo {
@@ -51,7 +37,7 @@ fn to_rpc_block_info(block: kanari_rpc_api::BlockData) -> BlockInfo {
 pub async fn handle_get_block(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let height = match parse_height(request.id, &request.params) {
         Ok(height) => height,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     match state.engine.get_block(height) {
@@ -64,7 +50,7 @@ pub async fn handle_get_block(state: &RpcServerState, request: &RpcRequest) -> R
 pub async fn handle_get_full_block(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let height = match parse_height(request.id, &request.params) {
         Ok(height) => height,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     match state.engine.get_full_block(height) {

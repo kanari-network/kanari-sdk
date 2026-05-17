@@ -11,7 +11,9 @@ use tempfile::tempdir;
 const GENESIS_SUPPLY: u64 = 11_000_000_000_000_000;
 
 fn open_state(db_path: &Path) -> Result<StateManager> {
-    let store = Arc::new(PersistentStore::open_with_path(Some(db_path.to_path_buf()))?);
+    let store = Arc::new(PersistentStore::open_with_path(Some(
+        db_path.to_path_buf(),
+    ))?);
     Ok(StateManager::new(store))
 }
 

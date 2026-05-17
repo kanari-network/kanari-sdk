@@ -1,5 +1,5 @@
 use super::{
-    RpcRequest, RpcResponse, RpcServerState, internal_error_response, invalid_params_response,
+    RpcRequest, RpcResponse, RpcServerState, internal_error_response, parse_params,
     respond_with_serialize,
 };
 use kanari_move_runtime_v1::state::StateManager;
@@ -8,13 +8,6 @@ use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use move_core_types::language_storage::TypeTag;
 use serde_json;
 use std::str::FromStr;
-
-fn parse_params<T: serde::de::DeserializeOwned>(
-    id: u64,
-    params: &serde_json::Value,
-) -> Result<T, RpcResponse> {
-    serde_json::from_value(params.clone()).map_err(|e| invalid_params_response(id, e.to_string()))
-}
 
 fn get_token_decimals(state_guard: &StateManager, token_type: &str) -> u8 {
     if token_type == KANARI_TOKEN_TYPE {
@@ -76,7 +69,7 @@ fn build_balance_json(
 pub async fn handle_get_account(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let address: String = match parse_params(request.id, &request.params) {
         Ok(addr) => addr,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     match state.engine.get_account_info(&address) {
@@ -89,7 +82,7 @@ pub async fn handle_get_account(state: &RpcServerState, request: &RpcRequest) ->
 pub async fn handle_get_balance(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let address: String = match parse_params(request.id, &request.params) {
         Ok(addr) => addr,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     let balance = state
@@ -110,7 +103,7 @@ pub async fn handle_get_balance(state: &RpcServerState, request: &RpcRequest) ->
 pub async fn handle_get_token_balance(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let req_data: GetTokenBalanceRequest = match parse_params(request.id, &request.params) {
         Ok(data) => data,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     let account_info = match state.engine.get_account_info(&req_data.address) {
@@ -140,7 +133,7 @@ pub async fn handle_get_token_balance(state: &RpcServerState, request: &RpcReque
 pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let req_data: GetAllBalancesRequest = match parse_params(request.id, &request.params) {
         Ok(data) => data,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     let account_info = match state.engine.get_account_info(&req_data.address) {

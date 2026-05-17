@@ -3,7 +3,7 @@
 
 // Main entry point for Kanari blockchain node
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use kanari_core::BlockchainEngine;
 use kanari_core::engine::AccountInfo;
 use kanari_crypto::wallet::list_wallet_files;
@@ -26,6 +26,23 @@ use p2p::{P2PEventHandler, P2PMessage, P2PNetwork};
 use peer_store::PeerStore;
 use sync::SyncManager;
 
+#[derive(Clone, Debug, ValueEnum)]
+enum NetworkMode {
+    Mainnet,
+    Testnet,
+    Devnet,
+}
+
+impl NetworkMode {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Mainnet => "mainnet",
+            Self::Testnet => "testnet",
+            Self::Devnet => "devnet",
+        }
+    }
+}
+
 /// Kanari node command-line interface
 #[derive(Parser)]
 #[command(name = "kanari-node", about = "Kanari run server")]
@@ -38,6 +55,9 @@ struct Cli {
 enum Commands {
     /// start the node
     Start {
+        /// Network mode for runtime and production safety defaults
+        #[arg(long, value_enum, default_value = "testnet")]
+        network: NetworkMode,
         /// P2P listen port
         #[arg(long, default_value = "19000")]
         p2p_port: u16,
@@ -87,7 +107,13 @@ fn default_data_dir() -> std::path::PathBuf {
         .join("kanari-db")
 }
 
-fn create_engine(data_dir: &Option<std::path::PathBuf>) -> Result<BlockchainEngine> {
+fn create_engine(
+    data_dir: &Option<std::path::PathBuf>,
+    network: &NetworkMode,
+) -> Result<BlockchainEngine> {
+    unsafe {
+        std::env::set_var("KANARI_NETWORK", network.as_str());
+    }
     if let Some(d) = data_dir {
         unsafe {
             std::env::set_var("KANARI_STATE_DB", d);
@@ -217,6 +243,7 @@ async fn main() -> Result<()> {
         Commands::Account { address } => print_account(&address),
         Commands::Block { height } => print_block(height),
         Commands::Start {
+            network,
             p2p_port,
             rpc_port,
             rpc_host,
@@ -227,7 +254,7 @@ async fn main() -> Result<()> {
             bootstrap,
         } => {
             let data_dir_path = data_dir.clone().unwrap_or_else(default_data_dir);
-            let mut engine = create_engine(&data_dir)?;
+            let mut engine = create_engine(&data_dir, &network)?;
 
             if let (Some(id), Some(auths)) = (authority_id, authorities) {
                 tracing::info!(
@@ -240,6 +267,7 @@ async fn main() -> Result<()> {
 
             run_node(
                 Arc::new(engine),
+                network.as_str().to_string(),
                 p2p_port,
                 rpc_port,
                 rpc_host,
@@ -251,6 +279,9 @@ async fn main() -> Result<()> {
         }
         Commands::Local => {
             tracing::info!("Starting local node: RPC on 127.0.0.1:6767 (P2P disabled)");
+            unsafe {
+                std::env::set_var("KANARI_NETWORK", NetworkMode::Devnet.as_str());
+            }
             let data_dir_path = std::path::PathBuf::from("./.kanari-local");
             // Ensure data directory exists
             std::fs::create_dir_all(&data_dir_path)?;
@@ -258,6 +289,7 @@ async fn main() -> Result<()> {
             let engine = BlockchainEngine::new_dir(data_dir_path.to_str().unwrap())?;
             run_node(
                 Arc::new(engine),
+                NetworkMode::Devnet.as_str().to_string(),
                 0,
                 6767,
                 "127.0.0.1".to_string(),
@@ -285,6 +317,7 @@ fn detect_local_ip() -> Option<String> {
 
 async fn run_node(
     engine: Arc<BlockchainEngine>,
+    network: String,
     p2p_port: u16,
     rpc_port: u16,
     rpc_host: String,
@@ -292,10 +325,18 @@ async fn run_node(
     relay_server: bool,
     bootstrap_peers: Option<Vec<String>>,
 ) -> Result<()> {
+    engine.validate_runtime_health()?;
+    let runtime_guards = engine.runtime_guard_config();
     let stats = engine.get_stats();
 
     tracing::info!("Kanari blockchain node starting");
-    tracing::info!("Network: Testnet, Move VM: Enabled");
+    tracing::info!("Network: {}, Move VM: Enabled", network);
+    tracing::info!(
+        "Runtime guards: strict_persistence={}, strict_checkpoint_roots={}, fail_fast_supply={}",
+        runtime_guards.strict_persistence_required,
+        runtime_guards.strict_checkpoint_roots,
+        runtime_guards.fail_fast_supply_enabled
+    );
     tracing::info!("Initial blockchain height: {}", stats.height);
     let total_supply_str = KanariModule::format_kanari(stats.total_supply);
     tracing::info!(

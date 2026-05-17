@@ -78,6 +78,38 @@ pub(crate) fn internal_error_response(id: u64, message: impl Into<String>) -> Rp
     error_response(id, RpcError::internal_error(message.into()))
 }
 
+pub(crate) fn parse_params<T: serde::de::DeserializeOwned>(
+    id: u64,
+    params: &serde_json::Value,
+) -> Result<T, Box<RpcResponse>> {
+    serde_json::from_value(params.clone())
+        .map_err(|e| Box::new(invalid_params_response(id, e.to_string())))
+}
+
+pub(crate) fn parse_labeled_params<T: serde::de::DeserializeOwned>(
+    id: u64,
+    params: &serde_json::Value,
+    label: &str,
+) -> Result<T, Box<RpcResponse>> {
+    serde_json::from_value(params.clone()).map_err(|e| {
+        Box::new(invalid_params_response(
+            id,
+            format!("Invalid {}: {}", label, e),
+        ))
+    })
+}
+
+pub(crate) fn first_array_param(
+    id: u64,
+    params: &serde_json::Value,
+) -> Result<&serde_json::Value, Box<RpcResponse>> {
+    let arr = params
+        .as_array()
+        .ok_or_else(|| Box::new(invalid_params_response(id, "Expected array params")))?;
+    arr.first()
+        .ok_or_else(|| Box::new(invalid_params_response(id, "Empty params array")))
+}
+
 fn respond_with_serialize<T: serde::Serialize>(id: u64, v: T) -> RpcResponse {
     match serde_json::to_value(v) {
         Ok(val) => respond_with_value(id, val),
@@ -170,26 +202,20 @@ pub async fn start_server(engine: Arc<BlockchainEngine>, addr: &str) -> Result<(
 
 /// Handle health check
 async fn handle_health(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let state_guard = state.engine.state.read().unwrap_or_else(|p| p.into_inner());
-    let supply_invariant_error = state_guard
-        .validate_supply_invariants()
-        .err()
-        .map(|e| e.to_string());
-    let supply_invariants_ok = supply_invariant_error.is_none();
+    let report = state.engine.runtime_health_report();
 
     let health = HealthStatus {
-        status: if supply_invariants_ok {
-            "ok".to_string()
-        } else {
-            "degraded".to_string()
-        },
+        status: report.status().to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         uptime_seconds: 0, // TODO: Track actual uptime
         sync_status: "synced".to_string(),
-        supply_invariants_ok,
-        supply_invariant_error,
-        fail_fast_enabled:
-            kanari_move_runtime_v1::state::StateManager::supply_invariant_fail_fast_enabled(),
+        network: report.guards.network,
+        supply_invariants_ok: report.supply_invariants_ok,
+        supply_invariant_error: report.supply_invariant_error,
+        fail_fast_enabled: report.guards.fail_fast_supply_enabled,
+        strict_persistence_required: report.guards.strict_persistence_required,
+        strict_checkpoint_roots: report.guards.strict_checkpoint_roots,
+        persistent_storage_available: report.guards.persistent_storage_available,
     };
 
     respond_with_serialize(request.id, health)

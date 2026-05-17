@@ -190,9 +190,10 @@ fn find_workspace_root() -> Result<PathBuf> {
             .unwrap_or(false)
     }
 
-    let mut candidates = Vec::new();
-    candidates.push(std::env::current_dir()?);
-    candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+    let candidates = vec![
+        std::env::current_dir()?,
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+    ];
 
     for mut path in candidates {
         loop {

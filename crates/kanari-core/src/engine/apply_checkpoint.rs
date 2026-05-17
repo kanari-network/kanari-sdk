@@ -12,6 +12,10 @@ use std::sync::{Arc, RwLock};
 impl BlockchainEngine {
     /// Helper: Common steps for finalizing Checkpoint to database
     fn finalize_checkpoint(&self, checkpoint: Checkpoint, new_state: StateManager) -> Result<()> {
+        new_state
+            .validate_supply_invariants()
+            .context("Supply invariants failed before checkpoint commit")?;
+
         // 1. Update canonical state
         {
             let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
@@ -59,7 +63,11 @@ impl BlockchainEngine {
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .compute_state_root();
-        if computed_root != checkpoint.state_root {
+        if !self.checkpoint_root_matches(
+            checkpoint.sequence,
+            &computed_root,
+            &checkpoint.state_root,
+        )? {
             warn!("[ENGINE] State root mismatch! Fallback to standard application.");
             return self.apply_checkpoint(checkpoint);
         }
@@ -106,7 +114,11 @@ impl BlockchainEngine {
         let verified_state = {
             let state_read = state_arc.read().unwrap_or_else(|e| e.into_inner());
             let computed_root = state_read.compute_state_root();
-            if computed_root != checkpoint.state_root {
+            if !self.checkpoint_root_matches(
+                checkpoint.sequence,
+                &computed_root,
+                &checkpoint.state_root,
+            )? {
                 warn!("[ENGINE] State root mismatch! Updating to computed root.");
                 checkpoint.state_root = computed_root;
             }

@@ -1,4 +1,7 @@
-use crate::respond_with_serialize;
+use crate::{
+    first_array_param, internal_error_response, invalid_params_response, parse_labeled_params,
+    respond_with_serialize,
+};
 
 use super::{RpcError, RpcRequest, RpcResponse, RpcServerState};
 use kanari_move_runtime_v1::changeset::ChangeSet;
@@ -98,31 +101,17 @@ fn push_tx_details(
     true
 }
 
-fn invalid_params_response(id: u64, message: impl Into<String>) -> RpcResponse {
-    RpcResponse {
-        jsonrpc: "2.0".into(),
-        result: None,
-        error: Some(RpcError::invalid_params(message.into())),
-        id,
-    }
+fn parse_hex_address(id: u64, raw: &str, field: &str) -> Result<Address, Box<RpcResponse>> {
+    Address::from_hex_literal(raw).map_err(|e| {
+        Box::new(invalid_params_response(
+            id,
+            format!("Invalid {}: {}", field, e),
+        ))
+    })
 }
 
-fn internal_error_response(id: u64, message: impl Into<String>) -> RpcResponse {
-    RpcResponse {
-        jsonrpc: "2.0".into(),
-        result: None,
-        error: Some(RpcError::internal_error(message.into())),
-        id,
-    }
-}
-
-fn parse_hex_address(id: u64, raw: &str, field: &str) -> Result<Address, RpcResponse> {
-    Address::from_hex_literal(raw)
-        .map_err(|e| invalid_params_response(id, format!("Invalid {}: {}", field, e)))
-}
-
-fn required_signature(id: u64, signature: Option<Vec<u8>>) -> Result<Vec<u8>, RpcResponse> {
-    signature.ok_or_else(|| invalid_params_response(id, "Missing signature"))
+fn required_signature(id: u64, signature: Option<Vec<u8>>) -> Result<Vec<u8>, Box<RpcResponse>> {
+    signature.ok_or_else(|| Box::new(invalid_params_response(id, "Missing signature")))
 }
 
 fn extract_hash_param(params: &serde_json::Value) -> Option<String> {
@@ -134,26 +123,6 @@ fn extract_hash_param(params: &serde_json::Value) -> Option<String> {
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
         })
-}
-
-fn parse_request_params<T: serde::de::DeserializeOwned>(
-    id: u64,
-    params: &serde_json::Value,
-    label: &str,
-) -> Result<T, RpcResponse> {
-    serde_json::from_value(params.clone())
-        .map_err(|e| invalid_params_response(id, format!("Invalid {}: {}", label, e)))
-}
-
-fn first_array_param<'a>(
-    id: u64,
-    params: &'a serde_json::Value,
-) -> Result<&'a serde_json::Value, RpcResponse> {
-    let arr = params
-        .as_array()
-        .ok_or_else(|| invalid_params_response(id, "Expected array params"))?;
-    arr.first()
-        .ok_or_else(|| invalid_params_response(id, "Empty params array"))
 }
 
 fn build_publish_signed_tx(module_data: PublishModuleRequest) -> SignedTransaction {
@@ -502,14 +471,14 @@ pub async fn handle_submit_transaction(
 
     let sender = match parse_hex_address(request.id, &tx_data.sender, "sender address") {
         Ok(addr) => addr,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     let transaction =
         if let (Some(recipient_str), Some(amount)) = (&tx_data.recipient, tx_data.amount) {
             let recipient = match parse_hex_address(request.id, recipient_str, "recipient") {
                 Ok(addr) => addr,
-                Err(response) => return response,
+                Err(response) => return *response,
             };
 
             Transaction::Transfer {
@@ -549,7 +518,7 @@ pub async fn handle_submit_transaction(
 
     let sig = match required_signature(request.id, tx_data.signature) {
         Ok(sig) => sig,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     let mut signed_tx = SignedTransaction::new(transaction);
@@ -707,13 +676,13 @@ pub async fn handle_get_all_transactions(
 /// Handle publish module request
 pub async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let module_data: PublishModuleRequest =
-        match parse_request_params(request.id, &request.params, "module data") {
+        match parse_labeled_params(request.id, &request.params, "module data") {
             Ok(data) => data,
-            Err(response) => return response,
+            Err(response) => return *response,
         };
 
     if let Err(response) = parse_hex_address(request.id, &module_data.sender, "sender address") {
-        return response;
+        return *response;
     }
 
     let execute_immediate = module_data.execute_immediate.unwrap_or(true);
@@ -732,16 +701,16 @@ pub async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest)
 /// Handle call function request
 pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let call_data: CallFunctionRequest =
-        match parse_request_params(request.id, &request.params, "call data") {
+        match parse_labeled_params(request.id, &request.params, "call data") {
             Ok(data) => data,
-            Err(response) => return response,
+            Err(response) => return *response,
         };
 
     if let Err(response) = parse_hex_address(request.id, &call_data.sender, "sender address") {
-        return response;
+        return *response;
     }
     if let Err(response) = parse_hex_address(request.id, &call_data.package, "package address") {
-        return response;
+        return *response;
     }
 
     let execute_immediate = call_data.execute_immediate.unwrap_or(true);
@@ -761,17 +730,17 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
 pub async fn handle_view_function(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let first_param = match first_array_param(request.id, &request.params) {
         Ok(param) => param,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     let view_data: ViewFunctionRequest =
-        match parse_request_params(request.id, first_param, "view function data") {
+        match parse_labeled_params(request.id, first_param, "view function data") {
             Ok(data) => data,
-            Err(response) => return response,
+            Err(response) => return *response,
         };
 
     if let Err(response) = parse_hex_address(request.id, &view_data.package, "package address") {
-        return response;
+        return *response;
     }
 
     info!(

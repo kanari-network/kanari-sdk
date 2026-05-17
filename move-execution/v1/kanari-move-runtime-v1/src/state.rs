@@ -158,7 +158,16 @@ impl StateManager {
                     "1" | "true" | "yes" | "on"
                 )
             })
-            .unwrap_or(false)
+            .unwrap_or_else(|_| {
+                matches!(
+                    std::env::var("KANARI_NETWORK")
+                        .unwrap_or_else(|_| "testnet".to_string())
+                        .trim()
+                        .to_ascii_lowercase()
+                        .as_str(),
+                    "mainnet"
+                )
+            })
     }
 
     fn report_supply_invariant_violation(context: &str, error: &anyhow::Error) {

@@ -1,26 +1,10 @@
-use crate::{RpcServerState, respond_with_serialize};
-use kanari_rpc_api::{RpcError, RpcRequest, RpcResponse};
+use crate::{
+    RpcServerState, invalid_params_response, parse_labeled_params, respond_with_serialize,
+};
+use kanari_rpc_api::{RpcRequest, RpcResponse};
 use kanari_types::address::Address;
 use serde::Deserialize;
 use serde_json::json;
-
-fn invalid_params_response(id: u64, message: impl Into<String>) -> RpcResponse {
-    RpcResponse {
-        jsonrpc: "2.0".into(),
-        result: None,
-        error: Some(RpcError::invalid_params(message.into())),
-        id,
-    }
-}
-
-fn parse_params<T: serde::de::DeserializeOwned>(
-    id: u64,
-    params: &serde_json::Value,
-    label: &str,
-) -> Result<T, RpcResponse> {
-    serde_json::from_value(params.clone())
-        .map_err(|_| invalid_params_response(id, format!("Invalid {}", label)))
-}
 
 #[allow(dead_code)]
 #[derive(Deserialize)]
@@ -108,9 +92,9 @@ fn parse_collection_fields(
 }
 
 pub async fn handle_get_owned_nfts(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let address_str: String = match parse_params(request.id, &request.params, "address") {
+    let address_str: String = match parse_labeled_params(request.id, &request.params, "address") {
         Ok(addr) => addr,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     let addr = match Address::parse_to_account_address(&address_str) {
@@ -174,9 +158,9 @@ pub async fn handle_get_nfts_by_collection(
     state: &RpcServerState,
     request: &RpcRequest,
 ) -> RpcResponse {
-    let coll_id: String = match parse_params(request.id, &request.params, "id") {
+    let coll_id: String = match parse_labeled_params(request.id, &request.params, "id") {
         Ok(id) => id,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     let state_guard = state.engine.state.read().unwrap_or_else(|p| p.into_inner());

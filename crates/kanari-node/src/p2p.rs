@@ -524,7 +524,6 @@ impl P2PEventHandler {
                         }
 
                         if !self.forward_message(msg, "[P2P] Failed to forward P2P message") {
-                            return;
                         }
                     }
                     Err(e) => {

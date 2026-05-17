@@ -202,8 +202,8 @@ impl MoveVMState {
         if tag.module.as_str() == "coin" && tag.name.as_str() == "Coin" {
             let obj_key = Self::object_key(address);
 
-            if let Ok(Some(obj_bytes)) = self.store.load::<Vec<u8>>(obj_key.as_bytes()) {
-                if let Ok(mut created_obj) =
+            if let Ok(Some(obj_bytes)) = self.store.load::<Vec<u8>>(obj_key.as_bytes())
+                && let Ok(mut created_obj) =
                     bcs::from_bytes::<crate::changeset::CreatedObject>(&obj_bytes)
                 {
                     created_obj.data = blob.to_vec();
@@ -212,7 +212,6 @@ impl MoveVMState {
                     let updated_bytes = bcs::to_bytes(&created_obj)?;
                     self.store.save(obj_key.as_bytes(), &updated_bytes)?;
                 }
-            }
         }
 
         Ok(())
@@ -231,12 +230,11 @@ impl MoveVMState {
     /// Load object payload bytes from the stored `CreatedObject` wrapper.
     pub fn get_object(&self, object_id: &AccountAddress) -> Option<Vec<u8>> {
         let obj_key = Self::object_key(object_id);
-        if let Ok(Some(obj_bytes)) = self.store.load::<Vec<u8>>(obj_key.as_bytes()) {
-            if let Ok(created_obj) = bcs::from_bytes::<crate::changeset::CreatedObject>(&obj_bytes)
+        if let Ok(Some(obj_bytes)) = self.store.load::<Vec<u8>>(obj_key.as_bytes())
+            && let Ok(created_obj) = bcs::from_bytes::<crate::changeset::CreatedObject>(&obj_bytes)
             {
                 return Some(created_obj.data);
             }
-        }
         None
     }
 
