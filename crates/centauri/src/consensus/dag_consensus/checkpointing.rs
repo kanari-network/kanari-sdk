@@ -198,7 +198,7 @@ pub struct CheckpointStats {
 }
 
 impl DagConsensus {
-    fn collect_checkpoint_transactions(
+    pub(crate) fn collect_checkpoint_transactions(
         &self,
         vertices_to_commit: &[VertexId],
     ) -> Vec<SignedTransaction> {
@@ -222,15 +222,21 @@ impl DagConsensus {
         all_transactions
     }
 
-    fn checkpoint_state_root(&self, vertices_to_commit: &[VertexId]) -> Result<Vec<u8>> {
-        let final_vertex_id = vertices_to_commit
-            .last()
-            .ok_or_else(|| anyhow::anyhow!("Checkpoint has no vertices"))?;
-
-        self.store
-            .get_vertex(final_vertex_id)
-            .map(|vertex| vertex.metadata.state_root.clone())
-            .ok_or_else(|| anyhow::anyhow!("Checkpoint references missing final vertex"))
+    pub(crate) fn checkpoint_state_root(
+        &self,
+        _vertices_to_commit: &[VertexId],
+        _checkpoint_transactions: &[SignedTransaction],
+    ) -> Result<Vec<u8>> {
+        // DAG vertices carry speculative execution roots that may depend on a broader
+        // parent ancestry than the transaction set that will ultimately be committed in
+        // this checkpoint. The canonical checkpoint root must therefore be derived by the
+        // execution engine when it replays `checkpoint.transactions` against the canonical
+        // pre-checkpoint state.
+        //
+        // Until that canonical root is computed, consensus should advertise only the
+        // latest finalized checkpoint root as a provisional placeholder instead of
+        // reusing a vertex-local speculative root.
+        Ok(self.store.latest_checkpoint().state_root.clone())
     }
 
     pub fn try_commit(&mut self) -> Result<Option<Checkpoint>> {
@@ -313,8 +319,8 @@ impl DagConsensus {
                     let checkpoint = Checkpoint::new(
                         latest.sequence + 1,
                         vertices_to_commit.clone(),
-                        all_transactions,
-                        self.checkpoint_state_root(&vertices_to_commit)?,
+                        all_transactions.clone(),
+                        self.checkpoint_state_root(&vertices_to_commit, &all_transactions)?,
                         leader_vertex.timestamp,
                         prev_hash,
                     );

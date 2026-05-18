@@ -871,6 +871,41 @@ mod tests {
     }
 
     #[test]
+    fn test_non_empty_checkpoint_root_is_provisional_until_engine_replay() {
+        let authorities = vec!["0x1".to_string()];
+        let mut consensus = DagConsensus::new("0x1".to_string(), authorities);
+
+        let tx = SignedTransaction::new(Transaction::Transfer {
+            from: "0x1".to_string(),
+            to: "0x2".to_string(),
+            amount: 1,
+            gas_limit: 1000,
+            gas_price: 1,
+            sequence_number: 0,
+        });
+
+        let vertex = consensus
+            .create_vertex(
+                vec![tx.clone()],
+                vec![9u8; 32],
+                1,
+            )
+            .unwrap();
+        let vertex_id = vertex.id;
+        consensus.add_vertex(vertex).unwrap();
+
+        let vertices_to_commit = consensus.collect_vertices_to_commit(vertex_id).unwrap();
+        let checkpoint_transactions = consensus.collect_checkpoint_transactions(&vertices_to_commit);
+        let provisional_root = consensus
+            .checkpoint_state_root(&vertices_to_commit, &checkpoint_transactions)
+            .unwrap();
+
+        assert_eq!(checkpoint_transactions.len(), 1);
+        assert_eq!(provisional_root, Checkpoint::genesis().state_root);
+        assert_ne!(provisional_root, vec![9u8; 32]);
+    }
+
+    #[test]
     fn test_reject_timestamp_far_ahead_of_old_parents() {
         let authorities = vec![
             "auth1".to_string(),

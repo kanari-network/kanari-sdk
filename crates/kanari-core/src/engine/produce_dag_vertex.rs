@@ -163,20 +163,23 @@ impl DagEngine {
         history_vertices: &[VertexId],
         current_txs: impl Iterator<Item = &'a kanari_types::transaction::SignedTransaction>,
         chain: &centauri::blockchain::Blockchain,
+        include_history: bool,
     ) -> Result<Vec<kanari_types::transaction::SignedTransaction>> {
         let mut seen_tx_hashes = std::collections::HashSet::new();
         let mut all_to_execute = Vec::new();
         let consensus = self.consensus.read().unwrap();
 
         // 1. Fetch from old History (Parent generation Vertices)
-        for v_id in history_vertices {
-            if let Some(v) = consensus.store().get_vertex(v_id) {
-                for signed_tx in &v.transactions {
-                    let tx_hash = signed_tx.hash();
-                    if seen_tx_hashes.insert(tx_hash.clone())
-                        && !chain.is_transaction_executed(&hex::encode(&tx_hash))
-                    {
-                        all_to_execute.push(signed_tx.clone());
+        if include_history {
+            for v_id in history_vertices {
+                if let Some(v) = consensus.store().get_vertex(v_id) {
+                    for signed_tx in &v.transactions {
+                        let tx_hash = signed_tx.hash();
+                        if seen_tx_hashes.insert(tx_hash.clone())
+                            && !chain.is_transaction_executed(&hex::encode(&tx_hash))
+                        {
+                            all_to_execute.push(signed_tx.clone());
+                        }
                     }
                 }
             }
@@ -374,8 +377,12 @@ impl DagEngine {
             let state_arc = Arc::new(RwLock::new(state_clone));
 
             // Fetch all TXs using Helper
-            let all_to_execute =
-                self.collect_unexecuted_txs(&history_vertices, transactions.iter(), &chain)?;
+            let all_to_execute = self.collect_unexecuted_txs(
+                &history_vertices,
+                transactions.iter(),
+                &chain,
+                !transactions.is_empty(),
+            )?;
 
             info!(
                 "[DAG] Executing {} transactions in parallel waves",
@@ -611,8 +618,12 @@ impl DagEngine {
                     consensus.collect_history_for_parents(&vertex.parents)?
                 };
 
-                let all_to_execute =
-                    self.collect_unexecuted_txs(&history_vertices, transactions.iter(), &chain)?;
+                let all_to_execute = self.collect_unexecuted_txs(
+                    &history_vertices,
+                    transactions.iter(),
+                    &chain,
+                    !transactions.is_empty(),
+                )?;
 
                 if all_to_execute.is_empty() {
                     info!(
@@ -690,7 +701,7 @@ impl DagEngine {
                 checkpoint.transactions.len()
             );
 
-            let checkpoint = match self.apply_checkpoint_once(checkpoint, "[DAG SYNC]", false) {
+            let checkpoint = match self.apply_checkpoint_once(checkpoint, "[DAG SYNC]", true) {
                 Ok(checkpoint) => checkpoint,
                 Err(e) => {
                     error!(
@@ -792,5 +803,98 @@ mod tests {
 
         let catch_up_vertex = dag_b.produce_vertex().unwrap();
         assert_eq!(catch_up_vertex.round, 1);
+    }
+
+    #[test]
+    fn test_empty_vertex_does_not_reexecute_history_transactions() {
+        let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
+
+        let mut engine_a = BlockchainEngine::new().unwrap();
+        engine_a.set_authorities("0x1".to_string(), authorities.clone());
+        let engine_a = Arc::new(engine_a);
+        let dag_a = DagEngine::new(engine_a, "0x1".to_string(), authorities.clone()).unwrap();
+
+        let tx = SignedTransaction::new(Transaction::Transfer {
+            from: "0x1".to_string(),
+            to: "0x2".to_string(),
+            amount: 1,
+            gas_limit: 1000,
+            gas_price: 1,
+            sequence_number: 0,
+        });
+        dag_a
+            .engine
+            .pending_txs
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(tx);
+
+        let tx_vertex = dag_a.produce_vertex().unwrap();
+        assert_eq!(tx_vertex.tx_count, 1);
+        assert_eq!(tx_vertex.executed, 1);
+
+        let remote_round_one = tx_vertex.vertex.unwrap();
+
+        let mut engine_b = BlockchainEngine::new().unwrap();
+        engine_b.set_authorities("0x2".to_string(), authorities);
+        let engine_b = Arc::new(engine_b);
+        let dag_b = DagEngine::new(engine_b, "0x2".to_string(), vec![
+            "0x1".to_string(),
+            "0x2".to_string(),
+            "0x3".to_string(),
+        ])
+        .unwrap();
+
+        dag_b.add_network_vertex(remote_round_one).unwrap();
+
+        let empty_vertex = dag_b.produce_vertex().unwrap();
+        assert_eq!(empty_vertex.tx_count, 0);
+        assert_eq!(empty_vertex.executed, 0);
+    }
+
+    #[test]
+    fn test_apply_checkpoint_once_overrides_provisional_root() {
+        let mut engine = BlockchainEngine::new().unwrap();
+        engine.set_authorities(
+            "0x1".to_string(),
+            vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()],
+        );
+        let engine = Arc::new(engine);
+        let dag_engine = DagEngine::new(
+            engine.clone(),
+            "0x1".to_string(),
+            vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()],
+        )
+        .unwrap();
+
+        let tx = SignedTransaction::new(Transaction::Transfer {
+            from: "0x1".to_string(),
+            to: "0x2".to_string(),
+            amount: 1,
+            gas_limit: 1000,
+            gas_price: 1,
+            sequence_number: 0,
+        });
+
+        let prev_hash = {
+            let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            chain.latest_checkpoint().hash().unwrap()
+        };
+
+        let provisional_checkpoint = centauri::consensus::Checkpoint::new(
+            1,
+            vec![],
+            vec![tx],
+            vec![7u8; 32],
+            1,
+            prev_hash,
+        );
+
+        let resolved = dag_engine
+            .apply_checkpoint_once(provisional_checkpoint, "[TEST]", true)
+            .unwrap();
+
+        assert_ne!(resolved.state_root, vec![7u8; 32]);
+        assert_eq!(resolved.sequence, 1);
     }
 }
