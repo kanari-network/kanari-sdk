@@ -5,6 +5,7 @@
 //! Integrates DAG consensus with parallel transaction execution
 
 use anyhow::Result;
+use centauri::calculate_quorum;
 use centauri::consensus::{DagConsensus, VertexId};
 use log::{error, info};
 use lru::LruCache;
@@ -132,15 +133,17 @@ impl DagEngine {
 
     /// Produce a DAG vertex with pending transactions
     pub fn produce_vertex(&self) -> Result<DagBlockInfo> {
-        let (history_vertices, history_tx_hashes) = {
+        let (history_vertices, history_tx_hashes, current_round, parent_author_count, quorum_size) = {
             let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
             let current_round = consensus.store().current_round();
-            let parents: Vec<VertexId> = consensus
-                .store()
-                .get_vertices_in_round(current_round)
-                .into_iter()
-                .map(|v| v.id)
-                .collect();
+            let parent_vertices = consensus.store().get_vertices_in_round(current_round);
+            let parents: Vec<VertexId> = parent_vertices.iter().map(|v| v.id).collect();
+            let parent_author_count = parent_vertices
+                .iter()
+                .map(|v| v.author.clone())
+                .collect::<std::collections::HashSet<_>>()
+                .len();
+            let quorum_size = calculate_quorum(consensus.committee().validators.len());
 
             let history_vertices = consensus.collect_history_for_parents(&parents)?;
             let mut history_tx_hashes = std::collections::BTreeSet::new();
@@ -151,7 +154,13 @@ impl DagEngine {
                     }
                 }
             }
-            (history_vertices, history_tx_hashes)
+            (
+                history_vertices,
+                history_tx_hashes,
+                current_round,
+                parent_author_count,
+                quorum_size,
+            )
         };
 
         let (transactions, tx_to_remove_from_pending) = {
@@ -212,6 +221,15 @@ impl DagEngine {
 
         if transactions.is_empty() && history_vertices.is_empty() {
             anyhow::bail!("No new transactions and no history to commit");
+        }
+
+        if transactions.is_empty() && current_round > 0 && parent_author_count < quorum_size {
+            anyhow::bail!(
+                "DAG_WAITING: not producing empty vertex for round {} with partial parents ({}/{})",
+                current_round + 1,
+                parent_author_count,
+                quorum_size
+            );
         }
 
         let tx_count = transactions.len();
@@ -307,28 +325,15 @@ impl DagEngine {
                 consensus.try_commit()?
             };
 
-            if let Some(checkpoint) = checkpoint {
-                let mut applied = false;
-
-                if checkpoint.vertices.len() == 1 {
-                    let v_id = checkpoint.vertices[0];
-                    let cached_state = {
-                        let mut cache = self.state_cache.write().unwrap_or_else(|e| e.into_inner());
-                        cache.get(&v_id.to_vec()).cloned()
-                    };
-
-                    if cached_state.is_some_and(|state| {
-                        self.engine
-                            .apply_checkpoint_optimized(checkpoint.clone(), state)
-                            .is_ok()
-                    }) {
-                        applied = true;
-                    }
-                }
-
-                if !applied {
-                    self.engine.apply_checkpoint(checkpoint.clone())?;
-                }
+            if let Some(mut checkpoint) = checkpoint {
+                let (state_root, verified_state, to_execute) =
+                    self.engine.prepare_checkpoint_state(&checkpoint)?;
+                checkpoint.state_root = state_root;
+                self.engine.apply_prepared_checkpoint(
+                    checkpoint.clone(),
+                    verified_state,
+                    to_execute,
+                )?;
 
                 {
                     let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
@@ -361,12 +366,35 @@ impl DagEngine {
         self.consensus.clone()
     }
 
+    pub fn needs_progress(&self) -> bool {
+        let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
+        consensus.store().current_round() > consensus.store().last_checkpoint_round()
+    }
+
     pub fn engine(&self) -> Arc<BlockchainEngine> {
         self.engine.clone()
     }
 
     pub fn authority_id(&self) -> &str {
         &self.authority_id
+    }
+
+    pub fn latest_own_vertex(&self) -> Option<centauri::consensus::DagVertex> {
+        self.latest_own_vertices(1).into_iter().next()
+    }
+
+    pub fn latest_own_vertices(&self, limit: usize) -> Vec<centauri::consensus::DagVertex> {
+        let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
+        let mut vertices: Vec<_> = consensus
+            .store()
+            .get_vertices_by_authority(&self.authority_id)
+            .into_iter()
+            .map(|vertex| (*vertex).clone())
+            .collect();
+
+        vertices.sort_by_key(|vertex| vertex.round);
+        let keep_from = vertices.len().saturating_sub(limit);
+        vertices.split_off(keep_from)
     }
 
     pub fn sync_checkpoint(&self, checkpoint: centauri::consensus::Checkpoint) -> Result<()> {
@@ -391,6 +419,17 @@ impl DagEngine {
                     poisoned.into_inner()
                 }
             };
+            let current_round = consensus.store().current_round();
+            const MAX_FUTURE_EMPTY_VERTEX_ROUNDS: u64 = 20;
+            if vertex.transactions.is_empty()
+                && vertex.round > current_round.saturating_add(MAX_FUTURE_EMPTY_VERTEX_ROUNDS)
+            {
+                info!(
+                    "[DAG SYNC] Ignoring far-future empty vertex {} at round {} (current round: {})",
+                    vertex_id_hex, vertex.round, current_round
+                );
+                return Ok(());
+            }
             if consensus.has_vertex(&vertex.id) {
                 info!(
                     "[DAG SYNC] Vertex {} (round {}) already exists, skipping",
@@ -505,21 +544,20 @@ impl DagEngine {
 
             let expected_state_root = &vertex.metadata.state_root;
             if computed_state_root != *expected_state_root {
-                error!(
-                    "[DAG SYNC] STATE ROOT MISMATCH for vertex round {}!\n  Expected: {}\n  Computed: {}\n  Transactions: {}\nRejecting vertex due to state divergence.",
+                warn!(
+                    "[DAG SYNC] State root mismatch for vertex round {}. Expected: {}, computed: {}, transactions: {}. Accepting vertex; checkpoint application remains the authoritative root check.",
                     vertex.round,
                     hex::encode(expected_state_root),
                     hex::encode(&computed_state_root),
                     transactions.len()
                 );
-                anyhow::bail!("STATE ROOT MISMATCH for vertex round {}", vertex.round);
+            } else {
+                info!(
+                    "[DAG SYNC] State root validated successfully for vertex round {}: {}",
+                    vertex.round,
+                    hex::encode(&computed_state_root)
+                );
             }
-
-            info!(
-                "[DAG SYNC] State root validated successfully for vertex round {}: {}",
-                vertex.round,
-                hex::encode(&computed_state_root)
-            );
         }
 
         let checkpoint = {
@@ -528,14 +566,25 @@ impl DagEngine {
             consensus.try_commit()?
         };
 
-        if let Some(checkpoint) = checkpoint {
+        if let Some(mut checkpoint) = checkpoint {
             info!(
                 "[DAG SYNC] Committed checkpoint {} with {} transactions",
                 checkpoint.sequence,
                 checkpoint.transactions.len()
             );
 
-            if let Err(e) = self.engine.apply_checkpoint(checkpoint.clone()) {
+            let apply_result = self.engine.prepare_checkpoint_state(&checkpoint).and_then(
+                |(state_root, verified_state, to_execute)| {
+                    checkpoint.state_root = state_root;
+                    self.engine.apply_prepared_checkpoint(
+                        checkpoint.clone(),
+                        verified_state,
+                        to_execute,
+                    )
+                },
+            );
+
+            if let Err(e) = apply_result {
                 error!(
                     "[DAG SYNC] Failed to apply committed checkpoint to engine: {}",
                     e

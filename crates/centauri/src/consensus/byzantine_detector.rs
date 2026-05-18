@@ -508,7 +508,7 @@ mod tests {
         let insufficient_parent = [0u8; 32];
         vertex.parents = vec![insufficient_parent];
 
-        assert!(detector.check_vertex_validity(&vertex, 4).is_ok());
+        assert!(detector.check_vertex_validity(&vertex, 4).is_err());
         assert_eq!(detector.get_faults().len(), 1);
         assert_eq!(detector.get_reputation("auth1"), 90);
     }

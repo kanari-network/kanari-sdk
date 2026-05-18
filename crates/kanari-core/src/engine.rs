@@ -1173,6 +1173,22 @@ impl BlockchainEngine {
         dag_engine.produce_vertex()
     }
 
+    pub fn should_produce_dag_progress(&self) -> bool {
+        let dag_engine_guard = match self.dag_engine.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                log::error!(
+                    "DAG engine lock poisoned in should_produce_dag_progress, recovering..."
+                );
+                poisoned.into_inner()
+            }
+        };
+
+        dag_engine_guard
+            .as_ref()
+            .is_some_and(|dag_engine| dag_engine.needs_progress())
+    }
+
     fn clone_for_dag(&self) -> BlockchainEngine {
         BlockchainEngine {
             blockchain: self.blockchain.clone(),
@@ -1217,6 +1233,20 @@ impl BlockchainEngine {
 
     pub fn get_dag_engine(&self) -> Option<Arc<RwLock<Option<DagEngine>>>> {
         Some(self.dag_engine.clone())
+    }
+
+    pub fn latest_checkpoint_hash_hex(&self) -> String {
+        let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
+        chain
+            .latest_checkpoint()
+            .hash()
+            .map(hex::encode)
+            .unwrap_or_default()
+    }
+
+    pub fn latest_checkpoint_state_root_hex(&self) -> String {
+        let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
+        hex::encode(&chain.latest_checkpoint().state_root)
     }
 
     pub fn get_stats(&self) -> BlockchainStats {
@@ -1399,6 +1429,29 @@ impl BlockchainEngine {
         })
     }
 
+    pub fn block_from_full_data(full_block: &FullBlockData) -> kanari_types::block::Block {
+        use kanari_types::block::{Block, BlockHeader};
+        use smt::compute_merkle_root;
+
+        let tx_hashes: Vec<Vec<u8>> = full_block.transactions.iter().map(|tx| tx.hash()).collect();
+        let merkle_root = compute_merkle_root(&tx_hashes);
+
+        let header = BlockHeader::new(
+            full_block.height,
+            hex::decode(&full_block.prev_hash).unwrap_or_default(),
+            hex::decode(&full_block.state_root).unwrap_or_default(),
+            merkle_root,
+            full_block.tx_count,
+            full_block.timestamp,
+        );
+
+        Block {
+            header,
+            transactions: full_block.transactions.clone(),
+            events: full_block.events.clone(),
+        }
+    }
+
     fn decode_hex(s: &str) -> Result<Vec<u8>> {
         hex::decode(s.trim_start_matches("0x")).context("Invalid hex string")
     }
@@ -1508,9 +1561,14 @@ impl BlockchainEngine {
 #[cfg(test)]
 mod tests {
     use super::BlockchainEngine;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn mainnet_defaults_enable_strict_runtime_guards() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
         unsafe {
             std::env::set_var("KANARI_NETWORK", "mainnet");
             std::env::remove_var("KANARI_REQUIRE_PERSISTENT_STORAGE");
@@ -1527,6 +1585,8 @@ mod tests {
 
     #[test]
     fn explicit_env_overrides_strict_runtime_guards() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
         unsafe {
             std::env::set_var("KANARI_NETWORK", "mainnet");
             std::env::set_var("KANARI_REQUIRE_PERSISTENT_STORAGE", "false");

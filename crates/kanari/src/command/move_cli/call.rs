@@ -135,7 +135,7 @@ impl Call {
 
         // Query account sequence number so signature and RPC include it (fail-fast)
         let client = build_blocking_client(30)?;
-        let seq_num: u64 = get_account_sequence(&client, &rpc, &sender_normalized)?;
+        let seq_num: u64 = get_account_sequence(&client, &rpc, &sender_for_tx)?;
 
         // Sign transaction using the loaded wallet via SignedTransaction
         let signed_tx = {

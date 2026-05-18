@@ -602,6 +602,7 @@ impl ParallelValidator {
     }
 
     pub fn cache_stats(&self) -> usize {
+        self.validated_cache.run_pending_tasks();
         self.validated_cache.entry_count() as usize
     }
 
@@ -862,8 +863,7 @@ mod tests {
         assert!(results2.iter().all(|r| r.is_valid));
 
         let size = validator.cache_stats();
-        // size is usize (unsigned), so it's always >= 0 by definition
-        assert!(size > 0 || size == 0); // Always true, but documents intent
+        assert_eq!(size, results1.len());
 
         Ok(())
     }

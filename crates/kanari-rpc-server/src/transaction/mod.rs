@@ -685,7 +685,7 @@ pub async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest)
         return *response;
     }
 
-    let execute_immediate = module_data.execute_immediate.unwrap_or(true);
+    let execute_immediate = module_data.execute_immediate.unwrap_or(false);
     let signed_tx = build_publish_signed_tx(module_data);
 
     execute_or_submit_response(
@@ -713,7 +713,7 @@ pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) 
         return *response;
     }
 
-    let execute_immediate = call_data.execute_immediate.unwrap_or(true);
+    let execute_immediate = call_data.execute_immediate.unwrap_or(false);
     let signed_tx = build_call_signed_tx(call_data);
 
     execute_or_submit_response(

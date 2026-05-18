@@ -18,7 +18,6 @@ kanari-rpc-server = { workspace = true }
 kanari-types = { workspace = true }
 kanari-crypto = { workspace = true }
 kanari-indexer = { path = "../kanari-indexer" }
-smt = { workspace = true }
 move-core-types = { workspace = true }
 centauri = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

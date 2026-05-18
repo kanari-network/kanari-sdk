@@ -22,7 +22,7 @@ mod peer_store;
 mod sync;
 
 use indexer::NodeIndexer;
-use p2p::{P2PEventHandler, P2PMessage, P2PNetwork};
+use p2p::{DagVertexMsg, P2PEventHandler, P2PMessage, P2PNetwork};
 use peer_store::PeerStore;
 use sync::SyncManager;
 
@@ -179,6 +179,52 @@ fn serialize_and_queue_message<T: Serialize>(
         Err(e) => {
             tracing::error!("{}: {}", serialize_context, e);
             None
+        }
+    }
+}
+
+fn rebroadcast_latest_dag_vertex(
+    engine: &Arc<BlockchainEngine>,
+    network_tx: &tokio::sync::mpsc::UnboundedSender<P2PMessage>,
+    peer_id: &str,
+) {
+    let Some(dag_engine_lock) = engine.get_dag_engine() else {
+        return;
+    };
+
+    let dag_engine = {
+        let guard = dag_engine_lock.read().unwrap_or_else(|e| e.into_inner());
+        guard.as_ref().cloned()
+    };
+
+    let Some(dag_engine) = dag_engine else {
+        return;
+    };
+
+    let vertices = dag_engine.latest_own_vertices(16);
+    if vertices.is_empty() {
+        return;
+    }
+
+    let nonce_base = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64;
+
+    for vertex in vertices {
+        if let Ok(vertex_data) = serde_json::to_string(&vertex) {
+            let msg = P2PMessage::DagVertexRebroadcast(DagVertexMsg {
+                vertex_data,
+                nonce: nonce_base ^ vertex.round,
+                sender_peer_id: peer_id.to_string(),
+            });
+            if queue_network_message(network_tx, msg, "Failed to queue DAG vertex rebroadcast") {
+                tracing::info!(
+                    "Rebroadcasting DAG vertex {} (round {}) while waiting for quorum",
+                    hex::encode(vertex.id),
+                    vertex.round
+                );
+            }
         }
     }
 }
@@ -511,7 +557,7 @@ async fn run_node(
 
         let mut did_work = false;
 
-        if stats.pending_transactions > 0 {
+        if stats.pending_transactions > 0 || engine.should_produce_dag_progress() {
             match engine.produce_block() {
                 Ok(block_info) => {
                     did_work = true;
@@ -547,30 +593,7 @@ async fn run_node(
                     if let Some(ref node_idx) = node_indexer {
                         let current_height = engine.blockchain.read().unwrap().height();
                         if let Some(full_block_data) = engine.get_full_block(current_height) {
-                            use kanari_types::block::{Block, BlockHeader};
-                            use smt::compute_merkle_root;
-
-                            let tx_hashes: Vec<Vec<u8>> = full_block_data
-                                .transactions
-                                .iter()
-                                .map(|tx| tx.hash())
-                                .collect();
-                            let merkle_root = compute_merkle_root(&tx_hashes);
-
-                            let header = BlockHeader::new(
-                                full_block_data.height,
-                                hex::decode(&full_block_data.prev_hash).unwrap_or_default(),
-                                hex::decode(&full_block_data.state_root).unwrap_or_default(),
-                                merkle_root,
-                                full_block_data.tx_count,
-                                full_block_data.timestamp,
-                            );
-
-                            let block = Block {
-                                header,
-                                transactions: full_block_data.transactions.clone(),
-                                events: vec![],
-                            };
+                            let block = BlockchainEngine::block_from_full_data(&full_block_data);
 
                             match node_idx.index_block(&block) {
                                 Ok(_) => {
@@ -606,7 +629,14 @@ async fn run_node(
                     }
                 }
                 Err(e) => {
-                    if !e.to_string().contains("DAG not ready") {
+                    let error_text = e.to_string();
+                    if error_text.contains("DAG_WAITING")
+                        || error_text.contains("SYNC_WAITING")
+                        || error_text.contains("Not enough parents for quorum")
+                    {
+                        tracing::info!("Block production waiting: {}", error_text);
+                        rebroadcast_latest_dag_vertex(&engine, &network_tx, &peer_id);
+                    } else if !error_text.contains("DAG not ready") {
                         tracing::error!("Block production failed: {}", e);
                     }
                 }

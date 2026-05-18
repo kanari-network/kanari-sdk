@@ -113,7 +113,7 @@ impl Publish {
         let mut skipped_count = 0;
 
         // === Fetch base sequence number once to avoid race conditions ===
-        let base_seq: u64 = get_account_sequence(&client, &rpc, &sender_normalized)?;
+        let base_seq: u64 = get_account_sequence(&client, &rpc, &sender_for_tx)?;
 
         // Next sequence to use for publishing modules (increment only when a module is actually published)
         let mut next_seq = base_seq;

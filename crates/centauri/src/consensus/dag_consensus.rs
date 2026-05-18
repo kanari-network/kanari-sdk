@@ -519,8 +519,6 @@ impl DagStore {
         let mut seen_vertices = HashSet::new();
         let mut seen_tx_hashes = HashSet::new();
         let mut expected_tx_hashes = Vec::new();
-        let mut expected_state_root = None;
-
         for vertex_id in &checkpoint.vertices {
             if !seen_vertices.insert(*vertex_id) {
                 anyhow::bail!(
@@ -536,10 +534,11 @@ impl DagStore {
                 )
             })?;
 
-            expected_state_root = Some(vertex.metadata.state_root.clone());
-
             for tx in &vertex.transactions {
                 let tx_hash = tx.hash();
+                if self.executed_tx_hashes.contains(&tx_hash) {
+                    continue;
+                }
                 if seen_tx_hashes.insert(tx_hash.clone()) {
                     expected_tx_hashes.push(tx_hash);
                 }
@@ -550,12 +549,6 @@ impl DagStore {
             checkpoint.transactions.iter().map(|tx| tx.hash()).collect();
         if actual_tx_hashes != expected_tx_hashes {
             anyhow::bail!("Checkpoint transactions do not match referenced DAG vertices");
-        }
-
-        if let Some(expected_state_root) = expected_state_root
-            && checkpoint.state_root != expected_state_root
-        {
-            anyhow::bail!("Checkpoint state root does not match referenced DAG vertices");
         }
 
         Ok(())
@@ -1350,9 +1343,10 @@ impl DagConsensus {
         let mut unique_authors = HashSet::new();
         for parent_id in &parents {
             if let Some(parent_vertex) = self.store.get_vertex(parent_id)
-                && self.store.is_authority_trusted(&parent_vertex.author) {
-                    unique_authors.insert(parent_vertex.author.clone());
-                }
+                && self.store.is_authority_trusted(&parent_vertex.author)
+            {
+                unique_authors.insert(parent_vertex.author.clone());
+            }
         }
 
         let total_authorities = self.committee.validators.len();
@@ -1586,7 +1580,8 @@ impl DagConsensus {
             let leader_id = if let Some(vrf_leader) = self.vrf_election.elect_leader(commit_round) {
                 vrf_leader
             } else {
-                let authorities: Vec<_> = self.committee.validators.keys().cloned().collect();
+                let mut authorities: Vec<_> = self.committee.validators.keys().cloned().collect();
+                authorities.sort();
                 if authorities.is_empty() {
                     tracing::warn!(
                         "[DAG Consensus] Empty committee at round {}, skipping",

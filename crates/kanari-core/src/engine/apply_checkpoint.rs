@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::BlockchainEngine;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use centauri::consensus::Checkpoint;
 use kanari_move_runtime_v1::state::StateManager;
 use kanari_types::transaction::SignedTransaction;
@@ -10,6 +10,36 @@ use log::{error, info, warn};
 use std::sync::{Arc, RwLock};
 
 impl BlockchainEngine {
+    pub(crate) fn prepare_checkpoint_state(
+        &self,
+        checkpoint: &Checkpoint,
+    ) -> Result<(Vec<u8>, StateManager, Vec<SignedTransaction>)> {
+        let state_snapshot = self.state.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let state_arc = Arc::new(RwLock::new(state_snapshot));
+        let mut to_execute: Vec<SignedTransaction> = Vec::new();
+
+        {
+            let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            for signed_tx in &checkpoint.transactions {
+                if !chain.is_transaction_executed(&hex::encode(signed_tx.hash())) {
+                    to_execute.push(signed_tx.clone());
+                }
+            }
+        }
+
+        self.execute_tx_waves_parallel(
+            to_execute.clone(),
+            &state_arc,
+            Some(checkpoint.timestamp),
+            false, // persist_objects = false
+            true,  // strict_mode = true
+        )?;
+
+        let verified_state = state_arc.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let computed_root = verified_state.compute_state_root();
+        Ok((computed_root, verified_state, to_execute))
+    }
+
     /// Helper: Common steps for finalizing Checkpoint to database
     fn finalize_checkpoint(&self, checkpoint: Checkpoint, new_state: StateManager) -> Result<()> {
         new_state
@@ -49,6 +79,28 @@ impl BlockchainEngine {
         Ok(())
     }
 
+    pub(crate) fn apply_prepared_checkpoint(
+        &self,
+        checkpoint: Checkpoint,
+        verified_state: StateManager,
+        to_execute: Vec<SignedTransaction>,
+    ) -> Result<()> {
+        if !to_execute.is_empty() {
+            let side_effect_state = Arc::new(RwLock::new(
+                self.state.read().unwrap_or_else(|e| e.into_inner()).clone(),
+            ));
+            self.execute_tx_waves_parallel(
+                to_execute,
+                &side_effect_state,
+                Some(checkpoint.timestamp),
+                true, // persist_objects = true
+                true, // strict_mode = true
+            )?;
+        }
+
+        self.finalize_checkpoint(checkpoint, verified_state)
+    }
+
     pub fn apply_checkpoint_optimized(
         &self,
         checkpoint: Checkpoint,
@@ -72,7 +124,6 @@ impl BlockchainEngine {
             return self.apply_checkpoint(checkpoint);
         }
 
-        // Call Helper
         self.finalize_checkpoint(
             checkpoint,
             precomputed_state
@@ -82,50 +133,28 @@ impl BlockchainEngine {
         )
     }
 
-    pub fn apply_checkpoint(&self, mut checkpoint: Checkpoint) -> Result<()> {
+    pub fn apply_checkpoint(&self, checkpoint: Checkpoint) -> Result<()> {
         info!(
             "[ENGINE] Applying checkpoint {} with {} txs",
             checkpoint.sequence,
             checkpoint.transactions.len()
         );
 
-        let state_snapshot = self.state.read().unwrap_or_else(|e| e.into_inner()).clone();
-        let state_arc = Arc::new(RwLock::new(state_snapshot));
-        let mut to_execute: Vec<SignedTransaction> = Vec::new();
-
-        {
-            let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
-            for signed_tx in &checkpoint.transactions {
-                if !chain.is_transaction_executed(&hex::encode(signed_tx.hash())) {
-                    to_execute.push(signed_tx.clone());
-                }
-            }
+        let (computed_root, verified_state, to_execute) =
+            self.prepare_checkpoint_state(&checkpoint)?;
+        if !self.checkpoint_root_matches(
+            checkpoint.sequence,
+            &computed_root,
+            &checkpoint.state_root,
+        )? {
+            bail!(
+                "[ENGINE] State root mismatch for checkpoint {}. expected={}, computed={}",
+                checkpoint.sequence,
+                hex::encode(&checkpoint.state_root),
+                hex::encode(&computed_root)
+            );
         }
 
-        // 🚨 Call Helper from engine.rs instead of writing new Par_iter loop
-        let (_executed_count, _) = self.execute_tx_waves_parallel(
-            to_execute,
-            &state_arc,
-            Some(checkpoint.timestamp),
-            true, // persist_objects = true
-            true, // strict_mode = true (throw immediately on failure)
-        )?;
-
-        let verified_state = {
-            let state_read = state_arc.read().unwrap_or_else(|e| e.into_inner());
-            let computed_root = state_read.compute_state_root();
-            if !self.checkpoint_root_matches(
-                checkpoint.sequence,
-                &computed_root,
-                &checkpoint.state_root,
-            )? {
-                warn!("[ENGINE] State root mismatch! Updating to computed root.");
-                checkpoint.state_root = computed_root;
-            }
-            state_read.clone()
-        };
-
-        // Call Helper
-        self.finalize_checkpoint(checkpoint, verified_state)
+        self.apply_prepared_checkpoint(checkpoint, verified_state, to_execute)
     }
 }
