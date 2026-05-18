@@ -392,10 +392,24 @@ fn execute_or_submit_response(
     action: &str,
     pending_submit_error: &str,
 ) -> RpcResponse {
+    // let defer_to_consensus = state.engine.should_defer_user_execution_to_consensus();
+    // let effective_execute_immediate = execute_immediate && !defer_to_consensus;
+
+    // if execute_immediate && defer_to_consensus {
+    //     info!(
+    //         "{} requested immediate execution, but multi-authority DAG mode is active; deferring to consensus",
+    //         action
+    //     );
+    // }
+
+    // if !effective_execute_immediate {
+    //     return submit_pending_response(state, request_id, signed_tx, action, pending_submit_error);
+    // }
+    
     if !execute_immediate {
         return submit_pending_response(state, request_id, signed_tx, action, pending_submit_error);
     }
-
+    
     let exec_tx = signed_tx.clone();
     match state.engine.execute_transaction_immediate(exec_tx) {
         Ok((tx_hash, changeset)) => {

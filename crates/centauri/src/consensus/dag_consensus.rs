@@ -838,6 +838,32 @@ mod tests {
     }
 
     #[test]
+    fn test_genesis_vertices_are_deterministic_across_nodes() {
+        let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
+
+        let consensus_a = DagConsensus::new("0x1".to_string(), authorities.clone());
+        let consensus_b = DagConsensus::new("0x2".to_string(), authorities);
+
+        let mut round_zero_a: Vec<_> = consensus_a
+            .store
+            .get_vertex_ids_in_round(0)
+            .into_iter()
+            .map(hex::encode)
+            .collect();
+        let mut round_zero_b: Vec<_> = consensus_b
+            .store
+            .get_vertex_ids_in_round(0)
+            .into_iter()
+            .map(hex::encode)
+            .collect();
+
+        round_zero_a.sort();
+        round_zero_b.sort();
+
+        assert_eq!(round_zero_a, round_zero_b);
+    }
+
+    #[test]
     fn test_checkpoint_creation() {
         let checkpoint = Checkpoint::genesis();
         assert_eq!(checkpoint.sequence, 0);

@@ -368,25 +368,50 @@ impl BlockchainEngine {
     ) -> Result<(usize, usize)> {
         let mut executed_count = 0;
         let mut failed_count = 0;
+        let has_module_publish = transactions
+            .iter()
+            .any(|tx| matches!(tx.transaction, Transaction::PublishModule { .. }));
 
         let waves = kanari_move_runtime_v1::TransactionScheduler::schedule(transactions);
 
+        if has_module_publish {
+            // Keep speculative publish execution deterministic across authorities.
+            // PublishModule depends on VM/module cache state more heavily than regular
+            // user transactions, so we reset the shared cache and execute on one
+            // runtime in a fixed serial order for DAG production / validation.
+            self.runtime_pool[0].reload_vm_cache()?;
+        }
+
         for wave in waves {
-            let results: Vec<Result<ChangeSet>> = wave
-                .par_iter()
-                .enumerate()
-                .map(|(i, signed_tx)| {
-                    let runtime = &self.runtime_pool[i % self.runtime_pool.len()];
-                    self.execute_transaction_with_runtime_internal(
-                        &signed_tx.transaction,
-                        runtime,
-                        state_arc,
-                        false,
-                        timestamp,
-                        persist_objects,
-                    )
-                })
-                .collect();
+            let results: Vec<Result<ChangeSet>> = if has_module_publish {
+                wave.iter()
+                    .map(|signed_tx| {
+                        self.execute_transaction_with_runtime_internal(
+                            &signed_tx.transaction,
+                            &self.runtime_pool[0],
+                            state_arc,
+                            false,
+                            timestamp,
+                            persist_objects,
+                        )
+                    })
+                    .collect()
+            } else {
+                wave.par_iter()
+                    .enumerate()
+                    .map(|(i, signed_tx)| {
+                        let runtime = &self.runtime_pool[i % self.runtime_pool.len()];
+                        self.execute_transaction_with_runtime_internal(
+                            &signed_tx.transaction,
+                            runtime,
+                            state_arc,
+                            false,
+                            timestamp,
+                            persist_objects,
+                        )
+                    })
+                    .collect()
+            };
 
             // Apply changesets with proper error handling to prevent node crashes
             let mut state_write = match state_arc.write() {
@@ -1157,9 +1182,13 @@ impl BlockchainEngine {
 
             let quorum_needed = calculate_quorum(num_authorities);
 
-            let parents_available = store.get_vertices_in_round(current_round).len();
+            let current_round_vertices = store.get_vertices_in_round(current_round);
+            let parents_available = current_round_vertices.len();
+            let local_has_vertex_in_current_round = current_round_vertices
+                .iter()
+                .any(|vertex| vertex.author == dag_engine.authority_id());
 
-            if current_round > 0 && parents_available < quorum_needed {
+            if current_round > 0 && parents_available < quorum_needed && local_has_vertex_in_current_round {
                 anyhow::bail!(
                     "SYNC_WAITING: have {}/{} vertices in round {} (need quorum for round {})",
                     parents_available,
@@ -1229,6 +1258,10 @@ impl BlockchainEngine {
 
     pub fn get_authorities(&self) -> Vec<String> {
         self.authorities.clone()
+    }
+
+    pub fn should_defer_user_execution_to_consensus(&self) -> bool {
+        self.authorities.len() > 1
     }
 
     pub fn get_dag_engine(&self) -> Option<Arc<RwLock<Option<DagEngine>>>> {
@@ -1601,5 +1634,21 @@ mod tests {
             std::env::remove_var("KANARI_REQUIRE_PERSISTENT_STORAGE");
             std::env::remove_var("KANARI_STRICT_CHECKPOINT_ROOTS");
         }
+    }
+
+    #[test]
+    fn single_authority_engine_allows_immediate_execution() {
+        let engine = BlockchainEngine::new().unwrap();
+        assert!(!engine.should_defer_user_execution_to_consensus());
+    }
+
+    #[test]
+    fn multi_authority_engine_defers_execution_to_consensus() {
+        let mut engine = BlockchainEngine::new().unwrap();
+        engine.set_authorities(
+            "0x1".to_string(),
+            vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()],
+        );
+        assert!(engine.should_defer_user_execution_to_consensus());
     }
 }

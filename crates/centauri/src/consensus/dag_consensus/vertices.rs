@@ -89,10 +89,9 @@ impl DagConsensus {
 
         let genesis_state_root = smt::default_hashes()[0].to_vec();
         let total_auths = authorities.len();
-        let genesis_timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        // Genesis vertices must be byte-for-byte deterministic across authorities so
+        // round-1 vertices can reference the same parent IDs on every node.
+        let genesis_timestamp = 0;
 
         for authority in &authorities {
             let genesis_vertex = DagVertex::new(
@@ -262,6 +261,14 @@ impl DagConsensus {
     pub fn suggest_vertex_timestamp(&self, proposed_timestamp: u64) -> u64 {
         let current_round = self.store.current_round();
         let parent_ids = self.store.get_vertex_ids_in_round(current_round);
+        self.suggest_vertex_timestamp_for_parents(&parent_ids, proposed_timestamp)
+    }
+
+    fn suggest_vertex_timestamp_for_parents(
+        &self,
+        parent_ids: &[VertexId],
+        proposed_timestamp: u64,
+    ) -> u64 {
         let parent_timestamps: Vec<u64> = parent_ids
             .iter()
             .filter_map(|parent_id| self.store.get_vertex(parent_id).map(|v| v.timestamp))
@@ -281,7 +288,27 @@ impl DagConsensus {
     ) -> Result<DagVertex> {
         let current_round = self.store.current_round();
         let next_round = current_round + 1;
-        let mut parents = self.store.get_vertex_ids_in_round(current_round);
+        let parents = self.store.get_vertex_ids_in_round(current_round);
+        self.create_vertex_for_round(
+            next_round,
+            parents,
+            transactions,
+            state_root,
+            timestamp,
+        )
+    }
+
+    pub fn create_vertex_for_round(
+        &mut self,
+        target_round: Round,
+        mut parents: Vec<VertexId>,
+        transactions: Vec<SignedTransaction>,
+        state_root: Vec<u8>,
+        timestamp: u64,
+    ) -> Result<DagVertex> {
+        if target_round == 0 {
+            anyhow::bail!("Cannot create a non-genesis vertex for round 0");
+        }
 
         let mut unique_authors = HashSet::new();
         for parent_id in &parents {
@@ -298,17 +325,17 @@ impl DagConsensus {
         if unique_authors.len() < quorum_size {
             anyhow::bail!(
                 "Cannot create vertex for round {}: Not enough parents for quorum. Have {}, need {}",
-                next_round,
+                target_round,
                 unique_authors.len(),
                 quorum_size
             );
         }
 
         parents.sort();
-        let timestamp = self.suggest_vertex_timestamp(timestamp);
+        let timestamp = self.suggest_vertex_timestamp_for_parents(&parents, timestamp);
 
         let mut vertex = DagVertex::new(
-            next_round,
+            target_round,
             self.authority_id.clone(),
             self.chain_id.clone(),
             parents,

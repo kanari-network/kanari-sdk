@@ -55,6 +55,70 @@ pub struct DagEngine {
 }
 
 impl DagEngine {
+    fn apply_checkpoint_once(
+        &self,
+        mut checkpoint: centauri::consensus::Checkpoint,
+        log_prefix: &str,
+        allow_root_override: bool,
+    ) -> Result<centauri::consensus::Checkpoint> {
+        let current_height = self.engine.get_stats().height;
+        if current_height >= checkpoint.sequence {
+            if let Some(canonical) = self.canonical_checkpoint_if_current(checkpoint.sequence) {
+                info!(
+                    "{} Checkpoint {} already finalized at height {}, reusing canonical checkpoint",
+                    log_prefix, checkpoint.sequence, current_height
+                );
+                return Ok(canonical);
+            }
+
+            info!(
+                "{} Checkpoint {} already covered by blockchain height {}, skipping re-apply",
+                log_prefix, checkpoint.sequence, current_height
+            );
+            return Ok(checkpoint);
+        }
+
+        let (computed_root, verified_state, to_execute) =
+            self.engine.prepare_checkpoint_state(&checkpoint)?;
+        if self.engine.checkpoint_root_matches(
+            checkpoint.sequence,
+            &computed_root,
+            &checkpoint.state_root,
+        )? {
+            self.engine
+                .apply_prepared_checkpoint(checkpoint.clone(), verified_state, to_execute)?;
+            return Ok(checkpoint);
+        }
+
+        if !allow_root_override {
+            anyhow::bail!(
+                "{} Checkpoint {} state root mismatch: expected={}, computed={}",
+                log_prefix,
+                checkpoint.sequence,
+                hex::encode(&checkpoint.state_root),
+                hex::encode(&computed_root)
+            );
+        }
+
+        checkpoint.state_root = computed_root;
+        self.engine
+            .apply_prepared_checkpoint(checkpoint.clone(), verified_state, to_execute)?;
+        Ok(checkpoint)
+    }
+
+    fn canonical_checkpoint_if_current(
+        &self,
+        sequence: u64,
+    ) -> Option<centauri::consensus::Checkpoint> {
+        let chain = self
+            .engine
+            .blockchain
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        let latest = chain.latest_checkpoint();
+        (latest.sequence == sequence).then(|| latest.clone())
+    }
+
     /// Create a new DAG engine with default configuration (optimized for 500K TPS)
     pub fn new(
         engine: Arc<BlockchainEngine>,
@@ -133,17 +197,61 @@ impl DagEngine {
 
     /// Produce a DAG vertex with pending transactions
     pub fn produce_vertex(&self) -> Result<DagBlockInfo> {
-        let (history_vertices, history_tx_hashes, current_round, parent_author_count, quorum_size) = {
+        let (
+            history_vertices,
+            history_tx_hashes,
+            current_round,
+            parent_round,
+            target_round,
+            parent_author_count,
+            quorum_size,
+            using_catch_up_round,
+        ) = {
             let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
             let current_round = consensus.store().current_round();
-            let parent_vertices = consensus.store().get_vertices_in_round(current_round);
-            let parents: Vec<VertexId> = parent_vertices.iter().map(|v| v.id).collect();
-            let parent_author_count = parent_vertices
+            let current_round_vertices = consensus.store().get_vertices_in_round(current_round);
+            let has_local_vertex_in_current_round = current_round_vertices
+                .iter()
+                .any(|vertex| vertex.author == self.authority_id);
+            let current_round_parent_author_count = current_round_vertices
                 .iter()
                 .map(|v| v.author.clone())
                 .collect::<std::collections::HashSet<_>>()
                 .len();
             let quorum_size = calculate_quorum(consensus.committee().validators.len());
+
+            let (parent_round, target_round, parent_vertices, parent_author_count, using_catch_up_round) =
+                if current_round > 0
+                    && !has_local_vertex_in_current_round
+                    && current_round_parent_author_count < quorum_size
+                {
+                    let catch_up_parent_round = current_round.saturating_sub(1);
+                    let catch_up_parent_vertices =
+                        consensus.store().get_vertices_in_round(catch_up_parent_round);
+                    let catch_up_parent_author_count = catch_up_parent_vertices
+                        .iter()
+                        .map(|v| v.author.clone())
+                        .collect::<std::collections::HashSet<_>>()
+                        .len();
+
+                    (
+                        catch_up_parent_round,
+                        current_round,
+                        catch_up_parent_vertices,
+                        catch_up_parent_author_count,
+                        true,
+                    )
+                } else {
+                    (
+                        current_round,
+                        current_round + 1,
+                        current_round_vertices,
+                        current_round_parent_author_count,
+                        false,
+                    )
+                };
+
+            let parents: Vec<VertexId> = parent_vertices.iter().map(|v| v.id).collect();
 
             let history_vertices = consensus.collect_history_for_parents(&parents)?;
             let mut history_tx_hashes = std::collections::BTreeSet::new();
@@ -158,8 +266,11 @@ impl DagEngine {
                 history_vertices,
                 history_tx_hashes,
                 current_round,
+                parent_round,
+                target_round,
                 parent_author_count,
                 quorum_size,
+                using_catch_up_round,
             )
         };
 
@@ -226,7 +337,7 @@ impl DagEngine {
         if transactions.is_empty() && current_round > 0 && parent_author_count < quorum_size {
             anyhow::bail!(
                 "DAG_WAITING: not producing empty vertex for round {} with partial parents ({}/{})",
-                current_round + 1,
+                target_round,
                 parent_author_count,
                 quorum_size
             );
@@ -296,7 +407,20 @@ impl DagEngine {
         let events: Vec<Event> = Vec::new();
         let vertex = {
             let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
-            let v = consensus.create_vertex(transactions.clone(), state_root.clone(), timestamp)?;
+            let parent_ids = consensus.store().get_vertex_ids_in_round(parent_round);
+            let v = consensus.create_vertex_for_round(
+                target_round,
+                parent_ids,
+                transactions.clone(),
+                state_root.clone(),
+                timestamp,
+            )?;
+            if using_catch_up_round {
+                info!(
+                    "[DAG] Created catch-up vertex for round {} using parents from round {}",
+                    v.round, parent_round
+                );
+            }
             info!(
                 "[DAG] Created vertex for round {} with {} transactions",
                 v.round,
@@ -325,15 +449,8 @@ impl DagEngine {
                 consensus.try_commit()?
             };
 
-            if let Some(mut checkpoint) = checkpoint {
-                let (state_root, verified_state, to_execute) =
-                    self.engine.prepare_checkpoint_state(&checkpoint)?;
-                checkpoint.state_root = state_root;
-                self.engine.apply_prepared_checkpoint(
-                    checkpoint.clone(),
-                    verified_state,
-                    to_execute,
-                )?;
+            if let Some(checkpoint) = checkpoint {
+                let checkpoint = self.apply_checkpoint_once(checkpoint, "[DAG]", true)?;
 
                 {
                     let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
@@ -545,7 +662,7 @@ impl DagEngine {
             let expected_state_root = &vertex.metadata.state_root;
             if computed_state_root != *expected_state_root {
                 warn!(
-                    "[DAG SYNC] State root mismatch for vertex round {}. Expected: {}, computed: {}, transactions: {}. Accepting vertex; checkpoint application remains the authoritative root check.",
+                    "[DAG SYNC] State root mismatch for vertex round {}. Expected: {}, computed: {}, transactions: {}. Accepting vertex; checkpoint validation remains authoritative.",
                     vertex.round,
                     hex::encode(expected_state_root),
                     hex::encode(&computed_state_root),
@@ -566,33 +683,26 @@ impl DagEngine {
             consensus.try_commit()?
         };
 
-        if let Some(mut checkpoint) = checkpoint {
+        if let Some(checkpoint) = checkpoint {
             info!(
                 "[DAG SYNC] Committed checkpoint {} with {} transactions",
                 checkpoint.sequence,
                 checkpoint.transactions.len()
             );
 
-            let apply_result = self.engine.prepare_checkpoint_state(&checkpoint).and_then(
-                |(state_root, verified_state, to_execute)| {
-                    checkpoint.state_root = state_root;
-                    self.engine.apply_prepared_checkpoint(
-                        checkpoint.clone(),
-                        verified_state,
-                        to_execute,
-                    )
-                },
-            );
+            let checkpoint = match self.apply_checkpoint_once(checkpoint, "[DAG SYNC]", false) {
+                Ok(checkpoint) => checkpoint,
+                Err(e) => {
+                    error!(
+                        "[DAG SYNC] Failed to apply committed checkpoint to engine: {}",
+                        e
+                    );
+                    return Err(e);
+                }
+            };
 
-            if let Err(e) = apply_result {
-                error!(
-                    "[DAG SYNC] Failed to apply committed checkpoint to engine: {}",
-                    e
-                );
-            } else {
-                let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
-                let _ = consensus.add_checkpoint(checkpoint);
-            }
+            let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
+            consensus.add_checkpoint(checkpoint)?;
         }
 
         Ok(())
@@ -615,5 +725,72 @@ mod tests {
 
         let dag_engine = DagEngine::new(engine, "auth1".to_string(), authorities);
         assert!(dag_engine.is_ok());
+    }
+
+    #[test]
+    fn test_apply_checkpoint_once_reuses_canonical_checkpoint() {
+        let engine = Arc::new(BlockchainEngine::new().unwrap());
+        let authorities = vec![
+            "auth1".to_string(),
+            "auth2".to_string(),
+            "auth3".to_string(),
+            "auth4".to_string(),
+        ];
+        let dag_engine = DagEngine::new(engine.clone(), "auth1".to_string(), authorities).unwrap();
+
+        let prev_hash = {
+            let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            chain.latest_checkpoint().hash().unwrap()
+        };
+        let canonical_root = engine
+            .state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .compute_state_root();
+        let checkpoint = centauri::consensus::Checkpoint::new(
+            1,
+            vec![],
+            vec![],
+            canonical_root.clone(),
+            1,
+            prev_hash,
+        );
+
+        let verified_state = engine
+            .state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        engine
+            .apply_prepared_checkpoint(checkpoint.clone(), verified_state, vec![])
+            .unwrap();
+
+        let mut stale_checkpoint = checkpoint.clone();
+        stale_checkpoint.state_root = vec![9u8; 32];
+
+        let resolved = dag_engine
+            .apply_checkpoint_once(stale_checkpoint, "[TEST]", false)
+            .unwrap();
+
+        assert_eq!(resolved.sequence, checkpoint.sequence);
+        assert_eq!(resolved.state_root, checkpoint.state_root);
+    }
+
+    #[test]
+    fn test_can_create_catch_up_vertex_for_partial_round() {
+        let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
+
+        let engine_a = Arc::new(BlockchainEngine::new().unwrap());
+        let dag_a = DagEngine::new(engine_a, "0x1".to_string(), authorities.clone()).unwrap();
+        let remote_round_one = dag_a.produce_vertex().unwrap();
+        let remote_vertex = remote_round_one.vertex.unwrap();
+        assert_eq!(remote_vertex.round, 1);
+
+        let engine_b = Arc::new(BlockchainEngine::new().unwrap());
+        let dag_b = DagEngine::new(engine_b, "0x2".to_string(), authorities).unwrap();
+        dag_b.add_network_vertex(remote_vertex).unwrap();
+
+        let catch_up_vertex = dag_b.produce_vertex().unwrap();
+        assert_eq!(catch_up_vertex.round, 1);
     }
 }

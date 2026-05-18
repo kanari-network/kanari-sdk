@@ -39,8 +39,10 @@ pub struct Committee {
 impl Committee {
     fn compute_quorum_size(validators: &[ValidatorInfo]) -> usize {
         let total = validators.len();
-        let f = (total.saturating_sub(1)) / 3;
-        2 * f + 1
+        if total == 0 {
+            return 0;
+        }
+        (2 * total + 2) / 3
     }
 
     pub fn new(epoch: u64, validators: Vec<ValidatorInfo>) -> Self {
@@ -357,8 +359,19 @@ mod tests {
         let committee = create_test_committee();
         assert_eq!(committee.epoch, 0);
         assert_eq!(committee.validators.len(), 4);
-        // 4 validators, f = (4-1)/3 = 1, quorum = 2*1+1 = 3
+        // 4 validators require a 2/3 supermajority quorum of 3
         assert_eq!(committee.quorum_size, 3);
+    }
+
+    #[test]
+    fn test_three_validator_quorum_is_not_single_vote() {
+        let validators = vec![
+            create_test_validator("auth1"),
+            create_test_validator("auth2"),
+            create_test_validator("auth3"),
+        ];
+        let committee = Committee::new(0, validators);
+        assert_eq!(committee.quorum_size, 2);
     }
 
     #[test]
@@ -390,7 +403,7 @@ mod tests {
         manager.propose_change(change, 1).unwrap();
         let new_committee = manager.advance_epoch(1).unwrap();
         assert_eq!(new_committee.validators.len(), 5);
-        // 5 validators, f = (5-1)/3 = 1, quorum = 2*1+1 = 3
-        assert_eq!(new_committee.quorum_size, 3);
+        // 5 validators require a 2/3 supermajority quorum of 4
+        assert_eq!(new_committee.quorum_size, 4);
     }
 }
