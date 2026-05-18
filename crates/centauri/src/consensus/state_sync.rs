@@ -460,52 +460,6 @@ impl StateSynchronizer {
         Ok(())
     }
 
-    pub fn get_sync_progress(&self) -> Option<&SyncProgress> {
-        self.sync_progress.as_ref()
-    }
-
-    pub fn is_syncing(&self) -> bool {
-        self.sync_progress
-            .as_ref()
-            .map(|p| {
-                // FIX #8: Check both completion AND timeout
-                // Previously nodes could get stuck in syncing state forever if network failed
-                !p.is_complete() && !p.is_timed_out()
-            })
-            .unwrap_or(false)
-    }
-
-    // FIX #8: Check if sync has timed out and should be reset
-    pub fn check_sync_timeout(&mut self) -> bool {
-        if let Some(ref progress) = self.sync_progress
-            && progress.is_timed_out()
-        {
-            tracing::warn!(
-                "[Sync] Sync timeout detected! Resetting sync progress after {} seconds",
-                SyncProgress::SYNC_TIMEOUT_SECS
-            );
-            self.sync_progress = None;
-            return true;
-        }
-        false
-    }
-
-    pub fn get_latest_checkpoint(&self) -> Option<&Checkpoint> {
-        self.checkpoints.get(&self.latest_checkpoint)
-    }
-
-    pub fn get_checkpoint(&self, sequence: u64) -> Option<&Checkpoint> {
-        self.checkpoints.get(&sequence)
-    }
-
-    pub fn get_round_vertices(&self, round: Round) -> Option<&[Arc<DagVertex>]> {
-        self.vertices_by_round.get(&round).map(|v| v.as_slice())
-    }
-
-    pub fn get_latest_round(&self) -> Round {
-        self.latest_round
-    }
-
     pub fn prune_old_data(&mut self, before_checkpoint: u64, before_round: Round) {
         self.checkpoints.retain(|seq, _| *seq >= before_checkpoint);
         self.vertices_by_round
@@ -540,14 +494,6 @@ impl StateSynchronizer {
             self.orphan_buffer.len()
         );
     }
-
-    pub fn get_memory_stats(&self) -> (usize, usize, usize) {
-        (
-            self.checkpoints.len(),
-            self.vertices_by_round.len(),
-            self.orphan_buffer.len(),
-        )
-    }
 }
 
 impl Default for StateSynchronizer {
@@ -558,14 +504,12 @@ impl Default for StateSynchronizer {
 
 /// Fast state sync using checkpoints (skip intermediate vertices)
 pub struct FastSync {
-    checkpoint_interval: Round,
     checkpoints: Vec<Checkpoint>,
 }
 
 impl FastSync {
-    pub fn new(checkpoint_interval: Round) -> Self {
+    pub fn new(_checkpoint_interval: Round) -> Self {
         Self {
-            checkpoint_interval,
             checkpoints: vec![Checkpoint::genesis()],
         }
     }
@@ -574,23 +518,6 @@ impl FastSync {
         self.checkpoints.push(checkpoint);
     }
 
-    pub fn get_fast_sync_checkpoint(&self, min_age: u64) -> Option<&Checkpoint> {
-        let interval_check = self.checkpoint_interval > 0;
-        let current_seq = self.checkpoints.last().map(|c| c.sequence).unwrap_or(0);
-
-        if !interval_check {
-            return self.checkpoints.last();
-        }
-
-        self.checkpoints
-            .iter()
-            .rev()
-            .find(|c| current_seq - c.sequence >= min_age)
-    }
-
-    pub fn checkpoints_to_skip(&self, from_checkpoint: u64, to_checkpoint: u64) -> u64 {
-        to_checkpoint.saturating_sub(from_checkpoint)
-    }
 }
 
 #[cfg(test)]
@@ -623,7 +550,7 @@ mod tests {
         sync.add_checkpoint(checkpoint);
 
         assert_eq!(sync.latest_checkpoint, 1);
-        assert!(sync.get_checkpoint(1).is_some());
+        assert!(sync.checkpoints.contains_key(&1));
     }
 
     #[test]

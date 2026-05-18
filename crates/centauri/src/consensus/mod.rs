@@ -4,8 +4,8 @@
 // Core DAG consensus components
 mod dag_consensus;
 pub use dag_consensus::{
-    AuthorityId, Checkpoint, DagConsensus, DagStore, DagVertex, PersistentDagState, Round,
-    VertexId, VertexMetadata,
+    AuthorityId, Checkpoint, CheckpointStats, DagConsensus, DagStore, DagVertex,
+    PersistentDagState, Round, VertexId, VertexMetadata,
 };
 
 // Cryptographic primitives
@@ -46,8 +46,8 @@ pub use state_sync::{FastSync, StateSynchronizer, SyncProgress, SyncRequest, Syn
 // Light client functionality
 mod light_client;
 pub use light_client::{
-    CheckpointBuilder, CheckpointSignature, LightCheckpoint, LightClient, LightClientQuery,
-    StateProof, TransactionProof,
+    CheckpointBuilder, CheckpointSignature, LightCheckpoint, LightClient, StateProof,
+    TransactionProof,
 };
 
 // Committee management

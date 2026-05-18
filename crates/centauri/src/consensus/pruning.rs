@@ -416,19 +416,6 @@ impl DagPruner {
         age_secs >= retention_secs
     }
 
-    /// Force prune all vertices before a specific round (admin operation)
-    pub fn force_prune_before_round(
-        &mut self,
-        store: &PersistentDagStore,
-        before_round: Round,
-    ) -> Result<usize> {
-        // Use the new optimized prune_old_vertices with start_round parameter
-        let pruned = store.prune_old_vertices(self.last_cleaned_round, before_round)?;
-        self.last_cleaned_round = before_round;
-        self.last_prune_round = before_round;
-        Ok(pruned)
-    }
-
     /// Get the current pruning configuration
     pub fn config(&self) -> &PruningConfig {
         &self.config
@@ -693,29 +680,6 @@ mod tests {
                 seq
             );
         }
-
-        Ok(())
-    }
-
-    #[cfg_attr(miri, ignore)]
-    #[test]
-    fn test_force_prune() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        let store = PersistentDagStore::new(temp_dir.path())?;
-
-        // Create vertices
-        for round in 0..20 {
-            let vertex = create_test_vertex(round, "validator_0".to_string(), true);
-            store.put_vertex(&vertex)?;
-        }
-
-        let config = PruningConfig::default();
-        let mut pruner = DagPruner::new(config)?;
-
-        // Force prune everything before round 15
-        let pruned = pruner.force_prune_before_round(&store, 15)?;
-        assert_eq!(pruned, 15);
-        assert_eq!(pruner.last_prune_round(), 15);
 
         Ok(())
     }

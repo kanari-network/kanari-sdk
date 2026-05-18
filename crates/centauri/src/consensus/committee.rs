@@ -66,14 +66,6 @@ impl Committee {
         self.validators.contains_key(authority)
     }
 
-    pub fn active_validators(&self) -> Vec<&ValidatorInfo> {
-        self.validators.values().filter(|v| v.active).collect()
-    }
-
-    pub fn has_quorum(&self, support_count: usize) -> bool {
-        support_count >= self.quorum_size
-    }
-
     pub fn verify_quorum_certificate(&self, signers: &[AuthorityId]) -> Result<()> {
         let unique_signers: std::collections::HashSet<&str> =
             signers.iter().map(|s| s.as_str()).collect();
@@ -98,28 +90,6 @@ impl Committee {
         }
     }
 
-    /// Create next epoch committee with validator additions and removals
-    /// This is a convenience method for simple epoch transitions
-    pub fn next_epoch_committee(
-        &self,
-        new_validators: Vec<ValidatorInfo>,
-        removed_validators: Vec<AuthorityId>,
-    ) -> Self {
-        let mut next_validators = self.validators.clone();
-
-        // Remove validators
-        for id in removed_validators {
-            next_validators.remove(&id);
-        }
-
-        // Add new validators
-        for v in new_validators {
-            next_validators.insert(v.authority_id.clone(), v);
-        }
-
-        let validators: Vec<ValidatorInfo> = next_validators.into_values().collect();
-        Self::new(self.epoch + 1, validators)
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -216,14 +186,6 @@ impl CommitteeManager {
         }
     }
 
-    pub fn current_committee(&self) -> &Committee {
-        &self.current_committee
-    }
-
-    pub fn get_committee(&self, epoch: u64) -> Option<&Committee> {
-        self.committee_history.get(&epoch)
-    }
-
     pub fn propose_change(&mut self, change: CommitteeChange, target_epoch: u64) -> Result<()> {
         Self::ensure_future_epoch(self.current_committee.epoch, target_epoch, "Propose change")?;
 
@@ -298,10 +260,6 @@ impl CommitteeManager {
         Ok(new_committee)
     }
 
-    pub fn get_pending_changes(&self, epoch: u64) -> Option<&[CommitteeChange]> {
-        self.pending_changes.get(&epoch).map(|v| v.as_slice())
-    }
-
     pub fn prune_old_data(&mut self) {
         let current_epoch = self.current_committee.epoch;
         let max_future_epoch = current_epoch + MAX_PENDING_EPOCHS;
@@ -313,10 +271,6 @@ impl CommitteeManager {
             self.committee_history
                 .retain(|&epoch, _| epoch >= cutoff_epoch);
         }
-    }
-
-    pub fn get_memory_stats(&self) -> (usize, usize) {
-        (self.pending_changes.len(), self.committee_history.len())
     }
 
     pub fn verify_change_tx(&self, tx: &CommitteeChangeTx, chain_id: &str) -> Result<()> {
@@ -410,8 +364,8 @@ mod tests {
     #[test]
     fn test_quorum_verification() {
         let committee = create_test_committee();
-        assert!(committee.has_quorum(3));
-        assert!(!committee.has_quorum(2));
+        assert!(3 >= committee.quorum_size);
+        assert!(2 < committee.quorum_size);
     }
 
     #[test]
