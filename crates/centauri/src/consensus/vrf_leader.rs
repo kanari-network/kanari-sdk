@@ -376,7 +376,6 @@ impl VrfLeaderElection {
             self.vrf_cache.len()
         );
     }
-
 }
 
 impl Default for VrfLeaderElection {

@@ -405,11 +405,11 @@ fn execute_or_submit_response(
     // if !effective_execute_immediate {
     //     return submit_pending_response(state, request_id, signed_tx, action, pending_submit_error);
     // }
-    
+
     if !execute_immediate {
         return submit_pending_response(state, request_id, signed_tx, action, pending_submit_error);
     }
-    
+
     let exec_tx = signed_tx.clone();
     match state.engine.execute_transaction_immediate(exec_tx) {
         Ok((tx_hash, changeset)) => {

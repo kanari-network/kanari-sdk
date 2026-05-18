@@ -85,8 +85,11 @@ impl DagEngine {
             &computed_root,
             &checkpoint.state_root,
         )? {
-            self.engine
-                .apply_prepared_checkpoint(checkpoint.clone(), verified_state, to_execute)?;
+            self.engine.apply_prepared_checkpoint(
+                checkpoint.clone(),
+                verified_state,
+                to_execute,
+            )?;
             return Ok(checkpoint);
         }
 
@@ -223,36 +226,42 @@ impl DagEngine {
                 .len();
             let quorum_size = calculate_quorum(consensus.committee().validators.len());
 
-            let (parent_round, target_round, parent_vertices, parent_author_count, using_catch_up_round) =
-                if current_round > 0
-                    && !has_local_vertex_in_current_round
-                    && current_round_parent_author_count < quorum_size
-                {
-                    let catch_up_parent_round = current_round.saturating_sub(1);
-                    let catch_up_parent_vertices =
-                        consensus.store().get_vertices_in_round(catch_up_parent_round);
-                    let catch_up_parent_author_count = catch_up_parent_vertices
-                        .iter()
-                        .map(|v| v.author.clone())
-                        .collect::<std::collections::HashSet<_>>()
-                        .len();
+            let (
+                parent_round,
+                target_round,
+                parent_vertices,
+                parent_author_count,
+                using_catch_up_round,
+            ) = if current_round > 0
+                && !has_local_vertex_in_current_round
+                && current_round_parent_author_count < quorum_size
+            {
+                let catch_up_parent_round = current_round.saturating_sub(1);
+                let catch_up_parent_vertices = consensus
+                    .store()
+                    .get_vertices_in_round(catch_up_parent_round);
+                let catch_up_parent_author_count = catch_up_parent_vertices
+                    .iter()
+                    .map(|v| v.author.clone())
+                    .collect::<std::collections::HashSet<_>>()
+                    .len();
 
-                    (
-                        catch_up_parent_round,
-                        current_round,
-                        catch_up_parent_vertices,
-                        catch_up_parent_author_count,
-                        true,
-                    )
-                } else {
-                    (
-                        current_round,
-                        current_round + 1,
-                        current_round_vertices,
-                        current_round_parent_author_count,
-                        false,
-                    )
-                };
+                (
+                    catch_up_parent_round,
+                    current_round,
+                    catch_up_parent_vertices,
+                    catch_up_parent_author_count,
+                    true,
+                )
+            } else {
+                (
+                    current_round,
+                    current_round + 1,
+                    current_round_vertices,
+                    current_round_parent_author_count,
+                    false,
+                )
+            };
 
             let parents: Vec<VertexId> = parent_vertices.iter().map(|v| v.id).collect();
 
@@ -838,11 +847,11 @@ mod tests {
         let mut engine_b = BlockchainEngine::new().unwrap();
         engine_b.set_authorities("0x2".to_string(), authorities);
         let engine_b = Arc::new(engine_b);
-        let dag_b = DagEngine::new(engine_b, "0x2".to_string(), vec![
-            "0x1".to_string(),
+        let dag_b = DagEngine::new(
+            engine_b,
             "0x2".to_string(),
-            "0x3".to_string(),
-        ])
+            vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()],
+        )
         .unwrap();
 
         dag_b.add_network_vertex(remote_round_one).unwrap();
@@ -881,14 +890,8 @@ mod tests {
             chain.latest_checkpoint().hash().unwrap()
         };
 
-        let provisional_checkpoint = centauri::consensus::Checkpoint::new(
-            1,
-            vec![],
-            vec![tx],
-            vec![7u8; 32],
-            1,
-            prev_hash,
-        );
+        let provisional_checkpoint =
+            centauri::consensus::Checkpoint::new(1, vec![], vec![tx], vec![7u8; 32], 1, prev_hash);
 
         let resolved = dag_engine
             .apply_checkpoint_once(provisional_checkpoint, "[TEST]", true)

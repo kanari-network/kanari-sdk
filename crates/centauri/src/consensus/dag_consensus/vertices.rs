@@ -145,8 +145,8 @@ impl DagConsensus {
                 e
             )
         });
-        let parallel_validator =
-            ParallelValidator::new(ParallelValidatorConfig::high_throughput()).unwrap_or_else(|e| {
+        let parallel_validator = ParallelValidator::new(ParallelValidatorConfig::high_throughput())
+            .unwrap_or_else(|e| {
                 panic!(
                     "Failed to create parallel validator: {}. This is a programming error.",
                     e
@@ -241,9 +241,9 @@ impl DagConsensus {
                 .map_err(|e| anyhow::anyhow!("Invalid public key for {}: {}", auth, e))?;
         }
         let local_pk = local_signing_key.verifying_key().to_bytes().to_vec();
-        let expected_local = authority_public_keys
-            .get(&authority_id)
-            .ok_or_else(|| anyhow::anyhow!("Missing local authority public key {}", authority_id))?;
+        let expected_local = authority_public_keys.get(&authority_id).ok_or_else(|| {
+            anyhow::anyhow!("Missing local authority public key {}", authority_id)
+        })?;
         if *expected_local != local_pk {
             anyhow::bail!("Local signing key does not match authority public key");
         }
@@ -289,13 +289,7 @@ impl DagConsensus {
         let current_round = self.store.current_round();
         let next_round = current_round + 1;
         let parents = self.store.get_vertex_ids_in_round(current_round);
-        self.create_vertex_for_round(
-            next_round,
-            parents,
-            transactions,
-            state_root,
-            timestamp,
-        )
+        self.create_vertex_for_round(next_round, parents, transactions, state_root, timestamp)
     }
 
     pub fn create_vertex_for_round(

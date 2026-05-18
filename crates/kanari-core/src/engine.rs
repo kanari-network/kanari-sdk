@@ -1188,7 +1188,10 @@ impl BlockchainEngine {
                 .iter()
                 .any(|vertex| vertex.author == dag_engine.authority_id());
 
-            if current_round > 0 && parents_available < quorum_needed && local_has_vertex_in_current_round {
+            if current_round > 0
+                && parents_available < quorum_needed
+                && local_has_vertex_in_current_round
+            {
                 anyhow::bail!(
                     "SYNC_WAITING: have {}/{} vertices in round {} (need quorum for round {})",
                     parents_available,

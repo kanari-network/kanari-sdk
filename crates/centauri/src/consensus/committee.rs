@@ -42,7 +42,7 @@ impl Committee {
         if total == 0 {
             return 0;
         }
-        (2 * total + 2) / 3
+        (2 * total).div_ceil(3)
     }
 
     pub fn new(epoch: u64, validators: Vec<ValidatorInfo>) -> Self {
@@ -91,7 +91,6 @@ impl Committee {
             ))
         }
     }
-
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

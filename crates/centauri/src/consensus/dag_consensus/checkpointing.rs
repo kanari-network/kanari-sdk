@@ -166,13 +166,12 @@ impl DagStore {
         }
 
         const TX_RETENTION_WINDOW: usize = 10_000;
-        if self.checkpoints.len() > TX_RETENTION_WINDOW {
-            if let Some(old_checkpoint) = self.checkpoints.pop_front() {
+        if self.checkpoints.len() > TX_RETENTION_WINDOW
+            && let Some(old_checkpoint) = self.checkpoints.pop_front() {
                 for tx in &old_checkpoint.transactions {
                     self.executed_tx_hashes.remove(&tx.hash());
                 }
             }
-        }
 
         Ok(())
     }

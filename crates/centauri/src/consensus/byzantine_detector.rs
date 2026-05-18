@@ -365,7 +365,6 @@ impl ByzantineDetector {
             self.penalties.len()
         );
     }
-
 }
 
 impl Default for ByzantineDetector {

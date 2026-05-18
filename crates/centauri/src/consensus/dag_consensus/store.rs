@@ -36,12 +36,7 @@ impl DagStore {
         self.index_vertex(vertex_id, round, author);
     }
 
-    fn remove_vertex_indexes(
-        &mut self,
-        vertex_id: &VertexId,
-        round: Round,
-        author: &AuthorityId,
-    ) {
+    fn remove_vertex_indexes(&mut self, vertex_id: &VertexId, round: Round, author: &AuthorityId) {
         if let Some(round_vertices) = self.vertices_by_round.get_mut(&round) {
             round_vertices.retain(|id| id != vertex_id);
             if round_vertices.is_empty() {

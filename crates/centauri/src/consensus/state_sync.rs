@@ -517,7 +517,6 @@ impl FastSync {
     pub fn add_checkpoint(&mut self, checkpoint: Checkpoint) {
         self.checkpoints.push(checkpoint);
     }
-
 }
 
 #[cfg(test)]

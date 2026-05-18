@@ -885,17 +885,14 @@ mod tests {
         });
 
         let vertex = consensus
-            .create_vertex(
-                vec![tx.clone()],
-                vec![9u8; 32],
-                1,
-            )
+            .create_vertex(vec![tx.clone()], vec![9u8; 32], 1)
             .unwrap();
         let vertex_id = vertex.id;
         consensus.add_vertex(vertex).unwrap();
 
         let vertices_to_commit = consensus.collect_vertices_to_commit(vertex_id).unwrap();
-        let checkpoint_transactions = consensus.collect_checkpoint_transactions(&vertices_to_commit);
+        let checkpoint_transactions =
+            consensus.collect_checkpoint_transactions(&vertices_to_commit);
         let provisional_root = consensus
             .checkpoint_state_root(&vertices_to_commit, &checkpoint_transactions)
             .unwrap();

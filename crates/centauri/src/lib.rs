@@ -70,5 +70,5 @@ pub fn calculate_quorum(total_authorities: usize) -> usize {
     if total_authorities == 0 {
         return 0;
     }
-    (2 * total_authorities + 2) / 3
+    (2 * total_authorities).div_ceil(3)
 }
