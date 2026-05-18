@@ -144,15 +144,6 @@ pub struct ByzantineDetector {
 }
 
 impl ByzantineDetector {
-    fn fault_authority(fault: &ByzantineFault) -> &str {
-        match fault {
-            ByzantineFault::DoubleVoting { authority, .. } => authority,
-            ByzantineFault::InvalidVertex { authority, .. } => authority,
-            ByzantineFault::Equivocation { authority, .. } => authority,
-            ByzantineFault::Withholding { authority, .. } => authority,
-        }
-    }
-
     fn retain_recent_records<T>(records: &mut Vec<T>, max_entries: usize) {
         if records.len() > max_entries {
             let remove_count = records.len() - max_entries;
@@ -257,6 +248,7 @@ impl ByzantineDetector {
                     ),
                 };
                 self.report_fault(fault)?;
+                anyhow::bail!("Invalid vertex: insufficient parents for quorum");
             }
         }
         Ok(())
@@ -360,39 +352,6 @@ impl ByzantineDetector {
         &self.penalties
     }
 
-    pub fn get_authority_faults(&self, authority: &str) -> Vec<&ByzantineEvidence> {
-        self.faults
-            .iter()
-            .filter(|evidence| Self::fault_authority(&evidence.fault) == authority)
-            .collect()
-    }
-
-    pub fn prune_before_round(&mut self, before_round: Round) {
-        self.retain_round_tracking(before_round);
-        tracing::debug!(
-            "Pruned Byzantine detector data before round {}, remaining entries: {}",
-            before_round,
-            self.vertices_by_authority_round.len()
-        );
-    }
-
-    pub fn memory_usage(&self) -> usize {
-        self.faults.len() * 256
-            + self.penalties.len() * 128
-            + self.reputation.len() * 32
-            + self.vertices_by_authority_round.len() * 64
-    }
-
-    pub fn reset_reputation(&mut self, authority: &str, score: u64) {
-        self.reputation
-            .insert(authority.to_string(), score.min(INITIAL_REPUTATION));
-    }
-
-    pub fn ban_authority(&mut self, authority: &str) {
-        self.reputation.insert(authority.to_string(), 0);
-        tracing::warn!("Authority {} has been banned (reputation = 0)", authority);
-    }
-
     pub fn prune_old_rounds(&mut self, before_round: Round) {
         self.retain_round_tracking(before_round);
 
@@ -406,23 +365,6 @@ impl ByzantineDetector {
             self.penalties.len()
         );
     }
-
-    pub fn get_memory_stats(&self) -> ByzantineMemoryStats {
-        ByzantineMemoryStats {
-            tracked_rounds: self.vertices_by_authority_round.len(),
-            total_faults: self.faults.len(),
-            total_penalties: self.penalties.len(),
-            tracked_authorities: self.reputation.len(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ByzantineMemoryStats {
-    pub tracked_rounds: usize,
-    pub total_faults: usize,
-    pub total_penalties: usize,
-    pub tracked_authorities: usize,
 }
 
 impl Default for ByzantineDetector {
@@ -507,7 +449,7 @@ mod tests {
         let insufficient_parent = [0u8; 32];
         vertex.parents = vec![insufficient_parent];
 
-        assert!(detector.check_vertex_validity(&vertex, 4).is_ok());
+        assert!(detector.check_vertex_validity(&vertex, 4).is_err());
         assert_eq!(detector.get_faults().len(), 1);
         assert_eq!(detector.get_reputation("auth1"), 90);
     }
@@ -533,7 +475,9 @@ mod tests {
         let mut detector = ByzantineDetector::new();
         detector.init_authority("auth1".to_string());
 
-        detector.ban_authority("auth1");
+        detector
+            .slash_authority("auth1", INITIAL_REPUTATION, "Ban authority", 1)
+            .unwrap();
         assert_eq!(detector.get_reputation("auth1"), 0);
         assert!(!detector.is_trusted("auth1", 1));
     }

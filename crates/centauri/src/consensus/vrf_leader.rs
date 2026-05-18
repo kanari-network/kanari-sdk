@@ -376,11 +376,6 @@ impl VrfLeaderElection {
             self.vrf_cache.len()
         );
     }
-
-    /// Get cache size (number of rounds with VRF data)
-    pub fn cache_size(&self) -> usize {
-        self.vrf_cache.len()
-    }
 }
 
 impl Default for VrfLeaderElection {

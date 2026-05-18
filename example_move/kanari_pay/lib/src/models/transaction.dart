@@ -1,17 +1,18 @@
-import 'package:json_annotation/json_annotation.dart';
 import 'package:equatable/equatable.dart';
 
-part 'transaction.g.dart';
+int _jsonInt(dynamic value, {int? fallback}) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value) ?? (fallback ?? 0);
+  return fallback ?? 0;
+}
 
-@JsonSerializable()
 class TransactionResult extends Equatable {
   final String hash;
   final String status;
-  @JsonKey(name: 'gas_used')
   final int? gasUsed;
-  @JsonKey(name: 'error_message')
   final String? errorMessage;
-  final String? action; // Optional if coming from publish/upgrade
+  final String? action;
 
   const TransactionResult({
     required this.hash,
@@ -21,35 +22,47 @@ class TransactionResult extends Equatable {
     this.action,
   });
 
-  factory TransactionResult.fromJson(Map<String, dynamic> json) =>
-      _$TransactionResultFromJson(json);
+  factory TransactionResult.fromJson(Map<String, dynamic> json) {
+    final changeset = json['changeset'];
+    final nestedError = changeset is Map<String, dynamic>
+        ? changeset['error_message']?.toString() ?? ''
+        : '';
 
-  Map<String, dynamic> toJson() => _$TransactionResultToJson(this);
+    return TransactionResult(
+      hash: json['hash']?.toString() ?? '',
+      status: json['status']?.toString() ?? '',
+      gasUsed: json['gas_used'] == null ? null : _jsonInt(json['gas_used']),
+      errorMessage: (json['error_message']?.toString().isNotEmpty == true)
+          ? json['error_message'].toString()
+          : (nestedError.isEmpty ? null : nestedError),
+      action: json['action']?.toString(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'hash': hash,
+    'status': status,
+    'gas_used': gasUsed,
+    'error_message': errorMessage,
+    'action': action,
+  };
 
   @override
   List<Object?> get props => [hash, status, gasUsed, errorMessage, action];
 }
 
-@JsonSerializable()
 class TransactionDetails extends Equatable {
   final String hash;
   final String status;
-  @JsonKey(name: 'block_height')
   final int? blockHeight;
-  @JsonKey(name: 'gas_used')
   final int? gasUsed;
-  @JsonKey(name: 'tx_type')
   final String txType;
   final String sender;
-  @JsonKey(name: 'sequence_number')
   final int sequenceNumber;
-  @JsonKey(name: 'gas_limit')
   final int gasLimit;
-  @JsonKey(name: 'gas_price')
   final int gasPrice;
   final String? module;
   final String? function;
-  @JsonKey(name: 'module_functions')
   final List<String>? moduleFunctions;
 
   const TransactionDetails({
@@ -67,10 +80,41 @@ class TransactionDetails extends Equatable {
     this.moduleFunctions,
   });
 
-  factory TransactionDetails.fromJson(Map<String, dynamic> json) =>
-      _$TransactionDetailsFromJson(json);
+  factory TransactionDetails.fromJson(Map<String, dynamic> json) {
+    return TransactionDetails(
+      hash: json['hash']?.toString() ?? '',
+      status: json['status']?.toString() ?? '',
+      blockHeight: json['block_height'] == null
+          ? null
+          : _jsonInt(json['block_height']),
+      gasUsed: json['gas_used'] == null ? null : _jsonInt(json['gas_used']),
+      txType: json['tx_type']?.toString() ?? '',
+      sender: json['sender']?.toString() ?? '',
+      sequenceNumber: _jsonInt(json['sequence_number']),
+      gasLimit: _jsonInt(json['gas_limit']),
+      gasPrice: _jsonInt(json['gas_price']),
+      module: json['module']?.toString(),
+      function: json['function']?.toString(),
+      moduleFunctions: (json['module_functions'] as List<dynamic>?)
+          ?.map((item) => item.toString())
+          .toList(),
+    );
+  }
 
-  Map<String, dynamic> toJson() => _$TransactionDetailsToJson(this);
+  Map<String, dynamic> toJson() => {
+    'hash': hash,
+    'status': status,
+    'block_height': blockHeight,
+    'gas_used': gasUsed,
+    'tx_type': txType,
+    'sender': sender,
+    'sequence_number': sequenceNumber,
+    'gas_limit': gasLimit,
+    'gas_price': gasPrice,
+    'module': module,
+    'function': function,
+    'module_functions': moduleFunctions,
+  };
 
   @override
   List<Object?> get props => [

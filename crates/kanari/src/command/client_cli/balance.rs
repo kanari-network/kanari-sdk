@@ -100,6 +100,23 @@ impl Balance {
                             width = decimals as usize
                         );
                         eprintln!("  Raw Amount: {}", amount);
+
+                        // Display metadata if available
+                        if let Some(name) = balance.get("name").and_then(|n| n.as_str()) {
+                            eprintln!("  Name: {}", name);
+                        }
+                        if let Some(symbol) = balance.get("symbol").and_then(|s| s.as_str()) {
+                            eprintln!("  Symbol: {}", symbol);
+                        }
+                        if let Some(description) =
+                            balance.get("description").and_then(|d| d.as_str())
+                        {
+                            eprintln!("  Description: {}", description);
+                        }
+                        if let Some(icon_url) = balance.get("icon_url").and_then(|i| i.as_str()) {
+                            eprintln!("  Icon URL: {}", icon_url);
+                        }
+
                         eprintln!("------------------------------");
                     } else {
                         eprintln!(

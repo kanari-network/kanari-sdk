@@ -9,6 +9,8 @@ use std::fs;
 use std::path::PathBuf;
 use tracing::info;
 
+const ONE_DAY_SECS: u64 = 24 * 60 * 60;
+
 /// Persistent peer information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerInfo {
@@ -34,44 +36,39 @@ impl PeerStore {
         }
     }
 
+    fn current_timestamp() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+    }
+
     /// Load peer store from disk and filter out old peers
     pub fn load(file_path: PathBuf) -> Result<Self> {
-        if file_path.exists() {
-            let contents = fs::read_to_string(&file_path)?;
-            let mut store: PeerStore = serde_json::from_str(&contents)?;
-            store.file_path = file_path;
-
-            // Filter out peers older than 24 hours
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-
-            let old_count = store.peers.len();
-            store.peers.retain(|_, info| {
-                // Keep peers seen in last 24 hours (86400 seconds)
-                // If last_seen is 0 (legacy), keep them for now or discard? Let's discard if strictly checking.
-                // But for safety, let's say if 0, update to now? No, that's fake.
-                // Let's keep if diff < 86400.
-                now.saturating_sub(info.last_seen) < 86400
-            });
-            let new_count = store.peers.len();
-
-            if old_count != new_count {
-                info!(
-                    "Loaded {} peers from disk (discarded {} old peers)",
-                    new_count,
-                    old_count - new_count
-                );
-            } else {
-                info!("Loaded {} peers from disk", store.peers.len());
-            }
-
-            Ok(store)
-        } else {
+        if !file_path.exists() {
             info!("No existing peer store found, creating new one");
-            Ok(Self::new(file_path))
+            return Ok(Self::new(file_path));
         }
+
+        let contents = fs::read_to_string(&file_path)?;
+        let mut store: PeerStore = serde_json::from_str(&contents)?;
+        store.file_path = file_path;
+
+        let old_count = store.peers.len();
+        store.cleanup_old_peers(ONE_DAY_SECS);
+        let new_count = store.peers.len();
+
+        if old_count != new_count {
+            info!(
+                "Loaded {} peers from disk (discarded {} old peers)",
+                new_count,
+                old_count - new_count
+            );
+        } else {
+            info!("Loaded {} peers from disk", store.peers.len());
+        }
+
+        Ok(store)
     }
 
     /// Save peer store to disk
@@ -92,11 +89,7 @@ impl PeerStore {
     pub fn add_peer(&mut self, peer_id: PeerId, addresses: Vec<Multiaddr>) {
         let peer_id_str = peer_id.to_string();
         let addr_strs: Vec<String> = addresses.iter().map(|a| a.to_string()).collect();
-
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let timestamp = Self::current_timestamp();
 
         // If peer exists, update it. Only update addresses if we have new ones.
         if let Some(existing) = self.peers.get_mut(&peer_id_str) {
@@ -124,10 +117,7 @@ impl PeerStore {
 
     /// Clean up old peers (not seen in last 7 days)
     pub fn cleanup_old_peers(&mut self, max_age_secs: u64) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = Self::current_timestamp();
 
         let before_count = self.peers.len();
         self.peers

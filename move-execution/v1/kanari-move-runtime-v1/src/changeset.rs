@@ -91,7 +91,7 @@ pub struct ChangeSet {
 }
 
 impl ChangeSet {
-    pub fn new() -> Self {
+    fn with_status(gas_used: u64, success: bool, error_message: Option<String>) -> Self {
         Self {
             account_changes: BTreeMap::new(),
             events: Vec::new(),
@@ -102,44 +102,22 @@ impl ChangeSet {
             deleted_objects: Vec::new(),
             added_dynamic_fields: Vec::new(),
             removed_dynamic_fields: Vec::new(),
-            gas_used: 0,
-            success: true,
-            error_message: None,
+            gas_used,
+            success,
+            error_message,
         }
+    }
+
+    pub fn new() -> Self {
+        Self::with_status(0, true, None)
     }
 
     pub fn with_gas(gas_used: u64) -> Self {
-        Self {
-            account_changes: BTreeMap::new(),
-            events: Vec::new(),
-            treasuries: Vec::new(),
-            nft_caps: Vec::new(),
-            token_balance_sets: Vec::new(),
-            created_objects: Vec::new(),
-            deleted_objects: Vec::new(),
-            added_dynamic_fields: Vec::new(),
-            removed_dynamic_fields: Vec::new(),
-            gas_used,
-            success: true,
-            error_message: None,
-        }
+        Self::with_status(gas_used, true, None)
     }
 
     pub fn failed(error: String, gas_used: u64) -> Self {
-        Self {
-            account_changes: BTreeMap::new(),
-            events: Vec::new(),
-            treasuries: Vec::new(),
-            nft_caps: Vec::new(),
-            token_balance_sets: Vec::new(),
-            created_objects: Vec::new(),
-            deleted_objects: Vec::new(),
-            added_dynamic_fields: Vec::new(),
-            removed_dynamic_fields: Vec::new(),
-            gas_used,
-            success: false,
-            error_message: Some(error),
-        }
+        Self::with_status(gas_used, false, Some(error))
     }
 
     pub fn get_or_create_change(&mut self, address: AccountAddress) -> &mut AccountChange {
@@ -253,12 +231,14 @@ impl ChangeSet {
     }
 
     pub fn add_deleted_object(&mut self, object_id: String) {
-        let canonical_id = if let Ok(addr) = AccountAddress::from_hex_literal(&object_id) {
-            addr.to_hex_literal()
-        } else {
-            object_id
-        };
+        let canonical_id = Self::canonicalize_object_id(&object_id);
         self.deleted_objects.push(canonical_id);
+    }
+
+    fn canonicalize_object_id(object_id: &str) -> String {
+        AccountAddress::from_hex_literal(object_id)
+            .map(|addr| addr.to_hex_literal())
+            .unwrap_or_else(|_| object_id.to_string())
     }
 
     /// Record an NftCap creation/update for a given token type
@@ -318,11 +298,7 @@ impl ChangeSet {
         object_id: Option<String>,
     ) {
         let canonical_id = if let Some(id) = &object_id {
-            if let Ok(addr) = AccountAddress::from_hex_literal(id) {
-                addr.to_hex_literal()
-            } else {
-                id.clone()
-            }
+            Self::canonicalize_object_id(id)
         } else if let Some(ref u) = uid {
             u.address().to_hex_literal()
         } else if let Some(ref i) = id {

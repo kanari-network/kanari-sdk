@@ -103,6 +103,9 @@ function CoinsContent() {
           <div className="flex flex-col divide-y divide-white/5">
             {balances.map((b, i) => {
               const symbol = b.symbol || "UNK";
+              const primaryAmount = address ? (b.amount ?? b.balance) : b.total_supply;
+              const primaryLabel = address ? "Confirmed Balance" : "Total Supply";
+              const lockedSupply = b.object_locked_supply ?? 0;
               return (
                 // 🚨 เอา border-b ออก เพราะเราใช้ divide-y ที่กรอบนอกจัดการเส้นคั่นให้แล้ว
                 <div key={i} className="p-6 flex justify-between items-center hover:bg-white/2 transition-colors group">
@@ -125,11 +128,21 @@ function CoinsContent() {
                   <div className="text-right">
                     <div className="text-white font-mono font-bold text-lg group-hover:text-cyan-400 transition-colors">
                       {/* 🚨 เพิ่ม b.amount ก่อน b.balance เพื่อแก้ปัญหายอดเงินไม่ขึ้นตามที่เคยคุยกันครับ */}
-                      {fmtBalance(b.amount ?? b.balance ?? b.total_supply, b.decimals)}
+                      {fmtBalance(primaryAmount, b.decimals)}
                     </div>
                     <div className="text-[9px] text-zinc-600 font-black uppercase tracking-tighter mt-1">
-                      {address ? "Confirmed Balance" : "Total Supply"}
+                      {primaryLabel}
                     </div>
+                    {!address && (
+                      <div className="mt-2 text-[10px] text-zinc-500 font-mono">
+                        Wallet {fmtBalance(b.wallet_visible_supply, b.decimals)}
+                        {lockedSupply > 0 && (
+                          <span className="ml-2 text-amber-400">
+                            Locked {fmtBalance(lockedSupply, b.decimals)}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               );

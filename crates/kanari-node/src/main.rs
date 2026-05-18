@@ -3,13 +3,15 @@
 
 // Main entry point for Kanari blockchain node
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use kanari_core::BlockchainEngine;
+use kanari_core::engine::AccountInfo;
 use kanari_crypto::wallet::list_wallet_files;
 use kanari_rpc_server::start_server;
 use kanari_types::address::Address as KanariAddress;
-use kanari_types::kanari::KanariModule;
+use kanari_types::kanari::{KANARI_TOKEN_TYPE, KanariModule};
 use libp2p::identity::Keypair;
+use serde::Serialize;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -20,9 +22,26 @@ mod peer_store;
 mod sync;
 
 use indexer::NodeIndexer;
-use p2p::{P2PEventHandler, P2PMessage, P2PNetwork};
+use p2p::{DagVertexMsg, P2PEventHandler, P2PMessage, P2PNetwork};
 use peer_store::PeerStore;
 use sync::SyncManager;
+
+#[derive(Clone, Debug, ValueEnum)]
+enum NetworkMode {
+    Mainnet,
+    Testnet,
+    Devnet,
+}
+
+impl NetworkMode {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Mainnet => "mainnet",
+            Self::Testnet => "testnet",
+            Self::Devnet => "devnet",
+        }
+    }
+}
 
 /// Kanari node command-line interface
 #[derive(Parser)]
@@ -36,6 +55,9 @@ struct Cli {
 enum Commands {
     /// start the node
     Start {
+        /// Network mode for runtime and production safety defaults
+        #[arg(long, value_enum, default_value = "testnet")]
+        network: NetworkMode,
         /// P2P listen port
         #[arg(long, default_value = "19000")]
         p2p_port: u16,
@@ -85,7 +107,13 @@ fn default_data_dir() -> std::path::PathBuf {
         .join("kanari-db")
 }
 
-fn create_engine(data_dir: &Option<std::path::PathBuf>) -> Result<BlockchainEngine> {
+fn create_engine(
+    data_dir: &Option<std::path::PathBuf>,
+    network: &NetworkMode,
+) -> Result<BlockchainEngine> {
+    unsafe {
+        std::env::set_var("KANARI_NETWORK", network.as_str());
+    }
     if let Some(d) = data_dir {
         unsafe {
             std::env::set_var("KANARI_STATE_DB", d);
@@ -97,6 +125,107 @@ fn create_engine(data_dir: &Option<std::path::PathBuf>) -> Result<BlockchainEngi
         )?)
     } else {
         Ok(BlockchainEngine::new()?)
+    }
+}
+
+fn native_balance(info: &AccountInfo) -> u64 {
+    info.token_balances
+        .get(KANARI_TOKEN_TYPE)
+        .copied()
+        .unwrap_or(0)
+}
+
+fn log_shutdown() {
+    tracing::info!("Shutdown signal received. Cleaning up and exiting...");
+}
+
+fn genesis_root_info(engine: &BlockchainEngine) -> (String, usize) {
+    match engine.get_block(0) {
+        Some(block) => {
+            let size = block.hash.len() / 2;
+            (block.hash, size)
+        }
+        None => ("unknown".to_string(), 0),
+    }
+}
+
+fn queue_network_message(
+    network_tx: &tokio::sync::mpsc::UnboundedSender<P2PMessage>,
+    msg: P2PMessage,
+    failure_context: &str,
+) -> bool {
+    match network_tx.send(msg) {
+        Ok(_) => true,
+        Err(e) => {
+            tracing::warn!("{}: {}", failure_context, e);
+            false
+        }
+    }
+}
+
+fn serialize_and_queue_message<T: Serialize>(
+    network_tx: &tokio::sync::mpsc::UnboundedSender<P2PMessage>,
+    value: &T,
+    wrap: impl FnOnce(String) -> P2PMessage,
+    serialize_context: &str,
+    send_context: &str,
+) -> Option<usize> {
+    match serde_json::to_string(value) {
+        Ok(payload) => {
+            let payload_len = payload.len();
+            queue_network_message(network_tx, wrap(payload), send_context);
+            Some(payload_len)
+        }
+        Err(e) => {
+            tracing::error!("{}: {}", serialize_context, e);
+            None
+        }
+    }
+}
+
+fn rebroadcast_latest_dag_vertex(
+    engine: &Arc<BlockchainEngine>,
+    network_tx: &tokio::sync::mpsc::UnboundedSender<P2PMessage>,
+    peer_id: &str,
+) {
+    let Some(dag_engine_lock) = engine.get_dag_engine() else {
+        return;
+    };
+
+    let dag_engine = {
+        let guard = dag_engine_lock.read().unwrap_or_else(|e| e.into_inner());
+        guard.as_ref().cloned()
+    };
+
+    let Some(dag_engine) = dag_engine else {
+        return;
+    };
+
+    let vertices = dag_engine.latest_own_vertices(16);
+    if vertices.is_empty() {
+        return;
+    }
+
+    let nonce_base = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64;
+
+    for vertex in vertices {
+        if let Ok(vertex_data) = serde_json::to_string(&vertex) {
+            let msg = P2PMessage::DagVertexRebroadcast(DagVertexMsg {
+                vertex_data,
+                nonce: nonce_base ^ vertex.round,
+                sender_peer_id: peer_id.to_string(),
+            });
+            if queue_network_message(network_tx, msg, "Failed to queue DAG vertex rebroadcast") {
+                tracing::info!(
+                    "Rebroadcasting DAG vertex {} (round {}) while waiting for quorum",
+                    hex::encode(vertex.id),
+                    vertex.round
+                );
+            }
+        }
     }
 }
 
@@ -116,7 +245,7 @@ fn print_account(address: &str) -> Result<()> {
     match BlockchainEngine::new()?.get_account_info(address) {
         Some(info) => {
             tracing::info!("  Account: {}", info.address);
-            tracing::info!("  Balance: {}", info.balance);
+            tracing::info!("  Balance: {}", native_balance(&info));
             tracing::info!("  Sequence: {}", info.sequence_number);
             tracing::info!("  Modules: {}", info.modules.len());
             for module in &info.modules {
@@ -160,6 +289,7 @@ async fn main() -> Result<()> {
         Commands::Account { address } => print_account(&address),
         Commands::Block { height } => print_block(height),
         Commands::Start {
+            network,
             p2p_port,
             rpc_port,
             rpc_host,
@@ -170,7 +300,7 @@ async fn main() -> Result<()> {
             bootstrap,
         } => {
             let data_dir_path = data_dir.clone().unwrap_or_else(default_data_dir);
-            let mut engine = create_engine(&data_dir)?;
+            let mut engine = create_engine(&data_dir, &network)?;
 
             if let (Some(id), Some(auths)) = (authority_id, authorities) {
                 tracing::info!(
@@ -183,6 +313,7 @@ async fn main() -> Result<()> {
 
             run_node(
                 Arc::new(engine),
+                network.as_str().to_string(),
                 p2p_port,
                 rpc_port,
                 rpc_host,
@@ -194,6 +325,9 @@ async fn main() -> Result<()> {
         }
         Commands::Local => {
             tracing::info!("Starting local node: RPC on 127.0.0.1:6767 (P2P disabled)");
+            unsafe {
+                std::env::set_var("KANARI_NETWORK", NetworkMode::Devnet.as_str());
+            }
             let data_dir_path = std::path::PathBuf::from("./.kanari-local");
             // Ensure data directory exists
             std::fs::create_dir_all(&data_dir_path)?;
@@ -201,6 +335,7 @@ async fn main() -> Result<()> {
             let engine = BlockchainEngine::new_dir(data_dir_path.to_str().unwrap())?;
             run_node(
                 Arc::new(engine),
+                NetworkMode::Devnet.as_str().to_string(),
                 0,
                 6767,
                 "127.0.0.1".to_string(),
@@ -228,6 +363,7 @@ fn detect_local_ip() -> Option<String> {
 
 async fn run_node(
     engine: Arc<BlockchainEngine>,
+    network: String,
     p2p_port: u16,
     rpc_port: u16,
     rpc_host: String,
@@ -235,10 +371,18 @@ async fn run_node(
     relay_server: bool,
     bootstrap_peers: Option<Vec<String>>,
 ) -> Result<()> {
+    engine.validate_runtime_health()?;
+    let runtime_guards = engine.runtime_guard_config();
     let stats = engine.get_stats();
 
     tracing::info!("Kanari blockchain node starting");
-    tracing::info!("Network: Testnet, Move VM: Enabled");
+    tracing::info!("Network: {}, Move VM: Enabled", network);
+    tracing::info!(
+        "Runtime guards: strict_persistence={}, strict_checkpoint_roots={}, fail_fast_supply={}",
+        runtime_guards.strict_persistence_required,
+        runtime_guards.strict_checkpoint_roots,
+        runtime_guards.fail_fast_supply_enabled
+    );
     tracing::info!("Initial blockchain height: {}", stats.height);
     let total_supply_str = KanariModule::format_kanari(stats.total_supply);
     tracing::info!(
@@ -247,15 +391,7 @@ async fn run_node(
         total_supply_str
     );
 
-    // Get genesis/root object state from block 0 if available
-    let (genesis_root, size_bytes) = match engine.get_block(0) {
-        Some(b) => {
-            let hash = b.hash;
-            let size = hash.len() / 2;
-            (hash, size)
-        }
-        None => ("unknown".to_string(), 0),
-    };
+    let (genesis_root, size_bytes) = genesis_root_info(&engine);
     let dao_addr = KanariAddress::DAO_ADDRESS;
     tracing::info!(
         "The latest Root object state root: 0x{}, size: {} bytes",
@@ -414,24 +550,17 @@ async fn run_node(
             && stats.height.is_multiple_of(10)
         {
             match node_idx.get_stats() {
-                Ok(idx_stats) => {
-                    tracing::info!("[INDEXER] {}", idx_stats);
-                }
-                Err(e) => {
-                    tracing::warn!("[INDEXER] Failed to get stats: {}", e);
-                }
+                Ok(idx_stats) => tracing::info!("[INDEXER] {}", idx_stats),
+                Err(e) => tracing::warn!("[INDEXER] Failed to get stats: {}", e),
             }
         }
 
-        // ✅ 1. Add flag to track whether block was produced in this iteration
         let mut did_work = false;
 
-        // Only produce blocks when there are pending transactions
-        // This avoids consensus validation issues with empty blocks in both local and networked modes
-        if stats.pending_transactions > 0 {
+        if stats.pending_transactions > 0 || engine.should_produce_dag_progress() {
             match engine.produce_block() {
                 Ok(block_info) => {
-                    did_work = true; // ✅ 2. Update status to indicate work was just completed
+                    did_work = true;
 
                     tracing::info!(
                         "DAG Vertex (Round #{}) produced: {} txs ({} executed, {} failed)",
@@ -441,63 +570,30 @@ async fn run_node(
                         block_info.failed
                     );
 
-                    // Broadcast the DAG vertex to other nodes
                     if let Some(vertex) = block_info.vertex {
-                        match serde_json::to_string(&vertex) {
-                            Ok(vertex_str) => {
-                                tracing::info!(
-                                    "Broadcasting DAG vertex {} (round {}) to network ({} bytes)",
-                                    block_info.vertex_id,
-                                    block_info.round,
-                                    vertex_str.len()
-                                );
-                                let msg = P2PMessage::NewDagVertex(vertex_str);
-                                if let Err(e) = network_tx.send(msg) {
-                                    tracing::warn!("Failed to queue DAG vertex broadcast: {}", e);
-                                } else {
-                                    tracing::info!("DAG vertex queued for broadcast successfully");
-                                }
-                            }
-                            Err(e) => {
-                                tracing::error!(
-                                    "Failed to serialize DAG vertex for broadcast: {}",
-                                    e
-                                );
-                            }
+                        if let Some(vertex_len) = serialize_and_queue_message(
+                            &network_tx,
+                            &vertex,
+                            P2PMessage::NewDagVertex,
+                            "Failed to serialize DAG vertex for broadcast",
+                            "Failed to queue DAG vertex broadcast",
+                        ) {
+                            tracing::info!(
+                                "Broadcasting DAG vertex {} (round {}) to network ({} bytes)",
+                                block_info.vertex_id,
+                                block_info.round,
+                                vertex_len
+                            );
+                            tracing::info!("DAG vertex queued for broadcast successfully");
                         }
                     } else {
                         tracing::warn!("No vertex in block_info to broadcast");
                     }
 
-                    // Index the locally produced block
                     if let Some(ref node_idx) = node_indexer {
                         let current_height = engine.blockchain.read().unwrap().height();
                         if let Some(full_block_data) = engine.get_full_block(current_height) {
-                            // Use the same conversion logic as in sync.rs
-                            use kanari_types::block::{Block, BlockHeader};
-                            use smt::compute_merkle_root;
-
-                            let tx_hashes: Vec<Vec<u8>> = full_block_data
-                                .transactions
-                                .iter()
-                                .map(|tx| tx.hash())
-                                .collect();
-                            let merkle_root = compute_merkle_root(&tx_hashes);
-
-                            let header = BlockHeader::new(
-                                full_block_data.height,
-                                hex::decode(&full_block_data.prev_hash).unwrap_or_default(),
-                                hex::decode(&full_block_data.state_root).unwrap_or_default(),
-                                merkle_root,
-                                full_block_data.tx_count,
-                                full_block_data.timestamp,
-                            );
-
-                            let block = Block {
-                                header,
-                                transactions: full_block_data.transactions.clone(),
-                                events: vec![],
-                            };
+                            let block = BlockchainEngine::block_from_full_data(&full_block_data);
 
                             match node_idx.index_block(&block) {
                                 Ok(_) => {
@@ -519,49 +615,48 @@ async fn run_node(
                         }
                     }
 
-                    // If a checkpoint was created, broadcast the new blocks as well
                     if block_info.checkpoint.is_some() {
                         let current_height = engine.blockchain.read().unwrap().height();
-                        if let Some(full_block_data) = engine.get_full_block(current_height)
-                            && let Ok(block_str) = serde_json::to_string(&full_block_data)
-                        {
-                            let msg = P2PMessage::NewBlock(block_str);
-                            if let Err(e) = network_tx.send(msg) {
-                                tracing::warn!("Failed to queue block broadcast: {}", e);
-                            }
+                        if let Some(full_block_data) = engine.get_full_block(current_height) {
+                            serialize_and_queue_message(
+                                &network_tx,
+                                &full_block_data,
+                                P2PMessage::NewBlock,
+                                "Failed to serialize block for broadcast",
+                                "Failed to queue block broadcast",
+                            );
                         }
                     }
                 }
                 Err(e) => {
-                    // If not ready yet (waiting for Quorum), it will throw "DAG not ready" error
-                    // This is normal behavior, let it continue waiting
-                    if !e.to_string().contains("DAG not ready") {
+                    let error_text = e.to_string();
+                    if error_text.contains("DAG_WAITING")
+                        || error_text.contains("SYNC_WAITING")
+                        || error_text.contains("Not enough parents for quorum")
+                    {
+                        tracing::info!("Block production waiting: {}", error_text);
+                        rebroadcast_latest_dag_vertex(&engine, &network_tx, &peer_id);
+                    } else if !error_text.contains("DAG not ready") {
                         tracing::error!("Block production failed: {}", e);
                     }
                 }
             }
         }
 
-        // ✅ 3. Throttle Control Logic
         if !did_work {
-            // If no work to do, sleep to save CPU
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
-                    tracing::info!("Shutdown signal received. Cleaning up and exiting...");
+                    log_shutdown();
                     break;
                 }
                 _ = sleep(Duration::from_secs(1)) => {}
             }
-        } else {
-            // If work was just completed, loop immediately without sleep
-            // But still check for shutdown signal (Ctrl+C) in non-blocking mode (1ms timeout)
-            if tokio::time::timeout(Duration::from_millis(1), tokio::signal::ctrl_c())
-                .await
-                .is_ok()
-            {
-                tracing::info!("Shutdown signal received. Cleaning up and exiting...");
-                break;
-            }
+        } else if tokio::time::timeout(Duration::from_millis(1), tokio::signal::ctrl_c())
+            .await
+            .is_ok()
+        {
+            log_shutdown();
+            break;
         }
     }
 

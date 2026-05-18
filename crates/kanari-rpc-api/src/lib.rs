@@ -99,7 +99,6 @@ impl RpcError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccountInfo {
     pub address: String,
-    pub balance: u64, // Native KANARI balance
     pub sequence_number: u64,
     pub modules: Vec<String>,
     /// Token balances: token_type -> amount
@@ -368,6 +367,14 @@ pub struct HealthStatus {
     pub version: String,
     pub uptime_seconds: u64,
     pub sync_status: String,
+    pub network: String,
+    pub supply_invariants_ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub supply_invariant_error: Option<String>,
+    pub fail_fast_enabled: bool,
+    pub strict_persistence_required: bool,
+    pub strict_checkpoint_roots: bool,
+    pub persistent_storage_available: bool,
 }
 
 /// Get object request
@@ -406,7 +413,6 @@ pub struct GetAllBalancesRequest {
 pub mod methods {
     // Account & Balance
     pub const GET_ACCOUNT: &str = "kanari_getAccount";
-    pub const GET_BALANCE: &str = "kanari_getBalance";
     pub const GET_TOKEN_BALANCE: &str = "kanari_getTokenBalance";
     pub const GET_ALL_BALANCES: &str = "kanari_getAllBalances";
     pub const LIST_TOKENS: &str = "kanari_listTokens";

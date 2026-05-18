@@ -1,12 +1,11 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/token_utils.dart' as token_utils;
 import '../../client/escrow_client.dart';
-import '../../models/account.dart';
 import '../../providers/wallet_provider.dart';
 import '../widgets/app_ui.dart';
 import '../widgets/escrow_widgets.dart';
@@ -134,7 +133,7 @@ class _EscrowScreenState extends State<EscrowScreen>
       optionsByType[token.tokenType] = _EscrowTokenOption(
         tokenType: token.tokenType,
         label:
-            '${token.symbol} (${_formatTokenAmount(token)})${isSpendable ? '' : ' - balance only'}',
+            '${token.symbol} (${token_utils.formatDisplayAmount(token.amount, token.decimals)})${isSpendable ? '' : ' - balance only'}',
         isSpendable: isSpendable,
       );
     }
@@ -155,42 +154,24 @@ class _EscrowScreenState extends State<EscrowScreen>
     return options;
   }
 
-  String _formatTokenAmount(TokenBalance token) {
-    final divisor = token.decimals <= 0
-        ? 1.0
-        : math.pow(10, token.decimals).toDouble();
-    return (token.amount / divisor).toStringAsFixed(4);
-  }
-
-  /// Convert human-readable amount to raw amount based on decimals
-  int _toRawAmount(String humanAmount, int decimals) {
-    try {
-      final amount = double.parse(humanAmount);
-      return (amount * math.pow(10, decimals)).toInt();
-    } catch (e) {
-      return 0;
+  int _getDecimalsForTokenType(String tokenType, [WalletState? walletState]) {
+    if (walletState != null) {
+      for (final token in walletState.tokenBalances) {
+        if (token.tokenType == tokenType) {
+          return token.decimals;
+        }
+      }
     }
+    return token_utils.defaultDecimalsForTokenType(tokenType);
   }
 
-  /// Convert raw amount to human-readable amount based on decimals
   String _toHumanAmount(int rawAmount, int decimals) {
     if (rawAmount == 0) return '0';
-    final divisor = math.pow(10, decimals).toDouble();
-    return (rawAmount / divisor).toStringAsFixed(6);
-  }
-
-  /// Get decimals for a token type
-  int _getDecimalsForTokenType(String tokenType) {
-    // USDC and USDT typically use 6 decimals
-    if (tokenType.contains('USDC') || tokenType.contains('USDT')) {
-      return 6;
-    }
-    // KANARI typically uses 9 decimals
-    if (tokenType.contains('KANARI')) {
-      return 9;
-    }
-    // Default to 6 decimals for other tokens
-    return 6;
+    return token_utils.formatDisplayAmount(
+      rawAmount,
+      decimals,
+      fractionDigits: 6,
+    );
   }
 
   String _friendlyError(Object error) {
@@ -237,12 +218,7 @@ class _EscrowScreenState extends State<EscrowScreen>
 
     try {
       await action(escrow, walletState);
-    } catch (error, stackTrace) {
-      // Debug: Log full error and stack trace
-      print('[ESCROW] Error occurred:');
-      print('[ESCROW]   Error: $error');
-      print('[ESCROW]   Stack: $stackTrace');
-
+    } catch (error) {
       if (!mounted) return;
       setState(() {
         _errorMessage = _friendlyError(error);
@@ -283,19 +259,43 @@ class _EscrowScreenState extends State<EscrowScreen>
         );
       }
 
+      // CRITICAL: Validate and normalize seller address format
+      // Remove '0x' prefix if present
+      var cleanAddress = sellerAddress;
+      if (cleanAddress.toLowerCase().startsWith('0x')) {
+        cleanAddress = cleanAddress.substring(2);
+      }
+
+      // Validate hex characters
+      if (!RegExp(r'^[0-9a-fA-F]+$').hasMatch(cleanAddress)) {
+        throw Exception(
+          'Invalid seller address format. Address must contain only hex characters (0-9, a-f).',
+        );
+      }
+
+      // Validate address length
+      // Kanari supports both short addresses (like 0x2) and full addresses (64 hex chars)
+      if (cleanAddress.length > 64) {
+        throw Exception(
+          'Invalid seller address length. Address must be at most 64 hex characters.\n'
+          'Current length: ${cleanAddress.length} characters',
+        );
+      }
+
+      if (cleanAddress.isEmpty) {
+        throw Exception('Seller address cannot be empty.');
+      }
+
       // Convert human-readable amount to raw amount based on token decimals
-      final decimals = _getDecimalsForTokenType(tokenType);
-      final rawAmount = _toRawAmount(_amountController.text.trim(), decimals);
+      final decimals = _getDecimalsForTokenType(tokenType, walletState);
+      final rawAmount = token_utils.baseUnitsFromDisplayString(
+        _amountController.text.trim(),
+        decimals,
+      );
 
       if (rawAmount <= 0) {
         throw Exception('Invalid amount. Please enter a valid number.');
       }
-
-      print('[ESCROW UI] Creating deal:');
-      print('[ESCROW UI]   Human amount: ${_amountController.text.trim()}');
-      print('[ESCROW UI]   Token: $tokenType');
-      print('[ESCROW UI]   Decimals: $decimals');
-      print('[ESCROW UI]   Raw amount: $rawAmount');
 
       final result = await escrow
           .createDeal(
@@ -323,10 +323,7 @@ class _EscrowScreenState extends State<EscrowScreen>
 
   /// Seller: Confirm delivery
   Future<void> _confirmDelivery() async {
-    print('[ESCROW UI] _confirmDelivery called');
-
     if (_selectedDeal == null) {
-      print('[ESCROW UI] No deal selected');
       setState(() {
         _errorMessage = 'Please select a deal first';
       });
@@ -337,13 +334,7 @@ class _EscrowScreenState extends State<EscrowScreen>
     final coinType = _selectedDeal!['coin_type'] as String?;
     final proofId = _selectedDeal!['proof_id'] as String?;
 
-    print('[ESCROW UI] Selected deal:');
-    print('[ESCROW UI]   Object ID: $objectId');
-    print('[ESCROW UI]   Coin Type: $coinType');
-    print('[ESCROW UI]   Proof ID: $proofId');
-
     if (objectId == null || coinType == null) {
-      print('[ESCROW UI] Missing deal information');
       setState(() {
         _errorMessage = 'Missing deal information';
       });
@@ -351,14 +342,11 @@ class _EscrowScreenState extends State<EscrowScreen>
     }
 
     if (proofId == null) {
-      print('[ESCROW UI] Proof object not found');
       setState(() {
         _errorMessage = 'Proof object not found for this deal';
       });
       return;
     }
-
-    print('[ESCROW UI] Calling confirmDelivery...');
     await _runAction((escrow, walletState) async {
       final result = await escrow
           .confirmDelivery(
@@ -369,14 +357,6 @@ class _EscrowScreenState extends State<EscrowScreen>
           )
           .timeout(const Duration(seconds: 30));
 
-      // Log transaction result
-      print('[ESCROW UI] confirmDelivery result:');
-      print('[ESCROW UI]   Status: ${result.status}');
-      print('[ESCROW UI]   Hash: ${result.hash}');
-      if (result.errorMessage != null) {
-        print('[ESCROW UI]   Error: ${result.errorMessage}');
-      }
-
       // Check if transaction failed
       if (result.status == 'failed') {
         throw Exception(
@@ -386,17 +366,13 @@ class _EscrowScreenState extends State<EscrowScreen>
       }
 
       // Refresh deals list after successful transaction
-      print('[ESCROW UI] Refreshing deals list...');
       await _fetchAllDeals(walletState.wallet!.address);
     });
   }
 
   /// Buyer: Release funds
   Future<void> _releaseFunds() async {
-    print('[ESCROW UI] _releaseFunds called');
-
     if (_selectedDeal == null) {
-      print('[ESCROW UI] No deal selected');
       setState(() {
         _errorMessage = 'Please select a deal first';
       });
@@ -407,13 +383,7 @@ class _EscrowScreenState extends State<EscrowScreen>
     final coinType = _selectedDeal!['coin_type'] as String?;
     final proofId = _selectedDeal!['proof_id'] as String?;
 
-    print('[ESCROW UI] Selected deal:');
-    print('[ESCROW UI]   Object ID: $objectId');
-    print('[ESCROW UI]   Coin Type: $coinType');
-    print('[ESCROW UI]   Proof ID: $proofId');
-
     if (objectId == null || coinType == null) {
-      print('[ESCROW UI] Missing deal information');
       setState(() {
         _errorMessage = 'Missing deal information';
       });
@@ -421,15 +391,12 @@ class _EscrowScreenState extends State<EscrowScreen>
     }
 
     if (proofId == null) {
-      print('[ESCROW UI] Proof object not found');
       setState(() {
         _errorMessage =
             'Proof object not found for this deal. Cannot release funds.';
       });
       return;
     }
-
-    print('[ESCROW UI] Calling releaseFunds...');
     await _runAction((escrow, walletState) async {
       final result = await escrow
           .releaseFunds(
@@ -440,14 +407,6 @@ class _EscrowScreenState extends State<EscrowScreen>
           )
           .timeout(const Duration(seconds: 30));
 
-      // Log transaction result
-      print('[ESCROW UI] releaseFunds result:');
-      print('[ESCROW UI]   Status: ${result.status}');
-      print('[ESCROW UI]   Hash: ${result.hash}');
-      if (result.errorMessage != null) {
-        print('[ESCROW UI]   Error: ${result.errorMessage}');
-      }
-
       // Check if transaction failed
       if (result.status == 'failed') {
         throw Exception(
@@ -457,17 +416,13 @@ class _EscrowScreenState extends State<EscrowScreen>
       }
 
       // Refresh deals list after successful transaction
-      print('[ESCROW UI] Refreshing deals list...');
       await _fetchAllDeals(walletState.wallet!.address);
     });
   }
 
   /// Buyer or Seller: Raise dispute
   Future<void> _raiseDispute() async {
-    print('[ESCROW UI] _raiseDispute called');
-
     if (_selectedDeal == null) {
-      print('[ESCROW UI] No deal selected');
       setState(() {
         _errorMessage = 'Please select a deal first';
       });
@@ -478,13 +433,7 @@ class _EscrowScreenState extends State<EscrowScreen>
     final coinType = _selectedDeal!['coin_type'] as String?;
     final proofId = _selectedDeal!['proof_id'] as String?;
 
-    print('[ESCROW UI] Selected deal:');
-    print('[ESCROW UI]   Object ID: $objectId');
-    print('[ESCROW UI]   Coin Type: $coinType');
-    print('[ESCROW UI]   Proof ID: $proofId');
-
     if (objectId == null || coinType == null) {
-      print('[ESCROW UI] Missing deal information');
       setState(() {
         _errorMessage = 'Missing deal information';
       });
@@ -492,15 +441,12 @@ class _EscrowScreenState extends State<EscrowScreen>
     }
 
     if (proofId == null) {
-      print('[ESCROW UI] Proof object not found');
       setState(() {
         _errorMessage =
             'Proof object not found for this deal. Cannot raise dispute.';
       });
       return;
     }
-
-    print('[ESCROW UI] Calling raiseDispute...');
     await _runAction((escrow, walletState) async {
       final result = await escrow
           .raiseDispute(
@@ -514,14 +460,6 @@ class _EscrowScreenState extends State<EscrowScreen>
           )
           .timeout(const Duration(seconds: 30));
 
-      // Log transaction result
-      print('[ESCROW UI] raiseDispute result:');
-      print('[ESCROW UI]   Status: ${result.status}');
-      print('[ESCROW UI]   Hash: ${result.hash}');
-      if (result.errorMessage != null) {
-        print('[ESCROW UI]   Error: ${result.errorMessage}');
-      }
-
       // Check if transaction failed
       if (result.status == 'failed') {
         throw Exception(
@@ -531,7 +469,6 @@ class _EscrowScreenState extends State<EscrowScreen>
       }
 
       // Refresh deals list after successful transaction
-      print('[ESCROW UI] Refreshing deals list...');
       await _fetchAllDeals(walletState.wallet!.address);
     });
   }
@@ -554,8 +491,6 @@ class _EscrowScreenState extends State<EscrowScreen>
         if (objectId == null || coinType == null || dealId == null) {
           throw Exception('Invalid selected deal data');
         }
-
-        print('[ESCROW] Loading selected deal: $dealId');
 
         final state = await escrow
             .getDealStateByObjectId(
@@ -586,8 +521,6 @@ class _EscrowScreenState extends State<EscrowScreen>
         });
       } else {
         // Fallback: Get latest deal for buyer address
-        print('[ESCROW] No deal selected, fetching latest for: $buyer');
-
         final deals = await escrow
             .getAllDeals(wallet: wallet, buyerAddress: buyer)
             .timeout(const Duration(seconds: 30));
@@ -707,8 +640,6 @@ class _EscrowScreenState extends State<EscrowScreen>
         throw Exception('Missing object_id or coin_type in deal data');
       }
 
-      print('[ESCROW] Loading selected deal: $objectId');
-
       //  FIXED: Only query state, details already in _selectedDeal
       final state = await escrow
           .getDealStateByObjectId(
@@ -732,17 +663,13 @@ class _EscrowScreenState extends State<EscrowScreen>
         'coin_type': coinType,
       };
 
-      print('[ESCROW] Deal loaded successfully, state: $state');
-
       if (!mounted) return;
       setState(() {
         _currentDealState = state;
         _dealDetails = details;
         _errorMessage = null;
       });
-    } catch (e, stack) {
-      print('[ESCROW] Failed to load selected deal: $e');
-      print('[ESCROW] Stack: $stack');
+    } catch (e) {
       if (!mounted) return;
       setState(() {
         _currentDealState = null;

@@ -18,10 +18,9 @@ use smallvec::smallvec;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use crate::helpers::make_module_natives;
+use crate::helpers::{expect_native_signature, make_module_natives};
 
 // Error codes returned by this native (keep values small and stable)
-const E_MISSING_TYPE_ARGUMENT: u64 = 1;
 const E_TYPE_NAME_TOO_LONG: u64 = 2;
 
 const TYPE_NAME_MAX_LEN: usize = 256;
@@ -162,6 +161,8 @@ fn native_transfer_with_uid(
 ) -> PartialVMResult<NativeResult> {
     use move_vm_types::natives::function::NativeResult as NR;
 
+    expect_native_signature(arguments.len(), 2, ty_args.len(), 1)?;
+
     // Pop arguments: recipient (address), obj (generic T with key+store)
     let recipient = pop_arg!(arguments, AccountAddress);
     let obj_val = arguments.pop_back().ok_or_else(|| {
@@ -169,9 +170,7 @@ fn native_transfer_with_uid(
             .with_message("Missing object argument".to_string())
     })?;
 
-    let Some(ty) = ty_args.first() else {
-        return Ok(NR::err(context.gas_used(), E_MISSING_TYPE_ARGUMENT));
-    };
+    let ty = &ty_args[0];
 
     // Extract type information and convert runtime Type -> TypeTag -> human-readable string
     let type_tag = context.type_to_type_tag(ty)?;
@@ -242,15 +241,15 @@ fn native_freeze_object(
 ) -> PartialVMResult<NativeResult> {
     use move_vm_types::natives::function::NativeResult as NR;
 
+    expect_native_signature(arguments.len(), 1, ty_args.len(), 1)?;
+
     // Pop argument: obj (generic T with key+store)
     let obj_val = arguments.pop_back().ok_or_else(|| {
         PartialVMError::new(move_core_types::vm_status::StatusCode::INTERNAL_TYPE_ERROR)
             .with_message("Missing object argument".to_string())
     })?;
 
-    let Some(ty) = ty_args.first() else {
-        return Ok(NR::err(context.gas_used(), E_MISSING_TYPE_ARGUMENT));
-    };
+    let ty = &ty_args[0];
 
     let type_tag = context.type_to_type_tag(ty)?;
     let type_str = format!("{}", type_tag);

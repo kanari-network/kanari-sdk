@@ -9,9 +9,9 @@ use kanari_crypto::hash_data_blake3;
 use kanari_types::balance::BalanceModule;
 use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::{CoinModule, TreasuryCap};
-use kanari_types::kanari::KanariModule;
+use kanari_types::event::Event;
+use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use kanari_types::object::{IDRecord, UIDRecord};
-use kanari_types::{address::Address as KanariAddress, event::Event};
 use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::{StructTag, TypeTag};
 use serde::de::DeserializeOwned;
@@ -22,6 +22,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 const SYSTEM_CLOCK_OBJECT_ID_KEY: &[u8] = b"system:clock_object_id";
+const ACCOUNT_INDEX_KEY: &[u8] = b"account_index";
+const OBJECT_LOCKED_COIN_RECORDS_KEY: &[u8] = b"object_locked_coin_records";
 const UID_SIZE: usize = 32;
 const U64_SIZE: usize = 8;
 
@@ -29,7 +31,6 @@ const U64_SIZE: usize = 8;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Account {
     pub address: AccountAddress,
-    pub balance: u64,
     pub sequence_number: u64,
     pub modules: BTreeSet<String>,
     /// Token balances: token_type -> BalanceRecord
@@ -38,14 +39,21 @@ pub struct Account {
 }
 
 impl Account {
-    pub fn new(address: AccountAddress, balance: u64) -> Self {
+    pub fn new(address: AccountAddress) -> Self {
         Self {
             address,
-            balance,
             sequence_number: 0,
             modules: BTreeSet::new(),
             token_balances: BTreeMap::new(),
         }
+    }
+
+    pub fn with_native_balance(address: AccountAddress, balance: u64) -> Self {
+        let mut account = Self::new(address);
+        if balance > 0 {
+            account.set_token_balance(KANARI_TOKEN_TYPE.to_string(), BalanceRecord::new(balance));
+        }
+        account
     }
 
     pub fn add_module(&mut self, module_name: String) {
@@ -63,6 +71,10 @@ impl Account {
             .unwrap_or(0)
     }
 
+    pub fn native_balance(&self) -> u64 {
+        self.get_token_balance(KANARI_TOKEN_TYPE)
+    }
+
     pub fn to_hex_string(&self) -> String {
         format!("{:#x}", self.address)
     }
@@ -70,6 +82,25 @@ impl Account {
     pub fn increment_sequence(&mut self) {
         self.sequence_number += 1;
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TokenSupplySummary {
+    pub token_type: String,
+    pub total_supply: u64,
+    pub wallet_visible_supply: u64,
+    pub object_locked_supply: u64,
+    pub accounted_supply: u64,
+    pub untracked_supply: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ObjectLockedCoinRecord {
+    pub holder_object_id: String,
+    pub holder_type: String,
+    pub owner: AccountAddress,
+    pub token_type: String,
+    pub amount: u64,
 }
 
 /// Global state manager for accounts and balances
@@ -96,10 +127,176 @@ pub struct StateManager {
 }
 
 impl StateManager {
+    fn load_index_list(&self, key: &[u8]) -> Result<Vec<String>> {
+        Ok(self.load_internal(key)?.unwrap_or_default())
+    }
+
+    fn save_index_list(&mut self, key: &[u8], ids: &[String]) -> Result<()> {
+        self.save_internal(key, ids)
+    }
+
+    fn add_to_index_list(&mut self, key: &[u8], value: String) -> Result<()> {
+        let mut index = self.load_index_list(key)?;
+        if !index.contains(&value) {
+            index.push(value);
+            self.save_index_list(key, &index)?;
+        }
+        Ok(())
+    }
+
+    fn remove_from_index_list(&mut self, key: &[u8], value: &str) -> Result<()> {
+        let mut index = self.load_index_list(key)?;
+        let initial_len = index.len();
+        index.retain(|entry| entry != value);
+        if index.len() != initial_len {
+            self.save_index_list(key, &index)?;
+        }
+        Ok(())
+    }
+
+    fn supply_key(token_type: &str) -> Vec<u8> {
+        let mut key = b"supply:".to_vec();
+        key.extend_from_slice(token_type.as_bytes());
+        key
+    }
+
+    fn load_persisted_supply_from_store(store: &PersistentStore, token_type: &str) -> Option<u64> {
+        let key = Self::supply_key(token_type);
+        store
+            .load::<TreasuryCap>(&key)
+            .ok()
+            .flatten()
+            .map(|cap| cap.total_supply)
+            .or_else(|| store.load::<u64>(&key).ok().flatten())
+    }
+
+    pub fn issued_supply_for_token(&self, token_type: &str) -> u64 {
+        if token_type == KANARI_TOKEN_TYPE {
+            return self.total_supply;
+        }
+
+        let supply_key = Self::supply_key(token_type);
+        self.load_internal::<TreasuryCap>(&supply_key)
+            .ok()
+            .flatten()
+            .map(|cap| cap.total_supply)
+            .or_else(|| self.load_internal::<u64>(&supply_key).ok().flatten())
+            .or_else(|| self.global_token_supplies.get(token_type).copied())
+            .unwrap_or(0)
+    }
+
+    pub fn indexed_wallet_supply(&self, token_type: &str) -> Result<u64> {
+        let token_type = Self::normalize_token_type(token_type);
+        Ok(self
+            .load_account_addresses()?
+            .into_iter()
+            .filter_map(|address| self.load_account(&address).ok().flatten())
+            .map(|account| account.get_token_balance(&token_type))
+            .fold(0u64, |acc, balance| acc.saturating_add(balance)))
+    }
+
+    pub fn load_object_locked_coin_records(&self) -> Result<Vec<ObjectLockedCoinRecord>> {
+        Ok(self
+            .load_internal(OBJECT_LOCKED_COIN_RECORDS_KEY)?
+            .unwrap_or_default())
+    }
+
+    fn save_object_locked_coin_records(
+        &mut self,
+        records: &[ObjectLockedCoinRecord],
+    ) -> Result<()> {
+        self.save_internal(OBJECT_LOCKED_COIN_RECORDS_KEY, records)
+    }
+
+    pub fn object_locked_supply_for_token(&self, token_type: &str) -> Result<u64> {
+        let token_type = Self::normalize_token_type(token_type);
+        Ok(self
+            .load_object_locked_coin_records()?
+            .into_iter()
+            .filter(|record| record.token_type == token_type)
+            .map(|record| record.amount)
+            .fold(0u64, |acc, amount| acc.saturating_add(amount)))
+    }
+
+    pub fn token_supply_summary(&self, token_type: &str) -> Result<TokenSupplySummary> {
+        let token_type = Self::normalize_token_type(token_type);
+        let total_supply = self.issued_supply_for_token(&token_type);
+        let cached_visible = self
+            .global_token_supplies
+            .get(&token_type)
+            .copied()
+            .unwrap_or(0);
+        let indexed_visible = self.indexed_wallet_supply(&token_type)?;
+        let wallet_visible_supply = cached_visible.max(indexed_visible);
+        let ledger_locked_supply = self.object_locked_supply_for_token(&token_type)?;
+        let inferred_locked_supply = total_supply.saturating_sub(wallet_visible_supply);
+        let object_locked_supply = ledger_locked_supply.max(inferred_locked_supply);
+        let accounted_supply = wallet_visible_supply.saturating_add(object_locked_supply);
+
+        Ok(TokenSupplySummary {
+            token_type,
+            total_supply,
+            wallet_visible_supply,
+            object_locked_supply,
+            accounted_supply,
+            untracked_supply: total_supply.saturating_sub(accounted_supply),
+        })
+    }
+
+    pub fn supply_invariant_fail_fast_enabled() -> bool {
+        std::env::var("KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH")
+            .map(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+            .unwrap_or_else(|_| {
+                matches!(
+                    std::env::var("KANARI_NETWORK")
+                        .unwrap_or_else(|_| "testnet".to_string())
+                        .trim()
+                        .to_ascii_lowercase()
+                        .as_str(),
+                    "mainnet"
+                )
+            })
+    }
+
+    fn report_supply_invariant_violation(context: &str, error: &anyhow::Error) {
+        log::error!(
+            "[StateManager] Supply invariant check failed {}: {}",
+            context,
+            error
+        );
+
+        assert!(
+            !Self::supply_invariant_fail_fast_enabled(),
+            "Supply invariant check failed {}: {}",
+            context,
+            error
+        );
+    }
+
+    fn metadata_key(prefix: &[u8], token_type: &str) -> Vec<u8> {
+        let mut key = prefix.to_vec();
+        key.extend_from_slice(token_type.as_bytes());
+        key
+    }
+
+    fn save_token_metadata_field<T: Serialize + ?Sized>(
+        &mut self,
+        prefix: &[u8],
+        token_type: &str,
+        value: &T,
+    ) {
+        let key = Self::metadata_key(prefix, token_type);
+        let _ = self.save_internal(&key, value);
+    }
+
     /// Retrieves all Collection IDs from the index
     pub fn get_all_collection_ids(&self) -> Vec<String> {
-        self.load_internal::<Vec<String>>(b"nft_collection_index")
-            .unwrap_or(None)
+        self.load_index_list(b"nft_collection_index")
             .unwrap_or_default()
     }
 
@@ -107,10 +304,7 @@ impl StateManager {
     pub fn get_collection_nft_ids(&self, collection_id: &str) -> Vec<String> {
         let mut key = b"collection_members:".to_vec();
         key.extend_from_slice(collection_id.as_bytes());
-
-        self.load_internal::<Vec<String>>(&key)
-            .unwrap_or(None)
-            .unwrap_or_default()
+        self.load_index_list(&key).unwrap_or_default()
     }
 
     fn normalize_token_type(token_type: &str) -> String {
@@ -158,6 +352,51 @@ impl StateManager {
             return Some(format!("{}", st));
         }
         None
+    }
+
+    fn persist_coin_metadata(&mut self, token_type: &str, data: &[u8]) {
+        #[derive(Deserialize)]
+        struct MoveString {
+            bytes: Vec<u8>,
+        }
+        #[derive(Deserialize)]
+        struct MoveUrl {
+            inner: MoveString,
+        }
+        #[derive(Deserialize)]
+        struct MoveOption<T> {
+            vec: Vec<T>,
+        }
+        #[derive(Deserialize)]
+        struct ParsedCoinMetadata {
+            _id: AccountAddress,
+            decimals: u8,
+            symbol: MoveString,
+            name: MoveString,
+            description: MoveString,
+            icon_url: MoveOption<MoveUrl>,
+        }
+
+        if let Ok(meta) = bcs::from_bytes::<ParsedCoinMetadata>(data) {
+            self.save_token_metadata_field(b"metadata_decimals:", token_type, &meta.decimals);
+
+            if let Ok(name) = String::from_utf8(meta.name.bytes) {
+                self.save_token_metadata_field(b"metadata_name:", token_type, &name);
+            }
+            if let Ok(symbol) = String::from_utf8(meta.symbol.bytes) {
+                self.save_token_metadata_field(b"metadata_symbol:", token_type, &symbol);
+            }
+            if let Ok(description) = String::from_utf8(meta.description.bytes) {
+                self.save_token_metadata_field(b"metadata_description:", token_type, &description);
+            }
+            if let Some(url_obj) = meta.icon_url.vec.into_iter().next()
+                && let Ok(url) = String::from_utf8(url_obj.inner.bytes)
+            {
+                self.save_token_metadata_field(b"metadata_icon_url:", token_type, &url);
+            }
+        } else if data.len() > 32 {
+            self.save_token_metadata_field(b"metadata_decimals:", token_type, &data[32]);
+        }
     }
 
     fn adjust_global_supplies_for_account_delta(
@@ -261,7 +500,7 @@ impl StateManager {
     /// Dev address gets entire supply according to kanari.move
     pub fn new(store: Arc<PersistentStore>) -> Self {
         // Try to load total supply from DB
-        let total_supply = store
+        let persisted_total_supply = store
             .load::<u64>(b"total_supply")
             .unwrap_or(None)
             .unwrap_or(0);
@@ -272,6 +511,16 @@ impl StateManager {
             .unwrap_or(None)
             .unwrap_or_default();
 
+        // Recover native total supply from older databases that persisted the
+        // native treasury/global balances but never backfilled `total_supply`.
+        let recovered_total_supply = if persisted_total_supply == 0 {
+            Self::load_persisted_supply_from_store(store.as_ref(), KANARI_TOKEN_TYPE)
+                .or_else(|| global_token_supplies.get(KANARI_TOKEN_TYPE).copied())
+                .unwrap_or(0)
+        } else {
+            persisted_total_supply
+        };
+
         // Initialize SMT if store is backed by RocksDB
         let smt = store
             .get_db()
@@ -280,44 +529,41 @@ impl StateManager {
         let mut state = Self {
             store,
             overlay: BTreeMap::new(),
-            total_supply,
+            total_supply: recovered_total_supply,
             global_token_supplies,
             smt,
             events: Vec::new(),
         };
 
+        if persisted_total_supply == 0 && recovered_total_supply > 0 {
+            if let Err(e) = state.save_internal(b"total_supply", &recovered_total_supply) {
+                panic!("Failed to backfill recovered total_supply: {}", e);
+            }
+            if let Err(e) = state.commit() {
+                panic!("Failed to persist recovered total_supply: {}", e);
+            }
+        }
+
         // If total supply is 0, initialize genesis
         if state.total_supply == 0 {
-            let _ = state.init_genesis();
+            if let Err(e) = crate::genesis::init_genesis(&mut state) {
+                panic!("Genesis initialization failed: {}", e);
+            }
             // Flush genesis state to DB immediately
-            let _ = state.commit();
+            if let Err(e) = state.commit() {
+                panic!("Failed to commit genesis state: {}", e);
+            }
+            assert!(
+                state.total_supply > 0,
+                "Genesis initialization completed but total_supply is still 0"
+            );
+        }
+
+        if let Err(e) = state.validate_supply_invariants() {
+            Self::report_supply_invariant_violation("on startup", &e);
         }
 
         state
-    }
-
-    fn init_genesis(&mut self) -> Result<()> {
-        // Total supply in Mist (from kanari-types constants)
-        let total_supply_mist: u64 = KanariModule::TOTAL_SUPPLY_MIST;
-
-        // Initialize system accounts using safe helper functions
-        let genesis_addr = KanariAddress::genesis_account_address();
-        let std_addr = KanariAddress::std_account_address();
-        let system_addr = KanariAddress::kanari_system_account_address();
-        let dao_addr = KanariAddress::dao_account_address();
-        let dev_addr = KanariAddress::dev_account_address();
-
-        self.save_account(&Account::new(genesis_addr, 0))?;
-        self.save_account(&Account::new(std_addr, 0))?;
-        self.save_account(&Account::new(system_addr, 0))?;
-        self.save_account(&Account::new(dao_addr, 0))?;
-        self.save_account(&Account::new(dev_addr, total_supply_mist))?;
-
-        self.total_supply = total_supply_mist;
-        let supply = self.total_supply;
-        self.save_internal(b"total_supply", &supply)?;
-
-        Ok(())
     }
 
     /// Commit pending overlay changes to the persistent store and update SMT
@@ -378,15 +624,19 @@ impl StateManager {
         self.overlay.clear();
     }
 
-    // Helper to write to overlay
-    fn save_internal<T: Serialize + ?Sized>(&mut self, key: &[u8], value: &T) -> Result<()> {
+    // Helper to write to overlay (pub for genesis module)
+    pub(crate) fn save_internal<T: Serialize + ?Sized>(
+        &mut self,
+        key: &[u8],
+        value: &T,
+    ) -> Result<()> {
         let bytes = bcs::to_bytes(value)?;
         self.overlay.insert(key.to_vec(), Some(bytes));
         Ok(())
     }
 
     // Helper to read from overlay then store
-    fn load_internal<T: DeserializeOwned>(&self, key: &[u8]) -> Result<Option<T>> {
+    pub(crate) fn load_internal<T: DeserializeOwned>(&self, key: &[u8]) -> Result<Option<T>> {
         if let Some(val_opt) = self.overlay.get(key) {
             match val_opt {
                 Some(bytes) => return Ok(Some(bcs::from_bytes(bytes)?)),
@@ -408,6 +658,41 @@ impl StateManager {
         let mut key = b"object:".to_vec();
         key.extend_from_slice(id.as_bytes());
         key
+    }
+
+    fn canonical_object_id(id: &str) -> Option<String> {
+        AccountAddress::from_hex_literal(id)
+            .ok()
+            .map(|addr| addr.to_hex_literal())
+    }
+
+    fn legacy_object_id(id: &str) -> Option<String> {
+        let canonical = Self::canonical_object_id(id)?;
+        let trimmed = canonical.trim_start_matches("0x").trim_start_matches('0');
+        let suffix = if trimmed.is_empty() { "0" } else { trimmed };
+        Some(format!("0x{}", suffix))
+    }
+
+    fn candidate_object_ids(id: &str) -> Vec<String> {
+        let mut candidates = Vec::new();
+
+        let mut push_unique = |candidate: String| {
+            if !candidates.iter().any(|existing| existing == &candidate) {
+                candidates.push(candidate);
+            }
+        };
+
+        push_unique(id.to_string());
+
+        if let Some(canonical) = Self::canonical_object_id(id) {
+            push_unique(canonical);
+        }
+
+        if let Some(legacy) = Self::legacy_object_id(id) {
+            push_unique(legacy);
+        }
+
+        candidates
     }
 
     // Helper to construct DB key for owned objects
@@ -447,19 +732,28 @@ impl StateManager {
     }
 
     pub fn save_account(&mut self, account: &Account) -> Result<()> {
-        self.save_internal(&Self::account_key(&account.address), account)
+        self.save_internal(&Self::account_key(&account.address), account)?;
+        self.add_to_index_list(ACCOUNT_INDEX_KEY, account.address.to_hex_literal())
+    }
+
+    pub fn load_account_addresses(&self) -> Result<Vec<AccountAddress>> {
+        let ids = self.load_index_list(ACCOUNT_INDEX_KEY)?;
+        Ok(ids
+            .into_iter()
+            .filter_map(|id| AccountAddress::from_hex_literal(&id).ok())
+            .collect())
     }
 
     fn load_account_or_default(&self, address: AccountAddress) -> Result<Account> {
         Ok(self
             .load_account(&address)?
-            .unwrap_or_else(|| Account::new(address, 0)))
+            .unwrap_or_else(|| Account::new(address)))
     }
 
     pub fn get_account(&self, address: &AccountAddress) -> Option<Account> {
         Some(
             self.load_account_or_default(*address)
-                .unwrap_or_else(|_| Account::new(*address, 0)),
+                .unwrap_or_else(|_| Account::new(*address)),
         )
     }
 
@@ -477,26 +771,232 @@ impl StateManager {
         }
     }
 
+    fn balance_token_amount(type_name: &str, data: &[u8]) -> Option<(String, u64)> {
+        let struct_tag = StructTag::from_str(type_name).ok()?;
+        if !Self::is_balance_struct(&struct_tag) {
+            return None;
+        }
+        let token_type = Self::token_type_from_balance_struct(&struct_tag)?;
+        let amount = Self::extract_balance_from_object_bytes(data, &struct_tag)?;
+        Some((Self::normalize_token_type(&token_type), amount))
+    }
+
+    fn is_object_locked_coin_holder_type(type_name: &str) -> bool {
+        let Ok(struct_tag) = StructTag::from_str(type_name) else {
+            return false;
+        };
+
+        if Self::is_balance_struct(&struct_tag) {
+            return false;
+        }
+
+        let module_name = struct_tag.module.as_str();
+        let struct_name = struct_tag.name.as_str();
+        !(module_name == CoinModule::COIN_MODULE
+            && (struct_name == CoinModule::TREASURY_CAP_STRUCT || struct_name == "CoinMetadata"))
+    }
+
+    fn supply_tracking_token_types(&self, changeset: &ChangeSet) -> BTreeSet<String> {
+        let mut token_types: BTreeSet<String> =
+            self.global_token_supplies.keys().cloned().collect();
+        token_types.insert(KANARI_TOKEN_TYPE.to_string());
+
+        for (_, token_type, _) in &changeset.treasuries {
+            token_types.insert(Self::normalize_token_type(token_type));
+        }
+        for (_, token_type, _) in &changeset.token_balance_sets {
+            token_types.insert(Self::normalize_token_type(token_type));
+        }
+        for (_, created) in &changeset.created_objects {
+            if let Some((token_type, _)) = Self::balance_token_amount(&created.type_, &created.data)
+            {
+                token_types.insert(token_type);
+            }
+        }
+
+        token_types
+    }
+
+    fn visible_supply_snapshot(&self, token_type: &str) -> Result<u64> {
+        let token_type = Self::normalize_token_type(token_type);
+        let cached = self
+            .global_token_supplies
+            .get(&token_type)
+            .copied()
+            .unwrap_or(0);
+        Ok(cached.max(self.indexed_wallet_supply(&token_type)?))
+    }
+
+    fn add_locked_coin_record(
+        records: &mut Vec<ObjectLockedCoinRecord>,
+        holder: &(String, CreatedObject),
+        token_type: &str,
+        amount: u64,
+    ) {
+        if amount == 0 {
+            return;
+        }
+
+        if let Some(existing) = records
+            .iter_mut()
+            .find(|record| record.holder_object_id == holder.0 && record.token_type == token_type)
+        {
+            existing.amount = existing.amount.saturating_add(amount);
+            existing.holder_type = holder.1.type_.clone();
+            existing.owner = holder.1.owner;
+            return;
+        }
+
+        records.push(ObjectLockedCoinRecord {
+            holder_object_id: holder.0.clone(),
+            holder_type: holder.1.type_.clone(),
+            owner: holder.1.owner,
+            token_type: token_type.to_string(),
+            amount,
+        });
+    }
+
+    fn release_locked_coin_records(
+        records: &mut Vec<ObjectLockedCoinRecord>,
+        holder_ids: &HashSet<String>,
+        token_type: &str,
+        amount: u64,
+    ) {
+        let mut remaining = amount;
+
+        for prefer_holder in [true, false] {
+            if remaining == 0 {
+                break;
+            }
+
+            for record in records.iter_mut() {
+                if remaining == 0 {
+                    break;
+                }
+                if record.token_type != token_type {
+                    continue;
+                }
+                if prefer_holder && !holder_ids.contains(&record.holder_object_id) {
+                    continue;
+                }
+
+                let release = record.amount.min(remaining);
+                record.amount -= release;
+                remaining -= release;
+            }
+        }
+
+        records.retain(|record| record.amount > 0);
+    }
+
+    fn reconcile_object_locked_coin_records(
+        &mut self,
+        changeset: &ChangeSet,
+        issued_before: &BTreeMap<String, u64>,
+        visible_before: &BTreeMap<String, u64>,
+    ) -> Result<()> {
+        let holder_candidates: Vec<(String, CreatedObject)> = changeset
+            .created_objects
+            .iter()
+            .filter(|(_, created)| Self::is_object_locked_coin_holder_type(&created.type_))
+            .map(|(id, created)| (id.clone(), created.clone()))
+            .collect();
+
+        if holder_candidates.is_empty() && issued_before.is_empty() {
+            return Ok(());
+        }
+
+        let holder_ids: HashSet<String> =
+            holder_candidates.iter().map(|(id, _)| id.clone()).collect();
+        let deleted_ids: HashSet<String> = changeset.deleted_objects.iter().cloned().collect();
+        let mut records = self.load_object_locked_coin_records()?;
+        let original_records = records.clone();
+
+        if !deleted_ids.is_empty() {
+            records.retain(|record| !deleted_ids.contains(&record.holder_object_id));
+        }
+
+        let token_types: BTreeSet<String> = issued_before
+            .keys()
+            .chain(visible_before.keys())
+            .cloned()
+            .collect();
+
+        for token_type in token_types {
+            let issued_before_value = issued_before.get(&token_type).copied().unwrap_or(0);
+            let visible_before_value = visible_before.get(&token_type).copied().unwrap_or(0);
+            let issued_after_value = self.issued_supply_for_token(&token_type);
+            let visible_after_value = self.visible_supply_snapshot(&token_type)?;
+
+            let issued_delta = issued_after_value as i128 - issued_before_value as i128;
+            let visible_delta = visible_after_value as i128 - visible_before_value as i128;
+            let locked_delta = issued_delta - visible_delta;
+
+            if locked_delta > 0 {
+                if let Some(holder) = holder_candidates.first() {
+                    Self::add_locked_coin_record(
+                        &mut records,
+                        holder,
+                        &token_type,
+                        locked_delta as u64,
+                    );
+                }
+            } else if locked_delta < 0 {
+                Self::release_locked_coin_records(
+                    &mut records,
+                    &holder_ids,
+                    &token_type,
+                    (-locked_delta) as u64,
+                );
+            }
+        }
+
+        if records != original_records {
+            self.save_object_locked_coin_records(&records)?;
+        }
+
+        Ok(())
+    }
+
     /// Apply ChangeSet from Move VM execution
     /// This is the ONLY way to modify state - all changes must come from Move VM
     pub fn apply_changeset(&mut self, changeset: &ChangeSet) -> Result<()> {
         let mut supply_delta: i64 = 0;
         let mut supplies_dirty = false;
+        let token_types_before = self.supply_tracking_token_types(changeset);
+        let mut issued_before = BTreeMap::new();
+        let mut visible_before = BTreeMap::new();
+        for token_type in token_types_before {
+            issued_before.insert(
+                token_type.clone(),
+                self.issued_supply_for_token(&token_type),
+            );
+            visible_before.insert(
+                token_type.clone(),
+                self.visible_supply_snapshot(&token_type)?,
+            );
+        }
 
         for (address, change) in &changeset.account_changes {
             let mut account = self.load_account_or_default(*address)?;
+            let old_balances = account.token_balances.clone();
+            let native_token = KANARI_TOKEN_TYPE.to_string();
 
             if change.balance_delta > 0 {
                 let amount = change.balance_delta as u64;
-                account.balance = account
-                    .balance
-                    .checked_add(amount)
-                    .unwrap_or(account.balance);
+                let next = account.native_balance().saturating_add(amount);
+                account.set_token_balance(native_token.clone(), BalanceRecord::new(next));
                 supply_delta += change.balance_delta;
             } else if change.balance_delta < 0 {
                 let debit = (-change.balance_delta) as u64;
-                if account.balance >= debit {
-                    account.balance -= debit;
+                let current = account.native_balance();
+                if current >= debit {
+                    let next = current - debit;
+                    if next == 0 {
+                        account.token_balances.remove(KANARI_TOKEN_TYPE);
+                    } else {
+                        account.set_token_balance(native_token.clone(), BalanceRecord::new(next));
+                    }
                     supply_delta += change.balance_delta;
                 }
             }
@@ -505,6 +1005,10 @@ impl StateManager {
                 account.add_module(module_name.clone());
             }
             self.save_account(&account)?;
+            if self.adjust_global_supplies_for_account_delta(&old_balances, &account.token_balances)
+            {
+                supplies_dirty = true;
+            }
         }
 
         // Update total supply if there was mint/burn (supply_delta != 0)
@@ -526,20 +1030,19 @@ impl StateManager {
 
         // Apply treasury creations/updates
         for (owner, token_type, total_supply) in &changeset.treasuries {
-            let mut key = b"supply:".to_vec();
-            key.extend_from_slice(token_type.as_bytes());
+            let key = Self::supply_key(token_type);
             self.save_internal(&key, total_supply)?;
 
             let mut key_owner = b"treasury:".to_vec();
             key_owner.extend_from_slice(token_type.as_bytes());
             self.save_internal(&key_owner, owner)?;
 
-            // Update treasury index
-            let mut index: Vec<String> = self.load_internal(b"treasury_index")?.unwrap_or_default();
-            let key_str = format!("treasury:{}", token_type);
-            if !index.contains(&key_str) {
-                index.push(key_str);
-                self.save_internal(b"treasury_index", &index)?;
+            self.add_to_index_list(b"treasury_index", format!("treasury:{}", token_type))?;
+
+            if token_type == KANARI_TOKEN_TYPE {
+                self.total_supply = total_supply.total_supply;
+                let supply = self.total_supply;
+                self.save_internal(b"total_supply", &supply)?;
             }
         }
 
@@ -576,9 +1079,7 @@ impl StateManager {
             if let Some(existing) = self.load_internal::<StoredObject>(&obj_key)? {
                 owners_to_recompute.insert(existing.owner);
                 let owner_key = Self::owned_objects_key(&existing.owner);
-                let mut owned: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
-                owned.retain(|x| x != obj_id);
-                self.save_internal(&owner_key, &owned)?;
+                self.remove_from_index_list(&owner_key, obj_id)?;
             }
             self.overlay.insert(obj_key, None);
         }
@@ -587,13 +1088,7 @@ impl StateManager {
         for (obj_id, created) in &changeset.created_objects {
             // If this is a Collection type Object, record it in the global index
             if created.type_.contains("::collection::Collection") {
-                let mut index: Vec<String> = self
-                    .load_internal(b"nft_collection_index")?
-                    .unwrap_or_default();
-                if !index.contains(obj_id) {
-                    index.push(obj_id.clone());
-                    self.save_internal(b"nft_collection_index", &index)?;
-                }
+                self.add_to_index_list(b"nft_collection_index", obj_id.clone())?;
             }
         }
 
@@ -612,12 +1107,7 @@ impl StateManager {
                     // Record in Collection member index (O(1) Access)
                     let mut key = b"collection_members:".to_vec();
                     key.extend_from_slice(coll_id.as_bytes());
-
-                    let mut members: Vec<String> = self.load_internal(&key)?.unwrap_or_default();
-                    if !members.contains(&nft_id) {
-                        members.push(nft_id);
-                        self.save_internal(&key, &members)?;
-                    }
+                    self.add_to_index_list(&key, nft_id)?;
                 }
             }
         }
@@ -628,19 +1118,23 @@ impl StateManager {
 
             if let Ok(Some(existing)) = self.load_internal::<StoredObject>(&obj_key) {
                 owners_to_recompute.insert(existing.owner);
-                new_obj.version = existing.version + 1;
+                // Use the version from the ChangeSet (already calculated by MoveRuntime)
+                // Only recalculate if the ChangeSet version seems wrong (0 or less than existing)
+                if new_obj.version == 0 || new_obj.version <= existing.version {
+                    new_obj.version = existing.version + 1;
+                }
                 if new_obj.owner.to_hex_literal() == *obj_id {
                     new_obj.owner = existing.owner;
                 }
                 if existing.owner != new_obj.owner {
                     let old_owner_key = Self::owned_objects_key(&existing.owner);
-                    let mut old_owned: Vec<String> =
-                        self.load_internal(&old_owner_key)?.unwrap_or_default();
-                    old_owned.retain(|x| x != obj_id);
-                    self.save_internal(&old_owner_key, &old_owned)?;
+                    self.remove_from_index_list(&old_owner_key, obj_id)?;
                 }
             } else {
-                new_obj.version = 1;
+                // For new objects, use version from ChangeSet or default to 1
+                if new_obj.version == 0 {
+                    new_obj.version = 1;
+                }
             }
             owners_to_recompute.insert(new_obj.owner);
 
@@ -654,76 +1148,15 @@ impl StateManager {
             self.save_internal(&obj_key, &stored_obj)?;
 
             let owner_key = Self::owned_objects_key(&new_obj.owner);
-            let mut owned: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
-            owned.retain(|x| x != obj_id);
-            owned.push(obj_id.clone());
-            self.save_internal(&owner_key, &owned)?;
+            self.remove_from_index_list(&owner_key, obj_id)?;
+            self.add_to_index_list(&owner_key, obj_id.clone())?;
 
             if new_obj.type_.contains("::coin::CoinMetadata<")
                 && let Some(start) = new_obj.type_.find('<')
                 && let Some(end) = new_obj.type_.rfind('>')
             {
                 let token_type = &new_obj.type_[start + 1..end];
-
-                #[derive(Deserialize)]
-                struct MoveString {
-                    bytes: Vec<u8>,
-                }
-                #[derive(Deserialize)]
-                struct MoveUrl {
-                    inner: MoveString,
-                }
-
-                #[derive(Deserialize)]
-                struct MoveOption<T> {
-                    vec: Vec<T>,
-                }
-                #[derive(Deserialize)]
-                struct ParsedCoinMetadata {
-                    _id: AccountAddress,
-                    decimals: u8,
-                    symbol: MoveString,
-                    name: MoveString,
-                    description: MoveString,
-                    icon_url: MoveOption<MoveUrl>,
-                }
-
-                if let Ok(meta) = bcs::from_bytes::<ParsedCoinMetadata>(&new_obj.data) {
-                    let mut key_dec = b"metadata_decimals:".to_vec();
-                    key_dec.extend_from_slice(token_type.as_bytes());
-                    let _ = self.save_internal(&key_dec, &meta.decimals);
-
-                    if let Ok(name) = String::from_utf8(meta.name.bytes) {
-                        let mut key_name = b"metadata_name:".to_vec();
-                        key_name.extend_from_slice(token_type.as_bytes());
-                        let _ = self.save_internal(&key_name, &name);
-                    }
-
-                    if let Ok(symbol) = String::from_utf8(meta.symbol.bytes) {
-                        let mut key_sym = b"metadata_symbol:".to_vec();
-                        key_sym.extend_from_slice(token_type.as_bytes());
-                        let _ = self.save_internal(&key_sym, &symbol);
-                    }
-
-                    if let Ok(description) = String::from_utf8(meta.description.bytes) {
-                        let mut key_desc = b"metadata_description:".to_vec();
-                        key_desc.extend_from_slice(token_type.as_bytes());
-                        let _ = self.save_internal(&key_desc, &description);
-                    }
-
-                    if let Some(url_obj) = meta.icon_url.vec.into_iter().next()
-                        && let Ok(url) = String::from_utf8(url_obj.inner.bytes)
-                    {
-                        let mut key_url = b"metadata_icon_url:".to_vec();
-                        key_url.extend_from_slice(token_type.as_bytes());
-                        let _ = self.save_internal(&key_url, &url);
-                    }
-                } else if new_obj.data.len() > 32 {
-                    let decimals = new_obj.data[32];
-                    let mut key = b"metadata_decimals:".to_vec();
-                    key.extend_from_slice(token_type.as_bytes());
-                    let _ = self.save_internal(&key, &decimals);
-                }
+                self.persist_coin_metadata(token_type, &new_obj.data);
             }
         }
 
@@ -732,6 +1165,8 @@ impl StateManager {
                 supplies_dirty = true;
             }
         }
+
+        self.reconcile_object_locked_coin_records(changeset, &issued_before, &visible_before)?;
 
         if supplies_dirty {
             let supplies_clone = self.global_token_supplies.clone();
@@ -750,6 +1185,10 @@ impl StateManager {
             let df_key = Self::dynamic_field_key(object_id, name_bytes);
             // Record as None so commit() will delete it from RocksDB
             self.overlay.insert(df_key, None);
+        }
+
+        if let Err(e) = self.validate_supply_invariants() {
+            Self::report_supply_invariant_violation("after apply_changeset", &e);
         }
 
         Ok(())
@@ -771,27 +1210,27 @@ impl StateManager {
 
     /// Get a specific object by ID
     pub fn get_object(&self, object_id: &str) -> Result<Option<CreatedObject>> {
-        let obj_key = Self::object_key(object_id);
-        if let Some(stored) = self.load_internal::<StoredObject>(&obj_key)? {
-            // Create UIDRecord from object ID for ownership tracking
-            let uid = AccountAddress::from_hex_literal(object_id)
-                .ok()
-                .map(UIDRecord::new);
+        for candidate in Self::candidate_object_ids(object_id) {
+            let obj_key = Self::object_key(&candidate);
+            if let Some(stored) = self.load_internal::<StoredObject>(&obj_key)? {
+                let uid = AccountAddress::from_hex_literal(&candidate)
+                    .ok()
+                    .map(UIDRecord::new);
+                let id = AccountAddress::from_hex_literal(&candidate)
+                    .ok()
+                    .map(IDRecord::new);
 
-            // Create IDRecord from object ID for DEX/DeFi copyable ID tracking
-            let id = AccountAddress::from_hex_literal(object_id)
-                .ok()
-                .map(IDRecord::new);
-
-            return Ok(Some(CreatedObject {
-                owner: stored.owner,
-                uid,
-                id,
-                type_: stored.type_name,
-                data: stored.data,
-                version: stored.version,
-            }));
+                return Ok(Some(CreatedObject {
+                    owner: stored.owner,
+                    uid,
+                    id,
+                    type_: stored.type_name,
+                    data: stored.data,
+                    version: stored.version,
+                }));
+            }
         }
+
         Ok(None)
     }
 
@@ -827,17 +1266,9 @@ impl StateManager {
 
     /// Get the total number of accounts
     pub fn account_count(&self) -> usize {
-        // Count all account keys in the overlay and DB
-        let mut count = 0;
-        let prefix = b"account:";
-
-        // Count from overlay
-        for key in self.overlay.keys() {
-            if key.starts_with(prefix) {
-                count += 1;
-            }
-        }
-        count
+        self.load_index_list(ACCOUNT_INDEX_KEY)
+            .map(|accounts| accounts.len())
+            .unwrap_or(0)
     }
 
     /// Get token decimals for a specific token type
@@ -873,5 +1304,219 @@ impl StateManager {
         let mut key = b"metadata_icon_url:".to_vec();
         key.extend_from_slice(token_type.as_bytes());
         self.load_internal::<String>(&key)
+    }
+
+    pub fn validate_supply_invariants(&self) -> Result<()> {
+        let persisted_native_supply =
+            Self::load_persisted_supply_from_store(self.store.as_ref(), KANARI_TOKEN_TYPE);
+        if let Some(persisted) = persisted_native_supply
+            && persisted != self.total_supply
+        {
+            anyhow::bail!(
+                "native total supply mismatch: state.total_supply={} persisted_treasury={}",
+                self.total_supply,
+                persisted
+            );
+        }
+
+        let native_supply = self.token_supply_summary(KANARI_TOKEN_TYPE)?;
+        // Wallet-visible balance caches only reflect top-level wallet-owned
+        // coin objects. Coins can also be held inside DeFi objects (for
+        // example escrow funds), so visible supply may be lower than issued
+        // supply without implying a burn. It must never exceed total supply.
+        if native_supply.wallet_visible_supply > native_supply.total_supply {
+            anyhow::bail!(
+                "native supply overcount: total_supply={} wallet_visible_supply={} object_locked_supply={}",
+                native_supply.total_supply,
+                native_supply.wallet_visible_supply,
+                native_supply.object_locked_supply
+            );
+        }
+        if native_supply.accounted_supply > native_supply.total_supply {
+            anyhow::bail!(
+                "native supply overcount: total_supply={} accounted_supply={} wallet_visible_supply={} object_locked_supply={}",
+                native_supply.total_supply,
+                native_supply.accounted_supply,
+                native_supply.wallet_visible_supply,
+                native_supply.object_locked_supply
+            );
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn treasury_update_syncs_native_total_supply() -> Result<()> {
+        let mut state = StateManager::new_in_memory();
+        let owner = AccountAddress::from_hex_literal("0x1")?;
+
+        let mut cs = ChangeSet::new();
+        cs.add_treasury(owner, KANARI_TOKEN_TYPE.to_string(), 777);
+        state.apply_changeset(&cs)?;
+
+        assert_eq!(state.total_supply, 777);
+        Ok(())
+    }
+
+    #[test]
+    fn validate_supply_invariants_detects_native_supply_overcount() -> Result<()> {
+        let alice = AccountAddress::from_hex_literal("0x1111")?;
+        let mut state = StateManager::new_in_memory();
+
+        let account = Account::with_native_balance(alice, 500);
+        state.save_account(&account)?;
+        state.total_supply = 400;
+        state
+            .global_token_supplies
+            .insert(KANARI_TOKEN_TYPE.to_string(), 500);
+
+        let err = state
+            .validate_supply_invariants()
+            .expect_err("validation should detect overcount");
+        assert!(err.to_string().contains("wallet_visible_supply=500"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn validate_supply_invariants_allows_native_supply_locked_in_objects() -> Result<()> {
+        let alice = AccountAddress::from_hex_literal("0x1111")?;
+        let mut state = StateManager::new_in_memory();
+
+        let account = Account::with_native_balance(alice, 500);
+        state.save_account(&account)?;
+        state.total_supply = 600;
+        state
+            .global_token_supplies
+            .insert(KANARI_TOKEN_TYPE.to_string(), 500);
+
+        let summary = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+        assert_eq!(summary.total_supply, 600);
+        assert_eq!(summary.wallet_visible_supply, 500);
+        assert_eq!(summary.object_locked_supply, 100);
+
+        state.validate_supply_invariants()?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn token_supply_summary_uses_treasury_supply_for_custom_tokens() -> Result<()> {
+        let owner = AccountAddress::from_hex_literal("0x1111")?;
+        let token_type = "0x2::test::TEST";
+        let mut state = StateManager::new_in_memory();
+
+        let mut cs = ChangeSet::new();
+        cs.add_treasury(owner, token_type.to_string(), 1_000);
+        cs.add_token_balance_set(owner, token_type.to_string(), 250);
+        state.apply_changeset(&cs)?;
+
+        let summary = state.token_supply_summary(token_type)?;
+        assert_eq!(summary.total_supply, 1_000);
+        assert_eq!(summary.wallet_visible_supply, 250);
+        assert_eq!(summary.object_locked_supply, 750);
+
+        Ok(())
+    }
+
+    #[test]
+    fn object_locked_coin_ledger_tracks_defi_lock_and_release() -> Result<()> {
+        let owner = AccountAddress::from_hex_literal("0x1111")?;
+        let token_type = "0x2::test::TEST";
+        let coin_type = format!("0x2::coin::Coin<{}>", token_type);
+        let deal_type = format!("0x2::escrow::EscrowDeal<{}>", token_type);
+        let mut state = StateManager::new_in_memory();
+
+        let mut full_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
+        full_coin_data[UID_SIZE..].copy_from_slice(&1_000u64.to_le_bytes());
+        let mut init = ChangeSet::new();
+        init.add_treasury(owner, token_type.to_string(), 1_000);
+        init.created_objects.push((
+            "0xaaaa".to_string(),
+            CreatedObject {
+                owner,
+                uid: None,
+                id: None,
+                type_: coin_type.clone(),
+                data: full_coin_data,
+                version: 1,
+            },
+        ));
+        state.apply_changeset(&init)?;
+
+        let mut remaining_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
+        remaining_coin_data[UID_SIZE..].copy_from_slice(&900u64.to_le_bytes());
+        let mut lock = ChangeSet::new();
+        lock.created_objects.push((
+            "0xaaaa".to_string(),
+            CreatedObject {
+                owner,
+                uid: None,
+                id: None,
+                type_: coin_type.clone(),
+                data: remaining_coin_data,
+                version: 2,
+            },
+        ));
+        lock.created_objects.push((
+            "0xbbbb".to_string(),
+            CreatedObject {
+                owner,
+                uid: None,
+                id: None,
+                type_: deal_type.clone(),
+                data: vec![1, 2, 3],
+                version: 1,
+            },
+        ));
+        state.apply_changeset(&lock)?;
+
+        let summary = state.token_supply_summary(token_type)?;
+        assert_eq!(summary.total_supply, 1_000);
+        assert_eq!(summary.wallet_visible_supply, 900);
+        assert_eq!(summary.object_locked_supply, 100);
+        let locked_records = state.load_object_locked_coin_records()?;
+        assert_eq!(locked_records.len(), 1);
+        assert_eq!(locked_records[0].holder_object_id, "0xbbbb");
+        assert_eq!(locked_records[0].amount, 100);
+
+        let mut released_coin_data = vec![0u8; UID_SIZE + U64_SIZE];
+        released_coin_data[UID_SIZE..].copy_from_slice(&100u64.to_le_bytes());
+        let mut release = ChangeSet::new();
+        release.created_objects.push((
+            "0xbbbb".to_string(),
+            CreatedObject {
+                owner,
+                uid: None,
+                id: None,
+                type_: deal_type,
+                data: vec![4, 5, 6],
+                version: 2,
+            },
+        ));
+        release.created_objects.push((
+            "0xcccc".to_string(),
+            CreatedObject {
+                owner,
+                uid: None,
+                id: None,
+                type_: coin_type,
+                data: released_coin_data,
+                version: 1,
+            },
+        ));
+        state.apply_changeset(&release)?;
+
+        let summary = state.token_supply_summary(token_type)?;
+        assert_eq!(summary.wallet_visible_supply, 1_000);
+        assert_eq!(summary.object_locked_supply, 0);
+        assert!(state.load_object_locked_coin_records()?.is_empty());
+
+        Ok(())
     }
 }

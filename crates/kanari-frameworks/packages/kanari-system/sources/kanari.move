@@ -9,6 +9,7 @@ module kanari_system::kanari {
     use kanari_system::tx_context::{Self, TxContext};
     use std::option;
     use kanari_system::transfer;
+    use kanari_system::url;
 
     #[allow(unused_const)]
     /// The amount of Mist per Kanari token based on the fact that mist is
@@ -39,7 +40,7 @@ module kanari_system::kanari {
             b"KANARI",
             b"Kanari Network Coin",
             b"",
-            option::none(),
+            option::some(url::new_unsafe_from_bytes(b"https://avatars.githubusercontent.com/u/127471673?s=200&v=4")),
             ctx
         );
         transfer::public_freeze_object(metadata);
@@ -60,6 +61,23 @@ module kanari_system::kanari {
     /// KANARI tokens to the treasury
     public entry fun transfer(c: coin::Coin<KANARI>, recipient: address) {
         transfer::public_transfer(c, recipient)
+    }
+
+    /// Transfer a specific amount of KANARI from a mutable coin object.
+    /// This keeps the remainder in the sender's original coin object.
+    public entry fun transfer_amount(
+        c: &mut coin::Coin<KANARI>,
+        amount: u64,
+        recipient: address,
+        ctx: &mut TxContext
+    ) {
+        let sender = tx_context::sender(ctx);
+        if (sender == recipient) {
+            return
+        };
+
+        let split_coin = coin::split(c, amount, ctx);
+        transfer::public_transfer(split_coin, recipient);
     }
 
     /// Burns KANARI tokens, decreasing total supply

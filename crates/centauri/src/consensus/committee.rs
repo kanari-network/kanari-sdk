@@ -39,8 +39,10 @@ pub struct Committee {
 impl Committee {
     fn compute_quorum_size(validators: &[ValidatorInfo]) -> usize {
         let total = validators.len();
-        let f = (total.saturating_sub(1)) / 3;
-        2 * f + 1
+        if total == 0 {
+            return 0;
+        }
+        (2 * total).div_ceil(3)
     }
 
     pub fn new(epoch: u64, validators: Vec<ValidatorInfo>) -> Self {
@@ -66,14 +68,6 @@ impl Committee {
         self.validators.contains_key(authority)
     }
 
-    pub fn active_validators(&self) -> Vec<&ValidatorInfo> {
-        self.validators.values().filter(|v| v.active).collect()
-    }
-
-    pub fn has_quorum(&self, support_count: usize) -> bool {
-        support_count >= self.quorum_size
-    }
-
     pub fn verify_quorum_certificate(&self, signers: &[AuthorityId]) -> Result<()> {
         let unique_signers: std::collections::HashSet<&str> =
             signers.iter().map(|s| s.as_str()).collect();
@@ -96,29 +90,6 @@ impl Committee {
                 self.quorum_size
             ))
         }
-    }
-
-    /// Create next epoch committee with validator additions and removals
-    /// This is a convenience method for simple epoch transitions
-    pub fn next_epoch_committee(
-        &self,
-        new_validators: Vec<ValidatorInfo>,
-        removed_validators: Vec<AuthorityId>,
-    ) -> Self {
-        let mut next_validators = self.validators.clone();
-
-        // Remove validators
-        for id in removed_validators {
-            next_validators.remove(&id);
-        }
-
-        // Add new validators
-        for v in new_validators {
-            next_validators.insert(v.authority_id.clone(), v);
-        }
-
-        let validators: Vec<ValidatorInfo> = next_validators.into_values().collect();
-        Self::new(self.epoch + 1, validators)
     }
 }
 
@@ -216,14 +187,6 @@ impl CommitteeManager {
         }
     }
 
-    pub fn current_committee(&self) -> &Committee {
-        &self.current_committee
-    }
-
-    pub fn get_committee(&self, epoch: u64) -> Option<&Committee> {
-        self.committee_history.get(&epoch)
-    }
-
     pub fn propose_change(&mut self, change: CommitteeChange, target_epoch: u64) -> Result<()> {
         Self::ensure_future_epoch(self.current_committee.epoch, target_epoch, "Propose change")?;
 
@@ -298,10 +261,6 @@ impl CommitteeManager {
         Ok(new_committee)
     }
 
-    pub fn get_pending_changes(&self, epoch: u64) -> Option<&[CommitteeChange]> {
-        self.pending_changes.get(&epoch).map(|v| v.as_slice())
-    }
-
     pub fn prune_old_data(&mut self) {
         let current_epoch = self.current_committee.epoch;
         let max_future_epoch = current_epoch + MAX_PENDING_EPOCHS;
@@ -313,10 +272,6 @@ impl CommitteeManager {
             self.committee_history
                 .retain(|&epoch, _| epoch >= cutoff_epoch);
         }
-    }
-
-    pub fn get_memory_stats(&self) -> (usize, usize) {
-        (self.pending_changes.len(), self.committee_history.len())
     }
 
     pub fn verify_change_tx(&self, tx: &CommitteeChangeTx, chain_id: &str) -> Result<()> {
@@ -403,15 +358,26 @@ mod tests {
         let committee = create_test_committee();
         assert_eq!(committee.epoch, 0);
         assert_eq!(committee.validators.len(), 4);
-        // 4 validators, f = (4-1)/3 = 1, quorum = 2*1+1 = 3
+        // 4 validators require a 2/3 supermajority quorum of 3
         assert_eq!(committee.quorum_size, 3);
+    }
+
+    #[test]
+    fn test_three_validator_quorum_is_not_single_vote() {
+        let validators = vec![
+            create_test_validator("auth1"),
+            create_test_validator("auth2"),
+            create_test_validator("auth3"),
+        ];
+        let committee = Committee::new(0, validators);
+        assert_eq!(committee.quorum_size, 2);
     }
 
     #[test]
     fn test_quorum_verification() {
         let committee = create_test_committee();
-        assert!(committee.has_quorum(3));
-        assert!(!committee.has_quorum(2));
+        assert!(3 >= committee.quorum_size);
+        assert!(2 < committee.quorum_size);
     }
 
     #[test]
@@ -436,7 +402,7 @@ mod tests {
         manager.propose_change(change, 1).unwrap();
         let new_committee = manager.advance_epoch(1).unwrap();
         assert_eq!(new_committee.validators.len(), 5);
-        // 5 validators, f = (5-1)/3 = 1, quorum = 2*1+1 = 3
-        assert_eq!(new_committee.quorum_size, 3);
+        // 5 validators require a 2/3 supermajority quorum of 4
+        assert_eq!(new_committee.quorum_size, 4);
     }
 }

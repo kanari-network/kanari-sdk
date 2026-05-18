@@ -16,6 +16,26 @@ use move_core_types::language_storage::ModuleId;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
+pub(crate) const MOVE_STDLIB_BYTECODE_SEGMENTS: &[&str] = &[
+    "crates",
+    "kanari-frameworks",
+    "packages",
+    "move-stdlib",
+    "build",
+    "MoveStdlib",
+    "bytecode_modules",
+];
+
+pub(crate) const KANARI_SYSTEM_BYTECODE_SEGMENTS: &[&str] = &[
+    "crates",
+    "kanari-frameworks",
+    "packages",
+    "kanari-system",
+    "build",
+    "KanariSystem",
+    "bytecode_modules",
+];
+
 fn mv_filename(name: &str) -> String {
     if name.ends_with(".mv") {
         name.to_owned()
@@ -25,13 +45,15 @@ fn mv_filename(name: &str) -> String {
 }
 
 #[derive(Clone)]
-struct DiscoveredModule {
-    module_id: ModuleId,
-    module_name: String,
-    file_name: String,
-    bytes: Vec<u8>,
-    compiled: CompiledModule,
-    deps: Vec<ModuleId>,
+pub struct DiscoveredModule {
+    pub module_id: ModuleId,
+    pub module_name: String,
+    pub file_name: String,
+    pub bytes: Vec<u8>,
+    #[allow(dead_code)]
+    pub compiled: CompiledModule,
+    #[allow(dead_code)]
+    pub deps: Vec<ModuleId>,
 }
 
 fn discover_modules_in_dir(
@@ -200,7 +222,105 @@ fn compute_framework_manifest_and_hash(
     (manifest, root_hash)
 }
 
-fn find_modules_dir(env_var: &str, segments: &[&str]) -> PathBuf {
+fn verify_framework_hash(
+    state: &crate::storage::move_vm_state::MoveVMState,
+    framework_id: &str,
+    modules: &[DiscoveredModule],
+    expected_env_var: &str,
+    changed_warning: &str,
+) -> Result<()> {
+    let (manifest, hash_hex) = compute_framework_manifest_and_hash(modules);
+    log::info!("{} framework hash (disk): {}", framework_id, hash_hex);
+    if let Some(prev) = state.get_framework_hash(framework_id)
+        && prev != hash_hex
+    {
+        warn!(
+            "{}",
+            changed_warning
+                .replace("{prev}", &prev)
+                .replace("{hash}", &hash_hex)
+        );
+    }
+    state.save_framework_manifest(framework_id, &manifest, &hash_hex)?;
+    if let Ok(expected) = std::env::var(expected_env_var)
+        && expected != hash_hex
+    {
+        return Err(anyhow!(
+            "{} framework hash mismatch: expected {}, got {}",
+            framework_id,
+            expected,
+            hash_hex
+        ));
+    }
+    Ok(())
+}
+
+fn prune_framework_modules(
+    _runtime: &super::MoveRuntime,
+    _modules: &[DiscoveredModule],
+    _framework_addr: AccountAddress,
+) {
+    #[cfg(feature = "framework-pruning")]
+    {
+        let keep: BTreeSet<ModuleId> = modules.iter().map(|m| m.module_id.clone()).collect();
+        for id in runtime.state.get_all_module_ids().unwrap_or_default() {
+            if *id.address() == framework_addr && !keep.contains(&id) {
+                if let Err(e) = runtime.state.delete_module(&id) {
+                    warn!("Warning: Failed to prune module {}: {}", id, e);
+                } else if let Ok(mut mods) = runtime.published_modules.write() {
+                    mods.remove(&id);
+                }
+            }
+        }
+    }
+}
+
+fn save_framework_modules(
+    runtime: &super::MoveRuntime,
+    modules: Vec<DiscoveredModule>,
+    incompatible_error_prefix: &str,
+) -> Result<usize> {
+    let mut count = 0;
+    for m in modules {
+        let module_file = mv_filename(&m.file_name);
+        if let Some(old_bytes) = runtime.state.get_module(&m.module_id)
+            && old_bytes != m.bytes
+        {
+            let old_compiled = CompiledModule::deserialize_with_defaults(&old_bytes)?;
+            let old_norm = normalized::Module::new(&old_compiled);
+            let new_norm = normalized::Module::new(&m.compiled);
+            if let Err(e) = Compatibility::full_check().check(&old_norm, &new_norm) {
+                if std::env::var("KANARI_FRAMEWORK_ALLOW_INCOMPATIBLE")
+                    .ok()
+                    .as_deref()
+                    != Some("1")
+                {
+                    return Err(anyhow!(
+                        "Incompatible {} upgrade for {} (set KANARI_FRAMEWORK_ALLOW_INCOMPATIBLE=1 to override): {:?}",
+                        incompatible_error_prefix,
+                        m.module_id,
+                        e
+                    ));
+                }
+                warn!(
+                    "Warning: Allowing incompatible {} upgrade for {}: {:?}",
+                    incompatible_error_prefix, m.module_id, e
+                );
+            }
+        }
+        if let Err(e) = runtime.state.save_module(&m.module_id, &m.bytes) {
+            eprintln!("Warning: Failed to save {}: {}", module_file, e);
+            continue;
+        }
+        if let Ok(mut mods) = runtime.published_modules.write() {
+            mods.insert(m.module_id);
+        }
+        count += 1;
+    }
+    Ok(count)
+}
+
+pub(crate) fn find_modules_dir(env_var: &str, segments: &[&str]) -> PathBuf {
     if let Ok(path_str) = std::env::var(env_var) {
         return PathBuf::from(path_str);
     }
@@ -223,20 +343,19 @@ fn find_modules_dir(env_var: &str, segments: &[&str]) -> PathBuf {
     p
 }
 
+pub(crate) fn find_move_stdlib_modules_dir() -> PathBuf {
+    find_modules_dir("MOVE_STDLIB_PATH", MOVE_STDLIB_BYTECODE_SEGMENTS)
+}
+
+pub(crate) fn find_kanari_system_modules_dir() -> PathBuf {
+    find_modules_dir("KANARI_FRAMEWORK_PATH", KANARI_SYSTEM_BYTECODE_SEGMENTS)
+}
+
 /// Load move-stdlib and kanari-system modules as methods on `MoveRuntime`
 impl super::MoveRuntime {
     /// Load move-stdlib modules (0x1::*)
     pub fn load_move_stdlib(&self) -> Result<()> {
-        let segments = [
-            "crates",
-            "kanari-frameworks",
-            "packages",
-            "move-stdlib",
-            "build",
-            "MoveStdlib",
-            "bytecode_modules",
-        ];
-        let modules_dir = find_modules_dir("MOVE_STDLIB_PATH", &segments);
+        let modules_dir = find_move_stdlib_modules_dir();
 
         eprintln!("✓ Looking for Move stdlib modules at: {:?}", modules_dir);
 
@@ -267,79 +386,15 @@ impl super::MoveRuntime {
             )?;
         }
 
-        let (manifest, hash_hex) = compute_framework_manifest_and_hash(&modules);
-        log::info!("Move stdlib framework hash (disk): {}", hash_hex);
-        if let Some(prev) = self.state.get_framework_hash("0x1")
-            && prev != hash_hex
-        {
-            warn!(
-                "Warning: stdlib framework hash changed (db: {}, disk: {}). Ensure all validators upgrade together.",
-                prev, hash_hex
-            );
-        }
-        self.state
-            .save_framework_manifest("0x1", &manifest, &hash_hex)?;
-        if let Ok(expected) = std::env::var("KANARI_FRAMEWORK_EXPECTED_HASH_0X1")
-            && expected != hash_hex
-        {
-            return Err(anyhow::anyhow!(
-                "Stdlib framework hash mismatch: expected {}, got {}",
-                expected,
-                hash_hex
-            ));
-        }
-
-        // Prune modules based on compile-time feature flag rather than environment variable
-        // This ensures all validators have consistent behavior, preventing consensus forks
-        #[cfg(feature = "framework-pruning")]
-        {
-            let keep: BTreeSet<ModuleId> = modules.iter().map(|m| m.module_id.clone()).collect();
-            for id in self.state.get_all_module_ids().unwrap_or_default() {
-                if *id.address() == std_addr && !keep.contains(&id) {
-                    if let Err(e) = self.state.delete_module(&id) {
-                        warn!("Warning: Failed to prune module {}: {}", id, e);
-                    } else if let Ok(mut mods) = self.published_modules.write() {
-                        mods.remove(&id);
-                    }
-                }
-            }
-        }
-
-        for m in modules {
-            let module_file = mv_filename(&m.file_name);
-            if let Some(old_bytes) = self.state.get_module(&m.module_id)
-                && old_bytes != m.bytes
-            {
-                let old_compiled = CompiledModule::deserialize_with_defaults(&old_bytes)?;
-                let old_norm = normalized::Module::new(&old_compiled);
-                let new_norm = normalized::Module::new(&m.compiled);
-                if let Err(e) = Compatibility::full_check().check(&old_norm, &new_norm) {
-                    if std::env::var("KANARI_FRAMEWORK_ALLOW_INCOMPATIBLE")
-                        .ok()
-                        .as_deref()
-                        != Some("1")
-                    {
-                        return Err(anyhow::anyhow!(
-                            "Incompatible stdlib upgrade for {} (set KANARI_FRAMEWORK_ALLOW_INCOMPATIBLE=1 to override): {:?}",
-                            m.module_id,
-                            e
-                        ));
-                    }
-                    warn!(
-                        "Warning: Allowing incompatible stdlib upgrade for {}: {:?}",
-                        m.module_id, e
-                    );
-                }
-            }
-            if let Err(e) = self.state.save_module(&m.module_id, &m.bytes) {
-                eprintln!("Warning: Failed to save {}: {}", module_file, e);
-                continue;
-            }
-            if let Ok(mut mods) = self.published_modules.write() {
-                mods.insert(m.module_id);
-            }
-            count += 1;
-        }
+        verify_framework_hash(
+            &self.state,
+            "0x1",
+            &modules,
+            "KANARI_FRAMEWORK_EXPECTED_HASH_0X1",
+            "Warning: stdlib framework hash changed (db: {prev}, disk: {hash}). Ensure all validators upgrade together.",
+        )?;
+        prune_framework_modules(self, &modules, std_addr);
+        count += save_framework_modules(self, modules, "stdlib")?;
 
         eprintln!("✓ Loaded {} move-stdlib modules (0x1::*)", count);
         Ok(())
@@ -347,16 +402,7 @@ impl super::MoveRuntime {
 
     /// Load Kanari system modules (0x2::*)
     pub fn load_kanari_system(&self) -> Result<()> {
-        let segments = [
-            "crates",
-            "kanari-frameworks",
-            "packages",
-            "kanari-system",
-            "build",
-            "KanariSystem",
-            "bytecode_modules",
-        ];
-        let modules_dir = find_modules_dir("KANARI_FRAMEWORK_PATH", &segments);
+        let modules_dir = find_kanari_system_modules_dir();
 
         eprintln!("Looking for Kanari system modules at: {:?}", modules_dir);
 
@@ -384,41 +430,15 @@ impl super::MoveRuntime {
             ));
         }
 
-        // At this point, if we reach here, topo_sort_modules succeeded without cycles
-        // so no additional check is needed
+        verify_framework_hash(
+            &self.state,
+            "0x2",
+            &modules,
+            "KANARI_FRAMEWORK_EXPECTED_HASH_0X2",
+            "Warning: system framework hash changed (db: {prev}, disk: {hash}). Ensure all validators upgrade together.",
+        )?;
 
-        let (manifest, hash_hex) = compute_framework_manifest_and_hash(&modules);
-        eprintln!("kanari-system framework hash (disk): {}", hash_hex);
-        if let Some(prev) = self.state.get_framework_hash("0x2")
-            && prev != hash_hex
-        {
-            warn!(
-                "Warning: system framework hash changed (db: {}, disk: {}). Ensure all validators upgrade together.",
-                prev, hash_hex
-            );
-        }
-        self.state
-            .save_framework_manifest("0x2", &manifest, &hash_hex)?;
-        if let Ok(expected) = std::env::var("KANARI_FRAMEWORK_EXPECTED_HASH_0X2")
-            && expected != hash_hex
-        {
-            return Err(anyhow::anyhow!(
-                "System framework hash mismatch: expected {}, got {}",
-                expected,
-                hash_hex
-            ));
-        }
-
-        let stdlib_segments = [
-            "crates",
-            "kanari-frameworks",
-            "packages",
-            "move-stdlib",
-            "build",
-            "MoveStdlib",
-            "bytecode_modules",
-        ];
-        let stdlib_dir = find_modules_dir("MOVE_STDLIB_PATH", &stdlib_segments);
+        let stdlib_dir = find_move_stdlib_modules_dir();
         let std_addr = AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS)?;
         let stdlib_modules = topo_sort_modules(discover_modules_in_dir(&stdlib_dir, std_addr))?;
         let all_deps: Vec<&CompiledModule> = stdlib_modules
@@ -432,59 +452,31 @@ impl super::MoveRuntime {
             })?;
         }
 
-        // Prune modules based on compile-time feature flag rather than environment variable
-        // This ensures all validators have consistent behavior, preventing consensus forks
-        #[cfg(feature = "framework-pruning")]
-        {
-            let keep: BTreeSet<ModuleId> = modules.iter().map(|m| m.module_id.clone()).collect();
-            for id in self.state.get_all_module_ids().unwrap_or_default() {
-                if *id.address() == system_addr && !keep.contains(&id) {
-                    if let Err(e) = self.state.delete_module(&id) {
-                        warn!("Warning: Failed to prune module {}: {}", id, e);
-                    } else if let Ok(mut mods) = self.published_modules.write() {
-                        mods.remove(&id);
-                    }
-                }
-            }
-        }
-
-        for m in modules {
-            let module_file = mv_filename(&m.file_name);
-            if let Some(old_bytes) = self.state.get_module(&m.module_id)
-                && old_bytes != m.bytes
-            {
-                let old_compiled = CompiledModule::deserialize_with_defaults(&old_bytes)?;
-                let old_norm = normalized::Module::new(&old_compiled);
-                let new_norm = normalized::Module::new(&m.compiled);
-                if let Err(e) = Compatibility::full_check().check(&old_norm, &new_norm) {
-                    if std::env::var("KANARI_FRAMEWORK_ALLOW_INCOMPATIBLE")
-                        .ok()
-                        .as_deref()
-                        != Some("1")
-                    {
-                        return Err(anyhow::anyhow!(
-                            "Incompatible system upgrade for {} (set KANARI_FRAMEWORK_ALLOW_INCOMPATIBLE=1 to override): {:?}",
-                            m.module_id,
-                            e
-                        ));
-                    }
-                    warn!(
-                        "Warning: Allowing incompatible system upgrade for {}: {:?}",
-                        m.module_id, e
-                    );
-                }
-            }
-            if let Err(e) = self.state.save_module(&m.module_id, &m.bytes) {
-                eprintln!("Warning: Failed to save {}: {}", module_file, e);
-                continue;
-            }
-            if let Ok(mut mods) = self.published_modules.write() {
-                mods.insert(m.module_id);
-            }
-            count += 1;
-        }
+        prune_framework_modules(self, &modules, system_addr);
+        count += save_framework_modules(self, modules, "system")?;
 
         eprintln!("Loaded {} kanari-system modules (0x2::*)", count);
         Ok(())
     }
+}
+
+/// Public API: Load and sort system modules from a directory
+pub fn load_system_modules_from_dir(modules_dir: &Path) -> Result<Vec<DiscoveredModule>> {
+    let system_addr = KanariAddress::kanari_system_account_address();
+    let move_system_addr = AccountAddress::from_hex_literal(system_addr.to_hex_literal().as_str())?;
+
+    // Discover all modules in the directory
+    let discovered_modules = discover_modules_in_dir(modules_dir, move_system_addr);
+
+    if discovered_modules.is_empty() {
+        return Err(anyhow!(
+            "No valid framework modules found in {}",
+            modules_dir.display()
+        ));
+    }
+
+    // Sort modules in topological order (dependencies first)
+    let sorted_modules = topo_sort_modules(discovered_modules)?;
+
+    Ok(sorted_modules)
 }

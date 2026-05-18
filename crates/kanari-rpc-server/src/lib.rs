@@ -16,8 +16,7 @@ use tracing::info;
 
 use crate::{
     balance::{
-        handle_get_account, handle_get_all_balances, handle_get_balance, handle_get_token_balance,
-        handle_list_tokens,
+        handle_get_account, handle_get_all_balances, handle_get_token_balance, handle_list_tokens,
     },
     block::{
         handle_get_block, handle_get_block_height, handle_get_full_block, handle_get_stats,
@@ -52,7 +51,15 @@ impl RpcServerState {
     }
 }
 
-// Helper to safely serialize response values and avoid panics from `to_value().unwrap()`
+fn error_response(id: u64, error: RpcError) -> RpcResponse {
+    RpcResponse {
+        jsonrpc: "2.0".to_string(),
+        result: None,
+        error: Some(error),
+        id,
+    }
+}
+
 fn respond_with_value(id: u64, val: serde_json::Value) -> RpcResponse {
     RpcResponse {
         jsonrpc: "2.0".to_string(),
@@ -62,18 +69,50 @@ fn respond_with_value(id: u64, val: serde_json::Value) -> RpcResponse {
     }
 }
 
+pub(crate) fn invalid_params_response(id: u64, message: impl Into<String>) -> RpcResponse {
+    error_response(id, RpcError::invalid_params(message.into()))
+}
+
+pub(crate) fn internal_error_response(id: u64, message: impl Into<String>) -> RpcResponse {
+    error_response(id, RpcError::internal_error(message.into()))
+}
+
+pub(crate) fn parse_params<T: serde::de::DeserializeOwned>(
+    id: u64,
+    params: &serde_json::Value,
+) -> Result<T, Box<RpcResponse>> {
+    serde_json::from_value(params.clone())
+        .map_err(|e| Box::new(invalid_params_response(id, e.to_string())))
+}
+
+pub(crate) fn parse_labeled_params<T: serde::de::DeserializeOwned>(
+    id: u64,
+    params: &serde_json::Value,
+    label: &str,
+) -> Result<T, Box<RpcResponse>> {
+    serde_json::from_value(params.clone()).map_err(|e| {
+        Box::new(invalid_params_response(
+            id,
+            format!("Invalid {}: {}", label, e),
+        ))
+    })
+}
+
+pub(crate) fn first_array_param(
+    id: u64,
+    params: &serde_json::Value,
+) -> Result<&serde_json::Value, Box<RpcResponse>> {
+    let arr = params
+        .as_array()
+        .ok_or_else(|| Box::new(invalid_params_response(id, "Expected array params")))?;
+    arr.first()
+        .ok_or_else(|| Box::new(invalid_params_response(id, "Empty params array")))
+}
+
 fn respond_with_serialize<T: serde::Serialize>(id: u64, v: T) -> RpcResponse {
     match serde_json::to_value(v) {
         Ok(val) => respond_with_value(id, val),
-        Err(e) => RpcResponse {
-            jsonrpc: "2.0".to_string(),
-            result: None,
-            error: Some(RpcError::internal_error(format!(
-                "Serialization failed: {}",
-                e
-            ))),
-            id,
-        },
+        Err(e) => internal_error_response(id, format!("Serialization failed: {}", e)),
     }
 }
 
@@ -101,7 +140,6 @@ async fn handle_rpc(
     let response = match request.method.as_str() {
         // Account & Balance
         methods::GET_ACCOUNT => handle_get_account(&state, &request).await,
-        methods::GET_BALANCE => handle_get_balance(&state, &request).await,
         methods::GET_TOKEN_BALANCE => handle_get_token_balance(&state, &request).await,
         methods::LIST_TOKENS => handle_list_tokens(&state, &request).await,
         methods::GET_ALL_BALANCES => handle_get_all_balances(&state, &request).await,
@@ -142,12 +180,7 @@ async fn handle_rpc(
         methods::LIST_COLLECTIONS => handle_list_collections(&state, &request).await,
         methods::GET_NFTS_BY_COLLECTION => handle_get_nfts_by_collection(&state, &request).await,
 
-        _ => RpcResponse {
-            jsonrpc: "2.0".to_string(),
-            result: None,
-            error: Some(RpcError::method_not_found(&request.method)),
-            id: request.id,
-        },
+        _ => error_response(request.id, RpcError::method_not_found(&request.method)),
     };
 
     (StatusCode::OK, Json(response))
@@ -166,12 +199,21 @@ pub async fn start_server(engine: Arc<BlockchainEngine>, addr: &str) -> Result<(
 }
 
 /// Handle health check
-async fn handle_health(_state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+async fn handle_health(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    let report = state.engine.runtime_health_report();
+
     let health = HealthStatus {
-        status: "ok".to_string(),
+        status: report.status().to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         uptime_seconds: 0, // TODO: Track actual uptime
         sync_status: "synced".to_string(),
+        network: report.guards.network,
+        supply_invariants_ok: report.supply_invariants_ok,
+        supply_invariant_error: report.supply_invariant_error,
+        fail_fast_enabled: report.guards.fail_fast_supply_enabled,
+        strict_persistence_required: report.guards.strict_persistence_required,
+        strict_checkpoint_roots: report.guards.strict_checkpoint_roots,
+        persistent_storage_available: report.guards.persistent_storage_available,
     };
 
     respond_with_serialize(request.id, health)

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:ui';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -10,6 +9,7 @@ import 'package:provider/provider.dart';
 
 import 'package:kanari_pay/src/providers/wallet_provider.dart';
 import 'package:kanari_pay/kanari_pay.dart';
+import '../../core/token_utils.dart' as token_utils;
 import '../widgets/security_card.dart';
 import '../network_selector.dart';
 import '../wallet_info_card.dart';
@@ -324,9 +324,11 @@ class HomeScreenState extends State<HomeScreen> {
             ),
             itemBuilder: (context, index) {
               final token = tokens[index];
-              final formattedAmount =
-                  token.amount / math.pow(10, token.decimals);
-              final isKanari = token.tokenType == 'KANARI';
+              final formattedAmount = token_utils.displayAmountFromBaseUnits(
+                token.amount,
+                token.decimals,
+              );
+              final isKanari = token_utils.isKanariToken(token);
 
               return Padding(
                 padding: EdgeInsets.symmetric(
@@ -497,7 +499,12 @@ class HomeScreenState extends State<HomeScreen> {
     final state = context.watch<WalletState>();
     final isActive = walletData['id'] == state.activeWalletId;
     final displayBalance = isActive
-        ? (state.balance / 1000000000).toStringAsFixed(6)
+        ? token_utils
+              .displayAmountFromBaseUnits(
+                state.kanariBalance,
+                token_utils.kanariDecimals,
+              )
+              .toStringAsFixed(6)
         : "---";
 
     return Container(

@@ -36,10 +36,6 @@ export async function callRpc(method: string, params: any = []) {
     throw err;
   }
 }
-export async function getBalance(address: string) {
-  return callRpc("kanari_getBalance", address);
-}
-
 export async function getTokenBalance(address: string, token_type: string) {
   return callRpc("kanari_getTokenBalance", { address, token_type });
 }
@@ -54,7 +50,7 @@ export async function getAccount(address: string) {
 }
 
 export async function getTokens() {
-  return callRpc("kanari_listTokens", []);
+  return callRpc("kanari_listTokens", {});
 }
 
 // 🚨 FIX 2: ดักจับ Error ของ getBlockHeight แบบเงียบๆ ป้องกันหน้า Home พังหากฝั่ง Rust ยังไม่ได้ทำ API นี้ไว้

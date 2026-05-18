@@ -1,46 +1,37 @@
-use super::{RpcError, RpcRequest, RpcResponse, RpcServerState, respond_with_serialize};
+use super::{
+    RpcRequest, RpcResponse, RpcServerState, internal_error_response, parse_params,
+    respond_with_serialize,
+};
+use crate::module::aggregate_owned_objects;
 use kanari_move_runtime_v1::state::StateManager;
 use kanari_rpc_api::{GetAllBalancesRequest, GetTokenBalanceRequest};
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use move_core_types::language_storage::TypeTag;
 use serde_json;
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::str::FromStr;
+use tracing::warn;
 
-// =========================================================================
-// HELPERS (Optimized for performance and correctness)
-// =========================================================================
-
-/// Helper to get token decimals from engine state.
-/// OPTIMIZED: Requires an already acquired state guard to prevent lock contention in loops.
 fn get_token_decimals(state_guard: &StateManager, token_type: &str) -> u8 {
-    // Check for KANARI token (full type or short form for backward compatibility)
-    if token_type == KANARI_TOKEN_TYPE || token_type.to_uppercase() == "KANARI" {
+    if token_type == KANARI_TOKEN_TYPE {
         return 9;
     }
     if let Ok(Some(decimals)) = state_guard.get_token_decimals(token_type) {
         return decimals;
     }
-    // Default to 9 for most tokens
     9
 }
 
-/// Extracts the pure symbol name from a complex Move Type string.
-/// e.g., "0x2::coin::Coin<0x2::james::JAMES>" -> "JAMES"
-/// e.g., "0x2::james::JAMES" -> "JAMES"
 fn extract_symbol(token_type: &str) -> String {
-    // 1. Extract innermost generic if present
     let inner = token_type
         .split('<')
         .next_back()
         .unwrap_or(token_type)
         .trim_end_matches('>');
 
-    // 2. Extract the final module/struct name
     inner.split("::").last().unwrap_or(inner).to_string()
 }
 
-/// Normalizes TypeTag into a clean string representation
 fn normalize_token_type(token_type: &str) -> String {
     if let Ok(TypeTag::Struct(st)) = TypeTag::from_str(token_type) {
         return format!("{}", st);
@@ -48,101 +39,71 @@ fn normalize_token_type(token_type: &str) -> String {
     token_type.to_string()
 }
 
-// =========================================================================
-// HANDLERS
-// =========================================================================
+fn build_balance_json(
+    state_guard: &StateManager,
+    token_type: String,
+    balance: u64,
+) -> serde_json::Value {
+    let db_symbol = state_guard.get_token_symbol(&token_type).unwrap_or(None);
+    let symbol = db_symbol.unwrap_or_else(|| extract_symbol(&token_type));
+
+    let name = state_guard
+        .get_token_name(&token_type)
+        .unwrap_or(None)
+        .unwrap_or_else(|| symbol.clone());
+
+    let description = state_guard
+        .get_token_description(&token_type)
+        .unwrap_or(None);
+    let icon_url = state_guard.get_token_icon_url(&token_type).unwrap_or(None);
+
+    serde_json::json!({
+        "token_type": token_type,
+        "balance": balance,
+        "decimals": get_token_decimals(state_guard, &token_type),
+        "symbol": symbol,
+        "name": name,
+        "description": description,
+        "icon_url": icon_url
+    })
+}
 
 /// Handle get account request
 pub async fn handle_get_account(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let address: String = match serde_json::from_value(request.params.clone()) {
+    let address: String = match parse_params(request.id, &request.params) {
         Ok(addr) => addr,
-        Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(RpcError::invalid_params(e.to_string())),
-                id: request.id,
-            };
-        }
+        Err(response) => return *response,
     };
 
     match state.engine.get_account_info(&address) {
-        Some(info) => respond_with_serialize(request.id, info),
-        None => RpcResponse {
-            jsonrpc: "2.0".into(),
-            result: None,
-            error: Some(RpcError::internal_error("Account not found")),
-            id: request.id,
-        },
-    }
-}
-
-/// Handle get balance request
-pub async fn handle_get_balance(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let address: String = match serde_json::from_value(request.params.clone()) {
-        Ok(addr) => addr,
-        Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(RpcError::invalid_params(e.to_string())),
-                id: request.id,
-            };
+        Some(mut info) => {
+            if let Some(objects) = info.owned_objects.take() {
+                info.owned_objects = Some(aggregate_owned_objects(objects));
+            }
+            respond_with_serialize(request.id, info)
         }
-    };
-
-    let balance = state
-        .engine
-        .get_account_info(&address)
-        .map(|info| info.balance)
-        .unwrap_or(0);
-
-    RpcResponse {
-        jsonrpc: "2.0".into(),
-        result: Some(serde_json::json!(balance)),
-        error: None,
-        id: request.id,
+        None => internal_error_response(request.id, "Account not found"),
     }
 }
 
 /// Handle get token balance request
 pub async fn handle_get_token_balance(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let req_data: GetTokenBalanceRequest = match serde_json::from_value(request.params.clone()) {
+    let req_data: GetTokenBalanceRequest = match parse_params(request.id, &request.params) {
         Ok(data) => data,
-        Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(RpcError::invalid_params(e.to_string())),
-                id: request.id,
-            };
-        }
+        Err(response) => return *response,
     };
 
     let account_info = match state.engine.get_account_info(&req_data.address) {
         Some(info) => info,
-        None => {
-            return RpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(RpcError::internal_error("Account not found")),
-                id: request.id,
-            };
-        }
+        None => return internal_error_response(request.id, "Account not found"),
     };
 
     let target_token = normalize_token_type(&req_data.token_type);
-    let mut final_balance = 0;
-
-    // Check for KANARI token (full type or short form for backward compatibility)
-    if target_token == KANARI_TOKEN_TYPE
-        || target_token.to_uppercase() == "KANARI"
-        || target_token.contains("::kanari::KANARI")
-    {
-        final_balance = account_info.balance;
-    } else if let Some(record) = account_info.token_balances.get(&target_token) {
-        final_balance = *record;
-    }
+    let final_balance = account_info
+        .token_balances
+        .get(&target_token)
+        .copied()
+        .unwrap_or(0);
 
     RpcResponse {
         jsonrpc: "2.0".into(),
@@ -157,102 +118,23 @@ pub async fn handle_get_token_balance(state: &RpcServerState, request: &RpcReque
 
 /// Handle get all balances request
 pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let req_data: GetAllBalancesRequest = match serde_json::from_value(request.params.clone()) {
+    let req_data: GetAllBalancesRequest = match parse_params(request.id, &request.params) {
         Ok(data) => data,
-        Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(RpcError::invalid_params(e.to_string())),
-                id: request.id,
-            };
-        }
+        Err(response) => return *response,
     };
 
     let account_info = match state.engine.get_account_info(&req_data.address) {
         Some(info) => info,
-        None => {
-            return RpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(RpcError::internal_error("Account not found")),
-                id: request.id,
-            };
-        }
+        None => return internal_error_response(request.id, "Account not found"),
     };
 
-    let mut coin_sums: BTreeMap<String, u128> = BTreeMap::new();
-
-    // 1. Use Native Balance as initial KANARI token balance
-    // Use the standardized full type string constant
-    coin_sums.insert(KANARI_TOKEN_TYPE.to_string(), account_info.balance as u128);
-
-    //  2. Loop through token_balances for non-KANARI tokens only to prevent double counting
-    for (token_type, amount) in account_info.token_balances {
-        // Skip KANARI token since we already use Native Balance as primary source in step 1
-        if token_type.to_uppercase().contains("KANARI") {
-            continue;
-        }
-
-        *coin_sums.entry(token_type).or_insert(0) += amount as u128;
-    }
-
     let state_guard = state.engine.state.read().unwrap_or_else(|p| p.into_inner());
-    let mut balances = Vec::new();
-
-    for (token_type, amount128) in coin_sums {
-        if amount128 == 0 && token_type != KANARI_TOKEN_TYPE {
-            continue;
-        }
-
-        let amount = if amount128 > u128::from(u64::MAX) {
-            u64::MAX
-        } else {
-            amount128 as u64
-        };
-
-        let db_symbol = state_guard.get_token_symbol(&token_type).unwrap_or(None);
-        let symbol = db_symbol.unwrap_or_else(|| extract_symbol(&token_type));
-
-        let name = state_guard
-            .get_token_name(&token_type)
-            .unwrap_or(None)
-            .unwrap_or_else(|| symbol.clone());
-
-        let mut description = state_guard
-            .get_token_description(&token_type)
-            .unwrap_or(None);
-
-        let is_kanari = token_type == KANARI_TOKEN_TYPE;
-
-        let (final_name, final_symbol, icon_url) = if is_kanari {
-            // Enforce exact KANARI token metadata
-            if description.is_none() {
-                description = Some("The native token of Kanari Network".to_string());
-            }
-            (
-                "Kanari Network Coin".to_string(),
-                "KANARI".to_string(),
-                Some("https://avatars.githubusercontent.com/u/127471673?s=200&v=4".to_string()),
-            )
-        } else {
-            (
-                name,
-                symbol,
-                state_guard.get_token_icon_url(&token_type).unwrap_or(None),
-            )
-        };
-
-        balances.push(serde_json::json!({
-            "token_type": token_type,
-            "balance": amount,
-            "decimals": get_token_decimals(&state_guard, &token_type),
-            "symbol": final_symbol,
-            "name": final_name,
-            "description": description,
-            "icon_url": icon_url
-        }));
-    }
+    let balances: Vec<_> = account_info
+        .token_balances
+        .into_iter()
+        .filter(|(token_type, amount)| *amount > 0 || token_type == KANARI_TOKEN_TYPE)
+        .map(|(token_type, balance)| build_balance_json(&state_guard, token_type, balance))
+        .collect();
 
     RpcResponse {
         jsonrpc: "2.0".into(),
@@ -266,32 +148,30 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
 pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let state_guard = state.engine.state.read().unwrap_or_else(|p| p.into_inner());
 
-    //  1. Fetch cached Global Token Supplies from RAM immediately (no Deep Scan needed!)
-    let mut global_tokens = state_guard.global_token_supplies.clone();
+    let mut token_types: BTreeSet<String> =
+        state_guard.global_token_supplies.keys().cloned().collect();
+    token_types.insert(KANARI_TOKEN_TYPE.to_string());
 
-    //  2. Always include Native Token (KANARI) balance with full type string from constant
-    global_tokens.insert(KANARI_TOKEN_TYPE.to_string(), state_guard.total_supply);
-
-    //  3. Check for Treasury-enabled tokens with zero mint (display 0 balance)
     if let Ok(Some(keys)) = state_guard.store.load::<Vec<String>>(b"treasury_index") {
         for key in keys {
             let token_type = key.strip_prefix("treasury:").unwrap_or(&key).to_string();
-            // Skip KANARI tokens as they're already added above
-            if token_type != KANARI_TOKEN_TYPE && !token_type.to_uppercase().contains("KANARI") {
-                global_tokens.entry(token_type).or_insert(0);
-            }
+            token_types.insert(token_type);
         }
     }
 
-    let tokens: Vec<(String, u64)> = global_tokens.into_iter().collect();
-
-    // =====================================================================
-    // STEP 2: METADATA & FORMATTING
-    // =====================================================================
-
-    let vals: Vec<serde_json::Value> = tokens
+    let vals: Vec<serde_json::Value> = token_types
         .into_iter()
-        .map(|(token_type, supply)| {
+        .filter_map(|token_type| {
+            let summary = match state_guard.token_supply_summary(&token_type) {
+                Ok(summary) => summary,
+                Err(e) => {
+                    warn!(
+                        "[RPC] Failed to build supply summary for token {}: {}",
+                        token_type, e
+                    );
+                    return None;
+                }
+            };
             let db_symbol = state_guard.get_token_symbol(&token_type).unwrap_or(None);
             let symbol = db_symbol.unwrap_or_else(|| extract_symbol(&token_type));
 
@@ -300,38 +180,26 @@ pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) ->
                 .unwrap_or(None)
                 .unwrap_or_else(|| symbol.clone());
 
-            let mut description = state_guard
+            let description = state_guard
                 .get_token_description(&token_type)
                 .unwrap_or(None);
 
-            let is_kanari = token_type == KANARI_TOKEN_TYPE;
+            let icon_url = state_guard.get_token_icon_url(&token_type).unwrap_or(None);
 
-            let (final_name, final_symbol, icon_url) = if is_kanari {
-                if description.is_none() {
-                    description = Some("The native token of Kanari Network".to_string());
-                }
-                (
-                    "Kanari Network Coin".to_string(),
-                    "KANARI".to_string(),
-                    Some("https://avatars.githubusercontent.com/u/127471673?s=200&v=4".to_string()),
-                )
-            } else {
-                (
-                    name,
-                    symbol,
-                    state_guard.get_token_icon_url(&token_type).unwrap_or(None),
-                )
-            };
-
-            serde_json::json!({
-                "token_type": token_type,
-                "total_supply": supply,
+            Some(serde_json::json!({
+                "token_type": summary.token_type,
+                "total_supply": summary.total_supply,
+                "wallet_visible_supply": summary.wallet_visible_supply,
+                "circulating_supply": summary.wallet_visible_supply,
+                "object_locked_supply": summary.object_locked_supply,
+                "accounted_supply": summary.accounted_supply,
+                "untracked_supply": summary.untracked_supply,
                 "decimals": get_token_decimals(&state_guard, &token_type),
-                "symbol": final_symbol,
-                "name": final_name,
+                "symbol": symbol,
+                "name": name,
                 "description": description,
                 "icon_url": icon_url
-            })
+            }))
         })
         .collect();
 

@@ -1,14 +1,12 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 
-import '../../providers/wallet_provider.dart';
+import '../../core/token_utils.dart' as token_utils;
 import '../../models/account.dart';
+import '../../providers/wallet_provider.dart';
 import 'token_logo.dart';
 
-/// Transfer Bottom Sheet - UI สำหรับโอนเงิน
-/// แยกออกมาจาก home_screen.dart เพื่อลดขนาดไฟล์และทำให้โค้ดเป็นระเบียบ
 class TransferBottomSheet extends StatefulWidget {
   final String? prefilledAddress;
 
@@ -19,8 +17,8 @@ class TransferBottomSheet extends StatefulWidget {
 }
 
 class _TransferBottomSheetState extends State<TransferBottomSheet> {
-  late TextEditingController _recipientController;
-  late TextEditingController _amountController;
+  late final TextEditingController _recipientController;
+  late final TextEditingController _amountController;
   String _selectedTokenType = '';
 
   @override
@@ -37,24 +35,14 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
     super.dispose();
   }
 
-  Future<String?> _scanQRCode(BuildContext context) async {
-    final result = await Navigator.push<String>(
+  Future<String?> _scanQrCode(BuildContext context) async {
+    return Navigator.push<String>(
       context,
       MaterialPageRoute(builder: (context) => const QRScannerScreen()),
     );
-    return result;
   }
 
-  /// Helper to check if a token is KANARI
-  bool _isKanariToken(TokenBalance token) {
-    return token.tokenType == 'KANARI' ||
-        token.tokenType.contains('::kanari::KANARI') ||
-        token.symbol.toUpperCase() == 'KANARI';
-  }
-
-  /// Helper to build dropdown menu item for a token
   DropdownMenuItem<String> _buildTokenItem(TokenBalance token) {
-    final formattedAmount = token.amount / math.pow(10, token.decimals);
     return DropdownMenuItem(
       value: token.tokenType,
       child: Row(
@@ -68,7 +56,7 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              '${token.symbol} (${formattedAmount.toStringAsFixed(4)})',
+              '${token.symbol} (${token_utils.formatDisplayAmount(token.amount, token.decimals)})',
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -83,23 +71,17 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
     final colorScheme = theme.colorScheme;
     final isSmallScreen = MediaQuery.of(context).size.width < 360;
     final walletState = context.watch<WalletState>();
+    final selectedTokenValue = _selectedTokenType.isEmpty
+        ? WalletState.kanariTokenType
+        : _selectedTokenType;
 
-    // Find KANARI token from balances list to get iconUrl and metadata
-    final kanariToken = walletState.tokenBalances.firstWhere(
-      _isKanariToken,
-      orElse: () => TokenBalance(
-        tokenType: 'KANARI',
-        symbol: 'KANARI',
-        amount: walletState.balance,
-        decimals: 9,
-        iconUrl: null,
-      ),
-    );
+    final kanariToken =
+        walletState.kanariTokenBalance ??
+        token_utils.buildKanariTokenBalance(walletState.kanariBalance);
 
-    // Build token list: KANARI first, then other tokens
     final tokenItems = [
       DropdownMenuItem(
-        value: '',
+        value: WalletState.kanariTokenType,
         child: Row(
           children: [
             TokenLogo(
@@ -111,7 +93,7 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'KANARI (${(walletState.balance / 1000000000).toStringAsFixed(4)})',
+                'KANARI (${token_utils.formatDisplayAmount(walletState.kanariBalance, token_utils.kanariDecimals)})',
                 style: const TextStyle(fontWeight: FontWeight.bold),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -120,7 +102,7 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
         ),
       ),
       ...walletState.tokenBalances
-          .where((token) => !_isKanariToken(token))
+          .where((token) => !token_utils.isKanariToken(token))
           .map(_buildTokenItem),
     ];
 
@@ -147,7 +129,6 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
-
             TextField(
               controller: _recipientController,
               style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
@@ -158,7 +139,7 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
                 suffixIcon: IconButton(
                   icon: const Icon(Icons.qr_code_scanner_rounded),
                   onPressed: () async {
-                    final scannedAddress = await _scanQRCode(context);
+                    final scannedAddress = await _scanQrCode(context);
                     if (scannedAddress != null) {
                       setState(
                         () => _recipientController.text = scannedAddress,
@@ -169,21 +150,20 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
               ),
             ),
             SizedBox(height: isSmallScreen ? 12 : 16),
-
             DropdownButtonFormField<String>(
-              initialValue: _selectedTokenType,
+              initialValue: selectedTokenValue,
               isExpanded: true,
               decoration: const InputDecoration(labelText: 'Asset to send'),
               items: tokenItems,
-              onChanged: (val) {
+              onChanged: (value) {
+                if (value == null) return;
                 setState(() {
-                  _selectedTokenType = val!;
+                  _selectedTokenType = value;
                   _amountController.clear();
                 });
               },
             ),
             SizedBox(height: isSmallScreen ? 12 : 16),
-
             TextField(
               controller: _amountController,
               keyboardType: const TextInputType.numberWithOptions(
@@ -193,27 +173,13 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
                 labelText: 'Amount',
                 prefixIcon: const Icon(Icons.account_balance_wallet_rounded),
                 suffixIcon: TextButton(
-                  onPressed: () {
-                    if (_selectedTokenType.isEmpty) {
-                      final balance = walletState.balance / 1000000000;
-                      _amountController.text = balance.toStringAsFixed(6);
-                    } else {
-                      final token = walletState.tokenBalances.firstWhere(
-                        (t) => t.tokenType == _selectedTokenType,
-                      );
-                      final maxAmount =
-                          token.amount / math.pow(10, token.decimals);
-                      _amountController.text = maxAmount.toStringAsFixed(
-                        token.decimals < 6 ? token.decimals : 6,
-                      );
-                    }
-                  },
+                  onPressed: () =>
+                      _fillMaxAmount(walletState, selectedTokenValue),
                   child: const Text('MAX'),
                 ),
               ),
             ),
             const SizedBox(height: 32),
-
             FilledButton(
               style: FilledButton.styleFrom(
                 minimumSize: const Size(double.infinity, 56),
@@ -233,67 +199,124 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
     );
   }
 
-  /// Handle transfer logic
-  Future<void> _handleTransfer(BuildContext context, WalletState ws) async {
-    final recipient = _recipientController.text;
-    final amountStr = _amountController.text;
-    final amountDouble = double.tryParse(amountStr) ?? 0.0;
+  void _fillMaxAmount(WalletState walletState, String selectedTokenValue) {
+    if (selectedTokenValue == WalletState.kanariTokenType) {
+      _amountController.text = token_utils
+          .displayAmountFromBaseUnits(
+            walletState.kanariBalance,
+            token_utils.kanariDecimals,
+          )
+          .toStringAsFixed(6);
+      return;
+    }
 
-    if (recipient.isEmpty || amountDouble <= 0) return;
+    final token = walletState.tokenBalances.firstWhere(
+      (item) => item.tokenType == selectedTokenValue,
+    );
+    final maxAmount = token_utils.displayAmountFromBaseUnits(
+      token.amount,
+      token.decimals,
+    );
+    _amountController.text = maxAmount.toStringAsFixed(
+      token.decimals < 6 ? token.decimals : 6,
+    );
+  }
 
-    var cleanAddress = recipient.startsWith('0x')
+  Future<void> _handleTransfer(
+    BuildContext context,
+    WalletState walletState,
+  ) async {
+    final recipient = _recipientController.text.trim();
+    final amount = double.tryParse(_amountController.text.trim()) ?? 0;
+    if (recipient.isEmpty || amount <= 0) {
+      _showMessage(
+        context,
+        'Enter a valid recipient and amount.',
+        isError: true,
+      );
+      return;
+    }
+
+    final cleanAddress = recipient.startsWith('0x')
         ? recipient.substring(2)
         : recipient;
-
     if (cleanAddress.length != 64 ||
         !RegExp(r'^[0-9a-fA-F]+$').hasMatch(cleanAddress)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Invalid address format.'),
-          backgroundColor: Theme.of(context).colorScheme.error,
-        ),
-      );
+      _showMessage(context, 'Invalid address format.', isError: true);
+      return;
+    }
+
+    final selectedTokenValue = _selectedTokenType.isEmpty
+        ? WalletState.kanariTokenType
+        : _selectedTokenType;
+    final availableAmount = _availableAmount(walletState, selectedTokenValue);
+    if (amount > availableAmount) {
+      _showMessage(context, 'Amount exceeds available balance.', isError: true);
       return;
     }
 
     Navigator.pop(context);
 
     String? result;
-    if (_selectedTokenType.isEmpty) {
-      final amountMist = (amountDouble * 1000000000).round();
-      result = await ws.transfer(recipient, amountMist);
-    } else {
-      final selectedToken = ws.tokenBalances.firstWhere(
-        (t) => t.tokenType == _selectedTokenType,
-      );
-      final amountBaseUnits =
-          (amountDouble * math.pow(10, selectedToken.decimals)).round();
-      result = await ws.transferToken(
+    if (selectedTokenValue == WalletState.kanariTokenType) {
+      result = await walletState.transfer(
         recipient,
-        _selectedTokenType,
-        amountBaseUnits,
+        token_utils.baseUnitsFromDisplayAmount(
+          amount,
+          token_utils.kanariDecimals,
+        ),
+      );
+    } else {
+      final selectedToken = walletState.tokenBalances.firstWhere(
+        (token) => token.tokenType == selectedTokenValue,
+      );
+      result = await walletState.transferToken(
+        recipient,
+        selectedTokenValue,
+        token_utils.baseUnitsFromDisplayAmount(amount, selectedToken.decimals),
       );
     }
 
-    if (context.mounted) {
-      final colorScheme = Theme.of(context).colorScheme;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            result?.startsWith('Error:') == true
-                ? result!
-                : 'Transaction successful',
-          ),
-          backgroundColor: result?.startsWith('Error:') == true
-              ? colorScheme.error
-              : colorScheme.primary,
-        ),
+    if (!context.mounted) {
+      return;
+    }
+
+    _showMessage(
+      context,
+      result?.startsWith('Error:') == true ? result! : 'Transaction successful',
+      isError: result?.startsWith('Error:') == true,
+    );
+  }
+
+  double _availableAmount(WalletState walletState, String selectedTokenValue) {
+    if (selectedTokenValue == WalletState.kanariTokenType) {
+      return token_utils.displayAmountFromBaseUnits(
+        walletState.kanariBalance,
+        token_utils.kanariDecimals,
       );
     }
+
+    final token = walletState.tokenBalances.firstWhere(
+      (item) => item.tokenType == selectedTokenValue,
+    );
+    return token_utils.displayAmountFromBaseUnits(token.amount, token.decimals);
+  }
+
+  void _showMessage(
+    BuildContext context,
+    String message, {
+    required bool isError,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? colorScheme.error : colorScheme.primary,
+      ),
+    );
   }
 }
 
-/// QR Scanner Screen - หน้าสแกน QR Code
 class QRScannerScreen extends StatefulWidget {
   const QRScannerScreen({super.key});
 
@@ -302,7 +325,7 @@ class QRScannerScreen extends StatefulWidget {
 }
 
 class _QRScannerScreenState extends State<QRScannerScreen> {
-  late MobileScannerController cameraController;
+  late final MobileScannerController cameraController;
   bool isProcessing = false;
 
   @override
@@ -346,15 +369,17 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
           MobileScanner(
             controller: cameraController,
             onDetect: (capture) {
-              if (isProcessing) return;
+              if (isProcessing) {
+                return;
+              }
 
-              final List<Barcode> barcodes = capture.barcodes;
-              for (final barcode in barcodes) {
-                if (barcode.rawValue != null) {
-                  setState(() => isProcessing = true);
-                  Navigator.pop(context, barcode.rawValue);
-                  break;
+              for (final barcode in capture.barcodes) {
+                if (barcode.rawValue == null) {
+                  continue;
                 }
+                setState(() => isProcessing = true);
+                Navigator.pop(context, barcode.rawValue);
+                break;
               }
             },
           ),

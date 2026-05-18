@@ -351,10 +351,7 @@ impl Blockchain {
     }
 
     pub fn get_transaction_count(&self) -> usize {
-        self.dag_checkpoints
-            .iter()
-            .map(|cp| cp.transactions.len())
-            .sum()
+        self.executed_tx_hashes.len()
     }
 }
 

@@ -9,6 +9,14 @@ use std::collections::HashMap;
 pub struct TransactionScheduler;
 
 impl TransactionScheduler {
+    fn target_wave_idx(keys: &[String], key_last_wave: &HashMap<String, usize>) -> usize {
+        keys.iter()
+            .filter_map(|key| key_last_wave.get(key).copied())
+            .map(|last_wave| last_wave + 1)
+            .max()
+            .unwrap_or(0)
+    }
+
     /// Schedule transactions into parallel execution waves based on object conflicts.
     /// Uses a "Earliest Wave" algorithm to maximize parallelism.
     ///
@@ -32,20 +40,7 @@ impl TransactionScheduler {
 
         for tx in transactions {
             let keys = tx.transaction.get_conflict_keys();
-
-            // Find the earliest wave this transaction can be placed in
-            // It must be AFTER the latest wave of any of its dependencies.
-            // If a key has been used in wave N, this tx must be in wave N+1.
-            let mut target_wave_idx = 0;
-
-            for key in &keys {
-                if let Some(&last_wave) = key_last_wave.get(key) {
-                    // Conflict found in `last_wave`. Must schedule in `last_wave + 1`
-                    if last_wave + 1 > target_wave_idx {
-                        target_wave_idx = last_wave + 1;
-                    }
-                }
-            }
+            let target_wave_idx = Self::target_wave_idx(&keys, &key_last_wave);
 
             // Ensure the wave exists
             while waves.len() <= target_wave_idx {

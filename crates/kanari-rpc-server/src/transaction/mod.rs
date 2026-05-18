@@ -1,4 +1,7 @@
-use crate::respond_with_serialize;
+use crate::{
+    first_array_param, internal_error_response, invalid_params_response, parse_labeled_params,
+    respond_with_serialize,
+};
 
 use super::{RpcError, RpcRequest, RpcResponse, RpcServerState};
 use kanari_move_runtime_v1::changeset::ChangeSet;
@@ -71,6 +74,111 @@ fn normalize_addr(s: &str) -> String {
         .unwrap_or_else(|_| s.trim_start_matches("0x").to_lowercase())
 }
 
+fn tx_matches_account(tx: &Transaction, account_norm: Option<&str>) -> bool {
+    let Some(acct) = account_norm else {
+        return true;
+    };
+
+    match tx {
+        Transaction::PublishModule { sender, .. }
+        | Transaction::ExecuteFunction { sender, .. }
+        | Transaction::Burn { from: sender, .. } => normalize_addr(sender) == acct,
+        Transaction::Transfer { from, to, .. } => {
+            normalize_addr(from) == acct || normalize_addr(to) == acct
+        }
+    }
+}
+
+fn push_tx_details(
+    results: &mut Vec<TransactionDetails>,
+    limit: usize,
+    details: TransactionDetails,
+) -> bool {
+    if results.len() >= limit {
+        return false;
+    }
+    results.push(details);
+    true
+}
+
+fn parse_hex_address(id: u64, raw: &str, field: &str) -> Result<Address, Box<RpcResponse>> {
+    Address::from_hex_literal(raw).map_err(|e| {
+        Box::new(invalid_params_response(
+            id,
+            format!("Invalid {}: {}", field, e),
+        ))
+    })
+}
+
+fn required_signature(id: u64, signature: Option<Vec<u8>>) -> Result<Vec<u8>, Box<RpcResponse>> {
+    signature.ok_or_else(|| Box::new(invalid_params_response(id, "Missing signature")))
+}
+
+fn extract_hash_param(params: &serde_json::Value) -> Option<String> {
+    serde_json::from_value::<String>(params.clone())
+        .ok()
+        .or_else(|| {
+            params
+                .get("hash")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+}
+
+fn build_publish_signed_tx(module_data: PublishModuleRequest) -> SignedTransaction {
+    let mut signed_tx = SignedTransaction::new(Transaction::PublishModule {
+        sender: module_data.sender,
+        module_bytes: module_data.module_bytes,
+        module_name: module_data.module_name,
+        gas_limit: module_data.gas_limit,
+        gas_price: module_data.gas_price,
+        sequence_number: module_data.sequence_number,
+    });
+    maybe_attach_signature(&mut signed_tx, module_data.signature);
+    signed_tx
+}
+
+fn build_call_signed_tx(call_data: CallFunctionRequest) -> SignedTransaction {
+    let mut signed_tx = SignedTransaction::new(Transaction::ExecuteFunction {
+        sender: call_data.sender.clone(),
+        module: format!("{}::{}", call_data.package, call_data.module),
+        function: call_data.function,
+        type_args: call_data.type_args,
+        args: call_data.args,
+        gas_limit: call_data.gas_limit,
+        gas_price: call_data.gas_price,
+        sequence_number: call_data.sequence_number,
+    });
+    maybe_attach_signature(&mut signed_tx, call_data.signature);
+    signed_tx
+}
+
+fn base_transaction_details(
+    hash: String,
+    status: String,
+    block_height: Option<u64>,
+    tx_type: &str,
+    sender: String,
+    sequence_number: u64,
+    gas_limit: u64,
+    gas_price: u64,
+) -> TransactionDetails {
+    TransactionDetails {
+        hash,
+        status,
+        block_height,
+        gas_used: None,
+        tx_type: tx_type.to_string(),
+        sender,
+        sequence_number,
+        gas_limit,
+        gas_price,
+        module: None,
+        function: None,
+        module_functions: None,
+    }
+}
+
 // =========================================================================
 // HELPER: Map Transaction to API TransactionDetails
 // =========================================================================
@@ -104,20 +212,19 @@ fn map_transaction_to_details(
                     .collect()
             });
 
-            TransactionDetails {
+            let mut details = base_transaction_details(
                 hash,
-                status: status_str,
+                status_str,
                 block_height,
-                gas_used: None,
-                tx_type: "publish_module".to_string(),
-                sender: sender.clone(),
-                sequence_number: *sequence_number,
-                gas_limit: *gas_limit,
-                gas_price: *gas_price,
-                module: Some(module_name.clone()),
-                function: None,
-                module_functions: module_funcs,
-            }
+                "publish_module",
+                sender.clone(),
+                *sequence_number,
+                *gas_limit,
+                *gas_price,
+            );
+            details.module = Some(module_name.clone());
+            details.module_functions = module_funcs;
+            details
         }
         Transaction::ExecuteFunction {
             sender,
@@ -127,20 +234,22 @@ fn map_transaction_to_details(
             gas_limit,
             gas_price,
             ..
-        } => TransactionDetails {
-            hash,
-            status: status_str,
-            block_height,
-            gas_used: None,
-            tx_type: "call".to_string(),
-            sender: sender.clone(),
-            sequence_number: *sequence_number,
-            gas_limit: *gas_limit,
-            gas_price: *gas_price,
-            module: Some(module.clone()),
-            function: Some(function.clone()),
-            module_functions: lookup_module_functions(state, module),
-        },
+        } => {
+            let mut details = base_transaction_details(
+                hash,
+                status_str,
+                block_height,
+                "call",
+                sender.clone(),
+                *sequence_number,
+                *gas_limit,
+                *gas_price,
+            );
+            details.module = Some(module.clone());
+            details.function = Some(function.clone());
+            details.module_functions = lookup_module_functions(state, module);
+            details
+        }
         Transaction::Transfer {
             from,
             to,
@@ -148,40 +257,36 @@ fn map_transaction_to_details(
             gas_limit,
             gas_price,
             ..
-        } => TransactionDetails {
-            hash,
-            status: status_str,
-            block_height,
-            gas_used: None,
-            tx_type: "transfer".to_string(),
-            sender: from.clone(),
-            sequence_number: *sequence_number,
-            gas_limit: *gas_limit,
-            gas_price: *gas_price,
-            module: Some(format!("To: {}", to)),
-            function: None,
-            module_functions: None,
-        },
+        } => {
+            let mut details = base_transaction_details(
+                hash,
+                status_str,
+                block_height,
+                "transfer",
+                from.clone(),
+                *sequence_number,
+                *gas_limit,
+                *gas_price,
+            );
+            details.module = Some(format!("To: {}", to));
+            details
+        }
         Transaction::Burn {
             from,
             sequence_number,
             gas_limit,
             gas_price,
             ..
-        } => TransactionDetails {
+        } => base_transaction_details(
             hash,
-            status: status_str,
+            status_str,
             block_height,
-            gas_used: None,
-            tx_type: "burn".to_string(),
-            sender: from.clone(),
-            sequence_number: *sequence_number,
-            gas_limit: *gas_limit,
-            gas_price: *gas_price,
-            module: None,
-            function: None,
-            module_functions: None,
-        },
+            "burn",
+            from.clone(),
+            *sequence_number,
+            *gas_limit,
+            *gas_price,
+        ),
     }
 }
 
@@ -245,6 +350,123 @@ fn format_changeset_json(state: &RpcServerState, changeset: &ChangeSet) -> serde
     cs_value
 }
 
+fn maybe_attach_signature(signed_tx: &mut SignedTransaction, signature: Option<Vec<u8>>) {
+    if let Some(sig) = signature {
+        signed_tx.signature = sig;
+    }
+}
+
+fn submit_pending_response(
+    state: &RpcServerState,
+    request_id: u64,
+    signed_tx: SignedTransaction,
+    action: &str,
+    submit_error: &str,
+) -> RpcResponse {
+    match state.engine.submit_transaction(signed_tx) {
+        Ok(tx_hash) => respond_with_serialize(
+            request_id,
+            serde_json::json!({
+                "hash": hex::encode(&tx_hash),
+                "status": "pending",
+                "action": action
+            }),
+        ),
+        Err(e) => RpcResponse {
+            jsonrpc: "2.0".into(),
+            result: None,
+            error: Some(RpcError::transaction_error(format!(
+                "{}: {}",
+                submit_error, e
+            ))),
+            id: request_id,
+        },
+    }
+}
+
+fn execute_or_submit_response(
+    state: &RpcServerState,
+    request_id: u64,
+    signed_tx: SignedTransaction,
+    execute_immediate: bool,
+    action: &str,
+    pending_submit_error: &str,
+) -> RpcResponse {
+    // let defer_to_consensus = state.engine.should_defer_user_execution_to_consensus();
+    // let effective_execute_immediate = execute_immediate && !defer_to_consensus;
+
+    // if execute_immediate && defer_to_consensus {
+    //     info!(
+    //         "{} requested immediate execution, but multi-authority DAG mode is active; deferring to consensus",
+    //         action
+    //     );
+    // }
+
+    // if !effective_execute_immediate {
+    //     return submit_pending_response(state, request_id, signed_tx, action, pending_submit_error);
+    // }
+
+    if !execute_immediate {
+        return submit_pending_response(state, request_id, signed_tx, action, pending_submit_error);
+    }
+
+    let exec_tx = signed_tx.clone();
+    match state.engine.execute_transaction_immediate(exec_tx) {
+        Ok((tx_hash, changeset)) => {
+            let tx_hash_hex = hex::encode(&tx_hash);
+            let cs_value = format_changeset_json(state, &changeset);
+
+            if !changeset.success {
+                return respond_with_serialize(
+                    request_id,
+                    serde_json::json!({
+                        "hash": tx_hash_hex,
+                        "status": "failed",
+                        "action": action,
+                        "changeset": cs_value
+                    }),
+                );
+            }
+
+            if let Err(e) = state.engine.submit_transaction(signed_tx) {
+                error!("Failed to submit executed transaction: {}", e);
+                return RpcResponse {
+                    jsonrpc: "2.0".into(),
+                    result: None,
+                    error: Some(RpcError::transaction_error(format!(
+                        "Simulation successful, but mempool submission failed: {}",
+                        e
+                    ))),
+                    id: request_id,
+                };
+            }
+
+            info!(
+                "{} executed immediately & submitted: {}",
+                action, tx_hash_hex
+            );
+            respond_with_serialize(
+                request_id,
+                serde_json::json!({
+                    "hash": tx_hash_hex,
+                    "status": "executed",
+                    "action": action,
+                    "changeset": cs_value
+                }),
+            )
+        }
+        Err(e) => RpcResponse {
+            jsonrpc: "2.0".into(),
+            result: None,
+            error: Some(RpcError::internal_error(format!(
+                "Immediate execution failed: {}",
+                e
+            ))),
+            id: request_id,
+        },
+    }
+}
+
 // =========================================================================
 // HANDLERS
 // =========================================================================
@@ -257,48 +479,20 @@ pub async fn handle_submit_transaction(
     let tx_data: SignedTransactionData = match serde_json::from_value(request.params.clone()) {
         Ok(data) => data,
         Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(RpcError::invalid_params(format!(
-                    "Invalid transaction data: {}",
-                    e
-                ))),
-                id: request.id,
-            };
+            return invalid_params_response(request.id, format!("Invalid transaction data: {}", e));
         }
     };
 
-    let sender = match Address::from_hex_literal(&tx_data.sender) {
+    let sender = match parse_hex_address(request.id, &tx_data.sender, "sender address") {
         Ok(addr) => addr,
-        Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(RpcError::invalid_params(format!(
-                    "Invalid sender address: {}",
-                    e
-                ))),
-                id: request.id,
-            };
-        }
+        Err(response) => return *response,
     };
 
     let transaction =
         if let (Some(recipient_str), Some(amount)) = (&tx_data.recipient, tx_data.amount) {
-            let recipient = match Address::from_hex_literal(recipient_str) {
+            let recipient = match parse_hex_address(request.id, recipient_str, "recipient") {
                 Ok(addr) => addr,
-                Err(e) => {
-                    return RpcResponse {
-                        jsonrpc: "2.0".into(),
-                        result: None,
-                        error: Some(RpcError::invalid_params(format!(
-                            "Invalid recipient: {}",
-                            e
-                        ))),
-                        id: request.id,
-                    };
-                }
+                Err(response) => return *response,
             };
 
             Transaction::Transfer {
@@ -316,14 +510,10 @@ pub async fn handle_submit_transaction(
 
             if sender != system_addr && sender != dev_addr {
                 error!("Unauthorized burn attempt from {}", sender.to_hex_literal());
-                return RpcResponse {
-                    jsonrpc: "2.0".into(),
-                    result: None,
-                    error: Some(RpcError::invalid_params(
-                        "Burn transactions are restricted to system administrators",
-                    )),
-                    id: request.id,
-                };
+                return invalid_params_response(
+                    request.id,
+                    "Burn transactions are restricted to system administrators",
+                );
             }
 
             Transaction::Burn {
@@ -334,26 +524,15 @@ pub async fn handle_submit_transaction(
                 sequence_number: tx_data.sequence_number,
             }
         } else {
-            return RpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(RpcError::invalid_params(
-                    "Only transfer or burn transactions are supported",
-                )),
-                id: request.id,
-            };
+            return invalid_params_response(
+                request.id,
+                "Only transfer or burn transactions are supported",
+            );
         };
 
-    let sig = match tx_data.signature {
-        Some(s) => s,
-        None => {
-            return RpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(RpcError::invalid_params("Missing signature")),
-                id: request.id,
-            };
-        }
+    let sig = match required_signature(request.id, tx_data.signature) {
+        Ok(sig) => sig,
+        Err(response) => return *response,
     };
 
     let mut signed_tx = SignedTransaction::new(transaction);
@@ -368,41 +547,16 @@ pub async fn handle_submit_transaction(
                 serde_json::json!({ "hash": tx_hash_hex, "status": "pending" }),
             )
         }
-        Err(e) => RpcResponse {
-            jsonrpc: "2.0".into(),
-            result: None,
-            error: Some(RpcError::internal_error(format!(
-                "Submission failed: {}",
-                e
-            ))),
-            id: request.id,
-        },
+        Err(e) => internal_error_response(request.id, format!("Submission failed: {}", e)),
     }
 }
 
 /// Handle get transaction by hash request
 pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let hash_param: String = match serde_json::from_value(request.params.clone()) {
-        Ok(h) => h,
-        Err(_) => match serde_json::from_value::<serde_json::Value>(request.params.clone()) {
-            Ok(v) => v
-                .get("hash")
-                .and_then(|hv| hv.as_str())
-                .map(|s| s.to_string())
-                .unwrap_or_default(),
-            Err(_) => "".to_string(),
-        },
-    };
+    let hash_param = extract_hash_param(&request.params).unwrap_or_default();
 
     if hash_param.is_empty() {
-        return RpcResponse {
-            jsonrpc: "2.0".into(),
-            result: None,
-            error: Some(RpcError::invalid_params(
-                "Invalid or missing 'hash' parameter",
-            )),
-            id: request.id,
-        };
+        return invalid_params_response(request.id, "Invalid or missing 'hash' parameter");
     }
 
     let normalized = hash_param.trim_start_matches("0x").to_lowercase();
@@ -443,12 +597,7 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
         }
     }
 
-    RpcResponse {
-        jsonrpc: "2.0".into(),
-        result: None,
-        error: Some(RpcError::internal_error("Transaction not found")),
-        id: request.id,
-    }
+    internal_error_response(request.id, "Transaction not found")
 }
 
 /// Handle request to list all transactions (committed + pending)
@@ -457,15 +606,12 @@ pub async fn handle_get_all_transactions(
     state: &RpcServerState,
     request: &RpcRequest,
 ) -> RpcResponse {
-    // 🚨 1. Set Limit (max items to fetch) to prevent node hanging
-    // Try to extract from params["limit"], fallback to default of 50 items
     let limit = request
         .params
         .get("limit")
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
 
-    // Extract account address from Params (support both String and Object formats)
     let account_norm = request
         .params
         .as_str()
@@ -478,84 +624,62 @@ pub async fn handle_get_all_transactions(
         .map(|a| a.trim_start_matches("0x").to_lowercase());
 
     let mut results: Vec<TransactionDetails> = Vec::new();
-
-    // 🚨 2. Start fetching from "Pending Transactions" first (newest transactions waiting to enter block)
     let pending = state.engine.pending_txs.read().unwrap_or_else(|p| {
         error!("pending_txs lock poisoned while listing transactions; recovering");
         p.into_inner()
     });
 
-    // Loop from back to front (Newest Pending First)
     for tx in pending.iter().rev() {
-        if results.len() >= limit {
+        if !tx_matches_account(&tx.transaction, account_norm.as_deref()) {
+            continue;
+        }
+
+        if !push_tx_details(
+            &mut results,
+            limit,
+            map_transaction_to_details(
+                state,
+                &tx.transaction,
+                &hex::encode(tx.hash()),
+                "pending",
+                None,
+                None,
+            ),
+        ) {
             break;
         }
-
-        if let Some(ref acct) = account_norm {
-            let matches = match &tx.transaction {
-                Transaction::PublishModule { sender, .. }
-                | Transaction::ExecuteFunction { sender, .. }
-                | Transaction::Burn { from: sender, .. } => normalize_addr(sender) == *acct,
-                Transaction::Transfer { from, to, .. } => {
-                    normalize_addr(from) == *acct || normalize_addr(to) == *acct
-                }
-            };
-            if !matches {
-                continue;
-            }
-        }
-
-        results.push(map_transaction_to_details(
-            state,
-            &tx.transaction,
-            &hex::encode(tx.hash()),
-            "pending",
-            None,
-            None,
-        ));
     }
 
-    // 🚨 3. If limit not reached, continue fetching from "Committed Transactions" (confirmed blocks)
     if results.len() < limit {
         let chain = state.engine.blockchain.read().unwrap_or_else(|p| {
             error!("blockchain lock poisoned while listing transactions; recovering");
             p.into_inner()
         });
 
-        // Loop through blocks in reverse (Latest Blocks First)
         for block in chain.blocks.iter().rev() {
             if results.len() >= limit {
                 break;
             }
 
-            // Loop through transactions in block in reverse (Latest TX in block first)
             for tx in block.transactions.iter().rev() {
-                if results.len() >= limit {
+                if !tx_matches_account(&tx.transaction, account_norm.as_deref()) {
+                    continue;
+                }
+
+                if !push_tx_details(
+                    &mut results,
+                    limit,
+                    map_transaction_to_details(
+                        state,
+                        &tx.transaction,
+                        &hex::encode(tx.hash()),
+                        "committed",
+                        Some(block.header.height),
+                        Some(hex::encode(&block.header.state_root)),
+                    ),
+                ) {
                     break;
                 }
-
-                if let Some(ref acct) = account_norm {
-                    let matches = match &tx.transaction {
-                        Transaction::PublishModule { sender, .. }
-                        | Transaction::ExecuteFunction { sender, .. }
-                        | Transaction::Burn { from: sender, .. } => normalize_addr(sender) == *acct,
-                        Transaction::Transfer { from, to, .. } => {
-                            normalize_addr(from) == *acct || normalize_addr(to) == *acct
-                        }
-                    };
-                    if !matches {
-                        continue;
-                    }
-                }
-
-                results.push(map_transaction_to_details(
-                    state,
-                    &tx.transaction,
-                    &hex::encode(tx.hash()),
-                    "committed",
-                    Some(block.header.height),
-                    Some(hex::encode(&block.header.state_root)),
-                ));
             }
         }
     }
@@ -565,309 +689,72 @@ pub async fn handle_get_all_transactions(
 
 /// Handle publish module request
 pub async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let module_data: PublishModuleRequest = match serde_json::from_value(request.params.clone()) {
-        Ok(data) => data,
-        Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(RpcError::invalid_params(format!(
-                    "Invalid module data: {}",
-                    e
-                ))),
-                id: request.id,
-            };
-        }
-    };
-
-    if let Err(e) = Address::from_hex_literal(&module_data.sender) {
-        return RpcResponse {
-            jsonrpc: "2.0".into(),
-            result: None,
-            error: Some(RpcError::invalid_params(format!(
-                "Invalid sender address: {}",
-                e
-            ))),
-            id: request.id,
+    let module_data: PublishModuleRequest =
+        match parse_labeled_params(request.id, &request.params, "module data") {
+            Ok(data) => data,
+            Err(response) => return *response,
         };
+
+    if let Err(response) = parse_hex_address(request.id, &module_data.sender, "sender address") {
+        return *response;
     }
 
-    let mut signed_tx = SignedTransaction::new(Transaction::PublishModule {
-        sender: module_data.sender.clone(),
-        module_bytes: module_data.module_bytes,
-        module_name: module_data.module_name,
-        gas_limit: module_data.gas_limit,
-        gas_price: module_data.gas_price,
-        sequence_number: module_data.sequence_number,
-    });
+    let execute_immediate = module_data.execute_immediate.unwrap_or(false);
+    let signed_tx = build_publish_signed_tx(module_data);
 
-    if let Some(sig) = module_data.signature {
-        signed_tx.signature = sig;
-    }
-
-    if module_data.execute_immediate.unwrap_or(true) {
-        let exec_tx = signed_tx.clone();
-        match state.engine.execute_transaction_immediate(exec_tx) {
-            Ok((tx_hash, changeset)) => {
-                let tx_hash_hex = hex::encode(&tx_hash);
-                let cs_value = format_changeset_json(state, &changeset);
-
-                if !changeset.success {
-                    return respond_with_serialize(
-                        request.id,
-                        serde_json::json!({ "hash": tx_hash_hex, "status": "failed", "action": "publish", "changeset": cs_value }),
-                    );
-                }
-
-                if let Err(e) = state.engine.submit_transaction(signed_tx) {
-                    error!("Failed to submit executed transaction: {}", e);
-                    return RpcResponse {
-                        jsonrpc: "2.0".into(),
-                        result: None,
-                        error: Some(RpcError::transaction_error(format!(
-                            "Simulation successful, but mempool submission failed: {}",
-                            e
-                        ))),
-                        id: request.id,
-                    };
-                }
-
-                info!(
-                    "Module publish executed immediately & submitted: {}",
-                    tx_hash_hex
-                );
-                respond_with_serialize(
-                    request.id,
-                    serde_json::json!({ "hash": tx_hash_hex, "status": "executed", "action": "publish", "changeset": cs_value }),
-                )
-            }
-            Err(e) => RpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(RpcError::internal_error(format!(
-                    "Immediate execution failed: {}",
-                    e
-                ))),
-                id: request.id,
-            },
-        }
-    } else {
-        match state.engine.submit_transaction(signed_tx) {
-            Ok(tx_hash) => respond_with_serialize(
-                request.id,
-                serde_json::json!({ "hash": hex::encode(&tx_hash), "status": "pending", "action": "publish" }),
-            ),
-            Err(e) => RpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(RpcError::internal_error(format!(
-                    "Module publication failed: {}",
-                    e
-                ))),
-                id: request.id,
-            },
-        }
-    }
+    execute_or_submit_response(
+        state,
+        request.id,
+        signed_tx,
+        execute_immediate,
+        "publish",
+        "Module publication failed",
+    )
 }
 
 /// Handle call function request
 pub async fn handle_call_function(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let call_data: CallFunctionRequest = match serde_json::from_value(request.params.clone()) {
-        Ok(data) => data,
-        Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(RpcError::invalid_params(format!(
-                    "Invalid call data: {}",
-                    e
-                ))),
-                id: request.id,
-            };
-        }
-    };
-
-    if let Err(e) = Address::from_hex_literal(&call_data.sender) {
-        return RpcResponse {
-            jsonrpc: "2.0".into(),
-            result: None,
-            error: Some(RpcError::invalid_params(format!(
-                "Invalid sender address: {}",
-                e
-            ))),
-            id: request.id,
+    let call_data: CallFunctionRequest =
+        match parse_labeled_params(request.id, &request.params, "call data") {
+            Ok(data) => data,
+            Err(response) => return *response,
         };
+
+    if let Err(response) = parse_hex_address(request.id, &call_data.sender, "sender address") {
+        return *response;
     }
-    if let Err(e) = Address::from_hex_literal(&call_data.package) {
-        return RpcResponse {
-            jsonrpc: "2.0".into(),
-            result: None,
-            error: Some(RpcError::invalid_params(format!(
-                "Invalid package address: {}",
-                e
-            ))),
-            id: request.id,
-        };
+    if let Err(response) = parse_hex_address(request.id, &call_data.package, "package address") {
+        return *response;
     }
 
-    let mut signed_tx = SignedTransaction::new(Transaction::ExecuteFunction {
-        sender: call_data.sender.clone(),
-        module: format!("{}::{}", call_data.package, call_data.module),
-        function: call_data.function,
-        type_args: call_data.type_args,
-        args: call_data.args,
-        gas_limit: call_data.gas_limit,
-        gas_price: call_data.gas_price,
-        sequence_number: call_data.sequence_number,
-    });
+    let execute_immediate = call_data.execute_immediate.unwrap_or(false);
+    let signed_tx = build_call_signed_tx(call_data);
 
-    if let Some(sig) = call_data.signature {
-        signed_tx.signature = sig;
-    }
-
-    if call_data.execute_immediate.unwrap_or(true) {
-        let exec_tx = signed_tx.clone();
-        match state.engine.execute_transaction_immediate(exec_tx) {
-            Ok((tx_hash, changeset)) => {
-                let tx_hash_hex = hex::encode(&tx_hash);
-                let mut cs_value = format_changeset_json(state, &changeset);
-
-                // Fallback: If no objects were explicitly created in the ChangeSet,
-                // fetch recent owned objects for CLI feedback.
-                if let Some(obj_arr) = cs_value.get("created_objects").and_then(|v| v.as_array())
-                    && obj_arr.is_empty()
-                    && let Ok(a) = Address::parse_to_account_address(&call_data.sender)
-                {
-                    let state_guard = state.engine.state.read().unwrap_or_else(|p| p.into_inner());
-                    if let Ok(ids) = state_guard.get_owned_objects(&a) {
-                        let objs: Vec<_> = ids
-                            .iter()
-                            .rev()
-                            .take(10)
-                            .filter_map(|uid| {
-                                state_guard.get_object(uid).ok().flatten().map(|co| {
-                                    serde_json::json!({ "id": uid, "type": co.type_, "owner": format!("0x{}", hex::encode(co.owner.as_ref())) })
-                                })
-                            })
-                            .collect();
-
-                        if !objs.is_empty()
-                            && let Some(map) = cs_value.as_object_mut()
-                        {
-                            map.insert(
-                                "created_objects".to_string(),
-                                serde_json::Value::Array(objs),
-                            );
-                        }
-                    }
-                }
-
-                if !changeset.success {
-                    return respond_with_serialize(
-                        request.id,
-                        serde_json::json!({ "hash": tx_hash_hex, "status": "failed", "action": "call", "changeset": cs_value }),
-                    );
-                }
-
-                if let Err(e) = state.engine.submit_transaction(signed_tx) {
-                    error!("Failed to submit executed transaction: {}", e);
-                    return RpcResponse {
-                        jsonrpc: "2.0".into(),
-                        result: None,
-                        error: Some(RpcError::transaction_error(format!(
-                            "Simulation successful, but mempool submission failed: {}",
-                            e
-                        ))),
-                        id: request.id,
-                    };
-                }
-
-                info!("Function executed immediately & submitted: {}", tx_hash_hex);
-                respond_with_serialize(
-                    request.id,
-                    serde_json::json!({ "hash": tx_hash_hex, "status": "executed", "action": "call", "changeset": cs_value }),
-                )
-            }
-            Err(e) => RpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(RpcError::internal_error(format!(
-                    "Immediate execution failed: {}",
-                    e
-                ))),
-                id: request.id,
-            },
-        }
-    } else {
-        match state.engine.submit_transaction(signed_tx) {
-            Ok(tx_hash) => respond_with_serialize(
-                request.id,
-                serde_json::json!({ "hash": hex::encode(&tx_hash), "status": "pending", "action": "call" }),
-            ),
-            Err(e) => RpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(RpcError::transaction_error(format!(
-                    "Call submission failed: {}",
-                    e
-                ))),
-                id: request.id,
-            },
-        }
-    }
+    execute_or_submit_response(
+        state,
+        request.id,
+        signed_tx,
+        execute_immediate,
+        "call",
+        "Call submission failed",
+    )
 }
 
 /// Handle view function request (read-only, no transaction submission)
 pub async fn handle_view_function(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    // Parse params as array and extract first element
-    let params_array = match request.params.as_array() {
-        Some(arr) => arr,
-        None => {
-            return RpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(RpcError::invalid_params("Expected array params")),
-                id: request.id,
-            };
-        }
+    let first_param = match first_array_param(request.id, &request.params) {
+        Ok(param) => param,
+        Err(response) => return *response,
     };
 
-    if params_array.is_empty() {
-        return RpcResponse {
-            jsonrpc: "2.0".into(),
-            result: None,
-            error: Some(RpcError::invalid_params("Empty params array")),
-            id: request.id,
+    let view_data: ViewFunctionRequest =
+        match parse_labeled_params(request.id, first_param, "view function data") {
+            Ok(data) => data,
+            Err(response) => return *response,
         };
-    }
 
-    // Parse the view function request from JSON
-    let view_data: ViewFunctionRequest = match serde_json::from_value(params_array[0].clone()) {
-        Ok(data) => data,
-        Err(e) => {
-            return RpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(RpcError::invalid_params(format!(
-                    "Invalid view function data: {}",
-                    e
-                ))),
-                id: request.id,
-            };
-        }
-    };
-
-    // Validate package address format
-    if let Err(e) = Address::from_hex_literal(&view_data.package) {
-        return RpcResponse {
-            jsonrpc: "2.0".into(),
-            result: None,
-            error: Some(RpcError::invalid_params(format!(
-                "Invalid package address: {}",
-                e
-            ))),
-            id: request.id,
-        };
+    if let Err(response) = parse_hex_address(request.id, &view_data.package, "package address") {
+        return *response;
     }
 
     info!(
@@ -875,7 +762,6 @@ pub async fn handle_view_function(state: &RpcServerState, request: &RpcRequest) 
         view_data.package, view_data.module, view_data.function
     );
 
-    // Execute view function without creating a transaction
     match state.engine.execute_view_function(
         &view_data.package,
         &view_data.module,
@@ -896,15 +782,7 @@ pub async fn handle_view_function(state: &RpcServerState, request: &RpcRequest) 
         }
         Err(e) => {
             error!("View function execution failed: {}", e);
-            RpcResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(RpcError::internal_error(format!(
-                    "View function execution failed: {}",
-                    e
-                ))),
-                id: request.id,
-            }
+            internal_error_response(request.id, format!("View function execution failed: {}", e))
         }
     }
 }

@@ -25,8 +25,11 @@ pub mod consensus;
 /// ```
 /// use centauri::calculate_quorum;
 ///
-/// // 4 validators: can tolerate 1 faulty node
-/// assert_eq!(calculate_quorum(4), 3);  // f=1, quorum=3
+/// // 3 validators require 2 votes
+/// assert_eq!(calculate_quorum(3), 2);
+///
+/// // 4 validators require 3 votes
+/// assert_eq!(calculate_quorum(4), 3);
 ///
 /// // 7 validators: can tolerate 2 faulty nodes
 /// assert_eq!(calculate_quorum(7), 5);  // f=2, quorum=5
@@ -67,6 +70,5 @@ pub fn calculate_quorum(total_authorities: usize) -> usize {
     if total_authorities == 0 {
         return 0;
     }
-    let f = (total_authorities - 1) / 3;
-    2 * f + 1
+    (2 * total_authorities).div_ceil(3)
 }

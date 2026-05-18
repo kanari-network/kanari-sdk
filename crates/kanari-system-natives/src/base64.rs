@@ -15,6 +15,7 @@ use smallvec::smallvec;
 use move_core_types::gas_algebra::InternalGas;
 
 use crate::crypto::make_native;
+use crate::helpers::expect_native_signature;
 
 #[derive(Debug, Clone)]
 pub struct GasParameters {
@@ -33,8 +34,9 @@ impl GasParameters {
 
 /// Native function for base64 decoding
 pub fn make_decode_native(gas_cost: InternalGas) -> NativeFunction {
-    make_native(move |context, _ty_args, mut args| {
+    make_native(move |context, ty_args, mut args| {
         native_charge_gas_early_exit!(context, gas_cost);
+        expect_native_signature(args.len(), 1, ty_args.len(), 0)?;
 
         let input: VectorRef = pop_arg!(args, VectorRef);
         let input_bytes = input.as_bytes_ref().to_vec();
@@ -54,8 +56,9 @@ pub fn make_decode_native(gas_cost: InternalGas) -> NativeFunction {
 
 /// Native function for base64 encoding
 pub fn make_encode_native(gas_cost: InternalGas) -> NativeFunction {
-    make_native(move |context, _ty_args, mut args| {
+    make_native(move |context, ty_args, mut args| {
         native_charge_gas_early_exit!(context, gas_cost);
+        expect_native_signature(args.len(), 1, ty_args.len(), 0)?;
 
         let input: VectorRef = pop_arg!(args, VectorRef);
         let input_bytes = input.as_bytes_ref().to_vec();

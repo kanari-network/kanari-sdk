@@ -69,16 +69,6 @@ impl RpcClient {
         serde_json::from_value(result).context("Failed to parse account info")
     }
 
-    /// Get account balance
-    pub async fn get_balance(&self, address: &str) -> Result<u64> {
-        let response = self
-            .request(methods::GET_BALANCE, serde_json::json!(address))
-            .await?;
-
-        let result = response.result.context("No result in response")?;
-        serde_json::from_value(result).context("Failed to parse balance")
-    }
-
     /// Get block by height
     pub async fn get_block(&self, height: u64) -> Result<BlockInfo> {
         let response = self

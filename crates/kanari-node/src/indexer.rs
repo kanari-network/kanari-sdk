@@ -43,6 +43,12 @@ impl NodeIndexer {
         })
     }
 
+    fn lock_indexer(&self) -> Result<std::sync::MutexGuard<'_, Indexer>> {
+        self.indexer
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Failed to acquire indexer lock: {}", e))
+    }
+
     /// Get reference to the underlying indexer
     pub fn indexer(&self) -> &Arc<Mutex<Indexer>> {
         &self.indexer
@@ -51,11 +57,7 @@ impl NodeIndexer {
     /// Index a block
     pub fn index_block(&self, block: &kanari_types::block::Block) -> Result<()> {
         let height = block.header.height;
-
-        let idx = self
-            .indexer
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Failed to acquire indexer lock: {}", e))?;
+        let idx = self.lock_indexer()?;
 
         idx.index_block(block)
             .with_context(|| format!("Failed to index block #{}", height))?;
@@ -69,10 +71,7 @@ impl NodeIndexer {
 
     /// Get indexer statistics
     pub fn get_stats(&self) -> Result<String> {
-        let idx = self
-            .indexer
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Failed to acquire indexer lock: {}", e))?;
+        let idx = self.lock_indexer()?;
 
         let stats = idx
             .get_statistics()

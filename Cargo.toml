@@ -52,10 +52,10 @@ members = [
 [workspace.package]
 edition = "2024"                                                                                                   # Use Rust 2024 edition.
 categories = ["development-tools"]                                                                                 # Categorize as development tools on crates.io.
-keywords = ["blockchain", "sdk", "move", "monaOS", "monaVM", "rust", "ifps", "storage", "wallet", "framework"]     # Keywords for crates.io search.
+keywords = ["blockchain", "sdk", "move", "rust", "ifps", "storage", "wallet", "framework"]     # Keywords for crates.io search.
 homepage = "https://kanarinetwork.site"                                                                                # Project homepage.
 documentation = "https://docs.kanarinetwork.site"                                                                      # Link to project documentation.
-version = "0.1.6"                                                                                                  # Current version of the SDK.
+version = "0.1.7"                                                                                                  # Current version of the SDK.
 authors = ["Kanari Network"]                                                                                       # Authors of the SDK.
 license = "Apache-2.0"                                                                                             # License information.
 repository = "https://github.com/kanari-network/kanari-sdk"                                                        # Link to the code repository.
@@ -81,7 +81,7 @@ libp2p = { version = "0.56.0", features = ["tcp", "noise", "yamux", "gossipsub",
 ## HTTP/Web APIs
 reqwest = { version = "0.13.2", features = ["json"] }
 axum = "0.8.9"
-tower-http = { version = "0.6.10", features = ["cors"] }
+tower-http = { version = "0.6.11", features = ["cors"] }
 
 # ============================================================================
 # Serialization & Data Formats
@@ -152,7 +152,7 @@ zstd = "0.13.3"                                                                 
 # ============================================================================
 moka = { version = "0.12.15", features = ["sync"] }                                 # Thread-safe caching
 lru = "0.18.0"                                                                      # LRU cache
-dashmap = "6.1.0"                                                                   # Concurrent HashMap
+dashmap = "6.2.1"                                                                   # Concurrent HashMap
 ahash = "0.8.12"                                                                    # Fast non-cryptographic hasher
 siphasher = "1.0.2"                                                                 # SipHash implementation
 

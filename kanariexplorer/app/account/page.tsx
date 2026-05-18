@@ -181,7 +181,7 @@ function AccountContent() {
                     <div className="text-right">
                       {/* 🚨 อัปเดตการดึงค่ายอดเงิน ให้รองรับทั้ง amount และ balance */}
                       <div className="text-white font-mono font-bold text-lg group-hover:text-cyan-400 transition-colors">
-                        {fmtBalance(b.amount ?? b.balance ?? b.total_supply, b.decimals)}
+                        {fmtBalance(b.amount ?? b.balance, b.decimals)}
                       </div>
                       <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-tighter mt-1">Current Balance</div>
                     </div>

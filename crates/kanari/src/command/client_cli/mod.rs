@@ -27,7 +27,7 @@ pub enum ClientCommand {
     Burn(burn::Burn),
     /// Show blockchain statistics
     Stats(stats::Stats),
-    /// Show token balance for an address
+    /// Show token balances for an address
     Balance(balance::Balance),
     /// Account operations (get account info)
     Account {

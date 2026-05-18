@@ -12,6 +12,7 @@ use kanari_rpc_api::SignedTransactionData;
 use kanari_rpc_client::RpcClient;
 use kanari_types::{
     address::Address,
+    kanari::KANARI_TOKEN_TYPE,
     transaction::{SignedTransaction, Transaction},
 };
 use std::env;
@@ -103,15 +104,20 @@ pub async fn request_from_dev(
     // Estimate gas cost (transfer typically costs ~1000 mist/gas * 100000 gas = 100M mist = 0.1 KANARI)
     let estimated_gas_cost = 100_000 * 1000;
     let total_required = amount_mist + estimated_gas_cost;
+    let native_balance = account
+        .token_balances
+        .get(KANARI_TOKEN_TYPE)
+        .copied()
+        .unwrap_or(0);
 
-    if account.balance < total_required {
+    if native_balance < total_required {
         anyhow::bail!(
             "Insufficient balance in dev wallet: {} KANARI (required: {} KANARI)\n\
              Available: {:.9} KANARI\n\
              Required: {:.9} KANARI (transfer: {:.9} + gas: {:.9})",
-            account.balance as f64 / MIST_PER_KANARI,
+            native_balance as f64 / MIST_PER_KANARI,
             total_required as f64 / MIST_PER_KANARI,
-            account.balance as f64 / MIST_PER_KANARI,
+            native_balance as f64 / MIST_PER_KANARI,
             total_required as f64 / MIST_PER_KANARI,
             amount_mist as f64 / MIST_PER_KANARI,
             estimated_gas_cost as f64 / MIST_PER_KANARI

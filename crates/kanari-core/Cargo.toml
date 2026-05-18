@@ -28,6 +28,7 @@ num_cpus = { workspace = true }
 log = { workspace = true }
 lru = { workspace = true }
 rayon = { workspace = true }
+smt = { workspace = true }
 
 centauri = { workspace = true }
 

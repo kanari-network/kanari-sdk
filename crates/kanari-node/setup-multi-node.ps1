@@ -1,64 +1,126 @@
-# Kanari Multi-Node Launcher (Ultimate Edition v3)
+# Kanari Multi-Node Launcher
+param(
+    [int]$NodeCount = 3,
+    [ValidateSet("mainnet", "testnet", "devnet")]
+    [string]$Network = "testnet",
+    [string]$SourceNodeDataDir = "$env:USERPROFILE\.kanari\kanari-db",
+    [string]$ReplicaBaseDataDir = "$env:USERPROFILE\.kanari\node-db",
+    [int]$BasePeerPort = 19000,
+    [int]$BaseRpcPort = 19001,
+    [switch]$ResetReplicaData,
+    [switch]$ResetSourceData,
+    [switch]$DisableFailFast,
+    [switch]$SkipHealthCheck
+)
+
+. (Join-Path $PSScriptRoot 'node-script-common.ps1')
 
 Write-Host "Starting Kanari Multi-Node Setup..." -ForegroundColor Green
 Write-Host ""
 
-$BaseDataDir = "$env:USERPROFILE\.kanari\node-db"
-$BasePeerPort = 19000
-$BaseRpcPort = 19001
-$NodeCount = 3
-
-# 1. Clear old databases
-Write-Host "Clearing old databases to prevent state conflicts..." -ForegroundColor Yellow
-if (Test-Path $BaseDataDir) {
-    Remove-Item -Recurse -Force "$BaseDataDir\*" -ErrorAction SilentlyContinue
+if ($NodeCount -lt 1) {
+    Write-Host "NodeCount must be at least 1." -ForegroundColor Red
+    exit 1
 }
 
-# 2. Generate authorities list
+$failFastEnabled = -not $DisableFailFast
+$env:KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH = if ($failFastEnabled) { "true" } else { "false" }
+
+Write-Host "Node count: $NodeCount" -ForegroundColor Cyan
+Write-Host "Network: $Network" -ForegroundColor Cyan
+Write-Host "Source node data dir (node1): $SourceNodeDataDir" -ForegroundColor Cyan
+Write-Host "Replica base data dir (node2..N): $ReplicaBaseDataDir" -ForegroundColor Cyan
+Write-Host "Supply fail-fast: $($env:KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH)" -ForegroundColor Cyan
+Write-Host ""
+
+if (-not (Test-Path $SourceNodeDataDir)) {
+    New-Item -ItemType Directory -Path $SourceNodeDataDir -Force | Out-Null
+}
+if (-not (Test-Path $ReplicaBaseDataDir)) {
+    New-Item -ItemType Directory -Path $ReplicaBaseDataDir -Force | Out-Null
+}
+
+if ($ResetSourceData) {
+    Write-Host "ResetSourceData enabled: clearing source node database..." -ForegroundColor Yellow
+    Get-ChildItem -LiteralPath $SourceNodeDataDir -Force -ErrorAction SilentlyContinue |
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+} else {
+    Write-Host "Preserving source node database for node1." -ForegroundColor Cyan
+}
+
+if ($ResetReplicaData) {
+    Write-Host "ResetReplicaData enabled: clearing replica node databases..." -ForegroundColor Yellow
+    for ($i = 2; $i -le $NodeCount; $i++) {
+        $nodeDir = Join-Path $ReplicaBaseDataDir "node$i"
+        if (Test-Path $nodeDir) {
+            Remove-Item -LiteralPath $nodeDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+} else {
+    Write-Host "Preserving replica node databases. Use -ResetReplicaData for a fresh sync set." -ForegroundColor Cyan
+}
+
 $authorities = @()
 for ($i = 1; $i -le $NodeCount; $i++) {
     $authorities += "0x$i"
 }
 $authoritiesStr = $authorities -join ","
 
-# 3. Detect LAN IP (Crucial for reliable P2P)
-$localIp = $null
-$adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' -and $_.InterfaceDescription -notmatch 'Virtual|vEthernet|Hyper-V|Docker|VMware|Loopback' }
-foreach ($a in $adapters) {
-    $ip = Get-NetIPAddress -InterfaceIndex $a.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notmatch '^127\.' -and $_.IPAddress -notmatch '^169\.254\.' } | Select-Object -First 1
-    if ($ip) { $localIp = $ip.IPAddress; break }
-}
+$localIp = Get-LanIpAddress
 if (-not $localIp) {
-    $localIp = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notmatch '^127\.' -and $_.IPAddress -notmatch '^169\.254\.' } | Select-Object -First 1).IPAddress
+    Write-Host "Warning: no LAN IPv4 detected. Bootstrap may fail if peers cannot resolve node1." -ForegroundColor Yellow
 }
 
 Write-Host ""
-$startNow = Read-Host "Start all 5 nodes now? (Y/N)"
-if ($startNow -match '^[Yy]') {
-    $scriptPath = Join-Path $PSScriptRoot 'start-node.ps1'
-    $CurrentPS = (Get-Process -Id $PID).Path
-    
-    for ($i = 1; $i -le $NodeCount; $i++) {
-        # Node 1 starts normally. Nodes 2-5 MUST bootstrap to Node 1's P2P address.
-        if ($i -eq 1) {
-            $argString = "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`" -NodeId $i -Authorities `"$authoritiesStr`""
-        } else {
-            # Use the detected LAN IP for the bootstrap address
-            $argString = "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`" -NodeId $i -Authorities `"$authoritiesStr`" -Bootstrap `"/ip4/$localIp/tcp/19000`""
-        }
+$startNow = Read-Host "Start all $NodeCount nodes now with node1 as source? (Y/N)"
+if ($startNow -notmatch '^[Yy]') {
+    Write-Host "Aborted." -ForegroundColor Yellow
+    exit 0
+}
 
-        Start-Process -FilePath $CurrentPS -ArgumentList $argString -WindowStyle Normal
-        
-        # Give Node 1 ample time to start its P2P listener before launching the others
+$scriptPath = Join-Path $PSScriptRoot 'start-node.ps1'
+$currentPS = (Get-Process -Id $PID).Path
+
+for ($i = 1; $i -le $NodeCount; $i++) {
+    $ports = Get-NodePorts -NodeId $i -BasePeerPort $BasePeerPort -BaseRpcPort $BaseRpcPort
+    $nodeP2pPort = $ports.P2pPort
+    $nodeRpcPort = $ports.RpcPort
+
+    if ($i -eq 1) {
+        $dataDir = $SourceNodeDataDir
+        $argString = "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`" -NodeId $i -Network $Network -DataDir `"$dataDir`" -BasePeerPort $BasePeerPort -BaseRpcPort $BaseRpcPort -Authorities `"$authoritiesStr`""
+    } else {
+        $dataDir = Get-NodeDataDir -NodeId $i -DataDir "" -BaseDataDir $ReplicaBaseDataDir
+        $bootstrapAddr = "/ip4/$localIp/tcp/$BasePeerPort"
+        $argString = "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`" -NodeId $i -Network $Network -DataDir `"$dataDir`" -BasePeerPort $BasePeerPort -BaseRpcPort $BaseRpcPort -Authorities `"$authoritiesStr`" -Bootstrap `"$bootstrapAddr`""
+    }
+
+    Write-Host "Launching node $i | P2P $nodeP2pPort | RPC $nodeRpcPort | DataDir $dataDir" -ForegroundColor Cyan
+    Start-Process -FilePath $currentPS -ArgumentList $argString -WindowStyle Normal
+
+    if ($i -eq 1) {
+        Write-Host "Waiting 5 seconds for node1 source to initialize on ${localIp}:$BasePeerPort..." -ForegroundColor Cyan
+        Start-Sleep -Seconds 5
+    } else {
+        Start-Sleep -Milliseconds 600
+    }
+}
+
+Write-Host "Launched $NodeCount terminals successfully." -ForegroundColor Green
+Write-Host "Node1 is the source node. Node2..N bootstrap from node1." -ForegroundColor Green
+
+if (-not $SkipHealthCheck) {
+    Write-Host ""
+    Write-Host "Checking RPC health endpoints..." -ForegroundColor Cyan
+    Start-Sleep -Seconds 3
+
+    for ($i = 1; $i -le $NodeCount; $i++) {
+        $ports = Get-NodePorts -NodeId $i -BasePeerPort $BasePeerPort -BaseRpcPort $BaseRpcPort
+        $rpcUrl = Get-NodeRpcUrl -HostIp $localIp -RpcPort $ports.RpcPort
         if ($i -eq 1) {
-            Write-Host "Waiting 5 seconds for Node 1 to initialize P2P listener on $localIp:19000..." -ForegroundColor Cyan
-            Start-Sleep -Seconds 5
+            Test-NodeHealth -RpcUrl $rpcUrl -NodeId $i -RequireBootstrappedState
         } else {
-            Start-Sleep -Milliseconds 600
+            Test-NodeHealth -RpcUrl $rpcUrl -NodeId $i
         }
     }
-    Write-Host "Launched $NodeCount terminals successfully!" -ForegroundColor Green
-    Write-Host "Please wait for the P2P network to stabilize." -ForegroundColor Cyan
-} else {
-    Write-Host "Aborted." -ForegroundColor Yellow
 }

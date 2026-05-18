@@ -277,8 +277,6 @@ pub struct VertexBroadcaster {
 
     /// Batch configuration
     max_batch_size: usize,
-    #[allow(dead_code)] // Reserved for future adaptive batch timing logic
-    max_batch_delay: Duration,
 
     /// Compression enabled
     compression_enabled: bool,
@@ -304,7 +302,7 @@ impl VertexBroadcaster {
 
     fn build(
         max_batch_size: usize,
-        max_batch_delay: Duration,
+        _max_batch_delay: Duration,
         adaptive_batcher: AdaptiveBatcher,
     ) -> Self {
         // FIX #5: Set reasonable queue size limits to prevent OOM during network partitions
@@ -325,7 +323,6 @@ impl VertexBroadcaster {
             bloom_last_rotation: Instant::now(),
             bloom_items_since_rotation: 0,
             max_batch_size,
-            max_batch_delay,
             compression_enabled: true,
             priority_queue: VecDeque::new(),
             adaptive_batcher,
@@ -677,11 +674,6 @@ impl DeltaSync {
             before_round,
             self.local_vertices.len()
         );
-    }
-
-    /// Get number of tracked rounds
-    pub fn tracked_rounds(&self) -> usize {
-        self.local_vertices.len()
     }
 
     /// Create bloom filter for a round

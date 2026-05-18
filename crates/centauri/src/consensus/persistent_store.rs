@@ -20,6 +20,15 @@ const CF_CHECKPOINTS: &str = "checkpoints";
 const CF_ROUNDS: &str = "rounds";
 const CF_STATE: &str = "state";
 
+macro_rules! cf_handle {
+    ($store:expr, $cf:expr, $label:literal) => {
+        $store
+            .db
+            .cf_handle($cf)
+            .ok_or_else(|| anyhow::anyhow!(concat!($label, " CF not found")))?
+    };
+}
+
 /// Persistent DAG storage backed by RocksDB
 #[derive(Clone)]
 pub struct PersistentDagStore {
@@ -35,6 +44,32 @@ impl PersistentDagStore {
 
     fn checkpoint_key(sequence: u64) -> [u8; 8] {
         sequence.to_le_bytes()
+    }
+
+    fn vertex_round_key(round: Round, vertex_id: &VertexId) -> Vec<u8> {
+        let mut composite_key = Vec::with_capacity(40);
+        composite_key.extend_from_slice(&Self::round_key(round));
+        composite_key.extend_from_slice(vertex_id);
+        composite_key
+    }
+
+    fn decode_round_prefix(key: &[u8]) -> Option<Round> {
+        key.get(..8)
+            .and_then(|bytes| bytes.try_into().ok())
+            .map(Round::from_le_bytes)
+    }
+
+    fn decode_vertex_id_from_round_key(key: &[u8]) -> Option<VertexId> {
+        let bytes = key.get(8..40)?;
+        let mut id = [0u8; 32];
+        id.copy_from_slice(bytes);
+        Some(id)
+    }
+
+    fn decode_checkpoint_sequence(key: &[u8]) -> Option<u64> {
+        key.get(..8)
+            .and_then(|bytes| bytes.try_into().ok())
+            .map(u64::from_le_bytes)
     }
 
     fn serialize<T: Serialize>(value: &T, what: &str) -> Result<Vec<u8>> {
@@ -93,23 +128,15 @@ impl PersistentDagStore {
 
     /// Store a DAG vertex using composite key (FIX #2: O(1) write instead of O(N²))
     pub fn put_vertex(&self, vertex: &DagVertex) -> Result<()> {
-        let vertices_cf = self
-            .db
-            .cf_handle(CF_VERTICES)
-            .ok_or_else(|| anyhow::anyhow!("Vertices CF not found"))?;
-        let rounds_cf = self
-            .db
-            .cf_handle(CF_ROUNDS)
-            .ok_or_else(|| anyhow::anyhow!("Rounds CF not found"))?;
+        let vertices_cf = cf_handle!(self, CF_VERTICES, "Vertices");
+        let rounds_cf = cf_handle!(self, CF_ROUNDS, "Rounds");
 
         // Store vertex by ID
         let vertex_key = &vertex.id;
         let vertex_value = Self::serialize(vertex, "vertex")?;
 
         // Store round->vertex mapping using composite key: [Round (8 bytes) + VertexId (32 bytes)]
-        let mut composite_key = Vec::with_capacity(40);
-        composite_key.extend_from_slice(&Self::round_key(vertex.round));
-        composite_key.extend_from_slice(&vertex.id);
+        let composite_key = Self::vertex_round_key(vertex.round, &vertex.id);
 
         let mut batch = WriteBatch::default();
         batch.put_cf(&vertices_cf, vertex_key, vertex_value);
@@ -125,10 +152,7 @@ impl PersistentDagStore {
 
     /// Retrieve a DAG vertex by ID
     pub fn get_vertex(&self, id: &VertexId) -> Result<Option<DagVertex>> {
-        let cf = self
-            .db
-            .cf_handle(CF_VERTICES)
-            .ok_or_else(|| anyhow::anyhow!("Vertices CF not found"))?;
+        let cf = cf_handle!(self, CF_VERTICES, "Vertices");
         self.db
             .get_cf(&cf, id)?
             .map(|bytes| Self::deserialize(&bytes, "vertex"))
@@ -139,25 +163,15 @@ impl PersistentDagStore {
     pub fn delete_vertex(&self, id: &VertexId) -> Result<()> {
         let vertex = self.get_vertex(id)?;
 
-        let vertices_cf = self
-            .db
-            .cf_handle(CF_VERTICES)
-            .ok_or_else(|| anyhow::anyhow!("Vertices CF not found"))?;
-        let rounds_cf = self
-            .db
-            .cf_handle(CF_ROUNDS)
-            .ok_or_else(|| anyhow::anyhow!("Rounds CF not found"))?;
+        let vertices_cf = cf_handle!(self, CF_VERTICES, "Vertices");
+        let rounds_cf = cf_handle!(self, CF_ROUNDS, "Rounds");
 
         let mut batch = WriteBatch::default();
         batch.delete_cf(&vertices_cf, id);
 
         if let Some(v) = vertex {
             // Delete using composite key
-            let mut composite_key = Vec::with_capacity(40);
-            composite_key.extend_from_slice(&Self::round_key(v.round));
-            composite_key.extend_from_slice(id);
-
-            batch.delete_cf(&rounds_cf, composite_key);
+            batch.delete_cf(&rounds_cf, Self::vertex_round_key(v.round, id));
         }
         self.db
             .write(batch)
@@ -169,10 +183,7 @@ impl PersistentDagStore {
     /// Prune a vertex for garbage collection WITHOUT write_lock (fast path)
     /// This is safe because we're only deleting old data that won't conflict with new writes
     pub fn prune_vertex_fast(&self, id: &VertexId) -> Result<()> {
-        let vertices_cf = self
-            .db
-            .cf_handle(CF_VERTICES)
-            .ok_or_else(|| anyhow::anyhow!("Vertices CF not found"))?;
+        let vertices_cf = cf_handle!(self, CF_VERTICES, "Vertices");
 
         self.db
             .delete_cf(&vertices_cf, id)
@@ -184,14 +195,8 @@ impl PersistentDagStore {
     /// Prune an entire round without deserializing (FIX #2: Avoid O(N²) I/O)
     /// This is much more efficient than deleting vertices one-by-one
     pub fn prune_entire_round(&self, round: Round) -> Result<usize> {
-        let vertices_cf = self
-            .db
-            .cf_handle(CF_VERTICES)
-            .ok_or_else(|| anyhow::anyhow!("Vertices CF not found"))?;
-        let rounds_cf = self
-            .db
-            .cf_handle(CF_ROUNDS)
-            .ok_or_else(|| anyhow::anyhow!("Rounds CF not found"))?;
+        let vertices_cf = cf_handle!(self, CF_VERTICES, "Vertices");
+        let rounds_cf = cf_handle!(self, CF_ROUNDS, "Rounds");
 
         // Get all vertex IDs in this round to delete from vertices CF and count them
         let vertex_ids = self.get_vertices_by_round(round)?;
@@ -231,23 +236,17 @@ impl PersistentDagStore {
     /// FIX #16: Get minimum existing round in database
     /// Used during node restart to initialize pruning state correctly
     pub fn get_min_existing_round(&self) -> Result<Option<Round>> {
-        let rounds_cf = self
-            .db
-            .cf_handle(CF_ROUNDS)
-            .ok_or_else(|| anyhow::anyhow!("Rounds CF not found"))?;
+        let rounds_cf = cf_handle!(self, CF_ROUNDS, "Rounds");
 
         // Get the first key in the rounds column family (minimum round)
         let mut iter = self
             .db
             .iterator_cf(&rounds_cf, rocksdb::IteratorMode::Start);
 
-        if let Some(Ok((key, _))) = iter.next() {
-            // Key format: [8 bytes round][32 bytes vertex_id]
-            if key.len() >= 8 {
-                let round_bytes: [u8; 8] = key[..8].try_into().unwrap_or([0u8; 8]);
-                let min_round = Round::from_le_bytes(round_bytes);
-                return Ok(Some(min_round));
-            }
+        if let Some(Ok((key, _))) = iter.next()
+            && let Some(min_round) = Self::decode_round_prefix(&key)
+        {
+            return Ok(Some(min_round));
         }
 
         Ok(None) // Database is empty
@@ -256,23 +255,17 @@ impl PersistentDagStore {
     /// FIX #16: Get minimum existing checkpoint sequence in database
     /// Used during node restart to initialize pruning state correctly
     pub fn get_min_existing_checkpoint_sequence(&self) -> Result<Option<u64>> {
-        let checkpoints_cf = self
-            .db
-            .cf_handle(CF_CHECKPOINTS)
-            .ok_or_else(|| anyhow::anyhow!("Checkpoints CF not found"))?;
+        let checkpoints_cf = cf_handle!(self, CF_CHECKPOINTS, "Checkpoints");
 
         // Get the first key in the checkpoints column family (minimum sequence)
         let mut iter = self
             .db
             .iterator_cf(&checkpoints_cf, rocksdb::IteratorMode::Start);
 
-        if let Some(Ok((key, _))) = iter.next() {
-            // Key format: 8 bytes sequence number
-            if key.len() >= 8 {
-                let seq_bytes: [u8; 8] = key[..8].try_into().unwrap_or([0u8; 8]);
-                let min_seq = u64::from_le_bytes(seq_bytes);
-                return Ok(Some(min_seq));
-            }
+        if let Some(Ok((key, _))) = iter.next()
+            && let Some(min_seq) = Self::decode_checkpoint_sequence(&key)
+        {
+            return Ok(Some(min_seq));
         }
 
         Ok(None) // Database is empty
@@ -280,10 +273,7 @@ impl PersistentDagStore {
 
     /// Store a checkpoint
     pub fn put_checkpoint(&self, checkpoint: &Checkpoint) -> Result<()> {
-        let cf = self
-            .db
-            .cf_handle(CF_CHECKPOINTS)
-            .ok_or_else(|| anyhow::anyhow!("Checkpoints CF not found"))?;
+        let cf = cf_handle!(self, CF_CHECKPOINTS, "Checkpoints");
 
         let key = Self::checkpoint_key(checkpoint.sequence);
         let value = Self::serialize(checkpoint, "checkpoint")?;
@@ -297,10 +287,7 @@ impl PersistentDagStore {
 
     /// Retrieve a checkpoint by sequence number
     pub fn get_checkpoint(&self, sequence: u64) -> Result<Option<Checkpoint>> {
-        let cf = self
-            .db
-            .cf_handle(CF_CHECKPOINTS)
-            .ok_or_else(|| anyhow::anyhow!("Checkpoints CF not found"))?;
+        let cf = cf_handle!(self, CF_CHECKPOINTS, "Checkpoints");
 
         let key = Self::checkpoint_key(sequence);
         self.db
@@ -311,10 +298,7 @@ impl PersistentDagStore {
 
     /// Delete a checkpoint
     pub fn delete_checkpoint(&self, sequence: u64) -> Result<()> {
-        let cf = self
-            .db
-            .cf_handle(CF_CHECKPOINTS)
-            .ok_or_else(|| anyhow::anyhow!("Checkpoints CF not found"))?;
+        let cf = cf_handle!(self, CF_CHECKPOINTS, "Checkpoints");
 
         let key = Self::checkpoint_key(sequence);
         self.db
@@ -326,10 +310,7 @@ impl PersistentDagStore {
 
     /// Get all vertices in a specific round
     pub fn get_vertices_by_round(&self, round: Round) -> Result<Vec<VertexId>> {
-        let cf = self
-            .db
-            .cf_handle(CF_ROUNDS)
-            .ok_or_else(|| anyhow::anyhow!("Rounds CF not found"))?;
+        let cf = cf_handle!(self, CF_ROUNDS, "Rounds");
 
         let prefix = Self::round_key(round);
         let mut vertex_ids = Vec::new();
@@ -341,10 +322,9 @@ impl PersistentDagStore {
 
             // Ensure the key starts with our prefix and is exactly the right length for a composite key
             if key.len() == 40 && key.starts_with(&prefix) {
-                // Extract VertexId (last 32 bytes)
-                let mut id = [0u8; 32];
-                id.copy_from_slice(&key[8..]);
-                vertex_ids.push(id);
+                if let Some(id) = Self::decode_vertex_id_from_round_key(&key) {
+                    vertex_ids.push(id);
+                }
             } else {
                 // Since we use prefix iterator, keys are sorted.
                 // If key doesn't start with prefix anymore (due to how prefix_iterator works internally or extra data), break.
@@ -377,55 +357,10 @@ impl PersistentDagStore {
         Ok(pruned_count)
     }
 
-    /// Check if a vertex is checkpointed (stub - needs integration with checkpoint logic)
-    pub fn is_checkpointed(&self, _vertex_id: &VertexId) -> Result<bool> {
-        // Placeholder: In production, track which vertices are included in checkpoints
-        Ok(true)
-    }
-
-    /// Compact the database to reclaim disk space
-    /// Recommended: Call this periodically (e.g., weekly during low-traffic periods)
-    /// This forces RocksDB to physically delete old data and return space to the OS
-    pub fn compact(&self) -> Result<()> {
-        tracing::info!("Starting RocksDB compaction to reclaim disk space...");
-        let start = std::time::Instant::now();
-
-        self.db.compact_range::<&[u8], &[u8]>(None, None);
-
-        let elapsed = start.elapsed();
-        tracing::info!("RocksDB compaction completed in {:?}", elapsed);
-
-        Ok(())
-    }
-
-    /// Compact a specific column family (more granular control)
-    pub fn compact_cf(&self, cf_name: &str) -> Result<()> {
-        let cf = self
-            .db
-            .cf_handle(cf_name)
-            .ok_or_else(|| anyhow::anyhow!("Column family {} not found", cf_name))?;
-
-        tracing::info!("Starting compaction for column family: {}", cf_name);
-        let start = std::time::Instant::now();
-
-        self.db.compact_range_cf(&cf, None::<&[u8]>, None::<&[u8]>);
-
-        let elapsed = start.elapsed();
-        tracing::info!("Compaction for {} completed in {:?}", cf_name, elapsed);
-
-        Ok(())
-    }
-
     /// Get storage statistics
     pub fn get_stats(&self) -> Result<StorageStats> {
-        let vertices_cf = self
-            .db
-            .cf_handle(CF_VERTICES)
-            .ok_or_else(|| anyhow::anyhow!("Vertices CF not found"))?;
-        let checkpoints_cf = self
-            .db
-            .cf_handle(CF_CHECKPOINTS)
-            .ok_or_else(|| anyhow::anyhow!("Checkpoints CF not found"))?;
+        let vertices_cf = cf_handle!(self, CF_VERTICES, "Vertices");
+        let checkpoints_cf = cf_handle!(self, CF_CHECKPOINTS, "Checkpoints");
 
         Ok(StorageStats {
             vertex_count: self.count_cf_entries(&vertices_cf),

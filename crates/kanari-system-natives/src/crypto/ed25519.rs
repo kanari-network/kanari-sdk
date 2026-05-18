@@ -17,6 +17,7 @@ use ed25519_dalek::{Signature as EdSignature, Verifier, VerifyingKey as EdPublic
 use move_core_types::gas_algebra::InternalGas;
 
 use crate::crypto::make_native;
+use crate::helpers::expect_native_signature;
 
 // Maximum message length accepted by natives (prevent large-memory DoS)
 const MAX_MSG_BYTES: usize = 1_000_000; // 1 MB
@@ -33,9 +34,10 @@ pub fn make_ed25519_natives(
 /// Creates the ed25519::verify native function
 fn make_ed25519_verify_native(gas_cost: InternalGas) -> NativeFunction {
     make_native(
-        move |context, _ty_args, mut arguments| -> PartialVMResult<NativeResult> {
+        move |context, ty_args, mut arguments| -> PartialVMResult<NativeResult> {
             use move_vm_types::natives::function::NativeResult as NR;
             native_charge_gas_early_exit!(context, gas_cost);
+            expect_native_signature(arguments.len(), 3, ty_args.len(), 0)?;
 
             // Pop arguments
             let msg_ref: VectorRef = pop_arg!(arguments, VectorRef);

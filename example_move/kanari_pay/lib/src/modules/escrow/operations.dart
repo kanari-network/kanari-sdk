@@ -36,60 +36,28 @@ class EscrowOperations {
     int gasPrice = 10,
   }) async {
     final normalizedToken = BcsUtils.normalizeTokenType(tokenType);
+    final coinObjectId = await _findOwnedCoinObjectId(
+      ownerAddress: wallet.address,
+      tokenType: normalizedToken,
+    );
 
-    print('[ESCROW] Creating deal:');
-    print('[ESCROW]   Wallet: ${wallet.address}');
-    print('[ESCROW]   Token: $normalizedToken');
-    print('[ESCROW]   Amount: $amount');
-    print('[ESCROW]   Seller: $sellerAddress');
-    print('[ESCROW]   Deal ID: $dealId');
-    print('[ESCROW]   Description: $description');
+    final args = TransactionArgs()
+      ..addString(dealId)
+      ..addAddress(sellerAddress)
+      ..addAmount(amount)
+      ..addString(description)
+      ..addObjectId(coinObjectId);
 
-    try {
-      // CRITICAL: Find owned Coin object for this token type
-      final coinObjectId = await _findOwnedCoinObjectId(
-        ownerAddress: wallet.address,
-        tokenType: normalizedToken,
-      );
-
-      print('[ESCROW]   Coin Object ID: $coinObjectId');
-
-      // Build args using TransactionArgs builder
-      final args = TransactionArgs()
-        ..addString(dealId)
-        ..addAddress(sellerAddress)
-        ..addAmount(amount)
-        ..addString(description)
-        ..addObjectId(coinObjectId);
-
-      print('[ESCROW] Encoded args: ${args.length} total');
-
-      final result = await rpc.executeFunction(
-        wallet: wallet,
-        package: EscrowConstants.packageAddress,
-        module: EscrowConstants.module,
-        function: EscrowConstants.fnCreateDeal,
-        typeArgs: [normalizedToken],
-        args: args.build(),
-        gasLimit: gasLimit,
-        gasPrice: gasPrice,
-      );
-
-      print('[ESCROW] Transaction result: ${result.status}');
-      print('[ESCROW]   Hash: ${result.hash}');
-      print('[ESCROW]   Gas used: ${result.gasUsed}');
-      if (result.errorMessage != null) {
-        print('[ESCROW]   Error: ${result.errorMessage}');
-      } else if (result.status.toLowerCase() == 'failed') {
-        print('[ESCROW]   ⚠️ Transaction failed but no error message returned');
-      }
-
-      return result;
-    } catch (e, stackTrace) {
-      print('[ESCROW] ERROR creating deal: $e');
-      print('[ESCROW] Stack trace: $stackTrace');
-      rethrow;
-    }
+    return rpc.executeFunction(
+      wallet: wallet,
+      package: EscrowConstants.packageAddress,
+      module: EscrowConstants.module,
+      function: EscrowConstants.fnCreateDeal,
+      typeArgs: [normalizedToken],
+      args: args.build(),
+      gasLimit: gasLimit,
+      gasPrice: gasPrice,
+    );
   }
 
   /// Find owned Coin object for a specific token type
@@ -97,22 +65,12 @@ class EscrowOperations {
     required String ownerAddress,
     required String tokenType,
   }) async {
-    print('[ESCROW] Searching for coin object:');
-    print('[ESCROW]   Owner: $ownerAddress');
-    print('[ESCROW]   Token Type: $tokenType');
-
     final account = await rpc.getAccount(ownerAddress);
-    print(
-      '[ESCROW]   Total owned objects: ${account.ownedObjects?.length ?? 0}',
-    );
 
     for (final obj in account.ownedObjects ?? const []) {
       final objToken = BcsUtils.extractCoinTypeFromObjectType(obj.type);
       if (objToken != null && objToken == tokenType) {
-        final normalizedId = BcsUtils.normalizeObjectId(obj.id);
-        print('[ESCROW]   Found coin object: ${obj.id}');
-        print('[ESCROW]   Object type: ${obj.type}');
-        return normalizedId;
+        return BcsUtils.normalizeObjectId(obj.id);
       }
     }
 
@@ -135,7 +93,6 @@ class EscrowOperations {
     wallet: wallet,
     coinType: coinType,
     functionName: EscrowConstants.fnConfirmDelivery,
-    actionName: 'Confirming delivery',
     args: TransactionArgs()
       ..addObjectId(dealObjectId)
       ..addObjectId(proofObjectId),
@@ -155,7 +112,6 @@ class EscrowOperations {
     wallet: wallet,
     coinType: coinType,
     functionName: EscrowConstants.fnReleaseFunds,
-    actionName: 'Releasing funds',
     args: TransactionArgs()
       ..addObjectId(dealObjectId)
       ..addObjectId(proofObjectId),
@@ -176,7 +132,6 @@ class EscrowOperations {
     wallet: wallet,
     coinType: coinType,
     functionName: EscrowConstants.fnRaiseDispute,
-    actionName: 'Raising dispute',
     args: TransactionArgs()
       ..addObjectId(dealObjectId)
       ..addObjectId(proofObjectId)
@@ -190,37 +145,19 @@ class EscrowOperations {
     required KanariWallet wallet,
     required String coinType,
     required String functionName,
-    required String actionName,
     required TransactionArgs args,
     int gasLimit = 100000,
     int gasPrice = 10,
-  }) async {
-    print('[ESCROW] Executing: $actionName');
-    print('[ESCROW]   Function: $functionName');
-    print('[ESCROW]   Coin Type: ${BcsUtils.normalizeTokenType(coinType)}');
-    print('[ESCROW]   Args count: ${args.length}');
-
-    try {
-      final result = await rpc.executeFunction(
-        wallet: wallet,
-        package: EscrowConstants.packageAddress,
-        module: EscrowConstants.module,
-        function: functionName,
-        typeArgs: [BcsUtils.normalizeTokenType(coinType)],
-        args: args.build(),
-        gasLimit: gasLimit,
-        gasPrice: gasPrice,
-      );
-
-      print('[ESCROW] Result status: ${result.status}');
-      if (result.errorMessage != null) {
-        print('[ESCROW] Error: ${result.errorMessage}');
-      }
-
-      return result;
-    } catch (e) {
-      print('[ESCROW] Failed to execute $actionName: $e');
-      rethrow;
-    }
+  }) {
+    return rpc.executeFunction(
+      wallet: wallet,
+      package: EscrowConstants.packageAddress,
+      module: EscrowConstants.module,
+      function: functionName,
+      typeArgs: [BcsUtils.normalizeTokenType(coinType)],
+      args: args.build(),
+      gasLimit: gasLimit,
+      gasPrice: gasPrice,
+    );
   }
 }
