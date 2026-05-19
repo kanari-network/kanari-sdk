@@ -78,8 +78,28 @@ impl DagEngine {
             return Ok(checkpoint);
         }
 
+        let previous_checkpoint_root = {
+            let chain = self
+                .engine
+                .blockchain
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
+            chain.latest_checkpoint().state_root.clone()
+        };
+
         let (computed_root, verified_state, to_execute) =
             self.engine.prepare_checkpoint_state(&checkpoint)?;
+
+        if checkpoint.transactions.is_empty() {
+            checkpoint.state_root = previous_checkpoint_root;
+            self.engine.apply_prepared_checkpoint(
+                checkpoint.clone(),
+                verified_state,
+                to_execute,
+            )?;
+            return Ok(checkpoint);
+        }
+
         if self.engine.checkpoint_root_matches(
             checkpoint.sequence,
             &computed_root,
@@ -898,6 +918,40 @@ mod tests {
             .unwrap();
 
         assert_ne!(resolved.state_root, vec![7u8; 32]);
+        assert_eq!(resolved.sequence, 1);
+    }
+
+    #[test]
+    fn test_apply_checkpoint_once_keeps_previous_root_for_empty_checkpoint() {
+        let mut engine = BlockchainEngine::new().unwrap();
+        engine.set_authorities(
+            "0x2".to_string(),
+            vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()],
+        );
+        let engine = Arc::new(engine);
+        let dag_engine = DagEngine::new(
+            engine.clone(),
+            "0x2".to_string(),
+            vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()],
+        )
+        .unwrap();
+
+        let (prev_hash, previous_root) = {
+            let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            (
+                chain.latest_checkpoint().hash().unwrap(),
+                chain.latest_checkpoint().state_root.clone(),
+            )
+        };
+
+        let provisional_checkpoint =
+            centauri::consensus::Checkpoint::new(1, vec![], vec![], vec![7u8; 32], 1, prev_hash);
+
+        let resolved = dag_engine
+            .apply_checkpoint_once(provisional_checkpoint, "[TEST]", true)
+            .unwrap();
+
+        assert_eq!(resolved.state_root, previous_root);
         assert_eq!(resolved.sequence, 1);
     }
 }

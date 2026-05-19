@@ -1235,17 +1235,44 @@ impl StateManager {
     }
 
     pub fn compute_state_root(&self) -> Vec<u8> {
-        // If SMT is available, use it to compute state root
+        let mut base_root = smt::default_hashes()[0].to_vec();
+
+        // If SMT is available, use it as the committed-state base root.
         if let Some(smt) = &self.smt {
             match smt.root_hash() {
-                Ok(root) => return root.to_vec(),
+                Ok(root) => base_root = root.to_vec(),
                 Err(e) => log::error!("Failed to compute SMT root: {}", e),
             }
         }
 
-        // Fallback: Use default empty state root
-        // In production, you should populate SMT with account states
-        smt::default_hashes()[0].to_vec()
+        if self.overlay.is_empty() {
+            return base_root;
+        }
+
+        // When speculative writes are still buffered in the overlay, fold them into a
+        // deterministic root derivation so pre-commit checkpoint roots reflect the
+        // logical state that validators are comparing.
+        let mut materialized = Vec::new();
+        materialized.extend_from_slice(b"kanari:state-root:v1");
+        materialized.extend_from_slice(&base_root);
+        materialized.extend_from_slice(&(self.overlay.len() as u64).to_le_bytes());
+
+        for (key, value_opt) in &self.overlay {
+            materialized.extend_from_slice(&(key.len() as u64).to_le_bytes());
+            materialized.extend_from_slice(key);
+            match value_opt {
+                Some(value) => {
+                    materialized.push(1);
+                    materialized.extend_from_slice(&(value.len() as u64).to_le_bytes());
+                    materialized.extend_from_slice(value);
+                }
+                None => {
+                    materialized.push(0);
+                }
+            }
+        }
+
+        hash_data_blake3(&materialized).to_vec()
     }
 
     /// Validate sequence number for an account
@@ -1516,6 +1543,25 @@ mod tests {
         assert_eq!(summary.wallet_visible_supply, 1_000);
         assert_eq!(summary.object_locked_supply, 0);
         assert!(state.load_object_locked_coin_records()?.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn compute_state_root_reflects_overlay_before_commit() -> Result<()> {
+        let publisher = AccountAddress::from_hex_literal("0x1111")?;
+        let mut state = StateManager::new_in_memory();
+        let root_before = state.compute_state_root();
+
+        let mut cs = ChangeSet::new();
+        cs.publish_module(publisher, "example".to_string());
+        state.apply_changeset(&cs)?;
+
+        let root_after = state.compute_state_root();
+        assert_ne!(
+            root_before, root_after,
+            "pending overlay writes should affect speculative state roots"
+        );
 
         Ok(())
     }

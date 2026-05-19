@@ -903,6 +903,22 @@ mod tests {
     }
 
     #[test]
+    fn test_checkpoint_store_allows_canonical_root_replacement() {
+        let mut store = DagStore::new(vec!["0x1".to_string()]);
+        let prev_hash = store.latest_checkpoint().hash().unwrap();
+
+        let provisional = Checkpoint::new(1, vec![], vec![], vec![1u8; 32], 42, prev_hash.clone());
+        store.add_checkpoint(provisional).unwrap();
+
+        let canonical = Checkpoint::new(1, vec![], vec![], vec![2u8; 32], 42, prev_hash);
+        store.add_checkpoint(canonical.clone()).unwrap();
+
+        let latest = store.latest_checkpoint();
+        assert_eq!(latest.sequence, 1);
+        assert_eq!(latest.state_root, canonical.state_root);
+    }
+
+    #[test]
     fn test_reject_timestamp_far_ahead_of_old_parents() {
         let authorities = vec![
             "auth1".to_string(),
