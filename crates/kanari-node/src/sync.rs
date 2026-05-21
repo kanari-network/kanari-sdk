@@ -15,6 +15,15 @@ use tracing::{error, info, warn};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+const REQUEST_RETRY_COOLDOWN_MS: u64 = 2_000;
+const MAX_BLOCKS_PER_REQUEST: u64 = 200;
+
+#[derive(Clone)]
+struct BufferedBlockCandidate {
+    block: FullBlockData,
+    source_peer_id: Option<String>,
+}
+
 pub struct SyncManager {
     engine: Arc<BlockchainEngine>,
     network_tx: mpsc::UnboundedSender<P2PMessage>,
@@ -22,7 +31,7 @@ pub struct SyncManager {
     /// Optional indexer for blockchain data indexing
     indexer: Option<Arc<Mutex<kanari_indexer::Indexer>>>,
     /// Buffer for blocks that arrived out of order (height -> candidate blocks)
-    block_buffer: Mutex<BTreeMap<u64, VecDeque<FullBlockData>>>,
+    block_buffer: Mutex<BTreeMap<u64, VecDeque<BufferedBlockCandidate>>>,
     /// Highest height seen in the network
     max_peer_height: AtomicU64,
     /// Last advertised height by peer id.
@@ -132,7 +141,7 @@ impl SyncManager {
             }
             P2PMessage::BlockResponse(block_data) => {
                 info!("[P2P] Received BlockResponse");
-                self.handle_block_response(block_data).await;
+                self.handle_block_response(block_data, None).await;
             }
             P2PMessage::TargetedBlockResponse(resp) => {
                 if resp.requester_peer_id != self.local_peer_id {
@@ -142,7 +151,8 @@ impl SyncManager {
                     "[P2P] Received targeted BlockResponse for height {} from {}",
                     resp.height, resp.responder_peer_id
                 );
-                self.handle_block_response(resp.block_data).await;
+                self.handle_block_response(resp.block_data, Some(&resp.responder_peer_id))
+                    .await;
             }
             P2PMessage::PeerInfo(peer_info) => {
                 info!("[P2P] Received PeerInfo from {}", peer_info.peer_id);
@@ -161,7 +171,7 @@ impl SyncManager {
             }
             P2PMessage::CompressedBlockResponse(compressed_data) => {
                 if let Ok(data) = decompress_block(compressed_data.to_vec()) {
-                    self.handle_block_response(data).await;
+                    self.handle_block_response(data, None).await;
                 }
             }
         }
@@ -191,10 +201,15 @@ impl SyncManager {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
-            .as_secs()
+            .as_millis() as u64
     }
 
-    fn buffer_block(&self, block: FullBlockData, label: &str) -> Option<usize> {
+    fn buffer_block(
+        &self,
+        block: FullBlockData,
+        source_peer_id: Option<&str>,
+        label: &str,
+    ) -> Option<usize> {
         let block_height = block.height;
         let mut buffer = self.block_buffer.lock().unwrap();
         let candidate_count: usize = buffer.values().map(VecDeque::len).sum();
@@ -208,7 +223,7 @@ impl SyncManager {
 
         let candidates = buffer.entry(block_height).or_default();
         if candidates.iter().any(|candidate| {
-            candidate.hash == block.hash && candidate.state_root == block.state_root
+            candidate.block.hash == block.hash && candidate.block.state_root == block.state_root
         }) {
             info!(
                 "[SYNC] Duplicate {} #{} already buffered, ignoring",
@@ -217,7 +232,10 @@ impl SyncManager {
             return Some(candidate_count);
         }
 
-        candidates.push_back(block);
+        candidates.push_back(BufferedBlockCandidate {
+            block,
+            source_peer_id: source_peer_id.map(str::to_owned),
+        });
         let candidate_count = candidate_count + 1;
         info!(
             "[SYNC] Buffered {} #{}. Candidates for height: {}, total buffered: {}/{}",
@@ -235,13 +253,37 @@ impl SyncManager {
         buffer.keys().last().copied().unwrap_or(0)
     }
 
+    fn pop_next_buffer_candidate(&self, next_height: u64) -> Option<BufferedBlockCandidate> {
+        let mut buffer = self.block_buffer.lock().unwrap();
+        let next_block = buffer
+            .get_mut(&next_height)
+            .and_then(|candidates| candidates.pop_front());
+        let should_remove = buffer
+            .get(&next_height)
+            .map(|candidates| candidates.is_empty())
+            .unwrap_or(false);
+        if should_remove {
+            buffer.remove(&next_height);
+        }
+        next_block
+    }
+
     fn best_peer_for_height(&self, height: u64) -> Option<String> {
+        self.best_peer_for_height_excluding(height, None)
+    }
+
+    fn best_peer_for_height_excluding(
+        &self,
+        height: u64,
+        excluded_peer_id: Option<&str>,
+    ) -> Option<String> {
         let peers = self.peer_heights.lock().unwrap();
         peers
             .iter()
             .filter(|(peer_id, peer_height)| {
                 peer_id.as_str() != self.local_peer_id && **peer_height >= height
             })
+            .filter(|(peer_id, _)| excluded_peer_id != Some(peer_id.as_str()))
             .max_by_key(|(_, peer_height)| *peer_height)
             .map(|(peer_id, _)| peer_id.clone())
     }
@@ -249,7 +291,11 @@ impl SyncManager {
     fn should_request_height(&self, height: u64, now: u64) -> bool {
         let mut pending = self.pending_block_requests.lock().unwrap();
         match pending.get(&height).copied() {
-            Some(last_requested) if now.saturating_sub(last_requested) < 2 => false,
+            Some(last_requested)
+                if now.saturating_sub(last_requested) < REQUEST_RETRY_COOLDOWN_MS =>
+            {
+                false
+            }
             _ => {
                 pending.insert(height, now);
                 true
@@ -262,9 +308,38 @@ impl SyncManager {
         pending.retain(|pending_height, _| *pending_height > height);
     }
 
+    fn clear_pending_request(&self, height: u64) {
+        let mut pending = self.pending_block_requests.lock().unwrap();
+        pending.remove(&height);
+    }
+
+    async fn request_missing_blocks_from_peer(
+        &self,
+        peer_id: &str,
+        peer_height: u64,
+        local_height: u64,
+    ) {
+        let start_height = local_height + 1;
+        if start_height > peer_height {
+            warn!(
+                "[SYNC] Peer {} has height {} but we need {} (stats.height: {}). Not requesting.",
+                peer_id, peer_height, start_height, local_height
+            );
+            return;
+        }
+
+        info!(
+            "[SYNC] Requesting blocks from {} to {} from peer {}",
+            start_height, peer_height, peer_id
+        );
+        self.request_blocks(start_height, peer_height, Some(peer_id))
+            .await;
+    }
+
     async fn process_incoming_block(
         &self,
         block: FullBlockData,
+        source_peer_id: Option<&str>,
         received_label: &str,
         buffered_label: &str,
         check_for_gap: bool,
@@ -284,7 +359,10 @@ impl SyncManager {
         }
 
         let block_height = block.height;
-        if self.buffer_block(block, buffered_label).is_none() {
+        if self
+            .buffer_block(block, source_peer_id, buffered_label)
+            .is_none()
+        {
             return;
         }
 
@@ -327,8 +405,28 @@ impl SyncManager {
 
     async fn handle_new_block(&self, block_data: String) {
         if let Some(block) = Self::parse_message::<FullBlockData>(&block_data, "new block") {
-            self.process_incoming_block(block, "NewBlock", "NewBlock", true)
+            self.process_incoming_block(block, None, "NewBlock", "NewBlock", true)
                 .await;
+        }
+    }
+
+    fn log_buffered_gap(&self, current_height: u64) {
+        let buffer = self.block_buffer.lock().unwrap();
+        if !buffer.is_empty() {
+            let buffered_heights: Vec<_> = buffer.keys().collect();
+            info!(
+                "[SYNC] Buffered blocks: {:?}. Next required: {}",
+                buffered_heights,
+                current_height + 1
+            );
+        }
+    }
+
+    fn index_block_if_needed(&self, block: &FullBlockData) {
+        if let Some(ref indexer) = self.indexer
+            && let Err(e) = self.index_block_with_indexer(indexer, block)
+        {
+            error!("[INDEXER] Failed to index block #{}: {}", block.height, e);
         }
     }
 
@@ -337,23 +435,10 @@ impl SyncManager {
         loop {
             let stats = self.engine.get_stats();
             let next_height = stats.height + 1;
+            let next_candidate = self.pop_next_buffer_candidate(next_height);
 
-            let next_block = {
-                let mut buffer = self.block_buffer.lock().unwrap();
-                let next_block = buffer
-                    .get_mut(&next_height)
-                    .and_then(|candidates| candidates.pop_front());
-                let should_remove = buffer
-                    .get(&next_height)
-                    .map(|candidates| candidates.is_empty())
-                    .unwrap_or(false);
-                if should_remove {
-                    buffer.remove(&next_height);
-                }
-                next_block
-            };
-
-            if let Some(block) = next_block {
+            if let Some(candidate) = next_candidate {
+                let block = candidate.block;
                 info!(
                     "[SYNC] Found block #{} in buffer, attempting to apply. (current height: {})",
                     block.height, stats.height
@@ -364,19 +449,7 @@ impl SyncManager {
                             "[SYNC] Successfully synced block #{} with {} transactions",
                             block.height, block.tx_count
                         );
-
-                        // Index the block if indexer is available
-                        if let Some(ref indexer) = self.indexer {
-                            match self.index_block_with_indexer(indexer, &block) {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    error!(
-                                        "[INDEXER] Failed to index block #{}: {}",
-                                        block.height, e
-                                    );
-                                }
-                            }
-                        }
+                        self.index_block_if_needed(&block);
 
                         // Broadcast our new height
                         self.broadcast_peer_info().await;
@@ -403,7 +476,14 @@ impl SyncManager {
                             "[SYNC] Failed to sync block #{} candidate: {}. Requesting replacement.",
                             block.height, e
                         );
-                        let target_peer = self.best_peer_for_height(block.height);
+                        // Allow the replacement request to bypass the short retry cooldown.
+                        self.clear_pending_request(block.height);
+                        let target_peer = self
+                            .best_peer_for_height_excluding(
+                                block.height,
+                                candidate.source_peer_id.as_deref(),
+                            )
+                            .or_else(|| self.best_peer_for_height(block.height));
                         self.request_blocks(block.height, block.height, target_peer.as_deref())
                             .await;
                         break;
@@ -420,18 +500,7 @@ impl SyncManager {
                         stats.height, max_seen
                     );
 
-                    // Check buffer for gaps
-                    {
-                        let buffer = self.block_buffer.lock().unwrap();
-                        if !buffer.is_empty() {
-                            let buffered_heights: Vec<_> = buffer.keys().collect();
-                            info!(
-                                "[SYNC] Buffered blocks: {:?}. Next required: {}",
-                                buffered_heights,
-                                stats.height + 1
-                            );
-                        }
-                    }
+                    self.log_buffered_gap(stats.height);
 
                     let target_peer = self.best_peer_for_height(stats.height + 1);
                     self.request_blocks(stats.height + 1, max_seen, target_peer.as_deref())
@@ -571,10 +640,10 @@ impl SyncManager {
         }
     }
 
-    async fn handle_block_response(&self, block_data: String) {
+    async fn handle_block_response(&self, block_data: String, source_peer_id: Option<&str>) {
         if let Some(block) = Self::parse_message::<FullBlockData>(&block_data, "block response") {
             self.clear_pending_requests_up_to(block.height.saturating_sub(1));
-            self.process_incoming_block(block, "block response", "block", false)
+            self.process_incoming_block(block, source_peer_id, "block response", "block", false)
                 .await;
         }
     }
@@ -630,25 +699,12 @@ impl SyncManager {
                 "[SYNC] Peer {} is ahead at height {} (current: {})",
                 peer_info.peer_id, peer_info.height, stats.height
             );
-            // Request missing blocks starting from the next block we need
-            // If we are at 0 (genesis only), start from 1.
-            // If we are at N, start from N+1.
-            let start_height = stats.height + 1;
-
-            // Only request if start_height <= peer_height
-            if start_height <= peer_info.height {
-                info!(
-                    "[SYNC] Requesting blocks from {} to {} from peer {}",
-                    start_height, peer_info.height, peer_info.peer_id
-                );
-                self.request_blocks(start_height, peer_info.height, Some(&peer_info.peer_id))
-                    .await;
-            } else {
-                warn!(
-                    "[SYNC] Peer {} has height {} but we need {} (stats.height: {}). Not requesting.",
-                    peer_info.peer_id, peer_info.height, start_height, stats.height
-                );
-            }
+            self.request_missing_blocks_from_peer(
+                &peer_info.peer_id,
+                peer_info.height,
+                stats.height,
+            )
+            .await;
         } else {
             info!(
                 "[SYNC] Peer {} is at height {} (current: {}). We are synced or ahead.",
@@ -669,10 +725,8 @@ impl SyncManager {
         );
         let timestamp = Self::current_timestamp();
 
-        // Limit the number of blocks requested at once to avoid network congestion
-        // Increased from 50 to 200 for better performance in large networks (200+ nodes)
-        let max_request = 200;
-        let actual_to = to.min(from + max_request);
+        // Limit the number of blocks requested at once to avoid network congestion.
+        let actual_to = to.min(from + MAX_BLOCKS_PER_REQUEST);
         let mut sent = 0u64;
 
         for height in from..=actual_to {

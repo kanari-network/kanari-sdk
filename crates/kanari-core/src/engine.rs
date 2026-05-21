@@ -274,48 +274,6 @@ impl BlockchainEngine {
         seq
     }
 
-    fn preload_objects_for_args(
-        args: &[Vec<u8>],
-        state: &StateManager,
-        runtime: &kanari_move_runtime_v1::move_runtime::MoveRuntime,
-    ) {
-        for arg in args.iter() {
-            let mut possible_ids = Vec::new();
-
-            if arg.len() == 32
-                && let Ok(addr) = AccountAddress::from_bytes(arg)
-            {
-                possible_ids.push(addr.to_hex_literal());
-            }
-
-            if let Ok(s) = bcs::from_bytes::<String>(arg)
-                .or_else(|_| std::str::from_utf8(arg).map(|s| s.to_string()))
-            {
-                let s_trim = s.trim();
-                let hex_str = if !s_trim.starts_with("0x") {
-                    format!("0x{}", s_trim)
-                } else {
-                    s_trim.to_string()
-                };
-                if let Ok(addr) = AccountAddress::from_hex_literal(&hex_str) {
-                    possible_ids.push(addr.to_hex_literal());
-                }
-            }
-
-            for object_id in possible_ids {
-                if let Ok(Some(obj)) = state.get_object(&object_id) {
-                    let _ = runtime.preload_object_snapshot(
-                        &object_id,
-                        obj.owner,
-                        &obj.type_,
-                        obj.data.clone(),
-                        obj.version,
-                    );
-                }
-            }
-        }
-    }
-
     fn resolve_account_objects(
         &self,
         state: &StateManager,
@@ -1061,19 +1019,6 @@ impl BlockchainEngine {
                 args,
                 ..
             } => {
-                {
-                    let state = match state_arc.read() {
-                        Ok(guard) => guard,
-                        Err(poisoned) => {
-                            log::error!(
-                                "State arc lock poisoned in preload_objects, recovering..."
-                            );
-                            poisoned.into_inner()
-                        }
-                    };
-                    Self::preload_objects_for_args(args, &state, runtime);
-                }
-
                 let parts: Vec<&str> = module.split("::").collect();
                 if parts.len() != 2 {
                     changeset.mark_failed(
@@ -1418,6 +1363,39 @@ impl BlockchainEngine {
             .collect()
     }
 
+    fn block_data_from_block(block: &kanari_types::block::Block) -> BlockData {
+        BlockData {
+            height: block.header.height,
+            timestamp: block.header.timestamp,
+            hash: hex::encode(block.hash()),
+            prev_hash: hex::encode(&block.header.prev_hash),
+            state_root: hex::encode(&block.header.state_root),
+            tx_count: block.transactions.len(),
+            events: block.events.clone(),
+        }
+    }
+
+    fn full_block_data_from_block(
+        block: &kanari_types::block::Block,
+        checkpoint: Option<&Checkpoint>,
+    ) -> FullBlockData {
+        let vertices = checkpoint
+            .map(|cp| cp.vertices.iter().map(hex::encode).collect())
+            .unwrap_or_default();
+
+        FullBlockData {
+            height: block.header.height,
+            timestamp: block.header.timestamp,
+            hash: hex::encode(block.hash()),
+            prev_hash: hex::encode(&block.header.prev_hash),
+            state_root: hex::encode(&block.header.state_root),
+            tx_count: block.transactions.len(),
+            events: block.events.clone(),
+            transactions: block.transactions.clone(),
+            vertices,
+        }
+    }
+
     pub fn get_block(&self, height: u64) -> Option<BlockData> {
         let chain = match self.blockchain.read() {
             Ok(guard) => guard,
@@ -1426,15 +1404,7 @@ impl BlockchainEngine {
                 poisoned.into_inner()
             }
         };
-        chain.get_block(height).map(|block| BlockData {
-            height: block.header.height,
-            timestamp: block.header.timestamp,
-            hash: hex::encode(block.hash()),
-            prev_hash: hex::encode(&block.header.prev_hash),
-            state_root: hex::encode(&block.header.state_root),
-            tx_count: block.transactions.len(),
-            events: block.events.clone(),
-        })
+        chain.get_block(height).map(Self::block_data_from_block)
     }
 
     pub fn get_full_block(&self, height: u64) -> Option<FullBlockData> {
@@ -1447,22 +1417,7 @@ impl BlockchainEngine {
         };
         let block = chain.get_block(height)?;
         let checkpoint = chain.get_checkpoint(height);
-
-        let vertices = checkpoint
-            .map(|cp| cp.vertices.iter().map(hex::encode).collect())
-            .unwrap_or_default();
-
-        Some(FullBlockData {
-            height: block.header.height,
-            timestamp: block.header.timestamp,
-            hash: hex::encode(block.hash()),
-            prev_hash: hex::encode(&block.header.prev_hash),
-            state_root: hex::encode(&block.header.state_root),
-            tx_count: block.transactions.len(),
-            events: block.events.clone(),
-            transactions: block.transactions.clone(),
-            vertices,
-        })
+        Some(Self::full_block_data_from_block(block, checkpoint))
     }
 
     pub fn block_from_full_data(full_block: &FullBlockData) -> kanari_types::block::Block {
@@ -1501,6 +1456,29 @@ impl BlockchainEngine {
         arr
     }
 
+    fn checkpoint_from_full_block_data(
+        &self,
+        block_data: &FullBlockData,
+        prev_hash: Vec<u8>,
+    ) -> Result<Checkpoint> {
+        let state_root = Self::decode_hex(&block_data.state_root)
+            .context("Invalid state root format in block data")?;
+        let vertices = block_data
+            .vertices
+            .iter()
+            .map(|vertex| Self::decode_hex_32(vertex))
+            .collect();
+
+        Ok(Checkpoint::new(
+            block_data.height,
+            vertices,
+            block_data.transactions.clone(),
+            state_root,
+            block_data.timestamp,
+            prev_hash,
+        ))
+    }
+
     pub fn sync_full_block_from_data(&self, block_data: &FullBlockData) -> Result<()> {
         let stats = self.get_stats();
         info!(
@@ -1532,7 +1510,6 @@ impl BlockchainEngine {
             block_data.height
         );
         for (i, signed_tx) in block_data.transactions.iter().enumerate() {
-            let signed_tx: &SignedTransaction = signed_tx;
             if !signed_tx.verify_signature()? {
                 anyhow::bail!(
                     "Invalid or missing signature for transaction {} in block #{}",
@@ -1542,28 +1519,12 @@ impl BlockchainEngine {
             }
         }
 
-        let state_root = Self::decode_hex(&block_data.state_root)
-            .context("Invalid state root format in block data")?;
-
         let prev_hash = {
             let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
             chain.latest_checkpoint().hash()?
         };
 
-        let vertices: Vec<[u8; 32]> = block_data
-            .vertices
-            .iter()
-            .map(|v| Self::decode_hex_32(v))
-            .collect();
-
-        let checkpoint = Checkpoint::new(
-            block_data.height,
-            vertices,
-            block_data.transactions.clone(),
-            state_root,
-            block_data.timestamp,
-            prev_hash,
-        );
+        let checkpoint = self.checkpoint_from_full_block_data(block_data, prev_hash)?;
 
         // Note: This calls the apply_checkpoint.rs file.
         self.apply_checkpoint(checkpoint)?;

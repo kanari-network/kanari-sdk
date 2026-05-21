@@ -10,21 +10,65 @@ use log::{error, info, warn};
 use std::sync::{Arc, RwLock};
 
 impl BlockchainEngine {
+    fn apply_system_prologue_to_state(
+        &self,
+        state_arc: &Arc<RwLock<StateManager>>,
+        timestamp_ms: u64,
+        persist_objects: bool,
+    ) -> Result<()> {
+        let runtime = &self.runtime_pool[0];
+        let mut state_write = state_arc.write().unwrap_or_else(|e| e.into_inner());
+        let clock_id = runtime.ensure_system_clock(&mut state_write)?;
+        let changeset = runtime.execute_clock_consensus_commit_prologue(clock_id, timestamp_ms)?;
+        state_write.apply_changeset(&changeset)?;
+
+        if persist_objects {
+            runtime.persist_created_objects(&changeset);
+            runtime.persist_deleted_objects(&changeset);
+        }
+
+        Ok(())
+    }
+
+    fn ensure_checkpoint_root_matches(
+        &self,
+        checkpoint: &Checkpoint,
+        computed_root: &[u8],
+    ) -> Result<()> {
+        if self.checkpoint_root_matches(
+            checkpoint.sequence,
+            computed_root,
+            &checkpoint.state_root,
+        )? {
+            return Ok(());
+        }
+
+        bail!(
+            "[ENGINE] State root mismatch for checkpoint {}. expected={}, computed={}",
+            checkpoint.sequence,
+            hex::encode(&checkpoint.state_root),
+            hex::encode(computed_root)
+        );
+    }
+
     pub(crate) fn prepare_checkpoint_state(
         &self,
         checkpoint: &Checkpoint,
     ) -> Result<(Vec<u8>, StateManager, Vec<SignedTransaction>)> {
         let state_snapshot = self.state.read().unwrap_or_else(|e| e.into_inner()).clone();
         let state_arc = Arc::new(RwLock::new(state_snapshot));
-        let mut to_execute: Vec<SignedTransaction> = Vec::new();
-
-        {
+        let to_execute: Vec<SignedTransaction> = {
             let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
-            for signed_tx in &checkpoint.transactions {
-                if !chain.is_transaction_executed(&hex::encode(signed_tx.hash())) {
-                    to_execute.push(signed_tx.clone());
-                }
-            }
+            checkpoint
+                .transactions
+                .iter()
+                .filter(|signed_tx| !chain.is_transaction_executed(&hex::encode(signed_tx.hash())))
+                .cloned()
+                .collect()
+        };
+
+        if !checkpoint.transactions.is_empty() {
+            self.apply_system_prologue_to_state(&state_arc, checkpoint.timestamp, false)?;
         }
 
         self.execute_tx_waves_parallel(
@@ -89,6 +133,7 @@ impl BlockchainEngine {
             let side_effect_state = Arc::new(RwLock::new(
                 self.state.read().unwrap_or_else(|e| e.into_inner()).clone(),
             ));
+            self.apply_system_prologue_to_state(&side_effect_state, checkpoint.timestamp, true)?;
             self.execute_tx_waves_parallel(
                 to_execute,
                 &side_effect_state,
@@ -115,13 +160,13 @@ impl BlockchainEngine {
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .compute_state_root();
-        if !self.checkpoint_root_matches(
-            checkpoint.sequence,
-            &computed_root,
-            &checkpoint.state_root,
-        )? {
-            warn!("[ENGINE] State root mismatch! Fallback to standard application.");
-            return self.apply_checkpoint(checkpoint);
+        match self.ensure_checkpoint_root_matches(&checkpoint, &computed_root) {
+            Ok(()) => {}
+            Err(_) if !Self::strict_checkpoint_roots_required() => {
+                warn!("[ENGINE] State root mismatch! Fallback to standard application.");
+                return self.apply_checkpoint(checkpoint);
+            }
+            Err(e) => return Err(e),
         }
 
         self.finalize_checkpoint(
@@ -142,18 +187,7 @@ impl BlockchainEngine {
 
         let (computed_root, verified_state, to_execute) =
             self.prepare_checkpoint_state(&checkpoint)?;
-        if !self.checkpoint_root_matches(
-            checkpoint.sequence,
-            &computed_root,
-            &checkpoint.state_root,
-        )? {
-            bail!(
-                "[ENGINE] State root mismatch for checkpoint {}. expected={}, computed={}",
-                checkpoint.sequence,
-                hex::encode(&checkpoint.state_root),
-                hex::encode(&computed_root)
-            );
-        }
+        self.ensure_checkpoint_root_matches(&checkpoint, &computed_root)?;
 
         self.apply_prepared_checkpoint(checkpoint, verified_state, to_execute)
     }
