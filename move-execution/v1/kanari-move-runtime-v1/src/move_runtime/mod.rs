@@ -924,7 +924,11 @@ impl MoveRuntime {
                 if is_potential_id
                     && let Some(TypeTag::Struct(struct_tag)) = type_tag_for_param(param_type)
                 {
-                    let object_id = format!("0x{}", hex::encode(final_args[i].as_slice()));
+                    let Ok(object_addr) = AccountAddress::from_bytes(final_args[i].as_slice())
+                    else {
+                        continue;
+                    };
+                    let object_id = object_addr.to_hex_literal();
 
                     if let Some(mut stored_obj) = self.object_storage.get_object(&object_id) {
                         if let Some(s_addr) = sender {
@@ -1481,11 +1485,11 @@ impl MoveRuntime {
 
         // For addresses (32 bytes)
         if bytes.len() == 32 {
-            return serde_json::Value::String(format!("0x{}", hex::encode(bytes)));
+            if let Ok(addr) = AccountAddress::from_bytes(bytes) {
+                return serde_json::Value::String(addr.to_hex_literal());
+            }
         }
 
-        // Fallback: serialize bytes directly
-        serde_json::to_value(bytes)
-            .unwrap_or_else(|_| serde_json::Value::String(hex::encode(bytes)))
+        serde_json::to_value(bytes).expect("serializing byte slices to JSON should not fail")
     }
 }

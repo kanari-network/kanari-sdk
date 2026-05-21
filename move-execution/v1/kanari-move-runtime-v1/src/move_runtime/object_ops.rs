@@ -12,9 +12,23 @@ use move_core_types::language_storage::StructTag;
 use std::str::FromStr;
 
 impl super::MoveRuntime {
+    fn canonical_object_id_str(object_id: &str) -> Option<String> {
+        let trimmed = object_id.trim();
+        let normalized = if trimmed.starts_with("0x") {
+            trimmed.to_string()
+        } else {
+            format!("0x{}", trimmed)
+        };
+
+        AccountAddress::from_hex_literal(&normalized)
+            .ok()
+            .map(|addr| addr.to_hex_literal())
+    }
+
     /// Get object by ID from ObjectStorage
     pub fn get_object(&self, object_id: &str) -> Option<StoredObject> {
-        self.object_storage.get_object(object_id)
+        let canonical_id = Self::canonical_object_id_str(object_id)?;
+        self.object_storage.get_object(&canonical_id)
     }
 
     /// Get all objects owned by an address
@@ -71,23 +85,10 @@ impl super::MoveRuntime {
                 );
                 continue;
             }
-
-            // 🚨 Always normalize Object ID to standard format (0x + 64 lowercase hex characters)
-            // Prevents Case Sensitive issues that cause database lookup failures in subsequent rounds
-            let canonical_id = {
-                let s_trim = id.trim();
-                let hex_str = if !s_trim.starts_with("0x") {
-                    format!("0x{}", s_trim)
-                } else {
-                    s_trim.to_string()
-                };
-
-                // Use Move Core to normalize (lowercase and zero-padded to 64 characters)
-                if let Ok(addr) = AccountAddress::from_hex_literal(&hex_str) {
-                    addr.to_hex_literal()
-                } else {
-                    hex_str.to_lowercase()
-                }
+            
+            let Some(canonical_id) = Self::canonical_object_id_str(&id) else {
+                debug!("Skipping transferred object with invalid object id: {}", id);
+                continue;
             };
 
             let next_version = self

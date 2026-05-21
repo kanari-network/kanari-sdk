@@ -10,6 +10,13 @@ use move_core_types::account_address::AccountAddress;
 use move_core_types::effects::Op as MoveOp;
 
 impl super::MoveRuntime {
+    fn deterministic_object_id(seed: &[u8]) -> String {
+        let hash = kanari_crypto::hash_data_blake3(seed);
+        let mut bytes = [0u8; AccountAddress::LENGTH];
+        bytes.copy_from_slice(&hash[..AccountAddress::LENGTH]);
+        AccountAddress::new(bytes).to_hex_literal()
+    }
+
     /// Parse Move VM ChangeSet and extract state changes into Kanari ChangeSet
     /// This converts Move VM's canonical state changes into our domain model
     pub(crate) fn parse_move_changeset(
@@ -35,11 +42,8 @@ impl super::MoveRuntime {
             }
 
             for (struct_tag, op) in account_changes.resources() {
-                let id_input = format!("0x{}::{}", hex::encode(addr.as_ref()), struct_tag);
-                let deterministic_id = format!(
-                    "0x{}",
-                    hex::encode(kanari_crypto::hash_data_blake3(id_input.as_bytes()))
-                );
+                let id_input = format!("{}::{}", addr.to_hex_literal(), struct_tag);
+                let deterministic_id = Self::deterministic_object_id(id_input.as_bytes());
 
                 match op {
                     MoveOp::New(bytes) | MoveOp::Modify(bytes) => {

@@ -14,28 +14,6 @@ const UID_SIZE: usize = 32;
 const U64_SIZE: usize = 8;
 
 impl super::MoveRuntime {
-    fn candidate_object_ids(object_id: &str) -> Vec<String> {
-        let mut candidates = Vec::new();
-        let mut push_unique = |candidate: String| {
-            if !candidates.iter().any(|existing| existing == &candidate) {
-                candidates.push(candidate);
-            }
-        };
-
-        push_unique(object_id.to_string());
-
-        if let Ok(addr) = AccountAddress::from_hex_literal(object_id) {
-            let canonical = addr.to_hex_literal();
-            push_unique(canonical.clone());
-
-            let trimmed = canonical.trim_start_matches("0x").trim_start_matches('0');
-            let suffix = if trimmed.is_empty() { "0" } else { trimmed };
-            push_unique(format!("0x{}", suffix));
-        }
-
-        candidates
-    }
-
     /// Preload potential object arguments into LoadedObjectsExt before execution
     /// This enables native_borrow_global and borrow_global_mut to resolve objects during VM execution
     pub(crate) fn preload_objects_for_execution(
@@ -50,31 +28,22 @@ impl super::MoveRuntime {
         // Scan through arguments to find potential object IDs (32-byte addresses)
         for arg in args {
             if arg.len() == 32 {
-                let object_id = format!("0x{}", hex::encode(arg));
+                let Ok(object_addr) = AccountAddress::from_bytes(arg.as_slice()) else {
+                    continue;
+                };
+                let object_id = object_addr.to_hex_literal();
 
-                let stored_obj = Self::candidate_object_ids(&object_id)
-                    .into_iter()
-                    .find_map(|candidate| self.object_storage.get_object(&candidate));
+                let stored_obj = self.object_storage.get_object(&object_id);
 
                 // Try to load object from storage
                 if let Some(stored_obj) = stored_obj {
                     // Insert into LoadedObjectsExt so native_borrow_global and borrow_global_mut can find it
                     let exts = session.get_native_extensions();
                     let loaded_ext = exts.get_mut::<LoadedObjectsExt>();
-                    loaded_ext.insert(
-                        object_id.clone(),
-                        stored_obj.type_name.clone(),
-                        stored_obj.data.clone(),
-                    );
-                    loaded_ext.insert(
-                        stored_obj.id.clone(),
-                        stored_obj.type_name.clone(),
-                        stored_obj.data.clone(),
-                    );
+                    loaded_ext.insert(object_id.clone(), stored_obj.type_name, stored_obj.data);
                     log::debug!(
-                        "[RUNTIME] Preloaded object {} (stored as {}) into LoadedObjectsExt",
-                        object_id,
-                        stored_obj.id
+                        "[RUNTIME] Preloaded object {} into LoadedObjectsExt",
+                        object_id
                     );
                 }
             }

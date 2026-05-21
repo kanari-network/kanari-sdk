@@ -666,33 +666,8 @@ impl StateManager {
             .map(|addr| addr.to_hex_literal())
     }
 
-    fn legacy_object_id(id: &str) -> Option<String> {
-        let canonical = Self::canonical_object_id(id)?;
-        let trimmed = canonical.trim_start_matches("0x").trim_start_matches('0');
-        let suffix = if trimmed.is_empty() { "0" } else { trimmed };
-        Some(format!("0x{}", suffix))
-    }
-
-    fn candidate_object_ids(id: &str) -> Vec<String> {
-        let mut candidates = Vec::new();
-
-        let mut push_unique = |candidate: String| {
-            if !candidates.iter().any(|existing| existing == &candidate) {
-                candidates.push(candidate);
-            }
-        };
-
-        push_unique(id.to_string());
-
-        if let Some(canonical) = Self::canonical_object_id(id) {
-            push_unique(canonical);
-        }
-
-        if let Some(legacy) = Self::legacy_object_id(id) {
-            push_unique(legacy);
-        }
-
-        candidates
+    fn normalize_object_id_for_lookup(id: &str) -> Option<String> {
+        Self::canonical_object_id(id)
     }
 
     // Helper to construct DB key for owned objects
@@ -1101,8 +1076,15 @@ impl StateManager {
                     let nft_id_bytes = &event.event_data[0..32];
                     let coll_id_bytes = &event.event_data[64..96];
 
-                    let nft_id = format!("0x{}", hex::encode(nft_id_bytes));
-                    let coll_id = format!("0x{}", hex::encode(coll_id_bytes));
+                    let (Ok(nft_id), Ok(coll_id)) = (
+                        AccountAddress::from_bytes(nft_id_bytes).map(|addr| addr.to_hex_literal()),
+                        AccountAddress::from_bytes(coll_id_bytes).map(|addr| addr.to_hex_literal()),
+                    ) else {
+                        log::warn!(
+                            "Skipping malformed MintLog object ids while indexing collection members"
+                        );
+                        continue;
+                    };
 
                     // Record in Collection member index (O(1) Access)
                     let mut key = b"collection_members:".to_vec();
@@ -1210,25 +1192,26 @@ impl StateManager {
 
     /// Get a specific object by ID
     pub fn get_object(&self, object_id: &str) -> Result<Option<CreatedObject>> {
-        for candidate in Self::candidate_object_ids(object_id) {
-            let obj_key = Self::object_key(&candidate);
-            if let Some(stored) = self.load_internal::<StoredObject>(&obj_key)? {
-                let uid = AccountAddress::from_hex_literal(&candidate)
-                    .ok()
-                    .map(UIDRecord::new);
-                let id = AccountAddress::from_hex_literal(&candidate)
-                    .ok()
-                    .map(IDRecord::new);
+        let Some(canonical_id) = Self::normalize_object_id_for_lookup(object_id) else {
+            return Ok(None);
+        };
+        let obj_key = Self::object_key(&canonical_id);
+        if let Some(stored) = self.load_internal::<StoredObject>(&obj_key)? {
+            let uid = AccountAddress::from_hex_literal(&canonical_id)
+                .ok()
+                .map(UIDRecord::new);
+            let id = AccountAddress::from_hex_literal(&canonical_id)
+                .ok()
+                .map(IDRecord::new);
 
-                return Ok(Some(CreatedObject {
-                    owner: stored.owner,
-                    uid,
-                    id,
-                    type_: stored.type_name,
-                    data: stored.data,
-                    version: stored.version,
-                }));
-            }
+            return Ok(Some(CreatedObject {
+                owner: stored.owner,
+                uid,
+                id,
+                type_: stored.type_name,
+                data: stored.data,
+                version: stored.version,
+            }));
         }
 
         Ok(None)
