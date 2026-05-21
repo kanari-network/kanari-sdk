@@ -47,6 +47,37 @@ function CoinsContent() {
     } catch { return String(n); }
   }
 
+  function toBigIntSafe(n: any) {
+    if (n == null) return null;
+    try {
+      return BigInt(n.toString());
+    } catch {
+      return null;
+    }
+  }
+
+  function getRegistrySupplyDisplay(token: any) {
+    const accounted = toBigIntSafe(token.accounted_supply);
+    if (accounted != null && accounted > BigInt(0)) {
+      return { amount: token.accounted_supply, label: "Accounted Supply" };
+    }
+
+    const total = toBigIntSafe(token.total_supply);
+    if (total != null && total > BigInt(0)) {
+      return { amount: token.total_supply, label: "Total Supply" };
+    }
+
+    const visible = toBigIntSafe(token.wallet_visible_supply ?? token.circulating_supply);
+    if (visible != null) {
+      return {
+        amount: token.wallet_visible_supply ?? token.circulating_supply,
+        label: "Wallet Visible",
+      };
+    }
+
+    return { amount: 0, label: "Supply" };
+  }
+
   return (
     <div className="max-w-7xl mx-auto px-6 py-12 w-full relative">
 
@@ -103,9 +134,11 @@ function CoinsContent() {
           <div className="flex flex-col divide-y divide-white/5">
             {balances.map((b, i) => {
               const symbol = b.symbol || "UNK";
-              const primaryAmount = address ? (b.amount ?? b.balance) : b.total_supply;
-              const primaryLabel = address ? "Confirmed Balance" : "Total Supply";
+              const registrySupply = getRegistrySupplyDisplay(b);
+              const primaryAmount = address ? (b.amount ?? b.balance) : registrySupply.amount;
+              const primaryLabel = address ? "Confirmed Balance" : registrySupply.label;
               const lockedSupply = b.object_locked_supply ?? 0;
+              const untrackedSupply = b.untracked_supply ?? 0;
               return (
                 // 🚨 เอา border-b ออก เพราะเราใช้ divide-y ที่กรอบนอกจัดการเส้นคั่นให้แล้ว
                 <div key={i} className="p-6 flex justify-between items-center hover:bg-white/2 transition-colors group">
@@ -139,6 +172,11 @@ function CoinsContent() {
                         {lockedSupply > 0 && (
                           <span className="ml-2 text-amber-400">
                             Locked {fmtBalance(lockedSupply, b.decimals)}
+                          </span>
+                        )}
+                        {untrackedSupply > 0 && (
+                          <span className="ml-2 text-rose-400">
+                            Untracked {fmtBalance(untrackedSupply, b.decimals)}
                           </span>
                         )}
                       </div>

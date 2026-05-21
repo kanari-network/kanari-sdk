@@ -521,7 +521,18 @@ impl DagEngine {
 
     pub fn needs_progress(&self) -> bool {
         let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
-        consensus.store().current_round() > consensus.store().last_checkpoint_round()
+        let store = consensus.store();
+        let current_round = store.current_round();
+        let last_checkpoint_round = store.last_checkpoint_round();
+        let latest_local_round = store
+            .get_vertices_by_authority(&self.authority_id)
+            .into_iter()
+            .map(|vertex| vertex.round)
+            .max()
+            .unwrap_or(0);
+
+        current_round > last_checkpoint_round
+            || (current_round > 0 && latest_local_round < current_round)
     }
 
     pub fn engine(&self) -> Arc<BlockchainEngine> {

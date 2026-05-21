@@ -459,54 +459,28 @@ impl MoveRuntime {
         );
 
         let module_id = ModuleId::new(module_addr, Identifier::new(module_name)?);
-        let function_name = Identifier::new("init")?;
+        let mut init_args = Vec::with_capacity(args.len() + 1);
 
-        // Create type tag for the witness
-        let witness_type_tag = TypeTag::Struct(Box::new(StructTag {
-            address: module_addr,
-            module: Identifier::new(module_name)?,
-            name: Identifier::new(witness_type_name)?,
-            type_params: vec![],
-        }));
+        // `init(witness: T, ctx: &mut TxContext)` expects the witness as a function argument,
+        // not a generic type argument. An empty payload lets `execute_entry_function_internal`
+        // synthesize the OTW bytes from the function parameter layout.
+        init_args.push(Vec::new());
+        init_args.extend(args);
 
-        let vm_guard = self.vm.read().unwrap();
-        let mut session = self.create_session_with_storage_ext(&vm_guard);
-
-        // Load the type into the VM to get the runtime Type
-        let loaded_type = session
-            .load_type(&witness_type_tag)
-            .map_err(|e| anyhow::anyhow!("Failed to load witness type: {:?}", e))?;
-
-        // Call the init function with type witness
-        session
-            .execute_function_bypass_visibility(
-                &module_id,
-                &function_name,
-                vec![loaded_type], // Type arguments - single loaded witness type
-                args,              // Function arguments (TxContext)
-                &mut crate::kanari_gas_meter::KanariGasMeter::new(10_000_000),
+        self.execute_entry_function_internal(
+            &module_id,
+            "init",
+            vec![],
+            init_args,
+            ExecutionOptions::new(Some(module_addr), None, None, None).bypass_entry_check(),
+        )
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to execute init() with witness {}: {:?}",
+                witness_type_name,
+                e
             )
-            .map_err(|e| anyhow::anyhow!("Failed to execute init() with witness: {:?}", e))?;
-
-        log::info!("Init function with witness executed, finishing session...");
-
-        // Finish the session to get changeset and events
-        let (move_changeset, events) = session
-            .finish()
-            .0
-            .map_err(|e| anyhow::anyhow!("Session finish failed: {:?}", e))?;
-
-        log::info!("Move changeset processed, applying to state...");
-
-        // Apply the changeset to update state
-        self.apply_move_changeset(move_changeset.clone())?;
-
-        // Parse the changeset into our ChangeSet format
-        let mut cs = ChangeSet::new();
-        self.parse_move_changeset(&move_changeset, &mut cs);
-        self.parse_move_events(&events, &mut cs);
-
-        Ok(cs)
+        })
     }
 
     fn preprocess_entry_args(args: Vec<Vec<u8>>) -> Vec<Vec<u8>> {

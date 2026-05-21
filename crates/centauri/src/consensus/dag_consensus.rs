@@ -364,7 +364,16 @@ impl Checkpoint {
     }
 
     pub fn hash(&self) -> Result<Vec<u8>> {
-        let serialized = bcs::to_bytes(self)?;
+        // Checkpoint identity must be stable across peers that reach the same
+        // committed state even if their local DAG paths or leader timestamps differ.
+        // Hash only canonical execution data, not transport/local scheduling metadata.
+        let tx_hashes: Vec<Vec<u8>> = self.transactions.iter().map(|tx| tx.hash()).collect();
+        let serialized = bcs::to_bytes(&(
+            self.sequence,
+            &tx_hashes,
+            &self.state_root,
+            &self.prev_checkpoint_hash,
+        ))?;
         Ok(hash_data_blake3(&serialized))
     }
 
@@ -868,6 +877,37 @@ mod tests {
         let checkpoint = Checkpoint::genesis();
         assert_eq!(checkpoint.sequence, 0);
         assert!(checkpoint.transactions.is_empty());
+    }
+
+    #[test]
+    fn test_checkpoint_hash_ignores_non_canonical_dag_metadata() {
+        let tx = SignedTransaction::new(Transaction::Transfer {
+            from: "alice".to_string(),
+            to: "bob".to_string(),
+            amount: 1,
+            gas_limit: 1000,
+            gas_price: 1,
+            sequence_number: 7,
+        });
+
+        let checkpoint_a = Checkpoint::new(
+            1,
+            vec![[1u8; 32]],
+            vec![tx.clone()],
+            vec![9u8; 32],
+            123,
+            vec![4u8; 32],
+        );
+        let checkpoint_b = Checkpoint::new(
+            1,
+            vec![[2u8; 32], [3u8; 32]],
+            vec![tx],
+            vec![9u8; 32],
+            999,
+            vec![4u8; 32],
+        );
+
+        assert_eq!(checkpoint_a.hash().unwrap(), checkpoint_b.hash().unwrap());
     }
 
     #[test]
