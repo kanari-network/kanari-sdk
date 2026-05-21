@@ -455,7 +455,9 @@ impl BlockchainEngine {
     }
 
     fn init(persistent_store: Option<Arc<PersistentStore>>) -> Result<Self> {
-        let blockchain = Self::load_blockchain(&persistent_store);
+        let mut blockchain = Self::load_blockchain(&persistent_store);
+        let persisted_dag_state = Self::load_dag_state(&persistent_store);
+        Self::repair_blockchain_from_dag_state(&mut blockchain, persisted_dag_state.as_ref())?;
         let state = Self::load_state(&persistent_store);
 
         let workers = num_cpus::get().max(1);
@@ -494,7 +496,6 @@ impl BlockchainEngine {
 
         let authority_id = "0xDEFAULT_AUTHORITY".to_string();
         let authorities = vec![authority_id.clone()];
-        let persisted_dag_state = Self::load_dag_state(&persistent_store);
 
         Ok(Self {
             blockchain,
@@ -508,6 +509,40 @@ impl BlockchainEngine {
             authorities,
             persisted_dag_state,
         })
+    }
+
+    fn repair_blockchain_from_dag_state(
+        blockchain: &mut Arc<RwLock<Blockchain>>,
+        persisted_dag_state: Option<&PersistentDagState>,
+    ) -> Result<()> {
+        let Some(dag_state) = persisted_dag_state else {
+            return Ok(());
+        };
+
+        let latest_dag_sequence = dag_state
+            .checkpoints
+            .last()
+            .map(|checkpoint| checkpoint.sequence)
+            .unwrap_or(0);
+
+        let current_height = blockchain.read().unwrap_or_else(|e| e.into_inner()).height();
+        if current_height > 0 || latest_dag_sequence == 0 {
+            return Ok(());
+        }
+
+        let mut rebuilt = Blockchain::new();
+        for checkpoint in dag_state.checkpoints.iter().skip(1) {
+            rebuilt.add_checkpoint_with_validation(checkpoint.clone(), false)?;
+        }
+        rebuilt.rebuild_tx_hash_index();
+
+        info!(
+            "Recovered blockchain from persisted DAG state (height: {}, checkpoints: {})",
+            rebuilt.height(),
+            rebuilt.dag_checkpoints.len()
+        );
+        *blockchain = Arc::new(RwLock::new(rebuilt));
+        Ok(())
     }
 
     fn load_blockchain(store: &Option<Arc<PersistentStore>>) -> Arc<RwLock<Blockchain>> {

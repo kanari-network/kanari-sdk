@@ -55,6 +55,14 @@ pub struct DagEngine {
 }
 
 impl DagEngine {
+    fn persist_consensus_state(&self) -> Result<()> {
+        let state = {
+            let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
+            consensus.save_state()?
+        };
+        self.engine.persist_dag_state(state)
+    }
+
     fn apply_checkpoint_once(
         &self,
         mut checkpoint: centauri::consensus::Checkpoint,
@@ -142,6 +150,21 @@ impl DagEngine {
         (latest.sequence == sequence).then(|| latest.clone())
     }
 
+    fn has_committed_transaction(&self, tx_hash: &[u8]) -> bool {
+        if self
+            .engine
+            .blockchain
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_transaction_executed(&hex::encode(tx_hash))
+        {
+            return true;
+        }
+
+        let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
+        consensus.has_executed_transaction(tx_hash)
+    }
+
     /// Create a new DAG engine with default configuration (optimized for 500K TPS)
     pub fn new(
         engine: Arc<BlockchainEngine>,
@@ -158,7 +181,41 @@ impl DagEngine {
 
         // Load persisted DAG state if it exists
         if let Some(dag_state) = &engine.persisted_dag_state {
-            if let Err(e) = consensus.load_state(dag_state.clone()) {
+            let (blockchain_checkpoint_seq, blockchain_checkpoint_hash) = {
+                let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+                (
+                    chain.latest_checkpoint().sequence,
+                    chain.latest_checkpoint().hash()?,
+                )
+            };
+            let dag_checkpoint_seq = dag_state
+                .checkpoints
+                .last()
+                .map(|checkpoint| checkpoint.sequence)
+                .unwrap_or(0);
+            let dag_checkpoint_hash = dag_state
+                .checkpoints
+                .last()
+                .map(|checkpoint| checkpoint.hash())
+                .transpose()?
+                .unwrap_or_else(|| {
+                    centauri::consensus::Checkpoint::genesis()
+                        .hash()
+                        .expect("genesis checkpoint hash should be infallible")
+                });
+
+            if dag_checkpoint_seq != blockchain_checkpoint_seq {
+                error!(
+                    "Persisted DAG state checkpoint sequence ({}) does not match blockchain ({}) - ignoring stale DAG state.",
+                    dag_checkpoint_seq, blockchain_checkpoint_seq
+                );
+            } else if dag_checkpoint_hash != blockchain_checkpoint_hash {
+                error!(
+                    "Persisted DAG state checkpoint hash ({}) does not match blockchain ({}), ignoring stale DAG state.",
+                    hex::encode(dag_checkpoint_hash),
+                    hex::encode(blockchain_checkpoint_hash)
+                );
+            } else if let Err(e) = consensus.load_state(dag_state.clone()) {
                 error!(
                     "Failed to load persisted DAG state: {}. Creating fresh state.",
                     e
@@ -336,11 +393,12 @@ impl DagEngine {
 
             for tx in pending.iter().take(500_000) {
                 let hash = tx.hash();
-                let hash_hex = hex::encode(&hash);
 
                 if history_tx_hashes.contains(&hash) {
                     continue;
-                } else if chain.is_transaction_executed(&hash_hex) {
+                } else if chain.is_transaction_executed(&hex::encode(&hash))
+                    || self.has_committed_transaction(&hash)
+                {
                     to_remove.push(hash);
                 } else {
                     to_include.push(tx.clone());
@@ -478,6 +536,7 @@ impl DagEngine {
             let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
             consensus.add_vertex(vertex)?;
         }
+        self.persist_consensus_state()?;
 
         let checkpoint_info = {
             let checkpoint = {
@@ -492,6 +551,7 @@ impl DagEngine {
                     let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
                     consensus.add_checkpoint(checkpoint.clone())?;
                 }
+                self.persist_consensus_state()?;
 
                 Some(CheckpointInfo {
                     sequence: checkpoint.sequence,
@@ -733,6 +793,7 @@ impl DagEngine {
             consensus.add_vertex(vertex)?;
             consensus.try_commit()?
         };
+        self.persist_consensus_state()?;
 
         if let Some(checkpoint) = checkpoint {
             info!(
@@ -754,6 +815,8 @@ impl DagEngine {
 
             let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
             consensus.add_checkpoint(checkpoint)?;
+            drop(consensus);
+            self.persist_consensus_state()?;
         }
 
         Ok(())

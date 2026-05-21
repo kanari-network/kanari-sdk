@@ -640,6 +640,10 @@ impl DagConsensus {
         self.store.vertices.contains_key(vertex_id)
     }
 
+    pub fn has_executed_transaction(&self, tx_hash: &[u8]) -> bool {
+        self.store.executed_tx_hashes.contains(tx_hash)
+    }
+
     /// Save the essential state of the DAG to a serializable struct
     pub fn save_state(&self) -> Result<PersistentDagState> {
         let vertices = self
