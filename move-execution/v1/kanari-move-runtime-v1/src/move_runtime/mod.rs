@@ -432,15 +432,8 @@ impl MoveRuntime {
             args.len()
         );
 
-        let module_id = ModuleId::new(module_addr, Identifier::new(module_name)?);
-        self.execute_entry_function_internal(
-            &module_id,
-            "init",
-            vec![],
-            args,
-            ExecutionOptions::new(Some(module_addr), None, None, None).bypass_entry_check(),
-        )
-        .map_err(|e| anyhow::anyhow!("Failed to execute init(): {:?}", e))
+        self.execute_init_function_internal(module_addr, module_name, args)
+            .map_err(|e| anyhow::anyhow!("Failed to execute init(): {:?}", e))
     }
 
     /// Execute init function with a type witness (for coin initialization)
@@ -458,7 +451,6 @@ impl MoveRuntime {
             args.len()
         );
 
-        let module_id = ModuleId::new(module_addr, Identifier::new(module_name)?);
         let mut init_args = Vec::with_capacity(args.len() + 1);
 
         // `init(witness: T, ctx: &mut TxContext)` expects the witness as a function argument,
@@ -467,20 +459,30 @@ impl MoveRuntime {
         init_args.push(Vec::new());
         init_args.extend(args);
 
+        self.execute_init_function_internal(module_addr, module_name, init_args)
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to execute init() with witness {}: {:?}",
+                    witness_type_name,
+                    e
+                )
+            })
+    }
+
+    fn execute_init_function_internal(
+        &self,
+        module_addr: AccountAddress,
+        module_name: &str,
+        args: Vec<Vec<u8>>,
+    ) -> Result<ChangeSet> {
+        let module_id = ModuleId::new(module_addr, Identifier::new(module_name)?);
         self.execute_entry_function_internal(
             &module_id,
             "init",
             vec![],
-            init_args,
+            args,
             ExecutionOptions::new(Some(module_addr), None, None, None).bypass_entry_check(),
         )
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "Failed to execute init() with witness {}: {:?}",
-                witness_type_name,
-                e
-            )
-        })
     }
 
     fn preprocess_entry_args(args: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
@@ -1484,10 +1486,10 @@ impl MoveRuntime {
         }
 
         // For addresses (32 bytes)
-        if bytes.len() == 32 {
-            if let Ok(addr) = AccountAddress::from_bytes(bytes) {
-                return serde_json::Value::String(addr.to_hex_literal());
-            }
+        if bytes.len() == 32
+            && let Ok(addr) = AccountAddress::from_bytes(bytes)
+        {
+            return serde_json::Value::String(addr.to_hex_literal());
         }
 
         serde_json::to_value(bytes).expect("serializing byte slices to JSON should not fail")

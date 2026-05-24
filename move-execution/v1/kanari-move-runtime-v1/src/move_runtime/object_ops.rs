@@ -3,7 +3,6 @@
 
 // Object storage operations
 use crate::{changeset::ChangeSet, storage::object_storage::StoredObject};
-use anyhow::Result;
 use kanari_system_natives::transfer_natives::TransferredObject;
 use kanari_types::object::{IDRecord, UIDRecord};
 use log::debug;
@@ -23,33 +22,6 @@ impl super::MoveRuntime {
         AccountAddress::from_hex_literal(&normalized)
             .ok()
             .map(|addr| addr.to_hex_literal())
-    }
-
-    /// Get object by ID from ObjectStorage
-    pub fn get_object(&self, object_id: &str) -> Option<StoredObject> {
-        let canonical_id = Self::canonical_object_id_str(object_id)?;
-        self.object_storage.get_object(&canonical_id)
-    }
-
-    /// Get all objects owned by an address
-    pub fn get_objects_by_owner(&self, owner: &AccountAddress) -> Vec<StoredObject> {
-        self.object_storage.get_objects_by_owner(owner)
-    }
-
-    /// Transfer object ownership
-    pub fn transfer_object_ownership(
-        &self,
-        object_id: &str,
-        new_owner: AccountAddress,
-    ) -> Result<()> {
-        self.object_storage
-            .transfer_object(object_id, new_owner)
-            .map_err(|e| anyhow::anyhow!(e))
-    }
-
-    /// Get object storage count
-    pub fn get_object_count(&self) -> usize {
-        self.object_storage.count()
     }
 
     /// Add transferred objects from native function tracking to changeset
@@ -79,13 +51,10 @@ impl super::MoveRuntime {
             );
 
             if !should_persist {
-                debug!(
-                    "Skipping non-persistable transferred object {} (fallback payload)",
-                    id
-                );
+                debug!("Skipping non-persistable transferred object {}", id);
                 continue;
             }
-            
+
             let Some(canonical_id) = Self::canonical_object_id_str(&id) else {
                 debug!("Skipping transferred object with invalid object id: {}", id);
                 continue;

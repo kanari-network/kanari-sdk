@@ -218,3 +218,244 @@ async fn handle_health(state: &RpcServerState, request: &RpcRequest) -> RpcRespo
 
     respond_with_serialize(request.id, health)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode},
+        response::Response,
+    };
+    use kanari_core::kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
+    use kanari_core::kanari_move_runtime_v1::state::StateManager;
+    use kanari_rpc_api::methods;
+    use kanari_types::kanari::KANARI_TOKEN_TYPE;
+    use move_core_types::account_address::AccountAddress;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tower::util::ServiceExt;
+
+    fn test_guard() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    struct EnvGuard {
+        old_state_db: Option<String>,
+        old_move_vm_db: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn new(state_db: String, move_vm_db: String) -> Self {
+            let old_state_db = std::env::var("KANARI_STATE_DB").ok();
+            let old_move_vm_db = std::env::var("KANARI_MOVE_VM_DB").ok();
+            unsafe {
+                std::env::set_var("KANARI_STATE_DB", state_db);
+                std::env::set_var("KANARI_MOVE_VM_DB", move_vm_db);
+            }
+            Self {
+                old_state_db,
+                old_move_vm_db,
+            }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            unsafe {
+                match &self.old_state_db {
+                    Some(value) => std::env::set_var("KANARI_STATE_DB", value),
+                    None => std::env::remove_var("KANARI_STATE_DB"),
+                }
+                match &self.old_move_vm_db {
+                    Some(value) => std::env::set_var("KANARI_MOVE_VM_DB", value),
+                    None => std::env::remove_var("KANARI_MOVE_VM_DB"),
+                }
+            }
+        }
+    }
+
+    fn unique_temp_dir(prefix: &str) -> String {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("kanari-rpc-server-{prefix}-{nanos}"));
+        std::fs::create_dir_all(&path).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    fn coin_data(amount: u64) -> Vec<u8> {
+        let mut data = vec![0u8; 40];
+        data[32..40].copy_from_slice(&amount.to_le_bytes());
+        data
+    }
+
+    fn hex_ends_with(value: &serde_json::Value, suffix: &str) -> bool {
+        value
+            .as_str()
+            .map(|s| {
+                s.trim_start_matches("0x")
+                    .ends_with(suffix.trim_start_matches("0x"))
+            })
+            .unwrap_or(false)
+    }
+
+    fn seed_runtime_state(state: &mut StateManager) {
+        let owner = AccountAddress::from_hex_literal("0x1111").unwrap();
+        let coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
+
+        let mut cs = ChangeSet::new();
+        cs.add_treasury(owner, KANARI_TOKEN_TYPE.to_string(), 500);
+        cs.created_objects.push((
+            "0xaaa1".to_string(),
+            CreatedObject {
+                owner,
+                uid: None,
+                id: None,
+                type_: coin_type.clone(),
+                data: coin_data(300),
+                version: 1,
+            },
+        ));
+        cs.created_objects.push((
+            "0xaaa2".to_string(),
+            CreatedObject {
+                owner,
+                uid: None,
+                id: None,
+                type_: coin_type,
+                data: coin_data(200),
+                version: 2,
+            },
+        ));
+        state.apply_changeset(&cs).unwrap();
+        state.commit().unwrap();
+    }
+
+    fn build_test_router() -> Router {
+        let _guard = test_guard();
+        let shared_dir = unique_temp_dir("shared-db");
+        let _env = EnvGuard::new(shared_dir.clone(), shared_dir);
+
+        let engine = Arc::new(BlockchainEngine::new().unwrap());
+        {
+            let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
+            seed_runtime_state(&mut state);
+        }
+        create_router(RpcServerState::new(engine))
+    }
+
+    async fn rpc_call(
+        app: Router,
+        method: &str,
+        params: serde_json::Value,
+        id: u64,
+    ) -> serde_json::Value {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/rpc")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "method": method,
+                    "params": params,
+                    "id": id
+                })
+                .to_string(),
+            ))
+            .unwrap();
+
+        let response: Response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(
+            json.get("error").is_none() || json.get("error").unwrap().is_null(),
+            "unexpected rpc error: {json}"
+        );
+        json["result"].clone()
+    }
+
+    #[tokio::test]
+    async fn rpc_runtime_backed_endpoints_smoke() {
+        let app = build_test_router();
+
+        let health = rpc_call(app.clone(), methods::HEALTH, serde_json::json!([]), 1).await;
+        assert!(health["status"].as_str().is_some());
+        assert!(health["persistent_storage_available"].is_boolean());
+        assert!(health["supply_invariants_ok"].is_boolean());
+
+        let stats = rpc_call(app.clone(), methods::GET_STATS, serde_json::json!([]), 2).await;
+        assert_eq!(stats["total_supply"], 500);
+        assert!(stats["total_accounts"].as_u64().unwrap_or(0) >= 1);
+
+        let height = rpc_call(
+            app.clone(),
+            methods::GET_BLOCK_HEIGHT,
+            serde_json::json!([]),
+            3,
+        )
+        .await;
+        assert!(height.as_u64().is_some());
+
+        let account = rpc_call(
+            app.clone(),
+            methods::GET_ACCOUNT,
+            serde_json::json!("0x1111"),
+            4,
+        )
+        .await;
+        assert!(hex_ends_with(&account["address"], "1111"));
+        assert_eq!(account["token_balances"][KANARI_TOKEN_TYPE], 500);
+        assert_eq!(account["owned_objects"].as_array().unwrap().len(), 1);
+
+        let all_balances = rpc_call(
+            app.clone(),
+            methods::GET_ALL_BALANCES,
+            serde_json::json!({ "address": "0x1111" }),
+            5,
+        )
+        .await;
+        let balances = all_balances["balances"].as_array().unwrap();
+        assert_eq!(balances.len(), 1);
+        assert_eq!(balances[0]["token_type"], KANARI_TOKEN_TYPE);
+        assert_eq!(balances[0]["balance"], 500);
+
+        let tokens = rpc_call(app.clone(), methods::LIST_TOKENS, serde_json::json!([]), 6).await;
+        let token_list = tokens.as_array().unwrap();
+        assert!(!token_list.is_empty());
+        assert!(token_list.iter().any(|token| {
+            token["token_type"]
+                .as_str()
+                .map(|ty| ty.contains("KANARI"))
+                .unwrap_or(false)
+        }));
+
+        let object = rpc_call(
+            app.clone(),
+            methods::GET_OBJECT,
+            serde_json::json!({ "object_id": "0xaaa1" }),
+            7,
+        )
+        .await;
+        assert!(hex_ends_with(&object["id"], "aaa1"));
+        assert_eq!(object["version"], 1);
+
+        let owned = rpc_call(
+            app,
+            methods::GET_OWNED_OBJECTS,
+            serde_json::json!({
+                "owner": "0x1111",
+                "object_type": "::coin::Coin<"
+            }),
+            8,
+        )
+        .await;
+        let objects = owned["objects"].as_array().unwrap();
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0]["version"], 2);
+    }
+}

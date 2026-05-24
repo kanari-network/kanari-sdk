@@ -1,5 +1,5 @@
 [package]
-name = "kanari-rpc-api"
+name = "kanari-open-rpc-macros"
 edition.workspace = true
 categories.workspace = true
 keywords.workspace = true
@@ -9,11 +9,12 @@ version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description.workspace = true
+description = "Proc macros for Kanari OpenRPC integrations"
+
+[lib]
+proc-macro = true
 
 [dependencies]
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-kanari-open-rpc = { workspace = true }
-kanari-types = { workspace = true }
-hex = { workspace = true }
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "2.0", features = ["full"] }

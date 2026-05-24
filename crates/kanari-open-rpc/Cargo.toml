@@ -1,5 +1,5 @@
 [package]
-name = "kanari-rpc-api"
+name = "kanari-open-rpc"
 edition.workspace = true
 categories.workspace = true
 keywords.workspace = true
@@ -9,11 +9,9 @@ version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description.workspace = true
+description = "Shared OpenRPC document types and builders for Kanari"
 
 [dependencies]
+kanari-open-rpc-macros = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-kanari-open-rpc = { workspace = true }
-kanari-types = { workspace = true }
-hex = { workspace = true }

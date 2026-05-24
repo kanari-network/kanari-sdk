@@ -40,6 +40,10 @@ members = [
       "sdk/wallet", 
       "crates/kanari-indexer", 
       "crates/run-auth",
+      "crates/kanari-open-rpc",
+      "crates/kanari-open-rpc-macros",
+      "crates/kanari-open-rpc-spec",
+      "crates/kanari-open-rpc-spec-builder",
 
       # move-execution
       "move-execution/v0/kanari-move-runtime", 
@@ -241,6 +245,9 @@ kanari-faucet = { path = "crates/kanari-faucet" }
 kanari-core = { path = "crates/kanari-core" }
 kanari-system-natives = { path = "crates/kanari-system-natives" }
 kanari-db-common = { path = "crates/kanari-db-common" }
+kanari-open-rpc = { path = "crates/kanari-open-rpc" }
+kanari-open-rpc-macros = { path = "crates/kanari-open-rpc-macros" }
+kanari-open-rpc-spec = { path = "crates/kanari-open-rpc-spec" }
 
 # SMT Support
 smt = { path = "crates/smt" }

@@ -1,0 +1,737 @@
+{
+  "openrpc": "1.3.2",
+  "info": {
+    "title": "Kanari JSON-RPC",
+    "description": "Kanari JSON-RPC API for interaction with kanari server.",
+    "version": "0.1.7",
+    "contact": {
+      "name": "Kanari Network",
+      "url": "https://kanarinetwork.site",
+      "email": "opensource@kanarinetwork.site"
+    },
+    "license": {
+      "name": "Apache-2.0",
+      "url": "https://raw.githubusercontent.com/kanari-network/kanari-sdk/main/LICENSE"
+    }
+  },
+  "methods": [
+    {
+      "name": "kanari_getAccount",
+      "summary": "Get account info",
+      "description": "Returns account data including sequence number, balances, modules, and owned objects.",
+      "params": [
+        {
+          "name": "address",
+          "description": "Target account address.",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "account",
+        "description": "Account information object.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "account"
+        },
+        {
+          "name": "balance"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getTokenBalance",
+      "summary": "Get one token balance",
+      "description": "Returns the balance of a specific token type for one account.",
+      "params": [
+        {
+          "name": "request",
+          "description": "Address and token type payload.",
+          "required": true,
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "address": {
+                "type": "string"
+              },
+              "token_type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "address",
+              "token_type"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "balance",
+        "description": "Token balance payload.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "account"
+        },
+        {
+          "name": "balance"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getAllBalances",
+      "summary": "Get all balances",
+      "description": "Returns all visible balances for one account.",
+      "params": [
+        {
+          "name": "request",
+          "description": "Address payload.",
+          "required": true,
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "address": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "address"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "balances",
+        "description": "All account balances.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "account"
+        },
+        {
+          "name": "balance"
+        }
+      ]
+    },
+    {
+      "name": "kanari_listTokens",
+      "summary": "List tokens",
+      "description": "Returns visible token metadata and supply summaries.",
+      "params": [],
+      "result": {
+        "name": "tokens",
+        "description": "List of tracked token summaries.",
+        "required": true,
+        "schema": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "tags": [
+        {
+          "name": "balance"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getBlock",
+      "summary": "Get block",
+      "description": "Returns a simplified block view by height.",
+      "params": [
+        {
+          "name": "height",
+          "description": "Block height.",
+          "required": true,
+          "schema": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      ],
+      "result": {
+        "name": "block",
+        "description": "Block summary.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "block"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getFullBlock",
+      "summary": "Get full block",
+      "description": "Returns full block contents including transactions.",
+      "params": [
+        {
+          "name": "height",
+          "description": "Block height.",
+          "required": true,
+          "schema": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      ],
+      "result": {
+        "name": "block",
+        "description": "Full block payload.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "block"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getBlockHeight",
+      "summary": "Get current block height",
+      "description": "Returns the latest committed block height.",
+      "params": [],
+      "result": {
+        "name": "height",
+        "description": "Current chain height.",
+        "required": true,
+        "schema": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "tags": [
+        {
+          "name": "block"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getTransaction",
+      "summary": "Get transaction",
+      "description": "Returns a committed or pending transaction by hash.",
+      "params": [
+        {
+          "name": "hash",
+          "description": "Transaction hash string, with or without 0x prefix.",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "transaction",
+        "description": "Transaction details.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "transaction"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getAllTransactions",
+      "summary": "List transactions",
+      "description": "Returns recent committed and pending transactions, with optional filtering.",
+      "params": [
+        {
+          "name": "request",
+          "description": "Optional list options such as limit or account.",
+          "required": false,
+          "schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "transactions",
+        "description": "Transaction detail list.",
+        "required": true,
+        "schema": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "tags": [
+        {
+          "name": "transaction"
+        }
+      ]
+    },
+    {
+      "name": "kanari_produceBlock",
+      "summary": "Produce block",
+      "description": "Forces block production immediately.",
+      "params": [],
+      "result": {
+        "name": "block_info",
+        "description": "Produced block result.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "block"
+        }
+      ]
+    },
+    {
+      "name": "kanari_submitTransaction",
+      "summary": "Submit transaction",
+      "description": "Submits a transfer or burn transaction to the mempool.",
+      "params": [
+        {
+          "name": "transaction",
+          "description": "Signed transaction payload.",
+          "required": true,
+          "schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "submission",
+        "description": "Submission status payload.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "transaction"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getStats",
+      "summary": "Get chain stats",
+      "description": "Returns aggregate blockchain statistics.",
+      "params": [],
+      "result": {
+        "name": "stats",
+        "description": "Blockchain statistics.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "system"
+        }
+      ]
+    },
+    {
+      "name": "kanari_health",
+      "summary": "Health check",
+      "description": "Returns runtime health and guard configuration.",
+      "params": [],
+      "result": {
+        "name": "health",
+        "description": "Health status payload.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "system"
+        }
+      ]
+    },
+    {
+      "name": "kanari_publishModule",
+      "summary": "Publish module",
+      "description": "Publishes Move module bytecode.",
+      "params": [
+        {
+          "name": "module",
+          "description": "Module publication payload.",
+          "required": true,
+          "schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "publication",
+        "description": "Publish execution or pending status.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "module"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getModule",
+      "summary": "Get module",
+      "description": "Returns module metadata by address and module name.",
+      "params": [
+        {
+          "name": "request",
+          "description": "Address and module name payload.",
+          "required": true,
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "address": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "address",
+              "name"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "module",
+        "description": "Module metadata.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "module"
+        }
+      ]
+    },
+    {
+      "name": "kanari_listModules",
+      "summary": "List modules",
+      "description": "Lists all known published modules.",
+      "params": [],
+      "result": {
+        "name": "modules",
+        "description": "Module metadata list.",
+        "required": true,
+        "schema": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "tags": [
+        {
+          "name": "module"
+        }
+      ]
+    },
+    {
+      "name": "kanari_verifyModule",
+      "summary": "Verify module bytecode",
+      "description": "Deserializes module bytes and returns basic verification outcome.",
+      "params": [
+        {
+          "name": "request",
+          "description": "Module byte payload.",
+          "required": true,
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "module_bytes": {
+                "items": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "module_bytes"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "verification",
+        "description": "Verification result.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "module"
+        }
+      ]
+    },
+    {
+      "name": "kanari_callFunction",
+      "summary": "Call function",
+      "description": "Submits or executes a Move entry function transaction.",
+      "params": [
+        {
+          "name": "call",
+          "description": "Function call payload.",
+          "required": true,
+          "schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "call_result",
+        "description": "Execution or pending result.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "function"
+        }
+      ]
+    },
+    {
+      "name": "kanari_viewFunction",
+      "summary": "View function",
+      "description": "Executes a read-only Move function without submitting a transaction.",
+      "params": [
+        {
+          "name": "request",
+          "description": "Array containing one view-function payload.",
+          "required": true,
+          "schema": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      ],
+      "result": {
+        "name": "view_result",
+        "description": "Read-only execution result.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "function"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getObject",
+      "summary": "Get object",
+      "description": "Returns one on-chain object by id.",
+      "params": [
+        {
+          "name": "request",
+          "description": "Object id payload.",
+          "required": true,
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "object_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "object_id"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "object",
+        "description": "Object info payload.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "object"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getOwnedObjects",
+      "summary": "Get owned objects",
+      "description": "Returns owned objects for one address, optionally filtered by object type.",
+      "params": [
+        {
+          "name": "request",
+          "description": "Owner and optional type filter payload.",
+          "required": true,
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "object_type": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "owner": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "owner"
+            ],
+            "type": "object"
+          }
+        }
+      ],
+      "result": {
+        "name": "objects",
+        "description": "Owned object list.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "object"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getOwnedNfts",
+      "summary": "Get owned NFTs",
+      "description": "Returns NFT-like objects owned by one address.",
+      "params": [
+        {
+          "name": "address",
+          "description": "Target owner address.",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "nfts",
+        "description": "Owned NFT list.",
+        "required": true,
+        "schema": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "tags": [
+        {
+          "name": "nft"
+        }
+      ]
+    },
+    {
+      "name": "kanari_listCollections",
+      "summary": "List NFT collections",
+      "description": "Returns indexed NFT collections.",
+      "params": [],
+      "result": {
+        "name": "collections",
+        "description": "Collection list.",
+        "required": true,
+        "schema": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "tags": [
+        {
+          "name": "nft"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getNftsByCollection",
+      "summary": "Get NFTs by collection",
+      "description": "Returns NFTs that belong to one collection id.",
+      "params": [
+        {
+          "name": "id",
+          "description": "Collection id.",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "nfts",
+        "description": "Collection NFT list.",
+        "required": true,
+        "schema": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "tags": [
+        {
+          "name": "nft"
+        }
+      ]
+    }
+  ]
+}

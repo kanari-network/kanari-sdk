@@ -17,15 +17,6 @@ pub struct KanariMoveResolver {
     pub(crate) _object_storage: Arc<dyn ObjectStore>,
 }
 
-impl KanariMoveResolver {
-    pub fn new(state: MoveVMState, object_storage: Arc<dyn ObjectStore>) -> Self {
-        Self {
-            state,
-            _object_storage: object_storage,
-        }
-    }
-}
-
 impl LinkageResolver for KanariMoveResolver {
     type Error = anyhow::Error;
 }

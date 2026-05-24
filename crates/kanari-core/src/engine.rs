@@ -525,7 +525,10 @@ impl BlockchainEngine {
             .map(|checkpoint| checkpoint.sequence)
             .unwrap_or(0);
 
-        let current_height = blockchain.read().unwrap_or_else(|e| e.into_inner()).height();
+        let current_height = blockchain
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .height();
         if current_height > 0 || latest_dag_sequence == 0 {
             return Ok(());
         }

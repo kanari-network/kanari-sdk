@@ -56,7 +56,7 @@ impl Account {
         account
     }
 
-    pub fn add_module(&mut self, module_name: String) {
+    fn add_module(&mut self, module_name: String) {
         self.modules.insert(module_name);
     }
 
@@ -73,10 +73,6 @@ impl Account {
 
     pub fn native_balance(&self) -> u64 {
         self.get_token_balance(KANARI_TOKEN_TYPE)
-    }
-
-    pub fn to_hex_string(&self) -> String {
-        format!("{:#x}", self.address)
     }
 
     pub fn increment_sequence(&mut self) {
@@ -170,7 +166,7 @@ impl StateManager {
             .or_else(|| store.load::<u64>(&key).ok().flatten())
     }
 
-    pub fn issued_supply_for_token(&self, token_type: &str) -> u64 {
+    fn issued_supply_for_token(&self, token_type: &str) -> u64 {
         if token_type == KANARI_TOKEN_TYPE {
             return self.total_supply;
         }
@@ -185,7 +181,7 @@ impl StateManager {
             .unwrap_or(0)
     }
 
-    pub fn indexed_wallet_supply(&self, token_type: &str) -> Result<u64> {
+    fn indexed_wallet_supply(&self, token_type: &str) -> Result<u64> {
         let token_type = Self::normalize_token_type(token_type);
         Ok(self
             .load_account_addresses()?
@@ -195,7 +191,7 @@ impl StateManager {
             .fold(0u64, |acc, balance| acc.saturating_add(balance)))
     }
 
-    pub fn load_object_locked_coin_records(&self) -> Result<Vec<ObjectLockedCoinRecord>> {
+    fn load_object_locked_coin_records(&self) -> Result<Vec<ObjectLockedCoinRecord>> {
         Ok(self
             .load_internal(OBJECT_LOCKED_COIN_RECORDS_KEY)?
             .unwrap_or_default())
@@ -208,7 +204,7 @@ impl StateManager {
         self.save_internal(OBJECT_LOCKED_COIN_RECORDS_KEY, records)
     }
 
-    pub fn object_locked_supply_for_token(&self, token_type: &str) -> Result<u64> {
+    fn object_locked_supply_for_token(&self, token_type: &str) -> Result<u64> {
         let token_type = Self::normalize_token_type(token_type);
         Ok(self
             .load_object_locked_coin_records()?
@@ -294,6 +290,19 @@ impl StateManager {
         let _ = self.save_internal(&key, value);
     }
 
+    fn load_token_metadata_field<T: DeserializeOwned>(
+        &self,
+        prefix: &[u8],
+        token_type: &str,
+    ) -> Result<Option<T>> {
+        let key = Self::metadata_key(prefix, token_type);
+        self.load_internal(&key)
+    }
+
+    fn collection_members_key(collection_id: &str) -> Vec<u8> {
+        Self::metadata_key(b"collection_members:", collection_id)
+    }
+
     /// Retrieves all Collection IDs from the index
     pub fn get_all_collection_ids(&self) -> Vec<String> {
         self.load_index_list(b"nft_collection_index")
@@ -302,8 +311,7 @@ impl StateManager {
 
     /// Retrieves NFT IDs for the specified collection from the index
     pub fn get_collection_nft_ids(&self, collection_id: &str) -> Vec<String> {
-        let mut key = b"collection_members:".to_vec();
-        key.extend_from_slice(collection_id.as_bytes());
+        let key = Self::collection_members_key(collection_id);
         self.load_index_list(&key).unwrap_or_default()
     }
 
@@ -599,31 +607,6 @@ impl StateManager {
         Ok(())
     }
 
-    /// Load persisted treasuries as a vector of tuples (owner, token_type, TreasuryCap)
-    pub fn load_treasuries(&self) -> Result<Vec<(AccountAddress, String, TreasuryCap)>> {
-        let mut out = Vec::new();
-        // The treasury index key used in MoveVMState
-        if let Ok(Some(keys)) = self.store.load::<Vec<String>>(b"treasury_index") {
-            for key in keys.into_iter() {
-                // key format: "treasury:<token_type>"
-                // value format: (owner_addr, TreasuryCap)
-                if let Ok(Some((owner_addr, cap))) = self
-                    .store
-                    .load::<(AccountAddress, TreasuryCap)>(key.as_bytes())
-                {
-                    let token_type = key.strip_prefix("treasury:").unwrap_or(&key).to_string();
-                    out.push((owner_addr, token_type, cap));
-                }
-            }
-        }
-        Ok(out)
-    }
-
-    /// Discard pending overlay changes
-    pub fn discard(&mut self) {
-        self.overlay.clear();
-    }
-
     // Helper to write to overlay (pub for genesis module)
     pub(crate) fn save_internal<T: Serialize + ?Sized>(
         &mut self,
@@ -670,6 +653,29 @@ impl StateManager {
         Self::canonical_object_id(id)
     }
 
+    fn object_lookup_ids(id: &str) -> Vec<String> {
+        let mut ids = vec![id.to_string()];
+        if let Some(canonical_id) = Self::canonical_object_id(id)
+            && canonical_id != id
+        {
+            ids.push(canonical_id);
+        }
+        ids
+    }
+
+    fn load_stored_object_by_any_id(
+        &self,
+        object_id: &str,
+    ) -> Result<Option<(String, StoredObject)>> {
+        for candidate_id in Self::object_lookup_ids(object_id) {
+            let obj_key = Self::object_key(&candidate_id);
+            if let Some(stored) = self.load_internal::<StoredObject>(&obj_key)? {
+                return Ok(Some((candidate_id, stored)));
+            }
+        }
+        Ok(None)
+    }
+
     // Helper to construct DB key for owned objects
     fn owned_objects_key(owner: &AccountAddress) -> Vec<u8> {
         let mut key = b"owned_objects:".to_vec();
@@ -711,7 +717,7 @@ impl StateManager {
         self.add_to_index_list(ACCOUNT_INDEX_KEY, account.address.to_hex_literal())
     }
 
-    pub fn load_account_addresses(&self) -> Result<Vec<AccountAddress>> {
+    fn load_account_addresses(&self) -> Result<Vec<AccountAddress>> {
         let ids = self.load_index_list(ACCOUNT_INDEX_KEY)?;
         Ok(ids
             .into_iter()
@@ -1050,13 +1056,16 @@ impl StateManager {
         let mut owners_to_recompute: HashSet<AccountAddress> = HashSet::new();
 
         for obj_id in &changeset.deleted_objects {
-            let obj_key = Self::object_key(obj_id);
-            if let Some(existing) = self.load_internal::<StoredObject>(&obj_key)? {
+            if let Some((stored_id, existing)) = self.load_stored_object_by_any_id(obj_id)? {
+                let obj_key = Self::object_key(&stored_id);
                 owners_to_recompute.insert(existing.owner);
                 let owner_key = Self::owned_objects_key(&existing.owner);
-                self.remove_from_index_list(&owner_key, obj_id)?;
+                self.remove_from_index_list(&owner_key, &stored_id)?;
+                self.overlay.insert(obj_key, None);
+            } else {
+                let obj_key = Self::object_key(obj_id);
+                self.overlay.insert(obj_key, None);
             }
-            self.overlay.insert(obj_key, None);
         }
 
         // 1. Check for newly created Objects to index Collections
@@ -1087,18 +1096,18 @@ impl StateManager {
                     };
 
                     // Record in Collection member index (O(1) Access)
-                    let mut key = b"collection_members:".to_vec();
-                    key.extend_from_slice(coll_id.as_bytes());
+                    let key = Self::collection_members_key(&coll_id);
                     self.add_to_index_list(&key, nft_id)?;
                 }
             }
         }
 
         for (obj_id, created) in &changeset.created_objects {
-            let obj_key = Self::object_key(obj_id);
             let mut new_obj = created.clone();
+            let existing_obj = self.load_stored_object_by_any_id(obj_id)?;
+            let obj_key = Self::object_key(obj_id);
 
-            if let Ok(Some(existing)) = self.load_internal::<StoredObject>(&obj_key) {
+            if let Some((stored_id, existing)) = existing_obj {
                 owners_to_recompute.insert(existing.owner);
                 // Use the version from the ChangeSet (already calculated by MoveRuntime)
                 // Only recalculate if the ChangeSet version seems wrong (0 or less than existing)
@@ -1110,7 +1119,10 @@ impl StateManager {
                 }
                 if existing.owner != new_obj.owner {
                     let old_owner_key = Self::owned_objects_key(&existing.owner);
-                    self.remove_from_index_list(&old_owner_key, obj_id)?;
+                    self.remove_from_index_list(&old_owner_key, &stored_id)?;
+                }
+                if stored_id != *obj_id {
+                    self.overlay.insert(Self::object_key(&stored_id), None);
                 }
             } else {
                 // For new objects, use version from ChangeSet or default to 1
@@ -1192,29 +1204,26 @@ impl StateManager {
 
     /// Get a specific object by ID
     pub fn get_object(&self, object_id: &str) -> Result<Option<CreatedObject>> {
-        let Some(canonical_id) = Self::normalize_object_id_for_lookup(object_id) else {
+        let Some((stored_id, stored)) = self.load_stored_object_by_any_id(object_id)? else {
             return Ok(None);
         };
-        let obj_key = Self::object_key(&canonical_id);
-        if let Some(stored) = self.load_internal::<StoredObject>(&obj_key)? {
-            let uid = AccountAddress::from_hex_literal(&canonical_id)
-                .ok()
-                .map(UIDRecord::new);
-            let id = AccountAddress::from_hex_literal(&canonical_id)
-                .ok()
-                .map(IDRecord::new);
+        let normalized_id =
+            Self::normalize_object_id_for_lookup(&stored_id).unwrap_or(stored_id.clone());
+        let uid = AccountAddress::from_hex_literal(&normalized_id)
+            .ok()
+            .map(UIDRecord::new);
+        let id = AccountAddress::from_hex_literal(&normalized_id)
+            .ok()
+            .map(IDRecord::new);
 
-            return Ok(Some(CreatedObject {
-                owner: stored.owner,
-                uid,
-                id,
-                type_: stored.type_name,
-                data: stored.data,
-                version: stored.version,
-            }));
-        }
-
-        Ok(None)
+        Ok(Some(CreatedObject {
+            owner: stored.owner,
+            uid,
+            id,
+            type_: stored.type_name,
+            data: stored.data,
+            version: stored.version,
+        }))
     }
 
     pub fn compute_state_root(&self) -> Vec<u8> {
@@ -1283,37 +1292,27 @@ impl StateManager {
 
     /// Get token decimals for a specific token type
     pub fn get_token_decimals(&self, token_type: &str) -> Result<Option<u8>> {
-        let mut key = b"metadata_decimals:".to_vec();
-        key.extend_from_slice(token_type.as_bytes());
-        self.load_internal::<u8>(&key)
+        self.load_token_metadata_field(b"metadata_decimals:", token_type)
     }
 
     ///  Get token name for a specific token type
     pub fn get_token_name(&self, token_type: &str) -> Result<Option<String>> {
-        let mut key = b"metadata_name:".to_vec();
-        key.extend_from_slice(token_type.as_bytes());
-        self.load_internal::<String>(&key)
+        self.load_token_metadata_field(b"metadata_name:", token_type)
     }
 
     ///  Get token symbol for a specific token type
     pub fn get_token_symbol(&self, token_type: &str) -> Result<Option<String>> {
-        let mut key = b"metadata_symbol:".to_vec();
-        key.extend_from_slice(token_type.as_bytes());
-        self.load_internal::<String>(&key)
+        self.load_token_metadata_field(b"metadata_symbol:", token_type)
     }
 
     /// Get token description for a specific token type
     pub fn get_token_description(&self, token_type: &str) -> Result<Option<String>> {
-        let mut key = b"metadata_description:".to_vec();
-        key.extend_from_slice(token_type.as_bytes());
-        self.load_internal::<String>(&key)
+        self.load_token_metadata_field(b"metadata_description:", token_type)
     }
 
     /// Get token icon URL for a specific token type
     pub fn get_token_icon_url(&self, token_type: &str) -> Result<Option<String>> {
-        let mut key = b"metadata_icon_url:".to_vec();
-        key.extend_from_slice(token_type.as_bytes());
-        self.load_internal::<String>(&key)
+        self.load_token_metadata_field(b"metadata_icon_url:", token_type)
     }
 
     pub fn validate_supply_invariants(&self) -> Result<()> {

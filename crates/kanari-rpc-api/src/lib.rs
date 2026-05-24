@@ -410,45 +410,266 @@ pub struct GetAllBalancesRequest {
 }
 
 /// RPC Methods
+#[kanari_open_rpc::open_rpc]
 pub mod methods {
+    use kanari_open_rpc::{
+        object_schema, optional_schema, schema_array, schema_integer, schema_object, schema_string,
+    };
+
     // Account & Balance
+    #[open_rpc_method(
+        summary = "Get account info",
+        description = "Returns account data including sequence number, balances, modules, and owned objects.",
+        params = [("address", "Target account address.", true, schema_string())],
+        result = ("account", "Account information object.", schema_object()),
+        tags = ["account", "balance"]
+    )]
     pub const GET_ACCOUNT: &str = "kanari_getAccount";
+    #[open_rpc_method(
+        summary = "Get one token balance",
+        description = "Returns the balance of a specific token type for one account.",
+        params = [(
+            "request",
+            "Address and token type payload.",
+            true,
+            object_schema(&[("address", schema_string()), ("token_type", schema_string())])
+        )],
+        result = ("balance", "Token balance payload.", schema_object()),
+        tags = ["account", "balance"]
+    )]
     pub const GET_TOKEN_BALANCE: &str = "kanari_getTokenBalance";
+    #[open_rpc_method(
+        summary = "Get all balances",
+        description = "Returns all visible balances for one account.",
+        params = [(
+            "request",
+            "Address payload.",
+            true,
+            object_schema(&[("address", schema_string())])
+        )],
+        result = ("balances", "All account balances.", schema_object()),
+        tags = ["account", "balance"]
+    )]
     pub const GET_ALL_BALANCES: &str = "kanari_getAllBalances";
+    #[open_rpc_method(
+        summary = "List tokens",
+        description = "Returns visible token metadata and supply summaries.",
+        params = [],
+        result = ("tokens", "List of tracked token summaries.", schema_array(schema_object())),
+        tags = ["balance"]
+    )]
     pub const LIST_TOKENS: &str = "kanari_listTokens";
 
     // Blocks & Transactions
+    #[open_rpc_method(
+        summary = "Get block",
+        description = "Returns a simplified block view by height.",
+        params = [("height", "Block height.", true, schema_integer())],
+        result = ("block", "Block summary.", schema_object()),
+        tags = ["block"]
+    )]
     pub const GET_BLOCK: &str = "kanari_getBlock";
+    #[open_rpc_method(
+        summary = "Get full block",
+        description = "Returns full block contents including transactions.",
+        params = [("height", "Block height.", true, schema_integer())],
+        result = ("block", "Full block payload.", schema_object()),
+        tags = ["block"]
+    )]
     pub const GET_FULL_BLOCK: &str = "kanari_getFullBlock";
+    #[open_rpc_method(
+        summary = "Get current block height",
+        description = "Returns the latest committed block height.",
+        params = [],
+        result = ("height", "Current chain height.", schema_integer()),
+        tags = ["block"]
+    )]
     pub const GET_BLOCK_HEIGHT: &str = "kanari_getBlockHeight";
+    #[open_rpc_method(
+        summary = "Get transaction",
+        description = "Returns a committed or pending transaction by hash.",
+        params = [(
+            "hash",
+            "Transaction hash string, with or without 0x prefix.",
+            true,
+            schema_string()
+        )],
+        result = ("transaction", "Transaction details.", schema_object()),
+        tags = ["transaction"]
+    )]
     pub const GET_TRANSACTION: &str = "kanari_getTransaction";
+    #[open_rpc_method(
+        summary = "List transactions",
+        description = "Returns recent committed and pending transactions, with optional filtering.",
+        params = [(
+            "request",
+            "Optional list options such as limit or account.",
+            false,
+            schema_object()
+        )],
+        result = ("transactions", "Transaction detail list.", schema_array(schema_object())),
+        tags = ["transaction"]
+    )]
     pub const GET_ALL_TRANSACTIONS: &str = "kanari_getAllTransactions";
+    #[open_rpc_method(
+        summary = "Produce block",
+        description = "Forces block production immediately.",
+        params = [],
+        result = ("block_info", "Produced block result.", schema_object()),
+        tags = ["block"]
+    )]
     pub const PRODUCE_BLOCK: &str = "kanari_produceBlock";
+    #[open_rpc_method(
+        summary = "Submit transaction",
+        description = "Submits a transfer or burn transaction to the mempool.",
+        params = [("transaction", "Signed transaction payload.", true, schema_object())],
+        result = ("submission", "Submission status payload.", schema_object()),
+        tags = ["transaction"]
+    )]
     pub const SUBMIT_TRANSACTION: &str = "kanari_submitTransaction";
 
     // Stats & Info
+    #[open_rpc_method(
+        summary = "Get chain stats",
+        description = "Returns aggregate blockchain statistics.",
+        params = [],
+        result = ("stats", "Blockchain statistics.", schema_object()),
+        tags = ["system"]
+    )]
     pub const GET_STATS: &str = "kanari_getStats";
     pub const ESTIMATE_GAS: &str = "kanari_estimateGas";
+    #[open_rpc_method(
+        summary = "Health check",
+        description = "Returns runtime health and guard configuration.",
+        params = [],
+        result = ("health", "Health status payload.", schema_object()),
+        tags = ["system"]
+    )]
     pub const HEALTH: &str = "kanari_health";
 
     // Module operations
+    #[open_rpc_method(
+        summary = "Publish module",
+        description = "Publishes Move module bytecode.",
+        params = [("module", "Module publication payload.", true, schema_object())],
+        result = ("publication", "Publish execution or pending status.", schema_object()),
+        tags = ["module"]
+    )]
     pub const PUBLISH_MODULE: &str = "kanari_publishModule";
+    #[open_rpc_method(
+        summary = "Get module",
+        description = "Returns module metadata by address and module name.",
+        params = [(
+            "request",
+            "Address and module name payload.",
+            true,
+            object_schema(&[("address", schema_string()), ("name", schema_string())])
+        )],
+        result = ("module", "Module metadata.", schema_object()),
+        tags = ["module"]
+    )]
     pub const GET_MODULE: &str = "kanari_getModule";
+    #[open_rpc_method(
+        summary = "List modules",
+        description = "Lists all known published modules.",
+        params = [],
+        result = ("modules", "Module metadata list.", schema_array(schema_object())),
+        tags = ["module"]
+    )]
     pub const LIST_MODULES: &str = "kanari_listModules";
+    #[open_rpc_method(
+        summary = "Verify module bytecode",
+        description = "Deserializes module bytes and returns basic verification outcome.",
+        params = [(
+            "request",
+            "Module byte payload.",
+            true,
+            object_schema(&[("module_bytes", schema_array(schema_integer()))])
+        )],
+        result = ("verification", "Verification result.", schema_object()),
+        tags = ["module"]
+    )]
     pub const VERIFY_MODULE: &str = "kanari_verifyModule";
 
     // Function calls
+    #[open_rpc_method(
+        summary = "Call function",
+        description = "Submits or executes a Move entry function transaction.",
+        params = [("call", "Function call payload.", true, schema_object())],
+        result = ("call_result", "Execution or pending result.", schema_object()),
+        tags = ["function"]
+    )]
     pub const CALL_FUNCTION: &str = "kanari_callFunction";
+    #[open_rpc_method(
+        summary = "View function",
+        description = "Executes a read-only Move function without submitting a transaction.",
+        params = [(
+            "request",
+            "Array containing one view-function payload.",
+            true,
+            schema_array(schema_object())
+        )],
+        result = ("view_result", "Read-only execution result.", schema_object()),
+        tags = ["function"]
+    )]
     pub const VIEW_FUNCTION: &str = "kanari_viewFunction";
 
     // Object queries
+    #[open_rpc_method(
+        summary = "Get object",
+        description = "Returns one on-chain object by id.",
+        params = [(
+            "request",
+            "Object id payload.",
+            true,
+            object_schema(&[("object_id", schema_string())])
+        )],
+        result = ("object", "Object info payload.", schema_object()),
+        tags = ["object"]
+    )]
     pub const GET_OBJECT: &str = "kanari_getObject";
+    #[open_rpc_method(
+        summary = "Get owned objects",
+        description = "Returns owned objects for one address, optionally filtered by object type.",
+        params = [(
+            "request",
+            "Owner and optional type filter payload.",
+            true,
+            object_schema(&[
+                ("owner", schema_string()),
+                ("object_type", optional_schema(schema_string()))
+            ])
+        )],
+        result = ("objects", "Owned object list.", schema_object()),
+        tags = ["object"]
+    )]
     pub const GET_OWNED_OBJECTS: &str = "kanari_getOwnedObjects";
 
     // NFT queries
+    #[open_rpc_method(
+        summary = "Get owned NFTs",
+        description = "Returns NFT-like objects owned by one address.",
+        params = [("address", "Target owner address.", true, schema_string())],
+        result = ("nfts", "Owned NFT list.", schema_array(schema_object())),
+        tags = ["nft"]
+    )]
     pub const GET_OWNED_NFTS: &str = "kanari_getOwnedNfts";
 
     // NFT collections
+    #[open_rpc_method(
+        summary = "List NFT collections",
+        description = "Returns indexed NFT collections.",
+        params = [],
+        result = ("collections", "Collection list.", schema_array(schema_object())),
+        tags = ["nft"]
+    )]
     pub const LIST_COLLECTIONS: &str = "kanari_listCollections";
+    #[open_rpc_method(
+        summary = "Get NFTs by collection",
+        description = "Returns NFTs that belong to one collection id.",
+        params = [("id", "Collection id.", true, schema_string())],
+        result = ("nfts", "Collection NFT list.", schema_array(schema_object())),
+        tags = ["nft"]
+    )]
     pub const GET_NFTS_BY_COLLECTION: &str = "kanari_getNftsByCollection";
 }
