@@ -389,11 +389,14 @@ impl SyncManager {
 
     async fn handle_new_transaction(&self, tx_data: String) {
         if let Some(signed_tx) = Self::parse_message::<SignedTransaction>(&tx_data, "transaction") {
-            match self.engine.submit_transaction(signed_tx.clone()) {
-                Ok(tx_hash) => {
+            match self
+                .engine
+                .submit_transactions_batch(vec![signed_tx.clone()])
+            {
+                Ok(tx_hashes) => {
                     info!(
                         "Received transaction from network: 0x{}",
-                        hex::encode(tx_hash)
+                        hex::encode(&tx_hashes[0])
                     );
                 }
                 Err(e) => {

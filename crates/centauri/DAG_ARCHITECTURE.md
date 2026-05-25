@@ -356,29 +356,17 @@ For vertex to be valid:
 • Parents must be from previous round
 • Signature must be valid
 
-## SMT and Light Client Integration
+## SMT Integration
 
-Centauri uses the `smt` crate to provide cryptographic proofs for light clients.
+Centauri uses the `smt` crate as part of checkpoint state commitment design.
 
-### State Proofs (SMT)
+### State Commitments
 - The `state_root` in each checkpoint represents the root of a Sparse Merkle Tree (SMT).
-- Light clients can verify account state using `StateProof`, which contains:
-  - Account address and state data.
-  - SMT siblings (Merkle path).
-- Verification is performed using `smt::verify_proof`, ensuring that the state data matches the `state_root` in a verified checkpoint.
+- SMT proofs can be built on top of this root, but light-client verification is not implemented in the current `consensus` module tree.
 
-### Transaction Proofs (Binary Merkle Tree)
+### Transaction Commitments
 - The `tx_root` in each checkpoint is the root of a binary Merkle tree of all transactions included in that checkpoint.
-- `CheckpointBuilder` computes this root using `smt::compute_merkle_root` from actual transaction hashes.
-- Light clients verify transaction inclusion using `TransactionProof`, which contains:
-  - Transaction data and hash.
-  - Merkle inclusion path.
-  - Transaction index.
-- Verification is performed using `smt::verify_merkle_proof` against the `tx_root` in a verified checkpoint.
-
-### Key Components
-- **CheckpointBuilder**: Responsible for converting full DAG checkpoints into `LightCheckpoint`s with correctly computed Merkle roots.
-- **LightClient**: Maintains a set of verified checkpoints (via quorum signatures) and provides methods to verify state and transaction proofs.
+- Merkle inclusion proofs are part of the checkpoint design surface, but there is no in-tree `LightClient` or `CheckpointBuilder` implementation at this time.
 
 For commit to happen:
 • Leader vertex needs ≥ 3 supporters

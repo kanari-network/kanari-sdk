@@ -1,23 +1,14 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Dynamic Committee Management
-//!
-//! Enables runtime changes to the validator set:
-//! - Adding new validators
-//! - Removing validators
-//! - Updating validator stakes
-//! - Epoch-based transitions
-//!
-//! Inspired by Sui's validator set management.
+//! Committee representation for validator membership and quorum checks.
 
 use anyhow::{Result, anyhow};
-use ed25519_dalek::VerifyingKey;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use super::AuthorityId;
-use super::crypto_signatures::Ed25519Keypair;
 
 /// Validator information
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -28,12 +19,153 @@ pub struct ValidatorInfo {
     pub active: bool,
 }
 
+/// Snapshot of current network conditions used by adaptive quorum policy.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct NetworkHealth {
+    pub connectivity_ratio: f64,
+    pub delivery_success_ratio: f64,
+    pub timeout_ratio: f64,
+    pub median_latency_ms: u64,
+}
+
+impl NetworkHealth {
+    fn clamp_ratio(value: f64) -> f64 {
+        value.clamp(0.0, 1.0)
+    }
+
+    fn latency_score(&self) -> f64 {
+        const LOW_LATENCY_MS: u64 = 100;
+        const HIGH_LATENCY_MS: u64 = 5_000;
+
+        match self.median_latency_ms {
+            latency if latency <= LOW_LATENCY_MS => 1.0,
+            latency if latency >= HIGH_LATENCY_MS => 0.0,
+            latency => {
+                let span = (HIGH_LATENCY_MS - LOW_LATENCY_MS) as f64;
+                1.0 - ((latency - LOW_LATENCY_MS) as f64 / span)
+            }
+        }
+    }
+
+    /// Aggregate health score in `[0, 1]`.
+    pub fn score(&self) -> f64 {
+        let connectivity = Self::clamp_ratio(self.connectivity_ratio);
+        let delivery = Self::clamp_ratio(self.delivery_success_ratio);
+        let timeout = 1.0 - Self::clamp_ratio(self.timeout_ratio);
+        let latency = self.latency_score();
+
+        (connectivity * 0.35) + (delivery * 0.35) + (timeout * 0.15) + (latency * 0.15)
+    }
+}
+
+impl Default for NetworkHealth {
+    fn default() -> Self {
+        Self {
+            connectivity_ratio: 1.0,
+            delivery_success_ratio: 1.0,
+            timeout_ratio: 0.0,
+            median_latency_ms: 50,
+        }
+    }
+}
+
+/// Configuration for adaptive quorum and timeout behavior.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdaptiveQuorumConfig {
+    pub healthy_threshold: f64,
+    pub degraded_threshold: f64,
+    pub degraded_extra_votes: usize,
+    pub unhealthy_extra_votes: usize,
+    pub base_timeout_ms: u64,
+    pub max_timeout_ms: u64,
+}
+
+impl Default for AdaptiveQuorumConfig {
+    fn default() -> Self {
+        Self {
+            healthy_threshold: 0.85,
+            degraded_threshold: 0.60,
+            degraded_extra_votes: 1,
+            unhealthy_extra_votes: 2,
+            base_timeout_ms: 2_000,
+            max_timeout_ms: 10_000,
+        }
+    }
+}
+
+/// Adaptive quorum policy driven by network-health snapshots.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdaptiveQuorum {
+    pub config: AdaptiveQuorumConfig,
+    pub health: NetworkHealth,
+}
+
+impl AdaptiveQuorum {
+    pub fn new(config: AdaptiveQuorumConfig) -> Self {
+        Self {
+            config,
+            health: NetworkHealth::default(),
+        }
+    }
+
+    pub fn update_health(&mut self, health: NetworkHealth) {
+        self.health = health;
+    }
+
+    pub fn required_quorum(&self, total_validators: usize, base_quorum: usize) -> usize {
+        if total_validators == 0 {
+            return 0;
+        }
+
+        let extra_capacity = total_validators.saturating_sub(base_quorum);
+        let score = self.health.score();
+        let extra_votes = if score >= self.config.healthy_threshold {
+            0
+        } else if score >= self.config.degraded_threshold {
+            self.config.degraded_extra_votes.min(extra_capacity)
+        } else {
+            self.config.unhealthy_extra_votes.min(extra_capacity)
+        };
+
+        (base_quorum + extra_votes).min(total_validators)
+    }
+
+    pub fn timeout_ms(&self) -> u64 {
+        let score = self.health.score();
+        if score >= self.config.healthy_threshold {
+            return self.config.base_timeout_ms;
+        }
+
+        let headroom = self
+            .config
+            .max_timeout_ms
+            .saturating_sub(self.config.base_timeout_ms);
+
+        if headroom == 0 {
+            return self.config.base_timeout_ms;
+        }
+
+        let degraded_floor = self
+            .config
+            .degraded_threshold
+            .min(self.config.healthy_threshold);
+        let severity = if degraded_floor <= 0.0 {
+            1.0
+        } else {
+            (1.0 - (score / degraded_floor)).clamp(0.0, 1.0)
+        };
+
+        self.config.base_timeout_ms + ((headroom as f64) * severity).round() as u64
+    }
+}
+
 /// Committee (set of validators)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Committee {
     pub epoch: u64,
     pub validators: BTreeMap<AuthorityId, ValidatorInfo>,
     pub quorum_size: usize,
+    pub adaptive_quorum: Option<AdaptiveQuorum>,
 }
 
 impl Committee {
@@ -57,6 +189,7 @@ impl Committee {
             epoch,
             validators: validators_map,
             quorum_size,
+            adaptive_quorum: None,
         }
     }
 
@@ -68,6 +201,36 @@ impl Committee {
         self.validators.contains_key(authority)
     }
 
+    pub fn enable_adaptive_quorum(&mut self, config: AdaptiveQuorumConfig) {
+        self.adaptive_quorum = Some(AdaptiveQuorum::new(config));
+    }
+
+    pub fn disable_adaptive_quorum(&mut self) {
+        self.adaptive_quorum = None;
+    }
+
+    pub fn update_network_health(&mut self, health: NetworkHealth) {
+        if let Some(policy) = self.adaptive_quorum.as_mut() {
+            policy.update_health(health);
+        }
+    }
+
+    pub fn required_quorum(&self) -> usize {
+        self.adaptive_quorum
+            .as_ref()
+            .map(|policy| policy.required_quorum(self.validators.len(), self.quorum_size))
+            .unwrap_or(self.quorum_size)
+    }
+
+    pub fn quorum_timeout(&self) -> Duration {
+        let timeout_ms = self
+            .adaptive_quorum
+            .as_ref()
+            .map(AdaptiveQuorum::timeout_ms)
+            .unwrap_or(AdaptiveQuorumConfig::default().base_timeout_ms);
+        Duration::from_millis(timeout_ms)
+    }
+
     pub fn verify_quorum_certificate(&self, signers: &[AuthorityId]) -> Result<()> {
         let unique_signers: std::collections::HashSet<&str> =
             signers.iter().map(|s| s.as_str()).collect();
@@ -75,258 +238,22 @@ impl Committee {
             .iter()
             .filter(|auth| {
                 self.validators
-                    .get(**auth) // Dereference &&str to &str
+                    .get(**auth)
                     .map(|v| v.active)
                     .unwrap_or(false)
             })
             .count();
+        let required = self.required_quorum();
 
-        if trusted_count >= self.quorum_size {
+        if trusted_count >= required {
             Ok(())
         } else {
             Err(anyhow!(
                 "Insufficient validators in quorum certificate: {} < {}",
                 trusted_count,
-                self.quorum_size
+                required
             ))
         }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum CommitteeChange {
-    AddValidator(ValidatorInfo),
-    RemoveValidator {
-        authority_id: AuthorityId,
-        reason: String,
-    },
-    DeactivateValidator {
-        authority_id: AuthorityId,
-    },
-    ReactivateValidator {
-        authority_id: AuthorityId,
-    },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CommitteeChangeTx {
-    pub change: CommitteeChange,
-    pub target_epoch: u64,
-    pub signatures: Vec<(AuthorityId, Vec<u8>)>,
-}
-
-const MAX_PENDING_EPOCHS: u64 = 100;
-const MAX_COMMITTEE_HISTORY: usize = 1000;
-
-pub struct CommitteeManager {
-    current_committee: Committee,
-    pending_changes: BTreeMap<u64, Vec<CommitteeChange>>,
-    committee_history: BTreeMap<u64, Committee>,
-}
-
-// FIX #17: Constants for committee change limits
-const MAX_CHANGES_PER_EPOCH: usize = 1000; // Maximum pending changes per epoch to prevent OOM
-
-impl CommitteeManager {
-    fn ensure_future_epoch(current_epoch: u64, target_epoch: u64, action: &str) -> Result<()> {
-        if target_epoch <= current_epoch {
-            return Err(anyhow!(
-                "{} requires a future epoch: current={}, target={}",
-                action,
-                current_epoch,
-                target_epoch
-            ));
-        }
-        Ok(())
-    }
-
-    fn apply_change(
-        new_validators: &mut BTreeMap<AuthorityId, ValidatorInfo>,
-        change: CommitteeChange,
-    ) {
-        match change {
-            CommitteeChange::AddValidator(info) => {
-                tracing::info!("Adding validator: {}", info.authority_id);
-                new_validators.insert(info.authority_id.clone(), info);
-            }
-            CommitteeChange::RemoveValidator {
-                authority_id,
-                reason,
-            } => {
-                tracing::info!("Removing validator {}: {}", authority_id, reason);
-                new_validators.remove(&authority_id);
-            }
-            CommitteeChange::DeactivateValidator { authority_id } => {
-                if let Some(validator) = new_validators.get_mut(&authority_id) {
-                    tracing::info!("Deactivating validator: {}", authority_id);
-                    validator.active = false;
-                }
-            }
-            CommitteeChange::ReactivateValidator { authority_id } => {
-                if let Some(validator) = new_validators.get_mut(&authority_id) {
-                    tracing::info!("Reactivating validator: {}", authority_id);
-                    validator.active = true;
-                }
-            }
-        }
-    }
-
-    fn signature_signers(tx: &CommitteeChangeTx) -> Vec<AuthorityId> {
-        tx.signatures.iter().map(|(auth, _)| auth.clone()).collect()
-    }
-
-    pub fn new(initial_committee: Committee) -> Self {
-        let epoch = initial_committee.epoch;
-        let mut history = BTreeMap::new();
-        history.insert(epoch, initial_committee.clone());
-
-        Self {
-            current_committee: initial_committee,
-            pending_changes: BTreeMap::new(),
-            committee_history: history,
-        }
-    }
-
-    pub fn propose_change(&mut self, change: CommitteeChange, target_epoch: u64) -> Result<()> {
-        Self::ensure_future_epoch(self.current_committee.epoch, target_epoch, "Propose change")?;
-
-        // FIX #17: CRITICAL - Prevent memory exhaustion via committee change spam
-        // Previously allowed unlimited changes per epoch, enabling OOM attacks
-        let changes = self.pending_changes.entry(target_epoch).or_default();
-
-        if changes.len() >= MAX_CHANGES_PER_EPOCH {
-            anyhow::bail!(
-                "Too many pending changes for epoch {} (max: {}). Rejecting new proposal.",
-                target_epoch,
-                MAX_CHANGES_PER_EPOCH
-            );
-        }
-
-        // FIX #17: Deduplicate changes to prevent storing identical proposals multiple times
-        // Check if this exact change already exists in the pending list
-        let is_duplicate = changes.iter().any(|existing| match (&change, existing) {
-            (
-                CommitteeChange::AddValidator(new_info),
-                CommitteeChange::AddValidator(existing_info),
-            ) => new_info.authority_id == existing_info.authority_id,
-            (
-                CommitteeChange::RemoveValidator {
-                    authority_id: id1, ..
-                },
-                CommitteeChange::RemoveValidator {
-                    authority_id: id2, ..
-                },
-            ) => id1 == id2,
-            _ => false,
-        });
-
-        if is_duplicate {
-            tracing::debug!(
-                "Duplicate committee change ignored for epoch {}",
-                target_epoch
-            );
-            return Ok(()); // Silently ignore duplicates instead of error
-        }
-
-        changes.push(change);
-        tracing::info!("Proposed committee change for epoch {}", target_epoch);
-        Ok(())
-    }
-
-    pub fn advance_epoch(&mut self, new_epoch: u64) -> Result<Committee> {
-        Self::ensure_future_epoch(self.current_committee.epoch, new_epoch, "Advance epoch")?;
-
-        let mut new_validators: BTreeMap<AuthorityId, ValidatorInfo> =
-            self.current_committee.validators.clone();
-
-        if let Some(changes) = self.pending_changes.remove(&new_epoch) {
-            for change in changes {
-                Self::apply_change(&mut new_validators, change);
-            }
-        }
-
-        let validators: Vec<ValidatorInfo> = new_validators.into_values().collect();
-        let new_committee = Committee::new(new_epoch, validators);
-
-        self.committee_history
-            .insert(new_epoch, new_committee.clone());
-        self.current_committee = new_committee.clone();
-
-        tracing::info!(
-            "Advanced to epoch {} with {} validators",
-            new_epoch,
-            self.current_committee.validators.len()
-        );
-
-        Ok(new_committee)
-    }
-
-    pub fn prune_old_data(&mut self) {
-        let current_epoch = self.current_committee.epoch;
-        let max_future_epoch = current_epoch + MAX_PENDING_EPOCHS;
-        self.pending_changes
-            .retain(|&epoch, _| epoch >= current_epoch && epoch <= max_future_epoch);
-
-        if self.committee_history.len() > MAX_COMMITTEE_HISTORY {
-            let cutoff_epoch = current_epoch.saturating_sub(MAX_COMMITTEE_HISTORY as u64);
-            self.committee_history
-                .retain(|&epoch, _| epoch >= cutoff_epoch);
-        }
-    }
-
-    pub fn verify_change_tx(&self, tx: &CommitteeChangeTx, chain_id: &str) -> Result<()> {
-        let signers = Self::signature_signers(tx);
-        let unique_count = signers
-            .iter()
-            .cloned()
-            .collect::<std::collections::BTreeSet<_>>()
-            .len();
-        if unique_count != signers.len() {
-            return Err(anyhow!("Duplicate signers in committee change transaction"));
-        }
-
-        self.current_committee.verify_quorum_certificate(&signers)?;
-
-        // FIX #6: Add chain_id to SignPayload to prevent cross-chain replay attacks
-        // Without chain_id, attackers can capture signatures from Testnet and replay them on Mainnet
-        #[derive(Serialize)]
-        struct SignPayload<'a> {
-            chain_id: &'a str,
-            change: &'a CommitteeChange,
-            target_epoch: u64,
-        }
-
-        let payload = bcs::to_bytes(&SignPayload {
-            chain_id,
-            change: &tx.change,
-            target_epoch: tx.target_epoch,
-        })
-        .map_err(|_| anyhow!("Failed to serialize tx payload"))?;
-
-        for (authority, signature) in &tx.signatures {
-            let validator = self
-                .current_committee
-                .get_validator(authority)
-                .ok_or_else(|| anyhow!("Signer {} not in current committee", authority))?;
-
-            if signature.is_empty() {
-                return Err(anyhow!("Invalid signature from {}", authority));
-            }
-
-            let pub_key_bytes: [u8; 32] = validator
-                .public_key
-                .clone()
-                .try_into()
-                .map_err(|_| anyhow!("Invalid public key length for {}", authority))?;
-
-            let pub_key = VerifyingKey::from_bytes(&pub_key_bytes)
-                .map_err(|e| anyhow!("Invalid public key for {}: {}", authority, e))?;
-
-            Ed25519Keypair::verify(&pub_key, &payload, signature)
-                .map_err(|e| anyhow!("Signature verification failed for {}: {}", authority, e))?;
-        }
-
-        Ok(())
     }
 }
 
@@ -358,8 +285,8 @@ mod tests {
         let committee = create_test_committee();
         assert_eq!(committee.epoch, 0);
         assert_eq!(committee.validators.len(), 4);
-        // 4 validators require a 2/3 supermajority quorum of 3
         assert_eq!(committee.quorum_size, 3);
+        assert_eq!(committee.required_quorum(), 3);
     }
 
     #[test]
@@ -374,10 +301,95 @@ mod tests {
     }
 
     #[test]
+    fn test_network_health_score_degrades_with_timeouts() {
+        let healthy = NetworkHealth::default();
+        let degraded = NetworkHealth {
+            connectivity_ratio: 0.65,
+            delivery_success_ratio: 0.60,
+            timeout_ratio: 0.40,
+            median_latency_ms: 2_500,
+        };
+
+        assert!(healthy.score() > degraded.score());
+    }
+
+    #[test]
+    fn test_adaptive_quorum_increases_threshold_when_unhealthy() {
+        let mut committee = create_test_committee();
+        committee.enable_adaptive_quorum(AdaptiveQuorumConfig::default());
+        committee.update_network_health(NetworkHealth {
+            connectivity_ratio: 0.45,
+            delivery_success_ratio: 0.50,
+            timeout_ratio: 0.35,
+            median_latency_ms: 3_000,
+        });
+
+        assert_eq!(committee.quorum_size, 3);
+        assert_eq!(committee.required_quorum(), 4);
+    }
+
+    #[test]
+    fn test_adaptive_timeout_expands_when_network_degrades() {
+        let mut committee = create_test_committee();
+        committee.enable_adaptive_quorum(AdaptiveQuorumConfig::default());
+        let healthy_timeout = committee.quorum_timeout();
+
+        committee.update_network_health(NetworkHealth {
+            connectivity_ratio: 0.40,
+            delivery_success_ratio: 0.55,
+            timeout_ratio: 0.45,
+            median_latency_ms: 3_500,
+        });
+
+        assert!(committee.quorum_timeout() > healthy_timeout);
+    }
+
+    #[test]
+    fn test_disable_adaptive_quorum_restores_static_threshold_and_timeout() {
+        let mut committee = create_test_committee();
+        let static_quorum = committee.quorum_size;
+        let static_timeout = committee.quorum_timeout();
+
+        committee.enable_adaptive_quorum(AdaptiveQuorumConfig::default());
+        committee.update_network_health(NetworkHealth {
+            connectivity_ratio: 0.30,
+            delivery_success_ratio: 0.35,
+            timeout_ratio: 0.55,
+            median_latency_ms: 4_200,
+        });
+
+        assert!(committee.required_quorum() > static_quorum);
+        assert!(committee.quorum_timeout() > static_timeout);
+
+        committee.disable_adaptive_quorum();
+
+        assert_eq!(committee.required_quorum(), static_quorum);
+        assert_eq!(committee.quorum_timeout(), static_timeout);
+    }
+
+    #[test]
+    fn test_verify_quorum_certificate_ignores_inactive_validators() {
+        let mut committee = create_test_committee();
+        committee
+            .validators
+            .get_mut("auth3")
+            .expect("validator must exist")
+            .active = false;
+
+        let signers = vec![
+            "auth1".to_string(),
+            "auth2".to_string(),
+            "auth3".to_string(),
+        ];
+
+        assert!(committee.verify_quorum_certificate(&signers).is_err());
+    }
+
+    #[test]
     fn test_quorum_verification() {
         let committee = create_test_committee();
-        assert!(3 >= committee.quorum_size);
-        assert!(2 < committee.quorum_size);
+        assert!(3 >= committee.required_quorum());
+        assert!(2 < committee.required_quorum());
     }
 
     #[test]
@@ -388,21 +400,25 @@ mod tests {
             "auth1".to_string(),
             "auth2".to_string(),
         ];
-        // Only 2 unique signers, quorum is 3
         assert!(committee.verify_quorum_certificate(&signers).is_err());
     }
 
     #[test]
-    fn test_add_validator() {
-        let committee = create_test_committee();
-        let mut manager = CommitteeManager::new(committee);
-        let new_validator = create_test_validator("auth5");
-        let change = CommitteeChange::AddValidator(new_validator);
+    fn test_verify_quorum_certificate_uses_adaptive_threshold() {
+        let mut committee = create_test_committee();
+        committee.enable_adaptive_quorum(AdaptiveQuorumConfig::default());
+        committee.update_network_health(NetworkHealth {
+            connectivity_ratio: 0.30,
+            delivery_success_ratio: 0.40,
+            timeout_ratio: 0.50,
+            median_latency_ms: 4_000,
+        });
 
-        manager.propose_change(change, 1).unwrap();
-        let new_committee = manager.advance_epoch(1).unwrap();
-        assert_eq!(new_committee.validators.len(), 5);
-        // 5 validators require a 2/3 supermajority quorum of 4
-        assert_eq!(new_committee.quorum_size, 4);
+        let signers = vec![
+            "auth1".to_string(),
+            "auth2".to_string(),
+            "auth3".to_string(),
+        ];
+        assert!(committee.verify_quorum_certificate(&signers).is_err());
     }
 }

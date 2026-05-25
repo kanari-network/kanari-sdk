@@ -88,7 +88,7 @@ impl DagConsensus {
         }
 
         let genesis_state_root = smt::default_hashes()[0].to_vec();
-        let total_auths = authorities.len();
+        let genesis_quorum = 0;
         // Genesis vertices must be byte-for-byte deterministic across authorities so
         // round-1 vertices can reference the same parent IDs on every node.
         let genesis_timestamp = 0;
@@ -103,7 +103,7 @@ impl DagConsensus {
                 genesis_state_root.clone(),
                 genesis_timestamp,
             );
-            let _ = store.add_vertex(genesis_vertex, total_auths);
+            let _ = store.add_vertex(genesis_vertex, genesis_quorum);
         }
 
         let mut byzantine_detector = ByzantineDetector::new();
@@ -313,8 +313,7 @@ impl DagConsensus {
             }
         }
 
-        let total_authorities = self.committee.validators.len();
-        let quorum_size = calculate_quorum(total_authorities);
+        let quorum_size = self.committee.required_quorum();
 
         if unique_authors.len() < quorum_size {
             anyhow::bail!(
@@ -383,7 +382,7 @@ impl DagConsensus {
             }
         }
 
-        let total_authorities = self.committee.validators.len();
+        let required_quorum = self.committee.required_quorum();
 
         if let Err(e) = self.byzantine_detector.check_double_voting(&vertex) {
             if self.byzantine_detector.get_reputation(&author) == 0 {
@@ -398,7 +397,7 @@ impl DagConsensus {
 
         if let Err(e) = self
             .byzantine_detector
-            .check_vertex_validity(&vertex, total_authorities)
+            .check_vertex_validity(&vertex, required_quorum)
         {
             if self.byzantine_detector.get_reputation(&author) == 0 {
                 tracing::error!(
@@ -441,7 +440,7 @@ impl DagConsensus {
         }
 
         self.store
-            .add_vertex_arc(Arc::clone(&vertex_arc), total_authorities)?;
+            .add_vertex_arc_with_quorum(Arc::clone(&vertex_arc), required_quorum)?;
 
         self.caches
             .vertices

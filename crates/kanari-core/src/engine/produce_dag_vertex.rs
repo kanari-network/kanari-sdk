@@ -5,11 +5,8 @@
 //! Integrates DAG consensus with parallel transaction execution
 
 use anyhow::Result;
-use centauri::calculate_quorum;
 use centauri::consensus::{DagConsensus, VertexId};
 use log::{error, info};
-use lru::LruCache;
-use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
 
 use super::*;
@@ -35,8 +32,6 @@ pub struct CheckpointInfo {
     pub tx_count: usize,
 }
 
-type StateCache = Arc<RwLock<LruCache<Vec<u8>, Arc<RwLock<StateManager>>>>>;
-
 /// DAG-enabled blockchain engine
 #[derive(Clone)]
 pub struct DagEngine {
@@ -48,10 +43,6 @@ pub struct DagEngine {
 
     /// This node's authority ID
     authority_id: String,
-
-    /// Cache for execution results to avoid re-execution in apply_checkpoint
-    /// Maps VertexId -> Post-execution State
-    state_cache: StateCache,
 }
 
 impl DagEngine {
@@ -150,17 +141,7 @@ impl DagEngine {
         (latest.sequence == sequence).then(|| latest.clone())
     }
 
-    fn has_committed_transaction(&self, tx_hash: &[u8]) -> bool {
-        if self
-            .engine
-            .blockchain
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_transaction_executed(&hex::encode(tx_hash))
-        {
-            return true;
-        }
-
+    fn has_consensus_committed_transaction(&self, tx_hash: &[u8]) -> bool {
         let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
         consensus.has_executed_transaction(tx_hash)
     }
@@ -229,9 +210,6 @@ impl DagEngine {
             engine,
             consensus: Arc::new(RwLock::new(consensus)),
             authority_id,
-            state_cache: Arc::new(RwLock::new(LruCache::new(
-                NonZeroUsize::new(10).expect("Failed to create NonZeroUsize for state cache."),
-            ))),
         })
     }
 
@@ -248,15 +226,17 @@ impl DagEngine {
         let mut seen_tx_hashes = std::collections::HashSet::new();
         let mut all_to_execute = Vec::new();
         let consensus = self.consensus.read().unwrap();
+        let chain_has_executed_txs = chain.has_executed_transactions();
 
-        // 1. Fetch from old History (Parent generation Vertices)
+        // 1. Fetch transactions from parent-history vertices.
         if include_history {
             for v_id in history_vertices {
                 if let Some(v) = consensus.store().get_vertex(v_id) {
                     for signed_tx in &v.transactions {
-                        let tx_hash = signed_tx.hash();
+                        let tx_hash = signed_tx.transaction.hash();
                         if seen_tx_hashes.insert(tx_hash.clone())
-                            && !chain.is_transaction_executed(&hex::encode(&tx_hash))
+                            && (!chain_has_executed_txs
+                                || !chain.is_transaction_hash_executed(&tx_hash))
                         {
                             all_to_execute.push(signed_tx.clone());
                         }
@@ -267,10 +247,8 @@ impl DagEngine {
 
         // 2. Fetch from Current (Latest Vertex)
         for signed_tx in current_txs {
-            let tx_hash = signed_tx.hash();
-            if seen_tx_hashes.insert(tx_hash.clone())
-                && !chain.is_transaction_executed(&hex::encode(&tx_hash))
-            {
+            let tx_hash = signed_tx.transaction.hash();
+            if seen_tx_hashes.insert(tx_hash) {
                 all_to_execute.push(signed_tx.clone());
             }
         }
@@ -301,7 +279,7 @@ impl DagEngine {
                 .map(|v| v.author.clone())
                 .collect::<std::collections::HashSet<_>>()
                 .len();
-            let quorum_size = calculate_quorum(consensus.committee().validators.len());
+            let quorum_size = consensus.committee().required_quorum();
 
             let (
                 parent_round,
@@ -347,7 +325,7 @@ impl DagEngine {
             for v_id in &history_vertices {
                 if let Some(v) = consensus.store().get_vertex(v_id) {
                     for tx in &v.transactions {
-                        history_tx_hashes.insert(tx.hash());
+                        history_tx_hashes.insert(tx.transaction.hash());
                     }
                 }
             }
@@ -364,13 +342,6 @@ impl DagEngine {
         };
 
         let (transactions, tx_to_remove_from_pending) = {
-            let _state = match self.engine.state.read() {
-                Ok(guard) => guard,
-                Err(poisoned) => {
-                    error!("State lock poisoned during transaction collection, recovering...");
-                    poisoned.into_inner()
-                }
-            };
             let chain = match self.engine.blockchain.read() {
                 Ok(guard) => guard,
                 Err(poisoned) => {
@@ -390,14 +361,15 @@ impl DagEngine {
 
             let mut to_include = Vec::new();
             let mut to_remove = Vec::new();
+            let chain_has_executed_txs = chain.has_executed_transactions();
 
             for tx in pending.iter().take(500_000) {
-                let hash = tx.hash();
+                let hash = tx.transaction.hash();
 
                 if history_tx_hashes.contains(&hash) {
                     continue;
-                } else if chain.is_transaction_executed(&hex::encode(&hash))
-                    || self.has_committed_transaction(&hash)
+                } else if (chain_has_executed_txs && chain.is_transaction_hash_executed(&hash))
+                    || self.has_consensus_committed_transaction(&hash)
                 {
                     to_remove.push(hash);
                 } else {
@@ -417,7 +389,12 @@ impl DagEngine {
             };
             let remove_set: std::collections::HashSet<_> =
                 tx_to_remove_from_pending.into_iter().collect();
-            pending.retain(|tx| !remove_set.contains(&tx.hash()));
+            pending.retain(|tx| !remove_set.contains(&tx.transaction.hash()));
+            self.engine
+                .pending_tx_hashes
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .retain(|hash| !remove_set.contains(hash));
         }
 
         if transactions.is_empty() && history_vertices.is_empty() {
@@ -444,8 +421,45 @@ impl DagEngine {
             consensus.suggest_vertex_timestamp(proposed_timestamp)
         };
 
-        // Process transactions using the engine helper
-        let (executed_state, state_root, executed, failed) = {
+        // Process transactions using the engine helper. Fresh vertices without
+        // uncheckpointed history can use the faster execution-only path; the
+        // canonical state root is still computed during checkpoint finalization.
+        let can_use_fresh_batch_fast_path = !transactions.is_empty()
+            && history_tx_hashes.is_empty()
+            && transactions.iter().all(|tx| !tx.signature.is_empty());
+        let (state_root, executed, failed) = if can_use_fresh_batch_fast_path {
+            let chain = match self.engine.blockchain.read() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    error!("Blockchain lock poisoned during fast vertex execution, recovering...");
+                    poisoned.into_inner()
+                }
+            };
+            let all_to_execute =
+                self.collect_unexecuted_txs(&history_vertices, transactions.iter(), &chain, false)?;
+            drop(chain);
+
+            let mut executed_count = 0;
+            let mut failed_count = 0;
+            for (_tx, result) in self.engine.execute_transactions_parallel(all_to_execute) {
+                match result {
+                    Ok((_hash, changeset)) if changeset.success => executed_count += 1,
+                    Ok(_) | Err(_) => failed_count += 1,
+                }
+            }
+
+            (
+                self.engine
+                    .blockchain
+                    .read()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .latest_checkpoint()
+                    .state_root
+                    .clone(),
+                executed_count,
+                failed_count,
+            )
+        } else {
             let state_guard = match self.engine.state.read() {
                 Ok(guard) => guard,
                 Err(poisoned) => {
@@ -495,7 +509,7 @@ impl DagEngine {
                     poisoned.into_inner().compute_state_root()
                 }
             };
-            (state_arc, root, executed_count, failed_count)
+            (root, executed_count, failed_count)
         };
 
         let events: Vec<Event> = Vec::new();
@@ -522,11 +536,6 @@ impl DagEngine {
             );
             v
         };
-
-        {
-            let mut cache = self.state_cache.write().unwrap_or_else(|e| e.into_inner());
-            cache.put(vertex.id.to_vec(), executed_state);
-        }
 
         let vertex_id = hex::encode(vertex.id);
         let round = vertex.round;
@@ -674,9 +683,16 @@ impl DagEngine {
                         poisoned.into_inner()
                     }
                 };
-                let tx_hashes: std::collections::HashSet<Vec<u8>> =
-                    transactions.iter().map(|tx| tx.hash()).collect();
-                pending.retain(|tx| !tx_hashes.contains(&tx.hash()));
+                let tx_hashes: std::collections::HashSet<Vec<u8>> = transactions
+                    .iter()
+                    .map(|tx| tx.transaction.hash())
+                    .collect();
+                pending.retain(|tx| !tx_hashes.contains(&tx.transaction.hash()));
+                self.engine
+                    .pending_tx_hashes
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .retain(|hash| !tx_hashes.contains(hash));
 
                 if !pending.is_empty() {
                     info!(

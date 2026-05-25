@@ -31,4 +31,5 @@ move-core-types = { workspace = true }
 bcs = { workspace = true }
 
 [dev-dependencies]
+kanari-crypto.workspace = true
 tower = { version = "0.5.3", features = ["util"] }

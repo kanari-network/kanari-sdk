@@ -299,15 +299,6 @@ impl StateSynchronizer {
         added_count
     }
 
-    pub fn create_sync_request(&self, requester: AuthorityId) -> SyncRequest {
-        SyncRequest {
-            requester,
-            last_checkpoint: self.latest_checkpoint,
-            last_round: self.latest_round,
-            missing_vertices: vec![],
-        }
-    }
-
     pub fn handle_sync_request(&self, request: &SyncRequest) -> Result<SyncResponse> {
         // FIX #9: CRITICAL - Limit missing_vertices to prevent DoS attack
         // Previously allowed unlimited missing_vertices causing O(N) lookups and memory exhaustion
@@ -503,10 +494,12 @@ impl Default for StateSynchronizer {
 }
 
 /// Fast state sync using checkpoints (skip intermediate vertices)
+#[cfg(test)]
 pub struct FastSync {
     checkpoints: Vec<Checkpoint>,
 }
 
+#[cfg(test)]
 impl FastSync {
     pub fn new(_checkpoint_interval: Round) -> Self {
         Self {

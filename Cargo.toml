@@ -33,7 +33,7 @@ members = [
       "packages/kanari_flutter/rust",
       "crates/kanari-core",
       "crates/smt",
-      "crates/tps-harness", 
+      "crates/kanari-benchmarks", 
       "crates/kanari-system-natives",
       "crates/kanari-db-common", 
       "crates/centauri", 
@@ -174,6 +174,7 @@ log = { version = "0.4.28", default-features = true }
 tracing = "0.1.43"
 tracing-subscriber = "0.3.23"
 env_logger = "0.11.8"
+prometheus = "0.14.0"
 
 # ============================================================================
 # CLI, Configuration & Utilities

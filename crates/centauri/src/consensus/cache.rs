@@ -55,11 +55,6 @@ impl DagCaches {
         }
     }
 
-    /// Create moderate caches for 8-16 core machines (10K-30K TPS)
-    pub fn moderate() -> Self {
-        Self::preset(10000, 5000, 1000, 10000, 1000)
-    }
-
     /// Create new DAG caches with default sizes optimized for high throughput
     pub fn new() -> Self {
         Self::preset(100000, 50000, 10000, 100000, 10000)
@@ -89,15 +84,6 @@ impl DagCaches {
                 size: self.round_vertices.entry_count() as usize,
             },
         }
-    }
-
-    /// Clear all caches
-    pub fn clear_all(&self) {
-        self.vertices.invalidate_all();
-        self.state_roots.invalidate_all();
-        self.merkle_proofs.invalidate_all();
-        self.parent_vertices.invalidate_all();
-        self.round_vertices.invalidate_all();
     }
 
     /// Get total memory usage estimate (bytes)

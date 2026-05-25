@@ -62,7 +62,9 @@ impl BlockchainEngine {
             checkpoint
                 .transactions
                 .iter()
-                .filter(|signed_tx| !chain.is_transaction_executed(&hex::encode(signed_tx.hash())))
+                .filter(|signed_tx| {
+                    !chain.is_transaction_hash_executed(&signed_tx.transaction.hash())
+                })
                 .cloned()
                 .collect()
         };
@@ -108,9 +110,16 @@ impl BlockchainEngine {
         // 3. Remove committed transactions from pending pool
         {
             let mut pending = self.pending_txs.write().unwrap_or_else(|e| e.into_inner());
-            let committed_hashes: std::collections::HashSet<_> =
-                checkpoint.transactions.iter().map(|tx| tx.hash()).collect();
-            pending.retain(|tx| !committed_hashes.contains(&tx.hash()));
+            let committed_hashes: std::collections::HashSet<_> = checkpoint
+                .transactions
+                .iter()
+                .map(|tx| tx.transaction.hash())
+                .collect();
+            pending.retain(|tx| !committed_hashes.contains(&tx.transaction.hash()));
+            self.pending_tx_hashes
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .retain(|hash| !committed_hashes.contains(hash));
         }
 
         // 4. Persist blockchain state

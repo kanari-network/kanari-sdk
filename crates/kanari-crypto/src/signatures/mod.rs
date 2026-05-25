@@ -102,11 +102,8 @@ pub fn sign_message(
 
 /// Verify a signature against a message using an address
 ///
-/// This function attempts to parse tagged addresses (e.g., "K256:0xabc...") first.
-/// If the address is not tagged, it falls back to trying all classical curve types.
-///
-/// For maximum reliability, use tagged addresses.
-/// For best performance when curve type is known, use `verify_signature_with_curve()`.
+/// This function requires tagged addresses (e.g., "K256:0xabc...") so the
+/// verifier never has to guess which curve should be used.
 pub fn verify_signature(
     address: &str,
     message: &[u8],
@@ -121,32 +118,14 @@ pub fn verify_signature(
         ));
     }
 
-    // Try to parse as tagged address first (most reliable)
     if let Some((curve_type, addr)) = crate::keys::KeyPair::parse_tagged_address(address) {
         debug!("Using tagged address with curve type: {:?}", curve_type);
         return verify_signature_with_curve(&addr, message, signature, curve_type);
     }
 
-    // Fallback: Try all classical curves (safe but slower)
-    debug!("No tagged address found, trying all curve types");
-    let clean_address = address.trim_start_matches("0x");
-
-    // Try all classical curves without early return to prevent timing attacks
-    let k256_result = verify_signature_k256(clean_address, message, signature).unwrap_or(false);
-    let p256_result = verify_signature_p256(clean_address, message, signature).unwrap_or(false);
-    let ed25519_result =
-        verify_signature_ed25519(clean_address, message, signature).unwrap_or(false);
-
-    // Use OR to check if any verification succeeded (constant-time operation)
-    let verified = k256_result || p256_result || ed25519_result;
-
-    if verified {
-        debug!("Signature verification succeeded");
-    } else {
-        debug!("Signature verification failed for all curve types");
-    }
-
-    Ok(verified)
+    Err(SignatureError::InvalidFormat(
+        "Tagged address required for signature verification".to_string(),
+    ))
 }
 
 /// Verify a signature with the known curve type

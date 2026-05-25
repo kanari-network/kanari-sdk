@@ -32,6 +32,7 @@ siphasher = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 dashmap = { workspace = true }
 ahash = { workspace = true }
+prometheus = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

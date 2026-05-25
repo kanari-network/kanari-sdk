@@ -73,7 +73,7 @@ impl Blockchain {
         I: IntoIterator<Item = &'a SignedTransaction>,
     {
         for signed_tx in txs {
-            let hash = signed_tx.hash();
+            let hash = signed_tx.transaction.hash();
             if self.executed_tx_hashes.insert(hash.clone()) {
                 self.tx_hash_queue.push_back(hash);
             }
@@ -114,10 +114,6 @@ impl Blockchain {
         }
     }
 
-    pub fn new_with_dag() -> Self {
-        Self::new()
-    }
-
     pub fn enable_dag_mode(&mut self) {
         if self.dag_checkpoints.is_empty() {
             self.dag_checkpoints.push_back(Checkpoint::genesis());
@@ -146,12 +142,12 @@ impl Blockchain {
         }
     }
 
-    pub fn mark_transaction_executed(&mut self, tx_hash_hex: String) {
-        if let Ok(bytes) = hex::decode(tx_hash_hex)
-            && self.executed_tx_hashes.insert(bytes.clone())
-        {
-            self.tx_hash_queue.push_back(bytes);
-        }
+    pub fn is_transaction_hash_executed(&self, tx_hash: &[u8]) -> bool {
+        self.executed_tx_hashes.contains(tx_hash)
+    }
+
+    pub fn has_executed_transactions(&self) -> bool {
+        !self.executed_tx_hashes.is_empty()
     }
 
     /// Rebuilds the transaction hash index from all stored checkpoints
@@ -178,7 +174,7 @@ impl Blockchain {
 
         for checkpoint in &self.dag_checkpoints {
             for tx in &checkpoint.transactions {
-                let hash = tx.hash();
+                let hash = tx.transaction.hash();
 
                 // Insert and track in queue simultaneously
                 if self.executed_tx_hashes.insert(hash.clone()) {
@@ -200,16 +196,6 @@ impl Blockchain {
             "Rebuilt transaction hash index: {} transactions indexed, {} retained in cache",
             count,
             self.tx_hash_queue.len()
-        );
-    }
-
-    pub fn add_block(&mut self, block: Block) -> Result<()> {
-        self.add_block_with_validation(block, true)
-    }
-
-    pub fn add_block_with_validation(&mut self, _block: Block, _validate: bool) -> Result<()> {
-        anyhow::bail!(
-            "Direct block addition is not supported in DAG mode. Use add_checkpoint instead."
         );
     }
 
@@ -239,7 +225,7 @@ impl Blockchain {
             // FIX #7: Check for duplicate transactions WITHIN the same checkpoint
             let mut seen_txs = std::collections::HashSet::new();
             for tx in &checkpoint.transactions {
-                let tx_hash = tx.hash();
+                let tx_hash = tx.transaction.hash();
                 if !seen_txs.insert(tx_hash.clone()) {
                     anyhow::bail!("Duplicate transaction found within checkpoint");
                 }

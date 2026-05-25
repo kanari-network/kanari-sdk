@@ -363,11 +363,11 @@ fn submit_pending_response(
     action: &str,
     submit_error: &str,
 ) -> RpcResponse {
-    match state.engine.submit_transaction(signed_tx) {
-        Ok(tx_hash) => respond_with_serialize(
+    match state.engine.submit_transactions_batch(vec![signed_tx]) {
+        Ok(tx_hashes) => respond_with_serialize(
             request_id,
             serde_json::json!({
-                "hash": hex::encode(&tx_hash),
+                "hash": hex::encode(&tx_hashes[0]),
                 "status": "pending",
                 "action": action
             }),
@@ -428,7 +428,7 @@ fn execute_or_submit_response(
                 );
             }
 
-            if let Err(e) = state.engine.submit_transaction(signed_tx) {
+            if let Err(e) = state.engine.submit_transactions_batch(vec![signed_tx]) {
                 error!("Failed to submit executed transaction: {}", e);
                 return RpcResponse {
                     jsonrpc: "2.0".into(),
@@ -538,9 +538,9 @@ pub async fn handle_submit_transaction(
     let mut signed_tx = SignedTransaction::new(transaction);
     signed_tx.signature = sig;
 
-    match state.engine.submit_transaction(signed_tx) {
-        Ok(tx_hash) => {
-            let tx_hash_hex = hex::encode(&tx_hash);
+    match state.engine.submit_transactions_batch(vec![signed_tx]) {
+        Ok(tx_hashes) => {
+            let tx_hash_hex = hex::encode(&tx_hashes[0]);
             info!("Transaction submitted successfully: {}", tx_hash_hex);
             respond_with_serialize(
                 request.id,
@@ -568,7 +568,7 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
 
     for block in chain.blocks.iter().rev() {
         for tx in block.transactions.iter().rev() {
-            let tx_hash = hex::encode(tx.hash());
+            let tx_hash = hex::encode(tx.transaction.hash());
             if tx_hash.to_lowercase() == normalized {
                 let details = map_transaction_to_details(
                     state,
@@ -589,7 +589,7 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
     });
 
     for tx in pending.iter() {
-        let tx_hash = hex::encode(tx.hash());
+        let tx_hash = hex::encode(tx.transaction.hash());
         if tx_hash.to_lowercase() == normalized {
             let details =
                 map_transaction_to_details(state, &tx.transaction, &tx_hash, "pending", None, None);
@@ -640,7 +640,7 @@ pub async fn handle_get_all_transactions(
             map_transaction_to_details(
                 state,
                 &tx.transaction,
-                &hex::encode(tx.hash()),
+                &hex::encode(tx.transaction.hash()),
                 "pending",
                 None,
                 None,
@@ -672,7 +672,7 @@ pub async fn handle_get_all_transactions(
                     map_transaction_to_details(
                         state,
                         &tx.transaction,
-                        &hex::encode(tx.hash()),
+                        &hex::encode(tx.transaction.hash()),
                         "committed",
                         Some(block.header.height),
                         Some(hex::encode(&block.header.state_root)),

@@ -322,7 +322,7 @@ impl DagConsensus {
                     .count();
 
                 let total_authorities = self.committee.validators.len();
-                let quorum = calculate_quorum(total_authorities);
+                let quorum = self.committee.required_quorum();
 
                 if trusted_support_count >= quorum {
                     tracing::info!(

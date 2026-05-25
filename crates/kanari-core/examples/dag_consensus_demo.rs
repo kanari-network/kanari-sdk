@@ -115,8 +115,10 @@ fn main() -> Result<()> {
 
     // 5. Submit transactions to DAG engine
     println!("5. Submitting transactions...");
-    for (i, tx) in transactions.iter().enumerate() {
-        let tx_hash = dag_engine.engine().submit_transaction(tx.clone())?;
+    let tx_hashes = dag_engine
+        .engine()
+        .submit_transactions_batch(transactions)?;
+    for (i, tx_hash) in tx_hashes.iter().enumerate() {
         println!("   ✓ Transaction {}: {}", i + 1, hex::encode(&tx_hash[..8]));
     }
     println!();
@@ -145,7 +147,9 @@ fn main() -> Result<()> {
 
                 let mut signed_tx = SignedTransaction::new(tx);
                 signed_tx.sign(&private_key, CurveType::Ed25519)?;
-                dag_engine.engine().submit_transaction(signed_tx)?;
+                dag_engine
+                    .engine()
+                    .submit_transactions_batch(vec![signed_tx])?;
             }
         }
 

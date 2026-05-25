@@ -51,18 +51,6 @@ impl PruningConfig {
         Ok(())
     }
 
-    /// Moderate config for 8-16 core machines (10K-30K TPS)
-    pub fn moderate() -> Self {
-        Self {
-            retention_rounds: 1000,            // Keep more data
-            retention_checkpoints: 100,        // Fewer checkpoints
-            retention_time_secs: Some(604800), // 7 days
-            min_rounds_before_pruning: 100,    // Conservative pruning
-            auto_prune: true,
-            prune_interval_rounds: 100, // Prune every 100 rounds
-        }
-    }
-
     /// High-throughput config for 500K+ TPS - aggressive pruning
     pub fn high_throughput() -> Self {
         Self {

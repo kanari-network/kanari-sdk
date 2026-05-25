@@ -3,8 +3,7 @@
 
 use anyhow::{Context, Result};
 use centauri::blockchain::Blockchain;
-use centauri::calculate_quorum;
-use centauri::consensus::{Checkpoint, PersistentDagState};
+use centauri::consensus::{Checkpoint, DagMetrics, PersistentDagState};
 use kanari_move_runtime_v1::changeset::ChangeSet;
 use kanari_move_runtime_v1::move_runtime::MoveRuntime;
 use kanari_move_runtime_v1::state::StateManager;
@@ -23,6 +22,7 @@ use move_core_types::{
 };
 use num_cpus;
 use rayon::prelude::*;
+use std::collections::HashSet;
 use std::env;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
@@ -71,6 +71,7 @@ pub struct BlockchainEngine {
     pub blockchain: Arc<RwLock<Blockchain>>,
     pub state: Arc<RwLock<StateManager>>,
     pub pending_txs: Arc<RwLock<Vec<SignedTransaction>>>,
+    pending_tx_hashes: Arc<RwLock<HashSet<Vec<u8>>>>,
     pub persistent_store: Option<Arc<PersistentStore>>,
     // Reusable pool of MoveRuntime instances for parallel execution
     pub runtime_pool: Vec<kanari_move_runtime_v1::move_runtime::MoveRuntime>,
@@ -426,6 +427,10 @@ impl BlockchainEngine {
         Self::init(persistent_store)
     }
 
+    pub fn new_in_memory() -> Result<Self> {
+        Self::init(None)
+    }
+
     fn try_open_store<F>(opener: F, context: &str) -> Result<Option<Arc<PersistentStore>>>
     where
         F: FnOnce() -> Result<PersistentStore>,
@@ -492,6 +497,7 @@ impl BlockchainEngine {
         }
 
         let pending_txs = Arc::new(RwLock::new(Vec::new()));
+        let pending_tx_hashes = Arc::new(RwLock::new(HashSet::new()));
         let proof_cache = Arc::new(RwLock::new(LruCache::new(NonZeroUsize::new(1000).unwrap())));
 
         let authority_id = "0xDEFAULT_AUTHORITY".to_string();
@@ -501,6 +507,7 @@ impl BlockchainEngine {
             blockchain,
             state,
             pending_txs,
+            pending_tx_hashes,
             persistent_store,
             runtime_pool,
             proof_cache,
@@ -672,77 +679,168 @@ impl BlockchainEngine {
     // =====================================================================
     // 🛡️ Mempool Security
     // =====================================================================
-    pub fn submit_transaction(&self, signed_tx: SignedTransaction) -> Result<Vec<u8>> {
+    pub fn submit_transactions_batch(
+        &self,
+        signed_txs: Vec<SignedTransaction>,
+    ) -> Result<Vec<Vec<u8>>> {
+        if signed_txs.is_empty() {
+            return Ok(Vec::new());
+        }
+
         let pending_count = match self.pending_txs.read() {
             Ok(guard) => guard.len(),
             Err(poisoned) => {
-                log::error!("Pending txs lock poisoned in submit_transaction, recovering...");
+                log::error!(
+                    "Pending txs lock poisoned in submit_transactions_batch, recovering..."
+                );
                 poisoned.into_inner().len()
             }
         };
-        if pending_count >= MAX_MEMPOOL_SIZE {
-            log::warn!("[MEMPOOL] Rejecting transaction: Queue is full (Anti-DDoS active)");
+
+        if pending_count.saturating_add(signed_txs.len()) > MAX_MEMPOOL_SIZE {
+            log::warn!("[MEMPOOL] Rejecting batch: Queue would exceed max size");
             anyhow::bail!("Mempool is currently full. Please try again later.");
         }
 
-        if !signed_tx.verify_signature()? {
-            anyhow::bail!("Invalid or missing transaction signature");
+        let pending_hashes = self
+            .pending_tx_hashes
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let mut pending_by_sender: std::collections::HashMap<String, u64> =
+            std::collections::HashMap::new();
+
+        let pending_snapshot = match self.pending_txs.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                log::error!(
+                    "Pending txs lock poisoned in submit_transactions_batch sequence scan, recovering..."
+                );
+                poisoned.into_inner()
+            }
+        };
+
+        for pending_tx in pending_snapshot.iter() {
+            let sender = Self::normalize_addr(pending_tx.transaction.sender_address());
+            *pending_by_sender.entry(sender).or_default() += 1;
         }
+        drop(pending_snapshot);
 
-        let tx_hash = signed_tx.hash();
-        let tx_hash_hex = hex::encode(&tx_hash);
-        let sender_address = signed_tx.transaction.sender_address();
+        let batch_metadata = signed_txs
+            .par_iter()
+            .map(
+                |signed_tx| -> Result<(Vec<u8>, String, u64, AccountAddress)> {
+                    let tx_hash = signed_tx.transaction.hash();
+                    if !signed_tx.verify_signature_for_hash(&tx_hash)? {
+                        anyhow::bail!("Invalid or missing transaction signature");
+                    }
 
-        let expected_seq = self.get_expected_sequence(sender_address);
-        let tx_seq = signed_tx.transaction.sequence_number();
+                    Ok((
+                        tx_hash,
+                        Self::normalize_addr(signed_tx.transaction.sender_address()),
+                        signed_tx.transaction.sequence_number(),
+                        KanariAddress::parse_to_account_address(
+                            signed_tx.transaction.sender_address(),
+                        )?,
+                    ))
+                },
+            )
+            .collect::<Result<Vec<_>>>()?;
 
-        if tx_seq < expected_seq {
-            anyhow::bail!(
-                "Sequence number too low: expected {}, got {}",
-                expected_seq,
-                tx_seq
-            );
-        }
-        if tx_seq > expected_seq {
-            anyhow::bail!(
-                "Sequence number too high: expected {}, got {}",
-                expected_seq,
-                tx_seq
-            );
-        }
+        let base_sequences = {
+            let state = self.state.read().unwrap_or_else(|e| e.into_inner());
+            let mut sequences = std::collections::HashMap::new();
+            for (_, sender, _, sender_addr) in &batch_metadata {
+                sequences.entry(sender.clone()).or_insert_with(|| {
+                    state
+                        .get_account(sender_addr)
+                        .map(|acc| acc.sequence_number)
+                        .unwrap_or(0)
+                });
+            }
+            sequences
+        };
 
-        {
+        let executed_hashes = {
             let chain = match self.blockchain.read() {
                 Ok(guard) => guard,
                 Err(poisoned) => {
-                    log::error!("Blockchain lock poisoned in submit_transaction, recovering...");
+                    log::error!(
+                        "Blockchain lock poisoned in submit_transactions_batch, recovering..."
+                    );
                     poisoned.into_inner()
                 }
             };
-            if chain.is_transaction_executed(&tx_hash_hex) {
+
+            let mut hashes = std::collections::HashSet::new();
+            if chain.has_executed_transactions() {
+                for (tx_hash, _, _, _) in &batch_metadata {
+                    if chain.is_transaction_hash_executed(tx_hash) {
+                        hashes.insert(tx_hash.clone());
+                    }
+                }
+            }
+            hashes
+        };
+
+        let mut batch_hashes = std::collections::HashSet::with_capacity(signed_txs.len());
+        let mut next_sequence_by_sender = base_sequences;
+        for (sender, pending_count) in pending_by_sender {
+            *next_sequence_by_sender.entry(sender).or_insert(0) += pending_count;
+        }
+
+        let mut accepted_hashes = Vec::with_capacity(signed_txs.len());
+        for (tx_hash, sender, tx_seq, _) in &batch_metadata {
+            let tx_hash_hex = hex::encode(tx_hash);
+
+            if pending_hashes.contains(tx_hash) || !batch_hashes.insert(tx_hash.clone()) {
+                anyhow::bail!("Transaction {} already in pending pool", tx_hash_hex);
+            }
+            if executed_hashes.contains(tx_hash) {
                 anyhow::bail!("Transaction {} already executed", tx_hash_hex);
             }
+
+            let expected_seq = next_sequence_by_sender.entry(sender.clone()).or_insert(0);
+
+            if *tx_seq < *expected_seq {
+                anyhow::bail!(
+                    "Sequence number too low: expected {}, got {}",
+                    expected_seq,
+                    tx_seq
+                );
+            }
+            if *tx_seq > *expected_seq {
+                anyhow::bail!(
+                    "Sequence number too high: expected {}, got {}",
+                    expected_seq,
+                    tx_seq
+                );
+            }
+
+            *expected_seq += 1;
+            accepted_hashes.push(tx_hash.clone());
         }
 
         let mut pending = match self.pending_txs.write() {
             Ok(guard) => guard,
             Err(poisoned) => {
-                log::error!("Pending txs lock poisoned in submit_transaction write, recovering...");
+                log::error!(
+                    "Pending txs lock poisoned in submit_transactions_batch write, recovering..."
+                );
                 poisoned.into_inner()
             }
         };
-        for ptx in pending.iter() {
-            if ptx.hash() == tx_hash {
-                anyhow::bail!("Transaction {} already in pending pool", tx_hash_hex);
-            }
+
+        if pending.len().saturating_add(signed_txs.len()) > MAX_MEMPOOL_SIZE {
+            anyhow::bail!("Mempool is currently full. Please try again later.");
         }
 
-        pending.push(signed_tx);
-        info!(
-            "[MEMPOOL] Transaction {} accepted and added to queue",
-            tx_hash_hex
-        );
-        Ok(tx_hash)
+        pending.extend(signed_txs);
+        self.pending_tx_hashes
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .extend(accepted_hashes.iter().cloned());
+        Ok(accepted_hashes)
     }
 
     pub fn execute_transaction_immediate(
@@ -753,7 +851,7 @@ impl BlockchainEngine {
             anyhow::bail!("Invalid transaction signature");
         }
 
-        let tx_hash = signed_tx.hash();
+        let tx_hash = signed_tx.transaction.hash();
         let tx = signed_tx.transaction;
 
         let changeset = {
@@ -814,7 +912,7 @@ impl BlockchainEngine {
                 );
 
                 let final_result = match result {
-                    Ok(cs) => Ok((tx.hash(), cs)),
+                    Ok(cs) => Ok((tx.transaction.hash(), cs)),
                     Err(e) => Err(anyhow::anyhow!("Parallel execution failed: {}", e)),
                 };
 
@@ -959,21 +1057,6 @@ impl BlockchainEngine {
         persist_runtime_state: bool,
     ) -> Result<ChangeSet> {
         let sender_addr = KanariAddress::parse_to_account_address(tx.sender_address())?;
-        if validate_sequence {
-            let state = match state_arc.read() {
-                Ok(guard) => guard,
-                Err(poisoned) => {
-                    log::error!(
-                        "State arc lock poisoned in execute_transaction_with_runtime_internal, recovering..."
-                    );
-                    poisoned.into_inner()
-                }
-            };
-            state
-                .validate_sequence(&sender_addr, tx.sequence_number())
-                .context("Sequence number validation failed")?;
-        }
-
         let mut gas_meter = GasMeter::new(tx.gas_limit(), tx.gas_price());
         let mut changeset = ChangeSet::new();
 
@@ -1000,10 +1083,15 @@ impl BlockchainEngine {
             let state = match state_arc.read() {
                 Ok(guard) => guard,
                 Err(poisoned) => {
-                    log::error!("State arc lock poisoned in balance check, recovering...");
+                    log::error!("State arc lock poisoned in pre-execution checks, recovering...");
                     poisoned.into_inner()
                 }
             };
+            if validate_sequence {
+                state
+                    .validate_sequence(&sender_addr, tx.sequence_number())
+                    .context("Sequence number validation failed")?;
+            }
             let balance = state
                 .get_account(&sender_addr)
                 .map(|acc| acc.native_balance())
@@ -1161,9 +1249,7 @@ impl BlockchainEngine {
             };
             let store = consensus.store();
             let current_round = store.current_round();
-            let num_authorities = store.num_authorities();
-
-            let quorum_needed = calculate_quorum(num_authorities);
+            let quorum_needed = consensus.committee().required_quorum();
 
             let current_round_vertices = store.get_vertices_in_round(current_round);
             let parents_available = current_round_vertices.len();
@@ -1209,6 +1295,7 @@ impl BlockchainEngine {
             blockchain: self.blockchain.clone(),
             state: self.state.clone(),
             pending_txs: self.pending_txs.clone(),
+            pending_tx_hashes: self.pending_tx_hashes.clone(),
             persistent_store: self.persistent_store.clone(),
             runtime_pool: self.runtime_pool.clone(),
             proof_cache: self.proof_cache.clone(),
@@ -1252,6 +1339,30 @@ impl BlockchainEngine {
 
     pub fn get_dag_engine(&self) -> Option<Arc<RwLock<Option<DagEngine>>>> {
         Some(self.dag_engine.clone())
+    }
+
+    pub fn export_consensus_metrics_prometheus(&self) -> Result<String> {
+        let dag_engine_guard = match self.dag_engine.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                log::error!("DAG engine lock poisoned in export_consensus_metrics_prometheus");
+                poisoned.into_inner()
+            }
+        };
+
+        if let Some(dag_engine) = dag_engine_guard.as_ref() {
+            let consensus_lock = dag_engine.consensus();
+            let consensus = match consensus_lock.read() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    log::error!("Consensus lock poisoned in metrics export");
+                    poisoned.into_inner()
+                }
+            };
+            return consensus.metrics().export_prometheus();
+        }
+
+        DagMetrics::default().export_prometheus()
     }
 
     pub fn latest_checkpoint_hash_hex(&self) -> String {
@@ -1330,12 +1441,10 @@ impl BlockchainEngine {
                 *entry = entry.saturating_add(amount);
             }
 
-            if actual_token_balances.is_empty() {
-                actual_token_balances = acc
-                    .token_balances
-                    .into_iter()
-                    .map(|(k, v)| (k, v.value()))
-                    .collect();
+            for (token_type, balance) in &acc.token_balances {
+                actual_token_balances
+                    .entry(token_type.clone())
+                    .or_insert_with(|| balance.value());
             }
 
             AccountInfo {
@@ -1548,7 +1657,8 @@ impl BlockchainEngine {
             block_data.height
         );
         for (i, signed_tx) in block_data.transactions.iter().enumerate() {
-            if !signed_tx.verify_signature()? {
+            let tx_hash = signed_tx.transaction.hash();
+            if !signed_tx.verify_signature_for_hash(&tx_hash)? {
                 anyhow::bail!(
                     "Invalid or missing signature for transaction {} in block #{}",
                     i + 1,
@@ -1596,9 +1706,29 @@ impl BlockchainEngine {
 #[cfg(test)]
 mod tests {
     use super::BlockchainEngine;
+    use kanari_crypto::keys::{CurveType, generate_keypair};
+    use kanari_types::transaction::{SignedTransaction, Transaction};
     use std::sync::Mutex;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn signed_transfer_from(
+        sender: &kanari_crypto::keys::KeyPair,
+        sequence_number: u64,
+    ) -> SignedTransaction {
+        let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+        let tx = Transaction::new_transfer(
+            sender.tagged_address(),
+            recipient.address,
+            1,
+            sequence_number,
+        );
+        let mut signed_tx = SignedTransaction::new(tx);
+        signed_tx
+            .sign(&sender.private_key, sender.curve_type)
+            .unwrap();
+        signed_tx
+    }
 
     #[test]
     fn mainnet_defaults_enable_strict_runtime_guards() {
@@ -1652,5 +1782,61 @@ mod tests {
             vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()],
         );
         assert!(engine.should_defer_user_execution_to_consensus());
+    }
+
+    #[test]
+    fn batch_submit_accepts_contiguous_sequences_for_same_sender() {
+        let engine = BlockchainEngine::new().unwrap();
+        let sender = generate_keypair(CurveType::Ed25519).unwrap();
+        let tx0 = signed_transfer_from(&sender, 0);
+        let tx1 = signed_transfer_from(&sender, 1);
+
+        let hashes = engine.submit_transactions_batch(vec![tx0, tx1]).unwrap();
+
+        assert_eq!(hashes.len(), 2);
+        assert_eq!(
+            engine
+                .pending_txs
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn batch_submit_rejects_duplicate_transactions() {
+        let engine = BlockchainEngine::new().unwrap();
+        let sender = generate_keypair(CurveType::Ed25519).unwrap();
+        let tx = signed_transfer_from(&sender, 0);
+
+        let err = engine
+            .submit_transactions_batch(vec![tx.clone(), tx])
+            .unwrap_err();
+
+        assert!(err.to_string().contains("already in pending pool"));
+    }
+
+    #[test]
+    fn batch_submit_rejects_transaction_already_indexed_in_pending_pool() {
+        let engine = BlockchainEngine::new().unwrap();
+        let sender = generate_keypair(CurveType::Ed25519).unwrap();
+        let tx = signed_transfer_from(&sender, 0);
+
+        engine.submit_transactions_batch(vec![tx.clone()]).unwrap();
+        let err = engine.submit_transactions_batch(vec![tx]).unwrap_err();
+
+        assert!(err.to_string().contains("already in pending pool"));
+    }
+
+    #[test]
+    fn batch_submit_rejects_sequence_gaps() {
+        let engine = BlockchainEngine::new().unwrap();
+        let sender = generate_keypair(CurveType::Ed25519).unwrap();
+        let tx = signed_transfer_from(&sender, 1);
+
+        let err = engine.submit_transactions_batch(vec![tx]).unwrap_err();
+
+        assert!(err.to_string().contains("Sequence number too high"));
     }
 }

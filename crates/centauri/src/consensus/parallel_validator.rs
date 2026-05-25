@@ -84,16 +84,6 @@ impl Default for ParallelValidatorConfig {
 }
 
 impl ParallelValidatorConfig {
-    pub fn moderate() -> Self {
-        let num_cpus = rayon::current_num_threads();
-        Self {
-            num_workers: num_cpus.min(16),
-            max_batch_size: 500,
-            parallel_sig_verify: true,
-            queue_capacity: 10000,
-        }
-    }
-
     pub fn high_throughput() -> Self {
         let num_cpus = rayon::current_num_threads();
         Self {
@@ -193,7 +183,8 @@ impl ParallelValidator {
         })
     }
 
-    pub fn with_persistent_store(
+    #[cfg(test)]
+    fn with_persistent_store(
         config: ParallelValidatorConfig,
         store: Arc<PersistentDagStore>,
     ) -> Result<Self> {
@@ -234,43 +225,6 @@ impl ParallelValidator {
         self.update_stats(&all_results, start.elapsed());
 
         Ok(all_results)
-    }
-
-    pub fn validate_vertex(&mut self, vertex: &DagVertex) -> Result<ValidationResult> {
-        let start = std::time::Instant::now();
-        let vertex_id = vertex.id;
-
-        if self.validated_cache.get(&vertex_id).is_some() {
-            let result = Self::validation_ok(vertex_id);
-            self.update_stats(std::slice::from_ref(&result), start.elapsed());
-            return Ok(result);
-        }
-
-        if let Some(store) = &self.persistent_store {
-            let is_in_bloom = {
-                let bloom = self
-                    .disk_bloom_filter
-                    .read()
-                    .unwrap_or_else(|e| e.into_inner());
-                bloom.contains(&vertex_id)
-            };
-
-            if is_in_bloom && let Ok(Some(_)) = store.get_vertex(&vertex_id) {
-                self.validated_cache.insert(vertex_id, true);
-                let result = Self::validation_ok(vertex_id);
-                self.update_stats(std::slice::from_ref(&result), start.elapsed());
-                return Ok(result);
-            }
-        }
-
-        // FIX: Use self. instead of Self::
-        let result = self.validate_single_ref(vertex);
-
-        if result.is_valid {
-            self.validated_cache.insert(vertex_id, true);
-        }
-        self.update_stats(std::slice::from_ref(&result), start.elapsed());
-        Ok(result)
     }
 
     pub fn validate_vertex_with_public_key(
@@ -577,7 +531,8 @@ impl ParallelValidator {
         &self.stats
     }
 
-    pub fn reset_stats(&mut self) {
+    #[cfg(test)]
+    fn reset_stats(&mut self) {
         self.stats = Self::default_stats();
     }
 
@@ -601,7 +556,8 @@ impl ParallelValidator {
         Ok(())
     }
 
-    pub fn cache_stats(&self) -> usize {
+    #[cfg(test)]
+    fn cache_stats(&self) -> usize {
         self.validated_cache.run_pending_tasks();
         self.validated_cache.entry_count() as usize
     }
@@ -611,11 +567,6 @@ impl ParallelValidator {
             self.validated_cache.invalidate(id);
             self.signature_validated_cache.invalidate(id);
         }
-    }
-
-    pub fn clear_cache(&mut self) {
-        self.validated_cache = LruCache::new(1_000_000);
-        self.signature_validated_cache = LruCache::new(1_000_000);
     }
 
     pub fn update_config(&mut self, config: ParallelValidatorConfig) -> Result<()> {
