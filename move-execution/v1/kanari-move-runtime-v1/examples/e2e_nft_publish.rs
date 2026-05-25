@@ -278,19 +278,15 @@ fn main() {
                                 crestor: MoveAccountAddress,
                             }
 
-                            match bcs::from_bytes::<MintEventPayload>(&ev.event_data) {
-                                Ok(payload) => {
-                                    println!(
-                                        "   parsed MintEvent: object_id={:#x} name={} number={} crestor={:#x}",
-                                        payload.object_id,
-                                        payload.name,
-                                        payload.number,
-                                        payload.crestor
-                                    );
-                                }
-                                Err(_) => {
-                                    // fallback: show printable substrings (already handled below)
-                                }
+                            if let Ok(payload) = bcs::from_bytes::<MintEventPayload>(&ev.event_data)
+                            {
+                                println!(
+                                    "   parsed MintEvent: object_id={:#x} name={} number={} crestor={:#x}",
+                                    payload.object_id,
+                                    payload.name,
+                                    payload.number,
+                                    payload.crestor
+                                );
                             }
                             // Heuristic: extract printable ASCII substrings
                             let mut ascii_runs: Vec<String> = Vec::new();

@@ -180,7 +180,7 @@ graph TD
 
 3. **Storage Flexibility**:
    - RocksDB for production persistence
-   - In-memory fallback for testing/Miri
+   - In-memory store for testing/Miri
    - Overlay mechanism for speculative execution
 
 4. **Gas Metering**:

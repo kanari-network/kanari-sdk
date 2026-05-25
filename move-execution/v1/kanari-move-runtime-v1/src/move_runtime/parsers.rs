@@ -6,7 +6,6 @@ use crate::changeset::ChangeSet;
 use kanari_types::event::Event;
 use kanari_types::object::{IDRecord, UIDRecord};
 use log::debug;
-use move_core_types::account_address::AccountAddress;
 use move_core_types::effects::Op as MoveOp;
 
 impl super::MoveRuntime {
@@ -35,19 +34,15 @@ impl super::MoveRuntime {
             }
 
             for (struct_tag, op) in account_changes.resources() {
-                let id_input = format!("0x{}::{}", hex::encode(addr.as_ref()), struct_tag);
-                let deterministic_id = format!(
-                    "0x{}",
-                    hex::encode(kanari_crypto::hash_data_blake3(id_input.as_bytes()))
-                );
-
                 match op {
                     MoveOp::New(bytes) | MoveOp::Modify(bytes) => {
                         // Extract UID from first 32 bytes if available (for Sui-style objects)
                         let uid_opt = if bytes.len() >= 32 {
                             let mut arr = [0u8; 32];
                             arr.copy_from_slice(&bytes[0..32]);
-                            Some(UIDRecord::new(AccountAddress::new(arr)))
+                            Some(UIDRecord::new(
+                                move_core_types::account_address::AccountAddress::new(arr),
+                            ))
                         } else {
                             None
                         };
@@ -56,35 +51,42 @@ impl super::MoveRuntime {
                         let id_opt = if bytes.len() >= 32 {
                             let mut arr = [0u8; 32];
                             arr.copy_from_slice(&bytes[0..32]);
-                            Some(IDRecord::new(AccountAddress::new(arr)))
+                            Some(IDRecord::new(
+                                move_core_types::account_address::AccountAddress::new(arr),
+                            ))
                         } else {
                             None
                         };
 
-                        // Determine final object ID: prefer UID, then ID, fallback to deterministic
                         let final_object_id = if let Some(uid) = &uid_opt {
                             uid.address().to_hex_literal()
                         } else if let Some(id) = &id_opt {
                             id.address().to_hex_literal()
                         } else {
-                            deterministic_id.clone()
+                            debug!(
+                                "[PARSER] skipping resource without UID/ID: addr={} type={}",
+                                addr.to_hex_literal(),
+                                struct_tag
+                            );
+                            continue;
                         };
 
-                        // Add created object with both UID and ID records
                         kanari_cs.add_created_object(
                             *addr,
                             format!("{}", struct_tag),
                             bytes.to_vec(),
                             0,
-                            uid_opt, // For ownership tracking
-                            id_opt,  // For DEX/DeFi copyable IDs
+                            uid_opt,
+                            id_opt,
                             Some(final_object_id),
                         );
                     }
                     MoveOp::Delete => {
-                        // 🚨 FIX: Delete only the fake ID, never force Token balance to 0!
-                        // StateManager will calculate the correct balance at the end
-                        kanari_cs.add_deleted_object(deterministic_id.clone());
+                        debug!(
+                            "[PARSER] skipping delete without concrete object id: addr={} type={}",
+                            addr.to_hex_literal(),
+                            struct_tag
+                        );
                     }
                 }
             }

@@ -12,7 +12,7 @@ use std::sync::{Arc, RwLock};
 
 /// Create a unique key for a dynamic field in RocksDB
 /// Format: df_{object_id}_{hash(name_bytes)}
-pub fn derive_dynamic_field_key(object_id: &str, name_bytes: &[u8]) -> String {
+fn derive_dynamic_field_key(object_id: &str, name_bytes: &[u8]) -> String {
     let hash = hash_data_blake3(name_bytes);
     format!("df_{}_{}", object_id, hex::encode(&hash[0..16]))
 }
@@ -28,23 +28,6 @@ pub enum ObjectStorageError {
 
     /// The requested object was not found in the store.
     NotFound,
-}
-
-impl ObjectStorageError {
-    /// Returns true when this is a lock-related error.
-    pub fn is_lock_error(&self) -> bool {
-        matches!(self, ObjectStorageError::LockError(_))
-    }
-
-    /// Returns true when this is a persistence backend error.
-    pub fn is_persistence_error(&self) -> bool {
-        matches!(self, ObjectStorageError::PersistenceError(_))
-    }
-
-    /// Returns true when the object was not found.
-    pub fn is_not_found(&self) -> bool {
-        matches!(self, ObjectStorageError::NotFound)
-    }
 }
 
 impl std::fmt::Display for ObjectStorageError {
@@ -170,7 +153,7 @@ impl ObjectStorage {
         ids.len() != initial_len
     }
 
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             state: Arc::new(RwLock::new(InnerState {
                 objects: BTreeMap::new(),
@@ -180,7 +163,7 @@ impl ObjectStorage {
         }
     }
 
-    pub fn boxed_inmemory() -> Box<dyn ObjectStore> {
+    pub(crate) fn boxed_inmemory() -> Box<dyn ObjectStore> {
         Box::new(Self::new())
     }
 }
@@ -192,7 +175,7 @@ impl Default for ObjectStorage {
 }
 
 impl ObjectStorage {
-    pub fn get_coins_by_type_and_owner(
+    fn get_coins_by_type_and_owner(
         &self,
         owner: AccountAddress,
         coin_type: &move_core_types::language_storage::TypeTag,
@@ -215,7 +198,7 @@ impl ObjectStorage {
     }
 
     /// Create a new ObjectStorage backed by RocksDB persistence (uses `PersistentStore::open_default`).
-    pub fn new_with_persistence() -> Result<Self> {
+    fn new_with_persistence() -> Result<Self> {
         let store = PersistentStore::open_default()?;
         let store = Arc::new(store);
 
@@ -240,14 +223,14 @@ impl ObjectStorage {
         })
     }
 
-    pub fn boxed_with_persistence() -> Result<Box<dyn ObjectStore>> {
+    pub(crate) fn boxed_with_persistence() -> Result<Box<dyn ObjectStore>> {
         if cfg!(miri) {
             return Ok(Self::boxed_inmemory());
         }
         Ok(Box::new(Self::new_with_persistence()?))
     }
 
-    pub fn store_object(&self, obj: StoredObject) -> Result<(), ObjectStorageError> {
+    fn store_object(&self, obj: StoredObject) -> Result<(), ObjectStorageError> {
         let id = obj.id.clone();
         let owner = obj.owner;
         let mut old_owner = None;
@@ -316,7 +299,7 @@ impl ObjectStorage {
     }
 
     /// Get all objects owned by an address
-    pub fn get_objects_by_owner(&self, owner: &AccountAddress) -> Vec<StoredObject> {
+    fn get_objects_by_owner(&self, owner: &AccountAddress) -> Vec<StoredObject> {
         // 🚨 Read Owner Index from DB directly if persistent
         if let Some(store) = &self.persistent {
             let key = Self::owner_key(owner);
@@ -342,7 +325,7 @@ impl ObjectStorage {
     }
 
     // Transfer object ownership
-    pub fn transfer_object(
+    fn transfer_object(
         &self,
         id: &str,
         new_owner: AccountAddress,
@@ -383,7 +366,7 @@ impl ObjectStorage {
     }
 
     /// Delete object
-    pub fn delete_object(&self, id: &str) -> Result<(), ObjectStorageError> {
+    fn delete_object(&self, id: &str) -> Result<(), ObjectStorageError> {
         let mut old_owner = None;
 
         {
@@ -414,7 +397,7 @@ impl ObjectStorage {
     }
 
     /// Get total number of objects
-    pub fn count(&self) -> usize {
+    fn count(&self) -> usize {
         self.state
             .read()
             .unwrap_or_else(|e| e.into_inner())
@@ -423,7 +406,7 @@ impl ObjectStorage {
     }
 
     /// Clear all objects
-    pub fn clear(&self) -> Result<(), ObjectStorageError> {
+    fn clear(&self) -> Result<(), ObjectStorageError> {
         let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
         state.objects.clear();
         state.dynamic_fields.clear(); // Clear Cache
@@ -434,7 +417,7 @@ impl ObjectStorage {
     // 🟢 Dynamic Field Implementations
     // =====================================================================
 
-    pub fn put_dynamic_field(
+    fn put_dynamic_field(
         &self,
         object_id: &str,
         name_bytes: &[u8],
@@ -459,7 +442,7 @@ impl ObjectStorage {
         Ok(())
     }
 
-    pub fn get_dynamic_field(&self, object_id: &str, name_bytes: &[u8]) -> Option<Vec<u8>> {
+    fn get_dynamic_field(&self, object_id: &str, name_bytes: &[u8]) -> Option<Vec<u8>> {
         let key = derive_dynamic_field_key(object_id, name_bytes);
 
         {
@@ -480,7 +463,7 @@ impl ObjectStorage {
         None
     }
 
-    pub fn remove_dynamic_field(&self, object_id: &str, name_bytes: &[u8]) -> Result<()> {
+    fn remove_dynamic_field(&self, object_id: &str, name_bytes: &[u8]) -> Result<()> {
         let key = derive_dynamic_field_key(object_id, name_bytes);
 
         {

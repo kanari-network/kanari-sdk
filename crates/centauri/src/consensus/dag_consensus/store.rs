@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
+use crate::calculate_quorum;
 
 impl DagStore {
     fn validate_pending_transactions(&self, vertex: &DagVertex) -> Result<()> {
@@ -58,7 +59,7 @@ impl DagStore {
         Some(vertex)
     }
 
-    fn validate_new_vertex(&self, vertex: &DagVertex, total_authorities: usize) -> Result<()> {
+    fn validate_new_vertex(&self, vertex: &DagVertex, required_quorum: usize) -> Result<()> {
         vertex.verify()?;
         if self.vertices.contains_key(&vertex.id) {
             anyhow::bail!("Vertex already exists");
@@ -66,7 +67,7 @@ impl DagStore {
         self.validate_pending_transactions(vertex)?;
 
         if vertex.round > 0 {
-            if !vertex.has_quorum_unique_authors(self, total_authorities) {
+            if !vertex.has_quorum_unique_authors(self, required_quorum) {
                 anyhow::bail!("Vertex does not have quorum from unique authors");
             }
 
@@ -150,13 +151,31 @@ impl DagStore {
     }
 
     pub fn add_vertex(&mut self, vertex: DagVertex, total_authorities: usize) -> Result<()> {
-        self.add_vertex_arc(Arc::new(vertex), total_authorities)
+        let required_quorum = calculate_quorum(total_authorities);
+        self.add_vertex_with_quorum(vertex, required_quorum)
+    }
+
+    pub fn add_vertex_with_quorum(
+        &mut self,
+        vertex: DagVertex,
+        required_quorum: usize,
+    ) -> Result<()> {
+        self.add_vertex_arc_with_quorum(Arc::new(vertex), required_quorum)
     }
 
     pub fn add_vertex_arc(
         &mut self,
         vertex: Arc<DagVertex>,
         total_authorities: usize,
+    ) -> Result<()> {
+        let required_quorum = calculate_quorum(total_authorities);
+        self.add_vertex_arc_with_quorum(vertex, required_quorum)
+    }
+
+    pub fn add_vertex_arc_with_quorum(
+        &mut self,
+        vertex: Arc<DagVertex>,
+        required_quorum: usize,
     ) -> Result<()> {
         if self.should_apply_backpressure() {
             anyhow::bail!(
@@ -165,7 +184,7 @@ impl DagStore {
                 self.max_pending_vertices
             );
         }
-        self.validate_new_vertex(&vertex, total_authorities)?;
+        self.validate_new_vertex(&vertex, required_quorum)?;
         if vertex.round > self.current_round {
             self.current_round = vertex.round;
         }

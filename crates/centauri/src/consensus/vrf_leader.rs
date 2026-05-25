@@ -179,7 +179,7 @@ impl VrfLeaderElection {
     }
 
     /// Create a new VRF leader election system
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             authority_keys: BTreeMap::new(),
             authority_pubkeys: BTreeMap::new(),
@@ -189,7 +189,7 @@ impl VrfLeaderElection {
     }
 
     /// Update current round (called when blockchain advances)
-    pub fn update_current_round(&mut self, round: Round) {
+    pub(crate) fn update_current_round(&mut self, round: Round) {
         self.current_round = round;
 
         // FIX #13: Prune old VRF data to prevent memory leaks
@@ -202,21 +202,16 @@ impl VrfLeaderElection {
 
     /// Register an authority with their VRF secret key
     /// In production, use secure key management
-    pub fn register_authority(&mut self, authority: AuthorityId, secret_key: VrfSecretKey) {
+    pub(crate) fn register_authority(&mut self, authority: AuthorityId, secret_key: VrfSecretKey) {
         let public_key = secret_key.public_key();
         self.authority_keys.insert(authority.clone(), secret_key);
         self.authority_pubkeys.insert(authority, public_key);
     }
 
     /// Register an authority with raw secret bytes (32 bytes)
-    pub fn register_authority_bytes(&mut self, authority: AuthorityId, secret: &[u8; 32]) {
+    pub(crate) fn register_authority_bytes(&mut self, authority: AuthorityId, secret: &[u8; 32]) {
         let secret_key = VrfSecretKey::from_bytes(*secret);
         self.register_authority(authority, secret_key);
-    }
-
-    /// Get public key for an authority
-    pub fn get_public_key(&self, authority: &str) -> Option<&VrfPublicKey> {
-        self.authority_pubkeys.get(authority)
     }
 
     /// Generate VRF output for a round
@@ -358,11 +353,6 @@ impl VrfLeaderElection {
         self.elect_leader(round)
             .map(|leader| leader == authority)
             .unwrap_or(false)
-    }
-
-    /// Get all VRF outputs for a round
-    pub fn get_vrfs(&self, round: Round) -> Vec<VrfOutput> {
-        self.vrf_cache.get(&round).cloned().unwrap_or_default()
     }
 
     /// Prune old VRF cache entries to prevent memory leak

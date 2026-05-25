@@ -107,7 +107,7 @@ fn main() -> Result<()> {
         }
     }
 
-    // Cleanup (non-Windows or fallback)
+    // Cleanup for non-Windows/manual path handling
     println!("6. Cleaning up test database...");
     match std::fs::remove_dir_all(&db_path) {
         Ok(_) => println!("   Cleanup successful!"),

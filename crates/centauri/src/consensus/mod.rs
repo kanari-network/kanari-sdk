@@ -35,25 +35,24 @@ pub use byzantine_detector::{
 // Vertex broadcast protocol
 mod vertex_broadcast;
 pub use vertex_broadcast::{
-    AdaptiveBatchConfig, CompressedBatch, DeltaSync, VertexBatch, VertexBloomFilter,
-    VertexBroadcaster,
+    AdaptiveBatchConfig, CompressedBatch, VertexBatch, VertexBloomFilter, VertexBroadcaster,
 };
 
 // State synchronization
 mod state_sync;
-pub use state_sync::{FastSync, StateSynchronizer, SyncProgress, SyncRequest, SyncResponse};
+pub use state_sync::{StateSynchronizer, SyncProgress, SyncRequest, SyncResponse};
 
-// Light client functionality
-mod light_client;
-pub use light_client::{
-    CheckpointBuilder, CheckpointSignature, LightCheckpoint, LightClient, StateProof,
-    TransactionProof,
-};
-
-// Committee management
+// Committee membership and quorum model
 mod committee;
 pub use committee::{
-    Committee, CommitteeChange, CommitteeChangeTx, CommitteeManager, ValidatorInfo,
+    AdaptiveQuorum, AdaptiveQuorumConfig, Committee, NetworkHealth, ValidatorInfo,
+};
+
+// Cross-shard DAG communication
+mod sharding;
+pub use sharding::{
+    AtomicCommitPhase, AtomicCommitPlan, AtomicCommitVote, CrossShardDispatch, CrossShardMessage,
+    CrossShardProof, CrossShardQueue, ShardId, ShardedDag,
 };
 
 // Persistent storage for DAG consensus

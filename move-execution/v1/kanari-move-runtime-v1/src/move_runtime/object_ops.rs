@@ -3,7 +3,6 @@
 
 // Object storage operations
 use crate::{changeset::ChangeSet, storage::object_storage::StoredObject};
-use anyhow::Result;
 use kanari_system_natives::transfer_natives::TransferredObject;
 use kanari_types::object::{IDRecord, UIDRecord};
 use log::debug;
@@ -12,30 +11,17 @@ use move_core_types::language_storage::StructTag;
 use std::str::FromStr;
 
 impl super::MoveRuntime {
-    /// Get object by ID from ObjectStorage
-    pub fn get_object(&self, object_id: &str) -> Option<StoredObject> {
-        self.object_storage.get_object(object_id)
-    }
+    fn canonical_object_id_str(object_id: &str) -> Option<String> {
+        let trimmed = object_id.trim();
+        let normalized = if trimmed.starts_with("0x") {
+            trimmed.to_string()
+        } else {
+            format!("0x{}", trimmed)
+        };
 
-    /// Get all objects owned by an address
-    pub fn get_objects_by_owner(&self, owner: &AccountAddress) -> Vec<StoredObject> {
-        self.object_storage.get_objects_by_owner(owner)
-    }
-
-    /// Transfer object ownership
-    pub fn transfer_object_ownership(
-        &self,
-        object_id: &str,
-        new_owner: AccountAddress,
-    ) -> Result<()> {
-        self.object_storage
-            .transfer_object(object_id, new_owner)
-            .map_err(|e| anyhow::anyhow!(e))
-    }
-
-    /// Get object storage count
-    pub fn get_object_count(&self) -> usize {
-        self.object_storage.count()
+        AccountAddress::from_hex_literal(&normalized)
+            .ok()
+            .map(|addr| addr.to_hex_literal())
     }
 
     /// Add transferred objects from native function tracking to changeset
@@ -65,29 +51,13 @@ impl super::MoveRuntime {
             );
 
             if !should_persist {
-                debug!(
-                    "Skipping non-persistable transferred object {} (fallback payload)",
-                    id
-                );
+                debug!("Skipping non-persistable transferred object {}", id);
                 continue;
             }
 
-            // 🚨 Always normalize Object ID to standard format (0x + 64 lowercase hex characters)
-            // Prevents Case Sensitive issues that cause database lookup failures in subsequent rounds
-            let canonical_id = {
-                let s_trim = id.trim();
-                let hex_str = if !s_trim.starts_with("0x") {
-                    format!("0x{}", s_trim)
-                } else {
-                    s_trim.to_string()
-                };
-
-                // Use Move Core to normalize (lowercase and zero-padded to 64 characters)
-                if let Ok(addr) = AccountAddress::from_hex_literal(&hex_str) {
-                    addr.to_hex_literal()
-                } else {
-                    hex_str.to_lowercase()
-                }
+            let Some(canonical_id) = Self::canonical_object_id_str(&id) else {
+                debug!("Skipping transferred object with invalid object id: {}", id);
+                continue;
             };
 
             let next_version = self

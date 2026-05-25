@@ -1,0 +1,17 @@
+[package]
+name = "kanari-open-rpc-spec"
+edition.workspace = true
+categories.workspace = true
+keywords.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Recorded OpenRPC schema assets for Kanari"
+
+[dependencies]
+anyhow = { workspace = true }
+kanari-open-rpc = { workspace = true }
+serde_json = { workspace = true }

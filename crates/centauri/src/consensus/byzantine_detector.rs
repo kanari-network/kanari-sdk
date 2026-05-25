@@ -13,8 +13,6 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
-use crate::calculate_quorum;
-
 use super::{AuthorityId, DagVertex, Round, VertexId};
 
 /// Constants for Byzantine detection and reputation management
@@ -228,23 +226,21 @@ impl ByzantineDetector {
     pub fn check_vertex_validity(
         &mut self,
         vertex: &DagVertex,
-        total_authorities: usize,
+        required_quorum: usize,
     ) -> Result<()> {
-        if total_authorities == 0 {
-            anyhow::bail!("Critical Error: Total authorities cannot be zero");
+        if required_quorum == 0 {
+            anyhow::bail!("Critical Error: Required quorum cannot be zero");
         }
 
         if vertex.round > 0 {
-            let quorum = calculate_quorum(total_authorities);
-
-            if vertex.parents.len() < quorum {
+            if vertex.parents.len() < required_quorum {
                 let fault = ByzantineFault::InvalidVertex {
                     authority: vertex.author.clone(),
                     vertex_id: vertex.id,
                     reason: format!(
                         "Insufficient parents: {} < {} (quorum)",
                         vertex.parents.len(),
-                        quorum
+                        required_quorum
                     ),
                 };
                 self.report_fault(fault)?;

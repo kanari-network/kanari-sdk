@@ -26,6 +26,8 @@ use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use std::io::Read;
 
+const LARGE_MESSAGE_COMPRESSION_THRESHOLD: usize = 100_000;
+
 /// P2P message types
 #[derive(Debug, Clone, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
 pub enum P2PMessage {
@@ -116,6 +118,15 @@ fn gzip_string(data: &str) -> Result<Vec<u8>> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
     encoder.write_all(data.as_bytes())?;
     Ok(encoder.finish()?)
+}
+
+fn is_duplicate_publish_error(err: &gossipsub::PublishError) -> bool {
+    let err_str = err.to_string();
+    err_str.contains("Duplicate") || err_str.contains("duplicate")
+}
+
+fn is_insufficient_peers_error(err: &gossipsub::PublishError) -> bool {
+    err.to_string().contains("InsufficientPeers")
 }
 
 impl P2PNetwork {
@@ -312,7 +323,7 @@ impl P2PNetwork {
 
     fn compress_large_message(msg: P2PMessage) -> Result<P2PMessage> {
         match msg {
-            P2PMessage::NewBlock(data) if data.len() > 100_000 => {
+            P2PMessage::NewBlock(data) if data.len() > LARGE_MESSAGE_COMPRESSION_THRESHOLD => {
                 let compressed_data = gzip_string(&data)?;
                 info!(
                     "[P2P] Compressed block from {} to {} bytes",
@@ -321,7 +332,7 @@ impl P2PNetwork {
                 );
                 Ok(P2PMessage::CompressedBlock(compressed_data))
             }
-            P2PMessage::NewDagVertex(data) if data.len() > 100_000 => {
+            P2PMessage::NewDagVertex(data) if data.len() > LARGE_MESSAGE_COMPRESSION_THRESHOLD => {
                 let compressed_data = gzip_string(&data)?;
                 info!(
                     "[P2P] Compressed DAG vertex from {} to {} bytes",
@@ -330,7 +341,7 @@ impl P2PNetwork {
                 );
                 Ok(P2PMessage::CompressedDagVertex(compressed_data))
             }
-            P2PMessage::BlockResponse(data) if data.len() > 100_000 => {
+            P2PMessage::BlockResponse(data) if data.len() > LARGE_MESSAGE_COMPRESSION_THRESHOLD => {
                 let compressed_data = gzip_string(&data)?;
                 info!(
                     "[P2P] Compressed BlockResponse from {} to {} bytes",
@@ -339,7 +350,9 @@ impl P2PNetwork {
                 );
                 Ok(P2PMessage::CompressedBlockResponse(compressed_data))
             }
-            P2PMessage::TargetedBlockResponse(resp) if resp.block_data.len() > 100_000 => {
+            P2PMessage::TargetedBlockResponse(resp)
+                if resp.block_data.len() > LARGE_MESSAGE_COMPRESSION_THRESHOLD =>
+            {
                 let compressed_block_data = gzip_string(&resp.block_data)?;
                 info!(
                     "[P2P] Compressed TargetedBlockResponse from {} to {} bytes",
@@ -378,14 +391,13 @@ impl P2PNetwork {
         {
             Ok(_) => Ok(()),
             Err(e) => {
-                let err_str = e.to_string();
                 // Handle duplicate messages gracefully
                 // "Duplicate" comes from gossipsub when message is already seen
-                if err_str.contains("Duplicate") || err_str.contains("duplicate") {
+                if is_duplicate_publish_error(&e) {
                     // Duplicate is not an error, just skip silently
                     return Ok(());
                 }
-                if err_str.contains("InsufficientPeers") {
+                if is_insufficient_peers_error(&e) {
                     // This is normal when starting up or isolated - just log debug/info
                     tracing::debug!("No peers subscribed to topic yet");
                     return Ok(());
@@ -490,6 +502,29 @@ impl P2PEventHandler {
             Ok(data) => self.forward_message(make_message(data), send_context),
             Err(e) => {
                 warn!("{}: {}", failure_context, e);
+                false
+            }
+        }
+    }
+
+    fn forward_targeted_block_response(
+        &self,
+        resp: &CompressedBlockResponseMsg,
+        send_context: &str,
+    ) -> bool {
+        match decompress_block(resp.compressed_block_data.clone()) {
+            Ok(block_data) => self.forward_message(
+                P2PMessage::TargetedBlockResponse(BlockResponseMsg {
+                    height: resp.height,
+                    request_timestamp: resp.request_timestamp,
+                    requester_peer_id: resp.requester_peer_id.clone(),
+                    responder_peer_id: resp.responder_peer_id.clone(),
+                    block_data,
+                }),
+                send_context,
+            ),
+            Err(e) => {
+                warn!("[P2P] Failed to decompress targeted block response: {}", e);
                 false
             }
         }
@@ -639,26 +674,10 @@ impl P2PEventHandler {
                                 return;
                             }
                             P2PMessage::CompressedTargetedBlockResponse(resp) => {
-                                match decompress_block(resp.compressed_block_data.clone()) {
-                                    Ok(block_data) => {
-                                        self.forward_message(
-                                            P2PMessage::TargetedBlockResponse(BlockResponseMsg {
-                                                height: resp.height,
-                                                request_timestamp: resp.request_timestamp,
-                                                requester_peer_id: resp.requester_peer_id.clone(),
-                                                responder_peer_id: resp.responder_peer_id.clone(),
-                                                block_data,
-                                            }),
-                                            "[P2P] Failed to forward decompressed targeted block response",
-                                        );
-                                    }
-                                    Err(e) => {
-                                        warn!(
-                                            "[P2P] Failed to decompress targeted block response: {}",
-                                            e
-                                        );
-                                    }
-                                }
+                                self.forward_targeted_block_response(
+                                    resp,
+                                    "[P2P] Failed to forward decompressed targeted block response",
+                                );
                                 return;
                             }
                             _ => {}

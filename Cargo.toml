@@ -33,13 +33,17 @@ members = [
       "packages/kanari_flutter/rust",
       "crates/kanari-core",
       "crates/smt",
-      "crates/tps-harness", 
+      "crates/kanari-benchmarks", 
       "crates/kanari-system-natives",
       "crates/kanari-db-common", 
       "crates/centauri", 
       "sdk/wallet", 
       "crates/kanari-indexer", 
       "crates/run-auth",
+      "crates/kanari-open-rpc",
+      "crates/kanari-open-rpc-macros",
+      "crates/kanari-open-rpc-spec",
+      "crates/kanari-open-rpc-spec-builder",
 
       # move-execution
       "move-execution/v0/kanari-move-runtime", 
@@ -170,6 +174,7 @@ log = { version = "0.4.28", default-features = true }
 tracing = "0.1.43"
 tracing-subscriber = "0.3.23"
 env_logger = "0.11.8"
+prometheus = "0.14.0"
 
 # ============================================================================
 # CLI, Configuration & Utilities
@@ -241,6 +246,9 @@ kanari-faucet = { path = "crates/kanari-faucet" }
 kanari-core = { path = "crates/kanari-core" }
 kanari-system-natives = { path = "crates/kanari-system-natives" }
 kanari-db-common = { path = "crates/kanari-db-common" }
+kanari-open-rpc = { path = "crates/kanari-open-rpc" }
+kanari-open-rpc-macros = { path = "crates/kanari-open-rpc-macros" }
+kanari-open-rpc-spec = { path = "crates/kanari-open-rpc-spec" }
 
 # SMT Support
 smt = { path = "crates/smt" }

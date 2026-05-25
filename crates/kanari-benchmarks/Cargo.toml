@@ -1,5 +1,5 @@
 [package]
-name = "tps-harness"
+name = "kanari-benchmarks"
 edition.workspace = true
 categories.workspace = true
 keywords.workspace = true
@@ -18,4 +18,3 @@ move-core-types = { workspace = true }
 kanari-crypto = { workspace = true }
 anyhow = { workspace = true }
 tempfile = { workspace = true }
-tikv-jemallocator = { workspace = true }

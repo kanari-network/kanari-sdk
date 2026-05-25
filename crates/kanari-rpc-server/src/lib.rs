@@ -6,7 +6,13 @@
 //! JSON-RPC server for Kanari blockchain using Axum framework
 
 use anyhow::Result;
-use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::post};
+use axum::{
+    Json, Router,
+    extract::State,
+    http::{StatusCode, header},
+    response::IntoResponse,
+    routing::{get, post},
+};
 use kanari_core::BlockchainEngine;
 use kanari_rpc_api::*;
 
@@ -126,6 +132,7 @@ pub fn create_router(state: RpcServerState) -> Router {
     Router::new()
         .route("/", post(handle_rpc))
         .route("/rpc", post(handle_rpc))
+        .route("/metrics", get(handle_metrics))
         .layer(cors)
         .with_state(state)
 }
@@ -186,6 +193,26 @@ async fn handle_rpc(
     (StatusCode::OK, Json(response))
 }
 
+async fn handle_metrics(State(state): State<RpcServerState>) -> impl IntoResponse {
+    match state.engine.export_consensus_metrics_prometheus() {
+        Ok(metrics) => (
+            StatusCode::OK,
+            [(
+                header::CONTENT_TYPE,
+                "text/plain; version=0.0.4; charset=utf-8",
+            )],
+            metrics,
+        )
+            .into_response(),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            format!("failed to export metrics: {error}"),
+        )
+            .into_response(),
+    }
+}
+
 /// Start RPC server
 pub async fn start_server(engine: Arc<BlockchainEngine>, addr: &str) -> Result<()> {
     let state = RpcServerState::new(engine);
@@ -217,4 +244,306 @@ async fn handle_health(state: &RpcServerState, request: &RpcRequest) -> RpcRespo
     };
 
     respond_with_serialize(request.id, health)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Method, Request, StatusCode},
+        response::Response,
+    };
+    use kanari_core::kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
+    use kanari_core::kanari_move_runtime_v1::state::{Account, StateManager};
+    use kanari_crypto::keys::{CurveType, generate_keypair};
+    use kanari_rpc_api::methods;
+    use kanari_types::balance::BalanceRecord;
+    use kanari_types::kanari::KANARI_TOKEN_TYPE;
+    use kanari_types::transaction::{SignedTransaction, Transaction};
+    use move_core_types::account_address::AccountAddress;
+    use std::sync::{Mutex, OnceLock};
+    use tower::util::ServiceExt;
+
+    fn test_guard() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    fn coin_data(amount: u64) -> Vec<u8> {
+        let mut data = vec![0u8; 40];
+        data[32..40].copy_from_slice(&amount.to_le_bytes());
+        data
+    }
+
+    fn hex_ends_with(value: &serde_json::Value, suffix: &str) -> bool {
+        value
+            .as_str()
+            .map(|s| {
+                s.trim_start_matches("0x")
+                    .ends_with(suffix.trim_start_matches("0x"))
+            })
+            .unwrap_or(false)
+    }
+
+    fn seed_runtime_state(state: &mut StateManager) {
+        let owner = AccountAddress::from_hex_literal("0x1111").unwrap();
+        let coin_type = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
+
+        let mut cs = ChangeSet::new();
+        cs.add_treasury(owner, KANARI_TOKEN_TYPE.to_string(), 500);
+        cs.created_objects.push((
+            "0xaaa1".to_string(),
+            CreatedObject {
+                owner,
+                uid: None,
+                id: None,
+                type_: coin_type.clone(),
+                data: coin_data(300),
+                version: 1,
+            },
+        ));
+        cs.created_objects.push((
+            "0xaaa2".to_string(),
+            CreatedObject {
+                owner,
+                uid: None,
+                id: None,
+                type_: coin_type,
+                data: coin_data(200),
+                version: 2,
+            },
+        ));
+        state.apply_changeset(&cs).unwrap();
+        let mut account = state
+            .get_account(&owner)
+            .unwrap_or_else(|| Account::new(owner));
+        account.set_token_balance(KANARI_TOKEN_TYPE.to_string(), BalanceRecord::new(500));
+        state.save_account(&account).unwrap();
+        assert_eq!(
+            state
+                .get_account(&owner)
+                .unwrap()
+                .get_token_balance(KANARI_TOKEN_TYPE),
+            500
+        );
+    }
+
+    fn build_test_router() -> Router {
+        let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
+        {
+            let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
+            seed_runtime_state(&mut state);
+        }
+        create_router(RpcServerState::new(engine))
+    }
+
+    async fn rpc_call(
+        app: Router,
+        method: &str,
+        params: serde_json::Value,
+        id: u64,
+    ) -> serde_json::Value {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/rpc")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "method": method,
+                    "params": params,
+                    "id": id
+                })
+                .to_string(),
+            ))
+            .unwrap();
+
+        let response: Response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(
+            json.get("error").is_none() || json.get("error").unwrap().is_null(),
+            "unexpected rpc error: {json}"
+        );
+        json["result"].clone()
+    }
+
+    #[tokio::test]
+    async fn rpc_runtime_backed_endpoints_smoke() {
+        let guard = test_guard();
+        let app = build_test_router();
+
+        let health = rpc_call(app.clone(), methods::HEALTH, serde_json::json!([]), 1).await;
+        assert!(health["status"].as_str().is_some());
+        assert!(health["persistent_storage_available"].is_boolean());
+        assert!(health["supply_invariants_ok"].is_boolean());
+
+        let stats = rpc_call(app.clone(), methods::GET_STATS, serde_json::json!([]), 2).await;
+        assert_eq!(stats["total_supply"], 500);
+        assert!(stats["total_accounts"].as_u64().is_some());
+
+        let height = rpc_call(
+            app.clone(),
+            methods::GET_BLOCK_HEIGHT,
+            serde_json::json!([]),
+            3,
+        )
+        .await;
+        assert!(height.as_u64().is_some());
+
+        let account = rpc_call(
+            app.clone(),
+            methods::GET_ACCOUNT,
+            serde_json::json!("0x1111"),
+            4,
+        )
+        .await;
+        assert!(hex_ends_with(&account["address"], "1111"));
+        assert_eq!(account["token_balances"][KANARI_TOKEN_TYPE], 500);
+        assert_eq!(account["owned_objects"].as_array().unwrap().len(), 1);
+
+        let all_balances = rpc_call(
+            app.clone(),
+            methods::GET_ALL_BALANCES,
+            serde_json::json!({ "address": "0x1111" }),
+            5,
+        )
+        .await;
+        let balances = all_balances["balances"].as_array().unwrap();
+        assert_eq!(balances.len(), 1);
+        assert_eq!(balances[0]["token_type"], KANARI_TOKEN_TYPE);
+        assert_eq!(balances[0]["balance"], 500);
+
+        let tokens = rpc_call(app.clone(), methods::LIST_TOKENS, serde_json::json!([]), 6).await;
+        let token_list = tokens.as_array().unwrap();
+        assert!(!token_list.is_empty());
+        assert!(token_list.iter().any(|token| {
+            token["token_type"]
+                .as_str()
+                .map(|ty| ty.contains("KANARI"))
+                .unwrap_or(false)
+        }));
+
+        let object = rpc_call(
+            app.clone(),
+            methods::GET_OBJECT,
+            serde_json::json!({ "object_id": "0xaaa1" }),
+            7,
+        )
+        .await;
+        assert!(hex_ends_with(&object["id"], "aaa1"));
+        assert_eq!(object["version"], 1);
+
+        let owned = rpc_call(
+            app,
+            methods::GET_OWNED_OBJECTS,
+            serde_json::json!({
+                "owner": "0x1111",
+                "object_type": "::coin::Coin<"
+            }),
+            8,
+        )
+        .await;
+        let objects = owned["objects"].as_array().unwrap();
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0]["version"], 2);
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn metrics_endpoint_exports_prometheus_text() {
+        let guard = test_guard();
+        let app = build_test_router();
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
+
+        let response: Response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        assert!(content_type.starts_with("text/plain"));
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(text.contains("# HELP dag_vertices_created_total"));
+        assert!(text.contains("# TYPE dag_active_vertices gauge"));
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn submitted_transaction_hash_is_queryable() {
+        let guard = test_guard();
+        let app = build_test_router();
+
+        let sender = generate_keypair(CurveType::Ed25519).unwrap();
+        let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+        let sender_tagged = sender.tagged_address();
+        let recipient_address = recipient.address.clone();
+
+        let transaction = Transaction::Transfer {
+            from: sender_tagged.clone(),
+            to: recipient_address.clone(),
+            amount: 1,
+            gas_limit: 1_000_000,
+            gas_price: 1,
+            sequence_number: 0,
+        };
+        let mut signed_tx = SignedTransaction::new(transaction);
+        signed_tx
+            .sign(&sender.private_key, sender.curve_type)
+            .unwrap();
+
+        let submitted = rpc_call(
+            app.clone(),
+            methods::SUBMIT_TRANSACTION,
+            serde_json::json!({
+                "sender": sender_tagged,
+                "recipient": recipient_address,
+                "amount": 1,
+                "gas_limit": 1_000_000,
+                "gas_price": 1,
+                "sequence_number": 0,
+                "signature": signed_tx.signature,
+            }),
+            10,
+        )
+        .await;
+        let hash = submitted["hash"].as_str().unwrap().to_string();
+
+        let fetched = rpc_call(
+            app.clone(),
+            methods::GET_TRANSACTION,
+            serde_json::json!({ "hash": hash }),
+            11,
+        )
+        .await;
+        assert_eq!(fetched["hash"], format!("0x{}", hash));
+        assert_eq!(fetched["status"], "pending");
+
+        let all = rpc_call(
+            app,
+            methods::GET_ALL_TRANSACTIONS,
+            serde_json::json!({ "limit": 10 }),
+            12,
+        )
+        .await;
+        assert!(all.as_array().unwrap().iter().any(|tx| {
+            tx["hash"]
+                .as_str()
+                .map(|candidate| candidate == format!("0x{}", hash))
+                .unwrap_or(false)
+        }));
+
+        drop(guard);
+    }
 }

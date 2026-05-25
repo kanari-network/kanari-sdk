@@ -35,7 +35,7 @@ pub struct AccountChange {
 }
 
 impl AccountChange {
-    pub fn new(address: AccountAddress) -> Self {
+    fn new(address: AccountAddress) -> Self {
         Self {
             address,
             balance_delta: 0,
@@ -56,7 +56,7 @@ impl AccountChange {
         self.sequence_increment += 1;
     }
 
-    pub fn add_module(&mut self, module_name: String) {
+    fn add_module(&mut self, module_name: String) {
         self.modules_added.insert(module_name);
     }
 }
@@ -110,14 +110,6 @@ impl ChangeSet {
 
     pub fn new() -> Self {
         Self::with_status(0, true, None)
-    }
-
-    pub fn with_gas(gas_used: u64) -> Self {
-        Self::with_status(gas_used, true, None)
-    }
-
-    pub fn failed(error: String, gas_used: u64) -> Self {
-        Self::with_status(gas_used, false, Some(error))
     }
 
     pub fn get_or_create_change(&mut self, address: AccountAddress) -> &mut AccountChange {
@@ -184,10 +176,6 @@ impl ChangeSet {
             && self.error_message.is_none()
     }
 
-    pub fn account_count(&self) -> usize {
-        self.account_changes.len()
-    }
-
     /// Merge another ChangeSet into this one
     /// Used to combine Move VM changes with gas/sequence changes
     /// Token balance sets are consolidated to prevent duplicates
@@ -239,16 +227,6 @@ impl ChangeSet {
         AccountAddress::from_hex_literal(object_id)
             .map(|addr| addr.to_hex_literal())
             .unwrap_or_else(|_| object_id.to_string())
-    }
-
-    /// Record an NftCap creation/update for a given token type
-    pub fn add_nftcap(
-        &mut self,
-        owner: AccountAddress,
-        token_type: String,
-        cap: kanari_types::collection::NftCapRecord,
-    ) {
-        self.nft_caps.push((owner, token_type, cap));
     }
 
     /// Record a treasury (TreasuryCap) creation/update for a given token type
@@ -342,44 +320,6 @@ impl ChangeSet {
                 },
             ));
         }
-    }
-
-    /// Compute the canonical id for an object using the same logic as
-    /// `add_created_object`. Exposed so external callers can persist objects
-    /// under the identical id before or after calling into the ChangeSet.
-    pub fn compute_canonical_id(
-        owner: &AccountAddress,
-        type_: &str,
-        data: &[u8],
-        uid: &Option<UIDRecord>,
-        id: &Option<IDRecord>,
-    ) -> String {
-        if let Some(u) = uid {
-            format!("{:#x}", u.address())
-        } else if let Some(i) = id {
-            format!("{:#x}", i.address())
-        } else {
-            let mut input = Vec::new();
-            input.extend_from_slice(owner.as_ref());
-            input.extend_from_slice(type_.as_bytes());
-            input.extend_from_slice(data);
-            let hash = hash_data_blake3(&input);
-            format!("0x{}", hex::encode(&hash[0..32]))
-        }
-    }
-
-    /// Helper to create IDRecord from object ID string (for DEX/DeFi use cases)
-    pub fn create_id_record(object_id: &str) -> Option<IDRecord> {
-        AccountAddress::from_hex_literal(object_id)
-            .ok()
-            .map(IDRecord::new)
-    }
-
-    /// Helper to create UIDRecord from object ID string (for ownership tracking)
-    pub fn create_uid_record(object_id: &str) -> Option<UIDRecord> {
-        AccountAddress::from_hex_literal(object_id)
-            .ok()
-            .map(UIDRecord::new)
     }
 }
 

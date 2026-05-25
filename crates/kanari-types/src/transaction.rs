@@ -34,16 +34,19 @@ impl SignedTransaction {
     }
 
     pub fn verify_signature(&self) -> Result<bool> {
+        let tx_hash = self.transaction.hash();
+        self.verify_signature_for_hash(&tx_hash)
+    }
+
+    pub fn verify_signature_for_hash(&self, tx_hash: &[u8]) -> Result<bool> {
         if self.signature.is_empty() {
             anyhow::bail!("Transaction not signed");
         }
 
         let signature = &self.signature;
-
-        let tx_hash = self.transaction.hash();
         let sender = self.transaction.sender();
 
-        verify_signature(sender, &tx_hash, signature)
+        verify_signature(sender, tx_hash, signature)
             .map_err(|e| anyhow::anyhow!("Signature verification failed: {}", e))
     }
 

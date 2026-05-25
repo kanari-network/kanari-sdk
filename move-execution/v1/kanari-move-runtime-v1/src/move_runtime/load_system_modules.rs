@@ -256,9 +256,9 @@ fn verify_framework_hash(
 }
 
 fn prune_framework_modules(
-    _runtime: &super::MoveRuntime,
-    _modules: &[DiscoveredModule],
-    _framework_addr: AccountAddress,
+    runtime: &super::MoveRuntime,
+    modules: &[DiscoveredModule],
+    framework_addr: AccountAddress,
 ) {
     #[cfg(feature = "framework-pruning")]
     {
@@ -273,6 +273,9 @@ fn prune_framework_modules(
             }
         }
     }
+
+    #[cfg(not(feature = "framework-pruning"))]
+    let _ = (runtime, modules, framework_addr);
 }
 
 fn save_framework_modules(

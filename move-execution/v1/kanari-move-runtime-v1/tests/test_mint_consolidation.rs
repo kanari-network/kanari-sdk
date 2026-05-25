@@ -1,3 +1,5 @@
+#![allow(clippy::print_stdout)]
+
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 

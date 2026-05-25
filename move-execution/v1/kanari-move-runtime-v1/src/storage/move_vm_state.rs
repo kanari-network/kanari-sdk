@@ -2,11 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Result;
-use kanari_types::coin::TreasuryCap;
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::Identifier;
 use move_core_types::language_storage::ModuleId;
-use move_vm_test_utils::InMemoryStorage;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -20,7 +18,6 @@ pub struct MoveVMState {
 
 impl MoveVMState {
     const MODULE_INDEX_KEY: &'static [u8] = b"module_index";
-    const TREASURY_INDEX_KEY: &'static [u8] = b"treasury_index";
 
     /// Create an in-memory MoveVMState for testing or Miri (no filesystem ops).
     pub fn new_in_memory() -> Result<Self> {
@@ -53,10 +50,6 @@ impl MoveVMState {
         tag: &move_core_types::language_storage::StructTag,
     ) -> String {
         format!("resource:{}:{}", address.to_hex_literal(), tag)
-    }
-
-    fn treasury_key(token_type: &str) -> String {
-        format!("treasury:{}", token_type)
     }
 
     fn framework_manifest_key(name: &str) -> String {
@@ -144,28 +137,6 @@ impl MoveVMState {
             .flatten()
     }
 
-    /// Load persisted modules into an `InMemoryStorage` instance.
-    /// Returns a list of loaded ModuleIds.
-    pub fn load_into_storage(&self, storage: &mut InMemoryStorage) -> Result<Vec<ModuleId>> {
-        // Prefix scan is not directly supported by SMT shim; fallback to RocksDB
-        // behavior by attempting to iterate using underlying RocksDB if available.
-        // For simplicity, attempt to load by trying keys stored in an index key
-        // `module_index` if present, otherwise return Ok(()) to avoid blocking.
-
-        let mut loaded_modules = Vec::new();
-
-        for module_key in self.load_string_index(Self::MODULE_INDEX_KEY)? {
-            if let Some(module_id) = Self::parse_module_key(&module_key)
-                && let Ok(Some(blob)) = self.store.load::<Vec<u8>>(module_key.as_bytes())
-            {
-                storage.publish_or_overwrite_module(module_id.clone(), blob);
-                loaded_modules.push(module_id);
-            }
-        }
-
-        Ok(loaded_modules)
-    }
-
     /// Get all module IDs from the persistent index.
     pub fn get_all_module_ids(&self) -> Result<Vec<ModuleId>> {
         let mut modules = Vec::new();
@@ -248,39 +219,6 @@ impl MoveVMState {
         self.store
             .delete(key.as_bytes())
             .map_err(|e| anyhow::anyhow!(e))
-    }
-
-    /// Persist a treasury record (owner + total_supply) for a token type so it
-    /// survives node restarts. Uses `treasury_index` to track persisted keys.
-    pub fn save_treasury(
-        &self,
-        token_type: &str,
-        owner: &AccountAddress,
-        total: u64,
-    ) -> Result<()> {
-        let key = Self::treasury_key(token_type);
-        let cap = TreasuryCap {
-            total_supply: total,
-        };
-
-        self.store.save(key.as_bytes(), &(owner, cap))?;
-        self.add_to_string_index(Self::TREASURY_INDEX_KEY, key)?;
-        Ok(())
-    }
-
-    /// Load persisted treasuries as a vector of tuples (owner, token_type, TreasuryCap)
-    pub fn load_treasuries(&self) -> Result<Vec<(AccountAddress, String, TreasuryCap)>> {
-        let mut out = Vec::new();
-        for key in self.load_string_index(Self::TREASURY_INDEX_KEY)? {
-            if let Ok(Some((owner_addr, cap))) = self
-                .store
-                .load::<(AccountAddress, TreasuryCap)>(key.as_bytes())
-            {
-                let token_type = key.strip_prefix("treasury:").unwrap_or(&key).to_string();
-                out.push((owner_addr, token_type, cap));
-            }
-        }
-        Ok(out)
     }
 }
 

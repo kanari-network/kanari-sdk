@@ -5,11 +5,8 @@
 //! Integrates DAG consensus with parallel transaction execution
 
 use anyhow::Result;
-use centauri::calculate_quorum;
 use centauri::consensus::{DagConsensus, VertexId};
 use log::{error, info};
-use lru::LruCache;
-use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
 
 use super::*;
@@ -35,8 +32,6 @@ pub struct CheckpointInfo {
     pub tx_count: usize,
 }
 
-type StateCache = Arc<RwLock<LruCache<Vec<u8>, Arc<RwLock<StateManager>>>>>;
-
 /// DAG-enabled blockchain engine
 #[derive(Clone)]
 pub struct DagEngine {
@@ -48,13 +43,17 @@ pub struct DagEngine {
 
     /// This node's authority ID
     authority_id: String,
-
-    /// Cache for execution results to avoid re-execution in apply_checkpoint
-    /// Maps VertexId -> Post-execution State
-    state_cache: StateCache,
 }
 
 impl DagEngine {
+    fn persist_consensus_state(&self) -> Result<()> {
+        let state = {
+            let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
+            consensus.save_state()?
+        };
+        self.engine.persist_dag_state(state)
+    }
+
     fn apply_checkpoint_once(
         &self,
         mut checkpoint: centauri::consensus::Checkpoint,
@@ -78,8 +77,28 @@ impl DagEngine {
             return Ok(checkpoint);
         }
 
+        let previous_checkpoint_root = {
+            let chain = self
+                .engine
+                .blockchain
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
+            chain.latest_checkpoint().state_root.clone()
+        };
+
         let (computed_root, verified_state, to_execute) =
             self.engine.prepare_checkpoint_state(&checkpoint)?;
+
+        if checkpoint.transactions.is_empty() {
+            checkpoint.state_root = previous_checkpoint_root;
+            self.engine.apply_prepared_checkpoint(
+                checkpoint.clone(),
+                verified_state,
+                to_execute,
+            )?;
+            return Ok(checkpoint);
+        }
+
         if self.engine.checkpoint_root_matches(
             checkpoint.sequence,
             &computed_root,
@@ -122,6 +141,11 @@ impl DagEngine {
         (latest.sequence == sequence).then(|| latest.clone())
     }
 
+    fn has_consensus_committed_transaction(&self, tx_hash: &[u8]) -> bool {
+        let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
+        consensus.has_executed_transaction(tx_hash)
+    }
+
     /// Create a new DAG engine with default configuration (optimized for 500K TPS)
     pub fn new(
         engine: Arc<BlockchainEngine>,
@@ -138,7 +162,41 @@ impl DagEngine {
 
         // Load persisted DAG state if it exists
         if let Some(dag_state) = &engine.persisted_dag_state {
-            if let Err(e) = consensus.load_state(dag_state.clone()) {
+            let (blockchain_checkpoint_seq, blockchain_checkpoint_hash) = {
+                let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+                (
+                    chain.latest_checkpoint().sequence,
+                    chain.latest_checkpoint().hash()?,
+                )
+            };
+            let dag_checkpoint_seq = dag_state
+                .checkpoints
+                .last()
+                .map(|checkpoint| checkpoint.sequence)
+                .unwrap_or(0);
+            let dag_checkpoint_hash = dag_state
+                .checkpoints
+                .last()
+                .map(|checkpoint| checkpoint.hash())
+                .transpose()?
+                .unwrap_or_else(|| {
+                    centauri::consensus::Checkpoint::genesis()
+                        .hash()
+                        .expect("genesis checkpoint hash should be infallible")
+                });
+
+            if dag_checkpoint_seq != blockchain_checkpoint_seq {
+                error!(
+                    "Persisted DAG state checkpoint sequence ({}) does not match blockchain ({}) - ignoring stale DAG state.",
+                    dag_checkpoint_seq, blockchain_checkpoint_seq
+                );
+            } else if dag_checkpoint_hash != blockchain_checkpoint_hash {
+                error!(
+                    "Persisted DAG state checkpoint hash ({}) does not match blockchain ({}), ignoring stale DAG state.",
+                    hex::encode(dag_checkpoint_hash),
+                    hex::encode(blockchain_checkpoint_hash)
+                );
+            } else if let Err(e) = consensus.load_state(dag_state.clone()) {
                 error!(
                     "Failed to load persisted DAG state: {}. Creating fresh state.",
                     e
@@ -152,9 +210,6 @@ impl DagEngine {
             engine,
             consensus: Arc::new(RwLock::new(consensus)),
             authority_id,
-            state_cache: Arc::new(RwLock::new(LruCache::new(
-                NonZeroUsize::new(10).expect("Failed to create NonZeroUsize for state cache."),
-            ))),
         })
     }
 
@@ -171,15 +226,17 @@ impl DagEngine {
         let mut seen_tx_hashes = std::collections::HashSet::new();
         let mut all_to_execute = Vec::new();
         let consensus = self.consensus.read().unwrap();
+        let chain_has_executed_txs = chain.has_executed_transactions();
 
-        // 1. Fetch from old History (Parent generation Vertices)
+        // 1. Fetch transactions from parent-history vertices.
         if include_history {
             for v_id in history_vertices {
                 if let Some(v) = consensus.store().get_vertex(v_id) {
                     for signed_tx in &v.transactions {
-                        let tx_hash = signed_tx.hash();
+                        let tx_hash = signed_tx.transaction.hash();
                         if seen_tx_hashes.insert(tx_hash.clone())
-                            && !chain.is_transaction_executed(&hex::encode(&tx_hash))
+                            && (!chain_has_executed_txs
+                                || !chain.is_transaction_hash_executed(&tx_hash))
                         {
                             all_to_execute.push(signed_tx.clone());
                         }
@@ -190,10 +247,8 @@ impl DagEngine {
 
         // 2. Fetch from Current (Latest Vertex)
         for signed_tx in current_txs {
-            let tx_hash = signed_tx.hash();
-            if seen_tx_hashes.insert(tx_hash.clone())
-                && !chain.is_transaction_executed(&hex::encode(&tx_hash))
-            {
+            let tx_hash = signed_tx.transaction.hash();
+            if seen_tx_hashes.insert(tx_hash) {
                 all_to_execute.push(signed_tx.clone());
             }
         }
@@ -224,7 +279,7 @@ impl DagEngine {
                 .map(|v| v.author.clone())
                 .collect::<std::collections::HashSet<_>>()
                 .len();
-            let quorum_size = calculate_quorum(consensus.committee().validators.len());
+            let quorum_size = consensus.committee().required_quorum();
 
             let (
                 parent_round,
@@ -270,7 +325,7 @@ impl DagEngine {
             for v_id in &history_vertices {
                 if let Some(v) = consensus.store().get_vertex(v_id) {
                     for tx in &v.transactions {
-                        history_tx_hashes.insert(tx.hash());
+                        history_tx_hashes.insert(tx.transaction.hash());
                     }
                 }
             }
@@ -287,13 +342,6 @@ impl DagEngine {
         };
 
         let (transactions, tx_to_remove_from_pending) = {
-            let _state = match self.engine.state.read() {
-                Ok(guard) => guard,
-                Err(poisoned) => {
-                    error!("State lock poisoned during transaction collection, recovering...");
-                    poisoned.into_inner()
-                }
-            };
             let chain = match self.engine.blockchain.read() {
                 Ok(guard) => guard,
                 Err(poisoned) => {
@@ -313,14 +361,16 @@ impl DagEngine {
 
             let mut to_include = Vec::new();
             let mut to_remove = Vec::new();
+            let chain_has_executed_txs = chain.has_executed_transactions();
 
             for tx in pending.iter().take(500_000) {
-                let hash = tx.hash();
-                let hash_hex = hex::encode(&hash);
+                let hash = tx.transaction.hash();
 
                 if history_tx_hashes.contains(&hash) {
                     continue;
-                } else if chain.is_transaction_executed(&hash_hex) {
+                } else if (chain_has_executed_txs && chain.is_transaction_hash_executed(&hash))
+                    || self.has_consensus_committed_transaction(&hash)
+                {
                     to_remove.push(hash);
                 } else {
                     to_include.push(tx.clone());
@@ -339,7 +389,12 @@ impl DagEngine {
             };
             let remove_set: std::collections::HashSet<_> =
                 tx_to_remove_from_pending.into_iter().collect();
-            pending.retain(|tx| !remove_set.contains(&tx.hash()));
+            pending.retain(|tx| !remove_set.contains(&tx.transaction.hash()));
+            self.engine
+                .pending_tx_hashes
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .retain(|hash| !remove_set.contains(hash));
         }
 
         if transactions.is_empty() && history_vertices.is_empty() {
@@ -366,8 +421,45 @@ impl DagEngine {
             consensus.suggest_vertex_timestamp(proposed_timestamp)
         };
 
-        // Process transactions using the engine helper
-        let (executed_state, state_root, executed, failed) = {
+        // Process transactions using the engine helper. Fresh vertices without
+        // uncheckpointed history can use the faster execution-only path; the
+        // canonical state root is still computed during checkpoint finalization.
+        let can_use_fresh_batch_fast_path = !transactions.is_empty()
+            && history_tx_hashes.is_empty()
+            && transactions.iter().all(|tx| !tx.signature.is_empty());
+        let (state_root, executed, failed) = if can_use_fresh_batch_fast_path {
+            let chain = match self.engine.blockchain.read() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    error!("Blockchain lock poisoned during fast vertex execution, recovering...");
+                    poisoned.into_inner()
+                }
+            };
+            let all_to_execute =
+                self.collect_unexecuted_txs(&history_vertices, transactions.iter(), &chain, false)?;
+            drop(chain);
+
+            let mut executed_count = 0;
+            let mut failed_count = 0;
+            for (_tx, result) in self.engine.execute_transactions_parallel(all_to_execute) {
+                match result {
+                    Ok((_hash, changeset)) if changeset.success => executed_count += 1,
+                    Ok(_) | Err(_) => failed_count += 1,
+                }
+            }
+
+            (
+                self.engine
+                    .blockchain
+                    .read()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .latest_checkpoint()
+                    .state_root
+                    .clone(),
+                executed_count,
+                failed_count,
+            )
+        } else {
             let state_guard = match self.engine.state.read() {
                 Ok(guard) => guard,
                 Err(poisoned) => {
@@ -417,7 +509,7 @@ impl DagEngine {
                     poisoned.into_inner().compute_state_root()
                 }
             };
-            (state_arc, root, executed_count, failed_count)
+            (root, executed_count, failed_count)
         };
 
         let events: Vec<Event> = Vec::new();
@@ -445,11 +537,6 @@ impl DagEngine {
             v
         };
 
-        {
-            let mut cache = self.state_cache.write().unwrap_or_else(|e| e.into_inner());
-            cache.put(vertex.id.to_vec(), executed_state);
-        }
-
         let vertex_id = hex::encode(vertex.id);
         let round = vertex.round;
         let vertex_for_broadcast = vertex.clone();
@@ -458,6 +545,7 @@ impl DagEngine {
             let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
             consensus.add_vertex(vertex)?;
         }
+        self.persist_consensus_state()?;
 
         let checkpoint_info = {
             let checkpoint = {
@@ -472,6 +560,7 @@ impl DagEngine {
                     let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
                     consensus.add_checkpoint(checkpoint.clone())?;
                 }
+                self.persist_consensus_state()?;
 
                 Some(CheckpointInfo {
                     sequence: checkpoint.sequence,
@@ -501,7 +590,18 @@ impl DagEngine {
 
     pub fn needs_progress(&self) -> bool {
         let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
-        consensus.store().current_round() > consensus.store().last_checkpoint_round()
+        let store = consensus.store();
+        let current_round = store.current_round();
+        let last_checkpoint_round = store.last_checkpoint_round();
+        let latest_local_round = store
+            .get_vertices_by_authority(&self.authority_id)
+            .into_iter()
+            .map(|vertex| vertex.round)
+            .max()
+            .unwrap_or(0);
+
+        current_round > last_checkpoint_round
+            || (current_round > 0 && latest_local_round < current_round)
     }
 
     pub fn engine(&self) -> Arc<BlockchainEngine> {
@@ -583,9 +683,16 @@ impl DagEngine {
                         poisoned.into_inner()
                     }
                 };
-                let tx_hashes: std::collections::HashSet<Vec<u8>> =
-                    transactions.iter().map(|tx| tx.hash()).collect();
-                pending.retain(|tx| !tx_hashes.contains(&tx.hash()));
+                let tx_hashes: std::collections::HashSet<Vec<u8>> = transactions
+                    .iter()
+                    .map(|tx| tx.transaction.hash())
+                    .collect();
+                pending.retain(|tx| !tx_hashes.contains(&tx.transaction.hash()));
+                self.engine
+                    .pending_tx_hashes
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .retain(|hash| !tx_hashes.contains(hash));
 
                 if !pending.is_empty() {
                     info!(
@@ -702,6 +809,7 @@ impl DagEngine {
             consensus.add_vertex(vertex)?;
             consensus.try_commit()?
         };
+        self.persist_consensus_state()?;
 
         if let Some(checkpoint) = checkpoint {
             info!(
@@ -723,6 +831,8 @@ impl DagEngine {
 
             let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
             consensus.add_checkpoint(checkpoint)?;
+            drop(consensus);
+            self.persist_consensus_state()?;
         }
 
         Ok(())
@@ -898,6 +1008,40 @@ mod tests {
             .unwrap();
 
         assert_ne!(resolved.state_root, vec![7u8; 32]);
+        assert_eq!(resolved.sequence, 1);
+    }
+
+    #[test]
+    fn test_apply_checkpoint_once_keeps_previous_root_for_empty_checkpoint() {
+        let mut engine = BlockchainEngine::new().unwrap();
+        engine.set_authorities(
+            "0x2".to_string(),
+            vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()],
+        );
+        let engine = Arc::new(engine);
+        let dag_engine = DagEngine::new(
+            engine.clone(),
+            "0x2".to_string(),
+            vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()],
+        )
+        .unwrap();
+
+        let (prev_hash, previous_root) = {
+            let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            (
+                chain.latest_checkpoint().hash().unwrap(),
+                chain.latest_checkpoint().state_root.clone(),
+            )
+        };
+
+        let provisional_checkpoint =
+            centauri::consensus::Checkpoint::new(1, vec![], vec![], vec![7u8; 32], 1, prev_hash);
+
+        let resolved = dag_engine
+            .apply_checkpoint_once(provisional_checkpoint, "[TEST]", true)
+            .unwrap();
+
+        assert_eq!(resolved.state_root, previous_root);
         assert_eq!(resolved.sequence, 1);
     }
 }

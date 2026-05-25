@@ -4,6 +4,21 @@
 use super::*;
 
 impl DagStore {
+    fn same_checkpoint_payload_except_state_root(
+        existing: &Checkpoint,
+        candidate: &Checkpoint,
+    ) -> bool {
+        let existing_tx_hashes: Vec<_> = existing.transactions.iter().map(|tx| tx.hash()).collect();
+        let candidate_tx_hashes: Vec<_> =
+            candidate.transactions.iter().map(|tx| tx.hash()).collect();
+
+        existing.sequence == candidate.sequence
+            && existing.vertices == candidate.vertices
+            && existing_tx_hashes == candidate_tx_hashes
+            && existing.timestamp == candidate.timestamp
+            && existing.prev_checkpoint_hash == candidate.prev_checkpoint_hash
+    }
+
     fn validate_checkpoint_payload(&self, checkpoint: &Checkpoint) -> Result<()> {
         let mut seen_vertices = HashSet::new();
         let mut seen_tx_hashes = HashSet::new();
@@ -104,6 +119,12 @@ impl DagStore {
                 if checkpoint_hash == latest_hash {
                     return Ok(());
                 }
+                if Self::same_checkpoint_payload_except_state_root(&latest, &checkpoint) {
+                    if let Some(latest_checkpoint) = self.checkpoints.back_mut() {
+                        *latest_checkpoint = checkpoint;
+                    }
+                    return Ok(());
+                }
             }
             anyhow::bail!(
                 "Invalid checkpoint sequence: expected {}, got {}",
@@ -167,11 +188,12 @@ impl DagStore {
 
         const TX_RETENTION_WINDOW: usize = 10_000;
         if self.checkpoints.len() > TX_RETENTION_WINDOW
-            && let Some(old_checkpoint) = self.checkpoints.pop_front() {
-                for tx in &old_checkpoint.transactions {
-                    self.executed_tx_hashes.remove(&tx.hash());
-                }
+            && let Some(old_checkpoint) = self.checkpoints.pop_front()
+        {
+            for tx in &old_checkpoint.transactions {
+                self.executed_tx_hashes.remove(&tx.hash());
             }
+        }
 
         Ok(())
     }
@@ -300,7 +322,7 @@ impl DagConsensus {
                     .count();
 
                 let total_authorities = self.committee.validators.len();
-                let quorum = calculate_quorum(total_authorities);
+                let quorum = self.committee.required_quorum();
 
                 if trusted_support_count >= quorum {
                     tracing::info!(

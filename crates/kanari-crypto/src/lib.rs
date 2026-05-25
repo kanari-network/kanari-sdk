@@ -52,6 +52,7 @@
 //! ```rust
 //! use kanari_crypto::{generate_keypair, CurveType};
 //!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Classical ECC
 //! let k256_key = generate_keypair(CurveType::K256)?;
 //! let ed25519_key = generate_keypair(CurveType::Ed25519)?;
@@ -61,27 +62,40 @@
 //!
 //! // Hybrid
 //! let hybrid_key = generate_keypair(CurveType::Ed25519Dilithium3)?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ## Sign Messages
 //! ```rust
-//! use kanari_crypto::{sign_message, CurveType};
+//! use kanari_crypto::{generate_keypair, CurveType};
+//! use kanari_crypto::signatures::sign_message;
 //!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let keypair = generate_keypair(CurveType::Dilithium3)?;
 //! let message = b"Hello, quantum world!";
-//! let signature = sign_message(&private_key, message, CurveType::Dilithium3)?;
+//! let signature = sign_message(&keypair.private_key, message, CurveType::Dilithium3)?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ## Verify Signatures (Recommended: Use Tagged Addresses)
 //! ```rust
-//! use kanari_crypto::verify_signature;
+//! use kanari_crypto::{generate_keypair, verify_signature, CurveType};
+//! use kanari_crypto::signatures::sign_message;
 //!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let keypair = generate_keypair(CurveType::Dilithium3)?;
+//! let message = b"Hello, quantum world!";
+//! let signature = sign_message(&keypair.private_key, message, CurveType::Dilithium3)?;
 //! // ✅ Secure: Use tagged address to avoid timing attacks
-//! let tagged_address = "Dilithium3:0xabc123...";
-//! let valid = verify_signature(tagged_address, message, &signature)?;
+//! let valid = verify_signature(&keypair.tagged_address(), message, &signature)?;
+//! assert!(valid);
 //!
 //! // ⚠️ Less secure: Fallback to trying all curves (timing attack risk)
-//! let bare_address = "0xabc123...";
-//! let valid = verify_signature(bare_address, message, &signature)?;
+//! assert!(verify_signature(&keypair.address, message, &signature).is_err());
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Compatibility & Standards

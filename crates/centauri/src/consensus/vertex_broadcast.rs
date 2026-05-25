@@ -13,7 +13,9 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::VecDeque;
+#[cfg(test)]
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -155,17 +157,6 @@ pub struct AdaptiveBatchConfig {
 }
 
 impl AdaptiveBatchConfig {
-    /// Moderate config for 8-16 core machines (10K-30K TPS)
-    pub fn moderate() -> Self {
-        Self {
-            min_batch_size: 10,     // Small minimum for low-end
-            max_batch_size: 1000,   // 1K max batch
-            target_latency_ms: 100, // 100ms moderate latency
-            adjustment_factor: 0.1, // Conservative tuning
-            adjustment_interval: Duration::from_secs(5),
-        }
-    }
-
     /// Extreme high-throughput config for 500K+ TPS
     pub fn extreme_throughput() -> Self {
         Self {
@@ -248,11 +239,6 @@ impl AdaptiveBatcher {
     /// Get current recommended batch size
     pub fn get_batch_size(&self) -> usize {
         self.current_batch_size
-    }
-
-    /// Get current estimated network RTT
-    pub fn get_rtt(&self) -> Duration {
-        Duration::from_millis(self.network_rtt.get() as u64)
     }
 
     /// Reset to default batch size (useful after network changes)
@@ -404,11 +390,6 @@ impl VertexBroadcaster {
     /// Get current adaptive batch size
     pub fn get_adaptive_batch_size(&self) -> usize {
         self.adaptive_batcher.get_batch_size()
-    }
-
-    /// Get estimated network RTT
-    pub fn get_estimated_rtt(&self) -> Duration {
-        self.adaptive_batcher.get_rtt()
     }
 
     /// Add vertex to broadcast queue
@@ -625,11 +606,13 @@ impl VertexBroadcaster {
 }
 
 /// Delta sync: Identify missing vertices between two nodes
+#[cfg(test)]
 pub struct DeltaSync {
     /// Local vertex IDs by round
     local_vertices: BTreeMap<Round, BTreeSet<VertexId>>,
 }
 
+#[cfg(test)]
 impl DeltaSync {
     /// Create new delta sync
     pub fn new() -> Self {
@@ -646,25 +629,8 @@ impl DeltaSync {
             .insert(vertex_id);
     }
 
-    /// Calculate missing vertices compared to remote bloom filter
-    pub fn calculate_missing(
-        &self,
-        round: Round,
-        remote_filter: &VertexBloomFilter,
-    ) -> Vec<VertexId> {
-        self.local_vertices
-            .get(&round)
-            .map(|vertices| {
-                vertices
-                    .iter()
-                    .filter(|v| !remote_filter.might_contain(v))
-                    .cloned()
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
     /// Prune old round data to prevent memory leak
+    #[allow(dead_code)]
     pub fn prune_old_rounds(&mut self, before_round: Round) {
         self.local_vertices
             .retain(|round, _| *round >= before_round);
@@ -695,6 +661,7 @@ impl DeltaSync {
     }
 }
 
+#[cfg(test)]
 impl Default for DeltaSync {
     fn default() -> Self {
         Self::new()

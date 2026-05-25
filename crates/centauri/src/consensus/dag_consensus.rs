@@ -17,11 +17,9 @@ mod checkpointing;
 mod store;
 mod vertices;
 
-use crate::calculate_quorum;
-
 use super::byzantine_detector::ByzantineDetector;
 use super::cache::DagCaches;
-use super::committee::{Committee, ValidatorInfo};
+use super::committee::{AdaptiveQuorumConfig, Committee, NetworkHealth, ValidatorInfo};
 use super::crypto_signatures::Ed25519Keypair;
 use super::metrics::DagMetrics;
 use super::parallel_validator::{ParallelValidator, ParallelValidatorConfig};
@@ -286,17 +284,14 @@ impl DagVertex {
     ///
     /// # Arguments
     /// * `store` - DAG store with vertex data and trust information
-    /// * `total_authorities` - Total validators in committee
+    /// * `required_quorum` - Required validator threshold for this round
     ///
     /// # Returns
     /// `true` if quorum is reached from trusted authorities only
-    pub fn has_quorum_unique_authors(&self, store: &DagStore, total_authorities: usize) -> bool {
-        // Prevent underflow and ensure meaningful quorum calculation
-        if total_authorities == 0 {
+    pub fn has_quorum_unique_authors(&self, store: &DagStore, required_quorum: usize) -> bool {
+        if required_quorum == 0 {
             return false;
         }
-
-        let quorum_size = calculate_quorum(total_authorities);
 
         // FIX #2 & #3: CRITICAL - Filter out banned/untrusted authorities before counting quorum
         // Previously counted ALL authors including Byzantine ones that should be excluded
@@ -317,7 +312,7 @@ impl DagVertex {
         }
 
         // Must have quorum from unique TRUSTED authors only
-        unique_authors.len() >= quorum_size
+        unique_authors.len() >= required_quorum
     }
 }
 
@@ -364,7 +359,16 @@ impl Checkpoint {
     }
 
     pub fn hash(&self) -> Result<Vec<u8>> {
-        let serialized = bcs::to_bytes(self)?;
+        // Checkpoint identity must be stable across peers that reach the same
+        // committed state even if their local DAG paths or leader timestamps differ.
+        // Hash only canonical execution data, not transport/local scheduling metadata.
+        let tx_hashes: Vec<Vec<u8>> = self.transactions.iter().map(|tx| tx.hash()).collect();
+        let serialized = bcs::to_bytes(&(
+            self.sequence,
+            &tx_hashes,
+            &self.state_root,
+            &self.prev_checkpoint_hash,
+        ))?;
         Ok(hash_data_blake3(&serialized))
     }
 
@@ -517,7 +521,7 @@ pub struct DagConsensus {
     /// Caching layer for performance optimization
     caches: DagCaches,
 
-    /// Committee management for dynamic validator sets
+    /// Validator committee used for membership and quorum checks
     committee: Committee,
 
     /// Metrics collection for monitoring
@@ -626,9 +630,30 @@ impl DagConsensus {
         &self.committee
     }
 
+    pub fn enable_adaptive_quorum(&mut self, config: AdaptiveQuorumConfig) {
+        self.committee.enable_adaptive_quorum(config);
+    }
+
+    pub fn disable_adaptive_quorum(&mut self) {
+        self.committee.disable_adaptive_quorum();
+    }
+
+    pub fn update_network_health(&mut self, health: NetworkHealth) {
+        self.committee.update_network_health(health);
+    }
+
+    /// Get metrics collector (read-only)
+    pub fn metrics(&self) -> &DagMetrics {
+        &self.metrics
+    }
+
     /// Check if vertex exists in DAG
     pub fn has_vertex(&self, vertex_id: &VertexId) -> bool {
         self.store.vertices.contains_key(vertex_id)
+    }
+
+    pub fn has_executed_transaction(&self, tx_hash: &[u8]) -> bool {
+        self.store.executed_tx_hashes.contains(tx_hash)
     }
 
     /// Save the essential state of the DAG to a serializable struct
@@ -800,6 +825,106 @@ mod tests {
     }
 
     #[test]
+    fn test_add_vertex_with_quorum_enforces_explicit_threshold() {
+        let authorities = vec![
+            "auth1".to_string(),
+            "auth2".to_string(),
+            "auth3".to_string(),
+            "auth4".to_string(),
+        ];
+        let mut store = DagStore::new(authorities);
+
+        let parent1 =
+            DagVertex::new_for_test(0, "auth1".to_string(), vec![], vec![], vec![1u8; 32], 100);
+        let parent2 =
+            DagVertex::new_for_test(0, "auth2".to_string(), vec![], vec![], vec![2u8; 32], 100);
+        let parent3 =
+            DagVertex::new_for_test(0, "auth3".to_string(), vec![], vec![], vec![3u8; 32], 100);
+
+        store
+            .add_vertex(parent1.clone(), store.num_authorities())
+            .unwrap();
+        store
+            .add_vertex(parent2.clone(), store.num_authorities())
+            .unwrap();
+        store
+            .add_vertex(parent3.clone(), store.num_authorities())
+            .unwrap();
+
+        let child = DagVertex::new_for_test(
+            1,
+            "auth4".to_string(),
+            vec![parent1.id, parent2.id, parent3.id],
+            vec![],
+            vec![4u8; 32],
+            101,
+        );
+
+        assert!(store.add_vertex_with_quorum(child, 4).is_err());
+    }
+
+    #[test]
+    fn test_add_vertex_arc_compatibility_path_uses_static_quorum() {
+        let authorities = vec![
+            "auth1".to_string(),
+            "auth2".to_string(),
+            "auth3".to_string(),
+            "auth4".to_string(),
+        ];
+        let mut store = DagStore::new(authorities);
+
+        let parent1 = Arc::new(DagVertex::new_for_test(
+            0,
+            "auth1".to_string(),
+            vec![],
+            vec![],
+            vec![1u8; 32],
+            100,
+        ));
+        let parent2 = Arc::new(DagVertex::new_for_test(
+            0,
+            "auth2".to_string(),
+            vec![],
+            vec![],
+            vec![2u8; 32],
+            100,
+        ));
+        let parent3 = Arc::new(DagVertex::new_for_test(
+            0,
+            "auth3".to_string(),
+            vec![],
+            vec![],
+            vec![3u8; 32],
+            100,
+        ));
+
+        store
+            .add_vertex_arc(parent1.clone(), store.num_authorities())
+            .unwrap();
+        store
+            .add_vertex_arc(parent2.clone(), store.num_authorities())
+            .unwrap();
+        store
+            .add_vertex_arc(parent3.clone(), store.num_authorities())
+            .unwrap();
+
+        let child = Arc::new(DagVertex::new_for_test(
+            1,
+            "auth4".to_string(),
+            vec![parent1.id, parent2.id, parent3.id],
+            vec![],
+            vec![4u8; 32],
+            101,
+        ));
+        let child_id = child.id;
+
+        store
+            .add_vertex_arc(child, store.num_authorities())
+            .unwrap();
+        assert!(store.get_vertex(&child_id).is_some());
+    }
+
+    #[test]
     fn test_reject_future_timestamp_vertex() {
         let authorities = vec![
             "auth1".to_string(),
@@ -864,10 +989,104 @@ mod tests {
     }
 
     #[test]
+    fn test_adaptive_quorum_blocks_vertex_creation_until_disabled_when_trusted_parents_drop() {
+        let authorities = vec![
+            "auth1".to_string(),
+            "auth2".to_string(),
+            "auth3".to_string(),
+            "auth4".to_string(),
+        ];
+
+        let mut consensus = DagConsensus::new("auth1".to_string(), authorities);
+        consensus.enable_adaptive_quorum(AdaptiveQuorumConfig::default());
+        consensus.update_network_health(NetworkHealth {
+            connectivity_ratio: 0.35,
+            delivery_success_ratio: 0.40,
+            timeout_ratio: 0.45,
+            median_latency_ms: 3_500,
+        });
+
+        consensus.store.ban_authority(&"auth4".to_string());
+
+        let create_err = consensus
+            .create_vertex(vec![], vec![9u8; 32], 1)
+            .unwrap_err();
+        assert!(
+            create_err
+                .to_string()
+                .contains("Not enough parents for quorum")
+        );
+
+        consensus.disable_adaptive_quorum();
+
+        let vertex = consensus.create_vertex(vec![], vec![9u8; 32], 1).unwrap();
+        assert_eq!(vertex.round, 1);
+        assert_eq!(vertex.parents.len(), 4);
+    }
+
+    #[test]
     fn test_checkpoint_creation() {
         let checkpoint = Checkpoint::genesis();
         assert_eq!(checkpoint.sequence, 0);
         assert!(checkpoint.transactions.is_empty());
+    }
+
+    #[test]
+    fn test_try_commit_produces_checkpoint_after_multi_round_progress() {
+        let authorities = vec!["auth1".to_string()];
+        let mut consensus = DagConsensus::new("auth1".to_string(), authorities);
+
+        let round1 = consensus.create_vertex(vec![], vec![1u8; 32], 1).unwrap();
+        let round1_id = round1.id;
+        consensus.add_vertex(round1).unwrap();
+
+        let round2 = consensus.create_vertex(vec![], vec![2u8; 32], 2).unwrap();
+        consensus.add_vertex(round2).unwrap();
+
+        let round3 = consensus.create_vertex(vec![], vec![3u8; 32], 3).unwrap();
+        consensus.add_vertex(round3).unwrap();
+
+        let checkpoint = consensus
+            .try_commit()
+            .unwrap()
+            .expect("checkpoint should be produced after quorum-supported rounds");
+
+        assert_eq!(checkpoint.sequence, 1);
+        assert!(checkpoint.vertices.contains(&round1_id));
+
+        consensus.add_checkpoint(checkpoint.clone()).unwrap();
+        assert_eq!(consensus.latest_checkpoint().sequence, 1);
+    }
+
+    #[test]
+    fn test_checkpoint_hash_ignores_non_canonical_dag_metadata() {
+        let tx = SignedTransaction::new(Transaction::Transfer {
+            from: "alice".to_string(),
+            to: "bob".to_string(),
+            amount: 1,
+            gas_limit: 1000,
+            gas_price: 1,
+            sequence_number: 7,
+        });
+
+        let checkpoint_a = Checkpoint::new(
+            1,
+            vec![[1u8; 32]],
+            vec![tx.clone()],
+            vec![9u8; 32],
+            123,
+            vec![4u8; 32],
+        );
+        let checkpoint_b = Checkpoint::new(
+            1,
+            vec![[2u8; 32], [3u8; 32]],
+            vec![tx],
+            vec![9u8; 32],
+            999,
+            vec![4u8; 32],
+        );
+
+        assert_eq!(checkpoint_a.hash().unwrap(), checkpoint_b.hash().unwrap());
     }
 
     #[test]
@@ -900,6 +1119,22 @@ mod tests {
         assert_eq!(checkpoint_transactions.len(), 1);
         assert_eq!(provisional_root, Checkpoint::genesis().state_root);
         assert_ne!(provisional_root, vec![9u8; 32]);
+    }
+
+    #[test]
+    fn test_checkpoint_store_allows_canonical_root_replacement() {
+        let mut store = DagStore::new(vec!["0x1".to_string()]);
+        let prev_hash = store.latest_checkpoint().hash().unwrap();
+
+        let provisional = Checkpoint::new(1, vec![], vec![], vec![1u8; 32], 42, prev_hash.clone());
+        store.add_checkpoint(provisional).unwrap();
+
+        let canonical = Checkpoint::new(1, vec![], vec![], vec![2u8; 32], 42, prev_hash);
+        store.add_checkpoint(canonical.clone()).unwrap();
+
+        let latest = store.latest_checkpoint();
+        assert_eq!(latest.sequence, 1);
+        assert_eq!(latest.state_root, canonical.state_root);
     }
 
     #[test]

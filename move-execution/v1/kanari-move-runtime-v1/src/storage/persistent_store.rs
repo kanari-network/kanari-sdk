@@ -66,7 +66,7 @@ type MemoryStore = Arc<RwLock<HashMap<Vec<u8>, Vec<u8>>>>;
 #[derive(Debug)]
 pub struct PersistentStore {
     db: Option<Arc<DB>>,
-    // In-memory fallback for when RocksDB is not used (e.g. tests, Miri)
+    // In-memory store for when RocksDB is not used (e.g. tests, Miri)
     memory_store: Option<MemoryStore>,
 }
 
@@ -118,15 +118,6 @@ impl PersistentStore {
             store.write().unwrap().insert(key.to_vec(), value);
         }
         Ok(())
-    }
-
-    /// Save raw bytes under `key`.
-    pub fn save_raw(
-        &self,
-        key: &[u8],
-        value: &[u8],
-    ) -> std::result::Result<(), PersistentStoreError> {
-        self.write_raw(key, value.to_vec())
     }
 
     /// Save a serializable value under `key`.
