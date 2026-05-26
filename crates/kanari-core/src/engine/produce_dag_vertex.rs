@@ -181,11 +181,6 @@ impl DagEngine {
             consensus.suggest_vertex_timestamp_for_plan(&production_plan, proposed_timestamp)
         };
 
-        // Keep the heuristic for context/logging, but force deterministic replay
-        // instead of the old fast-path preview execution.
-        let _can_use_fresh_batch_fast_path = !transactions.is_empty()
-            && history_tx_hashes.is_empty()
-            && transactions.iter().all(|tx| !tx.signature.is_empty());
         let outcome = integration.execute_vertex_plan(
             &history_vertices,
             &transactions,
@@ -209,12 +204,6 @@ impl DagEngine {
                 state_root.clone(),
                 timestamp,
             )?;
-            if policy.using_catch_up_round {
-                info!(
-                    "[DAG] Created catch-up vertex for round {} using parents from round {}",
-                    v.round, policy.parent_round
-                );
-            }
             info!(
                 "[DAG] Created vertex for round {} with {} transactions",
                 v.round,
@@ -443,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn test_can_create_catch_up_vertex_for_partial_round() {
+    fn test_partial_round_allows_safe_catch_up_vertex() {
         let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
 
         let engine_a = Arc::new(BlockchainEngine::new_in_memory().unwrap());
@@ -454,17 +443,25 @@ mod tests {
         let engine_b = Arc::new(BlockchainEngine::new_in_memory().unwrap());
         let dag_b = DagEngine::new(engine_b, "0x2".to_string(), authorities).unwrap();
         dag_b.add_network_vertex(remote_vertex).unwrap();
-        let expected_round = {
-            let consensus = dag_b.consensus.read().unwrap_or_else(|e| e.into_inner());
-            consensus.production_policy().target_round
-        };
-
         let catch_up_vertex = dag_b.produce_vertex().unwrap();
-        assert_eq!(catch_up_vertex.round, expected_round);
+        assert_eq!(catch_up_vertex.round, 1);
     }
 
     #[test]
-    fn test_empty_vertex_does_not_reexecute_history_transactions() {
+    fn test_genesis_bootstrap_allows_empty_round_one_vertex() {
+        let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
+
+        let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
+        let dag = DagEngine::new(engine, "0x1".to_string(), authorities).unwrap();
+
+        let vertex = dag.produce_vertex().unwrap();
+        assert_eq!(vertex.round, 1);
+        assert_eq!(vertex.tx_count, 0);
+        assert_eq!(vertex.executed, 0);
+    }
+
+    #[test]
+    fn test_empty_vertex_does_not_reexecute_history_transactions_after_quorum() {
         let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
 
         let mut engine_a = BlockchainEngine::new_in_memory().unwrap();
@@ -493,17 +490,19 @@ mod tests {
 
         let remote_round_one = tx_vertex.vertex.unwrap();
 
+        let mut engine_c = BlockchainEngine::new_in_memory().unwrap();
+        engine_c.set_authorities("0x3".to_string(), authorities.clone());
+        let engine_c = Arc::new(engine_c);
+        let dag_c = DagEngine::new(engine_c, "0x3".to_string(), authorities.clone()).unwrap();
+        let quorum_round_one = dag_c.produce_vertex().unwrap().vertex.unwrap();
+
         let mut engine_b = BlockchainEngine::new_in_memory().unwrap();
-        engine_b.set_authorities("0x2".to_string(), authorities);
+        engine_b.set_authorities("0x2".to_string(), authorities.clone());
         let engine_b = Arc::new(engine_b);
-        let dag_b = DagEngine::new(
-            engine_b,
-            "0x2".to_string(),
-            vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()],
-        )
-        .unwrap();
+        let dag_b = DagEngine::new(engine_b, "0x2".to_string(), authorities).unwrap();
 
         dag_b.add_network_vertex(remote_round_one).unwrap();
+        dag_b.add_network_vertex(quorum_round_one).unwrap();
 
         let empty_vertex = dag_b.produce_vertex().unwrap();
         assert_eq!(empty_vertex.tx_count, 0);

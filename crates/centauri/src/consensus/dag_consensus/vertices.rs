@@ -9,7 +9,10 @@ impl DagConsensus {
         plan: &DagProductionPlan,
         tx_count: usize,
     ) -> Result<()> {
-        if tx_count == 0 && plan.history_vertices.is_empty() {
+        let is_genesis_bootstrap_round =
+            plan.policy.parent_round == 0 && plan.policy.parent_author_count >= plan.policy.quorum_size;
+
+        if tx_count == 0 && plan.history_vertices.is_empty() && !is_genesis_bootstrap_round {
             anyhow::bail!("No new transactions and no history to commit");
         }
 

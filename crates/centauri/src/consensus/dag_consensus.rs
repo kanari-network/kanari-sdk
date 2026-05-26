@@ -1135,6 +1135,7 @@ mod tests {
         assert_eq!(policy.target_round, 1);
         assert!(policy.using_catch_up_round);
         assert!(!policy.local_has_vertex_in_current_round);
+        assert!(!policy.should_wait_for_current_round_quorum());
     }
 
     #[test]
