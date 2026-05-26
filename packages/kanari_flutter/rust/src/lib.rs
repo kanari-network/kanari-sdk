@@ -128,13 +128,12 @@
 //! | **Hybrid** | Applies per-curve | Mixed | Partial |
 //!
 
-
-mod frb_generated;
 pub mod api;
 pub mod audit;
 pub mod backup;
 pub mod compression;
 pub mod encryption;
+mod frb_generated;
 pub mod hd_wallet;
 pub mod key_rotation;
 pub mod keys;

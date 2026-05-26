@@ -3,6 +3,8 @@
 
 use super::*;
 
+type CommitVertexSelection = (Arc<DagVertex>, Vec<VertexId>, Vec<SignedTransaction>);
+
 impl DagStore {
     fn same_checkpoint_payload_except_state_root(
         existing: &Checkpoint,
@@ -219,6 +221,55 @@ pub struct CheckpointStats {
 }
 
 impl DagConsensus {
+    pub(crate) fn select_commit_vertex(
+        &self,
+        commit_round: u64,
+        preferred_leader_id: &AuthorityId,
+    ) -> Result<Option<CommitVertexSelection>> {
+        let next_round_vertices = self.store.get_vertices_in_round(commit_round + 1);
+        let quorum = self.committee.required_quorum();
+
+        let Some(leader_vertex) = self
+            .store
+            .get_vertices_in_round(commit_round)
+            .into_iter()
+            .filter(|vertex| vertex.author == *preferred_leader_id)
+            .min_by_key(|vertex| vertex.id)
+        else {
+            tracing::debug!(
+                "[Consensus] Waiting for leader {} in round {}",
+                preferred_leader_id,
+                commit_round
+            );
+            return Ok(None);
+        };
+
+        let trusted_support_count = next_round_vertices
+            .iter()
+            .filter(|next_vertex| next_vertex.parents.contains(&leader_vertex.id))
+            .map(|next_vertex| &next_vertex.author)
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .filter(|auth| self.store.is_authority_trusted(auth))
+            .count();
+
+        if trusted_support_count < quorum {
+            tracing::debug!(
+                "[Consensus] Waiting for quorum on leader {} in round {}: support {}/{}",
+                preferred_leader_id,
+                commit_round,
+                trusted_support_count,
+                quorum
+            );
+            return Ok(None);
+        }
+
+        let vertices_to_commit = self.collect_vertices_to_commit(leader_vertex.id)?;
+        let transactions = self.collect_checkpoint_transactions(&vertices_to_commit);
+
+        Ok(Some((leader_vertex, vertices_to_commit, transactions)))
+    }
+
     pub(crate) fn collect_checkpoint_transactions(
         &self,
         vertices_to_commit: &[VertexId],
@@ -304,50 +355,56 @@ impl DagConsensus {
                 authorities[leader_idx].clone()
             };
 
-            let leader_vertex = self
-                .store
-                .get_vertices_in_round(commit_round)
-                .into_iter()
-                .find(|v| v.author == *leader_id);
-
-            if let Some(leader_vertex) = leader_vertex {
-                let next_round_vertices = self.store.get_vertices_in_round(commit_round + 1);
-                let trusted_support_count = next_round_vertices
+            if let Some((commit_vertex, vertices_to_commit, all_transactions)) =
+                self.select_commit_vertex(commit_round, &leader_id)?
+            {
+                let total_authorities = self.committee.validators.len();
+                let quorum = self.committee.required_quorum();
+                let support_count = self
+                    .store
+                    .get_vertices_in_round(commit_round + 1)
                     .iter()
-                    .filter(|v| v.parents.contains(&leader_vertex.id))
+                    .filter(|v| v.parents.contains(&commit_vertex.id))
                     .map(|v| &v.author)
                     .collect::<HashSet<_>>()
                     .into_iter()
                     .filter(|auth| self.store.is_authority_trusted(auth))
                     .count();
 
-                let total_authorities = self.committee.validators.len();
-                let quorum = self.committee.required_quorum();
+                tracing::info!(
+                    "[Consensus] Quorum reached! Support: {} / {} (threshold: {}), commit_author={}, txs={}",
+                    support_count,
+                    total_authorities,
+                    quorum,
+                    commit_vertex.author,
+                    all_transactions.len()
+                );
 
-                if trusted_support_count >= quorum {
-                    tracing::info!(
-                        "[Consensus] Quorum reached! Support: {} / {} (threshold: {})",
-                        trusted_support_count,
-                        total_authorities,
-                        quorum
-                    );
+                let latest = self.store.latest_checkpoint();
+                let prev_hash = latest.hash()?;
+                let tx_hashes: Vec<Vec<u8>> = all_transactions.iter().map(|tx| tx.hash()).collect();
+                let tx_digest = hash_data_blake3(&bcs::to_bytes(&tx_hashes)?);
+                let checkpoint = Checkpoint::new(
+                    latest.sequence + 1,
+                    vertices_to_commit.clone(),
+                    all_transactions.clone(),
+                    self.checkpoint_state_root(&vertices_to_commit, &all_transactions)?,
+                    commit_vertex.timestamp,
+                    prev_hash,
+                );
+                tracing::info!(
+                    "[Consensus] Built checkpoint seq={} commit_round={} leader={} vertices={} txs={} tx_digest={} prev={} provisional_root={}",
+                    checkpoint.sequence,
+                    commit_round,
+                    leader_id,
+                    checkpoint.vertices.len(),
+                    checkpoint.transactions.len(),
+                    hex::encode(tx_digest),
+                    hex::encode(&checkpoint.prev_checkpoint_hash),
+                    hex::encode(&checkpoint.state_root)
+                );
 
-                    let vertices_to_commit = self.collect_vertices_to_commit(leader_vertex.id)?;
-                    let latest = self.store.latest_checkpoint();
-                    let all_transactions =
-                        self.collect_checkpoint_transactions(&vertices_to_commit);
-                    let prev_hash = latest.hash()?;
-                    let checkpoint = Checkpoint::new(
-                        latest.sequence + 1,
-                        vertices_to_commit.clone(),
-                        all_transactions.clone(),
-                        self.checkpoint_state_root(&vertices_to_commit, &all_transactions)?,
-                        leader_vertex.timestamp,
-                        prev_hash,
-                    );
-
-                    return Ok(Some(checkpoint));
-                }
+                return Ok(Some(checkpoint));
             }
 
             start_round += 1;

@@ -1,7 +1,7 @@
 // app/lib/rpc.ts
 
 // ตั้งค่า URL ให้ชี้ไปที่ RPC Server ของ Kanari (ค่าเริ่มต้น 127.0.0.1 พอร์ต 19001)
-const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || "http://10.84.83.48:19001";
+const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || "http://192.168.1.102:19001";
 
 export async function callRpc(method: string, params: any = []) {
   const body = {

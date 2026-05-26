@@ -69,22 +69,33 @@ function Get-NodeRpcUrl {
 }
 
 function Find-KanariNodeExecutable {
-    $releaseExe = "..\..\target\release\kanari-node.exe"
-    $debugExe = "..\..\target\debug\kanari-node.exe"
-
-    if (Test-Path $releaseExe) {
-        return @{
-            Path = $releaseExe
-            Label = "Using release build: $releaseExe"
+    $localBuilds = @(
+        @{
+            Path = Join-Path $PSScriptRoot "..\..\target\release\kanari-node.exe"
+            Kind = "release"
             Color = "Green"
+        },
+        @{
+            Path = Join-Path $PSScriptRoot "..\..\target\debug\kanari-node.exe"
+            Kind = "debug"
+            Color = "Yellow"
+        }
+    ) | Where-Object { Test-Path $_.Path } | ForEach-Object {
+        $resolvedPath = (Resolve-Path $_.Path).Path
+        @{
+            Path = $resolvedPath
+            Kind = $_.Kind
+            Color = $_.Color
+            LastWriteTimeUtc = (Get-Item $resolvedPath).LastWriteTimeUtc
         }
     }
 
-    if (Test-Path $debugExe) {
+    if ($localBuilds.Count -gt 0) {
+        $selected = $localBuilds | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
         return @{
-            Path = $debugExe
-            Label = "Using debug build: $debugExe"
-            Color = "Yellow"
+            Path = $selected.Path
+            Label = "Using newest local $($selected.Kind) build: $($selected.Path) (built $($selected.LastWriteTimeUtc.ToString('u')))"
+            Color = $selected.Color
         }
     }
 

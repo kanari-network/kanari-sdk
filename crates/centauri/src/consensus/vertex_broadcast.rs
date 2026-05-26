@@ -240,14 +240,6 @@ impl AdaptiveBatcher {
     pub fn get_batch_size(&self) -> usize {
         self.current_batch_size
     }
-
-    /// Reset to default batch size (useful after network changes)
-    #[allow(dead_code)]
-    pub fn reset(&mut self) {
-        self.current_batch_size = (self.config.min_batch_size + self.config.max_batch_size) / 2;
-        self.network_rtt = EwmaEstimator::new(0.2);
-        self.last_adjustment = Instant::now();
-    }
 }
 
 /// Vertex broadcast manager
@@ -629,19 +621,6 @@ impl DeltaSync {
             .insert(vertex_id);
     }
 
-    /// Prune old round data to prevent memory leak
-    #[allow(dead_code)]
-    pub fn prune_old_rounds(&mut self, before_round: Round) {
-        self.local_vertices
-            .retain(|round, _| *round >= before_round);
-
-        tracing::debug!(
-            "Pruned DeltaSync before round {}, remaining: {} rounds",
-            before_round,
-            self.local_vertices.len()
-        );
-    }
-
     /// Create bloom filter for a round
     pub fn create_round_filter(&self, round: Round) -> VertexBloomFilter {
         let vertices = self
@@ -847,8 +826,14 @@ mod tests {
 
         assert_eq!(batcher.get_batch_size(), 100);
 
-        // Reset and test minimum
-        batcher.reset();
+        // Recreate with the same config and test minimum
+        let mut batcher = AdaptiveBatcher::new(AdaptiveBatchConfig {
+            min_batch_size: 10,
+            max_batch_size: 100,
+            target_latency_ms: 50,
+            adjustment_factor: 0.5,
+            adjustment_interval: Duration::from_millis(0),
+        });
 
         // Extreme low latency - should cap at min
         for _ in 0..10 {

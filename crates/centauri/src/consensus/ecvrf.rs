@@ -106,7 +106,9 @@ fn vrf_hash_challenge(
 /// Convert proof gamma to final VRF output hash
 fn vrf_proof_to_hash(gamma: &RistrettoPoint) -> [u8; 32] {
     let hash = hash_with_domain(b"vrf_output_v1", &[gamma.compress().as_bytes()]);
-    hash[..32].try_into().unwrap_or([0u8; 32])
+    let mut output = [0u8; 32];
+    output.copy_from_slice(&hash[..32]);
+    output
 }
 
 // ===== VRF Types =====
@@ -359,7 +361,9 @@ impl VrfPublicKey {
 impl VrfOutput {
     /// Convert to u64 for leader election (use first 8 bytes)
     pub fn to_u64(&self) -> u64 {
-        u64::from_le_bytes(self.value[..8].try_into().unwrap_or([0u8; 8]))
+        let mut bytes = [0u8; 8];
+        bytes.copy_from_slice(&self.value[..8]);
+        u64::from_le_bytes(bytes)
     }
 }
 

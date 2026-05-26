@@ -232,20 +232,18 @@ impl ByzantineDetector {
             anyhow::bail!("Critical Error: Required quorum cannot be zero");
         }
 
-        if vertex.round > 0 {
-            if vertex.parents.len() < required_quorum {
-                let fault = ByzantineFault::InvalidVertex {
-                    authority: vertex.author.clone(),
-                    vertex_id: vertex.id,
-                    reason: format!(
-                        "Insufficient parents: {} < {} (quorum)",
-                        vertex.parents.len(),
-                        required_quorum
-                    ),
-                };
-                self.report_fault(fault)?;
-                anyhow::bail!("Invalid vertex: insufficient parents for quorum");
-            }
+        if vertex.round > 0 && vertex.parents.len() < required_quorum {
+            let fault = ByzantineFault::InvalidVertex {
+                authority: vertex.author.clone(),
+                vertex_id: vertex.id,
+                reason: format!(
+                    "Insufficient parents: {} < {} (quorum)",
+                    vertex.parents.len(),
+                    required_quorum
+                ),
+            };
+            self.report_fault(fault)?;
+            anyhow::bail!("Invalid vertex: insufficient parents for quorum");
         }
         Ok(())
     }

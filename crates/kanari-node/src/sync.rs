@@ -1,9 +1,11 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::p2p::{BlockRequestMsg, BlockResponseMsg, P2PMessage, PeerInfoMsg, decompress_block};
+use crate::p2p::{
+    CheckpointRequestMsg, CheckpointResponseMsg, P2PMessage, PeerInfoMsg, decompress_payload,
+};
 use centauri::consensus::DagVertex;
-use kanari_core::{BlockchainEngine, FullBlockData, engine::DagEngine};
+use kanari_core::{BlockchainEngine, CheckpointSyncData};
 use kanari_types::transaction::SignedTransaction;
 use serde::de::DeserializeOwned;
 use std::collections::{BTreeMap, VecDeque};
@@ -11,17 +13,23 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-/// Handles block and transaction synchronization between peers
-use std::sync::atomic::{AtomicU64, Ordering};
+/// Handles checkpoint and transaction synchronization between peers
 use std::time::Duration;
 
 const REQUEST_RETRY_COOLDOWN_MS: u64 = 2_000;
-const MAX_BLOCKS_PER_REQUEST: u64 = 200;
+const MAX_CHECKPOINTS_PER_REQUEST: u64 = 200;
 
 #[derive(Clone)]
-struct BufferedBlockCandidate {
-    block: FullBlockData,
+struct BufferedCheckpointCandidate {
+    checkpoint: CheckpointSyncData,
     source_peer_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct DivergentPeerInfo {
+    height: u64,
+    latest_checkpoint_hash: String,
+    latest_state_root: String,
 }
 
 pub struct SyncManager {
@@ -30,19 +38,45 @@ pub struct SyncManager {
     local_peer_id: String,
     /// Optional indexer for blockchain data indexing
     indexer: Option<Arc<Mutex<kanari_indexer::Indexer>>>,
-    /// Buffer for blocks that arrived out of order (height -> candidate blocks)
-    block_buffer: Mutex<BTreeMap<u64, VecDeque<BufferedBlockCandidate>>>,
-    /// Highest height seen in the network
-    max_peer_height: AtomicU64,
+    /// Buffer for checkpoints that arrived out of order (sequence -> candidate checkpoints)
+    checkpoint_buffer: Mutex<BTreeMap<u64, VecDeque<BufferedCheckpointCandidate>>>,
     /// Last advertised height by peer id.
     peer_heights: Mutex<BTreeMap<String, u64>>,
-    /// Last request timestamp per block height to avoid request spam while still retrying fast.
-    pending_block_requests: Mutex<BTreeMap<u64, u64>>,
-    /// Maximum number of blocks to keep in buffer to prevent memory exhaustion
+    /// Peers that advertised a conflicting state/checkpoint and should not be used for sync.
+    divergent_peers: Mutex<BTreeMap<String, DivergentPeerInfo>>,
+    /// Last request timestamp per checkpoint sequence to avoid request spam while still retrying fast.
+    pending_checkpoint_requests: Mutex<BTreeMap<u64, u64>>,
+    /// Maximum number of checkpoints to keep in buffer to prevent memory exhaustion
     max_buffer_size: usize,
 }
 
 impl SyncManager {
+    fn checkpoint_buffer_guard(
+        &self,
+    ) -> std::sync::MutexGuard<'_, BTreeMap<u64, VecDeque<BufferedCheckpointCandidate>>> {
+        self.checkpoint_buffer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn peer_heights_guard(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, u64>> {
+        self.peer_heights.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn divergent_peers_guard(
+        &self,
+    ) -> std::sync::MutexGuard<'_, BTreeMap<String, DivergentPeerInfo>> {
+        self.divergent_peers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn pending_checkpoint_requests_guard(&self) -> std::sync::MutexGuard<'_, BTreeMap<u64, u64>> {
+        self.pending_checkpoint_requests
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
     pub fn new(
         engine: Arc<BlockchainEngine>,
         network_tx: mpsc::UnboundedSender<P2PMessage>,
@@ -54,11 +88,11 @@ impl SyncManager {
             network_tx,
             local_peer_id,
             indexer,
-            block_buffer: Mutex::new(BTreeMap::new()),
-            max_peer_height: AtomicU64::new(0),
+            checkpoint_buffer: Mutex::new(BTreeMap::new()),
             peer_heights: Mutex::new(BTreeMap::new()),
-            pending_block_requests: Mutex::new(BTreeMap::new()),
-            max_buffer_size: 1000, // Limit buffer to 1000 blocks for 200-node networks
+            divergent_peers: Mutex::new(BTreeMap::new()),
+            pending_checkpoint_requests: Mutex::new(BTreeMap::new()),
+            max_buffer_size: 1000, // Limit buffer to 1000 checkpoints for 200-node networks
         }
     }
 
@@ -76,16 +110,16 @@ impl SyncManager {
     /// Check if we are behind and need to sync
     async fn check_sync_status(&self) {
         let stats = self.engine.get_stats();
-        let max_seen = self.max_peer_height.load(Ordering::Relaxed);
+        let max_seen = self.max_eligible_peer_height();
 
         // Fallback to P2P sync if we are behind
         if stats.height < max_seen {
             let target_peer = self.best_peer_for_height(stats.height + 1);
             info!(
-                "[SYNC] Behind network P2P (current: {}, max seen: {}, target: {:?}). Requesting via P2P...",
+                "[SYNC] Behind network P2P (current: {}, max seen: {}, target: {:?}). Requesting checkpoints via P2P...",
                 stats.height, max_seen, target_peer
             );
-            self.request_blocks(stats.height + 1, max_seen, target_peer.as_deref())
+            self.request_checkpoints(stats.height + 1, max_seen, target_peer.as_deref())
                 .await;
         }
     }
@@ -97,9 +131,9 @@ impl SyncManager {
                 info!("[P2P] Received NewTransaction");
                 self.handle_new_transaction(tx_data).await;
             }
-            P2PMessage::NewBlock(block_data) => {
-                info!("[P2P] Received NewBlock");
-                self.handle_new_block(block_data).await;
+            P2PMessage::NewCheckpoint(checkpoint_data) => {
+                info!("[P2P] Received NewCheckpoint");
+                self.handle_new_checkpoint(checkpoint_data).await;
             }
             P2PMessage::NewDagVertex(vertex_data) => {
                 info!("[P2P] Received NewDagVertex");
@@ -115,12 +149,12 @@ impl SyncManager {
                 );
                 self.handle_new_dag_vertex(msg.vertex_data).await;
             }
-            P2PMessage::BlockRequest(height, timestamp) => {
-                info!("[P2P] Received BlockRequest for height {}", height);
-                self.handle_block_request(height, timestamp, None, None)
+            P2PMessage::CheckpointRequest(sequence, timestamp) => {
+                info!("[P2P] Received CheckpointRequest for sequence {}", sequence);
+                self.handle_checkpoint_request(sequence, timestamp, None, None)
                     .await;
             }
-            P2PMessage::TargetedBlockRequest(req) => {
+            P2PMessage::TargetedCheckpointRequest(req) => {
                 if req.requester_peer_id == self.local_peer_id {
                     return;
                 }
@@ -128,30 +162,33 @@ impl SyncManager {
                     return;
                 }
                 info!(
-                    "[P2P] Received targeted BlockRequest for height {} from {}",
-                    req.height, req.requester_peer_id
+                    "[P2P] Received targeted CheckpointRequest for sequence {} from {}",
+                    req.sequence, req.requester_peer_id
                 );
-                self.handle_block_request(
-                    req.height,
+                self.handle_checkpoint_request(
+                    req.sequence,
                     req.timestamp,
                     Some(req.requester_peer_id.as_str()),
                     Some(req.responder_peer_id.as_str()),
                 )
                 .await;
             }
-            P2PMessage::BlockResponse(block_data) => {
-                info!("[P2P] Received BlockResponse");
-                self.handle_block_response(block_data, None).await;
+            P2PMessage::CheckpointResponse(checkpoint_data) => {
+                info!("[P2P] Received CheckpointResponse");
+                self.handle_checkpoint_response(checkpoint_data, None).await;
             }
-            P2PMessage::TargetedBlockResponse(resp) => {
+            P2PMessage::TargetedCheckpointResponse(resp) => {
                 if resp.requester_peer_id != self.local_peer_id {
                     return;
                 }
                 info!(
-                    "[P2P] Received targeted BlockResponse for height {} from {}",
-                    resp.height, resp.responder_peer_id
+                    "[P2P] Received targeted CheckpointResponse for sequence {} from {}",
+                    resp.sequence, resp.responder_peer_id
                 );
-                self.handle_block_response(resp.block_data, Some(&resp.responder_peer_id))
+                self.handle_checkpoint_response(
+                    resp.checkpoint_data,
+                    Some(&resp.responder_peer_id),
+                )
                     .await;
             }
             P2PMessage::PeerInfo(peer_info) => {
@@ -159,19 +196,20 @@ impl SyncManager {
                 self.handle_peer_info(peer_info).await;
             }
             // Handle compressed messages (should be decompressed before reaching here)
-            P2PMessage::CompressedBlock(_) | P2PMessage::CompressedDagVertex(_) => {
+            P2PMessage::CompressedCheckpoint(_) | P2PMessage::CompressedDagVertex(_) => {
                 warn!(
                     "[P2P] Received compressed message in sync manager - should be decompressed already"
                 );
             }
-            P2PMessage::CompressedTargetedBlockResponse(_) => {
+            P2PMessage::CompressedTargetedCheckpointResponse(_) => {
                 warn!(
-                    "[P2P] Received compressed targeted block response in sync manager - should be decompressed already"
+                    "[P2P] Received compressed targeted checkpoint response in sync manager - should be decompressed already"
                 );
             }
-            P2PMessage::CompressedBlockResponse(compressed_data) => {
-                if let Ok(data) = decompress_block(compressed_data.to_vec()) {
-                    self.handle_block_response(data, None).await;
+            P2PMessage::CompressedCheckpointResponse(compressed_data) => {
+                match decompress_payload(compressed_data.to_vec()) {
+                    Ok(data) => self.handle_checkpoint_response(data, None).await,
+                    Err(e) => warn!("[P2P] Failed to decompress checkpoint response: {}", e),
                 }
             }
         }
@@ -204,43 +242,43 @@ impl SyncManager {
             .as_millis() as u64
     }
 
-    fn buffer_block(
+    fn buffer_checkpoint(
         &self,
-        block: FullBlockData,
+        checkpoint: CheckpointSyncData,
         source_peer_id: Option<&str>,
         label: &str,
     ) -> Option<usize> {
-        let block_height = block.height;
-        let mut buffer = self.block_buffer.lock().unwrap();
+        let sequence = checkpoint.checkpoint.sequence;
+        let mut buffer = self.checkpoint_buffer_guard();
         let candidate_count: usize = buffer.values().map(VecDeque::len).sum();
         if candidate_count >= self.max_buffer_size {
             warn!(
-                "[SYNC] Block buffer full (max: {}). Dropping block #{}",
-                self.max_buffer_size, block_height
+                "[SYNC] Checkpoint buffer full (max: {}). Dropping checkpoint #{}",
+                self.max_buffer_size, sequence
             );
             return None;
         }
 
-        let candidates = buffer.entry(block_height).or_default();
+        let candidates = buffer.entry(sequence).or_default();
         if candidates.iter().any(|candidate| {
-            candidate.block.hash == block.hash && candidate.block.state_root == block.state_root
+            candidate.checkpoint.checkpoint.hash().ok() == checkpoint.checkpoint.hash().ok()
         }) {
             info!(
                 "[SYNC] Duplicate {} #{} already buffered, ignoring",
-                label, block_height
+                label, sequence
             );
             return Some(candidate_count);
         }
 
-        candidates.push_back(BufferedBlockCandidate {
-            block,
+        candidates.push_back(BufferedCheckpointCandidate {
+            checkpoint,
             source_peer_id: source_peer_id.map(str::to_owned),
         });
         let candidate_count = candidate_count + 1;
         info!(
-            "[SYNC] Buffered {} #{}. Candidates for height: {}, total buffered: {}/{}",
+            "[SYNC] Buffered {} #{}. Candidates for sequence: {}, total buffered: {}/{}",
             label,
-            block_height,
+            sequence,
             candidates.len(),
             candidate_count,
             self.max_buffer_size
@@ -248,24 +286,27 @@ impl SyncManager {
         Some(candidate_count)
     }
 
-    fn latest_buffered_height(&self) -> u64 {
-        let buffer = self.block_buffer.lock().unwrap();
+    fn latest_buffered_sequence(&self) -> u64 {
+        let buffer = self.checkpoint_buffer_guard();
         buffer.keys().last().copied().unwrap_or(0)
     }
 
-    fn pop_next_buffer_candidate(&self, next_height: u64) -> Option<BufferedBlockCandidate> {
-        let mut buffer = self.block_buffer.lock().unwrap();
-        let next_block = buffer
-            .get_mut(&next_height)
+    fn pop_next_buffer_candidate(
+        &self,
+        next_sequence: u64,
+    ) -> Option<BufferedCheckpointCandidate> {
+        let mut buffer = self.checkpoint_buffer_guard();
+        let next_candidate = buffer
+            .get_mut(&next_sequence)
             .and_then(|candidates| candidates.pop_front());
         let should_remove = buffer
-            .get(&next_height)
+            .get(&next_sequence)
             .map(|candidates| candidates.is_empty())
             .unwrap_or(false);
         if should_remove {
-            buffer.remove(&next_height);
+            buffer.remove(&next_sequence);
         }
-        next_block
+        next_candidate
     }
 
     fn best_peer_for_height(&self, height: u64) -> Option<String> {
@@ -277,43 +318,100 @@ impl SyncManager {
         height: u64,
         excluded_peer_id: Option<&str>,
     ) -> Option<String> {
-        let peers = self.peer_heights.lock().unwrap();
+        let peers = self.peer_heights_guard();
+        let divergent_peers = self.divergent_peers_guard();
         peers
             .iter()
             .filter(|(peer_id, peer_height)| {
-                peer_id.as_str() != self.local_peer_id && **peer_height >= height
+                peer_id.as_str() != self.local_peer_id
+                    && **peer_height >= height
+                    && !divergent_peers.contains_key(peer_id.as_str())
             })
             .filter(|(peer_id, _)| excluded_peer_id != Some(peer_id.as_str()))
             .max_by_key(|(_, peer_height)| *peer_height)
             .map(|(peer_id, _)| peer_id.clone())
     }
 
-    fn should_request_height(&self, height: u64, now: u64) -> bool {
-        let mut pending = self.pending_block_requests.lock().unwrap();
-        match pending.get(&height).copied() {
+    fn max_eligible_peer_height(&self) -> u64 {
+        let peers = self.peer_heights_guard();
+        let divergent_peers = self.divergent_peers_guard();
+        peers
+            .iter()
+            .filter(|(peer_id, _)| !divergent_peers.contains_key(peer_id.as_str()))
+            .map(|(_, height)| *height)
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn mark_peer_divergent(&self, peer_info: &PeerInfoMsg) {
+        {
+            let mut divergent = self.divergent_peers_guard();
+            divergent.insert(
+                peer_info.peer_id.clone(),
+                DivergentPeerInfo {
+                    height: peer_info.height,
+                    latest_checkpoint_hash: peer_info.latest_checkpoint_hash.clone(),
+                    latest_state_root: peer_info.latest_state_root.clone(),
+                },
+            );
+        }
+
+        self.peer_heights_guard().remove(&peer_info.peer_id);
+    }
+
+    fn clear_peer_divergence_if_recovered(
+        &self,
+        peer_info: &PeerInfoMsg,
+        local_height: u64,
+        local_checkpoint_hash: &str,
+        local_state_root: &str,
+    ) {
+        if peer_info.height != local_height
+            || peer_info.latest_checkpoint_hash != local_checkpoint_hash
+            || peer_info.latest_state_root != local_state_root
+        {
+            return;
+        }
+
+        let mut divergent = self.divergent_peers_guard();
+        if divergent.remove(&peer_info.peer_id).is_some() {
+            info!(
+                "[SYNC] Peer {} now matches local checkpoint/state again. Clearing divergence quarantine.",
+                peer_info.peer_id
+            );
+        }
+    }
+
+    fn is_peer_divergent(&self, peer_id: &str) -> bool {
+        self.divergent_peers_guard().contains_key(peer_id)
+    }
+
+    fn should_request_checkpoint_sequence(&self, sequence: u64, now: u64) -> bool {
+        let mut pending = self.pending_checkpoint_requests_guard();
+        match pending.get(&sequence).copied() {
             Some(last_requested)
                 if now.saturating_sub(last_requested) < REQUEST_RETRY_COOLDOWN_MS =>
             {
                 false
             }
             _ => {
-                pending.insert(height, now);
+                pending.insert(sequence, now);
                 true
             }
         }
     }
 
-    fn clear_pending_requests_up_to(&self, height: u64) {
-        let mut pending = self.pending_block_requests.lock().unwrap();
-        pending.retain(|pending_height, _| *pending_height > height);
+    fn clear_pending_checkpoint_requests_up_to(&self, sequence: u64) {
+        let mut pending = self.pending_checkpoint_requests_guard();
+        pending.retain(|pending_sequence, _| *pending_sequence > sequence);
     }
 
-    fn clear_pending_request(&self, height: u64) {
-        let mut pending = self.pending_block_requests.lock().unwrap();
-        pending.remove(&height);
+    fn clear_pending_checkpoint_request(&self, sequence: u64) {
+        let mut pending = self.pending_checkpoint_requests_guard();
+        pending.remove(&sequence);
     }
 
-    async fn request_missing_blocks_from_peer(
+    async fn request_missing_checkpoints_from_peer(
         &self,
         peer_id: &str,
         peer_height: u64,
@@ -322,62 +420,66 @@ impl SyncManager {
         let start_height = local_height + 1;
         if start_height > peer_height {
             warn!(
-                "[SYNC] Peer {} has height {} but we need {} (stats.height: {}). Not requesting.",
+                "[SYNC] Peer {} has height {} but we need checkpoint {} (stats.height: {}). Not requesting.",
                 peer_id, peer_height, start_height, local_height
             );
             return;
         }
 
         info!(
-            "[SYNC] Requesting blocks from {} to {} from peer {}",
+            "[SYNC] Requesting checkpoints from {} to {} from peer {}",
             start_height, peer_height, peer_id
         );
-        self.request_blocks(start_height, peer_height, Some(peer_id))
+        self.request_checkpoints(start_height, peer_height, Some(peer_id))
             .await;
     }
 
-    async fn process_incoming_block(
+    async fn process_incoming_checkpoint(
         &self,
-        block: FullBlockData,
+        checkpoint_data: CheckpointSyncData,
         source_peer_id: Option<&str>,
         received_label: &str,
         buffered_label: &str,
         check_for_gap: bool,
     ) {
         let stats = self.engine.get_stats();
+        let checkpoint = &checkpoint_data.checkpoint;
         info!(
             "[SYNC] Processing {} #{} (current height: {}, txs: {})",
-            received_label, block.height, stats.height, block.tx_count
+            received_label,
+            checkpoint.sequence,
+            stats.height,
+            checkpoint.transactions.len()
         );
 
-        if block.height <= stats.height {
+        if checkpoint.sequence <= stats.height {
             info!(
                 "[SYNC] Received old {} #{} (current: {}) - ignoring",
-                received_label, block.height, stats.height
+                received_label, checkpoint.sequence, stats.height
             );
             return;
         }
 
-        let block_height = block.height;
+        let sequence = checkpoint.sequence;
         if self
-            .buffer_block(block, source_peer_id, buffered_label)
+            .buffer_checkpoint(checkpoint_data, source_peer_id, buffered_label)
             .is_none()
         {
             return;
         }
 
-        self.try_apply_buffered_blocks().await;
+        self.try_apply_buffered_checkpoints().await;
 
         if check_for_gap {
             let new_stats = self.engine.get_stats();
-            let latest_buffered = self.latest_buffered_height();
+            let latest_buffered = self.latest_buffered_sequence();
             if latest_buffered > new_stats.height + 1 {
                 info!(
-                    "[SYNC] Gap detected after {} #{}. Current: {}, buffered: {}. Requesting missing blocks...",
-                    received_label, block_height, new_stats.height, latest_buffered
+                    "[SYNC] Gap detected after {} #{}. Current: {}, buffered: {}. Requesting missing checkpoints...",
+                    received_label, sequence, new_stats.height, latest_buffered
                 );
                 let target_peer = self.best_peer_for_height(new_stats.height + 1);
-                self.request_blocks(
+                self.request_checkpoints(
                     new_stats.height + 1,
                     latest_buffered - 1,
                     target_peer.as_deref(),
@@ -406,122 +508,141 @@ impl SyncManager {
         }
     }
 
-    async fn handle_new_block(&self, block_data: String) {
-        if let Some(block) = Self::parse_message::<FullBlockData>(&block_data, "new block") {
-            self.process_incoming_block(block, None, "NewBlock", "NewBlock", true)
+    async fn handle_new_checkpoint(&self, checkpoint_data: String) {
+        if let Some(checkpoint) =
+            Self::parse_message::<CheckpointSyncData>(&checkpoint_data, "new checkpoint")
+        {
+            self.process_incoming_checkpoint(
+                checkpoint,
+                None,
+                "NewCheckpoint",
+                "NewCheckpoint",
+                true,
+            )
                 .await;
         }
     }
 
     fn log_buffered_gap(&self, current_height: u64) {
-        let buffer = self.block_buffer.lock().unwrap();
+        let buffer = self.checkpoint_buffer_guard();
         if !buffer.is_empty() {
             let buffered_heights: Vec<_> = buffer.keys().collect();
             info!(
-                "[SYNC] Buffered blocks: {:?}. Next required: {}",
+                "[SYNC] Buffered checkpoints: {:?}. Next required: {}",
                 buffered_heights,
                 current_height + 1
             );
         }
     }
 
-    fn index_block_if_needed(&self, block: &FullBlockData) {
+    fn index_checkpoint_if_needed(&self, sequence: u64) {
         if let Some(ref indexer) = self.indexer
-            && let Err(e) = self.index_block_with_indexer(indexer, block)
+            && let Some(materialized_block_view) = self.engine.get_full_block(sequence)
+            && let Err(e) =
+                self.index_checkpoint_with_indexer(indexer, &materialized_block_view)
         {
-            error!("[INDEXER] Failed to index block #{}: {}", block.height, e);
+            error!("[INDEXER] Failed to index checkpoint #{}: {}", sequence, e);
         }
     }
 
-    /// Try to apply buffered blocks in sequence
-    async fn try_apply_buffered_blocks(&self) {
+    /// Try to apply buffered checkpoints in sequence
+    async fn try_apply_buffered_checkpoints(&self) {
         loop {
             let stats = self.engine.get_stats();
-            let next_height = stats.height + 1;
-            let next_candidate = self.pop_next_buffer_candidate(next_height);
+            let next_sequence = stats.height + 1;
+            let next_candidate = self.pop_next_buffer_candidate(next_sequence);
 
             if let Some(candidate) = next_candidate {
-                let block = candidate.block;
+                let checkpoint = candidate.checkpoint;
                 info!(
-                    "[SYNC] Found block #{} in buffer, attempting to apply. (current height: {})",
-                    block.height, stats.height
+                    "[SYNC] Found checkpoint #{} in buffer, attempting to apply. (current height: {})",
+                    checkpoint.checkpoint.sequence, stats.height
                 );
-                match self.engine.sync_full_block_from_data(&block) {
+                match self.engine.sync_checkpoint_from_data(&checkpoint) {
                     Ok(_) => {
                         info!(
-                            "[SYNC] Successfully synced block #{} with {} transactions",
-                            block.height, block.tx_count
+                            "[SYNC] Successfully synced checkpoint #{} with {} transactions",
+                            checkpoint.checkpoint.sequence,
+                            checkpoint.checkpoint.transactions.len()
                         );
-                        self.index_block_if_needed(&block);
+                        self.index_checkpoint_if_needed(checkpoint.checkpoint.sequence);
 
                         // Broadcast our new height
                         self.broadcast_peer_info().await;
-                        self.clear_pending_requests_up_to(block.height);
+                        self.clear_pending_checkpoint_requests_up_to(
+                            checkpoint.checkpoint.sequence,
+                        );
                     }
                     Err(e) => {
                         let has_more_candidates = {
-                            let buffer = self.block_buffer.lock().unwrap();
+                            let buffer = self.checkpoint_buffer_guard();
                             buffer
-                                .get(&block.height)
+                                .get(&checkpoint.checkpoint.sequence)
                                 .map(|candidates| !candidates.is_empty())
                                 .unwrap_or(false)
                         };
 
                         if has_more_candidates {
                             warn!(
-                                "[SYNC] Failed to sync block #{} candidate: {}. Trying next candidate.",
-                                block.height, e
+                                "[SYNC] Failed to sync checkpoint #{} candidate: {}. Trying next candidate.",
+                                checkpoint.checkpoint.sequence, e
                             );
                             continue;
                         }
 
                         warn!(
-                            "[SYNC] Failed to sync block #{} candidate: {}. Requesting replacement.",
-                            block.height, e
+                            "[SYNC] Failed to sync checkpoint #{} candidate: {}. Requesting replacement.",
+                            checkpoint.checkpoint.sequence, e
                         );
                         // Allow the replacement request to bypass the short retry cooldown.
-                        self.clear_pending_request(block.height);
+                        self.clear_pending_checkpoint_request(checkpoint.checkpoint.sequence);
                         let target_peer = self
                             .best_peer_for_height_excluding(
-                                block.height,
+                                checkpoint.checkpoint.sequence,
                                 candidate.source_peer_id.as_deref(),
                             )
-                            .or_else(|| self.best_peer_for_height(block.height));
-                        self.request_blocks(block.height, block.height, target_peer.as_deref())
+                            .or_else(|| {
+                                self.best_peer_for_height(checkpoint.checkpoint.sequence)
+                            });
+                        self.request_checkpoints(
+                            checkpoint.checkpoint.sequence,
+                            checkpoint.checkpoint.sequence,
+                            target_peer.as_deref(),
+                        )
                             .await;
                         break;
                     }
                 }
             } else {
-                // No more consecutive blocks in buffer.
+                // No more consecutive checkpoints in buffer.
                 // Check if we are still behind the network and should request more.
                 let stats = self.engine.get_stats();
-                let max_seen = self.max_peer_height.load(Ordering::Relaxed);
+                let max_seen = self.max_eligible_peer_height();
                 if stats.height < max_seen {
                     info!(
-                        "[SYNC] Applied all buffered blocks but still behind network (current: {}, max seen: {}).",
+                        "[SYNC] Applied all buffered checkpoints but still behind network (current: {}, max seen: {}).",
                         stats.height, max_seen
                     );
 
                     self.log_buffered_gap(stats.height);
 
                     let target_peer = self.best_peer_for_height(stats.height + 1);
-                    self.request_blocks(stats.height + 1, max_seen, target_peer.as_deref())
+                    self.request_checkpoints(stats.height + 1, max_seen, target_peer.as_deref())
                         .await;
                 }
                 break;
             }
         }
 
-        // Clean up old blocks from buffer
+        // Clean up old checkpoints from buffer
         {
             let stats = self.engine.get_stats();
-            let mut buffer = self.block_buffer.lock().unwrap();
+            let mut buffer = self.checkpoint_buffer_guard();
             let initial_len = buffer.len();
             buffer.retain(|&h, _| h > stats.height);
             if buffer.len() < initial_len {
                 info!(
-                    "[SYNC] Cleaned up {} old blocks from buffer. Current size: {}",
+                    "[SYNC] Cleaned up {} old checkpoints from buffer. Current size: {}",
                     initial_len - buffer.len(),
                     buffer.len()
                 );
@@ -530,8 +651,8 @@ impl SyncManager {
     }
 
     async fn handle_new_dag_vertex(&self, vertex_data: String) {
-        // DAG vertices are serialized as centauri::consensus::DagVertex
-        // NOT as DagBlockInfo which is just metadata
+        // DAG vertices are serialized as centauri::consensus::DagVertex,
+        // not as the higher-level block metadata wrapper.
 
         if let Some(vertex) = Self::parse_message::<DagVertex>(&vertex_data, "DAG vertex") {
             let stats = self.engine.get_stats();
@@ -542,111 +663,80 @@ impl SyncManager {
                 vertex.transactions.len()
             );
 
-            // Add vertex to local DAG consensus
-            // Auto-initialize DAG engine if not already initialized
-            if let Some(dag_engine_arc) = self.engine.get_dag_engine() {
-                // Check and initialize with write lock to prevent TOCTOU race
-                {
-                    let mut guard = dag_engine_arc.write().unwrap();
-
-                    // Only initialize if still None after acquiring write lock
-                    if guard.is_none() {
-                        info!(
-                            "[DAG SYNC] Auto-initializing DAG engine for vertex round {}",
-                            vertex.round
-                        );
-
-                        // Initialize DAG engine with same authorities as the network
-                        let authority_id = self.engine.get_authority_id();
-                        let authorities = self.engine.get_authorities();
-
-                        match DagEngine::new(self.engine.clone(), authority_id, authorities) {
-                            Ok(engine) => {
-                                *guard = Some(engine);
-                                info!("[DAG SYNC] DAG engine initialized successfully");
-                            }
-                            Err(e) => {
-                                error!("[DAG SYNC] Failed to initialize DAG engine: {}", e);
-                            }
+            match self.engine.add_network_dag_vertex(vertex.clone()) {
+                Ok(height_changed) => {
+                    info!(
+                        "Successfully added DAG vertex {} to local consensus",
+                        hex::encode(vertex.id)
+                    );
+                    if height_changed {
+                        let new_stats = self.engine.get_stats();
+                        if new_stats.height > stats.height {
+                            info!("New height reached via DAG: {}", new_stats.height);
+                            self.broadcast_peer_info().await;
                         }
                     }
-                    // Write lock is released here when guard goes out of scope
                 }
-
-                // Get the engine with a read lock for processing
-                let dag_engine_opt = {
-                    let guard = dag_engine_arc.read().unwrap();
-                    guard.as_ref().cloned()
-                };
-
-                if let Some(dag_engine) = dag_engine_opt {
-                    match dag_engine.add_network_vertex(vertex.clone()) {
-                        Ok(_) => {
-                            info!(
-                                "Successfully added DAG vertex {} to local consensus",
-                                hex::encode(vertex.id)
-                            );
-                            // Check if height changed to broadcast new info
-                            let new_stats = self.engine.get_stats();
-                            if new_stats.height > stats.height {
-                                info!("New height reached via DAG: {}", new_stats.height);
-                                self.broadcast_peer_info().await;
-                            }
-                        }
-                        Err(e) => {
-                            warn!("Failed to add DAG vertex to consensus: {}", e);
-                        }
-                    }
-                } else {
-                    warn!("DAG engine not initialized, cannot process vertex");
+                Err(e) => {
+                    warn!("Failed to add DAG vertex to consensus: {}", e);
                 }
-            } else {
-                warn!("DAG mode not enabled, ignoring vertex");
             }
         }
     }
 
-    async fn handle_block_request(
+    async fn handle_checkpoint_request(
         &self,
-        height: u64,
+        sequence: u64,
         request_timestamp: u64,
         requester_peer_id: Option<&str>,
         responder_peer_id: Option<&str>,
     ) {
-        info!("[SYNC] Received block request for height {}", height);
-        if let Some(full_block_data) = self.engine.get_full_block(height) {
+        info!("[SYNC] Received checkpoint request for sequence {}", sequence);
+        if let Some(checkpoint_sync) = self.engine.get_checkpoint_sync(sequence) {
             info!(
-                "[SYNC] Found block #{} with {} txs, sending response",
-                height, full_block_data.tx_count
+                "[SYNC] Found checkpoint #{} with {} txs, sending response",
+                sequence,
+                checkpoint_sync.checkpoint.transactions.len()
             );
-            if let Ok(data_str) = serde_json::to_string(&full_block_data) {
+            if let Ok(data_str) = serde_json::to_string(&checkpoint_sync) {
                 let msg = if let (Some(requester_peer_id), Some(responder_peer_id)) =
                     (requester_peer_id, responder_peer_id)
                 {
-                    P2PMessage::TargetedBlockResponse(BlockResponseMsg {
-                        height,
+                    P2PMessage::TargetedCheckpointResponse(CheckpointResponseMsg {
+                        sequence,
                         request_timestamp,
                         requester_peer_id: requester_peer_id.to_string(),
                         responder_peer_id: responder_peer_id.to_string(),
-                        block_data: data_str,
+                        checkpoint_data: data_str,
                     })
                 } else {
-                    P2PMessage::BlockResponse(data_str)
+                    P2PMessage::CheckpointResponse(data_str)
                 };
-                self.send_network_message(msg, "[SYNC] Failed to send block response");
+                self.send_network_message(msg, "[SYNC] Failed to send checkpoint response");
             }
         } else {
             warn!(
-                "[SYNC] Block #{} not found in our engine for request",
-                height
+                "[SYNC] Checkpoint #{} not found in our engine for request",
+                sequence
             );
         }
     }
 
-    async fn handle_block_response(&self, block_data: String, source_peer_id: Option<&str>) {
-        if let Some(block) = Self::parse_message::<FullBlockData>(&block_data, "block response") {
-            self.clear_pending_requests_up_to(block.height.saturating_sub(1));
-            self.process_incoming_block(block, source_peer_id, "block response", "block", false)
+    async fn handle_checkpoint_response(
+        &self,
+        checkpoint_data: String,
+        source_peer_id: Option<&str>,
+    ) {
+        if let Some(checkpoint) =
+            Self::parse_message::<CheckpointSyncData>(&checkpoint_data, "checkpoint response")
+        {
+            self.process_incoming_checkpoint(
+                checkpoint,
+                source_peer_id,
+                "checkpoint response",
+                "checkpoint",
+                false,
+            )
                 .await;
         }
     }
@@ -665,19 +755,12 @@ impl SyncManager {
         );
 
         if peer_info.peer_id != self.local_peer_id {
-            let mut peer_heights = self.peer_heights.lock().unwrap();
-            peer_heights.insert(peer_info.peer_id.clone(), peer_info.height);
-        }
-
-        // Update max seen height
-        let current_max = self.max_peer_height.load(Ordering::Relaxed);
-        if peer_info.height > current_max {
-            info!(
-                "[SYNC] Updating max_peer_height from {} to {}",
-                current_max, peer_info.height
+            self.clear_peer_divergence_if_recovered(
+                &peer_info,
+                stats.height,
+                &local_checkpoint_hash,
+                &local_state_root,
             );
-            self.max_peer_height
-                .store(peer_info.height, Ordering::Relaxed);
         }
 
         if peer_info.height == stats.height {
@@ -686,6 +769,7 @@ impl SyncManager {
                     "[SYNC] Diverged state detected with peer {} at height {}. local_state_root={}, peer_state_root={}",
                     peer_info.peer_id, stats.height, local_state_root, peer_info.latest_state_root
                 );
+                self.mark_peer_divergent(&peer_info);
             } else if peer_info.latest_checkpoint_hash != local_checkpoint_hash {
                 warn!(
                     "[SYNC] Diverged checkpoint history detected with peer {} at height {}. local_checkpoint_hash={}, peer_checkpoint_hash={}",
@@ -694,7 +778,31 @@ impl SyncManager {
                     local_checkpoint_hash,
                     peer_info.latest_checkpoint_hash
                 );
+                self.mark_peer_divergent(&peer_info);
+            } else if peer_info.peer_id != self.local_peer_id {
+                self.peer_heights_guard()
+                    .insert(peer_info.peer_id.clone(), peer_info.height);
             }
+        } else if peer_info.peer_id != self.local_peer_id
+            && !self.is_peer_divergent(&peer_info.peer_id)
+        {
+            self.peer_heights_guard()
+                .insert(peer_info.peer_id.clone(), peer_info.height);
+        }
+
+        if let Some(divergence) = self
+            .divergent_peers_guard()
+            .get(&peer_info.peer_id)
+            .cloned()
+        {
+            warn!(
+                "[SYNC] Peer {} remains quarantined due to divergent history at height {} (checkpoint={}, state_root={}).",
+                peer_info.peer_id,
+                divergence.height,
+                divergence.latest_checkpoint_hash,
+                divergence.latest_state_root
+            );
+            return;
         }
 
         if peer_info.height > stats.height {
@@ -702,7 +810,7 @@ impl SyncManager {
                 "[SYNC] Peer {} is ahead at height {} (current: {})",
                 peer_info.peer_id, peer_info.height, stats.height
             );
-            self.request_missing_blocks_from_peer(
+            self.request_missing_checkpoints_from_peer(
                 &peer_info.peer_id,
                 peer_info.height,
                 stats.height,
@@ -716,55 +824,58 @@ impl SyncManager {
         }
     }
 
-    async fn request_blocks(&self, from: u64, to: u64, target_peer_id: Option<&str>) {
+    async fn request_checkpoints(&self, from: u64, to: u64, target_peer_id: Option<&str>) {
         if from > to {
             return;
         }
 
         let stats = self.engine.get_stats();
         info!(
-            "[SYNC] Requesting blocks from {} to {} (our current height: {}, target: {:?})",
+            "[SYNC] Requesting checkpoints from {} to {} (our current height: {}, target: {:?})",
             from, to, stats.height, target_peer_id
         );
         let timestamp = Self::current_timestamp();
 
-        // Limit the number of blocks requested at once to avoid network congestion.
-        let actual_to = to.min(from + MAX_BLOCKS_PER_REQUEST);
+        // Limit the number of checkpoints requested at once to avoid network congestion.
+        let actual_to = to.min(from + MAX_CHECKPOINTS_PER_REQUEST);
         let mut sent = 0u64;
 
-        for height in from..=actual_to {
-            // Check if we already have this block in buffer before requesting
+        for sequence in from..=actual_to {
+            // Check if we already have this checkpoint in buffer before requesting
             {
-                let buffer = self.block_buffer.lock().unwrap();
-                if buffer.contains_key(&height) {
+                let buffer = self.checkpoint_buffer_guard();
+                if buffer.contains_key(&sequence) {
                     continue;
                 }
             }
 
-            if !self.should_request_height(height, timestamp) {
+            if !self.should_request_checkpoint_sequence(sequence, timestamp) {
                 continue;
             }
 
             let msg = if let Some(target_peer_id) = target_peer_id {
-                P2PMessage::TargetedBlockRequest(BlockRequestMsg {
-                    height,
+                P2PMessage::TargetedCheckpointRequest(CheckpointRequestMsg {
+                    sequence,
                     timestamp,
                     requester_peer_id: self.local_peer_id.clone(),
                     responder_peer_id: target_peer_id.to_string(),
                 })
             } else {
-                P2PMessage::BlockRequest(height, timestamp)
+                P2PMessage::CheckpointRequest(sequence, timestamp)
             };
 
             if !self.send_network_message(
                 msg,
-                &format!("[SYNC] Failed to send block request for height {}", height),
+                &format!(
+                    "[SYNC] Failed to send checkpoint request for sequence {}",
+                    sequence
+                ),
             ) {
                 break;
             }
             sent += 1;
         }
-        info!("[SYNC] Sent {} block requests starting from {}", sent, from);
+        info!("[SYNC] Sent {} checkpoint requests starting from {}", sent, from);
     }
 
     /// Broadcast local chain height to peers
@@ -784,18 +895,148 @@ impl SyncManager {
         self.send_network_message(msg, "Failed to broadcast peer info");
     }
 
-    /// Index a block using the indexer (helper method)
-    fn index_block_with_indexer(
+    /// Index a committed checkpoint using the indexer via its materialized block view.
+    fn index_checkpoint_with_indexer(
         &self,
         indexer: &Arc<Mutex<kanari_indexer::Indexer>>,
-        full_block: &FullBlockData,
+        materialized_block_view: &kanari_core::FullBlockData,
     ) -> anyhow::Result<()> {
-        let block = BlockchainEngine::block_from_full_data(full_block);
+        let materialized_block = BlockchainEngine::block_from_full_data(materialized_block_view);
         let idx = indexer
             .lock()
             .map_err(|e| anyhow::anyhow!("Failed to acquire indexer lock: {}", e))?;
-        idx.index_block(&block)?;
+        idx.index_block(&materialized_block)?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::*;
+    use centauri::consensus::Checkpoint;
+
+    fn new_sync_manager() -> SyncManager {
+        let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
+        let (network_tx, _network_rx) = mpsc::unbounded_channel();
+        SyncManager::new(engine, network_tx, "local-peer".to_string(), None)
+    }
+
+    fn peer_info(height: u64, checkpoint: &str, state_root: &str) -> PeerInfoMsg {
+        PeerInfoMsg {
+            height,
+            peer_id: "peer-1".to_string(),
+            timestamp: 1,
+            latest_checkpoint_hash: checkpoint.to_string(),
+            latest_state_root: state_root.to_string(),
+            total_transactions: 0,
+        }
+    }
+
+    fn apply_empty_checkpoint(engine: &BlockchainEngine, sequence: u64) {
+        let prev_hash = {
+            let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            chain.latest_checkpoint().hash().unwrap()
+        };
+        let state_root = engine
+            .state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .compute_state_root();
+        let checkpoint = Checkpoint::new(sequence, vec![], vec![], state_root, sequence, prev_hash);
+        engine.apply_checkpoint(checkpoint).unwrap();
+    }
+
+    #[test]
+    fn test_retry_cooldown_throttles_rapid_duplicate_checkpoint_request() {
+        let sync = new_sync_manager();
+        assert!(sync.should_request_checkpoint_sequence(7, 1_000));
+        assert!(!sync.should_request_checkpoint_sequence(7, 1_500));
+        assert!(sync.should_request_checkpoint_sequence(7, 3_500));
+    }
+
+    #[tokio::test]
+    async fn test_divergent_peer_is_quarantined_from_sync_targets() {
+        let sync = new_sync_manager();
+        let stats = sync.engine.get_stats();
+        let local_checkpoint_hash = sync.engine.latest_checkpoint_hash_hex();
+
+        sync.handle_peer_info(peer_info(stats.height, &local_checkpoint_hash, "deadbeef"))
+            .await;
+
+        assert!(sync.is_peer_divergent("peer-1"));
+        assert_eq!(sync.best_peer_for_height(stats.height), None);
+        assert_eq!(sync.max_eligible_peer_height(), 0);
+    }
+
+    #[test]
+    fn test_buffered_checkpoint_applies_when_gap_is_filled() {
+        let source_engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
+        apply_empty_checkpoint(source_engine.as_ref(), 1);
+        apply_empty_checkpoint(source_engine.as_ref(), 2);
+        let checkpoint_one = source_engine.get_checkpoint_sync(1).unwrap();
+        let checkpoint_two = source_engine.get_checkpoint_sync(2).unwrap();
+
+        let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
+        let (network_tx, _network_rx) = mpsc::unbounded_channel();
+        let sync = SyncManager::new(engine.clone(), network_tx, "local-peer".to_string(), None);
+
+        assert!(
+            sync.buffer_checkpoint(checkpoint_two, Some("peer-2"), "test")
+                .is_some()
+        );
+        assert_eq!(engine.get_stats().height, 0);
+        assert!(
+            sync.buffer_checkpoint(checkpoint_one, Some("peer-2"), "test")
+                .is_some()
+        );
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(sync.try_apply_buffered_checkpoints());
+
+        assert_eq!(engine.get_stats().height, 2);
+        assert_eq!(sync.latest_buffered_sequence(), 0);
+    }
+
+    #[test]
+    fn test_handle_checkpoint_response_keeps_earlier_pending_requests_until_apply() {
+        let sync = new_sync_manager();
+        {
+            let mut pending = sync.pending_checkpoint_requests_guard();
+            pending.insert(1, 10);
+            pending.insert(2, 20);
+            pending.insert(3, 30);
+        }
+
+        let prev_hash = {
+            let chain = sync.engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            chain.latest_checkpoint().hash().unwrap()
+        };
+        let bogus_checkpoint = CheckpointSyncData {
+            checkpoint: Checkpoint::new(3, vec![], vec![], vec![0u8; 32], 3, prev_hash),
+        };
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(
+            sync.handle_checkpoint_response(
+                serde_json::to_string(&bogus_checkpoint).unwrap(),
+                Some("peer-2"),
+            ),
+        );
+
+        let pending_heights: BTreeSet<_> = sync
+            .pending_checkpoint_requests_guard()
+            .keys()
+            .copied()
+            .collect();
+        assert_eq!(pending_heights, BTreeSet::from([1, 2, 3]));
     }
 }

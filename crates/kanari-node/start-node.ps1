@@ -53,6 +53,11 @@ try {
 
 Write-Host ''
 
+if ([string]::IsNullOrWhiteSpace($Authorities)) {
+    Write-Host 'Error: multi-node DAG startup requires -Authorities so kanari-node can pass --authority-id and --authorities explicitly.' -ForegroundColor Red
+    exit 1
+}
+
 if ($Authorities -ne "") {
     if ($Bootstrap -ne "") {
         & $exePath start --network $Network --p2p-port $p2pPort --rpc-port $rpcPort --rpc-host 0.0.0.0 --data-dir $dataDir --authority-id $authId --authorities $Authorities --bootstrap $Bootstrap

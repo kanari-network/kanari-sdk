@@ -50,6 +50,12 @@ pub type Round = u64;
 /// Authority/validator identifier
 pub type AuthorityId = String;
 
+fn vertex_id_from_hash_bytes(bytes: &[u8]) -> VertexId {
+    let mut result = [0u8; 32];
+    result.copy_from_slice(&bytes[..32]);
+    result
+}
+
 fn timestamp_bounds(parent_timestamps: &[u64]) -> Option<(u64, u64)> {
     const MAX_TIMESTAMP_DRIFT_SECS: u64 = 300;
 
@@ -239,16 +245,11 @@ impl DagVertex {
     pub fn compute_hash(&self) -> Result<VertexId> {
         // Return cached hash if available
         if let Some(ref cached) = self.cached_hash {
-            // Convert Vec<u8> cache to [u8; 32]
-            let mut result = [0u8; 32];
-            result.copy_from_slice(&cached[..32]);
-            return Ok(result);
+            return Ok(vertex_id_from_hash_bytes(cached));
         }
 
         let hash_vec = hash_data_blake3(&self.hash_material()?);
-        let mut result = [0u8; 32];
-        result.copy_from_slice(&hash_vec[..32]);
-        Ok(result)
+        Ok(vertex_id_from_hash_bytes(&hash_vec))
     }
 
     /// Get serialized data with caching (500K TPS optimization)
@@ -499,6 +500,67 @@ pub struct PersistentDagState {
     pub checkpoints: Vec<Checkpoint>,
     pub current_round: Round,
     pub last_checkpoint_round: Round,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DagProductionPolicy {
+    pub current_round: Round,
+    pub parent_round: Round,
+    pub target_round: Round,
+    pub parent_ids: Vec<VertexId>,
+    pub parent_author_count: usize,
+    pub quorum_size: usize,
+    pub local_has_vertex_in_current_round: bool,
+    pub using_catch_up_round: bool,
+}
+
+impl DagProductionPolicy {
+    pub fn should_wait_for_current_round_quorum(&self) -> bool {
+        self.current_round > 0
+            && self.parent_round == self.current_round
+            && self.local_has_vertex_in_current_round
+            && self.parent_author_count < self.quorum_size
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DagProgressPolicy {
+    pub current_round: Round,
+    pub last_checkpoint_round: Round,
+    pub latest_local_round: Round,
+}
+
+impl DagProgressPolicy {
+    pub fn needs_progress(&self) -> bool {
+        self.current_round > self.last_checkpoint_round
+            || (self.current_round > 0 && self.latest_local_round < self.current_round)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DagProductionPlan {
+    pub policy: DagProductionPolicy,
+    pub history_vertices: Vec<VertexId>,
+    pub history_tx_hashes: BTreeSet<Vec<u8>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DagPendingSelection {
+    pub included: Vec<SignedTransaction>,
+    pub remove_hashes: Vec<Vec<u8>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DagExecutionPlan {
+    pub transactions: Vec<SignedTransaction>,
+    pub history_vertices: Vec<VertexId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DagNetworkVertexAction {
+    Accept,
+    IgnoreExisting,
+    IgnoreFarFutureEmpty { current_round: Round },
 }
 
 /// DAG Consensus Protocol (Bullshark-style with VRF leader election)
@@ -1059,6 +1121,182 @@ mod tests {
     }
 
     #[test]
+    fn test_production_policy_uses_catch_up_round_for_partial_remote_round() {
+        let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
+        let mut source = DagConsensus::new("0x1".to_string(), authorities.clone());
+        let remote_round_one = source.create_vertex(vec![], vec![1u8; 32], 1).unwrap();
+
+        let mut consensus = DagConsensus::new("0x2".to_string(), authorities);
+        consensus.add_vertex(remote_round_one).unwrap();
+
+        let policy = consensus.production_policy();
+        assert_eq!(policy.current_round, 1);
+        assert_eq!(policy.parent_round, 0);
+        assert_eq!(policy.target_round, 1);
+        assert!(policy.using_catch_up_round);
+        assert!(!policy.local_has_vertex_in_current_round);
+    }
+
+    #[test]
+    fn test_production_policy_waits_when_local_vertex_already_exists_in_partial_round() {
+        let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
+        let mut consensus = DagConsensus::new("0x1".to_string(), authorities);
+
+        let round_one = consensus.create_vertex(vec![], vec![1u8; 32], 1).unwrap();
+        consensus.add_vertex(round_one).unwrap();
+
+        let policy = consensus.production_policy();
+        assert_eq!(policy.current_round, 1);
+        assert_eq!(policy.parent_round, 1);
+        assert_eq!(policy.target_round, 2);
+        assert!(policy.local_has_vertex_in_current_round);
+        assert!(policy.should_wait_for_current_round_quorum());
+    }
+
+    #[test]
+    fn test_progress_policy_tracks_uncheckpointed_rounds() {
+        let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
+        let mut consensus = DagConsensus::new("0x2".to_string(), authorities);
+
+        let round_one = consensus.create_vertex(vec![], vec![1u8; 32], 1).unwrap();
+        consensus.add_vertex(round_one).unwrap();
+
+        let progress = consensus.progress_policy();
+        assert_eq!(progress.current_round, 1);
+        assert_eq!(progress.last_checkpoint_round, 0);
+        assert_eq!(progress.latest_local_round, 1);
+        assert!(progress.needs_progress());
+        assert!(consensus.needs_progress());
+    }
+
+    #[test]
+    fn test_plan_timestamp_uses_plan_parents_for_catch_up_rounds() {
+        let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
+        let mut source = DagConsensus::new("0x1".to_string(), authorities.clone());
+        let remote_round_one = source.create_vertex(vec![], vec![1u8; 32], 1).unwrap();
+
+        let mut consensus = DagConsensus::new("0x2".to_string(), authorities);
+        consensus.add_vertex(remote_round_one).unwrap();
+
+        let plan = consensus.production_plan().unwrap();
+        let catch_up_timestamp = consensus.suggest_vertex_timestamp_for_plan(&plan, 10_000);
+        let current_round_timestamp = consensus.suggest_vertex_timestamp(10_000);
+
+        assert_eq!(plan.policy.parent_round, 0);
+        assert_eq!(catch_up_timestamp, 300);
+        assert_eq!(current_round_timestamp, 301);
+    }
+
+    #[test]
+    fn test_classify_network_vertex_ignores_existing_and_far_future_empty_vertices() {
+        let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
+        let mut consensus = DagConsensus::new("0x1".to_string(), authorities.clone());
+
+        let existing = consensus.create_vertex(vec![], vec![1u8; 32], 1).unwrap();
+        let existing_id = existing.id;
+        consensus.add_vertex(existing).unwrap();
+
+        let existing_vertex = consensus.store.get_vertex(&existing_id).unwrap().clone();
+        assert_eq!(
+            consensus.classify_network_vertex(&existing_vertex, 20),
+            DagNetworkVertexAction::IgnoreExisting
+        );
+
+        let far_future_empty = DagVertex::new_for_test(
+            50,
+            "0x2".to_string(),
+            consensus.store.get_vertex_ids_in_round(1),
+            vec![],
+            vec![2u8; 32],
+            2,
+        );
+        assert_eq!(
+            consensus.classify_network_vertex(&far_future_empty, 20),
+            DagNetworkVertexAction::IgnoreFarFutureEmpty { current_round: 1 }
+        );
+    }
+
+    #[test]
+    fn test_select_commit_vertex_is_deterministic_across_arrival_order() {
+        let authorities = vec![
+            "0x1".to_string(),
+            "0x2".to_string(),
+            "0x3".to_string(),
+            "0x4".to_string(),
+        ];
+
+        let mut round_one_vertices = Vec::new();
+        for authority in &authorities {
+            let mut consensus = DagConsensus::new(authority.clone(), authorities.clone());
+            round_one_vertices.push(consensus.create_vertex(vec![], vec![1u8; 32], 1).unwrap());
+        }
+
+        let mut observer = DagConsensus::new("0x1".to_string(), authorities.clone());
+        for vertex in round_one_vertices.iter().rev() {
+            observer.add_vertex(vertex.clone()).unwrap();
+        }
+
+        let support_authors = vec!["0x1".to_string(), "0x2".to_string(), "0x4".to_string()];
+        for authority in support_authors {
+            let mut supporter = DagConsensus::new(authority, authorities.clone());
+            for vertex in &round_one_vertices {
+                supporter.add_vertex(vertex.clone()).unwrap();
+            }
+            let round_two = supporter.create_vertex(vec![], vec![2u8; 32], 2).unwrap();
+            observer.add_vertex(round_two).unwrap();
+        }
+
+        let preferred_leader = "0x1".to_string();
+        let selected = observer
+            .select_commit_vertex(1, &preferred_leader)
+            .unwrap()
+            .expect("commit candidate should exist");
+
+        assert_eq!(selected.0.author, "0x1");
+    }
+
+    #[test]
+    fn test_select_commit_vertex_does_not_fallback_to_non_leader() {
+        let authorities = vec![
+            "0x1".to_string(),
+            "0x2".to_string(),
+            "0x3".to_string(),
+            "0x4".to_string(),
+        ];
+
+        let mut round_one_vertices = Vec::new();
+        for authority in &authorities {
+            let mut consensus = DagConsensus::new(authority.clone(), authorities.clone());
+            round_one_vertices.push(consensus.create_vertex(vec![], vec![1u8; 32], 1).unwrap());
+        }
+
+        let mut observer = DagConsensus::new("0x1".to_string(), authorities.clone());
+        for vertex in round_one_vertices
+            .iter()
+            .filter(|vertex| vertex.author != "0x4")
+        {
+            observer.add_vertex(vertex.clone()).unwrap();
+        }
+
+        for authority in ["0x1", "0x2", "0x3"] {
+            let mut supporter = DagConsensus::new(authority.to_string(), authorities.clone());
+            for vertex in round_one_vertices
+                .iter()
+                .filter(|vertex| vertex.author != "0x4")
+            {
+                supporter.add_vertex(vertex.clone()).unwrap();
+            }
+            let round_two = supporter.create_vertex(vec![], vec![2u8; 32], 2).unwrap();
+            observer.add_vertex(round_two).unwrap();
+        }
+
+        let missing_leader = "0x4".to_string();
+        let selected = observer.select_commit_vertex(1, &missing_leader).unwrap();
+
+        assert!(selected.is_none());
+    }
+
+    #[test]
     fn test_checkpoint_hash_ignores_non_canonical_dag_metadata() {
         let tx = SignedTransaction::new(Transaction::Transfer {
             from: "alice".to_string(),
@@ -1533,7 +1771,7 @@ mod tests {
         public_keys.insert("auth2".to_string(), sk2.verifying_key().to_bytes().to_vec());
 
         // FIX #1: Only provide local VRF secret (for auth1), not all secrets
-        let local_vrf_secret = Some([1u8; 32]);
+        let local_vrf_secret = [1u8; 32];
 
         let consensus = DagConsensus::with_chain_id_secure(
             "auth1".to_string(),
@@ -1541,7 +1779,7 @@ mod tests {
             "chain-secure".to_string(),
             sk1,
             public_keys,
-            local_vrf_secret, // FIX #1: Pass only local secret
+            local_vrf_secret,
         )
         .unwrap();
         assert!(consensus.committee().contains("auth1"));
@@ -1559,14 +1797,13 @@ mod tests {
             expected.verifying_key().to_bytes().to_vec(),
         );
 
-        // FIX #1: Provide None for local VRF secret (not required for this test)
         let result = DagConsensus::with_chain_id_secure(
             "auth1".to_string(),
             authorities,
             "chain-secure".to_string(),
             wrong,
             public_keys,
-            None, // FIX #1: No VRF secret needed for this test
+            [9u8; 32],
         );
         assert!(result.is_err());
     }

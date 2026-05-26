@@ -10,6 +10,7 @@
 use crate::move_runtime::{MoveRuntime, load_system_modules};
 use crate::state::StateManager;
 use anyhow::{Context, Result};
+use kanari_crypto::hash_data_blake3;
 use kanari_types::address::Address as KanariAddress;
 
 use std::format;
@@ -110,11 +111,14 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
                     )?;
 
                     let witness_bytes = Vec::new();
+                    let init_tx_hash = hash_data_blake3(b"KANARI::GENESIS::INIT::KANARI").to_vec();
 
-                    match runtime.execute_init_function(
+                    match runtime.execute_init_function_with_context(
                         move_system_addr,
                         "kanari",
                         vec![witness_bytes],
+                        Some(0),
+                        Some(init_tx_hash),
                     ) {
                         Ok(init_changeset) => {
                             log::info!(

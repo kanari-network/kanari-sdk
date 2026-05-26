@@ -131,11 +131,11 @@ impl ShardedDag {
         Ok(Self {
             shard_id,
             num_shards,
-            local_dag: DagConsensus::with_chain_id(
+            local_dag: DagConsensus::try_with_chain_id(
                 authority_id,
                 authorities,
                 format!("kanari-shard-{shard_id}"),
-            ),
+            )?,
             outbound: CrossShardQueue::default(),
             inbound: VecDeque::new(),
         })
