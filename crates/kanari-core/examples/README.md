@@ -8,7 +8,7 @@ This directory contains examples demonstrating various features of the Kanari bl
 
 **File**: [dag_consensus_demo.rs](dag_consensus_demo.rs)
 
-Demonstrates the DAG-based consensus mechanism (Narwhal & Bullshark style) for high-throughput, low-latency transaction processing.
+Demonstrates the Mysticeti-style DAG consensus mechanism for high-throughput, low-latency transaction processing.
 
 #### What it shows
 
@@ -96,8 +96,8 @@ cargo run --package kanari-core --example dag_consensus_demo
    - Quorum requirements (2f+1)
 
 3. **Consensus Protocol**
-   - Bullshark-style leader election
-   - 3-round commit protocol
+   - Mysticeti-style deterministic multi-leader selection
+   - 3-round decision protocol
    - Byzantine fault tolerance
 
 4. **Parallel Execution**

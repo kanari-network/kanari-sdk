@@ -165,6 +165,7 @@ async fn handle_rpc(
 
         // Health
         methods::HEALTH => handle_health(&state, &request).await,
+        methods::GET_NETWORK_STATUS => handle_network_status(&state, &request).await,
 
         // Module operations
         methods::PUBLISH_MODULE => handle_publish_module(&state, &request).await,
@@ -244,6 +245,27 @@ async fn handle_health(state: &RpcServerState, request: &RpcRequest) -> RpcRespo
     };
 
     respond_with_serialize(request.id, health)
+}
+
+async fn handle_network_status(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    let local_authority_id = state.engine.authority_id().to_string();
+    let authorities = state
+        .engine
+        .authorities()
+        .iter()
+        .map(|authority_id| NetworkAuthorityStatus {
+            authority_id: authority_id.clone(),
+            local: authority_id == &local_authority_id,
+        })
+        .collect::<Vec<_>>();
+
+    let status = NetworkStatus {
+        local_authority_id,
+        authority_count: authorities.len(),
+        authorities,
+    };
+
+    respond_with_serialize(request.id, status)
 }
 
 #[cfg(test)]
@@ -330,7 +352,12 @@ mod tests {
     }
 
     fn build_test_router() -> Router {
-        let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
+        let mut engine = BlockchainEngine::new_in_memory().unwrap();
+        engine.set_authorities(
+            "0x1".to_string(),
+            vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()],
+        );
+        let engine = Arc::new(engine);
         {
             let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
             seed_runtime_state(&mut state);
@@ -379,6 +406,18 @@ mod tests {
         assert!(health["status"].as_str().is_some());
         assert!(health["persistent_storage_available"].is_boolean());
         assert!(health["supply_invariants_ok"].is_boolean());
+
+        let network_status = rpc_call(
+            app.clone(),
+            methods::GET_NETWORK_STATUS,
+            serde_json::json!([]),
+            10,
+        )
+        .await;
+        assert_eq!(network_status["local_authority_id"], "0x1");
+        assert_eq!(network_status["authority_count"], 3);
+        assert_eq!(network_status["authorities"][0]["authority_id"], "0x1");
+        assert_eq!(network_status["authorities"][0]["local"], true);
 
         let stats = rpc_call(app.clone(), methods::GET_STATS, serde_json::json!([]), 2).await;
         assert_eq!(stats["total_supply"], 500);

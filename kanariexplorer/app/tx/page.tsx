@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { getAllTransactions, getTransaction } from "../lib/rpc";
 import Link from "next/link";
+import TransactionDetailsModal from "../components/TransactionDetailsModal";
 
 // ฟังก์ชันย่อ Hash สำหรับแสดงผล
 function shortenHash(hash: string) {
@@ -140,7 +141,7 @@ function TxContent() {
                             </thead>
                             <tbody className="divide-y divide-white/5 text-sm font-mono">
                                 {txs.map((tx, i) => (
-                                    <tr key={i} className="hover:bg-white/2 transition-colors group">
+                                    <tr key={tx.hash ?? i} className="hover:bg-white/2 transition-colors group">
                                         <td className="p-6 pl-8">
                                             {/* 🚨 ปุ่มกดรายละเอียดใช้สี Cyan-400 แบบหน้า Account */}
                                             <button
@@ -194,7 +195,7 @@ function TxContent() {
             </div>
 
             {/* 🚨 Modal Details - Emerald & Cyan Edition */}
-            {isModalOpen && (
+            {false && isModalOpen && (
                 <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/80 backdrop-blur-xl p-4 animate-in fade-in duration-300">
                     <div className="bg-[#111113] border border-white/10 rounded-[40px] w-full max-w-3xl shadow-[0_0_100px_rgba(16,185,129,0.1)] flex flex-col max-h-[90vh] overflow-hidden">
                         <div className="flex justify-between items-center p-8 border-b border-white/5">
@@ -242,6 +243,13 @@ function TxContent() {
             )}
 
             {/* 🛠 Developer Info - Emerald Theme */}
+            <TransactionDetailsModal
+                open={isModalOpen}
+                loading={modalLoading}
+                transaction={selectedTx}
+                onClose={() => setIsModalOpen(false)}
+            />
+
             <details className="group mt-12 border-t border-white/5 pt-10">
                 <summary className="list-none cursor-pointer flex items-center gap-3 text-zinc-600 hover:text-emerald-400 transition-colors">
                     <div className="w-6 h-6 rounded-lg bg-white/5 flex items-center justify-center group-open:rotate-90 transition-transform">

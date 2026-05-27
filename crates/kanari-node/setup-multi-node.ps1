@@ -9,11 +9,26 @@ param(
     [int]$BaseRpcPort = 19001,
     [switch]$ResetReplicaData,
     [switch]$ResetSourceData,
+    [switch]$AllowReuseData,
     [switch]$DisableFailFast,
-    [switch]$SkipHealthCheck
+    [switch]$SkipHealthCheck,
+    [string]$ConsensusKeyDir = "$env:USERPROFILE\.kanari\consensus-keys",
+    [switch]$ResetConsensusKeys
 )
 
 . (Join-Path $PSScriptRoot 'node-script-common.ps1')
+
+function Test-DirectoryHasEntries {
+    param(
+        [string]$Path
+    )
+
+    if (-not (Test-Path $Path)) {
+        return $false
+    }
+
+    return $null -ne (Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue | Select-Object -First 1)
+}
 
 Write-Host "Starting Kanari Multi-Node Setup..." -ForegroundColor Green
 Write-Host ""
@@ -31,6 +46,8 @@ Write-Host "Network: $Network" -ForegroundColor Cyan
 Write-Host "Source node data dir (node1): $SourceNodeDataDir" -ForegroundColor Cyan
 Write-Host "Replica base data dir (node2..N): $ReplicaBaseDataDir" -ForegroundColor Cyan
 Write-Host "Supply fail-fast: $($env:KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH)" -ForegroundColor Cyan
+Write-Host "Allow reuse existing data: $AllowReuseData" -ForegroundColor Cyan
+Write-Host "Consensus key dir: $ConsensusKeyDir" -ForegroundColor Cyan
 Write-Host ""
 
 if (-not (Test-Path $SourceNodeDataDir)) {
@@ -38,6 +55,34 @@ if (-not (Test-Path $SourceNodeDataDir)) {
 }
 if (-not (Test-Path $ReplicaBaseDataDir)) {
     New-Item -ItemType Directory -Path $ReplicaBaseDataDir -Force | Out-Null
+}
+
+$existingReplicaDirs = @()
+for ($i = 2; $i -le $NodeCount; $i++) {
+    $nodeDir = Join-Path $ReplicaBaseDataDir "node$i"
+    if (Test-DirectoryHasEntries -Path $nodeDir) {
+        $existingReplicaDirs += $nodeDir
+    }
+}
+
+$sourceHasExistingData = Test-DirectoryHasEntries -Path $SourceNodeDataDir
+$hasReusableData = $sourceHasExistingData -or $existingReplicaDirs.Count -gt 0
+
+if ($hasReusableData -and -not $AllowReuseData -and (-not $ResetSourceData -or -not $ResetReplicaData)) {
+    Write-Host ""
+    Write-Host "Refusing to launch multi-node cluster with reused data by default." -ForegroundColor Red
+    Write-Host "This is a common cause of checkpoint/state-root divergence between nodes." -ForegroundColor Red
+    if ($sourceHasExistingData) {
+        Write-Host "Existing source data detected: $SourceNodeDataDir" -ForegroundColor Yellow
+    }
+    foreach ($nodeDir in $existingReplicaDirs) {
+        Write-Host "Existing replica data detected: $nodeDir" -ForegroundColor Yellow
+    }
+    Write-Host ""
+    Write-Host "Use one of these options:" -ForegroundColor Cyan
+    Write-Host "  1. Fresh start: .\setup-multi-node.ps1 -NodeCount $NodeCount -ResetSourceData -ResetReplicaData" -ForegroundColor Cyan
+    Write-Host "  2. Reuse intentionally: add -AllowReuseData" -ForegroundColor Cyan
+    exit 1
 }
 
 if ($ResetSourceData) {
@@ -66,6 +111,43 @@ for ($i = 1; $i -le $NodeCount; $i++) {
 }
 $authoritiesStr = $authorities -join ","
 
+Write-Host "Authority committee: $authoritiesStr" -ForegroundColor Cyan
+
+try {
+    $exeInfo = Find-KanariNodeExecutable
+    $exePath = $exeInfo.Path
+    Write-Host $exeInfo.Label -ForegroundColor $exeInfo.Color
+} catch {
+    Write-Host 'Error: kanari-node executable not found! Build it first with: cargo build -p kanari-node' -ForegroundColor Red
+    exit 1
+}
+
+if ($ResetConsensusKeys -and (Test-Path $ConsensusKeyDir)) {
+    Write-Host "ResetConsensusKeys enabled: clearing consensus keys..." -ForegroundColor Yellow
+    Remove-Item -LiteralPath $ConsensusKeyDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+$publicKeysPath = Join-Path $ConsensusKeyDir "consensus-public-keys.json"
+$missingConsensusKeys = -not (Test-Path $publicKeysPath)
+for ($i = 1; $i -le $NodeCount; $i++) {
+    $privateKeyPath = Join-Path $ConsensusKeyDir "node$i-consensus-private-key.hex"
+    if (-not (Test-Path $privateKeyPath)) {
+        $missingConsensusKeys = $true
+        break
+    }
+}
+
+if ($missingConsensusKeys) {
+    Write-Host "Generating consensus keys for $NodeCount node(s)..." -ForegroundColor Cyan
+    & $exePath consensus-keygen --node-count $NodeCount --output-dir $ConsensusKeyDir --force
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Failed to generate consensus keys." -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
+} else {
+    Write-Host "Using existing consensus keys in $ConsensusKeyDir" -ForegroundColor Cyan
+}
+
 $localIp = Get-LanIpAddress
 if (-not $localIp) {
     Write-Host "Warning: no LAN IPv4 detected. Bootstrap may fail if peers cannot resolve node1." -ForegroundColor Yellow
@@ -88,14 +170,14 @@ for ($i = 1; $i -le $NodeCount; $i++) {
 
     if ($i -eq 1) {
         $dataDir = $SourceNodeDataDir
-        $argString = "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`" -NodeId $i -Network $Network -DataDir `"$dataDir`" -BasePeerPort $BasePeerPort -BaseRpcPort $BaseRpcPort -Authorities `"$authoritiesStr`""
+        $argString = "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`" -NodeId $i -Network $Network -DataDir `"$dataDir`" -BasePeerPort $BasePeerPort -BaseRpcPort $BaseRpcPort -Authorities `"$authoritiesStr`" -ConsensusKeyDir `"$ConsensusKeyDir`""
     } else {
         $dataDir = Get-NodeDataDir -NodeId $i -DataDir "" -BaseDataDir $ReplicaBaseDataDir
         $bootstrapAddr = "/ip4/$localIp/tcp/$BasePeerPort"
-        $argString = "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`" -NodeId $i -Network $Network -DataDir `"$dataDir`" -BasePeerPort $BasePeerPort -BaseRpcPort $BaseRpcPort -Authorities `"$authoritiesStr`" -Bootstrap `"$bootstrapAddr`""
+        $argString = "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`" -NodeId $i -Network $Network -DataDir `"$dataDir`" -BasePeerPort $BasePeerPort -BaseRpcPort $BaseRpcPort -Authorities `"$authoritiesStr`" -Bootstrap `"$bootstrapAddr`" -ConsensusKeyDir `"$ConsensusKeyDir`""
     }
 
-    Write-Host "Launching node $i | P2P $nodeP2pPort | RPC $nodeRpcPort | DataDir $dataDir" -ForegroundColor Cyan
+    Write-Host "Launching node $i | Authority 0x$i | P2P $nodeP2pPort | RPC $nodeRpcPort | DataDir $dataDir" -ForegroundColor Cyan
     Start-Process -FilePath $currentPS -ArgumentList $argString -WindowStyle Normal
 
     if ($i -eq 1) {

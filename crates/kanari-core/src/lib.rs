@@ -4,7 +4,8 @@
 pub mod engine;
 
 pub use engine::{
-    BlockData, BlockInfo, BlockchainEngine, BlockchainStats, DagBlockInfo, FullBlockData,
+    BlockData, BlockInfo, BlockchainEngine, BlockchainStats, CheckpointSyncData, ConsensusProtocol,
+    ConsensusRuntimeProtocol, DagBlockInfo, FullBlockData,
 };
 
 pub use kanari_move_runtime_v1;

@@ -38,8 +38,6 @@ struct DagMetricsInner {
     checkpoints_created: AtomicU64,
     #[cfg(test)]
     compression_operations: AtomicU64,
-    #[cfg(test)]
-    ecvrf_generations: AtomicU64,
     disk_queue_full_count: AtomicU64,
 
     // Gauges - current values
@@ -78,8 +76,6 @@ impl DagMetrics {
                 checkpoints_created: AtomicU64::new(0),
                 #[cfg(test)]
                 compression_operations: AtomicU64::new(0),
-                #[cfg(test)]
-                ecvrf_generations: AtomicU64::new(0),
                 disk_queue_full_count: AtomicU64::new(0),
 
                 active_vertices: AtomicUsize::new(0),
@@ -188,12 +184,6 @@ impl DagMetrics {
         self.inner.vertices_created.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn inc_vertices_broadcast(&self) {
-        self.inner
-            .vertices_broadcast
-            .fetch_add(1, Ordering::Relaxed);
-    }
-
     pub fn inc_checkpoints_created(&self) {
         self.inner
             .checkpoints_created
@@ -253,10 +243,6 @@ impl DagMetrics {
                 "Compression Ops",
                 Self::counter(&self.inner.compression_operations),
             ),
-            (
-                "ECVRF Generations",
-                Self::counter(&self.inner.ecvrf_generations),
-            ),
         ];
         for (label, value) in counter_lines {
             output.push_str(&format!("  {:<22} {}\n", format!("{}:", label), value));
@@ -301,10 +287,8 @@ mod tests {
 
         metrics.inc_vertices_created();
         metrics.inc_vertices_created();
-        metrics.inc_vertices_broadcast();
 
         assert_eq!(metrics.inner.vertices_created.load(Ordering::Relaxed), 2);
-        assert_eq!(metrics.inner.vertices_broadcast.load(Ordering::Relaxed), 1);
     }
 
     #[test]

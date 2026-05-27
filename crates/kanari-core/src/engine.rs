@@ -22,7 +22,7 @@ use move_core_types::{
 };
 use num_cpus;
 use rayon::prelude::*;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
@@ -30,41 +30,27 @@ use std::sync::{Arc, RwLock};
 type ProofCache = LruCache<(u64, usize), (String, Vec<Vec<u8>>)>;
 
 mod apply_checkpoint;
+mod bootstrap;
+mod dag_integration;
+mod mempool;
 mod produce_dag_vertex;
+mod queries;
+mod runtime_guards;
+pub use centauri::consensus::{ConsensusProtocol, Protocol as ConsensusRuntimeProtocol};
 pub use produce_dag_vertex::{CheckpointInfo, DagBlockInfo, DagEngine};
+pub use runtime_guards::{RuntimeGuardConfig, RuntimeHealthReport};
 
 pub type BlockInfo = DagBlockInfo;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CheckpointSyncData {
+    pub checkpoint: Checkpoint,
+}
 
 pub type ExecutionResult = Result<(Vec<u8>, ChangeSet)>;
 pub type ParallelTxResult = (SignedTransaction, ExecutionResult);
 
 const MAX_MEMPOOL_SIZE: usize = 50_000;
-
-#[derive(Debug, Clone)]
-pub struct RuntimeGuardConfig {
-    pub network: String,
-    pub fail_fast_supply_enabled: bool,
-    pub strict_persistence_required: bool,
-    pub strict_checkpoint_roots: bool,
-    pub persistent_storage_available: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct RuntimeHealthReport {
-    pub guards: RuntimeGuardConfig,
-    pub supply_invariants_ok: bool,
-    pub supply_invariant_error: Option<String>,
-}
-
-impl RuntimeHealthReport {
-    pub fn status(&self) -> &'static str {
-        if self.supply_invariants_ok {
-            "ok"
-        } else {
-            "degraded"
-        }
-    }
-}
 
 /// Complete blockchain engine with Move VM integration
 pub struct BlockchainEngine {
@@ -86,6 +72,10 @@ pub struct BlockchainEngine {
     authorities: Vec<String>,
     // Persisted DAG state, loaded on startup
     persisted_dag_state: Option<PersistentDagState>,
+    // Optional production-safe DAG signing key. When absent, DAG mode uses
+    // deterministic demo keys for tests/local development only.
+    consensus_signing_key: Option<ed25519_dalek::SigningKey>,
+    consensus_public_keys: BTreeMap<String, Vec<u8>>,
 }
 
 // Basic recursive parser for simple type-argument strings used by RPC/tests.
@@ -174,69 +164,9 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
 }
 
 impl BlockchainEngine {
-    pub fn network_name() -> String {
-        env::var("KANARI_NETWORK").unwrap_or_else(|_| "testnet".to_string())
-    }
-
-    pub fn strict_persistence_required() -> bool {
-        env::var("KANARI_REQUIRE_PERSISTENT_STORAGE")
-            .map(|value| {
-                matches!(
-                    value.trim().to_ascii_lowercase().as_str(),
-                    "1" | "true" | "yes" | "on"
-                )
-            })
-            .unwrap_or_else(|_| Self::network_name().eq_ignore_ascii_case("mainnet"))
-    }
-
-    pub fn strict_checkpoint_roots_required() -> bool {
-        env::var("KANARI_STRICT_CHECKPOINT_ROOTS")
-            .map(|value| {
-                matches!(
-                    value.trim().to_ascii_lowercase().as_str(),
-                    "1" | "true" | "yes" | "on"
-                )
-            })
-            .unwrap_or_else(|_| Self::network_name().eq_ignore_ascii_case("mainnet"))
-    }
-
-    pub fn fail_fast_supply_enabled() -> bool {
-        StateManager::supply_invariant_fail_fast_enabled()
-    }
-
-    pub fn runtime_guard_config(&self) -> RuntimeGuardConfig {
-        RuntimeGuardConfig {
-            network: Self::network_name(),
-            fail_fast_supply_enabled: Self::fail_fast_supply_enabled(),
-            strict_persistence_required: Self::strict_persistence_required(),
-            strict_checkpoint_roots: Self::strict_checkpoint_roots_required(),
-            persistent_storage_available: self.persistent_store.is_some(),
-        }
-    }
-
-    pub fn runtime_health_report(&self) -> RuntimeHealthReport {
-        let supply_invariant_error = self
-            .state
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .validate_supply_invariants()
-            .err()
-            .map(|e| e.to_string());
-
-        RuntimeHealthReport {
-            guards: self.runtime_guard_config(),
-            supply_invariants_ok: supply_invariant_error.is_none(),
-            supply_invariant_error,
-        }
-    }
-
-    // =====================================================================
-    // ⏰ System Prologue
-    // =====================================================================
     pub fn execute_system_prologue(&self, timestamp_ms: u64) -> Result<()> {
         let runtime = &self.runtime_pool[0];
 
-        // Acquire the write lock once to ensure atomicity of the entire operation
         let mut state_write = match self.state.write() {
             Ok(guard) => guard,
             Err(poisoned) => {
@@ -245,22 +175,13 @@ impl BlockchainEngine {
             }
         };
 
-        // Get the clock ID
         let clock_id = runtime.ensure_system_clock(&mut state_write)?;
-
-        // Execute the prologue function to get the changeset
         let changeset = runtime.execute_clock_consensus_commit_prologue(clock_id, timestamp_ms)?;
-
-        // Apply the changeset to the state
         state_write.apply_changeset(&changeset)?;
         runtime.persist_created_objects(&changeset);
         runtime.persist_deleted_objects(&changeset);
         Ok(())
     }
-
-    // =====================================================================
-    // 💡 HELPER FUNCTIONS
-    // =====================================================================
 
     pub fn get_expected_sequence(&self, address_hex: &str) -> u64 {
         let mut seq = self
@@ -330,6 +251,46 @@ impl BlockchainEngine {
         let has_module_publish = transactions
             .iter()
             .any(|tx| matches!(tx.transaction, Transaction::PublishModule { .. }));
+
+        if strict_mode {
+            if has_module_publish {
+                self.runtime_pool[0].reload_vm_cache()?;
+            }
+
+            let mut executed_count = 0;
+            let failed_count = 0;
+            for signed_tx in transactions {
+                let changeset = self.execute_transaction_with_runtime_internal(
+                    &signed_tx.transaction,
+                    &self.runtime_pool[0],
+                    state_arc,
+                    false,
+                    timestamp,
+                    persist_objects,
+                )?;
+
+                let mut state_write = match state_arc.write() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => {
+                        log::error!("State lock poisoned during strict execution, recovering...");
+                        poisoned.into_inner()
+                    }
+                };
+
+                if persist_objects {
+                    let runtime = &self.runtime_pool[0];
+                    runtime.persist_created_objects(&changeset);
+                    runtime.persist_deleted_objects(&changeset);
+                }
+
+                state_write
+                    .apply_changeset(&changeset)
+                    .map_err(|e| anyhow::anyhow!("Failed to apply changeset: {}", e))?;
+                executed_count += 1;
+            }
+
+            return Ok((executed_count, failed_count));
+        }
 
         let waves = kanari_move_runtime_v1::TransactionScheduler::schedule(transactions);
 
@@ -414,223 +375,6 @@ impl BlockchainEngine {
         Ok((executed_count, failed_count))
     }
 
-    pub fn new_dir(dir: &str) -> Result<Self> {
-        let persistent_store = Self::try_open_store(
-            || PersistentStore::open_with_path(Some(std::path::PathBuf::from(dir))),
-            &format!("at '{}'", dir),
-        )?;
-        Self::init(persistent_store)
-    }
-
-    pub fn new() -> Result<Self> {
-        let persistent_store = Self::try_open_store(PersistentStore::open_default, "default")?;
-        Self::init(persistent_store)
-    }
-
-    pub fn new_in_memory() -> Result<Self> {
-        Self::init(None)
-    }
-
-    fn try_open_store<F>(opener: F, context: &str) -> Result<Option<Arc<PersistentStore>>>
-    where
-        F: FnOnce() -> Result<PersistentStore>,
-    {
-        if cfg!(miri) {
-            Ok(None)
-        } else {
-            match opener() {
-                Ok(s) => Ok(Some(Arc::new(s))),
-                Err(e) => {
-                    if Self::strict_persistence_required() {
-                        anyhow::bail!(
-                            "Failed to open {} persistent store in {} mode: {}",
-                            context,
-                            Self::network_name(),
-                            e
-                        );
-                    }
-                    eprintln!(
-                        "WARN: Failed to open {} persistent store: {}. Falling back to in-memory mode.",
-                        context, e
-                    );
-                    Ok(None)
-                }
-            }
-        }
-    }
-
-    fn init(persistent_store: Option<Arc<PersistentStore>>) -> Result<Self> {
-        let mut blockchain = Self::load_blockchain(&persistent_store);
-        let persisted_dag_state = Self::load_dag_state(&persistent_store);
-        Self::repair_blockchain_from_dag_state(&mut blockchain, persisted_dag_state.as_ref())?;
-        let state = Self::load_state(&persistent_store);
-
-        let workers = num_cpus::get().max(1);
-        let mut runtime_pool = Vec::new();
-
-        let base_runtime = match if persistent_store.is_some() {
-            MoveRuntime::new_with_kanari_natives()
-        } else {
-            MoveRuntime::new_with_kanari_natives_in_memory()
-        } {
-            Ok(rt) => rt,
-            Err(e) => {
-                log::error!("FATAL: Failed to initialize base MoveRuntime: {}", e);
-                anyhow::bail!("Failed to initialize runtime pool: {}", e);
-            }
-        };
-
-        log::info!(
-            "Initializing runtime pool with {} workers (independent VMs sharing DB)",
-            workers
-        );
-        runtime_pool.push(base_runtime.clone());
-
-        for i in 1..workers {
-            match base_runtime.spawn_worker() {
-                Ok(rt) => runtime_pool.push(rt),
-                Err(e) => {
-                    log::error!("Failed to spawn worker runtime #{}: {}", i, e);
-                    anyhow::bail!("Failed to initialize runtime pool: {}", e);
-                }
-            }
-        }
-
-        let pending_txs = Arc::new(RwLock::new(Vec::new()));
-        let pending_tx_hashes = Arc::new(RwLock::new(HashSet::new()));
-        let proof_cache = Arc::new(RwLock::new(LruCache::new(NonZeroUsize::new(1000).unwrap())));
-
-        let authority_id = "0xDEFAULT_AUTHORITY".to_string();
-        let authorities = vec![authority_id.clone()];
-
-        Ok(Self {
-            blockchain,
-            state,
-            pending_txs,
-            pending_tx_hashes,
-            persistent_store,
-            runtime_pool,
-            proof_cache,
-            dag_engine: Arc::new(RwLock::new(None)),
-            authority_id,
-            authorities,
-            persisted_dag_state,
-        })
-    }
-
-    fn repair_blockchain_from_dag_state(
-        blockchain: &mut Arc<RwLock<Blockchain>>,
-        persisted_dag_state: Option<&PersistentDagState>,
-    ) -> Result<()> {
-        let Some(dag_state) = persisted_dag_state else {
-            return Ok(());
-        };
-
-        let latest_dag_sequence = dag_state
-            .checkpoints
-            .last()
-            .map(|checkpoint| checkpoint.sequence)
-            .unwrap_or(0);
-
-        let current_height = blockchain
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .height();
-        if current_height > 0 || latest_dag_sequence == 0 {
-            return Ok(());
-        }
-
-        let mut rebuilt = Blockchain::new();
-        for checkpoint in dag_state.checkpoints.iter().skip(1) {
-            rebuilt.add_checkpoint_with_validation(checkpoint.clone(), false)?;
-        }
-        rebuilt.rebuild_tx_hash_index();
-
-        info!(
-            "Recovered blockchain from persisted DAG state (height: {}, checkpoints: {})",
-            rebuilt.height(),
-            rebuilt.dag_checkpoints.len()
-        );
-        *blockchain = Arc::new(RwLock::new(rebuilt));
-        Ok(())
-    }
-
-    fn load_blockchain(store: &Option<Arc<PersistentStore>>) -> Arc<RwLock<Blockchain>> {
-        if let Some(store) = store {
-            match store.load::<Blockchain>(b"blockchain") {
-                Ok(Some(mut b)) => {
-                    info!(
-                        "Successfully loaded blockchain from persistent store (height: {}, checkpoints: {})",
-                        b.height(),
-                        b.dag_checkpoints.len()
-                    );
-                    b.rebuild_tx_hash_index();
-                    Arc::new(RwLock::new(b))
-                }
-                Ok(None) => {
-                    info!("No persisted blockchain found. Creating fresh genesis.");
-                    Arc::new(RwLock::new(Blockchain::new()))
-                }
-                Err(e) => {
-                    error!(
-                        "FATAL ERROR loading blockchain: {}. Falling back to fresh genesis.",
-                        e
-                    );
-                    Arc::new(RwLock::new(Blockchain::new()))
-                }
-            }
-        } else {
-            info!("Running in-memory mode: No persistent store provided for blockchain.");
-            Arc::new(RwLock::new(Blockchain::new()))
-        }
-    }
-
-    fn load_state(store: &Option<Arc<PersistentStore>>) -> Arc<RwLock<StateManager>> {
-        let store = store.clone().unwrap_or_else(|| {
-            Arc::new(PersistentStore::open_in_memory().unwrap_or_else(|e| {
-                error!("Failed to open in-memory store: {}. Using fallback.", e);
-                panic!("Cannot initialize state manager without storage")
-            }))
-        });
-        info!("Initializing StateManager with persistent store support (RocksDB)");
-        Arc::new(RwLock::new(StateManager::new(store)))
-    }
-
-    fn load_dag_state(store: &Option<Arc<PersistentStore>>) -> Option<PersistentDagState> {
-        if let Some(store) = store {
-            match store.load::<PersistentDagState>(b"dag_state") {
-                Ok(Some(s)) => {
-                    info!("Successfully loaded DAG consensus state from persistent store");
-                    Some(s)
-                }
-                Ok(None) => None,
-                Err(e) => {
-                    error!(
-                        "Failed to load DAG state: {}. Falling back to fresh DAG.",
-                        e
-                    );
-                    None
-                }
-            }
-        } else {
-            None
-        }
-    }
-
-    pub fn validate_runtime_health(&self) -> Result<()> {
-        let report = self.runtime_health_report();
-        if let Some(error) = report.supply_invariant_error {
-            anyhow::bail!(error);
-        }
-
-        if report.guards.strict_persistence_required && !report.guards.persistent_storage_available
-        {
-            anyhow::bail!("persistent storage is required but engine is running in-memory");
-        }
-
-        Ok(())
-    }
-
     pub(crate) fn checkpoint_root_matches(
         &self,
         checkpoint_sequence: u64,
@@ -674,365 +418,6 @@ impl BlockchainEngine {
                 .context("Failed to persist DAG state")?;
         }
         Ok(())
-    }
-
-    // =====================================================================
-    // 🛡️ Mempool Security
-    // =====================================================================
-    pub fn submit_transactions_batch(
-        &self,
-        signed_txs: Vec<SignedTransaction>,
-    ) -> Result<Vec<Vec<u8>>> {
-        if signed_txs.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let pending_count = match self.pending_txs.read() {
-            Ok(guard) => guard.len(),
-            Err(poisoned) => {
-                log::error!(
-                    "Pending txs lock poisoned in submit_transactions_batch, recovering..."
-                );
-                poisoned.into_inner().len()
-            }
-        };
-
-        if pending_count.saturating_add(signed_txs.len()) > MAX_MEMPOOL_SIZE {
-            log::warn!("[MEMPOOL] Rejecting batch: Queue would exceed max size");
-            anyhow::bail!("Mempool is currently full. Please try again later.");
-        }
-
-        let pending_hashes = self
-            .pending_tx_hashes
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
-        let mut pending_by_sender: std::collections::HashMap<String, u64> =
-            std::collections::HashMap::new();
-
-        let pending_snapshot = match self.pending_txs.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                log::error!(
-                    "Pending txs lock poisoned in submit_transactions_batch sequence scan, recovering..."
-                );
-                poisoned.into_inner()
-            }
-        };
-
-        for pending_tx in pending_snapshot.iter() {
-            let sender = Self::normalize_addr(pending_tx.transaction.sender_address());
-            *pending_by_sender.entry(sender).or_default() += 1;
-        }
-        drop(pending_snapshot);
-
-        let batch_metadata = signed_txs
-            .par_iter()
-            .map(
-                |signed_tx| -> Result<(Vec<u8>, String, u64, AccountAddress)> {
-                    let tx_hash = signed_tx.transaction.hash();
-                    if !signed_tx.verify_signature_for_hash(&tx_hash)? {
-                        anyhow::bail!("Invalid or missing transaction signature");
-                    }
-
-                    Ok((
-                        tx_hash,
-                        Self::normalize_addr(signed_tx.transaction.sender_address()),
-                        signed_tx.transaction.sequence_number(),
-                        KanariAddress::parse_to_account_address(
-                            signed_tx.transaction.sender_address(),
-                        )?,
-                    ))
-                },
-            )
-            .collect::<Result<Vec<_>>>()?;
-
-        let base_sequences = {
-            let state = self.state.read().unwrap_or_else(|e| e.into_inner());
-            let mut sequences = std::collections::HashMap::new();
-            for (_, sender, _, sender_addr) in &batch_metadata {
-                sequences.entry(sender.clone()).or_insert_with(|| {
-                    state
-                        .get_account(sender_addr)
-                        .map(|acc| acc.sequence_number)
-                        .unwrap_or(0)
-                });
-            }
-            sequences
-        };
-
-        let executed_hashes = {
-            let chain = match self.blockchain.read() {
-                Ok(guard) => guard,
-                Err(poisoned) => {
-                    log::error!(
-                        "Blockchain lock poisoned in submit_transactions_batch, recovering..."
-                    );
-                    poisoned.into_inner()
-                }
-            };
-
-            let mut hashes = std::collections::HashSet::new();
-            if chain.has_executed_transactions() {
-                for (tx_hash, _, _, _) in &batch_metadata {
-                    if chain.is_transaction_hash_executed(tx_hash) {
-                        hashes.insert(tx_hash.clone());
-                    }
-                }
-            }
-            hashes
-        };
-
-        let mut batch_hashes = std::collections::HashSet::with_capacity(signed_txs.len());
-        let mut next_sequence_by_sender = base_sequences;
-        for (sender, pending_count) in pending_by_sender {
-            *next_sequence_by_sender.entry(sender).or_insert(0) += pending_count;
-        }
-
-        let mut accepted_hashes = Vec::with_capacity(signed_txs.len());
-        for (tx_hash, sender, tx_seq, _) in &batch_metadata {
-            let tx_hash_hex = hex::encode(tx_hash);
-
-            if pending_hashes.contains(tx_hash) || !batch_hashes.insert(tx_hash.clone()) {
-                anyhow::bail!("Transaction {} already in pending pool", tx_hash_hex);
-            }
-            if executed_hashes.contains(tx_hash) {
-                anyhow::bail!("Transaction {} already executed", tx_hash_hex);
-            }
-
-            let expected_seq = next_sequence_by_sender.entry(sender.clone()).or_insert(0);
-
-            if *tx_seq < *expected_seq {
-                anyhow::bail!(
-                    "Sequence number too low: expected {}, got {}",
-                    expected_seq,
-                    tx_seq
-                );
-            }
-            if *tx_seq > *expected_seq {
-                anyhow::bail!(
-                    "Sequence number too high: expected {}, got {}",
-                    expected_seq,
-                    tx_seq
-                );
-            }
-
-            *expected_seq += 1;
-            accepted_hashes.push(tx_hash.clone());
-        }
-
-        let mut pending = match self.pending_txs.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                log::error!(
-                    "Pending txs lock poisoned in submit_transactions_batch write, recovering..."
-                );
-                poisoned.into_inner()
-            }
-        };
-
-        if pending.len().saturating_add(signed_txs.len()) > MAX_MEMPOOL_SIZE {
-            anyhow::bail!("Mempool is currently full. Please try again later.");
-        }
-
-        pending.extend(signed_txs);
-        self.pending_tx_hashes
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .extend(accepted_hashes.iter().cloned());
-        Ok(accepted_hashes)
-    }
-
-    pub fn execute_transaction_immediate(
-        &self,
-        signed_tx: SignedTransaction,
-    ) -> Result<(Vec<u8>, ChangeSet)> {
-        if !signed_tx.verify_signature()? {
-            anyhow::bail!("Invalid transaction signature");
-        }
-
-        let tx_hash = signed_tx.transaction.hash();
-        let tx = signed_tx.transaction;
-
-        let changeset = {
-            let mut state_snapshot = match self.state.read() {
-                Ok(guard) => guard.clone(),
-                Err(poisoned) => {
-                    log::error!(
-                        "State lock poisoned in execute_transaction_immediate, recovering..."
-                    );
-                    poisoned.into_inner().clone()
-                }
-            };
-            let sender_addr = tx.sender_address();
-            let addr = KanariAddress::parse_to_account_address(sender_addr)?;
-
-            self.for_each_pending_tx_from_sender(sender_addr, |_| {
-                if let Some(mut acct) = state_snapshot.get_account(&addr) {
-                    acct.increment_sequence();
-                    if let Err(e) = state_snapshot.save_account(&acct) {
-                        error!("Failed to save account during sequence update: {}", e);
-                    }
-                }
-            });
-            let state_arc = Arc::new(RwLock::new(state_snapshot));
-            let runtime = &self.runtime_pool[0];
-            self.execute_transaction_with_runtime(&tx, runtime, &state_arc, None)?
-        };
-
-        Ok((tx_hash, changeset))
-    }
-
-    // =====================================================================
-    // ⚡ Parallel Execution
-    // =====================================================================
-    pub fn execute_transactions_parallel(
-        &self,
-        txs: Vec<SignedTransaction>,
-    ) -> Vec<ParallelTxResult> {
-        log::info!(
-            "[PARALLEL ENGINE] Firing up Rayon to execute {} txs concurrently!",
-            txs.len()
-        );
-
-        let state_arc = &self.state;
-
-        txs.into_par_iter()
-            .map(|tx| {
-                let thread_idx = rayon::current_thread_index().unwrap_or(0);
-                let runtime = &self.runtime_pool[thread_idx % self.runtime_pool.len()];
-
-                let result = self.execute_transaction_with_runtime_internal(
-                    &tx.transaction,
-                    runtime,
-                    state_arc,
-                    true,
-                    None,
-                    false,
-                );
-
-                let final_result = match result {
-                    Ok(cs) => Ok((tx.transaction.hash(), cs)),
-                    Err(e) => Err(anyhow::anyhow!("Parallel execution failed: {}", e)),
-                };
-
-                (tx, final_result)
-            })
-            .collect()
-    }
-
-    // =====================================================================
-    // 🕸️ DAG Consensus Switch
-    // =====================================================================
-    pub fn process_dag_checkpoint(
-        &self,
-        checkpoint_txs: Vec<SignedTransaction>,
-        consensus_timestamp_ms: Option<u64>, // Allow timestamp from consensus layer
-    ) -> Result<Vec<u8>> {
-        log::info!(
-            "[DAG CONSENSUS] Applying new checkpoint with {} transactions",
-            checkpoint_txs.len()
-        );
-
-        info!(
-            "Executing {} transactions in checkpoint",
-            checkpoint_txs.len()
-        );
-
-        // =================================================================
-
-        // 🚨 Update the time on the Blockchain before executing user transactions.
-        // =================================================================
-        // Use timestamp from consensus layer to ensure all nodes have identical state
-        // CRITICAL: All nodes must use the same timestamp to ensure deterministic state transitions
-        let current_timestamp_ms = match consensus_timestamp_ms {
-            Some(ts) => ts,
-            None => {
-                error!(
-                    "CRITICAL ERROR: Consensus timestamp must be provided for blockchain state consistency."
-                );
-                return Err(anyhow::anyhow!("Missing consensus timestamp"));
-            }
-        };
-
-        if let Err(e) = self.execute_system_prologue(current_timestamp_ms) {
-            log::error!(
-                "Critical Error: System clock failed to update! Halt execution. {:?}",
-                e
-            );
-            return Err(e);
-        }
-        // =================================================================
-
-        let execution_results = self.execute_transactions_parallel(checkpoint_txs);
-
-        // =================================================================
-        // 📝 Process all the transaction results and create a checkpoint
-        // =================================================================
-        let mut successful_txs = Vec::new();
-        let mut all_events_for_block = Vec::new();
-        let runtime = &self.runtime_pool[0];
-
-        for (tx, result) in execution_results {
-            match result {
-                Ok((_tx_hash, changeset)) => {
-                    runtime.persist_created_objects(&changeset);
-                    runtime.persist_deleted_objects(&changeset);
-
-                    let mut state = match self.state.write() {
-                        Ok(guard) => guard,
-                        Err(poisoned) => {
-                            error!("State lock poisoned during DAG commit, recovering...");
-                            poisoned.into_inner()
-                        }
-                    };
-                    if let Err(e) = state.apply_changeset(&changeset) {
-                        error!("[DAG COMMIT] Failed to apply changeset to state: {}", e);
-                    }
-
-                    all_events_for_block.extend(changeset.events.clone());
-                    successful_txs.push(tx);
-                }
-                Err(e) => {
-                    log::warn!("[DAG COMMIT] Transaction execution failed: {}", e);
-                }
-            }
-        }
-
-        let mut chain = match self.blockchain.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                error!("Blockchain lock poisoned during commit, recovering...");
-                poisoned.into_inner()
-            }
-        };
-        let height = chain.blocks.len() as u64;
-        let prev_hash = chain.blocks.back().map(|b| b.hash()).unwrap_or_default();
-
-        let new_block = kanari_types::block::Block::new(
-            height,
-            prev_hash,
-            vec![0u8; 32],
-            successful_txs,
-            all_events_for_block,
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_else(|e| {
-                    error!("System clock error: {}. Using timestamp 0.", e);
-                    std::time::Duration::from_secs(0)
-                })
-                .as_secs(),
-        );
-        let block_hash = new_block.hash();
-        chain.blocks.push_back(new_block);
-
-        log::info!(
-            "[DAG CONSENSUS] Checkpoint {} committed! Hash: {}",
-            height,
-            hex::encode(&block_hash)
-        );
-
-        Ok(block_hash)
     }
 
     fn execute_transaction_with_runtime(
@@ -1200,43 +585,51 @@ impl BlockchainEngine {
         Ok(changeset)
     }
 
-    pub fn produce_block(&self) -> Result<BlockInfo> {
-        let dag_engine = {
-            let mut dag_engine_guard = match self.dag_engine.write() {
-                Ok(guard) => guard,
-                Err(poisoned) => {
-                    log::error!("DAG engine lock poisoned in produce_block, recovering...");
-                    poisoned.into_inner()
-                }
-            };
-            if dag_engine_guard.is_none() {
-                {
-                    let mut chain = match self.blockchain.write() {
-                        Ok(guard) => guard,
-                        Err(poisoned) => {
-                            log::error!(
-                                "Blockchain lock poisoned in produce_block init, recovering..."
-                            );
-                            poisoned.into_inner()
-                        }
-                    };
-                    if !chain.dag_mode {
-                        chain.enable_dag_mode();
-                    }
-                }
-
-                let engine = DagEngine::new(
-                    Arc::new(self.clone_for_dag()),
-                    self.authority_id.clone(),
-                    self.authorities.clone(),
-                )?;
-                *dag_engine_guard = Some(engine);
-            }
-            match dag_engine_guard.as_ref() {
-                Some(engine) => engine.clone(),
-                None => anyhow::bail!("Failed to initialize DAG engine"),
+    fn dag_engine_instance(&self) -> Result<DagEngine> {
+        let mut dag_engine_guard = match self.dag_engine.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                log::error!("DAG engine lock poisoned while initializing, recovering...");
+                poisoned.into_inner()
             }
         };
+        if dag_engine_guard.is_none() {
+            {
+                let mut chain = match self.blockchain.write() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => {
+                        log::error!("Blockchain lock poisoned during DAG init, recovering...");
+                        poisoned.into_inner()
+                    }
+                };
+                if !chain.dag_mode {
+                    chain.enable_dag_mode();
+                }
+            }
+
+            let signing_key = self.consensus_signing_key.clone().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "DAG consensus requires an explicit signing key. Call set_consensus_signing_key() before producing or syncing DAG vertices."
+                )
+            })?;
+            let engine = DagEngine::new_secure(
+                Arc::new(self.clone_for_dag()),
+                self.authority_id.clone(),
+                self.authorities.clone(),
+                signing_key,
+                self.consensus_public_keys.clone(),
+            )?;
+            *dag_engine_guard = Some(engine);
+        }
+
+        dag_engine_guard
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Failed to initialize DAG engine"))
+    }
+
+    pub fn produce_block(&self) -> Result<BlockInfo> {
+        let dag_engine = self.dag_engine_instance()?;
 
         {
             let consensus_lock = dag_engine.consensus();
@@ -1247,31 +640,33 @@ impl BlockchainEngine {
                     poisoned.into_inner()
                 }
             };
-            let store = consensus.store();
-            let current_round = store.current_round();
-            let quorum_needed = consensus.committee().required_quorum();
+            let policy = consensus.production_policy();
 
-            let current_round_vertices = store.get_vertices_in_round(current_round);
-            let parents_available = current_round_vertices.len();
-            let local_has_vertex_in_current_round = current_round_vertices
-                .iter()
-                .any(|vertex| vertex.author == dag_engine.authority_id());
-
-            if current_round > 0
-                && parents_available < quorum_needed
-                && local_has_vertex_in_current_round
-            {
+            if policy.should_wait_for_current_round_quorum() {
                 anyhow::bail!(
                     "SYNC_WAITING: have {}/{} vertices in round {} (need quorum for round {})",
-                    parents_available,
-                    quorum_needed,
-                    current_round,
-                    current_round + 1
+                    policy.parent_author_count,
+                    policy.quorum_size,
+                    policy.current_round,
+                    policy.current_round + 1
                 );
             }
         }
 
         dag_engine.produce_vertex()
+    }
+
+    pub fn latest_own_dag_vertices(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<centauri::consensus::DagVertex>> {
+        Ok(self.dag_engine_instance()?.latest_own_vertices(limit))
+    }
+
+    pub fn add_network_dag_vertex(&self, vertex: centauri::consensus::DagVertex) -> Result<bool> {
+        let previous_height = self.get_stats().height;
+        self.dag_engine_instance()?.add_network_vertex(vertex)?;
+        Ok(self.get_stats().height > previous_height)
     }
 
     pub fn should_produce_dag_progress(&self) -> bool {
@@ -1303,6 +698,8 @@ impl BlockchainEngine {
             authority_id: self.authority_id.clone(),
             authorities: self.authorities.clone(),
             persisted_dag_state: self.persisted_dag_state.clone(),
+            consensus_signing_key: self.consensus_signing_key.clone(),
+            consensus_public_keys: self.consensus_public_keys.clone(),
         }
     }
 
@@ -1316,6 +713,8 @@ impl BlockchainEngine {
         }
         self.authority_id = normalize(authority_id);
         self.authorities = authorities.into_iter().map(normalize).collect();
+        self.consensus_signing_key = None;
+        self.consensus_public_keys.clear();
         match self.dag_engine.write() {
             Ok(mut guard) => *guard = None,
             Err(poisoned) => {
@@ -1325,20 +724,55 @@ impl BlockchainEngine {
         }
     }
 
-    pub fn get_authority_id(&self) -> String {
-        self.authority_id.clone()
+    pub fn authority_id(&self) -> &str {
+        &self.authority_id
     }
 
-    pub fn get_authorities(&self) -> Vec<String> {
-        self.authorities.clone()
+    pub fn authorities(&self) -> &[String] {
+        &self.authorities
     }
 
-    pub fn should_defer_user_execution_to_consensus(&self) -> bool {
-        self.authorities.len() > 1
-    }
+    pub fn set_consensus_signing_key(
+        &mut self,
+        local_signing_key: ed25519_dalek::SigningKey,
+        authority_public_keys: BTreeMap<String, Vec<u8>>,
+    ) -> Result<()> {
+        let local_public_key = local_signing_key.verifying_key().to_bytes().to_vec();
+        let expected_public_key =
+            authority_public_keys
+                .get(&self.authority_id)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Missing consensus public key for local authority {}",
+                        self.authority_id
+                    )
+                })?;
+        if *expected_public_key != local_public_key {
+            anyhow::bail!("Consensus signing key does not match local authority public key");
+        }
+        for authority in &self.authorities {
+            let key = authority_public_keys.get(authority).ok_or_else(|| {
+                anyhow::anyhow!("Missing consensus public key for authority {}", authority)
+            })?;
+            let key_bytes: [u8; 32] = key.as_slice().try_into().map_err(|_| {
+                anyhow::anyhow!("Invalid consensus public key length for {}", authority)
+            })?;
+            ed25519_dalek::VerifyingKey::from_bytes(&key_bytes).map_err(|e| {
+                anyhow::anyhow!("Invalid consensus public key for {}: {}", authority, e)
+            })?;
+        }
 
-    pub fn get_dag_engine(&self) -> Option<Arc<RwLock<Option<DagEngine>>>> {
-        Some(self.dag_engine.clone())
+        self.consensus_signing_key = Some(local_signing_key);
+        self.consensus_public_keys = authority_public_keys;
+        match self.dag_engine.write() {
+            Ok(mut guard) => *guard = None,
+            Err(poisoned) => {
+                log::error!("DAG engine lock poisoned while replacing consensus key");
+                *poisoned.into_inner() = None;
+            }
+        }
+
+        Ok(())
     }
 
     pub fn export_consensus_metrics_prometheus(&self) -> Result<String> {
@@ -1364,343 +798,6 @@ impl BlockchainEngine {
 
         DagMetrics::default().export_prometheus()
     }
-
-    pub fn latest_checkpoint_hash_hex(&self) -> String {
-        let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
-        chain
-            .latest_checkpoint()
-            .hash()
-            .map(hex::encode)
-            .unwrap_or_default()
-    }
-
-    pub fn latest_checkpoint_state_root_hex(&self) -> String {
-        let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
-        hex::encode(&chain.latest_checkpoint().state_root)
-    }
-
-    pub fn get_stats(&self) -> BlockchainStats {
-        let state = match self.state.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                log::error!("State lock poisoned in get_stats, recovering...");
-                poisoned.into_inner()
-            }
-        };
-        let chain = match self.blockchain.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                log::error!("Blockchain lock poisoned in get_stats, recovering...");
-                poisoned.into_inner()
-            }
-        };
-        let pending = match self.pending_txs.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                log::error!("Pending txs lock poisoned in get_stats, recovering...");
-                poisoned.into_inner()
-            }
-        };
-
-        BlockchainStats {
-            height: chain.height(),
-            total_blocks: chain.blocks.len(),
-            total_transactions: chain.get_transaction_count(),
-            pending_transactions: pending.len(),
-            total_accounts: state.account_count(),
-            total_supply: state.total_supply,
-        }
-    }
-
-    pub fn get_account_info(&self, address: &str) -> Option<AccountInfo> {
-        let state = self.state.read().unwrap_or_else(|e| e.into_inner());
-
-        state.get_account_by_hex(address).map(|acc| {
-            let final_owned_objects = self.resolve_account_objects(&state, &acc.address);
-            let sequence_number = self.get_expected_sequence(address);
-            let mut actual_token_balances = std::collections::BTreeMap::new();
-
-            for obj in &final_owned_objects {
-                if !obj.type_.contains("::coin::Coin<") || obj.data.len() < 40 {
-                    continue;
-                }
-
-                let Some(start) = obj.type_.find('<') else {
-                    continue;
-                };
-                let Some(end) = obj.type_.rfind('>') else {
-                    continue;
-                };
-
-                let token_type = obj.type_[start + 1..end].to_string();
-                let mut amount_bytes = [0u8; 8];
-                amount_bytes.copy_from_slice(&obj.data[32..40]);
-                let amount = u64::from_le_bytes(amount_bytes);
-
-                let entry = actual_token_balances.entry(token_type).or_insert(0u64);
-                *entry = entry.saturating_add(amount);
-            }
-
-            for (token_type, balance) in &acc.token_balances {
-                actual_token_balances
-                    .entry(token_type.clone())
-                    .or_insert_with(|| balance.value());
-            }
-
-            AccountInfo {
-                address: format!("{:#x}", acc.address),
-                sequence_number,
-                modules: acc.modules.iter().cloned().collect(),
-                token_balances: actual_token_balances,
-                owned_objects: Some(final_owned_objects),
-            }
-        })
-    }
-
-    fn for_each_pending_tx_from_sender<F>(&self, sender: &str, mut f: F)
-    where
-        F: FnMut(&SignedTransaction),
-    {
-        if let Ok(pending) = self.pending_txs.read() {
-            let normalized_sender = Self::normalize_addr(sender);
-            for ptx in pending.iter() {
-                if Self::normalize_addr(ptx.transaction.sender_address()) == normalized_sender {
-                    f(ptx);
-                }
-            }
-        }
-    }
-
-    fn normalize_addr(addr: &str) -> String {
-        use std::str::FromStr;
-        KanariAddress::from_str(addr)
-            .map(|a| a.to_hex())
-            .unwrap_or_else(|_| addr.trim_start_matches("0x").to_lowercase())
-    }
-
-    pub fn get_module_bytecode(&self, address: &str, module_name: &str) -> Option<Vec<u8>> {
-        use move_core_types::{identifier::Identifier, language_storage::ModuleId};
-
-        let addr = match KanariAddress::parse_to_account_address(address) {
-            Ok(a) => a,
-            Err(_) => return None,
-        };
-
-        let ident = match Identifier::new(module_name) {
-            Ok(i) => i,
-            Err(_) => return None,
-        };
-
-        let module_id = ModuleId::new(addr, ident);
-        let runtime = &self.runtime_pool[0];
-        runtime.get_module_bytes(&module_id)
-    }
-
-    pub fn list_all_modules(&self) -> Vec<(String, String)> {
-        let runtime = &self.runtime_pool[0];
-        runtime
-            .list_modules()
-            .into_iter()
-            .map(|module_id| {
-                (
-                    format!("0x{}", module_id.address()),
-                    module_id.name().to_string(),
-                )
-            })
-            .collect()
-    }
-
-    fn block_data_from_block(block: &kanari_types::block::Block) -> BlockData {
-        BlockData {
-            height: block.header.height,
-            timestamp: block.header.timestamp,
-            hash: hex::encode(block.hash()),
-            prev_hash: hex::encode(&block.header.prev_hash),
-            state_root: hex::encode(&block.header.state_root),
-            tx_count: block.transactions.len(),
-            events: block.events.clone(),
-        }
-    }
-
-    fn full_block_data_from_block(
-        block: &kanari_types::block::Block,
-        checkpoint: Option<&Checkpoint>,
-    ) -> FullBlockData {
-        let vertices = checkpoint
-            .map(|cp| cp.vertices.iter().map(hex::encode).collect())
-            .unwrap_or_default();
-
-        FullBlockData {
-            height: block.header.height,
-            timestamp: block.header.timestamp,
-            hash: hex::encode(block.hash()),
-            prev_hash: hex::encode(&block.header.prev_hash),
-            state_root: hex::encode(&block.header.state_root),
-            tx_count: block.transactions.len(),
-            events: block.events.clone(),
-            transactions: block.transactions.clone(),
-            vertices,
-        }
-    }
-
-    pub fn get_block(&self, height: u64) -> Option<BlockData> {
-        let chain = match self.blockchain.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                log::error!("Blockchain lock poisoned in get_block, recovering...");
-                poisoned.into_inner()
-            }
-        };
-        chain.get_block(height).map(Self::block_data_from_block)
-    }
-
-    pub fn get_full_block(&self, height: u64) -> Option<FullBlockData> {
-        let chain = match self.blockchain.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                log::error!("Blockchain lock poisoned in get_full_block, recovering...");
-                poisoned.into_inner()
-            }
-        };
-        let block = chain.get_block(height)?;
-        let checkpoint = chain.get_checkpoint(height);
-        Some(Self::full_block_data_from_block(block, checkpoint))
-    }
-
-    pub fn block_from_full_data(full_block: &FullBlockData) -> kanari_types::block::Block {
-        use kanari_types::block::{Block, BlockHeader};
-        use smt::compute_merkle_root;
-
-        let tx_hashes: Vec<Vec<u8>> = full_block.transactions.iter().map(|tx| tx.hash()).collect();
-        let merkle_root = compute_merkle_root(&tx_hashes);
-
-        let header = BlockHeader::new(
-            full_block.height,
-            hex::decode(&full_block.prev_hash).unwrap_or_default(),
-            hex::decode(&full_block.state_root).unwrap_or_default(),
-            merkle_root,
-            full_block.tx_count,
-            full_block.timestamp,
-        );
-
-        Block {
-            header,
-            transactions: full_block.transactions.clone(),
-            events: full_block.events.clone(),
-        }
-    }
-
-    fn decode_hex(s: &str) -> Result<Vec<u8>> {
-        hex::decode(s.trim_start_matches("0x")).context("Invalid hex string")
-    }
-
-    fn decode_hex_32(s: &str) -> [u8; 32] {
-        let bytes = Self::decode_hex(s).unwrap_or_default();
-        let mut arr = [0u8; 32];
-        if bytes.len() == 32 {
-            arr.copy_from_slice(&bytes);
-        }
-        arr
-    }
-
-    fn checkpoint_from_full_block_data(
-        &self,
-        block_data: &FullBlockData,
-        prev_hash: Vec<u8>,
-    ) -> Result<Checkpoint> {
-        let state_root = Self::decode_hex(&block_data.state_root)
-            .context("Invalid state root format in block data")?;
-        let vertices = block_data
-            .vertices
-            .iter()
-            .map(|vertex| Self::decode_hex_32(vertex))
-            .collect();
-
-        Ok(Checkpoint::new(
-            block_data.height,
-            vertices,
-            block_data.transactions.clone(),
-            state_root,
-            block_data.timestamp,
-            prev_hash,
-        ))
-    }
-
-    pub fn sync_full_block_from_data(&self, block_data: &FullBlockData) -> Result<()> {
-        let stats = self.get_stats();
-        info!(
-            "[SYNC] Attempting to sync block #{} (our height: {})",
-            block_data.height, stats.height
-        );
-
-        if block_data.height <= stats.height {
-            info!("[SYNC] Already have block #{}, skipping", block_data.height);
-            return Ok(());
-        }
-
-        if block_data.height != stats.height + 1 {
-            warn!(
-                "[SYNC] Block #{} is not consecutive (need {})",
-                block_data.height,
-                stats.height + 1
-            );
-            anyhow::bail!(
-                "Cannot sync block #{}: current height is {}",
-                block_data.height,
-                stats.height
-            );
-        }
-
-        info!(
-            "[SYNC] Verifying {} transaction signatures from block #{}",
-            block_data.transactions.len(),
-            block_data.height
-        );
-        for (i, signed_tx) in block_data.transactions.iter().enumerate() {
-            let tx_hash = signed_tx.transaction.hash();
-            if !signed_tx.verify_signature_for_hash(&tx_hash)? {
-                anyhow::bail!(
-                    "Invalid or missing signature for transaction {} in block #{}",
-                    i + 1,
-                    block_data.height
-                );
-            }
-        }
-
-        let prev_hash = {
-            let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
-            chain.latest_checkpoint().hash()?
-        };
-
-        let checkpoint = self.checkpoint_from_full_block_data(block_data, prev_hash)?;
-
-        // Note: This calls the apply_checkpoint.rs file.
-        self.apply_checkpoint(checkpoint)?;
-
-        info!(
-            "Synced block #{} with {} transactions",
-            block_data.height,
-            block_data.transactions.len()
-        );
-
-        Ok(())
-    }
-
-    /// Execute a view function (read-only, no state changes, no transaction submission)
-    /// This is for calling public/friend functions that don't modify state
-    pub fn execute_view_function(
-        &self,
-        package_addr: &str,
-        module_name: &str,
-        function_name: &str,
-        type_args: &[String],
-        args: &[Vec<u8>],
-    ) -> Result<serde_json::Value> {
-        // Use the first runtime from the pool
-        let runtime = &self.runtime_pool[0];
-
-        runtime.execute_view_function(package_addr, module_name, function_name, type_args, args)
-    }
 }
 
 #[cfg(test)]
@@ -1708,6 +805,7 @@ mod tests {
     use super::BlockchainEngine;
     use kanari_crypto::keys::{CurveType, generate_keypair};
     use kanari_types::transaction::{SignedTransaction, Transaction};
+    use std::collections::BTreeMap;
     use std::sync::Mutex;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -1728,6 +826,31 @@ mod tests {
             .sign(&sender.private_key, sender.curve_type)
             .unwrap();
         signed_tx
+    }
+
+    fn secure_consensus_keys(
+        authorities: &[String],
+        local_authority: &str,
+    ) -> (ed25519_dalek::SigningKey, BTreeMap<String, Vec<u8>>) {
+        let mut public_keys = BTreeMap::new();
+        let mut local_signing_key = None;
+
+        for (index, authority) in authorities.iter().enumerate() {
+            let seed = [index as u8 + 11; 32];
+            let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
+            if authority == local_authority {
+                local_signing_key = Some(signing_key.clone());
+            }
+            public_keys.insert(
+                authority.clone(),
+                signing_key.verifying_key().to_bytes().to_vec(),
+            );
+        }
+
+        (
+            local_signing_key.expect("local authority must be in authority set"),
+            public_keys,
+        )
     }
 
     #[test]
@@ -1769,19 +892,27 @@ mod tests {
     }
 
     #[test]
-    fn single_authority_engine_allows_immediate_execution() {
-        let engine = BlockchainEngine::new().unwrap();
-        assert!(!engine.should_defer_user_execution_to_consensus());
+    fn dag_engine_requires_explicit_consensus_signing_key() {
+        let engine = BlockchainEngine::new_in_memory().unwrap();
+
+        let err = engine.produce_block().unwrap_err();
+
+        assert!(err.to_string().contains("requires an explicit signing key"));
     }
 
     #[test]
-    fn multi_authority_engine_defers_execution_to_consensus() {
-        let mut engine = BlockchainEngine::new().unwrap();
-        engine.set_authorities(
-            "0x1".to_string(),
-            vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()],
-        );
-        assert!(engine.should_defer_user_execution_to_consensus());
+    fn dag_engine_uses_configured_consensus_signing_key() {
+        let mut engine = BlockchainEngine::new_in_memory().unwrap();
+        let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
+        engine.set_authorities("0x1".to_string(), authorities.clone());
+        let (local_key, public_keys) = secure_consensus_keys(&authorities, "0x1");
+        engine
+            .set_consensus_signing_key(local_key, public_keys)
+            .unwrap();
+
+        let block = engine.produce_block().unwrap();
+
+        assert_eq!(block.round, 1);
     }
 
     #[test]

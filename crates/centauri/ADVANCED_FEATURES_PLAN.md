@@ -13,7 +13,7 @@ The repository already includes:
 - checkpointing
 - pruning and persistence
 - state sync
-- VRF leader selection
+- Mysticeti deterministic multi-leader selection
 - parallel validation
 - metrics export
 - adaptive quorum policy hooks

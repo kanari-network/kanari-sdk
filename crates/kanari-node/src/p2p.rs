@@ -16,15 +16,16 @@ use libp2p::{
     tcp, yamux,
 };
 use serde::{Deserialize, Serialize};
-use std::{io::Write, time::Duration};
+use std::{
+    io::{Read, Write},
+    time::Duration,
+};
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
-// Add compression support
 use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
-use std::io::Read;
 
 const LARGE_MESSAGE_COMPRESSION_THRESHOLD: usize = 100_000;
 
@@ -32,26 +33,25 @@ const LARGE_MESSAGE_COMPRESSION_THRESHOLD: usize = 100_000;
 #[derive(Debug, Clone, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
 pub enum P2PMessage {
     NewTransaction(String), // Serialized transaction
-    NewBlock(String),       // Serialized FULL block with transactions
+    NewCheckpoint(String),  // Serialized committed checkpoint sync payload
     NewDagVertex(String),   // Serialized DAG vertex for multi-node sync
     DagVertexRebroadcast(DagVertexMsg),
-    BlockRequest(u64, u64), // (height, timestamp) - timestamp makes it unique
-    BlockResponse(String),  // Full block data response with transactions
-    TargetedBlockRequest(BlockRequestMsg),
-    TargetedBlockResponse(BlockResponseMsg),
+    CheckpointRequest(u64, u64), // (sequence, timestamp) - timestamp makes it unique
+    CheckpointResponse(String),  // Serialized checkpoint sync payload
+    TargetedCheckpointRequest(CheckpointRequestMsg),
+    TargetedCheckpointResponse(CheckpointResponseMsg),
     PeerInfo(PeerInfoMsg),
-    // Add compressed message types for large data
-    CompressedBlock(Vec<u8>),         // Compressed full block data (gzip)
-    CompressedDagVertex(Vec<u8>),     // Compressed DAG vertex (gzip)
-    CompressedBlockResponse(Vec<u8>), // Compressed block response with transactions (gzip)
-    CompressedTargetedBlockResponse(CompressedBlockResponseMsg),
+    CompressedCheckpoint(Vec<u8>), // Compressed checkpoint sync payload (gzip)
+    CompressedDagVertex(Vec<u8>),  // Compressed DAG vertex (gzip)
+    CompressedCheckpointResponse(Vec<u8>), // Compressed checkpoint response (gzip)
+    CompressedTargetedCheckpointResponse(CompressedCheckpointResponseMsg),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
 pub struct PeerInfoMsg {
     pub height: u64,
     pub peer_id: String,
-    pub timestamp: u64, // Add timestamp to make messages unique
+    pub timestamp: u64,
     pub latest_checkpoint_hash: String,
     pub latest_state_root: String,
     pub total_transactions: usize,
@@ -65,29 +65,29 @@ pub struct DagVertexMsg {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
-pub struct BlockRequestMsg {
-    pub height: u64,
+pub struct CheckpointRequestMsg {
+    pub sequence: u64,
     pub timestamp: u64,
     pub requester_peer_id: String,
     pub responder_peer_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
-pub struct BlockResponseMsg {
-    pub height: u64,
+pub struct CheckpointResponseMsg {
+    pub sequence: u64,
     pub request_timestamp: u64,
     pub requester_peer_id: String,
     pub responder_peer_id: String,
-    pub block_data: String,
+    pub checkpoint_data: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
-pub struct CompressedBlockResponseMsg {
-    pub height: u64,
+pub struct CompressedCheckpointResponseMsg {
+    pub sequence: u64,
     pub request_timestamp: u64,
     pub requester_peer_id: String,
     pub responder_peer_id: String,
-    pub compressed_block_data: Vec<u8>,
+    pub compressed_checkpoint_data: Vec<u8>,
 }
 
 /// Network behavior combining multiple protocols
@@ -108,7 +108,7 @@ pub struct P2PNetwork {
 }
 
 pub struct P2PTopics {
-    pub blocks: IdentTopic,
+    pub checkpoints: IdentTopic,
     pub transactions: IdentTopic,
     pub peers: IdentTopic,
     pub dag_vertices: IdentTopic,
@@ -134,16 +134,13 @@ impl P2PNetwork {
         let local_peer_id = PeerId::from(keypair.public());
         info!("Local peer id: {}", local_peer_id);
 
-        // Create transport
         let transport = tcp::tokio::Transport::default()
             .upgrade(upgrade::Version::V1)
             .authenticate(noise::Config::new(&keypair)?)
             .multiplex(yamux::Config::default())
             .boxed();
 
-        // Create Gossipsub behavior
         let message_id_fn = |message: &gossipsub::Message| {
-            // Use deterministic Blake3 hash for message ID instead of DefaultHasher
             let hash = kanari_crypto::hash_data_blake3(&message.data);
             gossipsub::MessageId::from(hex::encode(hash))
         };
@@ -160,9 +157,9 @@ impl P2PNetwork {
             .mesh_n_high(24) // Allow up to 24 peers in mesh
             .gossip_factor(0.25) // Gossip 25% of known messages to mesh peers
             .heartbeat_initial_delay(Duration::from_millis(100))
-            .max_transmit_size(1_000_000) // Increase max message size to 1MB for block data
+            .max_transmit_size(1_000_000) // Increase max message size to 1MB for checkpoint payloads
             .do_px() // Enable peer exchange for better discovery
-            // Add flood publishing for critical messages (blocks, vertices)
+            // Add flood publishing for critical messages (checkpoints, vertices)
             .flood_publish(true)
             .build()
             .map_err(|e| anyhow::anyhow!("Gossipsub config error: {}", e))?;
@@ -173,40 +170,32 @@ impl P2PNetwork {
         )
         .map_err(|e| anyhow::anyhow!("Failed to create gossipsub: {}", e))?;
 
-        // Create topics
-        let blocks_topic = IdentTopic::new("kanari/blocks");
+        // Keep the legacy topic string for wire compatibility with existing peers.
+        let checkpoints_topic = IdentTopic::new("kanari/blocks");
         let tx_topic = IdentTopic::new("kanari/transactions");
         let peers_topic = IdentTopic::new("kanari/peers");
         let dag_vertices_topic = IdentTopic::new("kanari/dag_vertices");
 
-        // Subscribe to topics
-        gossipsub.subscribe(&blocks_topic)?;
+        gossipsub.subscribe(&checkpoints_topic)?;
         gossipsub.subscribe(&tx_topic)?;
         gossipsub.subscribe(&peers_topic)?;
         gossipsub.subscribe(&dag_vertices_topic)?;
 
-        // Create mDNS for local peer discovery
         let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)?;
 
-        // Create Kademlia DHT for peer discovery
         let mut kademlia = kad::Behaviour::new(local_peer_id, MemoryStore::new(local_peer_id));
 
-        // Bootstrap Kademlia
         kademlia.set_mode(Some(kad::Mode::Server));
 
-        // Create DCUtR for hole punching (works without relay client for direct connections)
         let dcutr = dcutr::Behaviour::new(local_peer_id);
 
-        // Create Identify protocol for peer information exchange
         let identify = identify::Behaviour::new(identify::Config::new(
             "/kanari/1.0.0".to_string(),
             keypair.public(),
         ));
 
-        // Create Ping for connection keep-alive
         let ping = ping::Behaviour::new(ping::Config::new());
 
-        // Create relay server (will only accept relay requests if configured properly)
         let relay_config = if enable_relay_server {
             relay::Config::default()
         } else {
@@ -219,7 +208,6 @@ impl P2PNetwork {
         };
         let relay = relay::Behaviour::new(local_peer_id, relay_config);
 
-        // Create behavior
         let behaviour = KanariBehaviour {
             gossipsub,
             mdns,
@@ -230,7 +218,6 @@ impl P2PNetwork {
             relay,
         };
 
-        // Create swarm
         let mut swarm = Swarm::new(
             transport,
             behaviour,
@@ -246,7 +233,7 @@ impl P2PNetwork {
         Ok(Self {
             swarm,
             topics: P2PTopics {
-                blocks: blocks_topic,
+                checkpoints: checkpoints_topic,
                 transactions: tx_topic,
                 peers: peers_topic,
                 dag_vertices: dag_vertices_topic,
@@ -256,14 +243,14 @@ impl P2PNetwork {
 
     fn message_topic(&self, msg: &P2PMessage) -> &IdentTopic {
         match msg {
-            P2PMessage::NewBlock(_)
-            | P2PMessage::BlockResponse(_)
-            | P2PMessage::BlockRequest(_, _)
-            | P2PMessage::TargetedBlockRequest(_)
-            | P2PMessage::TargetedBlockResponse(_)
-            | P2PMessage::CompressedBlock(_)
-            | P2PMessage::CompressedBlockResponse(_)
-            | P2PMessage::CompressedTargetedBlockResponse(_) => &self.topics.blocks,
+            P2PMessage::NewCheckpoint(_)
+            | P2PMessage::CheckpointResponse(_)
+            | P2PMessage::CheckpointRequest(_, _)
+            | P2PMessage::TargetedCheckpointRequest(_)
+            | P2PMessage::TargetedCheckpointResponse(_)
+            | P2PMessage::CompressedCheckpoint(_)
+            | P2PMessage::CompressedCheckpointResponse(_)
+            | P2PMessage::CompressedTargetedCheckpointResponse(_) => &self.topics.checkpoints,
             P2PMessage::NewTransaction(_) => &self.topics.transactions,
             P2PMessage::PeerInfo(_) => &self.topics.peers,
             P2PMessage::NewDagVertex(_)
@@ -280,8 +267,8 @@ impl P2PNetwork {
                     info.height, info.peer_id
                 );
             }
-            P2PMessage::NewBlock(data) => {
-                info!("[P2P] Publishing NewBlock (size: {})", data.len());
+            P2PMessage::NewCheckpoint(data) => {
+                info!("[P2P] Publishing NewCheckpoint (size: {})", data.len());
             }
             P2PMessage::NewDagVertex(data) => {
                 info!("[P2P] Publishing NewDagVertex (size: {})", data.len());
@@ -294,25 +281,28 @@ impl P2PNetwork {
                     msg.vertex_data.len()
                 );
             }
-            P2PMessage::BlockRequest(h, t) => {
-                info!("[P2P] Publishing BlockRequest: height={}, ts={}", h, t);
-            }
-            P2PMessage::TargetedBlockRequest(req) => {
+            P2PMessage::CheckpointRequest(seq, t) => {
                 info!(
-                    "[P2P] Publishing TargetedBlockRequest: height={}, responder={}, requester={}, ts={}",
-                    req.height, req.responder_peer_id, req.requester_peer_id, req.timestamp
+                    "[P2P] Publishing CheckpointRequest: sequence={}, ts={}",
+                    seq, t
                 );
             }
-            P2PMessage::BlockResponse(data) => {
-                info!("[P2P] Publishing BlockResponse (size: {})", data.len());
-            }
-            P2PMessage::TargetedBlockResponse(resp) => {
+            P2PMessage::TargetedCheckpointRequest(req) => {
                 info!(
-                    "[P2P] Publishing TargetedBlockResponse: height={}, requester={}, request_ts={}, size={}",
-                    resp.height,
+                    "[P2P] Publishing TargetedCheckpointRequest: sequence={}, responder={}, requester={}, ts={}",
+                    req.sequence, req.responder_peer_id, req.requester_peer_id, req.timestamp
+                );
+            }
+            P2PMessage::CheckpointResponse(data) => {
+                info!("[P2P] Publishing CheckpointResponse (size: {})", data.len());
+            }
+            P2PMessage::TargetedCheckpointResponse(resp) => {
+                info!(
+                    "[P2P] Publishing TargetedCheckpointResponse: sequence={}, requester={}, request_ts={}, size={}",
+                    resp.sequence,
                     resp.requester_peer_id,
                     resp.request_timestamp,
-                    resp.block_data.len()
+                    resp.checkpoint_data.len()
                 );
             }
             _ => {
@@ -323,14 +313,14 @@ impl P2PNetwork {
 
     fn compress_large_message(msg: P2PMessage) -> Result<P2PMessage> {
         match msg {
-            P2PMessage::NewBlock(data) if data.len() > LARGE_MESSAGE_COMPRESSION_THRESHOLD => {
+            P2PMessage::NewCheckpoint(data) if data.len() > LARGE_MESSAGE_COMPRESSION_THRESHOLD => {
                 let compressed_data = gzip_string(&data)?;
                 info!(
-                    "[P2P] Compressed block from {} to {} bytes",
+                    "[P2P] Compressed checkpoint from {} to {} bytes",
                     data.len(),
                     compressed_data.len()
                 );
-                Ok(P2PMessage::CompressedBlock(compressed_data))
+                Ok(P2PMessage::CompressedCheckpoint(compressed_data))
             }
             P2PMessage::NewDagVertex(data) if data.len() > LARGE_MESSAGE_COMPRESSION_THRESHOLD => {
                 let compressed_data = gzip_string(&data)?;
@@ -341,31 +331,33 @@ impl P2PNetwork {
                 );
                 Ok(P2PMessage::CompressedDagVertex(compressed_data))
             }
-            P2PMessage::BlockResponse(data) if data.len() > LARGE_MESSAGE_COMPRESSION_THRESHOLD => {
+            P2PMessage::CheckpointResponse(data)
+                if data.len() > LARGE_MESSAGE_COMPRESSION_THRESHOLD =>
+            {
                 let compressed_data = gzip_string(&data)?;
                 info!(
-                    "[P2P] Compressed BlockResponse from {} to {} bytes",
+                    "[P2P] Compressed CheckpointResponse from {} to {} bytes",
                     data.len(),
                     compressed_data.len()
                 );
-                Ok(P2PMessage::CompressedBlockResponse(compressed_data))
+                Ok(P2PMessage::CompressedCheckpointResponse(compressed_data))
             }
-            P2PMessage::TargetedBlockResponse(resp)
-                if resp.block_data.len() > LARGE_MESSAGE_COMPRESSION_THRESHOLD =>
+            P2PMessage::TargetedCheckpointResponse(resp)
+                if resp.checkpoint_data.len() > LARGE_MESSAGE_COMPRESSION_THRESHOLD =>
             {
-                let compressed_block_data = gzip_string(&resp.block_data)?;
+                let compressed_checkpoint_data = gzip_string(&resp.checkpoint_data)?;
                 info!(
-                    "[P2P] Compressed TargetedBlockResponse from {} to {} bytes",
-                    resp.block_data.len(),
-                    compressed_block_data.len()
+                    "[P2P] Compressed TargetedCheckpointResponse from {} to {} bytes",
+                    resp.checkpoint_data.len(),
+                    compressed_checkpoint_data.len()
                 );
-                Ok(P2PMessage::CompressedTargetedBlockResponse(
-                    CompressedBlockResponseMsg {
-                        height: resp.height,
+                Ok(P2PMessage::CompressedTargetedCheckpointResponse(
+                    CompressedCheckpointResponseMsg {
+                        sequence: resp.sequence,
                         request_timestamp: resp.request_timestamp,
                         requester_peer_id: resp.requester_peer_id,
                         responder_peer_id: resp.responder_peer_id,
-                        compressed_block_data,
+                        compressed_checkpoint_data,
                     },
                 ))
             }
@@ -391,19 +383,14 @@ impl P2PNetwork {
         {
             Ok(_) => Ok(()),
             Err(e) => {
-                // Handle duplicate messages gracefully
-                // "Duplicate" comes from gossipsub when message is already seen
                 if is_duplicate_publish_error(&e) {
-                    // Duplicate is not an error, just skip silently
                     return Ok(());
                 }
                 if is_insufficient_peers_error(&e) {
-                    // This is normal when starting up or isolated - just log debug/info
                     tracing::debug!("No peers subscribed to topic yet");
                     return Ok(());
                 }
 
-                // Log warning but don't fail
                 warn!("Publish warning: {}", e);
                 Ok(())
             }
@@ -411,16 +398,8 @@ impl P2PNetwork {
     }
 }
 
-/// Decompress a compressed block message
-pub fn decompress_block(compressed_data: Vec<u8>) -> Result<String> {
-    let mut decoder = GzDecoder::new(&compressed_data[..]);
-    let mut decompressed = String::new();
-    decoder.read_to_string(&mut decompressed)?;
-    Ok(decompressed)
-}
-
-/// Decompress a compressed DAG vertex message
-pub fn decompress_dag_vertex(compressed_data: Vec<u8>) -> Result<String> {
+/// Decompress a compressed UTF-8 P2P payload.
+pub fn decompress_payload(compressed_data: Vec<u8>) -> Result<String> {
     let mut decoder = GzDecoder::new(&compressed_data[..]);
     let mut decompressed = String::new();
     decoder.read_to_string(&mut decompressed)?;
@@ -432,6 +411,7 @@ pub struct P2PEventHandler {
     pub message_tx: mpsc::UnboundedSender<P2PMessage>,
     pub outgoing_rx: Option<mpsc::UnboundedReceiver<P2PMessage>>,
     pub peer_store: Option<std::sync::Arc<tokio::sync::Mutex<crate::peer_store::PeerStore>>>,
+    message_forwarding_closed: bool,
 }
 
 impl P2PEventHandler {
@@ -441,6 +421,7 @@ impl P2PEventHandler {
             message_tx,
             outgoing_rx: None,
             peer_store: None,
+            message_forwarding_closed: false,
         }
     }
 
@@ -480,18 +461,33 @@ impl P2PEventHandler {
         }
     }
 
-    fn forward_message(&self, msg: P2PMessage, context: &str) -> bool {
+    fn forward_message(&mut self, msg: P2PMessage, context: &str) -> bool {
+        if self.message_forwarding_closed || self.message_tx.is_closed() {
+            if !self.message_forwarding_closed {
+                warn!(
+                    "{}: receiver channel is closed; suppressing further incoming P2P forwards",
+                    context
+                );
+                self.message_forwarding_closed = true;
+            }
+            return false;
+        }
+
         match self.message_tx.send(msg) {
             Ok(_) => true,
             Err(e) => {
-                warn!("{}: {}", context, e);
+                warn!(
+                    "{}: {}; suppressing further incoming P2P forwards",
+                    context, e
+                );
+                self.message_forwarding_closed = true;
                 false
             }
         }
     }
 
     fn forward_decompressed_message(
-        &self,
+        &mut self,
         compressed_data: &[u8],
         decompress: fn(Vec<u8>) -> Result<String>,
         make_message: fn(String) -> P2PMessage,
@@ -507,24 +503,27 @@ impl P2PEventHandler {
         }
     }
 
-    fn forward_targeted_block_response(
-        &self,
-        resp: &CompressedBlockResponseMsg,
+    fn forward_targeted_checkpoint_response(
+        &mut self,
+        resp: &CompressedCheckpointResponseMsg,
         send_context: &str,
     ) -> bool {
-        match decompress_block(resp.compressed_block_data.clone()) {
-            Ok(block_data) => self.forward_message(
-                P2PMessage::TargetedBlockResponse(BlockResponseMsg {
-                    height: resp.height,
+        match decompress_payload(resp.compressed_checkpoint_data.clone()) {
+            Ok(checkpoint_data) => self.forward_message(
+                P2PMessage::TargetedCheckpointResponse(CheckpointResponseMsg {
+                    sequence: resp.sequence,
                     request_timestamp: resp.request_timestamp,
                     requester_peer_id: resp.requester_peer_id.clone(),
                     responder_peer_id: resp.responder_peer_id.clone(),
-                    block_data,
+                    checkpoint_data,
                 }),
                 send_context,
             ),
             Err(e) => {
-                warn!("[P2P] Failed to decompress targeted block response: {}", e);
+                warn!(
+                    "[P2P] Failed to decompress targeted checkpoint response: {}",
+                    e
+                );
                 false
             }
         }
@@ -538,9 +537,9 @@ impl P2PEventHandler {
                     source, info.height, info.peer_id
                 );
             }
-            P2PMessage::NewBlock(data) => {
+            P2PMessage::NewCheckpoint(data) => {
                 info!(
-                    "[P2P] Received NewBlock from {} (size: {})",
+                    "[P2P] Received NewCheckpoint from {} (size: {})",
                     source,
                     data.len()
                 );
@@ -561,57 +560,61 @@ impl P2PEventHandler {
                     msg.vertex_data.len()
                 );
             }
-            P2PMessage::CompressedBlock(compressed_data) => {
+            P2PMessage::CompressedCheckpoint(compressed_data) => {
                 info!(
-                    "[P2P] Received CompressedBlock from {} (size: {})",
+                    "[P2P] Received CompressedCheckpoint from {} (size: {})",
                     source,
                     compressed_data.len()
                 );
             }
-            P2PMessage::BlockRequest(h, t) => {
+            P2PMessage::CheckpointRequest(seq, t) => {
                 info!(
-                    "[P2P] Received BlockRequest from {}: height={}, ts={}",
-                    source, h, t
+                    "[P2P] Received CheckpointRequest from {}: sequence={}, ts={}",
+                    source, seq, t
                 );
             }
-            P2PMessage::TargetedBlockRequest(req) => {
+            P2PMessage::TargetedCheckpointRequest(req) => {
                 info!(
-                    "[P2P] Received TargetedBlockRequest from {}: height={}, responder={}, requester={}, ts={}",
-                    source, req.height, req.responder_peer_id, req.requester_peer_id, req.timestamp
+                    "[P2P] Received TargetedCheckpointRequest from {}: sequence={}, responder={}, requester={}, ts={}",
+                    source,
+                    req.sequence,
+                    req.responder_peer_id,
+                    req.requester_peer_id,
+                    req.timestamp
                 );
             }
-            P2PMessage::BlockResponse(data) => {
+            P2PMessage::CheckpointResponse(data) => {
                 info!(
-                    "[P2P] Received BlockResponse from {} (size: {})",
+                    "[P2P] Received CheckpointResponse from {} (size: {})",
                     source,
                     data.len()
                 );
             }
-            P2PMessage::TargetedBlockResponse(resp) => {
+            P2PMessage::TargetedCheckpointResponse(resp) => {
                 info!(
-                    "[P2P] Received TargetedBlockResponse from {}: height={}, requester={}, request_ts={}, size={}",
+                    "[P2P] Received TargetedCheckpointResponse from {}: sequence={}, requester={}, request_ts={}, size={}",
                     source,
-                    resp.height,
+                    resp.sequence,
                     resp.requester_peer_id,
                     resp.request_timestamp,
-                    resp.block_data.len()
+                    resp.checkpoint_data.len()
                 );
             }
-            P2PMessage::CompressedBlockResponse(compressed_data) => {
+            P2PMessage::CompressedCheckpointResponse(compressed_data) => {
                 info!(
-                    "[P2P] Received CompressedBlockResponse from {} (size: {})",
+                    "[P2P] Received CompressedCheckpointResponse from {} (size: {})",
                     source,
                     compressed_data.len()
                 );
             }
-            P2PMessage::CompressedTargetedBlockResponse(resp) => {
+            P2PMessage::CompressedTargetedCheckpointResponse(resp) => {
                 info!(
-                    "[P2P] Received CompressedTargetedBlockResponse from {}: height={}, requester={}, request_ts={}, size={}",
+                    "[P2P] Received CompressedTargetedCheckpointResponse from {}: sequence={}, requester={}, request_ts={}, size={}",
                     source,
-                    resp.height,
+                    resp.sequence,
                     resp.requester_peer_id,
                     resp.request_timestamp,
-                    resp.compressed_block_data.len()
+                    resp.compressed_checkpoint_data.len()
                 );
             }
             P2PMessage::CompressedDagVertex(compressed_data) => {
@@ -643,47 +646,47 @@ impl P2PEventHandler {
                         Self::log_received_message(&propagation_source, &msg);
 
                         match &msg {
-                            P2PMessage::CompressedBlock(compressed_data) => {
+                            P2PMessage::CompressedCheckpoint(compressed_data) => {
                                 self.forward_decompressed_message(
                                     compressed_data,
-                                    decompress_block,
-                                    P2PMessage::NewBlock,
-                                    "[P2P] Failed to decompress block",
-                                    "[P2P] Failed to forward decompressed block",
+                                    decompress_payload,
+                                    P2PMessage::NewCheckpoint,
+                                    "[P2P] Failed to decompress checkpoint",
+                                    "[P2P] Failed to forward decompressed checkpoint",
                                 );
                                 return;
                             }
                             P2PMessage::CompressedDagVertex(compressed_data) => {
                                 self.forward_decompressed_message(
                                     compressed_data,
-                                    decompress_dag_vertex,
+                                    decompress_payload,
                                     P2PMessage::NewDagVertex,
                                     "[P2P] Failed to decompress DAG vertex",
                                     "[P2P] Failed to forward decompressed vertex",
                                 );
                                 return;
                             }
-                            P2PMessage::CompressedBlockResponse(compressed_data) => {
+                            P2PMessage::CompressedCheckpointResponse(compressed_data) => {
                                 self.forward_decompressed_message(
                                     compressed_data,
-                                    decompress_block,
-                                    P2PMessage::BlockResponse,
-                                    "[P2P] Failed to decompress block response",
-                                    "[P2P] Failed to forward decompressed block response",
+                                    decompress_payload,
+                                    P2PMessage::CheckpointResponse,
+                                    "[P2P] Failed to decompress checkpoint response",
+                                    "[P2P] Failed to forward decompressed checkpoint response",
                                 );
                                 return;
                             }
-                            P2PMessage::CompressedTargetedBlockResponse(resp) => {
-                                self.forward_targeted_block_response(
+                            P2PMessage::CompressedTargetedCheckpointResponse(resp) => {
+                                self.forward_targeted_checkpoint_response(
                                     resp,
-                                    "[P2P] Failed to forward decompressed targeted block response",
+                                    "[P2P] Failed to forward decompressed targeted checkpoint response",
                                 );
                                 return;
                             }
                             _ => {}
                         }
 
-                        if !self.forward_message(msg, "[P2P] Failed to forward P2P message") {}
+                        self.forward_message(msg, "[P2P] Failed to forward P2P message");
                     }
                     Err(e) => {
                         warn!("[P2P] Failed to decode P2P message: {}", e);

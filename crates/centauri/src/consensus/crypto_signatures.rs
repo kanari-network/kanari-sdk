@@ -7,11 +7,6 @@ use rand::TryRng;
 use rand::rngs::SysRng;
 use serde::{Deserialize, Serialize};
 
-// Re-export curve25519-dalek types for VRF usage
-pub use curve25519_dalek::constants::RISTRETTO_BASEPOINT_TABLE;
-pub use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
-pub use curve25519_dalek::scalar::Scalar;
-
 const ED25519_SIGNATURE_LEN: usize = 64;
 
 /// Ed25519 signature wrapper

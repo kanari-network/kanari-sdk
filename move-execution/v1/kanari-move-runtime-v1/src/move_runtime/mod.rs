@@ -225,7 +225,7 @@ impl MoveRuntime {
         // Preload published modules so follow-up executions can resolve dependencies immediately.
         self.preload_system_modules_into_vm()?;
 
-        log::info!("[RUNTIME] MoveVM cache cleared and reloaded");
+        log::debug!("[RUNTIME] MoveVM cache cleared and reloaded");
         Ok(())
     }
 
@@ -432,7 +432,19 @@ impl MoveRuntime {
             args.len()
         );
 
-        self.execute_init_function_internal(module_addr, module_name, args)
+        self.execute_init_function_internal(module_addr, module_name, args, None, None)
+            .map_err(|e| anyhow::anyhow!("Failed to execute init(): {:?}", e))
+    }
+
+    pub fn execute_init_function_with_context(
+        &self,
+        module_addr: AccountAddress,
+        module_name: &str,
+        args: Vec<Vec<u8>>,
+        timestamp: Option<u64>,
+        tx_hash: Option<Vec<u8>>,
+    ) -> Result<ChangeSet> {
+        self.execute_init_function_internal(module_addr, module_name, args, timestamp, tx_hash)
             .map_err(|e| anyhow::anyhow!("Failed to execute init(): {:?}", e))
     }
 
@@ -459,7 +471,7 @@ impl MoveRuntime {
         init_args.push(Vec::new());
         init_args.extend(args);
 
-        self.execute_init_function_internal(module_addr, module_name, init_args)
+        self.execute_init_function_internal(module_addr, module_name, init_args, None, None)
             .map_err(|e| {
                 anyhow::anyhow!(
                     "Failed to execute init() with witness {}: {:?}",
@@ -474,6 +486,8 @@ impl MoveRuntime {
         module_addr: AccountAddress,
         module_name: &str,
         args: Vec<Vec<u8>>,
+        timestamp: Option<u64>,
+        tx_hash: Option<Vec<u8>>,
     ) -> Result<ChangeSet> {
         let module_id = ModuleId::new(module_addr, Identifier::new(module_name)?);
         self.execute_entry_function_internal(
@@ -481,7 +495,7 @@ impl MoveRuntime {
             "init",
             vec![],
             args,
-            ExecutionOptions::new(Some(module_addr), None, None, None).bypass_entry_check(),
+            ExecutionOptions::new(Some(module_addr), None, timestamp, tx_hash).bypass_entry_check(),
         )
     }
 

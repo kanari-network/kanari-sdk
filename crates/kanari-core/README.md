@@ -98,7 +98,7 @@ if let Some(checkpoint) = dag_info.checkpoint {
 
 ### 🔗 DAG-Based Network
 
-- **DAG Mode**: High-throughput DAG-based consensus (Narwhal & Bullshark)
+- **DAG Mode**: High-throughput DAG-based consensus (Mysticeti-style)
 - Parallel transaction processing
 - Byzantine fault tolerance
 
@@ -142,8 +142,8 @@ if let Some(checkpoint) = dag_info.checkpoint {
                │
 ┌──────────────▼──────────────────────────┐
 │       Consensus Layer                   │
-│  • DagConsensus (Bullshark)             │
-│  • Leader election                      │
+│  • DagConsensus (Mysticeti)             │
+│  • Multi-leader selection               │
 │  • Checkpoint creation                  │
 └──────────────┬──────────────────────────┘
                │
@@ -189,7 +189,7 @@ Blockchain execution engine:
 
 ## DAG Consensus
 
-Implements Narwhal & Bullshark consensus protocol:
+Implements a Mysticeti-style DAG consensus protocol:
 
 ### Data Availability
 
@@ -199,8 +199,8 @@ Implements Narwhal & Bullshark consensus protocol:
 
 ### Ordering
 
-- Leader-based ordering (round-robin)
-- 3-round commit protocol
+- Deterministic multi-leader ordering
+- 3-round decision protocol
 - Automatic checkpoint creation
 
 ### Execution
@@ -289,8 +289,8 @@ SPDX-License-Identifier: Apache-2.0
 1. **Narwhal and Tusk**: DAG-based Mempool and Efficient BFT Consensus
    - [arXiv:2105.11827](https://arxiv.org/abs/2105.11827)
 
-2. **Bullshark**: DAG BFT Protocols Made Practical
-   - [arXiv:2201.05677](https://arxiv.org/abs/2201.05677)
+2. **Mysticeti**: Reaching the Latency Limits with Uncertified DAGs
+   - [NDSS 2025](https://www.ndss-symposium.org/ndss-paper/mysticeti-reaching-the-latency-limits-with-uncertified-dags/)
 
 3. **Sui Consensus**: Real-world DAG consensus implementation
    - [docs.sui.io/learn/architecture/consensus](https://docs.sui.io/learn/architecture/consensus)

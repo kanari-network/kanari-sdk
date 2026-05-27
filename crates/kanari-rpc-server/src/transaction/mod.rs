@@ -12,6 +12,7 @@ use kanari_rpc_api::{
 use kanari_types::address::Address;
 use kanari_types::transaction::{SignedTransaction, Transaction};
 use move_binary_format::CompiledModule;
+use std::collections::HashSet;
 use tracing::{error, info};
 
 // Extract function names from module bytecode (returns None on error)
@@ -89,14 +90,20 @@ fn tx_matches_account(tx: &Transaction, account_norm: Option<&str>) -> bool {
     }
 }
 
-fn push_tx_details(
+fn push_unique_tx_details(
     results: &mut Vec<TransactionDetails>,
+    seen_hashes: &mut HashSet<String>,
     limit: usize,
     details: TransactionDetails,
 ) -> bool {
     if results.len() >= limit {
         return false;
     }
+
+    if !seen_hashes.insert(details.hash.to_lowercase()) {
+        return true;
+    }
+
     results.push(details);
     true
 }
@@ -392,20 +399,6 @@ fn execute_or_submit_response(
     action: &str,
     pending_submit_error: &str,
 ) -> RpcResponse {
-    // let defer_to_consensus = state.engine.should_defer_user_execution_to_consensus();
-    // let effective_execute_immediate = execute_immediate && !defer_to_consensus;
-
-    // if execute_immediate && defer_to_consensus {
-    //     info!(
-    //         "{} requested immediate execution, but multi-authority DAG mode is active; deferring to consensus",
-    //         action
-    //     );
-    // }
-
-    // if !effective_execute_immediate {
-    //     return submit_pending_response(state, request_id, signed_tx, action, pending_submit_error);
-    // }
-
     if !execute_immediate {
         return submit_pending_response(state, request_id, signed_tx, action, pending_submit_error);
     }
@@ -624,6 +617,7 @@ pub async fn handle_get_all_transactions(
         .map(|a| a.trim_start_matches("0x").to_lowercase());
 
     let mut results: Vec<TransactionDetails> = Vec::new();
+    let mut seen_hashes = HashSet::new();
     let pending = state.engine.pending_txs.read().unwrap_or_else(|p| {
         error!("pending_txs lock poisoned while listing transactions; recovering");
         p.into_inner()
@@ -634,8 +628,9 @@ pub async fn handle_get_all_transactions(
             continue;
         }
 
-        if !push_tx_details(
+        if !push_unique_tx_details(
             &mut results,
+            &mut seen_hashes,
             limit,
             map_transaction_to_details(
                 state,
@@ -666,8 +661,9 @@ pub async fn handle_get_all_transactions(
                     continue;
                 }
 
-                if !push_tx_details(
+                if !push_unique_tx_details(
                     &mut results,
+                    &mut seen_hashes,
                     limit,
                     map_transaction_to_details(
                         state,

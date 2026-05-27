@@ -22,6 +22,20 @@ use super::{AuthorityId, Checkpoint, DagVertex, Round, VertexId};
 const MAX_SYNC_CHECKPOINTS: usize = 100;
 const MAX_SYNC_VERTICES: usize = 5000;
 
+fn unix_timestamp_secs(log_context: &str) -> u64 {
+    match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        Ok(duration) => duration.as_secs(),
+        Err(e) => {
+            tracing::warn!(
+                "[SYNC] System clock error while reading {} timestamp: {}",
+                log_context,
+                e
+            );
+            0
+        }
+    }
+}
+
 /// State sync request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncRequest {
@@ -52,16 +66,6 @@ pub struct SyncProgress {
 }
 
 impl SyncProgress {
-    // FIX #8: Add sync timeout constant (5 minutes)
-    const SYNC_TIMEOUT_SECS: u64 = 300;
-
-    fn unix_timestamp_secs() -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0)
-    }
-
     pub fn progress_percentage(&self) -> f64 {
         if self.total_vertices == 0 {
             return 100.0;
@@ -72,12 +76,6 @@ impl SyncProgress {
     pub fn is_complete(&self) -> bool {
         self.current_checkpoint >= self.target_checkpoint
             && self.synced_vertices >= self.total_vertices
-    }
-
-    // FIX #8: Check if sync has timed out
-    pub fn is_timed_out(&self) -> bool {
-        let now = Self::unix_timestamp_secs();
-        now.saturating_sub(self.started_at) > Self::SYNC_TIMEOUT_SECS
     }
 }
 
@@ -100,10 +98,13 @@ pub struct StateSynchronizer {
 
 impl StateSynchronizer {
     fn unix_timestamp_secs() -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0)
+        unix_timestamp_secs("state-sync")
+    }
+
+    fn checkpoint_state_root(&self, sequence: u64) -> Option<Vec<u8>> {
+        self.checkpoints
+            .get(&sequence)
+            .map(|checkpoint| checkpoint.state_root.clone())
     }
 
     fn remove_orphan(&mut self, orphan_id: VertexId) {
@@ -149,13 +150,6 @@ impl StateSynchronizer {
             .get(&round)
             .and_then(|vertices| vertices.get(index))
             .map(|vertex| (**vertex).clone())
-    }
-
-    fn latest_state_root(&self) -> Vec<u8> {
-        self.checkpoints
-            .get(&self.latest_checkpoint)
-            .map(|c| c.state_root.clone())
-            .unwrap_or_default()
     }
 
     pub fn new() -> Self {
@@ -347,12 +341,13 @@ impl StateSynchronizer {
         let response_state_root = checkpoints
             .last()
             .map(|c| c.state_root.clone())
-            .or_else(|| {
-                self.checkpoints
-                    .get(&request.last_checkpoint)
-                    .map(|c| c.state_root.clone())
-            })
-            .unwrap_or_else(|| self.latest_state_root());
+            .or_else(|| self.checkpoint_state_root(request.last_checkpoint))
+            .ok_or_else(|| {
+                anyhow!(
+                    "SyncRequest references unknown checkpoint {}",
+                    request.last_checkpoint
+                )
+            })?;
 
         Ok(SyncResponse {
             checkpoints,
@@ -411,8 +406,13 @@ impl StateSynchronizer {
             // --- FIX 2: Prevent State Poisoning by verifying Signature before accepting block ---
             if let Some(validator) = committee.get_validator(&vertex.author) {
                 // Convert Public Key Bytes to VerifyingKey
-                let pub_key_bytes: [u8; 32] =
-                    validator.public_key.clone().try_into().unwrap_or([0u8; 32]);
+                let Ok(pub_key_bytes) = <[u8; 32]>::try_from(validator.public_key.clone()) else {
+                    tracing::error!(
+                        "[Security] Invalid public key length for synced vertex author {}",
+                        vertex.author
+                    );
+                    continue;
+                };
 
                 if let Ok(pub_key) = ed25519_dalek::VerifyingKey::from_bytes(&pub_key_bytes) {
                     // Call signature verification function (Zero-copy optimization) from ParallelValidator

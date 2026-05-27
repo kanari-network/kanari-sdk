@@ -6,7 +6,7 @@ use anyhow::{Context, Result, bail};
 use centauri::consensus::Checkpoint;
 use kanari_move_runtime_v1::state::StateManager;
 use kanari_types::transaction::SignedTransaction;
-use log::{error, info, warn};
+use log::{error, info};
 use std::sync::{Arc, RwLock};
 
 impl BlockchainEngine {
@@ -153,38 +153,6 @@ impl BlockchainEngine {
         }
 
         self.finalize_checkpoint(checkpoint, verified_state)
-    }
-
-    pub fn apply_checkpoint_optimized(
-        &self,
-        checkpoint: Checkpoint,
-        precomputed_state: Arc<RwLock<StateManager>>,
-    ) -> Result<()> {
-        info!(
-            "[ENGINE] Applying checkpoint {} (OPTIMIZED)",
-            checkpoint.sequence
-        );
-
-        let computed_root = precomputed_state
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .compute_state_root();
-        match self.ensure_checkpoint_root_matches(&checkpoint, &computed_root) {
-            Ok(()) => {}
-            Err(_) if !Self::strict_checkpoint_roots_required() => {
-                warn!("[ENGINE] State root mismatch! Fallback to standard application.");
-                return self.apply_checkpoint(checkpoint);
-            }
-            Err(e) => return Err(e),
-        }
-
-        self.finalize_checkpoint(
-            checkpoint,
-            precomputed_state
-                .read()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone(),
-        )
     }
 
     pub fn apply_checkpoint(&self, checkpoint: Checkpoint) -> Result<()> {

@@ -51,7 +51,7 @@ pub enum ByzantineFault {
     /// Double voting: An authority creates multiple vertices in the same round
     ///
     /// This violates the "one-authority-one-vote-per-round" invariant and could
-    /// be used to manipulate leader election or confuse the ordering algorithm.
+    /// be used to manipulate deterministic leader selection or confuse ordering.
     ///
     /// **Severity**: High - Direct attack on consensus integrity
     /// **Penalty**: `DOUBLE_VOTING_PENALTY` (20 points)
@@ -122,15 +122,6 @@ pub struct SlashingPenalty {
     pub amount: u64,
     pub reason: String,
     pub round: Round,
-}
-
-/// Serialized state for Byzantine detector persistence
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ByzantineDetectorState {
-    faults: Vec<ByzantineEvidence>,
-    penalties: Vec<SlashingPenalty>,
-    reputation: HashMap<AuthorityId, u64>, // HashMap for O(1) lookup
-    vertices_by_authority_round: BTreeMap<(AuthorityId, Round), Vec<VertexId>>,
 }
 
 /// Byzantine detector
@@ -232,20 +223,18 @@ impl ByzantineDetector {
             anyhow::bail!("Critical Error: Required quorum cannot be zero");
         }
 
-        if vertex.round > 0 {
-            if vertex.parents.len() < required_quorum {
-                let fault = ByzantineFault::InvalidVertex {
-                    authority: vertex.author.clone(),
-                    vertex_id: vertex.id,
-                    reason: format!(
-                        "Insufficient parents: {} < {} (quorum)",
-                        vertex.parents.len(),
-                        required_quorum
-                    ),
-                };
-                self.report_fault(fault)?;
-                anyhow::bail!("Invalid vertex: insufficient parents for quorum");
-            }
+        if vertex.round > 0 && vertex.parents.len() < required_quorum {
+            let fault = ByzantineFault::InvalidVertex {
+                authority: vertex.author.clone(),
+                vertex_id: vertex.id,
+                reason: format!(
+                    "Insufficient parents: {} < {} (quorum)",
+                    vertex.parents.len(),
+                    required_quorum
+                ),
+            };
+            self.report_fault(fault)?;
+            anyhow::bail!("Invalid vertex: insufficient parents for quorum");
         }
         Ok(())
     }
@@ -307,31 +296,6 @@ impl ByzantineDetector {
         Ok(())
     }
 
-    // --- FIX 2: System Export/Import State to Disk (Persistent State) ---
-    /// Export fault history for persistence (for new node startup)
-    pub fn export_state(&self) -> Result<Vec<u8>> {
-        let state = ByzantineDetectorState {
-            faults: self.faults.clone(),
-            penalties: self.penalties.clone(),
-            reputation: self.reputation.clone(),
-            vertices_by_authority_round: self.vertices_by_authority_round.clone(),
-        };
-        bcs::to_bytes(&state)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize Byzantine state: {}", e))
-    }
-
-    /// Load fault history back after new node startup
-    pub fn import_state(&mut self, data: &[u8]) -> Result<()> {
-        let state: ByzantineDetectorState = bcs::from_bytes(data)
-            .map_err(|e| anyhow::anyhow!("Failed to deserialize Byzantine state: {}", e))?;
-
-        self.faults = state.faults;
-        self.penalties = state.penalties;
-        self.reputation = state.reputation;
-        self.vertices_by_authority_round = state.vertices_by_authority_round;
-        Ok(())
-    }
-
     pub fn get_reputation(&self, authority: &str) -> u64 {
         self.reputation.get(authority).copied().unwrap_or(0)
     }
@@ -342,10 +306,6 @@ impl ByzantineDetector {
 
     pub fn get_faults(&self) -> &[ByzantineEvidence] {
         &self.faults
-    }
-
-    pub fn get_penalties(&self) -> &[SlashingPenalty] {
-        &self.penalties
     }
 
     pub fn prune_old_rounds(&mut self, before_round: Round) {
@@ -476,25 +436,5 @@ mod tests {
             .unwrap();
         assert_eq!(detector.get_reputation("auth1"), 0);
         assert!(!detector.is_trusted("auth1", 1));
-    }
-
-    #[test]
-    fn test_state_persistence() {
-        let mut detector1 = ByzantineDetector::new();
-        detector1.init_authority("auth1".to_string());
-        detector1
-            .slash_authority("auth1", 40, "Bad node", 1)
-            .unwrap();
-
-        // Export State to Byte Array
-        let exported = detector1.export_state().unwrap();
-
-        // Import State to new Detector
-        let mut detector2 = ByzantineDetector::new();
-        detector2.import_state(&exported).unwrap();
-
-        // Verify that the hacker still has 60 score, not reverted to 100
-        assert_eq!(detector2.get_reputation("auth1"), 60);
-        assert_eq!(detector2.get_penalties().len(), 1);
     }
 }

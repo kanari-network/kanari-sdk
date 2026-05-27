@@ -1,53 +1,139 @@
-mod frb_generated; /* AUTO INJECTED BY flutter_rust_bridge. This line may not be accurate, and you can change it according to your needs. */
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Secure cryptographic primitives for the Kanari blockchain platform
-//
-// This crate provides cryptographic operations including:
-// - Key generation and management
-// - Digital signatures
-// - Encryption and decryption
-// - Wallet operations
-// - Key rotation and lifecycle management
-// - Security audit logging
-// - Backup and restore functionality
-//
-// # Compatibility & Standards
-//
-// ## Ed25519 Signature Interoperability ✅
-//
-// **Kanari Ed25519 is 100% RFC-8032 COMPLIANT:**
-// - Signatures created by Kanari can be verified by ANY standard Ed25519 implementation
-// - Kanari can verify Ed25519 signatures from libsodium, NaCl, cryptonote, etc.
-// - No format conversion or special handling needed for interoperability
-// - Uses direct signing/verification (no pre-hashing)
-//
-// ### Supported Interoperability Chains:
-// - ✅ libsodium (crypto_sign_*)
-// - ✅ NaCl / TweetNaCl
-// - ✅ Python PyNaCl
-// - ✅ Go ed25519 package
-// - ✅ Node.js TweetNaCl.js / tweetnacl-js
-// - ✅ Any RFC-8032 compliant library
-//
-// ## Curve-Specific Signing Strategies
-//
-// | Curve Type | Signing Strategy | Standard Compliance | Interop |
-// |-----------|-----------------|-------------------|---------|
-// | **Ed25519** | Direct (no hash) | ✅ RFC-8032 | Full interop |
-// | **K256** | SHA3-256 hash | Kanari-specific | Kanari-only |
-// | **P256** | SHA3-256 hash | Kanari-specific | Kanari-only |
-// | **Dilithium** | Direct (no hash) | ✅ NIST standard | Kanari/NIST-compatible |
-// | **SPHINCS+** | Direct (no hash) | ✅ NIST standard | Kanari/NIST-compatible |
-// | **Hybrid** | Applies per-curve | Mixed | Partial |
-//
+//! Secure cryptographic primitives for the Kanari blockchain platform
+//!
+//! This crate provides comprehensive cryptographic operations supporting:
+//! - **Classical Elliptic Curve Cryptography (ECC)**: K256, P256, Ed25519
+//! - **Post-Quantum Cryptography (PQC)**: NIST-standardized Dilithium2/3/5, SPHINCS+
+//! - **Hybrid Cryptography**: Combined classical + PQC schemes for quantum-safe transition
+//! - Key generation and management
+//! - Digital signatures (RFC-8032 compliant Ed25519, ECC, PQC)
+//! - Encryption and decryption
+//! - Wallet operations
+//! - Key rotation and lifecycle management
+//! - Security audit logging
+//! - Backup and restore functionality
+//!
+//! # 🌐 Multi-Algorithm Support Overview
+//!
+//! ## Classical ECC Algorithms
+//! - **K256 (secp256k1)**: Bitcoin/Ethereum compatible curve with SHA3-256 pre-hashing
+//! - **P256 (secp256r1)**: NIST P-256 curve with SHA3-256 pre-hashing  
+//! - **Ed25519**: Modern EdDSA scheme with RFC-8032 compliance (direct signing, no pre-hashing)
+//!
+//! ## Post-Quantum Cryptography (PQC) - NIST Standards
+//! - **Dilithium2**: Fast lattice-based signatures (~2.5KB), NIST Level 2 security
+//! - **Dilithium3**: Balanced lattice-based signatures (~4KB), NIST Level 3 security (Recommended)
+//! - **Dilithium5**: Maximum security lattice-based signatures (~5KB), NIST Level 5 security
+//! - **SPHINCS+**: Hash-based signatures (~50KB), ultra-secure against all known attacks
+//!
+//! ## Hybrid Schemes (Classical + PQC)
+//! - **Ed25519 + Dilithium3**: Best of both worlds - fast classical + quantum-safe PQC
+//! - **K256 + Dilithium3**: Bitcoin/Ethereum compatible + quantum-safe PQC
+//! - Format: `[2-byte classical_len] || classical_sig || pqc_sig`
+//!
+//! # 🔒 Security Features
+//!
+//! ## Quantum-Resistant Design
+//! - All hash functions use SHA3 family (quantum-resistant)
+//! - PQC algorithms follow NIST standardization
+//! - Hybrid schemes provide backward compatibility during quantum transition
+//!
+//! ## Secure Implementation
+//! - Automatic memory zeroization for sensitive data
+//! - Constant-time operations to prevent timing attacks
+//! - Tagged addresses for unambiguous algorithm identification
+//! - Comprehensive input validation and error handling
+//!
+//! # 📋 Usage Examples
+//!
+//! ## Generate Keys
+//! ```rust
+//! use kanari_crypto::{generate_keypair, CurveType};
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! // Classical ECC
+//! let k256_key = generate_keypair(CurveType::K256)?;
+//! let ed25519_key = generate_keypair(CurveType::Ed25519)?;
+//!
+//! // Post-Quantum
+//! let dilithium3_key = generate_keypair(CurveType::Dilithium3)?;
+//!
+//! // Hybrid
+//! let hybrid_key = generate_keypair(CurveType::Ed25519Dilithium3)?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Sign Messages
+//! ```rust
+//! use kanari_crypto::{generate_keypair, CurveType};
+//! use kanari_crypto::signatures::sign_message;
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let keypair = generate_keypair(CurveType::Dilithium3)?;
+//! let message = b"Hello, quantum world!";
+//! let signature = sign_message(&keypair.private_key, message, CurveType::Dilithium3)?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Verify Signatures (Recommended: Use Tagged Addresses)
+//! ```rust
+//! use kanari_crypto::{generate_keypair, verify_signature, CurveType};
+//! use kanari_crypto::signatures::sign_message;
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let keypair = generate_keypair(CurveType::Dilithium3)?;
+//! let message = b"Hello, quantum world!";
+//! let signature = sign_message(&keypair.private_key, message, CurveType::Dilithium3)?;
+//! // ✅ Secure: Use tagged address to avoid timing attacks
+//! let valid = verify_signature(&keypair.tagged_address(), message, &signature)?;
+//! assert!(valid);
+//!
+//! // ⚠️ Less secure: Fallback to trying all curves (timing attack risk)
+//! assert!(verify_signature(&keypair.address, message, &signature).is_err());
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Compatibility & Standards
+//!
+//! ## Ed25519 Signature Interoperability ✅
+//!
+//! **Kanari Ed25519 is 100% RFC-8032 COMPLIANT:**
+//! - Signatures created by Kanari can be verified by ANY standard Ed25519 implementation
+//! - Kanari can verify Ed25519 signatures from libsodium, NaCl, cryptonote, etc.
+//! - No format conversion or special handling needed for interoperability
+//! - Uses direct signing/verification (no pre-hashing)
+//!
+//! ### Supported Interoperability Chains:
+//! - ✅ libsodium (crypto_sign_*)
+//! - ✅ NaCl / TweetNaCl
+//! - ✅ Python PyNaCl
+//! - ✅ Go ed25619 package
+//! - ✅ Node.js TweetNaCl.js / tweetnacl-js
+//! - ✅ Any RFC-8032 compliant library
+//!
+//! ## Curve-Specific Signing Strategies
+//!
+//! | Curve Type | Signing Strategy | Standard Compliance | Interop |
+//! |-----------|-----------------|-------------------|---------|
+//! | **Ed25519** | Direct (no hash) | ✅ RFC-8032 | Full interop |
+//! | **K256** | SHA3-256 hash | Kanari-specific | Kanari-only |
+//! | **P256** | SHA3-256 hash | Kanari-specific | Kanari-only |
+//! | **Dilithium** | Direct (no hash) | ✅ NIST standard | Kanari/NIST-compatible |
+//! | **SPHINCS+** | Direct (no hash) | ✅ NIST standard | Kanari/NIST-compatible |
+//! | **Hybrid** | Applies per-curve | Mixed | Partial |
+//!
 
 pub mod api;
 pub mod audit;
 pub mod backup;
 pub mod compression;
 pub mod encryption;
+mod frb_generated;
 pub mod hd_wallet;
 pub mod key_rotation;
 pub mod keys;

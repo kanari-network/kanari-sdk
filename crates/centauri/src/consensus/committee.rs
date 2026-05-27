@@ -170,11 +170,7 @@ pub struct Committee {
 
 impl Committee {
     fn compute_quorum_size(validators: &[ValidatorInfo]) -> usize {
-        let total = validators.len();
-        if total == 0 {
-            return 0;
-        }
-        (2 * total).div_ceil(3)
+        crate::calculate_quorum(validators.len())
     }
 
     pub fn new(epoch: u64, validators: Vec<ValidatorInfo>) -> Self {
@@ -297,7 +293,7 @@ mod tests {
             create_test_validator("auth3"),
         ];
         let committee = Committee::new(0, validators);
-        assert_eq!(committee.quorum_size, 2);
+        assert_eq!(committee.quorum_size, 3);
     }
 
     #[test]

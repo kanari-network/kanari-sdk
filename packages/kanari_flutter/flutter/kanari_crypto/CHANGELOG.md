@@ -1,3 +1,11 @@
+## 0.2.7
+
+- Release: bump version to 0.2.7.
+
+## 0.2.6
+
+- Added: Official Windows support with CMake configuration and automated native library loading. v.2
+
 ## 0.2.5
 
 - Added: Official Windows support with CMake configuration and automated native library loading.

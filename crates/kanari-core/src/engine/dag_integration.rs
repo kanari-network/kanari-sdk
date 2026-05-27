@@ -1,0 +1,366 @@
+// Copyright (c) KanariNetwork, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+use super::*;
+use anyhow::Result;
+use centauri::consensus::{
+    DagConsensus, DagExecutionPlan, DagPendingSelection, DagProductionPlan, DagVertex, VertexId,
+};
+use log::{info, warn};
+use std::collections::HashSet;
+use std::sync::{Arc, RwLock};
+
+#[derive(Clone)]
+pub(crate) struct DagConsensusIntegration {
+    engine: Arc<BlockchainEngine>,
+    consensus: Arc<RwLock<DagConsensus>>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DagExecutionOutcome {
+    pub state_root: Vec<u8>,
+    pub executed: usize,
+    pub failed: usize,
+}
+
+impl DagConsensusIntegration {
+    pub(crate) fn new(engine: Arc<BlockchainEngine>, consensus: Arc<RwLock<DagConsensus>>) -> Self {
+        Self { engine, consensus }
+    }
+
+    pub(crate) fn persist_consensus_state(&self) -> Result<()> {
+        let state = {
+            let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
+            consensus.save_state()?
+        };
+        self.engine.persist_dag_state(state)
+    }
+
+    pub(crate) fn submit_vertex(
+        &self,
+        vertex: centauri::consensus::DagVertex,
+    ) -> Result<Option<centauri::consensus::Checkpoint>> {
+        let checkpoint = {
+            let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
+            consensus.add_vertex_and_try_commit(vertex)?
+        };
+        self.persist_consensus_state()?;
+        Ok(checkpoint)
+    }
+
+    pub(crate) fn select_pending_for_production(
+        &self,
+        plan: &DagProductionPlan,
+    ) -> DagPendingSelection {
+        let chain = self
+            .engine
+            .blockchain
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        let pending = self
+            .engine
+            .pending_txs
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
+
+        consensus.select_pending_transactions(plan, &pending, |hash| {
+            chain.has_executed_transactions() && chain.is_transaction_hash_executed(hash)
+        })
+    }
+
+    pub(crate) fn remove_pending_hashes(&self, remove_hashes: &[Vec<u8>]) {
+        if remove_hashes.is_empty() {
+            return;
+        }
+
+        let remove_set: HashSet<_> = remove_hashes.iter().cloned().collect();
+        let mut pending = self
+            .engine
+            .pending_txs
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
+        pending.retain(|tx| !remove_set.contains(&tx.transaction.hash()));
+        self.engine
+            .pending_tx_hashes
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|hash| !remove_set.contains(hash));
+    }
+
+    pub(crate) fn remove_pending_transactions(&self, transactions: &[SignedTransaction]) -> usize {
+        let remove_hashes: Vec<Vec<u8>> = transactions
+            .iter()
+            .map(|tx| tx.transaction.hash())
+            .collect();
+        self.remove_pending_hashes(&remove_hashes);
+        self.engine
+            .pending_txs
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .len()
+    }
+
+    pub(crate) fn execute_vertex_plan(
+        &self,
+        history_vertices: &[VertexId],
+        transactions: &[SignedTransaction],
+        timestamp: u64,
+        include_history: bool,
+    ) -> Result<DagExecutionOutcome> {
+        let chain = self
+            .engine
+            .blockchain
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
+        let DagExecutionPlan {
+            transactions: all_to_execute,
+            ..
+        } = consensus.execution_plan_for_current_txs(
+            history_vertices,
+            transactions,
+            include_history,
+            |hash| chain.has_executed_transactions() && chain.is_transaction_hash_executed(hash),
+        );
+        drop(consensus);
+
+        drop(chain);
+
+        let state_clone = self
+            .engine
+            .state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let state_arc = Arc::new(RwLock::new(state_clone));
+
+        let (executed_count, failed_count) = self
+            .engine
+            .execute_tx_waves_parallel(all_to_execute, &state_arc, Some(timestamp), false, true)
+            .unwrap_or((0, 0));
+
+        let state_root = match state_arc.write() {
+            Ok(guard) => guard.compute_state_root(),
+            Err(poisoned) => poisoned.into_inner().compute_state_root(),
+        };
+
+        Ok(DagExecutionOutcome {
+            state_root,
+            executed: executed_count,
+            failed: failed_count,
+        })
+    }
+
+    pub(crate) fn validate_network_vertex(
+        &self,
+        vertex: &DagVertex,
+    ) -> Result<Option<DagExecutionOutcome>> {
+        if vertex.transactions.is_empty() {
+            return Ok(None);
+        }
+
+        let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
+        let DagExecutionPlan {
+            transactions: all_to_execute,
+            ..
+        } = {
+            let chain = self
+                .engine
+                .blockchain
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
+            consensus.execution_plan_for_network_vertex(vertex, |hash| {
+                chain.has_executed_transactions() && chain.is_transaction_hash_executed(hash)
+            })?
+        };
+        drop(consensus);
+
+        if all_to_execute.is_empty() {
+            return Ok(Some(DagExecutionOutcome {
+                state_root: self
+                    .engine
+                    .state
+                    .read()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .compute_state_root(),
+                executed: 0,
+                failed: 0,
+            }));
+        }
+
+        let state_clone = self
+            .engine
+            .state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let state_arc = Arc::new(RwLock::new(state_clone));
+
+        let (executed_count, failed_count) = self
+            .engine
+            .execute_tx_waves_parallel(
+                all_to_execute,
+                &state_arc,
+                Some(vertex.timestamp),
+                false,
+                true,
+            )
+            .unwrap_or((0, 0));
+
+        let state_root = match state_arc.write() {
+            Ok(guard) => guard.compute_state_root(),
+            Err(poisoned) => poisoned.into_inner().compute_state_root(),
+        };
+
+        if state_root != vertex.metadata.state_root {
+            let latest_checkpoint_root = self
+                .engine
+                .blockchain
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .latest_checkpoint()
+                .state_root
+                .clone();
+
+            if vertex.metadata.state_root == latest_checkpoint_root {
+                info!(
+                    "[DAG SYNC] Vertex round {} uses provisional checkpoint root {}; computed validation root is {}",
+                    vertex.round,
+                    hex::encode(&vertex.metadata.state_root),
+                    hex::encode(&state_root)
+                );
+
+                return Ok(Some(DagExecutionOutcome {
+                    state_root,
+                    executed: executed_count,
+                    failed: failed_count,
+                }));
+            }
+
+            warn!(
+                "[DAG SYNC] Non-canonical vertex state root mismatch for round {}. advertised={}, local_preview={}, transactions={}. Accepting vertex and deferring canonical root to checkpoint replay.",
+                vertex.round,
+                hex::encode(&vertex.metadata.state_root),
+                hex::encode(&state_root),
+                vertex.transactions.len()
+            );
+        }
+
+        Ok(Some(DagExecutionOutcome {
+            state_root,
+            executed: executed_count,
+            failed: failed_count,
+        }))
+    }
+
+    pub(crate) fn finalize_checkpoint(
+        &self,
+        checkpoint: centauri::consensus::Checkpoint,
+        log_prefix: &str,
+    ) -> Result<centauri::consensus::Checkpoint> {
+        let checkpoint = self.apply_checkpoint_once(checkpoint, log_prefix, true)?;
+
+        {
+            let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
+            consensus.add_checkpoint(checkpoint.clone())?;
+        }
+        self.persist_consensus_state()?;
+        Ok(checkpoint)
+    }
+
+    pub(crate) fn apply_checkpoint_once(
+        &self,
+        mut checkpoint: centauri::consensus::Checkpoint,
+        log_prefix: &str,
+        allow_root_override: bool,
+    ) -> Result<centauri::consensus::Checkpoint> {
+        let current_height = self.engine.get_stats().height;
+        if current_height >= checkpoint.sequence {
+            if let Some(canonical) = self.canonical_checkpoint_if_current(checkpoint.sequence) {
+                info!(
+                    "{} Checkpoint {} already finalized at height {}, reusing canonical checkpoint",
+                    log_prefix, checkpoint.sequence, current_height
+                );
+                return Ok(canonical);
+            }
+
+            info!(
+                "{} Checkpoint {} already covered by blockchain height {}, skipping re-apply",
+                log_prefix, checkpoint.sequence, current_height
+            );
+            return Ok(checkpoint);
+        }
+
+        let previous_checkpoint_root = {
+            let chain = self
+                .engine
+                .blockchain
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
+            chain.latest_checkpoint().state_root.clone()
+        };
+
+        let (computed_root, verified_state, to_execute) =
+            self.engine.prepare_checkpoint_state(&checkpoint)?;
+
+        if checkpoint.transactions.is_empty() {
+            checkpoint.state_root = previous_checkpoint_root;
+            self.engine.apply_prepared_checkpoint(
+                checkpoint.clone(),
+                verified_state,
+                to_execute,
+            )?;
+            return Ok(checkpoint);
+        }
+
+        if self.engine.checkpoint_root_matches(
+            checkpoint.sequence,
+            &computed_root,
+            &checkpoint.state_root,
+        )? {
+            self.engine.apply_prepared_checkpoint(
+                checkpoint.clone(),
+                verified_state,
+                to_execute,
+            )?;
+            return Ok(checkpoint);
+        }
+
+        if !allow_root_override {
+            anyhow::bail!(
+                "{} Checkpoint {} state root mismatch: expected={}, computed={}",
+                log_prefix,
+                checkpoint.sequence,
+                hex::encode(&checkpoint.state_root),
+                hex::encode(&computed_root)
+            );
+        }
+
+        log::info!(
+            "{} Checkpoint {} root finalized by canonical replay: provisional={}, computed={}, txs={}",
+            log_prefix,
+            checkpoint.sequence,
+            hex::encode(&checkpoint.state_root),
+            hex::encode(&computed_root),
+            checkpoint.transactions.len()
+        );
+        checkpoint.state_root = computed_root;
+        self.engine
+            .apply_prepared_checkpoint(checkpoint.clone(), verified_state, to_execute)?;
+        Ok(checkpoint)
+    }
+
+    fn canonical_checkpoint_if_current(
+        &self,
+        sequence: u64,
+    ) -> Option<centauri::consensus::Checkpoint> {
+        let chain = self
+            .engine
+            .blockchain
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        let latest = chain.latest_checkpoint();
+        (latest.sequence == sequence).then(|| latest.clone())
+    }
+}

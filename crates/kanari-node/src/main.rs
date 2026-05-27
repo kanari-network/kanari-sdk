@@ -4,37 +4,29 @@
 // Main entry point for Kanari blockchain node
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
-use kanari_core::BlockchainEngine;
-use kanari_core::engine::AccountInfo;
+use kanari_crypto::keys::{CurveType, KANARI_KEY_PREFIX, generate_keypair};
 use kanari_crypto::wallet::list_wallet_files;
-use kanari_rpc_server::start_server;
-use kanari_types::address::Address as KanariAddress;
-use kanari_types::kanari::{KANARI_TOKEN_TYPE, KanariModule};
-use libp2p::identity::Keypair;
-use serde::Serialize;
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::time::sleep;
+use std::collections::BTreeMap;
 
+mod app;
 mod indexer;
 mod p2p;
 mod peer_store;
 mod sync;
-
-use indexer::NodeIndexer;
-use p2p::{DagVertexMsg, P2PEventHandler, P2PMessage, P2PNetwork};
-use peer_store::PeerStore;
-use sync::SyncManager;
+use app::{
+    configure_consensus_signing_key, create_engine, default_data_dir, print_account, print_block,
+    print_stats, run_node,
+};
 
 #[derive(Clone, Debug, ValueEnum)]
-enum NetworkMode {
+pub(crate) enum NetworkMode {
     Mainnet,
     Testnet,
     Devnet,
 }
 
 impl NetworkMode {
-    fn as_str(&self) -> &'static str {
+    pub(crate) fn as_str(&self) -> &'static str {
         match self {
             Self::Mainnet => "mainnet",
             Self::Testnet => "testnet",
@@ -79,6 +71,12 @@ enum Commands {
         /// List of authority IDs for DAG consensus (comma-separated)
         #[arg(long, value_delimiter = ',')]
         authorities: Option<Vec<String>>,
+        /// Local Ed25519 consensus private key seed as 32-byte hex
+        #[arg(long)]
+        consensus_private_key_hex: String,
+        /// JSON file mapping authority IDs to Ed25519 consensus public keys as hex
+        #[arg(long)]
+        consensus_public_keys: std::path::PathBuf,
         /// Bootstrap peer multiaddr to connect to (can be specified multiple times)
         #[arg(long, value_name = "MULTIADDR")]
         bootstrap: Option<Vec<String>>,
@@ -93,186 +91,99 @@ enum Commands {
     Account { address: String },
     /// Get block information by height
     Block { height: u64 },
+    /// Generate Ed25519 consensus keys for local multi-node setup
+    ConsensusKeygen {
+        /// Number of authorities/nodes to generate
+        #[arg(long)]
+        node_count: usize,
+        /// Output directory for node private seeds and public key map
+        #[arg(long)]
+        output_dir: std::path::PathBuf,
+        /// Overwrite existing key files
+        #[arg(long, default_value = "false")]
+        force: bool,
+    },
 }
 
-// Main entry point
-// Initializes and runs the Kanari blockchain node
-// Sets up P2P networking, RPC server, and blockchain engine
-fn default_data_dir() -> std::path::PathBuf {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_else(|_| ".".to_string());
-    std::path::PathBuf::from(home)
-        .join(".kanari")
-        .join("kanari-db")
+fn runtime() -> Result<tokio::runtime::Runtime> {
+    Ok(tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?)
 }
 
-fn create_engine(
-    data_dir: &Option<std::path::PathBuf>,
-    network: &NetworkMode,
-) -> Result<BlockchainEngine> {
-    unsafe {
-        std::env::set_var("KANARI_NETWORK", network.as_str());
-    }
-    if let Some(d) = data_dir {
-        unsafe {
-            std::env::set_var("KANARI_STATE_DB", d);
-            std::env::set_var("KANARI_MOVE_VM_DB", d);
+fn validate_start_authority_config(
+    authority_id: &Option<String>,
+    authorities: &Option<Vec<String>>,
+) -> Result<()> {
+    match (authority_id.as_ref(), authorities.as_ref()) {
+        (Some(_), Some(authorities)) if !authorities.is_empty() => Ok(()),
+        (Some(_), Some(_)) => {
+            anyhow::bail!("DAG multi-node start requires a non-empty --authorities list")
         }
-        tracing::info!("Using data directory: {}", d.display());
-        Ok(BlockchainEngine::new_dir(
-            d.to_str().expect("Invalid data directory path"),
-        )?)
-    } else {
-        Ok(BlockchainEngine::new()?)
+        (None, None) => anyhow::bail!(
+            "kanari-node start requires --authority-id and --authorities for deterministic multi-node DAG startup; use the Local command for local-only mode"
+        ),
+        _ => anyhow::bail!(
+            "kanari-node start requires both --authority-id and --authorities together"
+        ),
     }
 }
 
-fn native_balance(info: &AccountInfo) -> u64 {
-    info.token_balances
-        .get(KANARI_TOKEN_TYPE)
-        .copied()
-        .unwrap_or(0)
-}
+fn write_consensus_key_files(
+    node_count: usize,
+    output_dir: &std::path::Path,
+    force: bool,
+) -> Result<()> {
+    if node_count == 0 {
+        anyhow::bail!("--node-count must be at least 1");
+    }
 
-fn log_shutdown() {
-    tracing::info!("Shutdown signal received. Cleaning up and exiting...");
-}
+    std::fs::create_dir_all(output_dir)?;
+    let public_keys_path = output_dir.join("consensus-public-keys.json");
+    if public_keys_path.exists() && !force {
+        anyhow::bail!(
+            "{} already exists; pass --force to overwrite consensus keys",
+            public_keys_path.display()
+        );
+    }
 
-fn genesis_root_info(engine: &BlockchainEngine) -> (String, usize) {
-    match engine.get_block(0) {
-        Some(block) => {
-            let size = block.hash.len() / 2;
-            (block.hash, size)
+    let mut public_keys = BTreeMap::new();
+    for node_id in 1..=node_count {
+        let keypair = generate_keypair(CurveType::Ed25519)
+            .map_err(|e| anyhow::anyhow!("Failed to generate consensus key: {}", e))?;
+        let private_seed = keypair
+            .private_key
+            .strip_prefix(KANARI_KEY_PREFIX)
+            .ok_or_else(|| anyhow::anyhow!("Generated private key has unexpected format"))?
+            .to_string();
+        let authority = format!("0x{}", node_id);
+        let private_key_path =
+            output_dir.join(format!("node{}-consensus-private-key.hex", node_id));
+        if private_key_path.exists() && !force {
+            anyhow::bail!(
+                "{} already exists; pass --force to overwrite consensus keys",
+                private_key_path.display()
+            );
         }
-        None => ("unknown".to_string(), 0),
-    }
-}
 
-fn queue_network_message(
-    network_tx: &tokio::sync::mpsc::UnboundedSender<P2PMessage>,
-    msg: P2PMessage,
-    failure_context: &str,
-) -> bool {
-    match network_tx.send(msg) {
-        Ok(_) => true,
-        Err(e) => {
-            tracing::warn!("{}: {}", failure_context, e);
-            false
-        }
-    }
-}
-
-fn serialize_and_queue_message<T: Serialize>(
-    network_tx: &tokio::sync::mpsc::UnboundedSender<P2PMessage>,
-    value: &T,
-    wrap: impl FnOnce(String) -> P2PMessage,
-    serialize_context: &str,
-    send_context: &str,
-) -> Option<usize> {
-    match serde_json::to_string(value) {
-        Ok(payload) => {
-            let payload_len = payload.len();
-            queue_network_message(network_tx, wrap(payload), send_context);
-            Some(payload_len)
-        }
-        Err(e) => {
-            tracing::error!("{}: {}", serialize_context, e);
-            None
-        }
-    }
-}
-
-fn rebroadcast_latest_dag_vertex(
-    engine: &Arc<BlockchainEngine>,
-    network_tx: &tokio::sync::mpsc::UnboundedSender<P2PMessage>,
-    peer_id: &str,
-) {
-    let Some(dag_engine_lock) = engine.get_dag_engine() else {
-        return;
-    };
-
-    let dag_engine = {
-        let guard = dag_engine_lock.read().unwrap_or_else(|e| e.into_inner());
-        guard.as_ref().cloned()
-    };
-
-    let Some(dag_engine) = dag_engine else {
-        return;
-    };
-
-    let vertices = dag_engine.latest_own_vertices(16);
-    if vertices.is_empty() {
-        return;
+        std::fs::write(private_key_path, private_seed)?;
+        public_keys.insert(authority, keypair.public_key);
     }
 
-    let nonce_base = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64;
+    std::fs::write(
+        public_keys_path,
+        serde_json::to_string_pretty(&public_keys)?,
+    )?;
 
-    for vertex in vertices {
-        if let Ok(vertex_data) = serde_json::to_string(&vertex) {
-            let msg = P2PMessage::DagVertexRebroadcast(DagVertexMsg {
-                vertex_data,
-                nonce: nonce_base ^ vertex.round,
-                sender_peer_id: peer_id.to_string(),
-            });
-            if queue_network_message(network_tx, msg, "Failed to queue DAG vertex rebroadcast") {
-                tracing::info!(
-                    "Rebroadcasting DAG vertex {} (round {}) while waiting for quorum",
-                    hex::encode(vertex.id),
-                    vertex.round
-                );
-            }
-        }
-    }
-}
-
-fn print_stats() -> Result<()> {
-    let stats = BlockchainEngine::new()?.get_stats();
-    tracing::info!("Blockchain Statistics:");
-    tracing::info!("  Height: {}", stats.height);
-    tracing::info!("  Total Blocks: {}", stats.total_blocks);
-    tracing::info!("  Total Transactions: {}", stats.total_transactions);
-    tracing::info!("  Pending: {}", stats.pending_transactions);
-    tracing::info!("  Accounts: {}", stats.total_accounts);
-    tracing::info!("  Supply: {} Kanari", stats.total_supply);
+    tracing::info!(
+        "Generated {} consensus key(s) in {}",
+        node_count,
+        output_dir.display()
+    );
     Ok(())
 }
 
-fn print_account(address: &str) -> Result<()> {
-    match BlockchainEngine::new()?.get_account_info(address) {
-        Some(info) => {
-            tracing::info!("  Account: {}", info.address);
-            tracing::info!("  Balance: {}", native_balance(&info));
-            tracing::info!("  Sequence: {}", info.sequence_number);
-            tracing::info!("  Modules: {}", info.modules.len());
-            for module in &info.modules {
-                tracing::info!("    - {}", module);
-            }
-        }
-        None => tracing::info!("Account not found: {}", address),
-    }
-    Ok(())
-}
-
-fn print_block(height: u64) -> Result<()> {
-    match BlockchainEngine::new()?.get_block(height) {
-        Some(block) => {
-            tracing::info!("  Block #{}", block.height);
-            tracing::info!("  Timestamp: {}", block.timestamp);
-            tracing::info!("  Hash: {}", block.hash);
-            tracing::info!("  Prev Hash: {}", block.prev_hash);
-            tracing::info!("  Transactions: {}", block.tx_count);
-        }
-        None => tracing::info!("Block not found: {}", height),
-    }
-    Ok(())
-}
-
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     // Initialize tracing subscriber first so all commands have log output
     tracing_subscriber::fmt::init();
 
@@ -288,6 +199,11 @@ async fn main() -> Result<()> {
         Commands::Stats => print_stats(),
         Commands::Account { address } => print_account(&address),
         Commands::Block { height } => print_block(height),
+        Commands::ConsensusKeygen {
+            node_count,
+            output_dir,
+            force,
+        } => write_consensus_key_files(node_count, &output_dir, force),
         Commands::Start {
             network,
             p2p_port,
@@ -297,22 +213,30 @@ async fn main() -> Result<()> {
             relay_server,
             authority_id,
             authorities,
+            consensus_private_key_hex,
+            consensus_public_keys,
             bootstrap,
         } => {
+            validate_start_authority_config(&authority_id, &authorities)?;
             let data_dir_path = data_dir.clone().unwrap_or_else(default_data_dir);
             let mut engine = create_engine(&data_dir, &network)?;
 
-            if let (Some(id), Some(auths)) = (authority_id, authorities) {
-                tracing::info!(
-                    "Configuring Authority ID: {} with {} authorities",
-                    id,
-                    auths.len()
-                );
-                engine.set_authorities(id, auths);
-            }
+            let id = authority_id.expect("validated authority_id must exist");
+            let auths = authorities.expect("validated authorities must exist");
+            tracing::info!(
+                "Configuring Authority ID: {} with {} authorities",
+                id,
+                auths.len()
+            );
+            engine.set_authorities(id, auths);
+            configure_consensus_signing_key(
+                &mut engine,
+                &consensus_private_key_hex,
+                &consensus_public_keys,
+            )?;
 
-            run_node(
-                Arc::new(engine),
+            runtime()?.block_on(run_node(
+                std::sync::Arc::new(engine),
                 network.as_str().to_string(),
                 p2p_port,
                 rpc_port,
@@ -320,21 +244,17 @@ async fn main() -> Result<()> {
                 data_dir_path,
                 relay_server,
                 bootstrap,
-            )
-            .await
+            ))
         }
         Commands::Local => {
             tracing::info!("Starting local node: RPC on 127.0.0.1:6767 (P2P disabled)");
-            unsafe {
-                std::env::set_var("KANARI_NETWORK", NetworkMode::Devnet.as_str());
-            }
             let data_dir_path = std::path::PathBuf::from("./.kanari-local");
             // Ensure data directory exists
             std::fs::create_dir_all(&data_dir_path)?;
-            // Create engine with the same data directory for consistency
-            let engine = BlockchainEngine::new_dir(data_dir_path.to_str().unwrap())?;
-            run_node(
-                Arc::new(engine),
+            let data_dir = Some(data_dir_path.clone());
+            let engine = create_engine(&data_dir, &NetworkMode::Devnet)?;
+            runtime()?.block_on(run_node(
+                std::sync::Arc::new(engine),
                 NetworkMode::Devnet.as_str().to_string(),
                 0,
                 6767,
@@ -342,324 +262,35 @@ async fn main() -> Result<()> {
                 data_dir_path,
                 false,
                 None,
+            ))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_start_authority_config;
+
+    #[test]
+    fn start_requires_both_authority_fields() {
+        assert!(validate_start_authority_config(&None, &None).is_err());
+        assert!(validate_start_authority_config(&Some("0x1".to_string()), &None).is_err());
+        assert!(validate_start_authority_config(&None, &Some(vec!["0x1".to_string()])).is_err());
+    }
+
+    #[test]
+    fn start_rejects_empty_authority_list() {
+        assert!(validate_start_authority_config(&Some("0x1".to_string()), &Some(vec![])).is_err());
+    }
+
+    #[test]
+    fn start_accepts_complete_authority_config() {
+        assert!(
+            validate_start_authority_config(
+                &Some("0x1".to_string()),
+                &Some(vec!["0x1".to_string(), "0x2".to_string()]),
             )
-            .await
-        }
-    }
-}
-
-fn detect_local_ip() -> Option<String> {
-    std::net::UdpSocket::bind("0.0.0.0:0")
-        .ok()
-        .and_then(|socket| {
-            // connect to a public IP to determine the outbound interface
-            if socket.connect("8.8.8.8:80").is_ok() {
-                socket.local_addr().ok().map(|a| a.ip().to_string())
-            } else {
-                None
-            }
-        })
-}
-
-async fn run_node(
-    engine: Arc<BlockchainEngine>,
-    network: String,
-    p2p_port: u16,
-    rpc_port: u16,
-    rpc_host: String,
-    data_dir: std::path::PathBuf,
-    relay_server: bool,
-    bootstrap_peers: Option<Vec<String>>,
-) -> Result<()> {
-    engine.validate_runtime_health()?;
-    let runtime_guards = engine.runtime_guard_config();
-    let stats = engine.get_stats();
-
-    tracing::info!("Kanari blockchain node starting");
-    tracing::info!("Network: {}, Move VM: Enabled", network);
-    tracing::info!(
-        "Runtime guards: strict_persistence={}, strict_checkpoint_roots={}, fail_fast_supply={}",
-        runtime_guards.strict_persistence_required,
-        runtime_guards.strict_checkpoint_roots,
-        runtime_guards.fail_fast_supply_enabled
-    );
-    tracing::info!("Initial blockchain height: {}", stats.height);
-    let total_supply_str = KanariModule::format_kanari(stats.total_supply);
-    tracing::info!(
-        "Total accounts: {}, Total supply: {}",
-        stats.total_accounts,
-        total_supply_str
-    );
-
-    let (genesis_root, size_bytes) = genesis_root_info(&engine);
-    let dao_addr = KanariAddress::DAO_ADDRESS;
-    tracing::info!(
-        "The latest Root object state root: 0x{}, size: {} bytes",
-        genesis_root,
-        size_bytes
-    );
-    tracing::info!("DAO address: ({})", dao_addr);
-
-    // Get RPC server sequencer / dev address from kanari-types constants
-    let dev_addr = KanariAddress::DEV_ADDRESS;
-    tracing::info!("RPC Server sequencer address: ({})", dev_addr);
-
-    // Create channels for P2P message handling (used even in local mode, messages will be dropped)
-    let (p2p_msg_tx, mut p2p_msg_rx) = tokio::sync::mpsc::unbounded_channel::<P2PMessage>();
-    let (network_tx, network_rx) = tokio::sync::mpsc::unbounded_channel::<P2PMessage>();
-
-    // Initialize P2P network info
-    let keypair = Keypair::generate_ed25519();
-    let peer_id = keypair.public().to_peer_id().to_string();
-    tracing::info!("Node Peer ID: {}", peer_id);
-
-    // Initialize blockchain indexer
-    let node_indexer = match NodeIndexer::new(data_dir.clone()) {
-        Ok(idx) => {
-            tracing::info!("Blockchain indexer initialized successfully");
-            Some(idx)
-        }
-        Err(e) => {
-            tracing::warn!(
-                "Failed to initialize indexer: {}. Indexing will be disabled.",
-                e
-            );
-            None
-        }
-    };
-
-    // Create sync manager with optional indexer
-    let sync_manager = Arc::new(SyncManager::new(
-        engine.clone(),
-        network_tx.clone(),
-        peer_id.clone(),
-        node_indexer.as_ref().map(|idx| idx.indexer().clone()),
-    ));
-
-    // Start sync manager tasks
-    sync_manager.clone().start().await;
-
-    if p2p_port > 0 {
-        // Load or create peer store
-        let peer_store_path = PeerStore::default_path(&data_dir.display().to_string());
-        let mut peer_store = PeerStore::load(peer_store_path.clone()).unwrap_or_else(|e| {
-            tracing::warn!("Failed to load peer store: {}, creating new one", e);
-            PeerStore::new(peer_store_path)
-        });
-
-        // Clean up old peers (older than 7 days)
-        peer_store.cleanup_old_peers(7 * 24 * 60 * 60);
-
-        let mut p2p_network = P2PNetwork::new(keypair, p2p_port, relay_server)?;
-        tracing::info!("P2P network initialized on port {}", p2p_port);
-        if relay_server {
-            tracing::info!(
-                "Relay server mode: ENABLED - This node will help relay traffic for NAT'd peers"
-            );
-        }
-
-        // Connect to bootstrap peers if provided
-        if let Some(bootstrap_list) = bootstrap_peers {
-            for bootstrap_addr in bootstrap_list {
-                match bootstrap_addr.parse::<libp2p::Multiaddr>() {
-                    Ok(addr) => {
-                        tracing::info!("Connecting to bootstrap peer: {}", addr);
-                        if let Err(e) = p2p_network.swarm.dial(addr.clone()) {
-                            tracing::warn!("Failed to dial bootstrap peer {}: {}", addr, e);
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("Invalid bootstrap multiaddr {}: {}", bootstrap_addr, e);
-                    }
-                }
-            }
-        }
-
-        // Wrap peer store in Arc<Mutex> for sharing
-        let peer_store_arc = Arc::new(tokio::sync::Mutex::new(peer_store));
-
-        // Start P2P event handler with both incoming and outgoing message channels + peer store
-        let mut event_handler = P2PEventHandler::new(p2p_network, p2p_msg_tx)
-            .with_outgoing(network_rx)
-            .with_peer_store(peer_store_arc.clone());
-        tokio::spawn(async move {
-            event_handler.run().await;
-        });
-
-        // Handle P2P messages from network
-        let sync_for_messages = sync_manager.clone();
-        tokio::spawn(async move {
-            while let Some(msg) = p2p_msg_rx.recv().await {
-                sync_for_messages.handle_message(msg).await;
-            }
-        });
-
-        // Broadcast peer info periodically
-        let sync_for_broadcast = sync_manager.clone();
-        tokio::spawn(async move {
-            // Wait a bit for peer discovery to complete before first broadcast
-            sleep(Duration::from_secs(3)).await;
-            loop {
-                sync_for_broadcast.broadcast_peer_info().await;
-                // Broadcast more frequently (every 5s) to ensure new peers sync quickly
-                sleep(Duration::from_secs(5)).await;
-            }
-        });
-    } else {
-        tracing::info!("Running in local-only mode: P2P disabled");
-    }
-
-    // Start RPC server in background with cloned Arc
-    let bind_addr = format!("{}:{}", rpc_host, rpc_port);
-    tracing::info!("Binding RPC server to {}", bind_addr);
-
-    // If binding to all interfaces, try to detect a representative local IP for display
-    let display_ip = if rpc_host == "0.0.0.0" {
-        detect_local_ip().unwrap_or_else(|| "127.0.0.1".to_string())
-    } else {
-        rpc_host.clone()
-    };
-    tracing::info!("Starting RPC server on http://{}:{}", display_ip, rpc_port);
-
-    let engine_for_rpc = engine.clone();
-    let bind_addr_clone = bind_addr.clone();
-    tokio::spawn(async move {
-        if let Err(e) = start_server(engine_for_rpc, &bind_addr_clone).await {
-            tracing::error!("RPC server error: {}", e);
-        }
-    });
-
-    // Wait for server to start
-    sleep(Duration::from_millis(500)).await;
-    tracing::info!("RPC server ready");
-
-    loop {
-        let stats = engine.get_stats();
-        let wallets = list_wallet_files().unwrap_or_default();
-        tracing::info!(
-            "Event height: {}, Transactions: {}, Pending: {}, Wallets: {}",
-            stats.height,
-            stats.total_transactions,
-            stats.pending_transactions,
-            wallets.len()
-        );
-
-        // Log indexer statistics periodically (every 10 iterations)
-        if let Some(ref node_idx) = node_indexer
-            && stats.height > 0
-            && stats.height.is_multiple_of(10)
-        {
-            match node_idx.get_stats() {
-                Ok(idx_stats) => tracing::info!("[INDEXER] {}", idx_stats),
-                Err(e) => tracing::warn!("[INDEXER] Failed to get stats: {}", e),
-            }
-        }
-
-        let mut did_work = false;
-
-        if stats.pending_transactions > 0 || engine.should_produce_dag_progress() {
-            match engine.produce_block() {
-                Ok(block_info) => {
-                    did_work = true;
-
-                    tracing::info!(
-                        "DAG Vertex (Round #{}) produced: {} txs ({} executed, {} failed)",
-                        block_info.round,
-                        block_info.tx_count,
-                        block_info.executed,
-                        block_info.failed
-                    );
-
-                    if let Some(vertex) = block_info.vertex {
-                        if let Some(vertex_len) = serialize_and_queue_message(
-                            &network_tx,
-                            &vertex,
-                            P2PMessage::NewDagVertex,
-                            "Failed to serialize DAG vertex for broadcast",
-                            "Failed to queue DAG vertex broadcast",
-                        ) {
-                            tracing::info!(
-                                "Broadcasting DAG vertex {} (round {}) to network ({} bytes)",
-                                block_info.vertex_id,
-                                block_info.round,
-                                vertex_len
-                            );
-                            tracing::info!("DAG vertex queued for broadcast successfully");
-                        }
-                    } else {
-                        tracing::warn!("No vertex in block_info to broadcast");
-                    }
-
-                    if let Some(ref node_idx) = node_indexer {
-                        let current_height = engine.blockchain.read().unwrap().height();
-                        if let Some(full_block_data) = engine.get_full_block(current_height) {
-                            let block = BlockchainEngine::block_from_full_data(&full_block_data);
-
-                            match node_idx.index_block(&block) {
-                                Ok(_) => {
-                                    if current_height.is_multiple_of(100) {
-                                        tracing::info!(
-                                            "[INDEXER] Indexed locally produced block #{}",
-                                            current_height
-                                        );
-                                    }
-                                }
-                                Err(e) => {
-                                    tracing::error!(
-                                        "[INDEXER] Failed to index locally produced block #{}: {}",
-                                        current_height,
-                                        e
-                                    );
-                                }
-                            }
-                        }
-                    }
-
-                    if block_info.checkpoint.is_some() {
-                        let current_height = engine.blockchain.read().unwrap().height();
-                        if let Some(full_block_data) = engine.get_full_block(current_height) {
-                            serialize_and_queue_message(
-                                &network_tx,
-                                &full_block_data,
-                                P2PMessage::NewBlock,
-                                "Failed to serialize block for broadcast",
-                                "Failed to queue block broadcast",
-                            );
-                        }
-                    }
-                }
-                Err(e) => {
-                    let error_text = e.to_string();
-                    if error_text.contains("DAG_WAITING")
-                        || error_text.contains("SYNC_WAITING")
-                        || error_text.contains("Not enough parents for quorum")
-                    {
-                        tracing::info!("Block production waiting: {}", error_text);
-                        rebroadcast_latest_dag_vertex(&engine, &network_tx, &peer_id);
-                    } else if !error_text.contains("DAG not ready") {
-                        tracing::error!("Block production failed: {}", e);
-                    }
-                }
-            }
-        }
-
-        if !did_work {
-            tokio::select! {
-                _ = tokio::signal::ctrl_c() => {
-                    log_shutdown();
-                    break;
-                }
-                _ = sleep(Duration::from_secs(1)) => {}
-            }
-        } else if tokio::time::timeout(Duration::from_millis(1), tokio::signal::ctrl_c())
-            .await
             .is_ok()
-        {
-            log_shutdown();
-            break;
-        }
+        );
     }
-
-    tracing::info!("Node shutdown complete.");
-    Ok(())
 }
