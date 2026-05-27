@@ -141,7 +141,7 @@ function TxContent() {
                             </thead>
                             <tbody className="divide-y divide-white/5 text-sm font-mono">
                                 {txs.map((tx, i) => (
-                                    <tr key={i} className="hover:bg-white/2 transition-colors group">
+                                    <tr key={tx.hash ?? i} className="hover:bg-white/2 transition-colors group">
                                         <td className="p-6 pl-8">
                                             {/* 🚨 ปุ่มกดรายละเอียดใช้สี Cyan-400 แบบหน้า Account */}
                                             <button

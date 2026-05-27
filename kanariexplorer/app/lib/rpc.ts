@@ -201,11 +201,35 @@ function readField(value: unknown, field: string): unknown {
   return (value as Record<string, unknown>)[field];
 }
 
+function dedupeTransactions<T>(transactions: T[]): T[] {
+  const seen = new Set<string>();
+  return transactions.filter((transaction) => {
+    const hash = readField(transaction, "hash");
+    if (typeof hash !== "string") return true;
+
+    const normalized = hash.toLowerCase();
+    if (seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+}
+
 // ดึงประวัติธุรกรรมทั้งหมด (รองรับ Limit และการกรองด้วย Account)
 export async function getAllTransactions(limit: number = 50, account?: string) {
   const params: { limit: number; account?: string } = { limit };
   if (account) params.account = account;
-  return callRpc("kanari_getAllTransactions", params);
+  const response = await callRpc("kanari_getAllTransactions", params);
+  if (Array.isArray(response)) return dedupeTransactions(response);
+
+  const result = readField(response, "result");
+  if (Array.isArray(result)) {
+    return {
+      ...response,
+      result: dedupeTransactions(result),
+    };
+  }
+
+  return response;
 }
 
 // ค้นหาธุรกรรมแบบเจาะจงด้วย Hash
