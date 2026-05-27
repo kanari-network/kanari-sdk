@@ -416,11 +416,6 @@ impl DagPruner {
         Ok(())
     }
 
-    /// Get the round of the last pruning operation
-    pub fn last_prune_round(&self) -> Round {
-        self.last_prune_round
-    }
-
     /// Update tracking state after successful prune
     pub fn update_prune_state(&mut self, cutoff_round: Round, cutoff_checkpoint: Option<u64>) {
         self.last_prune_round = cutoff_round;

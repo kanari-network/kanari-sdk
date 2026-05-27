@@ -9,8 +9,8 @@ impl DagConsensus {
         plan: &DagProductionPlan,
         tx_count: usize,
     ) -> Result<()> {
-        let is_genesis_bootstrap_round =
-            plan.policy.parent_round == 0 && plan.policy.parent_author_count >= plan.policy.quorum_size;
+        let is_genesis_bootstrap_round = plan.policy.parent_round == 0
+            && plan.policy.parent_author_count >= plan.policy.quorum_size;
 
         if tx_count == 0 && plan.history_vertices.is_empty() && !is_genesis_bootstrap_round {
             anyhow::bail!("No new transactions and no history to commit");
@@ -152,7 +152,7 @@ impl DagConsensus {
             .map(|vertex| vertex.author.clone())
             .collect::<HashSet<_>>()
             .len();
-        let quorum_size = self.committee.required_quorum();
+        let quorum_size = self.quorum_threshold();
 
         let (parent_round, target_round, parent_ids, parent_author_count, using_catch_up_round) =
             if current_round > 0
@@ -301,6 +301,16 @@ impl DagConsensus {
         Self::try_with_chain_id(authority_id, authorities, "kanari-default".to_string())
     }
 
+    pub fn try_mysticeti(authority_id: AuthorityId, authorities: Vec<AuthorityId>) -> Result<Self> {
+        let protocol = ConsensusProtocol::default_for_committee_size(authorities.len());
+        Self::try_with_chain_id_and_protocol(
+            authority_id,
+            authorities,
+            "kanari-default".to_string(),
+            protocol,
+        )
+    }
+
     fn authority_seed(authority: &str) -> [u8; 32] {
         let mut seed = [0u8; 32];
         let digest = hash_data_blake3(authority.as_bytes());
@@ -365,6 +375,7 @@ impl DagConsensus {
         authority_id: AuthorityId,
         authorities: Vec<AuthorityId>,
         chain_id: String,
+        consensus_protocol: ConsensusProtocol,
         committee_public_keys: BTreeMap<AuthorityId, Vec<u8>>,
         local_vrf_secret: [u8; 32],
         local_signing_key: ed25519_dalek::SigningKey,
@@ -421,6 +432,7 @@ impl DagConsensus {
             })
             .collect();
         let committee = Committee::new(0, validator_infos);
+        let protocol = consensus_protocol.to_protocol(committee.validators.len())?;
 
         let metrics = DagMetrics::new();
         let state_sync = StateSynchronizer::new();
@@ -467,6 +479,7 @@ impl DagConsensus {
             byzantine_detector,
             caches,
             committee,
+            protocol,
             metrics,
             state_sync,
             broadcaster,
@@ -493,6 +506,16 @@ impl DagConsensus {
         authorities: Vec<AuthorityId>,
         chain_id: String,
     ) -> Result<Self> {
+        let protocol = ConsensusProtocol::default_for_committee_size(authorities.len());
+        Self::try_with_chain_id_and_protocol(authority_id, authorities, chain_id, protocol)
+    }
+
+    pub fn try_with_chain_id_and_protocol(
+        authority_id: AuthorityId,
+        authorities: Vec<AuthorityId>,
+        chain_id: String,
+        consensus_protocol: ConsensusProtocol,
+    ) -> Result<Self> {
         tracing::warn!(
             "[DAG Consensus] with_chain_id() uses deterministic demo keys. \
              Use with_chain_id_secure() for production-safe key management."
@@ -509,6 +532,7 @@ impl DagConsensus {
             authority_id,
             authorities,
             chain_id,
+            consensus_protocol,
             committee_public_keys,
             local_vrf_secret,
             local_signing_key,
@@ -546,6 +570,7 @@ impl DagConsensus {
             authority_id,
             authorities,
             chain_id,
+            ConsensusProtocol::default_for_committee_size(authority_public_keys.len()),
             authority_public_keys,
             local_vrf_secret,
             local_signing_key,
@@ -607,7 +632,7 @@ impl DagConsensus {
             }
         }
 
-        let quorum_size = self.committee.required_quorum();
+        let quorum_size = self.quorum_threshold();
 
         if unique_authors.len() < quorum_size {
             anyhow::bail!(
@@ -676,7 +701,7 @@ impl DagConsensus {
             }
         }
 
-        let required_quorum = self.committee.required_quorum();
+        let required_quorum = self.quorum_threshold();
 
         if let Err(e) = self.byzantine_detector.check_double_voting(&vertex) {
             if self.byzantine_detector.get_reputation(&author) == 0 {

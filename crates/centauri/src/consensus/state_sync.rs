@@ -66,13 +66,6 @@ pub struct SyncProgress {
 }
 
 impl SyncProgress {
-    // FIX #8: Add sync timeout constant (5 minutes)
-    const SYNC_TIMEOUT_SECS: u64 = 300;
-
-    fn unix_timestamp_secs() -> u64 {
-        unix_timestamp_secs("sync")
-    }
-
     pub fn progress_percentage(&self) -> f64 {
         if self.total_vertices == 0 {
             return 100.0;
@@ -83,12 +76,6 @@ impl SyncProgress {
     pub fn is_complete(&self) -> bool {
         self.current_checkpoint >= self.target_checkpoint
             && self.synced_vertices >= self.total_vertices
-    }
-
-    // FIX #8: Check if sync has timed out
-    pub fn is_timed_out(&self) -> bool {
-        let now = Self::unix_timestamp_secs();
-        now.saturating_sub(self.started_at) > Self::SYNC_TIMEOUT_SECS
     }
 }
 

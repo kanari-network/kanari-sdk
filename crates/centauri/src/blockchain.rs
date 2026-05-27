@@ -134,14 +134,6 @@ impl Blockchain {
         self.latest_checkpoint().sequence
     }
 
-    pub fn is_transaction_executed(&self, tx_hash_hex: &str) -> bool {
-        if let Ok(bytes) = hex::decode(tx_hash_hex) {
-            self.executed_tx_hashes.contains(&bytes)
-        } else {
-            false
-        }
-    }
-
     pub fn is_transaction_hash_executed(&self, tx_hash: &[u8]) -> bool {
         self.executed_tx_hashes.contains(tx_hash)
     }

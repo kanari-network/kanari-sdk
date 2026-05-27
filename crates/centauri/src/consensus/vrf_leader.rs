@@ -317,37 +317,6 @@ impl VrfLeaderElection {
         Some(leader_vrf.authority.clone())
     }
 
-    /// Elect leader using VRF (PoA: equal probability for all authorities)
-    pub fn elect_leader_weighted(
-        &self,
-        round: Round,
-        _stakes: &BTreeMap<AuthorityId, u64>, // Ignored in PoA - kept for API compatibility
-    ) -> Option<AuthorityId> {
-        let vrfs = self.vrf_cache.get(&round)?;
-
-        if vrfs.is_empty() {
-            return None;
-        }
-
-        // PoA: Simple minimum VRF value wins (all authorities have equal weight)
-        // No stake weighting - fair rotation among all validators
-        let leader_vrf = vrfs.iter().min_by(|vrf_a, vrf_b| {
-            // Compare full 16-byte VRF output as u128
-            let vrf_num_a = u128::from_be_bytes(vrf_a.output[..16].try_into().unwrap_or([0u8; 16]));
-            let vrf_num_b = u128::from_be_bytes(vrf_b.output[..16].try_into().unwrap_or([0u8; 16]));
-
-            let cmp = vrf_num_a.cmp(&vrf_num_b);
-            if cmp == std::cmp::Ordering::Equal {
-                // Deterministic tie-breaker using AuthorityId
-                vrf_a.authority.cmp(&vrf_b.authority)
-            } else {
-                cmp
-            }
-        })?;
-
-        Some(leader_vrf.authority.clone())
-    }
-
     /// Check if an authority is the leader for a round
     pub fn is_leader(&self, round: Round, authority: &str) -> bool {
         self.elect_leader(round)

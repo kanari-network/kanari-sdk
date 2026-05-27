@@ -16,15 +16,16 @@ use libp2p::{
     tcp, yamux,
 };
 use serde::{Deserialize, Serialize};
-use std::{io::Write, time::Duration};
+use std::{
+    io::{Read, Write},
+    time::Duration,
+};
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
-// Add compression support
 use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
-use std::io::Read;
 
 const LARGE_MESSAGE_COMPRESSION_THRESHOLD: usize = 100_000;
 
@@ -40,9 +41,8 @@ pub enum P2PMessage {
     TargetedCheckpointRequest(CheckpointRequestMsg),
     TargetedCheckpointResponse(CheckpointResponseMsg),
     PeerInfo(PeerInfoMsg),
-    // Add compressed message types for large data
-    CompressedCheckpoint(Vec<u8>),    // Compressed checkpoint sync payload (gzip)
-    CompressedDagVertex(Vec<u8>),     // Compressed DAG vertex (gzip)
+    CompressedCheckpoint(Vec<u8>), // Compressed checkpoint sync payload (gzip)
+    CompressedDagVertex(Vec<u8>),  // Compressed DAG vertex (gzip)
     CompressedCheckpointResponse(Vec<u8>), // Compressed checkpoint response (gzip)
     CompressedTargetedCheckpointResponse(CompressedCheckpointResponseMsg),
 }
@@ -51,7 +51,7 @@ pub enum P2PMessage {
 pub struct PeerInfoMsg {
     pub height: u64,
     pub peer_id: String,
-    pub timestamp: u64, // Add timestamp to make messages unique
+    pub timestamp: u64,
     pub latest_checkpoint_hash: String,
     pub latest_state_root: String,
     pub total_transactions: usize,
@@ -134,16 +134,13 @@ impl P2PNetwork {
         let local_peer_id = PeerId::from(keypair.public());
         info!("Local peer id: {}", local_peer_id);
 
-        // Create transport
         let transport = tcp::tokio::Transport::default()
             .upgrade(upgrade::Version::V1)
             .authenticate(noise::Config::new(&keypair)?)
             .multiplex(yamux::Config::default())
             .boxed();
 
-        // Create Gossipsub behavior
         let message_id_fn = |message: &gossipsub::Message| {
-            // Use deterministic Blake3 hash for message ID instead of DefaultHasher
             let hash = kanari_crypto::hash_data_blake3(&message.data);
             gossipsub::MessageId::from(hex::encode(hash))
         };
@@ -173,41 +170,32 @@ impl P2PNetwork {
         )
         .map_err(|e| anyhow::anyhow!("Failed to create gossipsub: {}", e))?;
 
-        // Create topics
         // Keep the legacy topic string for wire compatibility with existing peers.
         let checkpoints_topic = IdentTopic::new("kanari/blocks");
         let tx_topic = IdentTopic::new("kanari/transactions");
         let peers_topic = IdentTopic::new("kanari/peers");
         let dag_vertices_topic = IdentTopic::new("kanari/dag_vertices");
 
-        // Subscribe to topics
         gossipsub.subscribe(&checkpoints_topic)?;
         gossipsub.subscribe(&tx_topic)?;
         gossipsub.subscribe(&peers_topic)?;
         gossipsub.subscribe(&dag_vertices_topic)?;
 
-        // Create mDNS for local peer discovery
         let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)?;
 
-        // Create Kademlia DHT for peer discovery
         let mut kademlia = kad::Behaviour::new(local_peer_id, MemoryStore::new(local_peer_id));
 
-        // Bootstrap Kademlia
         kademlia.set_mode(Some(kad::Mode::Server));
 
-        // Create DCUtR for hole punching (works without relay client for direct connections)
         let dcutr = dcutr::Behaviour::new(local_peer_id);
 
-        // Create Identify protocol for peer information exchange
         let identify = identify::Behaviour::new(identify::Config::new(
             "/kanari/1.0.0".to_string(),
             keypair.public(),
         ));
 
-        // Create Ping for connection keep-alive
         let ping = ping::Behaviour::new(ping::Config::new());
 
-        // Create relay server (will only accept relay requests if configured properly)
         let relay_config = if enable_relay_server {
             relay::Config::default()
         } else {
@@ -220,7 +208,6 @@ impl P2PNetwork {
         };
         let relay = relay::Behaviour::new(local_peer_id, relay_config);
 
-        // Create behavior
         let behaviour = KanariBehaviour {
             gossipsub,
             mdns,
@@ -231,7 +218,6 @@ impl P2PNetwork {
             relay,
         };
 
-        // Create swarm
         let mut swarm = Swarm::new(
             transport,
             behaviour,
@@ -296,7 +282,10 @@ impl P2PNetwork {
                 );
             }
             P2PMessage::CheckpointRequest(seq, t) => {
-                info!("[P2P] Publishing CheckpointRequest: sequence={}, ts={}", seq, t);
+                info!(
+                    "[P2P] Publishing CheckpointRequest: sequence={}, ts={}",
+                    seq, t
+                );
             }
             P2PMessage::TargetedCheckpointRequest(req) => {
                 info!(
@@ -394,19 +383,14 @@ impl P2PNetwork {
         {
             Ok(_) => Ok(()),
             Err(e) => {
-                // Handle duplicate messages gracefully
-                // "Duplicate" comes from gossipsub when message is already seen
                 if is_duplicate_publish_error(&e) {
-                    // Duplicate is not an error, just skip silently
                     return Ok(());
                 }
                 if is_insufficient_peers_error(&e) {
-                    // This is normal when starting up or isolated - just log debug/info
                     tracing::debug!("No peers subscribed to topic yet");
                     return Ok(());
                 }
 
-                // Log warning but don't fail
                 warn!("Publish warning: {}", e);
                 Ok(())
             }
@@ -414,16 +398,8 @@ impl P2PNetwork {
     }
 }
 
-/// Decompress a compressed checkpoint or checkpoint-response payload.
+/// Decompress a compressed UTF-8 P2P payload.
 pub fn decompress_payload(compressed_data: Vec<u8>) -> Result<String> {
-    let mut decoder = GzDecoder::new(&compressed_data[..]);
-    let mut decompressed = String::new();
-    decoder.read_to_string(&mut decompressed)?;
-    Ok(decompressed)
-}
-
-/// Decompress a compressed DAG vertex message
-pub fn decompress_dag_vertex(compressed_data: Vec<u8>) -> Result<String> {
     let mut decoder = GzDecoder::new(&compressed_data[..]);
     let mut decompressed = String::new();
     decoder.read_to_string(&mut decompressed)?;
@@ -527,7 +503,10 @@ impl P2PEventHandler {
                 send_context,
             ),
             Err(e) => {
-                warn!("[P2P] Failed to decompress targeted checkpoint response: {}", e);
+                warn!(
+                    "[P2P] Failed to decompress targeted checkpoint response: {}",
+                    e
+                );
                 false
             }
         }
@@ -580,7 +559,11 @@ impl P2PEventHandler {
             P2PMessage::TargetedCheckpointRequest(req) => {
                 info!(
                     "[P2P] Received TargetedCheckpointRequest from {}: sequence={}, responder={}, requester={}, ts={}",
-                    source, req.sequence, req.responder_peer_id, req.requester_peer_id, req.timestamp
+                    source,
+                    req.sequence,
+                    req.responder_peer_id,
+                    req.requester_peer_id,
+                    req.timestamp
                 );
             }
             P2PMessage::CheckpointResponse(data) => {
@@ -659,7 +642,7 @@ impl P2PEventHandler {
                             P2PMessage::CompressedDagVertex(compressed_data) => {
                                 self.forward_decompressed_message(
                                     compressed_data,
-                                    decompress_dag_vertex,
+                                    decompress_payload,
                                     P2PMessage::NewDagVertex,
                                     "[P2P] Failed to decompress DAG vertex",
                                     "[P2P] Failed to forward decompressed vertex",
@@ -686,7 +669,7 @@ impl P2PEventHandler {
                             _ => {}
                         }
 
-                        if !self.forward_message(msg, "[P2P] Failed to forward P2P message") {}
+                        self.forward_message(msg, "[P2P] Failed to forward P2P message");
                     }
                     Err(e) => {
                         warn!("[P2P] Failed to decode P2P message: {}", e);

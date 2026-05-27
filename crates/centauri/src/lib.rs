@@ -4,17 +4,16 @@
 pub mod blockchain;
 pub mod consensus;
 
-/// Calculate BFT quorum threshold using formula: 2f + 1
+/// Calculate BFT quorum threshold using a strict >2/3 majority.
 ///
-/// where f = floor((n-1)/3) is the maximum number of Byzantine (faulty) nodes
-/// that the system can tolerate while maintaining safety and liveness.
+/// This follows Mysticeti's threshold rule: `floor(2n/3) + 1`.
 ///
 /// # Formula Derivation
 ///
 /// In Byzantine Fault Tolerance (BFT) systems:
 /// - **n** = total number of validators/authorities
 /// - **f** = maximum tolerated Byzantine faults = ⌊(n-1)/3⌋
-/// - **quorum** = minimum votes needed for consensus = 2f + 1
+/// - **quorum** = minimum votes needed for consensus = floor(2n/3) + 1
 ///
 /// This ensures that even if f nodes are malicious, there are still at least
 /// f+1 honest nodes in any quorum, guaranteeing that two different quorums
@@ -25,8 +24,8 @@ pub mod consensus;
 /// ```
 /// use centauri::calculate_quorum;
 ///
-/// // 3 validators require 2 votes
-/// assert_eq!(calculate_quorum(3), 2);
+/// // 3 validators require all 3 votes for a strict >2/3 quorum
+/// assert_eq!(calculate_quorum(3), 3);
 ///
 /// // 4 validators require 3 votes
 /// assert_eq!(calculate_quorum(4), 3);
@@ -70,5 +69,5 @@ pub fn calculate_quorum(total_authorities: usize) -> usize {
     if total_authorities == 0 {
         return 0;
     }
-    (2 * total_authorities).div_ceil(3)
+    (2 * total_authorities / 3) + 1
 }

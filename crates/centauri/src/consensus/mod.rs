@@ -6,7 +6,8 @@ mod dag_consensus;
 pub use dag_consensus::{
     AuthorityId, Checkpoint, CheckpointStats, DagConsensus, DagExecutionPlan,
     DagNetworkVertexAction, DagPendingSelection, DagProductionPlan, DagProductionPolicy,
-    DagProgressPolicy, DagStore, DagVertex, PersistentDagState, Round, VertexId, VertexMetadata,
+    DagProgressPolicy, DagStore, DagVertex, MysticetiCheckpoint, MysticetiConsensus,
+    MysticetiVertex, PersistentDagState, Round, VertexId, VertexMetadata,
 };
 
 // Cryptographic primitives
@@ -20,6 +21,9 @@ mod vrf_leader;
 pub use vrf_leader::{VrfLeaderElection, VrfOutput};
 
 // Consensus subsystems
+mod protocol;
+pub use protocol::{ConsensusProtocol, Protocol};
+
 mod metrics;
 pub use metrics::DagMetrics;
 

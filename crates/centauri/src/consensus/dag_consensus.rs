@@ -1,13 +1,17 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! DAG-based Consensus Implementation (Narwhal & Tusk / Bullshark style)
+//! Mysticeti DAG consensus implementation.
 //!
 //! This module implements a Directed Acyclic Graph consensus mechanism that separates:
 //! - Data Availability (DA): Broadcasting and storing transaction data
 //! - Ordering: Determining the total order of transactions
 //!
-//! Inspired by Sui's Narwhal & Bullshark consensus, this design enables:
+//! The committer follows Mysticeti's strict quorum, three-round wave, pipelined
+//! multi-leader commit geometry while retaining Kanari's local vertex, checkpoint,
+//! execution, and networking types.
+//!
+//! This design enables:
 //! - High throughput through parallel block production
 //! - Low latency by decoupling DA from consensus
 //! - Byzantine fault tolerance
@@ -24,6 +28,7 @@ use super::crypto_signatures::Ed25519Keypair;
 use super::metrics::DagMetrics;
 use super::parallel_validator::{ParallelValidator, ParallelValidatorConfig};
 use super::persistent_store::PersistentDagStore;
+use super::protocol::{ConsensusProtocol, Protocol};
 use super::pruning::{DagPruner, PruningConfig};
 use super::state_sync::StateSynchronizer;
 use super::vertex_broadcast::VertexBroadcaster;
@@ -34,7 +39,6 @@ use kanari_types::transaction::SignedTransaction;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
-// Use fully-qualified time APIs where needed to avoid unused-import warnings
 use tokio::sync::mpsc;
 
 pub use checkpointing::CheckpointStats;
@@ -49,6 +53,10 @@ pub type Round = u64;
 
 /// Authority/validator identifier
 pub type AuthorityId = String;
+
+pub type MysticetiConsensus = DagConsensus;
+pub type MysticetiVertex = DagVertex;
+pub type MysticetiCheckpoint = Checkpoint;
 
 fn vertex_id_from_hash_bytes(bytes: &[u8]) -> VertexId {
     let mut result = [0u8; 32];
@@ -142,7 +150,7 @@ impl DagVertex {
     fn hash_material(&self) -> Result<Vec<u8>> {
         let tx_hashes: Vec<Vec<u8>> = self.transactions.iter().map(|tx| tx.hash()).collect();
         let bytes = bcs::to_bytes(&(
-            &self.chain_id, // Chain ID for replay protection
+            &self.chain_id,
             self.round,
             &self.author,
             &self.parents,
@@ -159,7 +167,7 @@ impl DagVertex {
     pub fn new(
         round: Round,
         author: AuthorityId,
-        chain_id: String, // FIX #3: Chain ID for cross-chain replay protection
+        chain_id: String,
         parents: Vec<VertexId>,
         transactions: Vec<SignedTransaction>,
         state_root: Vec<u8>,
@@ -198,7 +206,7 @@ impl DagVertex {
         };
 
         let mut vertex = Self {
-            id: [0u8; 32], // Will be computed
+            id: [0u8; 32],
             round,
             author,
             chain_id,
@@ -211,7 +219,6 @@ impl DagVertex {
             cached_hash: None,
         };
 
-        // Compute vertex ID (hash) and cache it
         let hash = vertex.compute_hash()?;
         vertex.cached_hash = Some(hash.to_vec());
         vertex.id = hash;
@@ -231,7 +238,7 @@ impl DagVertex {
         Self::new(
             round,
             author,
-            "test-chain".to_string(), // Default test chain_id
+            "test-chain".to_string(),
             parents,
             transactions,
             state_root,
@@ -243,23 +250,12 @@ impl DagVertex {
     /// 500K TPS optimization: caches result to avoid repeated serialization
     /// Returns fixed-size [u8; 32] array (no heap allocation)
     pub fn compute_hash(&self) -> Result<VertexId> {
-        // Return cached hash if available
         if let Some(ref cached) = self.cached_hash {
             return Ok(vertex_id_from_hash_bytes(cached));
         }
 
         let hash_vec = hash_data_blake3(&self.hash_material()?);
         Ok(vertex_id_from_hash_bytes(&hash_vec))
-    }
-
-    /// Get serialized data with caching (500K TPS optimization)
-    pub fn get_serialized_data(&mut self) -> Result<&[u8]> {
-        if self.cached_serialized_data.is_none() {
-            let serialized = bcs::to_bytes(self)?;
-            self.cached_serialized_data = Some(serialized);
-        }
-        // Safe unwrap - we just ensured it's Some above
-        Ok(self.cached_serialized_data.as_ref().unwrap())
     }
 
     /// Verify vertex integrity
@@ -269,7 +265,6 @@ impl DagVertex {
             anyhow::bail!("Vertex hash mismatch");
         }
 
-        // Verify transaction count
         if self.transactions.len() != self.metadata.tx_count {
             anyhow::bail!("Transaction count mismatch");
         }
@@ -294,13 +289,9 @@ impl DagVertex {
             return false;
         }
 
-        // FIX #2 & #3: CRITICAL - Filter out banned/untrusted authorities before counting quorum
-        // Previously counted ALL authors including Byzantine ones that should be excluded
         let mut unique_authors = HashSet::new();
         for parent_id in &self.parents {
             if let Some(parent_vertex) = store.get_vertex(parent_id) {
-                // FIX #2: Check if author is trusted (not banned/slash to reputation 0)
-                // This prevents Byzantine nodes from participating in quorum
                 if store.is_authority_trusted(&parent_vertex.author) {
                     unique_authors.insert(parent_vertex.author.clone());
                 } else {
@@ -312,7 +303,6 @@ impl DagVertex {
             }
         }
 
-        // Must have quorum from unique TRUSTED authors only
         unique_authors.len() >= required_quorum
     }
 }
@@ -563,7 +553,7 @@ pub enum DagNetworkVertexAction {
     IgnoreFarFutureEmpty { current_round: Round },
 }
 
-/// DAG Consensus Protocol (Bullshark-style with VRF leader election)
+/// Mysticeti DAG consensus protocol.
 pub struct DagConsensus {
     /// DAG storage
     store: DagStore,
@@ -585,6 +575,9 @@ pub struct DagConsensus {
 
     /// Validator committee used for membership and quorum checks
     committee: Committee,
+
+    /// Concrete Mysticeti-style protocol parameters for commit and readiness rules.
+    protocol: Protocol,
 
     /// Metrics collection for monitoring
     metrics: DagMetrics,
@@ -612,6 +605,16 @@ pub struct DagConsensus {
 }
 
 impl DagConsensus {
+    pub fn protocol(&self) -> &Protocol {
+        &self.protocol
+    }
+
+    pub fn quorum_threshold(&self) -> usize {
+        self.committee
+            .required_quorum()
+            .max(self.protocol.direct_commit_quorum)
+    }
+
     /// Internal helper: collect reachable, uncheckpointed vertices in post-order.
     /// This preserves deterministic traversal by sorting roots and parent edges.
     fn collect_vertices_post_order(
@@ -1386,7 +1389,6 @@ mod tests {
         ];
         let mut store = DagStore::new(authorities);
 
-        // Get current time
         let current_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -1451,7 +1453,6 @@ mod tests {
         ];
         let mut store = DagStore::new(authorities);
 
-        // Get current time
         let current_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -1508,9 +1509,6 @@ mod tests {
 
     #[test]
     fn test_normal_operation_timestamp_validation() {
-        // Test that normal operation still enforces strict timestamp validation
-        // (without restart detection trigger)
-
         let authorities = vec![
             "auth1".to_string(),
             "auth2".to_string(),
@@ -1519,14 +1517,12 @@ mod tests {
         ];
         let mut store = DagStore::new(authorities);
 
-        // Get current time
         let current_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
-        // Add parent vertices with recent timestamps (within last minute)
-        let recent_timestamp = current_time - 30; // 30 seconds ago
+        let recent_timestamp = current_time - 30;
 
         let parent1 = DagVertex::new_for_test(
             0,
@@ -1548,7 +1544,6 @@ mod tests {
         store.add_vertex(parent1, store.num_authorities()).unwrap();
         store.add_vertex(parent2, store.num_authorities()).unwrap();
 
-        // Try to add a vertex with timestamp too far ahead (> 300 seconds from median)
         let child_parents = store.get_vertex_ids_in_round(0);
         let future_vertex = DagVertex::new_for_test(
             1,
@@ -1556,11 +1551,9 @@ mod tests {
             child_parents,
             vec![],
             vec![3u8; 32],
-            recent_timestamp + 400, // 400 seconds ahead, exceeds MAX_TIMESTAMP_DRIFT_SECS (300)
+            recent_timestamp + 400,
         );
 
-        // This should fail because it's within normal operation window (< 1 hour)
-        // and exceeds the 300 second drift limit
         assert!(
             store
                 .add_vertex(future_vertex, store.num_authorities())
@@ -1572,7 +1565,6 @@ mod tests {
     #[test]
     fn test_checkpoint_config_default() {
         let config = CheckpointConfig::default();
-        // Updated for 500K TPS optimization
         assert_eq!(config.min_rounds, 5);
         assert_eq!(config.max_rounds, 50);
         assert_eq!(config.min_vertices, 1000);
@@ -1731,7 +1723,6 @@ mod tests {
             new_config.min_rounds
         );
 
-        // Try invalid config
         let invalid_config = CheckpointConfig {
             min_rounds: 100,
             max_rounds: 50,
@@ -1771,7 +1762,6 @@ mod tests {
         public_keys.insert("auth1".to_string(), sk1.verifying_key().to_bytes().to_vec());
         public_keys.insert("auth2".to_string(), sk2.verifying_key().to_bytes().to_vec());
 
-        // FIX #1: Only provide local VRF secret (for auth1), not all secrets
         let local_vrf_secret = [1u8; 32];
 
         let consensus = DagConsensus::with_chain_id_secure(

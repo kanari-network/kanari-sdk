@@ -85,22 +85,6 @@ impl DagCaches {
             },
         }
     }
-
-    /// Get total memory usage estimate (bytes)
-    pub fn memory_usage(&self) -> usize {
-        let stats = self.total_stats();
-        let vertex_size = 1000;
-        let state_root_size = 32;
-        let proof_size = 500;
-        let parent_set_size = 100;
-        let round_set_size = 1000;
-
-        stats.vertices.size * vertex_size
-            + stats.state_roots.size * state_root_size
-            + stats.merkle_proofs.size * proof_size
-            + stats.parent_vertices.size * parent_set_size
-            + stats.round_vertices.size * round_set_size
-    }
 }
 
 impl Default for DagCaches {
@@ -266,42 +250,5 @@ mod tests {
         let stats = caches.total_stats();
         assert!(stats.vertices.size <= 1); // May vary with async eviction
         assert!(stats.state_roots.size <= 1);
-    }
-
-    #[test]
-    fn test_memory_usage() {
-        let caches = DagCaches::new();
-
-        // Add some vertices
-        for i in 0..100 {
-            let mut vertex_id = [0u8; 32];
-            vertex_id[0] = i;
-            caches.vertices.insert(
-                vertex_id,
-                DagVertex {
-                    chain_id: "test_chain".to_string(),
-                    id: vertex_id,
-                    round: i as u64,
-                    author: "test".to_string(),
-                    parents: vec![],
-                    transactions: vec![],
-                    timestamp: 0,
-                    signature: vec![],
-                    metadata: VertexMetadata {
-                        tx_count: 0,
-                        total_gas_used: 0,
-                        state_root: vec![],
-                        is_checkpoint: false,
-                        checkpoint_seq: None,
-                    },
-                    cached_serialized_data: None,
-                    cached_hash: None,
-                },
-            );
-        }
-
-        let memory = caches.memory_usage();
-        assert!(memory > 0);
-        assert!(memory < 1_000_000); // Should be reasonable
     }
 }

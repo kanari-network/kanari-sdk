@@ -5,9 +5,7 @@
 //! Integrates DAG consensus with parallel transaction execution
 
 use anyhow::Result;
-use centauri::consensus::{
-    DagConsensus, DagNetworkVertexAction, DagPendingSelection, DagProductionPlan,
-};
+use centauri::consensus::{DagConsensus, DagNetworkVertexAction, DagPendingSelection};
 use log::{error, info};
 use std::sync::{Arc, RwLock};
 
@@ -76,7 +74,7 @@ impl DagEngine {
             blockchain.enable_dag_mode();
         }
 
-        let mut consensus = DagConsensus::new(authority_id.clone(), authorities);
+        let mut consensus = DagConsensus::try_mysticeti(authority_id.clone(), authorities)?;
 
         // Load persisted DAG state if it exists
         if let Some(dag_state) = &engine.persisted_dag_state {
@@ -130,18 +128,9 @@ impl DagEngine {
             authority_id,
         })
     }
-
-    // =====================================================================
-    // 💡 HELPER: Collect unique, unexecuted Transactions (History + Current)
-    // =====================================================================
-
     /// Produce a DAG vertex with pending transactions
     pub fn produce_vertex(&self) -> Result<DagBlockInfo> {
-        let DagProductionPlan {
-            policy,
-            history_vertices,
-            history_tx_hashes,
-        } = {
+        let production_plan = {
             let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
             consensus.production_plan()?
         };
@@ -151,19 +140,9 @@ impl DagEngine {
         let DagPendingSelection {
             included: transactions,
             remove_hashes: tx_to_remove_from_pending,
-        } = integration.select_pending_for_production(&DagProductionPlan {
-            policy: policy.clone(),
-            history_vertices: history_vertices.clone(),
-            history_tx_hashes: history_tx_hashes.clone(),
-        });
+        } = integration.select_pending_for_production(&production_plan);
 
         integration.remove_pending_hashes(&tx_to_remove_from_pending);
-
-        let production_plan = DagProductionPlan {
-            policy: policy.clone(),
-            history_vertices: history_vertices.clone(),
-            history_tx_hashes: history_tx_hashes.clone(),
-        };
         {
             let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
             consensus.ensure_production_allowed(&production_plan, transactions.len())?;
@@ -173,7 +152,7 @@ impl DagEngine {
         // Convert wall-clock time to the millisecond unit expected by the Move clock prologue.
         let proposed_timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs()) // ✅ CORRECT - seconds
+            .map(|d| d.as_secs())
             .unwrap_or(0);
         let proposed_timestamp = proposed_timestamp.saturating_mul(1000);
         let timestamp = {
@@ -182,7 +161,7 @@ impl DagEngine {
         };
 
         let outcome = integration.execute_vertex_plan(
-            &history_vertices,
+            &production_plan.history_vertices,
             &transactions,
             timestamp,
             !transactions.is_empty(),
@@ -260,18 +239,14 @@ impl DagEngine {
         &self.authority_id
     }
 
-    pub fn latest_own_vertex(&self) -> Option<centauri::consensus::DagVertex> {
-        self.latest_own_vertices(1).into_iter().next()
+    pub fn consensus_protocol(&self) -> centauri::consensus::Protocol {
+        let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
+        consensus.protocol().clone()
     }
 
     pub fn latest_own_vertices(&self, limit: usize) -> Vec<centauri::consensus::DagVertex> {
         let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
         consensus.latest_vertices_by_authority(&self.authority_id, limit)
-    }
-
-    pub fn sync_checkpoint(&self, checkpoint: centauri::consensus::Checkpoint) -> Result<()> {
-        let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
-        consensus.add_checkpoint(checkpoint)
     }
 
     pub fn add_network_vertex(&self, vertex: centauri::consensus::DagVertex) -> Result<()> {
@@ -380,6 +355,25 @@ mod tests {
 
         let dag_engine = DagEngine::new(engine, "auth1".to_string(), authorities);
         assert!(dag_engine.is_ok());
+    }
+
+    #[test]
+    fn test_dag_engine_defaults_to_mysticeti_protocol() {
+        let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
+        let authorities = vec![
+            "auth1".to_string(),
+            "auth2".to_string(),
+            "auth3".to_string(),
+            "auth4".to_string(),
+        ];
+
+        let dag_engine = DagEngine::new(engine, "auth1".to_string(), authorities).unwrap();
+        let protocol = dag_engine.consensus_protocol();
+
+        assert_eq!(protocol.wave_length, 3);
+        assert_eq!(protocol.direct_commit_quorum, 3);
+        assert!(protocol.pipeline);
+        assert!(protocol.leader_wait);
     }
 
     #[test]

@@ -221,13 +221,27 @@ pub struct CheckpointStats {
 }
 
 impl DagConsensus {
+    fn mysticeti_commit_leaders(&self, commit_round: Round) -> Vec<AuthorityId> {
+        let mut authorities: Vec<_> = self.committee.validators.keys().cloned().collect();
+        authorities.sort();
+        if authorities.is_empty() {
+            return Vec::new();
+        }
+
+        let leader_count = self.protocol.leader_count.get().min(authorities.len());
+        let start = (commit_round as usize) % authorities.len();
+        (0..leader_count)
+            .map(|offset| authorities[(start + offset) % authorities.len()].clone())
+            .collect()
+    }
+
     pub(crate) fn select_commit_vertex(
         &self,
         commit_round: u64,
         preferred_leader_id: &AuthorityId,
     ) -> Result<Option<CommitVertexSelection>> {
         let next_round_vertices = self.store.get_vertices_in_round(commit_round + 1);
-        let quorum = self.committee.required_quorum();
+        let quorum = self.quorum_threshold();
 
         let Some(leader_vertex) = self
             .store
@@ -318,12 +332,13 @@ impl DagConsensus {
             current_round
         );
 
-        if current_round < 3 {
+        let decision_depth = self.protocol.decision_depth();
+        if current_round <= decision_depth {
             return Ok(None);
         }
 
         let mut start_round = self.store.last_checkpoint_round() + 1;
-        let max_commit_round = current_round.saturating_sub(2);
+        let max_commit_round = current_round.saturating_sub(decision_depth);
 
         if start_round > max_commit_round {
             return Ok(None);
@@ -338,28 +353,25 @@ impl DagConsensus {
         while start_round <= max_commit_round {
             let commit_round = start_round;
 
-            let leader_id = if let Some(vrf_leader) = self.vrf_election.elect_leader(commit_round) {
-                vrf_leader
-            } else {
-                let mut authorities: Vec<_> = self.committee.validators.keys().cloned().collect();
-                authorities.sort();
-                if authorities.is_empty() {
-                    tracing::warn!(
-                        "[DAG Consensus] Empty committee at round {}, skipping",
-                        commit_round
-                    );
-                    start_round += 1;
-                    continue;
-                }
-                let leader_idx = (commit_round as usize) % authorities.len();
-                authorities[leader_idx].clone()
-            };
+            let leader_ids = self.mysticeti_commit_leaders(commit_round);
+            if leader_ids.is_empty() {
+                tracing::warn!(
+                    "[DAG Consensus] Empty committee at round {}, skipping",
+                    commit_round
+                );
+                start_round += 1;
+                continue;
+            }
 
-            if let Some((commit_vertex, vertices_to_commit, all_transactions)) =
-                self.select_commit_vertex(commit_round, &leader_id)?
-            {
+            for leader_id in leader_ids {
+                let Some((commit_vertex, vertices_to_commit, all_transactions)) =
+                    self.select_commit_vertex(commit_round, &leader_id)?
+                else {
+                    continue;
+                };
+
                 let total_authorities = self.committee.validators.len();
-                let quorum = self.committee.required_quorum();
+                let quorum = self.quorum_threshold();
                 let support_count = self
                     .store
                     .get_vertices_in_round(commit_round + 1)

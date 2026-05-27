@@ -1,9 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::p2p::{
-    CheckpointRequestMsg, CheckpointResponseMsg, P2PMessage, PeerInfoMsg, decompress_payload,
-};
+use crate::p2p::{CheckpointRequestMsg, CheckpointResponseMsg, P2PMessage, PeerInfoMsg};
 use centauri::consensus::DagVertex;
 use kanari_core::{BlockchainEngine, CheckpointSyncData};
 use kanari_types::transaction::SignedTransaction;
@@ -13,7 +11,6 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-/// Handles checkpoint and transaction synchronization between peers
 use std::time::Duration;
 
 const REQUEST_RETRY_COOLDOWN_MS: u64 = 2_000;
@@ -189,28 +186,19 @@ impl SyncManager {
                     resp.checkpoint_data,
                     Some(&resp.responder_peer_id),
                 )
-                    .await;
+                .await;
             }
             P2PMessage::PeerInfo(peer_info) => {
                 info!("[P2P] Received PeerInfo from {}", peer_info.peer_id);
                 self.handle_peer_info(peer_info).await;
             }
-            // Handle compressed messages (should be decompressed before reaching here)
-            P2PMessage::CompressedCheckpoint(_) | P2PMessage::CompressedDagVertex(_) => {
+            P2PMessage::CompressedCheckpoint(_)
+            | P2PMessage::CompressedDagVertex(_)
+            | P2PMessage::CompressedCheckpointResponse(_)
+            | P2PMessage::CompressedTargetedCheckpointResponse(_) => {
                 warn!(
-                    "[P2P] Received compressed message in sync manager - should be decompressed already"
+                    "[P2P] Received compressed message in sync manager; P2P event handling should decompress before forwarding"
                 );
-            }
-            P2PMessage::CompressedTargetedCheckpointResponse(_) => {
-                warn!(
-                    "[P2P] Received compressed targeted checkpoint response in sync manager - should be decompressed already"
-                );
-            }
-            P2PMessage::CompressedCheckpointResponse(compressed_data) => {
-                match decompress_payload(compressed_data.to_vec()) {
-                    Ok(data) => self.handle_checkpoint_response(data, None).await,
-                    Err(e) => warn!("[P2P] Failed to decompress checkpoint response: {}", e),
-                }
             }
         }
     }
@@ -291,10 +279,7 @@ impl SyncManager {
         buffer.keys().last().copied().unwrap_or(0)
     }
 
-    fn pop_next_buffer_candidate(
-        &self,
-        next_sequence: u64,
-    ) -> Option<BufferedCheckpointCandidate> {
+    fn pop_next_buffer_candidate(&self, next_sequence: u64) -> Option<BufferedCheckpointCandidate> {
         let mut buffer = self.checkpoint_buffer_guard();
         let next_candidate = buffer
             .get_mut(&next_sequence)
@@ -519,7 +504,7 @@ impl SyncManager {
                 "NewCheckpoint",
                 true,
             )
-                .await;
+            .await;
         }
     }
 
@@ -538,8 +523,7 @@ impl SyncManager {
     fn index_checkpoint_if_needed(&self, sequence: u64) {
         if let Some(ref indexer) = self.indexer
             && let Some(materialized_block_view) = self.engine.get_full_block(sequence)
-            && let Err(e) =
-                self.index_checkpoint_with_indexer(indexer, &materialized_block_view)
+            && let Err(e) = self.index_checkpoint_with_indexer(indexer, &materialized_block_view)
         {
             error!("[INDEXER] Failed to index checkpoint #{}: {}", sequence, e);
         }
@@ -601,15 +585,13 @@ impl SyncManager {
                                 checkpoint.checkpoint.sequence,
                                 candidate.source_peer_id.as_deref(),
                             )
-                            .or_else(|| {
-                                self.best_peer_for_height(checkpoint.checkpoint.sequence)
-                            });
+                            .or_else(|| self.best_peer_for_height(checkpoint.checkpoint.sequence));
                         self.request_checkpoints(
                             checkpoint.checkpoint.sequence,
                             checkpoint.checkpoint.sequence,
                             target_peer.as_deref(),
                         )
-                            .await;
+                        .await;
                         break;
                     }
                 }
@@ -691,7 +673,10 @@ impl SyncManager {
         requester_peer_id: Option<&str>,
         responder_peer_id: Option<&str>,
     ) {
-        info!("[SYNC] Received checkpoint request for sequence {}", sequence);
+        info!(
+            "[SYNC] Received checkpoint request for sequence {}",
+            sequence
+        );
         if let Some(checkpoint_sync) = self.engine.get_checkpoint_sync(sequence) {
             info!(
                 "[SYNC] Found checkpoint #{} with {} txs, sending response",
@@ -737,7 +722,7 @@ impl SyncManager {
                 "checkpoint",
                 false,
             )
-                .await;
+            .await;
         }
     }
 
@@ -875,7 +860,10 @@ impl SyncManager {
             }
             sent += 1;
         }
-        info!("[SYNC] Sent {} checkpoint requests starting from {}", sent, from);
+        info!(
+            "[SYNC] Sent {} checkpoint requests starting from {}",
+            sent, from
+        );
     }
 
     /// Broadcast local chain height to peers
@@ -1014,7 +1002,11 @@ mod tests {
         }
 
         let prev_hash = {
-            let chain = sync.engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            let chain = sync
+                .engine
+                .blockchain
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
             chain.latest_checkpoint().hash().unwrap()
         };
         let bogus_checkpoint = CheckpointSyncData {
@@ -1025,12 +1017,10 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.block_on(
-            sync.handle_checkpoint_response(
-                serde_json::to_string(&bogus_checkpoint).unwrap(),
-                Some("peer-2"),
-            ),
-        );
+        runtime.block_on(sync.handle_checkpoint_response(
+            serde_json::to_string(&bogus_checkpoint).unwrap(),
+            Some("peer-2"),
+        ));
 
         let pending_heights: BTreeSet<_> = sync
             .pending_checkpoint_requests_guard()

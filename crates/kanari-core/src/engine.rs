@@ -36,6 +36,7 @@ mod mempool;
 mod produce_dag_vertex;
 mod queries;
 mod runtime_guards;
+pub use centauri::consensus::{ConsensusProtocol, Protocol as ConsensusRuntimeProtocol};
 pub use produce_dag_vertex::{CheckpointInfo, DagBlockInfo, DagEngine};
 pub use runtime_guards::{RuntimeGuardConfig, RuntimeHealthReport};
 
@@ -159,13 +160,9 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
 }
 
 impl BlockchainEngine {
-    // =====================================================================
-    // ⏰ System Prologue
-    // =====================================================================
     pub fn execute_system_prologue(&self, timestamp_ms: u64) -> Result<()> {
         let runtime = &self.runtime_pool[0];
 
-        // Acquire the write lock once to ensure atomicity of the entire operation
         let mut state_write = match self.state.write() {
             Ok(guard) => guard,
             Err(poisoned) => {
@@ -174,22 +171,13 @@ impl BlockchainEngine {
             }
         };
 
-        // Get the clock ID
         let clock_id = runtime.ensure_system_clock(&mut state_write)?;
-
-        // Execute the prologue function to get the changeset
         let changeset = runtime.execute_clock_consensus_commit_prologue(clock_id, timestamp_ms)?;
-
-        // Apply the changeset to the state
         state_write.apply_changeset(&changeset)?;
         runtime.persist_created_objects(&changeset);
         runtime.persist_deleted_objects(&changeset);
         Ok(())
     }
-
-    // =====================================================================
-    // 💡 HELPER FUNCTIONS
-    // =====================================================================
 
     pub fn get_expected_sequence(&self, address_hex: &str) -> u64 {
         let mut seq = self
@@ -426,120 +414,6 @@ impl BlockchainEngine {
                 .context("Failed to persist DAG state")?;
         }
         Ok(())
-    }
-
-    // =====================================================================
-    // 🕸️ DAG Consensus Switch
-    // =====================================================================
-    pub fn process_dag_checkpoint(
-        &self,
-        checkpoint_txs: Vec<SignedTransaction>,
-        consensus_timestamp_ms: Option<u64>, // Allow timestamp from consensus layer
-    ) -> Result<Vec<u8>> {
-        log::info!(
-            "[DAG CONSENSUS] Applying new checkpoint with {} transactions",
-            checkpoint_txs.len()
-        );
-
-        info!(
-            "Executing {} transactions in checkpoint",
-            checkpoint_txs.len()
-        );
-
-        // =================================================================
-
-        // 🚨 Update the time on the Blockchain before executing user transactions.
-        // =================================================================
-        // Use timestamp from consensus layer to ensure all nodes have identical state
-        // CRITICAL: All nodes must use the same timestamp to ensure deterministic state transitions
-        let current_timestamp_ms = match consensus_timestamp_ms {
-            Some(ts) => ts,
-            None => {
-                error!(
-                    "CRITICAL ERROR: Consensus timestamp must be provided for blockchain state consistency."
-                );
-                return Err(anyhow::anyhow!("Missing consensus timestamp"));
-            }
-        };
-
-        if let Err(e) = self.execute_system_prologue(current_timestamp_ms) {
-            log::error!(
-                "Critical Error: System clock failed to update! Halt execution. {:?}",
-                e
-            );
-            return Err(e);
-        }
-        // =================================================================
-
-        let execution_results = self.execute_transactions_parallel(checkpoint_txs);
-
-        // =================================================================
-        // 📝 Process all the transaction results and create a checkpoint
-        // =================================================================
-        let mut successful_txs = Vec::new();
-        let mut all_events_for_block = Vec::new();
-        let runtime = &self.runtime_pool[0];
-
-        for (tx, result) in execution_results {
-            match result {
-                Ok((_tx_hash, changeset)) => {
-                    runtime.persist_created_objects(&changeset);
-                    runtime.persist_deleted_objects(&changeset);
-
-                    let mut state = match self.state.write() {
-                        Ok(guard) => guard,
-                        Err(poisoned) => {
-                            error!("State lock poisoned during DAG commit, recovering...");
-                            poisoned.into_inner()
-                        }
-                    };
-                    if let Err(e) = state.apply_changeset(&changeset) {
-                        error!("[DAG COMMIT] Failed to apply changeset to state: {}", e);
-                    }
-
-                    all_events_for_block.extend(changeset.events.clone());
-                    successful_txs.push(tx);
-                }
-                Err(e) => {
-                    log::warn!("[DAG COMMIT] Transaction execution failed: {}", e);
-                }
-            }
-        }
-
-        let mut chain = match self.blockchain.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                error!("Blockchain lock poisoned during commit, recovering...");
-                poisoned.into_inner()
-            }
-        };
-        let height = chain.blocks.len() as u64;
-        let prev_hash = chain.blocks.back().map(|b| b.hash()).unwrap_or_default();
-
-        let new_block = kanari_types::block::Block::new(
-            height,
-            prev_hash,
-            vec![0u8; 32],
-            successful_txs,
-            all_events_for_block,
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_else(|e| {
-                    error!("System clock error: {}. Using timestamp 0.", e);
-                    std::time::Duration::from_secs(0)
-                })
-                .as_secs(),
-        );
-        let block_hash = new_block.hash();
-        chain.blocks.push_back(new_block);
-
-        log::info!(
-            "[DAG CONSENSUS] Checkpoint {} committed! Hash: {}",
-            height,
-            hex::encode(&block_hash)
-        );
-
-        Ok(block_hash)
     }
 
     fn execute_transaction_with_runtime(
@@ -835,22 +709,6 @@ impl BlockchainEngine {
         }
     }
 
-    pub fn get_authority_id(&self) -> String {
-        self.authority_id.clone()
-    }
-
-    pub fn get_authorities(&self) -> Vec<String> {
-        self.authorities.clone()
-    }
-
-    pub fn should_defer_user_execution_to_consensus(&self) -> bool {
-        self.authorities.len() > 1
-    }
-
-    pub fn get_dag_engine(&self) -> Option<Arc<RwLock<Option<DagEngine>>>> {
-        Some(self.dag_engine.clone())
-    }
-
     pub fn export_consensus_metrics_prometheus(&self) -> Result<String> {
         let dag_engine_guard = match self.dag_engine.read() {
             Ok(guard) => guard,
@@ -939,22 +797,6 @@ mod tests {
             std::env::remove_var("KANARI_REQUIRE_PERSISTENT_STORAGE");
             std::env::remove_var("KANARI_STRICT_CHECKPOINT_ROOTS");
         }
-    }
-
-    #[test]
-    fn single_authority_engine_allows_immediate_execution() {
-        let engine = BlockchainEngine::new().unwrap();
-        assert!(!engine.should_defer_user_execution_to_consensus());
-    }
-
-    #[test]
-    fn multi_authority_engine_defers_execution_to_consensus() {
-        let mut engine = BlockchainEngine::new().unwrap();
-        engine.set_authorities(
-            "0x1".to_string(),
-            vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()],
-        );
-        assert!(engine.should_defer_user_execution_to_consensus());
     }
 
     #[test]

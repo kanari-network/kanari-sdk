@@ -188,12 +188,6 @@ impl DagMetrics {
         self.inner.vertices_created.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn inc_vertices_broadcast(&self) {
-        self.inner
-            .vertices_broadcast
-            .fetch_add(1, Ordering::Relaxed);
-    }
-
     pub fn inc_checkpoints_created(&self) {
         self.inner
             .checkpoints_created
@@ -301,10 +295,8 @@ mod tests {
 
         metrics.inc_vertices_created();
         metrics.inc_vertices_created();
-        metrics.inc_vertices_broadcast();
 
         assert_eq!(metrics.inner.vertices_created.load(Ordering::Relaxed), 2);
-        assert_eq!(metrics.inner.vertices_broadcast.load(Ordering::Relaxed), 1);
     }
 
     #[test]
