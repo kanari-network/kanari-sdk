@@ -7,9 +7,9 @@ This runbook is the final operations layer for taking `kanari-node` from a healt
 - `validator-committee.example.json`
   Template for the validator set, RPC endpoints, P2P bootstrap addresses, and data directories.
 - `start-node.ps1`
-  Starts one validator with explicit `--network`.
+  Starts one validator with explicit `--network` and consensus signing keys.
 - `setup-multi-node.ps1`
-  Starts a rehearsal cluster with one source validator and follower validators.
+  Starts a rehearsal cluster with one source validator, follower validators, and generated consensus keys.
 - `monitor-cluster-health.ps1`
   Checks `kanari_health` and `kanari_getStats` across multiple nodes.
 - `backup-node-data.ps1`
@@ -25,8 +25,11 @@ Before any mainnet rollout:
 2. Verify Move framework bytecode is present.
 3. Confirm each validator has a unique `authority_id`.
 4. Confirm each validator has its own dedicated `data_dir`.
-5. Confirm `KANARI_NETWORK=mainnet` is being used through `--network mainnet`.
-6. Confirm `kanari_health` reports:
+5. Confirm each validator has a unique consensus private key.
+6. Confirm every validator uses the same reviewed `consensus-public-keys.json` map.
+7. Confirm private consensus key files are not committed, shared in chat, or copied between validators.
+8. Confirm `KANARI_NETWORK=mainnet` is being used through `--network mainnet`.
+9. Confirm `kanari_health` reports:
    - `status = ok`
    - `supply_invariants_ok = true`
    - `strict_persistence_required = true`
@@ -38,12 +41,14 @@ Before any mainnet rollout:
 Use a staged rollout, not a simultaneous launch.
 
 1. Prepare the committee list from `validator-committee.example.json`.
-2. Start validator 1 first and confirm:
+2. Prepare the consensus public-key map for the same committee IDs.
+3. Distribute each validator's private consensus key only to that validator host.
+4. Start validator 1 first and confirm:
    - RPC is reachable
    - `kanari_getStats.total_supply > 0`
    - `kanari_health.status = ok`
-3. Start the remaining validators one by one.
-4. After each validator joins, run cluster monitoring:
+5. Start the remaining validators one by one.
+6. After each validator joins, run cluster monitoring:
 
 ```powershell
 .\monitor-cluster-health.ps1 `
@@ -58,6 +63,43 @@ Use a staged rollout, not a simultaneous launch.
 ```
 
 1. Only expose public traffic after the full validator set is healthy.
+
+## Consensus Keys
+
+Generate rehearsal keys with:
+
+```powershell
+cargo run --bin kanari-node -- consensus-keygen --node-count 4 --output-dir C:\kanari\mainnet\consensus-keys --force
+```
+
+For production, use the generated layout as the required shape, then store and distribute keys through your secure operator process:
+
+```text
+consensus-keys/
+  consensus-public-keys.json
+  node1-consensus-private-key.hex
+  node2-consensus-private-key.hex
+  node3-consensus-private-key.hex
+  node4-consensus-private-key.hex
+```
+
+Manual validator start shape:
+
+```powershell
+$privateKey = (Get-Content C:\kanari\mainnet\consensus-keys\node1-consensus-private-key.hex -Raw).Trim()
+
+kanari-node start `
+  --network mainnet `
+  --authority-id 0x1 `
+  --authorities 0x1,0x2,0x3,0x4 `
+  --data-dir C:\kanari\mainnet\validator1 `
+  --p2p-port 19000 `
+  --rpc-port 19001 `
+  --consensus-private-key-hex $privateKey `
+  --consensus-public-keys C:\kanari\mainnet\consensus-keys\consensus-public-keys.json
+```
+
+The node should fail fast if the private key is missing or does not match the public key assigned to its `authority_id`.
 
 ## Backup Drill
 
@@ -123,7 +165,7 @@ Run this before mainnet launch and after any consensus or state sync changes.
 1. Start a rehearsal cluster:
 
 ```powershell
-.\setup-multi-node.ps1 -Network mainnet
+.\setup-multi-node.ps1 -Network mainnet -ResetConsensusKeys
 ```
 
 1. Submit a few real transactions on validator 1.
@@ -152,7 +194,9 @@ Use `validator-committee.example.json` as the single source of truth for:
 Rules:
 
 - never reuse the same `authority_id`
+- never reuse the same consensus private key
 - never share one `data_dir` across validators
+- never start a validator with a different public-key map than the rest of the committee
 - keep committee membership under change control
 - rehearse any committee change before applying it to mainnet
 
@@ -160,6 +204,8 @@ Rules:
 
 - All validators start with `--network mainnet`
 - All validators use persistent local storage
+- All validators have explicit consensus signing keys configured
+- All validators use the same reviewed consensus public-key map
 - Backups were taken and restore was rehearsed
 - Cluster health script passes
 - Heights match

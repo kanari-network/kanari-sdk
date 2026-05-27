@@ -7,6 +7,7 @@
 use anyhow::Result;
 use centauri::consensus::{DagConsensus, DagNetworkVertexAction, DagPendingSelection};
 use log::{error, info};
+use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
 use super::dag_integration::DagConsensusIntegration;
@@ -68,13 +69,36 @@ impl DagEngine {
         authority_id: String,
         authorities: Vec<String>,
     ) -> Result<Self> {
+        let consensus = DagConsensus::try_mysticeti(authority_id.clone(), authorities)?;
+        Self::from_consensus(engine, authority_id, consensus)
+    }
+
+    pub fn new_secure(
+        engine: Arc<BlockchainEngine>,
+        authority_id: String,
+        authorities: Vec<String>,
+        local_signing_key: ed25519_dalek::SigningKey,
+        authority_public_keys: BTreeMap<String, Vec<u8>>,
+    ) -> Result<Self> {
+        let consensus = DagConsensus::try_mysticeti_secure(
+            authority_id.clone(),
+            authorities,
+            local_signing_key,
+            authority_public_keys,
+        )?;
+        Self::from_consensus(engine, authority_id, consensus)
+    }
+
+    fn from_consensus(
+        engine: Arc<BlockchainEngine>,
+        authority_id: String,
+        mut consensus: DagConsensus,
+    ) -> Result<Self> {
         // Enable DAG mode on blockchain
         {
             let mut blockchain = engine.blockchain.write().unwrap_or_else(|e| e.into_inner());
             blockchain.enable_dag_mode();
         }
-
-        let mut consensus = DagConsensus::try_mysticeti(authority_id.clone(), authorities)?;
 
         // Load persisted DAG state if it exists
         if let Some(dag_state) = &engine.persisted_dag_state {
@@ -374,6 +398,42 @@ mod tests {
         assert_eq!(protocol.direct_commit_quorum, 3);
         assert!(protocol.pipeline);
         assert!(protocol.leader_wait);
+    }
+
+    #[test]
+    fn test_dag_engine_secure_constructor_accepts_explicit_keys() {
+        let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
+        let authorities = vec!["auth1".to_string(), "auth2".to_string()];
+        let sk1 = ed25519_dalek::SigningKey::from_bytes(&[11u8; 32]);
+        let sk2 = ed25519_dalek::SigningKey::from_bytes(&[22u8; 32]);
+        let mut public_keys = BTreeMap::new();
+        public_keys.insert("auth1".to_string(), sk1.verifying_key().to_bytes().to_vec());
+        public_keys.insert("auth2".to_string(), sk2.verifying_key().to_bytes().to_vec());
+
+        let dag_engine =
+            DagEngine::new_secure(engine, "auth1".to_string(), authorities, sk1, public_keys);
+
+        assert!(dag_engine.is_ok());
+    }
+
+    #[test]
+    fn test_dag_engine_secure_constructor_rejects_mismatched_local_key() {
+        let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
+        let authorities = vec!["auth1".to_string(), "auth2".to_string()];
+        let expected = ed25519_dalek::SigningKey::from_bytes(&[11u8; 32]);
+        let wrong = ed25519_dalek::SigningKey::from_bytes(&[33u8; 32]);
+        let sk2 = ed25519_dalek::SigningKey::from_bytes(&[22u8; 32]);
+        let mut public_keys = BTreeMap::new();
+        public_keys.insert(
+            "auth1".to_string(),
+            expected.verifying_key().to_bytes().to_vec(),
+        );
+        public_keys.insert("auth2".to_string(), sk2.verifying_key().to_bytes().to_vec());
+
+        let dag_engine =
+            DagEngine::new_secure(engine, "auth1".to_string(), authorities, wrong, public_keys);
+
+        assert!(dag_engine.is_err());
     }
 
     #[test]

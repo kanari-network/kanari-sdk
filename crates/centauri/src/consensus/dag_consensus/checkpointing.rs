@@ -10,9 +10,10 @@ impl DagStore {
         existing: &Checkpoint,
         candidate: &Checkpoint,
     ) -> bool {
-        let existing_tx_hashes: Vec<_> = existing.transactions.iter().map(|tx| tx.hash()).collect();
+        let existing_tx_hashes: Vec<_> =
+            existing.transactions.iter().map(logical_tx_hash).collect();
         let candidate_tx_hashes: Vec<_> =
-            candidate.transactions.iter().map(|tx| tx.hash()).collect();
+            candidate.transactions.iter().map(logical_tx_hash).collect();
 
         existing.sequence == candidate.sequence
             && existing.vertices == candidate.vertices
@@ -41,7 +42,7 @@ impl DagStore {
             })?;
 
             for tx in &vertex.transactions {
-                let tx_hash = tx.hash();
+                let tx_hash = logical_tx_hash(tx);
                 if self.executed_tx_hashes.contains(&tx_hash) {
                     continue;
                 }
@@ -51,8 +52,11 @@ impl DagStore {
             }
         }
 
-        let actual_tx_hashes: Vec<Vec<u8>> =
-            checkpoint.transactions.iter().map(|tx| tx.hash()).collect();
+        let actual_tx_hashes: Vec<Vec<u8>> = checkpoint
+            .transactions
+            .iter()
+            .map(logical_tx_hash)
+            .collect();
         if actual_tx_hashes != expected_tx_hashes {
             anyhow::bail!("Checkpoint transactions do not match referenced DAG vertices");
         }
@@ -143,7 +147,7 @@ impl DagStore {
         self.validate_checkpoint_payload(&checkpoint)?;
 
         for tx in &checkpoint.transactions {
-            self.executed_tx_hashes.insert(tx.hash());
+            self.executed_tx_hashes.insert(logical_tx_hash(tx));
         }
 
         for vertex_id in &checkpoint.vertices {
@@ -193,7 +197,7 @@ impl DagStore {
             && let Some(old_checkpoint) = self.checkpoints.pop_front()
         {
             for tx in &old_checkpoint.transactions {
-                self.executed_tx_hashes.remove(&tx.hash());
+                self.executed_tx_hashes.remove(&logical_tx_hash(tx));
             }
         }
 
@@ -331,7 +335,7 @@ impl DagConsensus {
         let all_transactions = self.collect_checkpoint_transactions(&vertices_to_commit);
         let latest = self.store.latest_checkpoint();
         let prev_hash = latest.hash()?;
-        let tx_hashes: Vec<Vec<u8>> = all_transactions.iter().map(|tx| tx.hash()).collect();
+        let tx_hashes: Vec<Vec<u8>> = all_transactions.iter().map(logical_tx_hash).collect();
         let tx_digest = hash_data_blake3(&bcs::to_bytes(&tx_hashes)?);
         let timestamp = commit_timestamps.into_iter().max().unwrap_or(0);
         let state_root = self.checkpoint_state_root(&vertices_to_commit, &all_transactions)?;
@@ -369,7 +373,7 @@ impl DagConsensus {
         for vertex_id in vertices_to_commit {
             if let Some(vertex) = self.store.get_vertex(vertex_id) {
                 for tx in &vertex.transactions {
-                    let tx_hash = tx.hash();
+                    let tx_hash = logical_tx_hash(tx);
                     if self.store.executed_tx_hashes.contains(&tx_hash) {
                         continue;
                     }

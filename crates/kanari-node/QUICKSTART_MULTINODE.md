@@ -1,127 +1,123 @@
 # Quick Start Guide - Multi-Node Setup
 
-## How to Run Quickly
-
-### Step 1: Build the Project
+## Build
 
 ```powershell
 cd C:\Users\Pukpuy\Desktop\kanari-sdk
-cargo build --release
+cargo build -p kanari-node
 ```
 
-### Step 2: Prepare Data Directories
+## Start A Local 3-Node Cluster
 
-```powershell
-# Run setup script
-cd crates\kanari-node
-.\setup-multi-node.ps1
-```
-
-### Step 3: Open 3 Terminals and Run Nodes
-
-**Terminal 1 - Node 1:**
+`kanari-node` requires explicit DAG consensus keys. The setup script generates them and passes them to each node.
 
 ```powershell
 cd C:\Users\Pukpuy\Desktop\kanari-sdk\crates\kanari-node
-.\start-node.ps1 -NodeId 1
+.\setup-multi-node.ps1 -NodeCount 3 -Network devnet -ResetSourceData -ResetReplicaData -ResetConsensusKeys
 ```
 
-**Terminal 2 - Node 2:**
+Generated keys are stored in:
+
+```text
+%USERPROFILE%\.kanari\consensus-keys
+```
+
+Files:
+
+- `consensus-public-keys.json`
+- `node1-consensus-private-key.hex`
+- `node2-consensus-private-key.hex`
+- `node3-consensus-private-key.hex`
+
+## Start One Node Manually With Script
 
 ```powershell
 cd C:\Users\Pukpuy\Desktop\kanari-sdk\crates\kanari-node
-.\start-node.ps1 -NodeId 2
+.\start-node.ps1 -NodeId 1 -Network devnet -Authorities "0x1,0x2,0x3"
 ```
 
-**Terminal 3 - Node 3:**
+Node 2 and 3 can bootstrap from node 1:
 
 ```powershell
-cd C:\Users\Pukpuy\Desktop\kanari-sdk\crates\kanari-node
-.\start-node.ps1 -NodeId 3
+.\start-node.ps1 -NodeId 2 -Network devnet -Authorities "0x1,0x2,0x3" -Bootstrap "/ip4/<node1-ip>/tcp/19000"
+.\start-node.ps1 -NodeId 3 -Network devnet -Authorities "0x1,0x2,0x3" -Bootstrap "/ip4/<node1-ip>/tcp/19000"
 ```
 
-### Step 4: Verify Nodes are Connected
+## Manual Run Without Scripts
 
-Check the logs in each terminal:
-
-```
-INFO kanari_node: Discovered peer: 12D3KooW... at /ip4/...
-INFO kanari_node: Connection established with 12D3KooW...
-```
-
-## Running Manually (Without Scripts)
+Generate consensus keys:
 
 ```powershell
-# Terminal 1 - Node 1 (Auth: 0x1)
-cargo run --bin kanari-node -- start --p2p-port 19000 --rpc-port 19001 --data-dir data/node1 --authority-id 0x1 --authorities 0x1,0x2,0x3,0x4,0x5,0x6
-
-# Terminal 2 - Node 2 (Auth: 0x2)
-cargo run --bin kanari-node -- start --p2p-port 19010 --rpc-port 19011 --data-dir data/node2 --authority-id 0x2 --authorities 0x1,0x2,0x3,0x4,0x5,0x6
-
-# Terminal 3 - Node 3 (Auth: 0x3)
-cargo run --bin kanari-node -- start --p2p-port 19020 --rpc-port 19021 --data-dir data/node3 --authority-id 0x3 --authorities 0x1,0x2,0x3,0x4,0x5,0x6
-
-# Terminal 4 - Node 4 (Auth: 0x4)
-cargo run --bin kanari-node -- start --p2p-port 19030 --rpc-port 19031 --data-dir data/node4 --authority-id 0x4 --authorities 0x1,0x2,0x3,0x4,0x5,0x6
-
-# Terminal 5 - Node 5 (Auth: 0x5)
-cargo run --bin kanari-node -- start --p2p-port 19040 --rpc-port 19041 --data-dir data/node5 --authority-id 0x5 --authorities 0x1,0x2,0x3,0x4,0x5,0x6
-
-# Terminal 6 - Node 6 (Auth: 0x6)
-cargo run --bin kanari-node -- start --p2p-port 19050 --rpc-port 19051 --data-dir data/node6 --authority-id 0x6 --authorities 0x1,0x2,0x3,0x4,0x5,0x6
+cargo run --bin kanari-node -- consensus-keygen --node-count 3 --output-dir .\consensus-keys --force
 ```
 
-## Check Blockchain Status
-
-Open a new terminal and run:
+Start node 1:
 
 ```powershell
-# View stats
+$node1Key = (Get-Content .\consensus-keys\node1-consensus-private-key.hex -Raw).Trim()
+cargo run --bin kanari-node -- start `
+  --network devnet `
+  --p2p-port 19000 `
+  --rpc-port 19001 `
+  --data-dir data\node1 `
+  --authority-id 0x1 `
+  --authorities 0x1,0x2,0x3 `
+  --consensus-private-key-hex $node1Key `
+  --consensus-public-keys .\consensus-keys\consensus-public-keys.json
+```
+
+Start node 2:
+
+```powershell
+$node2Key = (Get-Content .\consensus-keys\node2-consensus-private-key.hex -Raw).Trim()
+cargo run --bin kanari-node -- start `
+  --network devnet `
+  --p2p-port 19010 `
+  --rpc-port 19011 `
+  --data-dir data\node2 `
+  --authority-id 0x2 `
+  --authorities 0x1,0x2,0x3 `
+  --consensus-private-key-hex $node2Key `
+  --consensus-public-keys .\consensus-keys\consensus-public-keys.json `
+  --bootstrap /ip4/<node1-ip>/tcp/19000
+```
+
+Start node 3:
+
+```powershell
+$node3Key = (Get-Content .\consensus-keys\node3-consensus-private-key.hex -Raw).Trim()
+cargo run --bin kanari-node -- start `
+  --network devnet `
+  --p2p-port 19020 `
+  --rpc-port 19021 `
+  --data-dir data\node3 `
+  --authority-id 0x3 `
+  --authorities 0x1,0x2,0x3 `
+  --consensus-private-key-hex $node3Key `
+  --consensus-public-keys .\consensus-keys\consensus-public-keys.json `
+  --bootstrap /ip4/<node1-ip>/tcp/19000
+```
+
+## Check Status
+
+```powershell
 kanari-node stats
-
-# View account information
 kanari-node account 0x1
-
-# View block information
 kanari-node block 0
 ```
 
-## RPC Endpoints
+RPC defaults:
 
-- Local (loopback):
-  - Node 1: `http://127.0.0.1:19001`
-  - Node 2: `http://127.0.0.1:19011`
-  - Node 3: `http://127.0.0.1:19021`
+- Node 1: `http://127.0.0.1:19001`
+- Node 2: `http://127.0.0.1:19011`
+- Node 3: `http://127.0.0.1:19021`
 
-- LAN (reachable from other machines on your network):
-  - Node 1: `http://<machine_ip>:19001`
-  - Node 2: `http://<machine_ip>:19011`
-  - Node 3: `http://<machine_ip>:19021`
+## Notes
 
-To expose RPC to the LAN, start each node with either `--rpc-host 0.0.0.0` (bind all interfaces) or `--rpc-host <machine_ip>` (bind a single interface). Example:
+- Each node must have a separate `--data-dir`.
+- Each node must have unique P2P/RPC ports.
+- Each node must have its own consensus private key.
+- All nodes must share the same `consensus-public-keys.json`.
+- Do not commit private key files.
 
-```powershell
-kanari-node start --p2p-port 19000 --rpc-port 19001 --rpc-host 0.0.0.0 --data-dir C:\Users\Pukpuy\.kanari\kanari-db\node1
-```
-
-Security note: binding RPC to all interfaces exposes the API to your local network — ensure your firewall and network policies allow or block access as intended.
-
-## Testing P2P Network
-
-1. Submit a transaction via Node 1's RPC
-2. Verify that the transaction appears in Node 2 and Node 3
-3. When blocks are produced by any node, they will be synced to other nodes
-
-## Important Notes
-
-⚠️ **Each node must have a separate `--data-dir`** to prevent data conflicts
-
-⚠️ **Must use different ports** for `--p2p-port` and `--rpc-port`
-
-✅ Nodes will automatically discover each other via mDNS (in local network)
-
-✅ Blockchain data and state will be stored separately in each data directory
-
-## Additional Documentation
-
-See the full documentation at: [MULTI_NODE_GUIDE.md](MULTI_NODE_GUIDE.md)
+See the full guide: [MULTI_NODE_GUIDE.md](MULTI_NODE_GUIDE.md)

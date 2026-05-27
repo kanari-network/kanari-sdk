@@ -1,17 +1,89 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { getTokens, getBlockHeight } from "./lib/rpc";
+import {
+  getBlockHeight,
+  deriveAuthorityRpcEndpoints,
+  getNodeHealth,
+  getNetworkStatus,
+  getTokens,
+  RPC_ENDPOINTS,
+  type RpcEndpoint,
+  type NodeHealth,
+} from "./lib/rpc";
+
+function formatNumber(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "-";
+  return value.toLocaleString();
+}
+
+function shortUrl(url: string) {
+  return url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+}
+
+function readField(value: unknown, field: string): unknown {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  return (value as Record<string, unknown>)[field];
+}
+
+function StatCard({
+  label,
+  value,
+  sub,
+  tone = "emerald",
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  tone?: "emerald" | "cyan" | "amber" | "rose";
+}) {
+  const toneClass = {
+    emerald: "text-emerald-300 bg-emerald-400/10 border-emerald-400/20",
+    cyan: "text-cyan-300 bg-cyan-400/10 border-cyan-400/20",
+    amber: "text-amber-300 bg-amber-400/10 border-amber-400/20",
+    rose: "text-rose-300 bg-rose-400/10 border-rose-400/20",
+  }[tone];
+
+  return (
+    <div className="rounded-lg border border-white/10 bg-[#111113] p-5 shadow-lg shadow-black/20">
+      <div className={`mb-5 inline-flex h-9 w-9 items-center justify-center rounded-md border ${toneClass}`}>
+        <span className="h-2.5 w-2.5 rounded-full bg-current" />
+      </div>
+      <div className="text-xs font-semibold uppercase tracking-widest text-zinc-500">{label}</div>
+      <div className="mt-2 font-mono text-3xl font-bold text-white">{value}</div>
+      <div className="mt-2 text-sm text-zinc-400">{sub}</div>
+    </div>
+  );
+}
 
 export default function Home() {
   const [search, setSearch] = useState("");
-  const router = useRouter();
-
   const [tokenCount, setTokenCount] = useState<number | null>(null);
   const [blockHeight, setBlockHeight] = useState<number | null>(null);
-  const [isOnline, setIsOnline] = useState<boolean>(false);
+  const [configuredEndpoints, setConfiguredEndpoints] = useState<RpcEndpoint[]>(RPC_ENDPOINTS);
+  const [nodes, setNodes] = useState<NodeHealth[]>([]);
+  const [lastUpdated, setLastUpdated] = useState<string>("");
+  const router = useRouter();
+
+  const onlineNodes = nodes.filter((node) => node.online);
+  const offlineNodes = nodes.length - onlineNodes.length;
+  const maxHeight = Math.max(0, ...nodes.map((node) => node.height ?? 0));
+  const syncedNodes = onlineNodes.filter((node) => (node.height ?? 0) >= maxHeight).length;
+  const laggingNodes = onlineNodes.length - syncedNodes;
+  const totalTransactions = nodes.find((node) => node.totalTransactions !== null)?.totalTransactions ?? null;
+  const totalAccounts = nodes.find((node) => node.totalAccounts !== null)?.totalAccounts ?? null;
+  const pendingTransactions = nodes.reduce((sum, node) => sum + (node.pendingTransactions ?? 0), 0);
+  const networkOnline = onlineNodes.length > 0;
+
+  const networkStatusLabel = useMemo(() => {
+    if (nodes.length === 0) return "Loading";
+    if (onlineNodes.length === nodes.length && laggingNodes === 0) return "All nodes synced";
+    if (onlineNodes.length === nodes.length) return "Nodes syncing";
+    if (onlineNodes.length > 0) return "Partial outage";
+    return "Offline";
+  }, [nodes.length, onlineNodes.length, laggingNodes]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,110 +92,186 @@ export default function Home() {
 
   useEffect(() => {
     async function fetchNetworkData() {
-      try {
-        const [tokensRes, heightRes] = await Promise.all([
-          getTokens().catch(() => null),
-          getBlockHeight().catch(() => null)
-        ]);
+      const seedEndpoint = RPC_ENDPOINTS[0];
+      const [tokensRes, heightRes, networkStatus] = await Promise.all([
+        getTokens().catch(() => null),
+        getBlockHeight().catch(() => null),
+        getNetworkStatus(seedEndpoint?.url).catch(() => null),
+      ]);
 
-        if (tokensRes) {
-          let count = 0;
-          if (Array.isArray(tokensRes)) count = tokensRes.length;
-          else if (tokensRes.result && Array.isArray(tokensRes.result)) count = tokensRes.result.length;
-          setTokenCount(count);
-          setIsOnline(true);
-        }
+      const nextEndpoints =
+        RPC_ENDPOINTS.length === 1 && seedEndpoint && networkStatus?.authorities?.length
+          ? deriveAuthorityRpcEndpoints(seedEndpoint.url, networkStatus)
+          : RPC_ENDPOINTS;
+      const nodeResults = await Promise.all(nextEndpoints.map((endpoint) => getNodeHealth(endpoint)));
 
-        if (heightRes !== null && heightRes !== undefined) {
-          const h = typeof heightRes === 'object' ? heightRes.height : heightRes;
-          setBlockHeight(Number(h));
-          setIsOnline(true);
+      if (tokensRes) {
+        if (Array.isArray(tokensRes)) setTokenCount(tokensRes.length);
+        else {
+          const result = readField(tokensRes, "result");
+          if (Array.isArray(result)) setTokenCount(result.length);
         }
-      } catch (e) {
-        setIsOnline(false);
       }
+
+      if (heightRes !== null && heightRes !== undefined) {
+        const height = typeof heightRes === "object" ? readField(heightRes, "height") : heightRes;
+        setBlockHeight(Number(height));
+      }
+
+      setConfiguredEndpoints(nextEndpoints);
+      setNodes(nodeResults);
+      setLastUpdated(new Date().toLocaleTimeString());
     }
+
     fetchNetworkData();
     const interval = setInterval(fetchNetworkData, 5000);
     return () => clearInterval(interval);
   }, []);
 
   return (
-    <div className="flex flex-col items-center w-full">
-      {/* Hero Search Section */}
-      <section className="w-full pt-32 pb-20 px-6 flex flex-col items-center justify-center relative">
-        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 pointer-events-none mix-blend-overlay"></div>
-
-        <h1 className="text-5xl md:text-7xl font-black mb-8 tracking-tighter text-transparent bg-clip-text bg-linear-to-r from-emerald-400 via-cyan-400 to-blue-500 drop-shadow-sm text-center">
-          Kanari Explorer
-        </h1>
-        <p className="text-zinc-400 mb-10 text-lg md:text-xl text-center max-w-2xl font-light">
-          Explore transactions, tokens, and accounts on the fast and secure Kanari Network.
-        </p>
-
-        <form onSubmit={handleSearch} className="w-full max-w-3xl relative z-10">
-          <div className="flex items-center bg-[#111113]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-2xl focus-within:border-emerald-500/50 focus-within:ring-4 focus-within:ring-emerald-500/10 transition-all duration-300">
-            <svg className="w-6 h-6 text-zinc-500 ml-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by Address, Txn Hash, or Module..."
-              className="w-full bg-transparent text-white px-4 py-4 outline-none placeholder:text-zinc-600 text-base md:text-lg font-mono"
-            />
-            <button type="submit" className="bg-white hover:bg-zinc-200 text-black px-8 py-3.5 rounded-xl font-bold text-sm transition-colors shadow-lg shadow-white/10">
-              Search
-            </button>
+    <div className="flex w-full flex-col">
+      <section className="w-full border-b border-white/10 px-6 py-10">
+        <div className="mx-auto grid w-full max-w-7xl gap-8 lg:grid-cols-[minmax(0,1.1fr)_420px] lg:items-end">
+          <div>
+            <div className="mb-5 inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-300">
+              <span className={`h-2.5 w-2.5 rounded-full ${networkOnline ? "bg-emerald-400" : "bg-rose-400"}`} />
+              {networkStatusLabel}
+            </div>
+            <h1 className="text-4xl font-black tracking-normal text-white md:text-6xl">
+              Kanari Explorer
+            </h1>
+            <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-400 md:text-lg">
+              Network overview, node status, blocks, transactions, tokens, and accounts in one place.
+            </p>
           </div>
-        </form>
+
+          <form onSubmit={handleSearch} className="w-full">
+            <div className="rounded-lg border border-white/10 bg-[#111113] p-2 shadow-2xl shadow-black/30 focus-within:border-emerald-400/60">
+              <div className="flex items-center gap-2">
+                <svg className="ml-3 h-5 w-5 shrink-0 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="m21 21-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z" />
+                </svg>
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Address, transaction hash, or module"
+                  className="min-w-0 flex-1 bg-transparent px-2 py-3 font-mono text-sm text-white outline-none placeholder:text-zinc-600 md:text-base"
+                />
+                <button type="submit" className="rounded-md bg-white px-5 py-3 text-sm font-bold text-black transition-colors hover:bg-zinc-200">
+                  Search
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
       </section>
 
-      {/* Stats Section */}
-      <section className="w-full max-w-7xl mx-auto px-6 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-
-          <div className="bg-[#111113]/60 backdrop-blur-md border border-white/5 hover:border-white/10 p-8 rounded-3xl flex flex-col transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/50">
-            <div className="w-12 h-12 bg-blue-500/10 text-blue-400 rounded-2xl flex items-center justify-center mb-6">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-            </div>
-            <h3 className="text-zinc-500 text-sm font-bold uppercase tracking-widest mb-2">Total Tokens</h3>
-            <div className="text-4xl font-mono font-bold text-white mb-2">{tokenCount !== null ? tokenCount : "-"}</div>
-            <div className="mt-auto pt-6 border-t border-white/5">
-              <Link href="/coins" className="text-sm text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1">View all tokens <span className="text-lg">→</span></Link>
-            </div>
-          </div>
-
-          <div className="bg-[#111113]/60 backdrop-blur-md border border-white/5 hover:border-white/10 p-8 rounded-3xl flex flex-col transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/50">
-            <div className="w-12 h-12 bg-purple-500/10 text-purple-400 rounded-2xl flex items-center justify-center mb-6">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-            </div>
-            <h3 className="text-zinc-500 text-sm font-bold uppercase tracking-widest mb-2">Transactions</h3>
-            <div className="text-4xl font-mono font-bold text-white mb-2">Live</div>
-            <div className="mt-auto pt-6 border-t border-white/5">
-              <Link href="/tx" className="text-sm text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1">View recent activity <span className="text-lg">→</span></Link>
-            </div>
-          </div>
-
-          <div className="bg-[#111113]/60 backdrop-blur-md border border-white/5 hover:border-white/10 p-8 rounded-3xl flex flex-col transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/50 relative overflow-hidden">
-            <div className="w-12 h-12 bg-emerald-500/10 text-emerald-400 rounded-2xl flex items-center justify-center mb-6">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"></path></svg>
-            </div>
-            <h3 className="text-zinc-500 text-sm font-bold uppercase tracking-widest mb-2 flex items-center gap-2">
-              Network Status
-              <span className={`w-2.5 h-2.5 rounded-full shadow-lg ${isOnline ? 'bg-emerald-500 shadow-emerald-500/50' : 'bg-red-500 shadow-red-500/50'}`}></span>
-            </h3>
-            <div className="text-4xl font-mono font-bold text-white mb-1">
-              {blockHeight !== null ? blockHeight.toLocaleString() : "-"}
-            </div>
-            <div className="text-sm text-zinc-500">Current Block Height</div>
-            <div className="mt-auto pt-6 border-t border-white/5">
-              <span className={`text-sm font-medium ${isOnline ? 'text-emerald-400' : 'text-red-400'}`}>
-                {isOnline ? "Mainnet is operating normally" : "Connection lost"}
-              </span>
-            </div>
-          </div>
-
+      <section className="mx-auto w-full max-w-7xl px-6 py-8">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <StatCard
+            label="Nodes"
+            value={`${onlineNodes.length}/${nodes.length || configuredEndpoints.length}`}
+            sub={offlineNodes > 0 ? `${offlineNodes} offline` : `${laggingNodes} lagging`}
+          />
+          <StatCard label="Block Height" value={formatNumber(maxHeight || blockHeight)} sub="Highest reported height" tone="cyan" />
+          <StatCard label="Transactions" value={formatNumber(totalTransactions)} sub={`${formatNumber(pendingTransactions)} pending`} tone="amber" />
+          <StatCard label="Tokens" value={formatNumber(tokenCount)} sub={`${formatNumber(totalAccounts)} accounts`} tone="rose" />
         </div>
+      </section>
+
+      <section className="mx-auto grid w-full max-w-7xl gap-6 px-6 pb-12 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="rounded-lg border border-white/10 bg-[#111113] shadow-lg shadow-black/20">
+          <div className="flex flex-col gap-3 border-b border-white/10 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-white">Node Status</h2>
+              <p className="mt-1 text-sm text-zinc-500">Updated every 5 seconds{lastUpdated ? `, last ${lastUpdated}` : ""}</p>
+            </div>
+            <div className="rounded-md border border-white/10 px-3 py-2 text-sm text-zinc-300">
+              {syncedNodes} synced / {nodes.length || configuredEndpoints.length} configured
+            </div>
+          </div>
+
+          <div className="divide-y divide-white/10">
+            {(nodes.length > 0 ? nodes : configuredEndpoints.map((endpoint): NodeHealth => ({
+              endpoint,
+              online: false,
+              status: "loading",
+              height: null,
+              totalTransactions: null,
+              totalAccounts: null,
+              pendingTransactions: null,
+              latencyMs: null,
+              error: undefined,
+            }))).map((node) => (
+              <div key={node.endpoint.url} className="grid gap-4 p-5 md:grid-cols-[minmax(0,1fr)_120px_120px_120px] md:items-center">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-3">
+                    <span className={`h-2.5 w-2.5 rounded-full ${node.online ? "bg-emerald-400" : node.status === "loading" ? "bg-zinc-500" : "bg-rose-400"}`} />
+                    <div className="truncate font-semibold text-white">{node.endpoint.name}</div>
+                  </div>
+                  <div className="mt-1 truncate font-mono text-xs text-zinc-500">{shortUrl(node.endpoint.url)}</div>
+                  {node.error ? <div className="mt-2 text-xs text-rose-300">{node.error}</div> : null}
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-zinc-600">Status</div>
+                  <div className={`mt-1 text-sm font-semibold ${!node.online
+                      ? "text-rose-300"
+                      : (node.height ?? 0) < maxHeight
+                        ? "text-amber-300"
+                        : "text-emerald-300"
+                    }`}>
+                    {!node.online ? node.status : (node.height ?? 0) < maxHeight ? `lagging ${maxHeight - (node.height ?? 0)}` : "synced"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-zinc-600">Height</div>
+                  <div className="mt-1 font-mono text-sm text-zinc-200">{formatNumber(node.height)}</div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-widest text-zinc-600">Latency</div>
+                  <div className="mt-1 font-mono text-sm text-zinc-200">{node.latencyMs === null ? "-" : `${node.latencyMs} ms`}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <aside className="rounded-lg border border-white/10 bg-[#111113] p-5 shadow-lg shadow-black/20">
+          <h2 className="text-lg font-bold text-white">Network Summary</h2>
+          <div className="mt-5 space-y-4">
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm text-zinc-500">RPC endpoints</span>
+              <span className="font-mono text-sm text-white">{configuredEndpoints.length}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm text-zinc-500">Online nodes</span>
+              <span className="font-mono text-sm text-emerald-300">{onlineNodes.length}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm text-zinc-500">Synced nodes</span>
+              <span className="font-mono text-sm text-emerald-300">{syncedNodes}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm text-zinc-500">Lagging nodes</span>
+              <span className="font-mono text-sm text-amber-300">{laggingNodes}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm text-zinc-500">Offline nodes</span>
+              <span className="font-mono text-sm text-rose-300">{offlineNodes}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm text-zinc-500">Highest height</span>
+              <span className="font-mono text-sm text-white">{formatNumber(maxHeight || blockHeight)}</span>
+            </div>
+          </div>
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <Link href="/tx" className="inline-flex items-center text-sm font-semibold text-emerald-300 hover:text-emerald-200">
+              View recent activity
+              <span className="ml-2" aria-hidden="true">-&gt;</span>
+            </Link>
+          </div>
+        </aside>
       </section>
     </div>
   );

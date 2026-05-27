@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { getAccount, getAllBalances, getAllTransactions, getOwnedNfts, getTransaction } from "../lib/rpc";
+import TransactionDetailsModal from "../components/TransactionDetailsModal";
 
 // ฟังก์ชันย่อ Address/Hash
 function shortenHash(hash: string) {
@@ -313,7 +314,14 @@ function AccountContent() {
       </details>
 
       {/* 🚨 Modal Details (คงเดิมจากโค้ดที่คุณส่งมา) */}
-      {isModalOpen && (
+      <TransactionDetailsModal
+        open={isModalOpen}
+        loading={modalLoading}
+        transaction={selectedTx}
+        onClose={() => setIsModalOpen(false)}
+      />
+
+      {false && isModalOpen && (
         <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/80 backdrop-blur-xl p-4 transition-all animate-in fade-in duration-300">
           <div className="bg-[#111113] border border-white/10 rounded-[40px] w-full max-w-3xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
             <div className="flex justify-between items-center p-8 border-b border-white/5">

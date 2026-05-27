@@ -22,7 +22,7 @@ use move_core_types::{
 };
 use num_cpus;
 use rayon::prelude::*;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
@@ -72,6 +72,10 @@ pub struct BlockchainEngine {
     authorities: Vec<String>,
     // Persisted DAG state, loaded on startup
     persisted_dag_state: Option<PersistentDagState>,
+    // Optional production-safe DAG signing key. When absent, DAG mode uses
+    // deterministic demo keys for tests/local development only.
+    consensus_signing_key: Option<ed25519_dalek::SigningKey>,
+    consensus_public_keys: BTreeMap<String, Vec<u8>>,
 }
 
 // Basic recursive parser for simple type-argument strings used by RPC/tests.
@@ -603,10 +607,17 @@ impl BlockchainEngine {
                 }
             }
 
-            let engine = DagEngine::new(
+            let signing_key = self.consensus_signing_key.clone().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "DAG consensus requires an explicit signing key. Call set_consensus_signing_key() before producing or syncing DAG vertices."
+                )
+            })?;
+            let engine = DagEngine::new_secure(
                 Arc::new(self.clone_for_dag()),
                 self.authority_id.clone(),
                 self.authorities.clone(),
+                signing_key,
+                self.consensus_public_keys.clone(),
             )?;
             *dag_engine_guard = Some(engine);
         }
@@ -687,6 +698,8 @@ impl BlockchainEngine {
             authority_id: self.authority_id.clone(),
             authorities: self.authorities.clone(),
             persisted_dag_state: self.persisted_dag_state.clone(),
+            consensus_signing_key: self.consensus_signing_key.clone(),
+            consensus_public_keys: self.consensus_public_keys.clone(),
         }
     }
 
@@ -700,6 +713,8 @@ impl BlockchainEngine {
         }
         self.authority_id = normalize(authority_id);
         self.authorities = authorities.into_iter().map(normalize).collect();
+        self.consensus_signing_key = None;
+        self.consensus_public_keys.clear();
         match self.dag_engine.write() {
             Ok(mut guard) => *guard = None,
             Err(poisoned) => {
@@ -707,6 +722,57 @@ impl BlockchainEngine {
                 *poisoned.into_inner() = None;
             }
         }
+    }
+
+    pub fn authority_id(&self) -> &str {
+        &self.authority_id
+    }
+
+    pub fn authorities(&self) -> &[String] {
+        &self.authorities
+    }
+
+    pub fn set_consensus_signing_key(
+        &mut self,
+        local_signing_key: ed25519_dalek::SigningKey,
+        authority_public_keys: BTreeMap<String, Vec<u8>>,
+    ) -> Result<()> {
+        let local_public_key = local_signing_key.verifying_key().to_bytes().to_vec();
+        let expected_public_key =
+            authority_public_keys
+                .get(&self.authority_id)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Missing consensus public key for local authority {}",
+                        self.authority_id
+                    )
+                })?;
+        if *expected_public_key != local_public_key {
+            anyhow::bail!("Consensus signing key does not match local authority public key");
+        }
+        for authority in &self.authorities {
+            let key = authority_public_keys.get(authority).ok_or_else(|| {
+                anyhow::anyhow!("Missing consensus public key for authority {}", authority)
+            })?;
+            let key_bytes: [u8; 32] = key.as_slice().try_into().map_err(|_| {
+                anyhow::anyhow!("Invalid consensus public key length for {}", authority)
+            })?;
+            ed25519_dalek::VerifyingKey::from_bytes(&key_bytes).map_err(|e| {
+                anyhow::anyhow!("Invalid consensus public key for {}: {}", authority, e)
+            })?;
+        }
+
+        self.consensus_signing_key = Some(local_signing_key);
+        self.consensus_public_keys = authority_public_keys;
+        match self.dag_engine.write() {
+            Ok(mut guard) => *guard = None,
+            Err(poisoned) => {
+                log::error!("DAG engine lock poisoned while replacing consensus key");
+                *poisoned.into_inner() = None;
+            }
+        }
+
+        Ok(())
     }
 
     pub fn export_consensus_metrics_prometheus(&self) -> Result<String> {
@@ -739,6 +805,7 @@ mod tests {
     use super::BlockchainEngine;
     use kanari_crypto::keys::{CurveType, generate_keypair};
     use kanari_types::transaction::{SignedTransaction, Transaction};
+    use std::collections::BTreeMap;
     use std::sync::Mutex;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -759,6 +826,31 @@ mod tests {
             .sign(&sender.private_key, sender.curve_type)
             .unwrap();
         signed_tx
+    }
+
+    fn secure_consensus_keys(
+        authorities: &[String],
+        local_authority: &str,
+    ) -> (ed25519_dalek::SigningKey, BTreeMap<String, Vec<u8>>) {
+        let mut public_keys = BTreeMap::new();
+        let mut local_signing_key = None;
+
+        for (index, authority) in authorities.iter().enumerate() {
+            let seed = [index as u8 + 11; 32];
+            let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
+            if authority == local_authority {
+                local_signing_key = Some(signing_key.clone());
+            }
+            public_keys.insert(
+                authority.clone(),
+                signing_key.verifying_key().to_bytes().to_vec(),
+            );
+        }
+
+        (
+            local_signing_key.expect("local authority must be in authority set"),
+            public_keys,
+        )
     }
 
     #[test]
@@ -797,6 +889,30 @@ mod tests {
             std::env::remove_var("KANARI_REQUIRE_PERSISTENT_STORAGE");
             std::env::remove_var("KANARI_STRICT_CHECKPOINT_ROOTS");
         }
+    }
+
+    #[test]
+    fn dag_engine_requires_explicit_consensus_signing_key() {
+        let engine = BlockchainEngine::new_in_memory().unwrap();
+
+        let err = engine.produce_block().unwrap_err();
+
+        assert!(err.to_string().contains("requires an explicit signing key"));
+    }
+
+    #[test]
+    fn dag_engine_uses_configured_consensus_signing_key() {
+        let mut engine = BlockchainEngine::new_in_memory().unwrap();
+        let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
+        engine.set_authorities("0x1".to_string(), authorities.clone());
+        let (local_key, public_keys) = secure_consensus_keys(&authorities, "0x1");
+        engine
+            .set_consensus_signing_key(local_key, public_keys)
+            .unwrap();
+
+        let block = engine.produce_block().unwrap();
+
+        assert_eq!(block.round, 1);
     }
 
     #[test]

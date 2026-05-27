@@ -4,14 +4,19 @@
 // Main entry point for Kanari blockchain node
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
+use kanari_crypto::keys::{CurveType, KANARI_KEY_PREFIX, generate_keypair};
 use kanari_crypto::wallet::list_wallet_files;
+use std::collections::BTreeMap;
 
 mod app;
 mod indexer;
 mod p2p;
 mod peer_store;
 mod sync;
-use app::{create_engine, default_data_dir, print_account, print_block, print_stats, run_node};
+use app::{
+    configure_consensus_signing_key, create_engine, default_data_dir, print_account, print_block,
+    print_stats, run_node,
+};
 
 #[derive(Clone, Debug, ValueEnum)]
 pub(crate) enum NetworkMode {
@@ -66,6 +71,12 @@ enum Commands {
         /// List of authority IDs for DAG consensus (comma-separated)
         #[arg(long, value_delimiter = ',')]
         authorities: Option<Vec<String>>,
+        /// Local Ed25519 consensus private key seed as 32-byte hex
+        #[arg(long)]
+        consensus_private_key_hex: String,
+        /// JSON file mapping authority IDs to Ed25519 consensus public keys as hex
+        #[arg(long)]
+        consensus_public_keys: std::path::PathBuf,
         /// Bootstrap peer multiaddr to connect to (can be specified multiple times)
         #[arg(long, value_name = "MULTIADDR")]
         bootstrap: Option<Vec<String>>,
@@ -80,6 +91,18 @@ enum Commands {
     Account { address: String },
     /// Get block information by height
     Block { height: u64 },
+    /// Generate Ed25519 consensus keys for local multi-node setup
+    ConsensusKeygen {
+        /// Number of authorities/nodes to generate
+        #[arg(long)]
+        node_count: usize,
+        /// Output directory for node private seeds and public key map
+        #[arg(long)]
+        output_dir: std::path::PathBuf,
+        /// Overwrite existing key files
+        #[arg(long, default_value = "false")]
+        force: bool,
+    },
 }
 
 fn runtime() -> Result<tokio::runtime::Runtime> {
@@ -106,6 +129,60 @@ fn validate_start_authority_config(
     }
 }
 
+fn write_consensus_key_files(
+    node_count: usize,
+    output_dir: &std::path::Path,
+    force: bool,
+) -> Result<()> {
+    if node_count == 0 {
+        anyhow::bail!("--node-count must be at least 1");
+    }
+
+    std::fs::create_dir_all(output_dir)?;
+    let public_keys_path = output_dir.join("consensus-public-keys.json");
+    if public_keys_path.exists() && !force {
+        anyhow::bail!(
+            "{} already exists; pass --force to overwrite consensus keys",
+            public_keys_path.display()
+        );
+    }
+
+    let mut public_keys = BTreeMap::new();
+    for node_id in 1..=node_count {
+        let keypair = generate_keypair(CurveType::Ed25519)
+            .map_err(|e| anyhow::anyhow!("Failed to generate consensus key: {}", e))?;
+        let private_seed = keypair
+            .private_key
+            .strip_prefix(KANARI_KEY_PREFIX)
+            .ok_or_else(|| anyhow::anyhow!("Generated private key has unexpected format"))?
+            .to_string();
+        let authority = format!("0x{}", node_id);
+        let private_key_path =
+            output_dir.join(format!("node{}-consensus-private-key.hex", node_id));
+        if private_key_path.exists() && !force {
+            anyhow::bail!(
+                "{} already exists; pass --force to overwrite consensus keys",
+                private_key_path.display()
+            );
+        }
+
+        std::fs::write(private_key_path, private_seed)?;
+        public_keys.insert(authority, keypair.public_key);
+    }
+
+    std::fs::write(
+        public_keys_path,
+        serde_json::to_string_pretty(&public_keys)?,
+    )?;
+
+    tracing::info!(
+        "Generated {} consensus key(s) in {}",
+        node_count,
+        output_dir.display()
+    );
+    Ok(())
+}
+
 fn main() -> Result<()> {
     // Initialize tracing subscriber first so all commands have log output
     tracing_subscriber::fmt::init();
@@ -122,6 +199,11 @@ fn main() -> Result<()> {
         Commands::Stats => print_stats(),
         Commands::Account { address } => print_account(&address),
         Commands::Block { height } => print_block(height),
+        Commands::ConsensusKeygen {
+            node_count,
+            output_dir,
+            force,
+        } => write_consensus_key_files(node_count, &output_dir, force),
         Commands::Start {
             network,
             p2p_port,
@@ -131,6 +213,8 @@ fn main() -> Result<()> {
             relay_server,
             authority_id,
             authorities,
+            consensus_private_key_hex,
+            consensus_public_keys,
             bootstrap,
         } => {
             validate_start_authority_config(&authority_id, &authorities)?;
@@ -145,6 +229,11 @@ fn main() -> Result<()> {
                 auths.len()
             );
             engine.set_authorities(id, auths);
+            configure_consensus_signing_key(
+                &mut engine,
+                &consensus_private_key_hex,
+                &consensus_public_keys,
+            )?;
 
             runtime()?.block_on(run_node(
                 std::sync::Arc::new(engine),

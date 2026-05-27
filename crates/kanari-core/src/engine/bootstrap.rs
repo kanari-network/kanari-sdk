@@ -105,6 +105,8 @@ impl BlockchainEngine {
             authority_id,
             authorities,
             persisted_dag_state,
+            consensus_signing_key: None,
+            consensus_public_keys: BTreeMap::new(),
         })
     }
 

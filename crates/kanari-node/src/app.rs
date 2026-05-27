@@ -10,6 +10,7 @@ use kanari_types::address::Address as KanariAddress;
 use kanari_types::kanari::{KANARI_TOKEN_TYPE, KanariModule};
 use libp2p::identity::Keypair;
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -76,6 +77,67 @@ pub fn create_engine(
     } else {
         Ok(BlockchainEngine::new()?)
     }
+}
+
+fn normalize_authority_id(authority_id: String) -> String {
+    if authority_id.starts_with("0x") {
+        authority_id
+    } else {
+        format!("0x{}", authority_id)
+    }
+}
+
+fn decode_hex_bytes(label: &str, value: &str, expected_len: usize) -> Result<Vec<u8>> {
+    let trimmed = value.strip_prefix("0x").unwrap_or(value);
+    let bytes =
+        hex::decode(trimmed).map_err(|e| anyhow::anyhow!("Invalid {} hex: {}", label, e))?;
+    if bytes.len() != expected_len {
+        anyhow::bail!(
+            "Invalid {} length: expected {} bytes, got {}",
+            label,
+            expected_len,
+            bytes.len()
+        );
+    }
+    Ok(bytes)
+}
+
+pub fn configure_consensus_signing_key(
+    engine: &mut BlockchainEngine,
+    private_key_hex: &str,
+    public_keys_path: &std::path::Path,
+) -> Result<()> {
+    let private_key = decode_hex_bytes("consensus private key seed", private_key_hex, 32)?;
+    let private_key: [u8; 32] = private_key
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("Invalid consensus private key seed length"))?;
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&private_key);
+
+    let public_keys_json = std::fs::read_to_string(public_keys_path).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to read consensus public keys file {}: {}",
+            public_keys_path.display(),
+            e
+        )
+    })?;
+    let public_key_hex_by_authority: BTreeMap<String, String> =
+        serde_json::from_str(&public_keys_json).map_err(|e| {
+            anyhow::anyhow!(
+                "Invalid consensus public keys JSON {}: {}",
+                public_keys_path.display(),
+                e
+            )
+        })?;
+
+    let mut public_keys = BTreeMap::new();
+    for (authority, key_hex) in public_key_hex_by_authority {
+        public_keys.insert(
+            normalize_authority_id(authority),
+            decode_hex_bytes("consensus public key", &key_hex, 32)?,
+        );
+    }
+
+    engine.set_consensus_signing_key(signing_key, public_keys)
 }
 
 fn native_balance(info: &AccountInfo) -> u64 {
@@ -349,8 +411,30 @@ pub async fn run_node(
         let sync_for_messages = sync_manager.clone();
         tokio::spawn(async move {
             while let Some(msg) = p2p_msg_rx.recv().await {
-                sync_for_messages.handle_message(msg).await;
+                let sync = sync_for_messages.clone();
+                match tokio::spawn(async move {
+                    sync.handle_message(msg).await;
+                })
+                .await
+                {
+                    Ok(()) => {}
+                    Err(e) if e.is_panic() => {
+                        tracing::error!(
+                            "[P2P] Sync message handler panicked; continuing to process incoming messages: {}",
+                            e
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "[P2P] Sync message handler task failed; continuing to process incoming messages: {}",
+                            e
+                        );
+                    }
+                }
             }
+            tracing::warn!(
+                "[P2P] Incoming P2P message receiver closed; network gossip will no longer reach sync manager"
+            );
         });
 
         let sync_for_broadcast = sync_manager.clone();

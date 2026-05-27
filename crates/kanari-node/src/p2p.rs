@@ -411,6 +411,7 @@ pub struct P2PEventHandler {
     pub message_tx: mpsc::UnboundedSender<P2PMessage>,
     pub outgoing_rx: Option<mpsc::UnboundedReceiver<P2PMessage>>,
     pub peer_store: Option<std::sync::Arc<tokio::sync::Mutex<crate::peer_store::PeerStore>>>,
+    message_forwarding_closed: bool,
 }
 
 impl P2PEventHandler {
@@ -420,6 +421,7 @@ impl P2PEventHandler {
             message_tx,
             outgoing_rx: None,
             peer_store: None,
+            message_forwarding_closed: false,
         }
     }
 
@@ -459,18 +461,33 @@ impl P2PEventHandler {
         }
     }
 
-    fn forward_message(&self, msg: P2PMessage, context: &str) -> bool {
+    fn forward_message(&mut self, msg: P2PMessage, context: &str) -> bool {
+        if self.message_forwarding_closed || self.message_tx.is_closed() {
+            if !self.message_forwarding_closed {
+                warn!(
+                    "{}: receiver channel is closed; suppressing further incoming P2P forwards",
+                    context
+                );
+                self.message_forwarding_closed = true;
+            }
+            return false;
+        }
+
         match self.message_tx.send(msg) {
             Ok(_) => true,
             Err(e) => {
-                warn!("{}: {}", context, e);
+                warn!(
+                    "{}: {}; suppressing further incoming P2P forwards",
+                    context, e
+                );
+                self.message_forwarding_closed = true;
                 false
             }
         }
     }
 
     fn forward_decompressed_message(
-        &self,
+        &mut self,
         compressed_data: &[u8],
         decompress: fn(Vec<u8>) -> Result<String>,
         make_message: fn(String) -> P2PMessage,
@@ -487,7 +504,7 @@ impl P2PEventHandler {
     }
 
     fn forward_targeted_checkpoint_response(
-        &self,
+        &mut self,
         resp: &CompressedCheckpointResponseMsg,
         send_context: &str,
     ) -> bool {

@@ -59,6 +59,10 @@ fn vertex_id_from_hash_bytes(bytes: &[u8]) -> VertexId {
     result
 }
 
+fn logical_tx_hash(tx: &SignedTransaction) -> Vec<u8> {
+    tx.transaction.hash()
+}
+
 fn timestamp_bounds(parent_timestamps: &[u64]) -> Option<(u64, u64)> {
     const MAX_TIMESTAMP_DRIFT_SECS: u64 = 300;
 
@@ -143,7 +147,7 @@ pub struct VertexMetadata {
 
 impl DagVertex {
     fn hash_material(&self) -> Result<Vec<u8>> {
-        let tx_hashes: Vec<Vec<u8>> = self.transactions.iter().map(|tx| tx.hash()).collect();
+        let tx_hashes: Vec<Vec<u8>> = self.transactions.iter().map(logical_tx_hash).collect();
         let bytes = bcs::to_bytes(&(
             &self.chain_id,
             self.round,
@@ -348,7 +352,7 @@ impl Checkpoint {
         // Checkpoint identity must be stable across peers that reach the same
         // committed state even if their local DAG paths or leader timestamps differ.
         // Hash only canonical execution data, not transport/local scheduling metadata.
-        let tx_hashes: Vec<Vec<u8>> = self.transactions.iter().map(|tx| tx.hash()).collect();
+        let tx_hashes: Vec<Vec<u8>> = self.transactions.iter().map(logical_tx_hash).collect();
         let serialized = bcs::to_bytes(&(
             self.sequence,
             &tx_hashes,
@@ -761,7 +765,7 @@ impl DagConsensus {
             .collect();
         for checkpoint in &new_store.checkpoints {
             for tx in &checkpoint.transactions {
-                new_store.executed_tx_hashes.insert(tx.hash());
+                new_store.executed_tx_hashes.insert(logical_tx_hash(tx));
             }
         }
 
@@ -879,6 +883,65 @@ mod tests {
         let replay =
             DagVertex::new_for_test(0, "auth1".to_string(), vec![], vec![tx], vec![3u8; 32], 1);
         assert!(store.add_vertex(replay, store.num_authorities()).is_err());
+    }
+
+    #[test]
+    fn test_pending_selection_removes_signed_transaction_already_committed_by_logical_hash() {
+        let mut consensus = DagConsensus::new("auth1".to_string(), vec!["auth1".to_string()]);
+        let mut tx = SignedTransaction::new(Transaction::Transfer {
+            from: "alice".to_string(),
+            to: "bob".to_string(),
+            amount: 1,
+            gas_limit: 1000,
+            gas_price: 1,
+            sequence_number: 1,
+        });
+        tx.signature = vec![42];
+
+        let vertex = DagVertex::new_for_test(
+            0,
+            "auth1".to_string(),
+            vec![],
+            vec![tx.clone()],
+            vec![1u8; 32],
+            0,
+        );
+        let vertex_id = vertex.id;
+        consensus
+            .store
+            .add_vertex(vertex, consensus.store.num_authorities())
+            .unwrap();
+
+        let latest = consensus.store.latest_checkpoint();
+        let prev_hash = latest.hash().expect("Checkpoint hash should succeed");
+        consensus
+            .store
+            .add_checkpoint(Checkpoint::new(
+                latest.sequence + 1,
+                vec![vertex_id],
+                vec![tx.clone()],
+                vec![1u8; 32],
+                1,
+                prev_hash,
+            ))
+            .unwrap();
+
+        let logical_hash = tx.transaction.hash();
+        assert_ne!(logical_hash, tx.hash());
+        assert!(consensus.has_executed_transaction(&logical_hash));
+
+        let selection = consensus.select_pending_transactions(
+            &DagProductionPlan {
+                policy: consensus.production_policy(),
+                history_vertices: vec![],
+                history_tx_hashes: BTreeSet::new(),
+            },
+            &[tx],
+            |_| false,
+        );
+
+        assert!(selection.included.is_empty());
+        assert_eq!(selection.remove_hashes, vec![logical_hash]);
     }
 
     #[test]

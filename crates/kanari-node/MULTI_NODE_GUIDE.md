@@ -1,210 +1,173 @@
 # Kanari Multi-Node Setup Guide
 
-Guide for running Kanari blockchain with multiple nodes using libp2p
+Guide for running multiple `kanari-node` validators with libp2p networking and explicit consensus signing keys.
 
-## Features
+## Build
 
-- ✅ P2P networking with libp2p
-- ✅ Automatic peer discovery with mDNS (for local network)
-- ✅ Kademlia DHT for peer discovery
-- ✅ Gossipsub protocol for message propagation
-- ✅ Block and transaction synchronization
-- ✅ Configurable P2P and RPC ports
-
-## Installation
-
-1. Build project:
-
-```bash
-cargo build --release
+```powershell
+cargo build -p kanari-node
 ```
 
-1. Generated file:
+For release binaries:
 
-```
-target/release/kanari-node
-```
-
-## Running Multi-Node
-
-### Node 1 (Bootstrap Node / Authority 0x1)
-
-```bash
-cargo run --bin kanari-node -- start --p2p-port 19000 --rpc-port 19001 --data-dir data/node1 --authority-id 0x1 --authorities 0x1,0x2,0x3,0x4,0x5
+```powershell
+cargo build -p kanari-node --release
 ```
 
-### Node 2 (Authority 0x2)
+## Consensus Keys
 
-```bash
-cargo run --bin kanari-node -- start --p2p-port 19010 --rpc-port 19011 --data-dir data/node2 --authority-id 0x2 --authorities 0x1,0x2,0x3,0x4,0x5
+DAG consensus no longer falls back to deterministic demo keys. Every validator must start with:
+
+- one unique private consensus signing key
+- one shared `consensus-public-keys.json` file containing the public keys for the whole authority set
+
+Generate local keys for a 3-node test cluster:
+
+```powershell
+cargo run --bin kanari-node -- consensus-keygen --node-count 3 --output-dir .\consensus-keys --force
 ```
 
-### Node 3 (Authority 0x3)
+This creates:
 
-```bash
-cargo run --bin kanari-node -- start --p2p-port 19020 --rpc-port 19021 --data-dir data/node3 --authority-id 0x3 --authorities 0x1,0x2,0x3,0x4,0x5
+```text
+consensus-keys/
+  consensus-public-keys.json
+  node1-consensus-private-key.hex
+  node2-consensus-private-key.hex
+  node3-consensus-private-key.hex
 ```
 
-## Connecting Nodes
+Keep private key files out of git and do not reuse one private key across validators.
 
-### Automatic (Local Network)
+## Fast Local Setup
 
-If nodes are running on the same network, they will discover each other automatically via mDNS
+The PowerShell setup script generates consensus keys automatically when they are missing.
 
-## Usage Examples
-
-### 1. View Blockchain Stats
-
-```bash
-kanari-node stats
+```powershell
+.\setup-multi-node.ps1 -NodeCount 3 -Network devnet -ResetSourceData -ResetReplicaData -ResetConsensusKeys
 ```
 
-### 2. View Account Information
+By default it stores keys under:
 
-```bash
-kanari-node account 0x1
+```text
+%USERPROFILE%\.kanari\consensus-keys
 ```
 
-### 3. View Block Information
+Start nodes in separate terminals:
 
-```bash
-kanari-node block 0
+```powershell
+.\start-node.ps1 -NodeId 1 -Network devnet -Authorities "0x1,0x2,0x3"
 ```
 
-### 4. List Wallets
-
-```bash
-kanari-node list-wallets
+```powershell
+.\start-node.ps1 -NodeId 2 -Network devnet -Authorities "0x1,0x2,0x3" -Bootstrap "/ip4/<node1-ip>/tcp/19000"
 ```
 
-### 5. View All Options
-
-```bash
-kanari-node start --help
+```powershell
+.\start-node.ps1 -NodeId 3 -Network devnet -Authorities "0x1,0x2,0x3" -Bootstrap "/ip4/<node1-ip>/tcp/19000"
 ```
 
-**Important options:**
+`start-node.ps1` reads the matching `node<N>-consensus-private-key.hex` file and the shared `consensus-public-keys.json` from the consensus key directory.
 
-- `--p2p-port <PORT>` - Set port for P2P networking (default: 19000)
-- `--rpc-port <PORT>` - Set port for RPC server (default: 19001)
-- `--rpc-host <HOST>` - Set host/IP for RPC (default: 0.0.0.0)
-- `--data-dir <PATH>` - Set location for storing blockchain and state data
-- `--relay-server` - Enable relay server mode to help nodes behind NAT
-- `--bootstrap <MULTIADDR>` - Connect to bootstrap peer (can specify multiple times)
+## Manual Start
 
-## P2P Network Structure
+Manual start commands must pass the consensus private key and public-key map explicitly.
 
-```
-┌─────────────────────────────────────────────┐
-│           Kanari P2P Network                │
-├─────────────────────────────────────────────┤
-│                                             │
-│  Node 1 (19000) ←→ Node 2 (19010)          │
-│       ↑                 ↓                   │
-│       └─────→ Node 3 (19020)               │
-│                                             │
-└─────────────────────────────────────────────┘
-```
+### Node 1
 
-### Protocols Used
+```powershell
+$node1Key = (Get-Content .\consensus-keys\node1-consensus-private-key.hex -Raw).Trim()
 
-1. **Gossipsub** - For broadcasting blocks and transactions
-   - Topic: `kanari/blocks`
-   - Topic: `kanari/transactions`
-   - Topic: `kanari/peers`
-
-2. **mDNS** - Auto-discovery in local network
-
-3. **Kademlia DHT** - Distributed peer discovery
-
-4. **Noise Protocol** - Encrypted transport
-
-5. **Yamux** - Stream multiplexing
-
-6. **DCUtR** - Direct Connection Upgrade through Relay for NAT traversal
-
-7. **Identify** - Peer information exchange (protocol version, addresses)
-
-8. **Ping** - Connection keep-alive and latency measurement
-
-9. **Relay** - Circuit relay protocol for nodes behind strict NAT
-
-## P2P Message Types
-
-```rust
-pub enum P2PMessage {
-    NewTransaction(String),  // New transaction
-    NewBlock(String),        // New block
-    BlockRequest(u64),       // Request block by height
-    BlockResponse(String),   // Response with block data
-    PeerInfo(PeerInfoMsg),   // Peer information (height, peer_id)
-}
+cargo run --bin kanari-node -- start `
+  --network devnet `
+  --p2p-port 19000 `
+  --rpc-port 19001 `
+  --data-dir data/node1 `
+  --authority-id 0x1 `
+  --authorities 0x1,0x2,0x3 `
+  --consensus-private-key-hex $node1Key `
+  --consensus-public-keys .\consensus-keys\consensus-public-keys.json
 ```
 
-## Block Synchronization
+### Node 2
 
-When a new node joins the network:
+```powershell
+$node2Key = (Get-Content .\consensus-keys\node2-consensus-private-key.hex -Raw).Trim()
 
-1. Node receives `PeerInfo` from other peers
-2. Compares height with local blockchain
-3. If lower, sends `BlockRequest` to request missing blocks
-4. Receives `BlockResponse` and applies blocks to local chain
-
-## NAT Traversal and Hole Punching
-
-Kanari supports connections between nodes behind NAT/firewall through:
-
-### DCUtR (Direct Connection Upgrade through Relay)
-
-- **Hole punching** - Creates direct connections between nodes behind NAT
-- **Identify protocol** - Exchanges peer information and addresses
-- **Ping protocol** - Keep-alive connections and latency checking
-
-### How It Works
-
-1. Nodes use **Identify protocol** to exchange information and addresses
-2. **Kademlia DHT** helps discover peers across networks
-3. **DCUtR** attempts to create direct connections (hole punching)
-4. If successful, nodes communicate directly without relay
-
-**Note:** For strict NAT/symmetric NAT where hole punching cannot work, additional relay server may be needed (see below)
-
-### Relay Server Mode
-
-For nodes behind strict NAT or symmetric NAT where hole punching cannot work, you can use relay server mode:
-
-```bash
-kanari-node start --p2p-port 19000 --rpc-port 19001 --relay-server
+cargo run --bin kanari-node -- start `
+  --network devnet `
+  --p2p-port 19010 `
+  --rpc-port 19011 `
+  --data-dir data/node2 `
+  --authority-id 0x2 `
+  --authorities 0x1,0x2,0x3 `
+  --consensus-private-key-hex $node2Key `
+  --consensus-public-keys .\consensus-keys\consensus-public-keys.json `
+  --bootstrap "/ip4/<node1-ip>/tcp/19000"
 ```
 
-**Features:**
+### Node 3
 
-- Accepts reservation requests from nodes that want to use relay
-- Creates circuit relay between nodes
-- Helps nodes behind NAT communicate even when hole punching fails
+```powershell
+$node3Key = (Get-Content .\consensus-keys\node3-consensus-private-key.hex -Raw).Trim()
 
-**Recommendation:** Run relay server on a node with public IP or on a network accessible from outside
+cargo run --bin kanari-node -- start `
+  --network devnet `
+  --p2p-port 19020 `
+  --rpc-port 19021 `
+  --data-dir data/node3 `
+  --authority-id 0x3 `
+  --authorities 0x1,0x2,0x3 `
+  --consensus-private-key-hex $node3Key `
+  --consensus-public-keys .\consensus-keys\consensus-public-keys.json `
+  --bootstrap "/ip4/<node1-ip>/tcp/19000"
+```
 
-## Port Configuration
+## Important Start Options
 
-| Service | Default Port | Customization |
-|---------|--------------|---------------|
-| P2P     | 19000        | `--p2p-port`  |
-| RPC     | 19001        | `--rpc-port`  |
+- `--network <NETWORK>`: selects `devnet`, `testnet`, or `mainnet`
+- `--authority-id <ID>`: validator authority ID, for example `0x1`
+- `--authorities <IDS>`: comma-separated committee, for example `0x1,0x2,0x3`
+- `--consensus-private-key-hex <HEX>`: 32-byte Ed25519 seed hex for this validator
+- `--consensus-public-keys <PATH>`: JSON map of authority ID to public key hex
+- `--p2p-port <PORT>`: P2P networking port
+- `--rpc-port <PORT>`: RPC server port
+- `--rpc-host <HOST>`: RPC bind address
+- `--data-dir <PATH>`: blockchain and state data directory
+- `--bootstrap <MULTIADDR>`: bootstrap peer, can be specified multiple times
+- `--relay-server`: enable circuit relay server mode
 
-## Data Directory Configuration
+## Relay Server Mode
 
-Each node should have a separate data directory to prevent data conflicts:
+Relay mode also needs consensus keys when the node participates as a validator.
 
-### Windows
+```powershell
+$node1Key = (Get-Content .\consensus-keys\node1-consensus-private-key.hex -Raw).Trim()
 
-```bash
+kanari-node start `
+  --network devnet `
+  --p2p-port 19000 `
+  --rpc-port 19001 `
+  --authority-id 0x1 `
+  --authorities 0x1,0x2,0x3 `
+  --consensus-private-key-hex $node1Key `
+  --consensus-public-keys .\consensus-keys\consensus-public-keys.json `
+  --relay-server
+```
+
+## Data Directories
+
+Each node must have a separate data directory.
+
+Windows:
+
+```powershell
 --data-dir C:\Users\<Username>\.kanari\kanari-db\node1
 --data-dir C:\Users\<Username>\.kanari\kanari-db\node2
 --data-dir C:\Users\<Username>\.kanari\kanari-db\node3
 ```
 
-### Linux/macOS
+Linux/macOS:
 
 ```bash
 --data-dir ~/.kanari/kanari-db/node1
@@ -212,160 +175,30 @@ Each node should have a separate data directory to prevent data conflicts:
 --data-dir ~/.kanari/kanari-db/node3
 ```
 
-**Note:** If `--data-dir` is not specified, the system will use the default directory which may cause nodes to share data
-
-## Advanced Setup Examples
-
-### Using PowerShell Scripts (Windows)
-
-This folder contains PowerShell scripts to help run multi-node:
-
-#### 1. Setup and View Configuration Information
-
-```powershell
-.\setup-multi-node.ps1
-```
-
-This script will:
-
-- Create data directories for each node
-- Display configuration information for each node
-- Show commands for running nodes
-
-#### 2. Run Each Node
-
-```powershell
-# Terminal 1
-.\start-node.ps1 -NodeId 1
-
-# Terminal 2
-.\start-node.ps1 -NodeId 2
-
-# Terminal 3
-.\start-node.ps1 -NodeId 3
-```
-
-### Running 6 Nodes Simultaneously (Manual)
-
-```bash
-# Terminal 1 (Authority 0x1)
-cargo run --bin kanari-node -- start --p2p-port 19000 --rpc-port 19001 --data-dir data/node1 --authority-id 0x1 --authorities 0x1,0x2,0x3,0x4,0x5,0x6
-
-# Terminal 2 (Authority 0x2)
-cargo run --bin kanari-node -- start --p2p-port 19010 --rpc-port 19011 --data-dir data/node2 --authority-id 0x2 --authorities 0x1,0x2,0x3,0x4,0x5,0x6
-
-# Terminal 3 (Authority 0x3)
-cargo run --bin kanari-node -- start --p2p-port 19020 --rpc-port 19021 --data-dir data/node3 --authority-id 0x3 --authorities 0x1,0x2,0x3,0x4,0x5,0x6
-
-# Terminal 4 (Authority 0x4)
-cargo run --bin kanari-node -- start --p2p-port 19030 --rpc-port 19031 --data-dir data/node4 --authority-id 0x4 --authorities 0x1,0x2,0x3,0x4,0x5,0x6
-
-# Terminal 5 (Authority 0x5)
-cargo run --bin kanari-node -- start --p2p-port 19040 --rpc-port 19041 --data-dir data/node5 --authority-id 0x5 --authorities 0x1,0x2,0x3,0x4,0x5,0x6
-
-# Terminal 6 (Authority 0x6)
-cargo run --bin kanari-node -- start --p2p-port 19050 --rpc-port 19051 --data-dir data/node6 --authority-id 0x6 --authorities 0x1,0x2,0x3,0x4,0x5,0x6
-```
-
 ## RPC Endpoints
 
-- Local (loopback):
-  - Node 1: `http://127.0.0.1:19001`
-  - Node 2: `http://127.0.0.1:19011`
-  - Node 3: `http://127.0.0.1:19021`
+Local endpoints:
 
-- LAN (reachable from other machines on your network):
-  - Node 1: `http://<machine_ip>:19001`
-  - Node 2: `http://<machine_ip>:19011`
-  - Node 3: `http://<machine_ip>:19021`
+- Node 1: `http://127.0.0.1:19001`
+- Node 2: `http://127.0.0.1:19011`
+- Node 3: `http://127.0.0.1:19021`
 
-To expose RPC to the LAN, start each node with either `--rpc-host 0.0.0.0` (bind all interfaces) or `--rpc-host <machine_ip>` (bind a single interface). Example:
-
-```powershell
-kanari-node start --p2p-port 19000 --rpc-port 19001 --rpc-host 0.0.0.0 --data-dir C:\Users\Pukpuy\.kanari\kanari-db\node1
-```
-
-Security note: binding RPC to all interfaces exposes the API to your local network — ensure your firewall and network policies allow or block access as intended.
-
-## Monitoring the Network
-
-Check logs to monitor P2P events:
-
-```
-INFO kanari_node: Node Peer ID: 12D3KooW...
-INFO kanari_node: P2P network initialized on port 19000
-INFO kanari_node: Listening on /ip4/0.0.0.0/tcp/19000
-INFO kanari_node: Discovered peer: 12D3KooW... at /ip4/...
-INFO kanari_node: Connection established with 12D3KooW...
-INFO kanari_node: Received transaction from network: 0x...
-INFO kanari_node: Received new block #123 from network
-```
+To expose RPC to the LAN, bind with `--rpc-host 0.0.0.0` or a specific machine IP. Only do this on a trusted network or behind firewall rules.
 
 ## Troubleshooting
 
-### Problem: Nodes Cannot Find Each Other
+### Node Fails With Missing Consensus Key
 
-**Solution:**
+Run `consensus-keygen`, then pass `--consensus-private-key-hex` and `--consensus-public-keys`, or use `start-node.ps1` with the correct `-ConsensusKeyDir`.
 
-1. Check that ports are not duplicated
-2. Check firewall settings
-3. Try manual bootstrap with `--bootstrap`
+### Node Fails With Consensus Public Key Mismatch
 
-### Problem: Block Sync Not Working
+The private key for this node does not match the public key listed for its `--authority-id`. Regenerate the key set or use the correct private key file for that node.
 
-**Solution:**
+### Nodes Cannot Find Each Other
 
-1. Check logs for errors
-2. Verify that blocks are being broadcast
-3. Restart nodes to re-sync
+Check unique P2P ports, firewall rules, and `--bootstrap` multiaddrs. On the same LAN, mDNS can discover peers automatically.
 
-## Architecture
+### Block Sync Not Working
 
-```
-┌──────────────────────────────────────────┐
-│         Kanari Node                      │
-├──────────────────────────────────────────┤
-│                                          │
-│  ┌────────────┐      ┌──────────────┐    │
-│  │    RPC     │      │  P2P Network │    │
-│  │  Server    │      │  (libp2p)    │    │
-│  └──────┬─────┘      └──────┬───────┘    │
-│         │                   │            │
-│         └────┬──────────────┘            │
-│              │                           │
-│      ┌───────▼────────┐                  │
-│      │                │                  │
-│      │     Engine     │                  │
-│      └───────┬────────┘                  │
-│              │                           │
-│      ┌───────▼────────┐                  │
-│      │ Move Runtime   │                  │
-│      │ + State        │                  │
-│      └────────────────┘                  │
-│                                          │
-└──────────────────────────────────────────┘
-```
-
-## Merkle Tree Architecture
-
-Kanari uses **2 types** of Merkle trees:
-
-### 1. Sparse Merkle Tree (SMT) - State Storage
-
-- **Location**: `crates/smt/`
-- **Purpose**: Account state verification and proofs
-- **Used for**: Account balances, modules, objects, state root
-- **Storage**: Persistent in RocksDB
-
-### 2. Transaction Merkle Tree - Block Verification  
-
-- **Location**: `crates/kanari-core/src/blockchain/merkle.rs`
-- **Purpose**: Light client transaction verification
-- **Used for**: Block header merkle root, transaction inclusion proofs
-- **Storage**: In-memory, recalculated per block
-
-See [DOCS/MERKLE_TREES.md](../../../DOCS/MERKLE_TREES.md) for more details
-
-## License
-
-Apache-2.0
+Check logs, verify every node uses the same `--authorities` list and `consensus-public-keys.json`, then restart one follower after the source node is healthy.

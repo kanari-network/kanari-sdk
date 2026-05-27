@@ -10,7 +10,10 @@ param(
     [int]$BasePeerPort = 19000,
     [int]$BaseRpcPort = 19001,
     [string]$Authorities = "",
-    [string]$Bootstrap = ""
+    [string]$Bootstrap = "",
+    [string]$ConsensusPrivateKeyHex = "",
+    [string]$ConsensusPublicKeys = "",
+    [string]$ConsensusKeyDir = "$env:USERPROFILE\.kanari\consensus-keys"
 )
 
 . (Join-Path $PSScriptRoot 'node-script-common.ps1')
@@ -58,12 +61,41 @@ if ([string]::IsNullOrWhiteSpace($Authorities)) {
     exit 1
 }
 
-if ($Authorities -ne "") {
-    if ($Bootstrap -ne "") {
-        & $exePath start --network $Network --p2p-port $p2pPort --rpc-port $rpcPort --rpc-host 0.0.0.0 --data-dir $dataDir --authority-id $authId --authorities $Authorities --bootstrap $Bootstrap
-    } else {
-        & $exePath start --network $Network --p2p-port $p2pPort --rpc-port $rpcPort --rpc-host 0.0.0.0 --data-dir $dataDir --authority-id $authId --authorities $Authorities
+if ([string]::IsNullOrWhiteSpace($ConsensusPrivateKeyHex)) {
+    $privateKeyPath = Join-Path $ConsensusKeyDir "node$NodeId-consensus-private-key.hex"
+    if (-not (Test-Path $privateKeyPath)) {
+        Write-Host "Error: consensus private key not found: $privateKeyPath" -ForegroundColor Red
+        Write-Host "Run setup-multi-node.ps1 first, or pass -ConsensusPrivateKeyHex explicitly." -ForegroundColor Yellow
+        exit 1
     }
-} else {
-    & $exePath start --network $Network --p2p-port $p2pPort --rpc-port $rpcPort --rpc-host 0.0.0.0 --data-dir $dataDir
+    $ConsensusPrivateKeyHex = (Get-Content -LiteralPath $privateKeyPath -Raw).Trim()
 }
+
+if ([string]::IsNullOrWhiteSpace($ConsensusPublicKeys)) {
+    $ConsensusPublicKeys = Join-Path $ConsensusKeyDir "consensus-public-keys.json"
+}
+
+if (-not (Test-Path $ConsensusPublicKeys)) {
+    Write-Host "Error: consensus public keys file not found: $ConsensusPublicKeys" -ForegroundColor Red
+    Write-Host "Run setup-multi-node.ps1 first, or pass -ConsensusPublicKeys explicitly." -ForegroundColor Yellow
+    exit 1
+}
+
+$nodeArgs = @(
+    "start",
+    "--network", $Network,
+    "--p2p-port", $p2pPort,
+    "--rpc-port", $rpcPort,
+    "--rpc-host", "0.0.0.0",
+    "--data-dir", $dataDir,
+    "--authority-id", $authId,
+    "--authorities", $Authorities,
+    "--consensus-private-key-hex", $ConsensusPrivateKeyHex,
+    "--consensus-public-keys", $ConsensusPublicKeys
+)
+
+if ($Bootstrap -ne "") {
+    $nodeArgs += @("--bootstrap", $Bootstrap)
+}
+
+& $exePath @nodeArgs

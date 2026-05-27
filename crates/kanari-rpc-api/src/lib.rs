@@ -377,6 +377,19 @@ pub struct HealthStatus {
     pub persistent_storage_available: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkAuthorityStatus {
+    pub authority_id: String,
+    pub local: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkStatus {
+    pub local_authority_id: String,
+    pub authority_count: usize,
+    pub authorities: Vec<NetworkAuthorityStatus>,
+}
+
 /// Get object request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetObjectRequest {
@@ -546,6 +559,15 @@ pub mod methods {
         tags = ["system"]
     )]
     pub const HEALTH: &str = "kanari_health";
+
+    #[open_rpc_method(
+        summary = "Get network authority status",
+        description = "Returns the configured validator authority set for this node.",
+        params = [],
+        result = ("network", "Network authority status payload.", schema_object()),
+        tags = ["system"]
+    )]
+    pub const GET_NETWORK_STATUS: &str = "kanari_getNetworkStatus";
 
     // Module operations
     #[open_rpc_method(

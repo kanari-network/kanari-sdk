@@ -8,7 +8,7 @@ impl DagStore {
     fn validate_pending_transactions(&self, vertex: &DagVertex) -> Result<()> {
         let mut local_hashes = HashSet::new();
         for tx in &vertex.transactions {
-            let tx_hash = tx.hash();
+            let tx_hash = logical_tx_hash(tx);
             if self.executed_tx_hashes.contains(&tx_hash) {
                 anyhow::bail!("Duplicate committed transaction");
             }

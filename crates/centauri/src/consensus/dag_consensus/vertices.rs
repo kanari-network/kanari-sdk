@@ -38,7 +38,7 @@ impl DagConsensus {
         for vertex_id in &history_vertices {
             if let Some(vertex) = self.store.get_vertex(vertex_id) {
                 for tx in &vertex.transactions {
-                    history_tx_hashes.insert(tx.transaction.hash());
+                    history_tx_hashes.insert(logical_tx_hash(tx));
                 }
             }
         }
@@ -63,7 +63,7 @@ impl DagConsensus {
         let mut remove_hashes = Vec::new();
 
         for tx in pending.iter().take(500_000) {
-            let hash = tx.transaction.hash();
+            let hash = logical_tx_hash(tx);
 
             if plan.history_tx_hashes.contains(&hash) {
                 continue;
@@ -99,7 +99,7 @@ impl DagConsensus {
             for vertex_id in history_vertices {
                 if let Some(vertex) = self.store.get_vertex(vertex_id) {
                     for tx in &vertex.transactions {
-                        let tx_hash = tx.transaction.hash();
+                        let tx_hash = logical_tx_hash(tx);
                         if seen_tx_hashes.insert(tx_hash.clone())
                             && !self.has_executed_transaction(&tx_hash)
                             && !is_externally_executed(&tx_hash)
@@ -112,7 +112,7 @@ impl DagConsensus {
         }
 
         for tx in current_txs {
-            let tx_hash = tx.transaction.hash();
+            let tx_hash = logical_tx_hash(tx);
             if seen_tx_hashes.insert(tx_hash) {
                 transactions.push(tx.clone());
             }
@@ -308,6 +308,21 @@ impl DagConsensus {
             authorities,
             "kanari-default".to_string(),
             protocol,
+        )
+    }
+
+    pub fn try_mysticeti_secure(
+        authority_id: AuthorityId,
+        authorities: Vec<AuthorityId>,
+        local_signing_key: ed25519_dalek::SigningKey,
+        authority_public_keys: BTreeMap<AuthorityId, Vec<u8>>,
+    ) -> Result<Self> {
+        Self::with_chain_id_secure(
+            authority_id,
+            authorities,
+            "kanari-default".to_string(),
+            local_signing_key,
+            authority_public_keys,
         )
     }
 
