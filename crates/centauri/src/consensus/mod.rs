@@ -6,19 +6,12 @@ mod dag_consensus;
 pub use dag_consensus::{
     AuthorityId, Checkpoint, CheckpointStats, DagConsensus, DagExecutionPlan,
     DagNetworkVertexAction, DagPendingSelection, DagProductionPlan, DagProductionPolicy,
-    DagProgressPolicy, DagStore, DagVertex, MysticetiCheckpoint, MysticetiConsensus,
-    MysticetiVertex, PersistentDagState, Round, VertexId, VertexMetadata,
+    DagProgressPolicy, DagStore, DagVertex, PersistentDagState, Round, VertexId, VertexMetadata,
 };
 
 // Cryptographic primitives
 mod crypto_signatures;
 pub use crypto_signatures::{Ed25519Keypair, SignatureScheme};
-mod ecvrf;
-pub use ecvrf::{VrfProof, VrfPublicKey, VrfSecretKey};
-
-// VRF-based leader election (uses ecvrf internally)
-mod vrf_leader;
-pub use vrf_leader::{VrfLeaderElection, VrfOutput};
 
 // Consensus subsystems
 mod protocol;

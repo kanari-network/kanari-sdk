@@ -377,7 +377,6 @@ impl DagConsensus {
         chain_id: String,
         consensus_protocol: ConsensusProtocol,
         committee_public_keys: BTreeMap<AuthorityId, Vec<u8>>,
-        local_vrf_secret: [u8; 32],
         local_signing_key: ed25519_dalek::SigningKey,
     ) -> Result<Self> {
         tracing::info!(
@@ -387,10 +386,6 @@ impl DagConsensus {
             authorities
         );
         let mut store = DagStore::new(authorities.clone());
-
-        let mut vrf_election = VrfLeaderElection::new();
-        vrf_election.register_authority_bytes(authority_id.clone(), &local_vrf_secret);
-        tracing::info!("[VRF] Registered local VRF secret for {}", authority_id);
 
         let genesis_state_root = smt::default_hashes()[0].to_vec();
         let genesis_quorum = 0;
@@ -475,7 +470,6 @@ impl DagConsensus {
             store,
             authority_id,
             chain_id,
-            vrf_election,
             byzantine_detector,
             caches,
             committee,
@@ -525,7 +519,6 @@ impl DagConsensus {
             .map(|auth| (auth.clone(), Self::authority_public_key(auth).to_vec()))
             .collect();
 
-        let local_vrf_secret = Self::authority_seed(&authority_id);
         let local_signing_key =
             ed25519_dalek::SigningKey::from_bytes(&Self::authority_seed(&authority_id));
         Self::with_chain_id_internal(
@@ -534,7 +527,6 @@ impl DagConsensus {
             chain_id,
             consensus_protocol,
             committee_public_keys,
-            local_vrf_secret,
             local_signing_key,
         )
     }
@@ -545,7 +537,6 @@ impl DagConsensus {
         chain_id: String,
         local_signing_key: ed25519_dalek::SigningKey,
         authority_public_keys: BTreeMap<AuthorityId, Vec<u8>>,
-        local_vrf_secret: [u8; 32],
     ) -> Result<Self> {
         for auth in &authorities {
             let key = authority_public_keys
@@ -572,7 +563,6 @@ impl DagConsensus {
             chain_id,
             ConsensusProtocol::default_for_committee_size(authority_public_keys.len()),
             authority_public_keys,
-            local_vrf_secret,
             local_signing_key,
         )
     }
@@ -765,7 +755,10 @@ impl DagConsensus {
             .vertices
             .insert(vertex_id, (*vertex_arc).clone());
 
-        let is_priority = self.vrf_election.is_leader(vertex_arc.round, &author);
+        let is_priority = self
+            .mysticeti_commit_leaders(vertex_arc.round)
+            .iter()
+            .any(|leader| leader == &author);
 
         self.broadcaster
             .add_vertex_arc(Arc::clone(&vertex_arc), is_priority);
@@ -789,9 +782,6 @@ impl DagConsensus {
 
                 self.byzantine_detector
                     .prune_old_rounds(prune_stats.cutoff_round);
-
-                self.vrf_election.update_current_round(current_round);
-                self.vrf_election.prune_old_rounds(prune_stats.cutoff_round);
 
                 let keep_checkpoints = latest_checkpoint.sequence.saturating_sub(100);
                 self.state_sync

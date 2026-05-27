@@ -221,7 +221,7 @@ pub struct CheckpointStats {
 }
 
 impl DagConsensus {
-    fn mysticeti_commit_leaders(&self, commit_round: Round) -> Vec<AuthorityId> {
+    pub(crate) fn mysticeti_commit_leaders(&self, commit_round: Round) -> Vec<AuthorityId> {
         let mut authorities: Vec<_> = self.committee.validators.keys().cloned().collect();
         authorities.sort();
         if authorities.is_empty() {
@@ -240,7 +240,6 @@ impl DagConsensus {
         commit_round: u64,
         preferred_leader_id: &AuthorityId,
     ) -> Result<Option<CommitVertexSelection>> {
-        let next_round_vertices = self.store.get_vertices_in_round(commit_round + 1);
         let quorum = self.quorum_threshold();
 
         let Some(leader_vertex) = self
@@ -258,9 +257,13 @@ impl DagConsensus {
             return Ok(None);
         };
 
-        let trusted_support_count = next_round_vertices
+        let decision_round = commit_round + self.protocol.decision_depth();
+        let decision_round_vertices = self.store.get_vertices_in_round(decision_round);
+        let trusted_support_count = decision_round_vertices
             .iter()
-            .filter(|next_vertex| next_vertex.parents.contains(&leader_vertex.id))
+            .filter(|decision_vertex| {
+                self.vertex_reaches_target(decision_vertex.id, leader_vertex.id)
+            })
             .map(|next_vertex| &next_vertex.author)
             .collect::<HashSet<_>>()
             .into_iter()
@@ -269,9 +272,10 @@ impl DagConsensus {
 
         if trusted_support_count < quorum {
             tracing::debug!(
-                "[Consensus] Waiting for quorum on leader {} in round {}: support {}/{}",
+                "[Consensus] Waiting for Mysticeti decision quorum on leader {} in round {} via decision round {}: support {}/{}",
                 preferred_leader_id,
                 commit_round,
+                decision_round,
                 trusted_support_count,
                 quorum
             );
@@ -282,6 +286,77 @@ impl DagConsensus {
         let transactions = self.collect_checkpoint_transactions(&vertices_to_commit);
 
         Ok(Some((leader_vertex, vertices_to_commit, transactions)))
+    }
+
+    fn vertex_reaches_target(&self, root: VertexId, target: VertexId) -> bool {
+        let mut stack = vec![root];
+        let mut visited = HashSet::new();
+
+        while let Some(vertex_id) = stack.pop() {
+            if vertex_id == target {
+                return true;
+            }
+            if !visited.insert(vertex_id) {
+                continue;
+            }
+
+            if let Some(vertex) = self.store.get_vertex(&vertex_id) {
+                stack.extend(vertex.parents.iter().copied());
+            }
+        }
+
+        false
+    }
+
+    fn build_checkpoint_for_commit_selections(
+        &self,
+        commit_round: Round,
+        selections: Vec<(AuthorityId, CommitVertexSelection)>,
+    ) -> Result<Checkpoint> {
+        let mut seen_vertices = HashSet::new();
+        let mut vertices_to_commit = Vec::new();
+        let mut commit_timestamps = Vec::new();
+        let mut committed_leaders = Vec::new();
+
+        for (leader_id, (commit_vertex, leader_vertices, _)) in selections {
+            committed_leaders.push(leader_id);
+            commit_timestamps.push(commit_vertex.timestamp);
+            for vertex_id in leader_vertices {
+                if seen_vertices.insert(vertex_id) {
+                    vertices_to_commit.push(vertex_id);
+                }
+            }
+        }
+
+        let all_transactions = self.collect_checkpoint_transactions(&vertices_to_commit);
+        let latest = self.store.latest_checkpoint();
+        let prev_hash = latest.hash()?;
+        let tx_hashes: Vec<Vec<u8>> = all_transactions.iter().map(|tx| tx.hash()).collect();
+        let tx_digest = hash_data_blake3(&bcs::to_bytes(&tx_hashes)?);
+        let timestamp = commit_timestamps.into_iter().max().unwrap_or(0);
+        let state_root = self.checkpoint_state_root(&vertices_to_commit, &all_transactions)?;
+        let checkpoint = Checkpoint::new(
+            latest.sequence + 1,
+            vertices_to_commit,
+            all_transactions,
+            state_root,
+            timestamp,
+            prev_hash,
+        );
+
+        tracing::info!(
+            "[Consensus] Built checkpoint seq={} commit_round={} leaders={:?} vertices={} txs={} tx_digest={} prev={} provisional_root={}",
+            checkpoint.sequence,
+            commit_round,
+            committed_leaders,
+            checkpoint.vertices.len(),
+            checkpoint.transactions.len(),
+            hex::encode(tx_digest),
+            hex::encode(&checkpoint.prev_checkpoint_hash),
+            hex::encode(&checkpoint.state_root)
+        );
+
+        Ok(checkpoint)
     }
 
     pub(crate) fn collect_checkpoint_transactions(
@@ -363,6 +438,8 @@ impl DagConsensus {
                 continue;
             }
 
+            let mut selections = Vec::new();
+
             for leader_id in leader_ids {
                 let Some((commit_vertex, vertices_to_commit, all_transactions)) =
                     self.select_commit_vertex(commit_round, &leader_id)?
@@ -374,9 +451,9 @@ impl DagConsensus {
                 let quorum = self.quorum_threshold();
                 let support_count = self
                     .store
-                    .get_vertices_in_round(commit_round + 1)
+                    .get_vertices_in_round(commit_round + self.protocol.decision_depth())
                     .iter()
-                    .filter(|v| v.parents.contains(&commit_vertex.id))
+                    .filter(|v| self.vertex_reaches_target(v.id, commit_vertex.id))
                     .map(|v| &v.author)
                     .collect::<HashSet<_>>()
                     .into_iter()
@@ -392,31 +469,17 @@ impl DagConsensus {
                     all_transactions.len()
                 );
 
-                let latest = self.store.latest_checkpoint();
-                let prev_hash = latest.hash()?;
-                let tx_hashes: Vec<Vec<u8>> = all_transactions.iter().map(|tx| tx.hash()).collect();
-                let tx_digest = hash_data_blake3(&bcs::to_bytes(&tx_hashes)?);
-                let checkpoint = Checkpoint::new(
-                    latest.sequence + 1,
-                    vertices_to_commit.clone(),
-                    all_transactions.clone(),
-                    self.checkpoint_state_root(&vertices_to_commit, &all_transactions)?,
-                    commit_vertex.timestamp,
-                    prev_hash,
-                );
-                tracing::info!(
-                    "[Consensus] Built checkpoint seq={} commit_round={} leader={} vertices={} txs={} tx_digest={} prev={} provisional_root={}",
-                    checkpoint.sequence,
-                    commit_round,
+                selections.push((
                     leader_id,
-                    checkpoint.vertices.len(),
-                    checkpoint.transactions.len(),
-                    hex::encode(tx_digest),
-                    hex::encode(&checkpoint.prev_checkpoint_hash),
-                    hex::encode(&checkpoint.state_root)
-                );
+                    (commit_vertex, vertices_to_commit, all_transactions),
+                ));
+            }
 
-                return Ok(Some(checkpoint));
+            if !selections.is_empty() {
+                return Ok(Some(self.build_checkpoint_for_commit_selections(
+                    commit_round,
+                    selections,
+                )?));
             }
 
             start_round += 1;

@@ -51,7 +51,7 @@ pub enum ByzantineFault {
     /// Double voting: An authority creates multiple vertices in the same round
     ///
     /// This violates the "one-authority-one-vote-per-round" invariant and could
-    /// be used to manipulate leader election or confuse the ordering algorithm.
+    /// be used to manipulate deterministic leader selection or confuse ordering.
     ///
     /// **Severity**: High - Direct attack on consensus integrity
     /// **Penalty**: `DOUBLE_VOTING_PENALTY` (20 points)

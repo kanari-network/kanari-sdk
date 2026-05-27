@@ -96,7 +96,7 @@ No waiting. No gas fees.
 └──────────────────────┼───────────────────────────────────────────┘
                        │
 ┌──────────────────────▼───────────────────────────────────────────┐
-│                 Consensus Layer (Bullshark)                      │
+│                 Consensus Layer (Mysticeti)                      │
 │                                                                  │
 │  ┌────────────┐  ┌────────────┐  ┌────────────┐                  │
 │  │  Ordering  │  │  Quorum    │  │  Leader    │                  │
@@ -207,7 +207,7 @@ Round 3:
          └──────────────┘
 ```
 
-## Commit Protocol (Bullshark)
+## Commit Protocol (Mysticeti)
 
 ```rust
 Round N:

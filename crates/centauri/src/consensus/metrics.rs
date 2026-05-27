@@ -38,8 +38,6 @@ struct DagMetricsInner {
     checkpoints_created: AtomicU64,
     #[cfg(test)]
     compression_operations: AtomicU64,
-    #[cfg(test)]
-    ecvrf_generations: AtomicU64,
     disk_queue_full_count: AtomicU64,
 
     // Gauges - current values
@@ -78,8 +76,6 @@ impl DagMetrics {
                 checkpoints_created: AtomicU64::new(0),
                 #[cfg(test)]
                 compression_operations: AtomicU64::new(0),
-                #[cfg(test)]
-                ecvrf_generations: AtomicU64::new(0),
                 disk_queue_full_count: AtomicU64::new(0),
 
                 active_vertices: AtomicUsize::new(0),
@@ -246,10 +242,6 @@ impl DagMetrics {
             (
                 "Compression Ops",
                 Self::counter(&self.inner.compression_operations),
-            ),
-            (
-                "ECVRF Generations",
-                Self::counter(&self.inner.ecvrf_generations),
             ),
         ];
         for (label, value) in counter_lines {

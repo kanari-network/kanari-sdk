@@ -32,7 +32,6 @@ use super::protocol::{ConsensusProtocol, Protocol};
 use super::pruning::{DagPruner, PruningConfig};
 use super::state_sync::StateSynchronizer;
 use super::vertex_broadcast::VertexBroadcaster;
-use super::vrf_leader::VrfLeaderElection;
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
 use kanari_types::transaction::SignedTransaction;
@@ -53,10 +52,6 @@ pub type Round = u64;
 
 /// Authority/validator identifier
 pub type AuthorityId = String;
-
-pub type MysticetiConsensus = DagConsensus;
-pub type MysticetiVertex = DagVertex;
-pub type MysticetiCheckpoint = Checkpoint;
 
 fn vertex_id_from_hash_bytes(bytes: &[u8]) -> VertexId {
     let mut result = [0u8; 32];
@@ -563,9 +558,6 @@ pub struct DagConsensus {
 
     /// Chain ID for cross-chain replay protection
     chain_id: String,
-
-    /// VRF-based leader election (replaces round-robin)
-    vrf_election: VrfLeaderElection,
 
     /// Byzantine fault detector
     byzantine_detector: ByzantineDetector,
@@ -1124,6 +1116,110 @@ mod tests {
     }
 
     #[test]
+    fn test_try_commit_batches_mysticeti_multi_leaders_into_one_checkpoint() {
+        let authorities = vec![
+            "0x1".to_string(),
+            "0x2".to_string(),
+            "0x3".to_string(),
+            "0x4".to_string(),
+        ];
+
+        let leader_two_tx = SignedTransaction::new(Transaction::Transfer {
+            from: "0x2".to_string(),
+            to: "0x1".to_string(),
+            amount: 1,
+            gas_limit: 1000,
+            gas_price: 1,
+            sequence_number: 0,
+        });
+        let leader_three_tx = SignedTransaction::new(Transaction::Transfer {
+            from: "0x3".to_string(),
+            to: "0x1".to_string(),
+            amount: 1,
+            gas_limit: 1000,
+            gas_price: 1,
+            sequence_number: 0,
+        });
+
+        let mut round_one_vertices = Vec::new();
+        for authority in &authorities {
+            let mut consensus = DagConsensus::new(authority.clone(), authorities.clone());
+            let transactions = match authority.as_str() {
+                "0x2" => vec![leader_two_tx.clone()],
+                "0x3" => vec![leader_three_tx.clone()],
+                _ => vec![],
+            };
+            round_one_vertices.push(
+                consensus
+                    .create_vertex(transactions, vec![1u8; 32], 1)
+                    .unwrap(),
+            );
+        }
+
+        let mut observer = DagConsensus::new("0x1".to_string(), authorities.clone());
+        for vertex in &round_one_vertices {
+            observer.add_vertex(vertex.clone()).unwrap();
+        }
+
+        let support_authors = ["0x1", "0x2", "0x3"];
+        let mut round_two_vertices = Vec::new();
+        for authority in support_authors {
+            let mut supporter = DagConsensus::new(authority.to_string(), authorities.clone());
+            for vertex in &round_one_vertices {
+                supporter.add_vertex(vertex.clone()).unwrap();
+            }
+            let round_two = supporter.create_vertex(vec![], vec![2u8; 32], 2).unwrap();
+            observer.add_vertex(round_two.clone()).unwrap();
+            round_two_vertices.push(round_two);
+        }
+
+        for authority in ["0x1", "0x2", "0x3"] {
+            let mut decision_author = DagConsensus::new(authority.to_string(), authorities.clone());
+            for vertex in &round_one_vertices {
+                decision_author.add_vertex(vertex.clone()).unwrap();
+            }
+            for vertex in &round_two_vertices {
+                decision_author.add_vertex(vertex.clone()).unwrap();
+            }
+            let round_three = decision_author
+                .create_vertex(vec![], vec![3u8; 32], 3)
+                .unwrap();
+            observer.add_vertex(round_three).unwrap();
+        }
+
+        let checkpoint = observer
+            .try_commit()
+            .unwrap()
+            .expect("round one Mysticeti leaders should commit together");
+
+        let leader_two_vertex = round_one_vertices
+            .iter()
+            .find(|vertex| vertex.author == "0x2")
+            .unwrap();
+        let leader_three_vertex = round_one_vertices
+            .iter()
+            .find(|vertex| vertex.author == "0x3")
+            .unwrap();
+
+        assert_eq!(checkpoint.sequence, 1);
+        assert!(checkpoint.vertices.contains(&leader_two_vertex.id));
+        assert!(checkpoint.vertices.contains(&leader_three_vertex.id));
+        assert_eq!(checkpoint.transactions.len(), 2);
+        assert!(
+            checkpoint
+                .transactions
+                .iter()
+                .any(|tx| tx.hash() == leader_two_tx.hash())
+        );
+        assert!(
+            checkpoint
+                .transactions
+                .iter()
+                .any(|tx| tx.hash() == leader_three_tx.hash())
+        );
+    }
+
+    #[test]
     fn test_production_policy_uses_catch_up_round_for_partial_remote_round() {
         let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
         let mut source = DagConsensus::new("0x1".to_string(), authorities.clone());
@@ -1241,13 +1337,29 @@ mod tests {
         }
 
         let support_authors = vec!["0x1".to_string(), "0x2".to_string(), "0x4".to_string()];
+        let mut round_two_vertices = Vec::new();
         for authority in support_authors {
             let mut supporter = DagConsensus::new(authority, authorities.clone());
             for vertex in &round_one_vertices {
                 supporter.add_vertex(vertex.clone()).unwrap();
             }
             let round_two = supporter.create_vertex(vec![], vec![2u8; 32], 2).unwrap();
-            observer.add_vertex(round_two).unwrap();
+            observer.add_vertex(round_two.clone()).unwrap();
+            round_two_vertices.push(round_two);
+        }
+
+        for authority in ["0x1", "0x2", "0x4"] {
+            let mut decision_author = DagConsensus::new(authority.to_string(), authorities.clone());
+            for vertex in &round_one_vertices {
+                decision_author.add_vertex(vertex.clone()).unwrap();
+            }
+            for vertex in &round_two_vertices {
+                decision_author.add_vertex(vertex.clone()).unwrap();
+            }
+            let round_three = decision_author
+                .create_vertex(vec![], vec![3u8; 32], 3)
+                .unwrap();
+            observer.add_vertex(round_three).unwrap();
         }
 
         let preferred_leader = "0x1".to_string();
@@ -1762,15 +1874,12 @@ mod tests {
         public_keys.insert("auth1".to_string(), sk1.verifying_key().to_bytes().to_vec());
         public_keys.insert("auth2".to_string(), sk2.verifying_key().to_bytes().to_vec());
 
-        let local_vrf_secret = [1u8; 32];
-
         let consensus = DagConsensus::with_chain_id_secure(
             "auth1".to_string(),
             authorities,
             "chain-secure".to_string(),
             sk1,
             public_keys,
-            local_vrf_secret,
         )
         .unwrap();
         assert!(consensus.committee().contains("auth1"));
@@ -1794,7 +1903,6 @@ mod tests {
             "chain-secure".to_string(),
             wrong,
             public_keys,
-            [9u8; 32],
         );
         assert!(result.is_err());
     }
