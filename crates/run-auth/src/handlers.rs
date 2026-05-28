@@ -4,7 +4,7 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode},
     response::IntoResponse,
 };
-use axum_client_ip::InsecureClientIp;
+use axum_client_ip::ClientIp;
 use kanari_crypto::keys::CurveType;
 use tracing::{error, info, warn};
 
@@ -42,7 +42,7 @@ fn build_rate_limit_response(
 /// Default: `ed25519` (if curve_type not provided)
 pub async fn register(
     State(state): State<AppState>,
-    InsecureClientIp(client_ip): InsecureClientIp,
+    ClientIp(client_ip): ClientIp,
     Json(payload): Json<RegisterRequest>,
 ) -> axum::response::Response {
     info!("Registration attempt for email: {}", payload.email);
@@ -164,7 +164,7 @@ pub async fn register(
 /// Login user
 pub async fn login(
     State(state): State<AppState>,
-    InsecureClientIp(client_ip): InsecureClientIp,
+    ClientIp(client_ip): ClientIp,
     Json(payload): Json<LoginRequest>,
 ) -> axum::response::Response {
     info!("Login attempt for email: {}", payload.email);
@@ -779,7 +779,7 @@ pub async fn validate_session(
 /// Setup 2FA for a user (generate QR code and secret)
 pub async fn setup_2fa(
     State(state): State<AppState>,
-    InsecureClientIp(client_ip): InsecureClientIp,
+    ClientIp(client_ip): ClientIp,
     Json(payload): Json<crate::models::TwoFactorSetupRequest>,
 ) -> (
     StatusCode,
@@ -867,7 +867,7 @@ pub async fn setup_2fa(
 /// Enable 2FA for a user (verify TOTP code and save)
 pub async fn enable_2fa(
     State(state): State<AppState>,
-    InsecureClientIp(client_ip): InsecureClientIp,
+    ClientIp(client_ip): ClientIp,
     Json(payload): Json<crate::two_factor::Enable2faRequest>,
 ) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
     let normalized_email = kanari_auth::email_validator::normalize_email(&payload.email);
@@ -960,7 +960,7 @@ pub async fn enable_2fa(
 /// Disable 2FA for a user
 pub async fn disable_2fa(
     State(state): State<AppState>,
-    InsecureClientIp(client_ip): InsecureClientIp,
+    ClientIp(client_ip): ClientIp,
     Json(payload): Json<crate::two_factor::Disable2faRequest>,
 ) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
     let mut auth = state.auth_manager.lock().await;
@@ -1024,7 +1024,7 @@ pub async fn disable_2fa(
 /// Verify a TOTP code (for testing or login flow)
 pub async fn verify_2fa(
     State(state): State<AppState>,
-    InsecureClientIp(client_ip): InsecureClientIp,
+    ClientIp(client_ip): ClientIp,
     Json(payload): Json<crate::two_factor::TotpVerifyRequest>,
 ) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
     info!("2FA verification attempt for email: {}", payload.email);

@@ -148,7 +148,7 @@ where
                 };
             }
             "--help" | "-h" => {
-                println!("{}", usage());
+                eprintln!("{}", usage());
                 std::process::exit(0);
             }
             value if !value.starts_with('-') => {
@@ -172,12 +172,40 @@ fn usage() -> &'static str {
 }
 
 fn prepare_engine(temp_dir: &TempDir) -> Result<BlockchainEngine> {
-    BlockchainEngine::new_dir(
+    let mut engine = BlockchainEngine::new_dir(
         temp_dir
             .path()
             .to_str()
             .context("temp dir path is not valid UTF-8")?,
-    )
+    )?;
+
+    // Set up a demo consensus signing key for benchmarks
+    use kanari_crypto::keys::{CurveType, generate_keypair};
+    let keypair = generate_keypair(CurveType::Ed25519)?;
+
+    // Convert the private key from hex string to bytes
+    // Private key format is "kanari" + hex_encoded_bytes
+    let private_key_hex = keypair.private_key.as_str();
+    let hex_part = private_key_hex.trim_start_matches("kanari");
+    let signing_key_bytes_vec =
+        hex::decode(hex_part).context("Failed to decode private key hex")?;
+    let signing_key_bytes: [u8; 32] = signing_key_bytes_vec
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("Invalid private key length: expected 32 bytes"))?;
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_bytes);
+
+    // Build authority public keys map
+    let mut authority_public_keys = std::collections::BTreeMap::new();
+    let verifying_key = signing_key.verifying_key();
+    authority_public_keys.insert(
+        engine.authority_id().to_string(),
+        verifying_key.to_bytes().to_vec(),
+    );
+
+    // Set the consensus signing key
+    engine.set_consensus_signing_key(signing_key, authority_public_keys)?;
+
+    Ok(engine)
 }
 
 fn fund_senders(engine: &BlockchainEngine, sender_addresses: &[String]) {
@@ -386,9 +414,9 @@ fn main() -> Result<()> {
     let report = run_harness(&config)?;
 
     if config.json {
-        println!("{}", report.render_json());
+        eprintln!("{}", report.render_json());
     } else {
-        println!("{report}");
+        eprintln!("{report}");
     }
 
     Ok(())

@@ -54,25 +54,50 @@ impl DagConsensus {
         &self,
         plan: &DagProductionPlan,
         pending: &[SignedTransaction],
-        mut is_externally_executed: F,
+        is_externally_executed: F,
     ) -> DagPendingSelection
     where
-        F: FnMut(&[u8]) -> bool,
+        F: Fn(&[u8]) -> bool + Send + Sync,
     {
-        let mut included = Vec::new();
-        let mut remove_hashes = Vec::new();
+        use rayon::prelude::*;
+        use std::sync::Arc;
 
-        for tx in pending.iter().take(500_000) {
-            let hash = logical_tx_hash(tx);
+        // Wrap the closure in Arc for thread-safe sharing
+        let is_executed_fn = Arc::new(is_externally_executed);
 
-            if plan.history_tx_hashes.contains(&hash) {
-                continue;
+        // Process transactions in parallel and collect results
+        let results: Vec<(Option<SignedTransaction>, Option<Vec<u8>>)> = pending
+            .par_iter()
+            .take(500_000)
+            .map(|tx| {
+                let hash = logical_tx_hash(tx);
+
+                // Skip if already in history
+                if plan.history_tx_hashes.contains(&hash) {
+                    return (None, None);
+                }
+
+                // Check if executed
+                let is_executed = self.has_executed_transaction(&hash) || is_executed_fn(&hash);
+
+                if is_executed {
+                    (None, Some(hash))
+                } else {
+                    (Some(tx.clone()), None)
+                }
+            })
+            .collect();
+
+        // Separate included and remove_hashes with pre-allocated vectors
+        let mut included = Vec::with_capacity(results.len() / 2);
+        let mut remove_hashes = Vec::with_capacity(results.len() / 4);
+
+        for (tx_opt, hash_opt) in results {
+            if let Some(tx) = tx_opt {
+                included.push(tx);
             }
-
-            if self.has_executed_transaction(&hash) || is_externally_executed(&hash) {
+            if let Some(hash) = hash_opt {
                 remove_hashes.push(hash);
-            } else {
-                included.push(tx.clone());
             }
         }
 

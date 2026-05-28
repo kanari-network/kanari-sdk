@@ -78,8 +78,14 @@ impl TotpManager {
 
     /// Generate a new TOTP secret and setup information
     pub fn generate_setup(&self, email: &str) -> TwoFactorSetup {
-        // Generate random secret bytes directly
-        let secret_bytes: Vec<u8> = (0..20).map(|_| rand::random::<u8>()).collect();
+        use rand::TryRng;
+        use rand::rngs::SysRng;
+
+        // Generate random secret bytes
+        let mut rng = SysRng;
+        let mut secret_bytes = [0u8; 20];
+        rng.try_fill_bytes(&mut secret_bytes)
+            .expect("Failed to generate random bytes");
 
         // Create TOTP instance with raw bytes
         let totp = TOTP::new(
@@ -87,7 +93,7 @@ impl TotpManager {
             6,  // 6 digits
             1,  // 1 step skew
             30, // 30 second interval
-            secret_bytes.clone(),
+            secret_bytes.to_vec(),
             Some(self.issuer.clone()),
             email.to_string(),
         )
@@ -97,12 +103,13 @@ impl TotpManager {
         let backup_codes = (0..10)
             .map(|_| {
                 // Generate random 8-character alphanumeric code
-                let code: String = (0..8)
-                    .map(|_| {
-                        let chars = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-                        let idx = rand::random::<usize>() % chars.len();
-                        chars[idx] as char
-                    })
+                let mut code_bytes = [0u8; 8];
+                rng.try_fill_bytes(&mut code_bytes)
+                    .expect("Failed to generate random bytes");
+                let chars = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+                let code: String = code_bytes
+                    .iter()
+                    .map(|&b| chars[(b as usize) % chars.len()] as char)
                     .collect();
                 code
             })

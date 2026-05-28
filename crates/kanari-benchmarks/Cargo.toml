@@ -18,3 +18,5 @@ move-core-types = { workspace = true }
 kanari-crypto = { workspace = true }
 anyhow = { workspace = true }
 tempfile = { workspace = true }
+ed25519-dalek = { workspace = true }
+hex = { workspace = true }

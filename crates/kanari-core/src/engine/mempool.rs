@@ -12,6 +12,8 @@ impl BlockchainEngine {
             return Ok(Vec::new());
         }
 
+        // Early size check to avoid unnecessary work
+        let batch_size = signed_txs.len();
         let pending_count = match self.pending_txs.read() {
             Ok(guard) => guard.len(),
             Err(poisoned) => {
@@ -22,35 +24,42 @@ impl BlockchainEngine {
             }
         };
 
-        if pending_count.saturating_add(signed_txs.len()) > MAX_MEMPOOL_SIZE {
+        if pending_count.saturating_add(batch_size) > MAX_MEMPOOL_SIZE {
             log::warn!("[MEMPOOL] Rejecting batch: Queue would exceed max size");
             anyhow::bail!("Mempool is currently full. Please try again later.");
         }
 
-        let pending_hashes = self
-            .pending_tx_hashes
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
-        let mut pending_by_sender: std::collections::HashMap<String, u64> =
-            std::collections::HashMap::new();
+        // Read locks once and clone only what's needed
+        let (pending_hashes, pending_by_sender) = {
+            let pending_hashes = self
+                .pending_tx_hashes
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
 
-        let pending_snapshot = match self.pending_txs.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                log::error!(
-                    "Pending txs lock poisoned in submit_transactions_batch sequence scan, recovering..."
-                );
-                poisoned.into_inner()
+            // Build sender count map efficiently
+            let mut pending_by_sender: std::collections::HashMap<String, u64> =
+                std::collections::HashMap::with_capacity(pending_hashes.len() / 10);
+
+            let pending_snapshot = match self.pending_txs.read() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    log::error!(
+                        "Pending txs lock poisoned in submit_transactions_batch sequence scan, recovering..."
+                    );
+                    poisoned.into_inner()
+                }
+            };
+
+            for pending_tx in pending_snapshot.iter() {
+                let sender = Self::normalize_addr(pending_tx.transaction.sender_address());
+                *pending_by_sender.entry(sender).or_insert(0) += 1;
             }
+
+            (pending_hashes, pending_by_sender)
         };
 
-        for pending_tx in pending_snapshot.iter() {
-            let sender = Self::normalize_addr(pending_tx.transaction.sender_address());
-            *pending_by_sender.entry(sender).or_default() += 1;
-        }
-        drop(pending_snapshot);
-
+        // Parallel signature verification and metadata extraction
         let batch_metadata = signed_txs
             .par_iter()
             .map(
@@ -72,9 +81,10 @@ impl BlockchainEngine {
             )
             .collect::<Result<Vec<_>>>()?;
 
+        // Batch read account sequences to minimize state lock contention
         let base_sequences = {
             let state = self.state.read().unwrap_or_else(|e| e.into_inner());
-            let mut sequences = std::collections::HashMap::new();
+            let mut sequences = std::collections::HashMap::with_capacity(batch_metadata.len());
             for (_, sender, _, sender_addr) in &batch_metadata {
                 sequences.entry(sender.clone()).or_insert_with(|| {
                     state
@@ -86,6 +96,7 @@ impl BlockchainEngine {
             sequences
         };
 
+        // Check executed transactions in parallel
         let executed_hashes = {
             let chain = match self.blockchain.read() {
                 Ok(guard) => guard,
@@ -97,24 +108,31 @@ impl BlockchainEngine {
                 }
             };
 
-            let mut hashes = std::collections::HashSet::new();
-            if chain.has_executed_transactions() {
-                for (tx_hash, _, _, _) in &batch_metadata {
-                    if chain.is_transaction_hash_executed(tx_hash) {
-                        hashes.insert(tx_hash.clone());
-                    }
-                }
+            if !chain.has_executed_transactions() {
+                std::collections::HashSet::new()
+            } else {
+                use rayon::prelude::*;
+                batch_metadata
+                    .par_iter()
+                    .filter_map(|(tx_hash, _, _, _)| {
+                        if chain.is_transaction_hash_executed(tx_hash) {
+                            Some(tx_hash.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<std::collections::HashSet<_>>()
             }
-            hashes
         };
 
-        let mut batch_hashes = std::collections::HashSet::with_capacity(signed_txs.len());
+        // Validate sequence numbers and collect accepted hashes
+        let mut batch_hashes = std::collections::HashSet::with_capacity(batch_size);
         let mut next_sequence_by_sender = base_sequences;
         for (sender, pending_count) in pending_by_sender {
             *next_sequence_by_sender.entry(sender).or_insert(0) += pending_count;
         }
 
-        let mut accepted_hashes = Vec::with_capacity(signed_txs.len());
+        let mut accepted_hashes = Vec::with_capacity(batch_size);
         for (tx_hash, sender, tx_seq, _) in &batch_metadata {
             let tx_hash_hex = hex::encode(tx_hash);
 
@@ -136,9 +154,10 @@ impl BlockchainEngine {
             }
             if *tx_seq > *expected_seq {
                 anyhow::bail!(
-                    "Sequence number too high: expected {}, got {}",
+                    "Sequence number too high: expected {}, got {}, sender: {}",
                     expected_seq,
-                    tx_seq
+                    tx_seq,
+                    sender
                 );
             }
 
@@ -146,25 +165,31 @@ impl BlockchainEngine {
             accepted_hashes.push(tx_hash.clone());
         }
 
-        let mut pending = match self.pending_txs.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                log::error!(
-                    "Pending txs lock poisoned in submit_transactions_batch write, recovering..."
-                );
-                poisoned.into_inner()
-            }
-        };
+        // Write to mempool with minimal lock duration
+        {
+            let mut pending = match self.pending_txs.write() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    log::error!(
+                        "Pending txs lock poisoned in submit_transactions_batch write, recovering..."
+                    );
+                    poisoned.into_inner()
+                }
+            };
 
-        if pending.len().saturating_add(signed_txs.len()) > MAX_MEMPOOL_SIZE {
-            anyhow::bail!("Mempool is currently full. Please try again later.");
+            if pending.len().saturating_add(batch_size) > MAX_MEMPOOL_SIZE {
+                anyhow::bail!("Mempool is currently full. Please try again later.");
+            }
+
+            pending.extend(signed_txs);
         }
 
-        pending.extend(signed_txs);
+        // Update hash set separately to reduce lock contention
         self.pending_tx_hashes
             .write()
             .unwrap_or_else(|e| e.into_inner())
             .extend(accepted_hashes.iter().cloned());
+
         Ok(accepted_hashes)
     }
 
