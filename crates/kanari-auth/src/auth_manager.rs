@@ -267,7 +267,12 @@ impl AuthManager {
     /// let session = auth.login("user@example.com", "SecurePassword123!", None)?;
     ///
     /// // Create your transaction here
-    /// let tx = Transaction::Transfer { /* ... */ };
+    /// let tx = Transaction::new_transfer(
+    ///     session.wallet_address.clone(),
+    ///     "0x2".to_string(),
+    ///     1_000,
+    ///     0,
+    /// );
     /// let signed_tx = auth.sign_transaction(&session, tx)?;
     /// ```
     pub fn sign_transaction(
@@ -335,14 +340,16 @@ impl AuthManager {
     ) -> AuthResult<SignedTransaction> {
         let from = session.wallet_address.clone();
 
-        let transaction = Transaction::Transfer {
-            from,
-            to: to.to_string(),
-            amount,
-            gas_limit: gas_limit.unwrap_or(100_000),
-            gas_price: gas_price.unwrap_or(1_000),
-            sequence_number: 0, // Would need to fetch from chain
-        };
+        let mut transaction = Transaction::new_transfer(from, to.to_string(), amount, 0);
+        if let Transaction::ExecuteFunction {
+            gas_limit: tx_gas_limit,
+            gas_price: tx_gas_price,
+            ..
+        } = &mut transaction
+        {
+            *tx_gas_limit = gas_limit.unwrap_or(100_000);
+            *tx_gas_price = gas_price.unwrap_or(1_000);
+        }
 
         self.sign_transaction(session, transaction)
     }

@@ -12,7 +12,7 @@ pub use kanari_rpc_api::{AccountInfo, BlockData, BlockchainStats, FullBlockData,
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::event::Event;
 use kanari_types::gas_v2::{GasMeter, GasOperation};
-use kanari_types::transaction::{SignedTransaction, Transaction};
+use kanari_types::transaction::{NativeCall, SignedTransaction, Transaction};
 use log::{error, info, warn};
 use lru::LruCache;
 use move_core_types::{
@@ -511,6 +511,8 @@ impl BlockchainEngine {
         let mut gas_meter = GasMeter::new(tx.gas_limit(), tx.gas_price());
         let mut changeset = ChangeSet::new();
 
+        let native_call = tx.native_call();
+
         let (gas_op, required_amount) = match tx {
             Transaction::PublishModule { module_bytes, .. } => (
                 GasOperation::PublishModule {
@@ -519,10 +521,11 @@ impl BlockchainEngine {
                 0,
             ),
             Transaction::ExecuteFunction { .. } => {
-                (GasOperation::ExecuteFunction { complexity: 1 }, 0)
-            }
-            Transaction::Transfer { amount, .. } | Transaction::Burn { amount, .. } => {
-                (GasOperation::Transfer, *amount)
+                if let Some(native_call) = &native_call {
+                    (GasOperation::Transfer, native_call.required_native_amount())
+                } else {
+                    (GasOperation::ExecuteFunction { complexity: 1 }, 0)
+                }
             }
         };
 
@@ -596,6 +599,25 @@ impl BlockchainEngine {
                 args,
                 ..
             } => {
+                if let Some(native_call) = native_call {
+                    match native_call {
+                        NativeCall::TransferAmount { recipient, amount } => {
+                            let to_addr = KanariAddress::parse_to_account_address(&recipient)?;
+                            changeset.transfer(sender_addr, to_addr, amount);
+                        }
+                        NativeCall::BurnAmount { amount } => {
+                            changeset.burn(sender_addr, amount);
+                        }
+                    }
+                    Self::apply_gas_and_sequence(
+                        &mut changeset,
+                        sender_addr,
+                        gas_cost,
+                        gas_meter.gas_used,
+                    )?;
+                    return Ok(changeset);
+                }
+
                 let parts: Vec<&str> = module.split("::").collect();
                 if parts.len() != 2 {
                     changeset.mark_failed(
@@ -635,15 +657,6 @@ impl BlockchainEngine {
                         changeset.mark_failed(format!("Execution failed: {}", e));
                     }
                 }
-            }
-
-            Transaction::Transfer { to, amount, .. } => {
-                let to_addr = KanariAddress::parse_to_account_address(to)?;
-                changeset.transfer(sender_addr, to_addr, *amount);
-            }
-
-            Transaction::Burn { amount, .. } => {
-                changeset.burn(sender_addr, *amount);
             }
         }
 

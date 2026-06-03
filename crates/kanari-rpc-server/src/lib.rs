@@ -529,14 +529,17 @@ mod tests {
         let sender_tagged = sender.tagged_address();
         let recipient_address = recipient.address.clone();
 
-        let transaction = Transaction::Transfer {
-            from: sender_tagged.clone(),
-            to: recipient_address.clone(),
-            amount: 1,
-            gas_limit: 1_000_000,
-            gas_price: 1,
-            sequence_number: 0,
-        };
+        let mut transaction =
+            Transaction::new_transfer(sender_tagged.clone(), recipient_address.clone(), 1, 0);
+        if let Transaction::ExecuteFunction {
+            gas_limit,
+            gas_price,
+            ..
+        } = &mut transaction
+        {
+            *gas_limit = 1_000_000;
+            *gas_price = 1;
+        }
         let mut signed_tx = SignedTransaction::new(transaction);
         signed_tx
             .sign(&sender.private_key, sender.curve_type)

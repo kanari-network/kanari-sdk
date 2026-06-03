@@ -7,7 +7,7 @@ use crate::db::IndexerDB;
 use crate::models::IndexedCoin;
 use anyhow::{Context, Result};
 use chrono::Utc;
-use kanari_types::transaction::Transaction;
+use kanari_types::transaction::NativeCall;
 use kanari_types::{block::Block, kanari::KANARI_TOKEN_TYPE};
 use std::path::PathBuf;
 use tracing::{debug, error, info, warn};
@@ -87,13 +87,15 @@ impl Indexer {
                 let tx_hash = hex::encode(signed_tx.hash());
 
                 // Extract coin information from transaction payload
-                if let Transaction::Transfer { to, amount, .. } = &signed_tx.transaction {
+                if let Some(NativeCall::TransferAmount { recipient, amount }) =
+                    signed_tx.transaction.native_call()
+                {
                     // Create coin record for transfer
                     let coin = IndexedCoin {
                         id: format!("{}-{}", tx_hash, 0),
-                        owner: to.clone(),
+                        owner: recipient,
                         coin_type: KANARI_TOKEN_TYPE.to_string(),
-                        balance: *amount,
+                        balance: amount,
                         is_frozen: false,
                         created_tx_hash: Some(tx_hash.clone()),
                         last_updated_tx_hash: Some(tx_hash.clone()),

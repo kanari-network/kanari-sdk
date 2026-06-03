@@ -22,7 +22,12 @@
 //!     let session = auth.login("user@example.com", "SecurePassword123!", None)?;
 //!     
 //!     // Create and sign a transaction
-//!     let tx = Transaction::Transfer { /* ... */ };
+//!     let tx = Transaction::new_transfer(
+//!         session.wallet_address.clone(),
+//!         "0x2".to_string(),
+//!         1_000,
+//!         0,
+//!     );
 //!     let signed_tx = auth.sign_transaction(&session, tx)?;
 //!     
 //!     println!("Transaction signed!");

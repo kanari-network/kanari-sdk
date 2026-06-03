@@ -97,14 +97,12 @@ fn main() -> Result<()> {
     let mut transactions = Vec::new();
     let mut next_seq_num = 0;
     for i in 0..10 {
-        let tx = Transaction::Transfer {
-            from: sender_address.clone(), // Use the tagged address for the transaction
-            to: format!("0x{:064x}", i + 100),
-            amount: 1000 * (i + 1),
-            gas_limit: 100_000,
-            gas_price: 1000,
-            sequence_number: next_seq_num,
-        };
+        let tx = Transaction::new_transfer(
+            sender_address.clone(), // Use the tagged address for the transaction
+            format!("0x{:064x}", i + 100),
+            1000 * (i + 1),
+            next_seq_num,
+        );
         next_seq_num += 1;
 
         let mut signed_tx = SignedTransaction::new(tx);
@@ -135,14 +133,12 @@ fn main() -> Result<()> {
         if round > 0 {
             println!("   📝 Generating {} more transactions...", 5);
             for i in 0..5 {
-                let tx = Transaction::Transfer {
-                    from: sender_address.clone(),
-                    to: format!("0x{:064x}", round * 100 + i),
-                    amount: 2000 * (i + 1),
-                    gas_limit: 100_000,
-                    gas_price: 1000,
-                    sequence_number: next_seq_num, // Use next sequence number
-                };
+                let tx = Transaction::new_transfer(
+                    sender_address.clone(),
+                    format!("0x{:064x}", round * 100 + i),
+                    2000 * (i + 1),
+                    next_seq_num, // Use next sequence number
+                );
                 next_seq_num += 1;
 
                 let mut signed_tx = SignedTransaction::new(tx);
@@ -295,14 +291,7 @@ mod tests {
         let sender = keypair.tagged_address(); // Use tagged address
         let private_key = keypair.private_key.to_string();
 
-        let tx = Transaction::Transfer {
-            from: sender,
-            to: "0x999".to_string(),
-            amount: 5000,
-            gas_limit: 100_000,
-            gas_price: 1000,
-            sequence_number: 0,
-        };
+        let tx = Transaction::new_transfer(sender, "0x999".to_string(), 5000, 0);
 
         let mut signed_tx = SignedTransaction::new(tx);
         signed_tx.sign(&private_key, CurveType::Ed25519)?;

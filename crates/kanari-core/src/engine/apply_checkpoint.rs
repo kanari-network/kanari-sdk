@@ -12,6 +12,10 @@ use std::sync::{Arc, RwLock};
 impl BlockchainEngine {
     fn requires_runtime_side_effect_persistence(transactions: &[SignedTransaction]) -> bool {
         transactions.iter().any(|signed_tx| {
+            if signed_tx.transaction.is_native_balance_call() {
+                return false;
+            }
+
             matches!(
                 signed_tx.transaction,
                 kanari_types::transaction::Transaction::PublishModule { .. }

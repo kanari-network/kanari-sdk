@@ -781,14 +781,8 @@ mod tests {
     use super::*;
 
     fn round0_vertex(i: u64) -> DagVertex {
-        let transaction = Transaction::Transfer {
-            from: format!("sender{}", i),
-            to: "receiver".to_string(),
-            amount: i,
-            gas_limit: 1000,
-            gas_price: 1,
-            sequence_number: i,
-        };
+        let transaction =
+            Transaction::new_transfer(format!("sender{}", i), "receiver".to_string(), i, i);
         DagVertex::new_for_test(
             0,
             "auth1".to_string(),
@@ -848,14 +842,12 @@ mod tests {
     #[test]
     fn test_reject_duplicate_transaction_across_checkpoints() {
         let mut store = DagStore::new(vec!["auth1".to_string()]);
-        let tx = SignedTransaction::new(Transaction::Transfer {
-            from: "alice".to_string(),
-            to: "bob".to_string(),
-            amount: 1,
-            gas_limit: 1000,
-            gas_price: 1,
-            sequence_number: 1,
-        });
+        let tx = SignedTransaction::new(Transaction::new_transfer(
+            "alice".to_string(),
+            "bob".to_string(),
+            1,
+            1,
+        ));
         let vertex = DagVertex::new_for_test(
             0,
             "auth1".to_string(),
@@ -888,14 +880,12 @@ mod tests {
     #[test]
     fn test_pending_selection_removes_signed_transaction_already_committed_by_logical_hash() {
         let mut consensus = DagConsensus::new("auth1".to_string(), vec!["auth1".to_string()]);
-        let mut tx = SignedTransaction::new(Transaction::Transfer {
-            from: "alice".to_string(),
-            to: "bob".to_string(),
-            amount: 1,
-            gas_limit: 1000,
-            gas_price: 1,
-            sequence_number: 1,
-        });
+        let mut tx = SignedTransaction::new(Transaction::new_transfer(
+            "alice".to_string(),
+            "bob".to_string(),
+            1,
+            1,
+        ));
         tx.signature = vec![42];
 
         let vertex = DagVertex::new_for_test(
@@ -1187,22 +1177,18 @@ mod tests {
             "0x4".to_string(),
         ];
 
-        let leader_two_tx = SignedTransaction::new(Transaction::Transfer {
-            from: "0x2".to_string(),
-            to: "0x1".to_string(),
-            amount: 1,
-            gas_limit: 1000,
-            gas_price: 1,
-            sequence_number: 0,
-        });
-        let leader_three_tx = SignedTransaction::new(Transaction::Transfer {
-            from: "0x3".to_string(),
-            to: "0x1".to_string(),
-            amount: 1,
-            gas_limit: 1000,
-            gas_price: 1,
-            sequence_number: 0,
-        });
+        let leader_two_tx = SignedTransaction::new(Transaction::new_transfer(
+            "0x2".to_string(),
+            "0x1".to_string(),
+            1,
+            0,
+        ));
+        let leader_three_tx = SignedTransaction::new(Transaction::new_transfer(
+            "0x3".to_string(),
+            "0x1".to_string(),
+            1,
+            0,
+        ));
 
         let mut round_one_vertices = Vec::new();
         for authority in &authorities {
@@ -1477,14 +1463,12 @@ mod tests {
 
     #[test]
     fn test_checkpoint_hash_ignores_non_canonical_dag_metadata() {
-        let tx = SignedTransaction::new(Transaction::Transfer {
-            from: "alice".to_string(),
-            to: "bob".to_string(),
-            amount: 1,
-            gas_limit: 1000,
-            gas_price: 1,
-            sequence_number: 7,
-        });
+        let tx = SignedTransaction::new(Transaction::new_transfer(
+            "alice".to_string(),
+            "bob".to_string(),
+            1,
+            7,
+        ));
 
         let checkpoint_a = Checkpoint::new(
             1,
@@ -1511,14 +1495,12 @@ mod tests {
         let authorities = vec!["0x1".to_string()];
         let mut consensus = DagConsensus::new("0x1".to_string(), authorities);
 
-        let tx = SignedTransaction::new(Transaction::Transfer {
-            from: "0x1".to_string(),
-            to: "0x2".to_string(),
-            amount: 1,
-            gas_limit: 1000,
-            gas_price: 1,
-            sequence_number: 0,
-        });
+        let tx = SignedTransaction::new(Transaction::new_transfer(
+            "0x1".to_string(),
+            "0x2".to_string(),
+            1,
+            0,
+        ));
 
         let vertex = consensus
             .create_vertex(vec![tx.clone()], vec![9u8; 32], 1)

@@ -62,6 +62,27 @@ impl SignedTransaction {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NativeCall {
+    TransferAmount { recipient: String, amount: u64 },
+    BurnAmount { amount: u64 },
+}
+
+impl NativeCall {
+    pub fn tx_type_label(&self) -> &'static str {
+        match self {
+            Self::TransferAmount { .. } => "transfer",
+            Self::BurnAmount { .. } => "burn",
+        }
+    }
+
+    pub fn required_native_amount(&self) -> u64 {
+        match self {
+            Self::TransferAmount { amount, .. } | Self::BurnAmount { amount } => *amount,
+        }
+    }
+}
+
 /// Transaction types in Kanari blockchain
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Transaction {
@@ -85,26 +106,13 @@ pub enum Transaction {
         gas_price: u64,
         sequence_number: u64,
     },
-    /// Transfer coins
-    Transfer {
-        from: String,
-        to: String,
-        amount: u64,
-        gas_limit: u64,
-        gas_price: u64,
-        sequence_number: u64,
-    },
-    /// Burn coins (remove from total supply)
-    Burn {
-        from: String,
-        amount: u64,
-        gas_limit: u64,
-        gas_price: u64,
-        sequence_number: u64,
-    },
 }
 
 impl Transaction {
+    pub const KANARI_MODULE: &'static str = "0x2::kanari";
+    pub const TRANSFER_AMOUNT_FUNCTION: &'static str = "transfer_amount";
+    pub const BURN_AMOUNT_FUNCTION: &'static str = "burn_amount";
+
     pub fn hash(&self) -> Vec<u8> {
         let serialized = match bcs::to_bytes(self) {
             Ok(b) => b,
@@ -120,8 +128,6 @@ impl Transaction {
         match self {
             Transaction::PublishModule { sender, .. } => sender,
             Transaction::ExecuteFunction { sender, .. } => sender,
-            Transaction::Transfer { from, .. } => from,
-            Transaction::Burn { from, .. } => from,
         }
     }
 
@@ -137,12 +143,6 @@ impl Transaction {
             Transaction::ExecuteFunction {
                 sequence_number, ..
             } => *sequence_number,
-            Transaction::Transfer {
-                sequence_number, ..
-            } => *sequence_number,
-            Transaction::Burn {
-                sequence_number, ..
-            } => *sequence_number,
         }
     }
 
@@ -150,8 +150,6 @@ impl Transaction {
         match self {
             Transaction::PublishModule { gas_limit, .. } => *gas_limit,
             Transaction::ExecuteFunction { gas_limit, .. } => *gas_limit,
-            Transaction::Transfer { gas_limit, .. } => *gas_limit,
-            Transaction::Burn { gas_limit, .. } => *gas_limit,
         }
     }
 
@@ -159,8 +157,6 @@ impl Transaction {
         match self {
             Transaction::PublishModule { gas_price, .. } => *gas_price,
             Transaction::ExecuteFunction { gas_price, .. } => *gas_price,
-            Transaction::Transfer { gas_price, .. } => *gas_price,
-            Transaction::Burn { gas_price, .. } => *gas_price,
         }
     }
 
@@ -182,17 +178,6 @@ impl Transaction {
         let mut keys = vec![sender_norm];
 
         match self {
-            Transaction::Transfer { to, .. } => {
-                // 2. Force Normalize destination
-                let to_norm = if let Ok(addr) = AccountAddress::from_hex_literal(to) {
-                    addr.to_hex_literal()
-                } else if !to.starts_with("0x") {
-                    format!("0x{}", to)
-                } else {
-                    to.to_string()
-                };
-                keys.push(to_norm);
-            }
             Transaction::ExecuteFunction { args, .. } => {
                 for arg in args {
                     if arg.len() == 32
@@ -226,33 +211,144 @@ impl Transaction {
             Transaction::PublishModule { module_name, .. } => {
                 keys.push(module_name.clone());
             }
-            Transaction::Burn { .. } => {
-                // No additional action needed for Burn
-            }
         }
         keys
     }
 
+    pub fn native_call(&self) -> Option<NativeCall> {
+        let Transaction::ExecuteFunction {
+            module,
+            function,
+            args,
+            ..
+        } = self
+        else {
+            return None;
+        };
+
+        if module != Self::KANARI_MODULE {
+            return None;
+        }
+
+        match function.as_str() {
+            Self::TRANSFER_AMOUNT_FUNCTION if args.len() >= 2 => {
+                let amount = bcs::from_bytes::<u64>(&args[0]).ok()?;
+                let recipient = bcs::from_bytes::<String>(&args[1]).ok()?;
+                Some(NativeCall::TransferAmount { recipient, amount })
+            }
+            Self::BURN_AMOUNT_FUNCTION if !args.is_empty() => {
+                let amount = bcs::from_bytes::<u64>(&args[0]).ok()?;
+                Some(NativeCall::BurnAmount { amount })
+            }
+            _ => None,
+        }
+    }
+
+    pub fn is_native_balance_call(&self) -> bool {
+        self.native_call().is_some()
+    }
+
+    pub fn tx_type_label(&self) -> &'static str {
+        if let Some(native_call) = self.native_call() {
+            return native_call.tx_type_label();
+        }
+
+        match self {
+            Transaction::PublishModule { .. } => "publish_module",
+            Transaction::ExecuteFunction { .. } => "call",
+        }
+    }
+
     /// Create a transfer transaction with default gas settings
     pub fn new_transfer(from: String, to: String, amount: u64, sequence_number: u64) -> Self {
-        Self::Transfer {
-            from,
-            to,
-            amount,
-            gas_limit: 100_000, // Default gas limit
-            gas_price: 1000,    // Default gas price (1000 Mist)
+        Self::new_transfer_with_gas(from, to, amount, sequence_number, 100_000, 1000)
+    }
+
+    pub fn new_transfer_with_gas(
+        from: String,
+        to: String,
+        amount: u64,
+        sequence_number: u64,
+        gas_limit: u64,
+        gas_price: u64,
+    ) -> Self {
+        Self::ExecuteFunction {
+            sender: from,
+            module: Self::KANARI_MODULE.to_string(),
+            function: Self::TRANSFER_AMOUNT_FUNCTION.to_string(),
+            type_args: vec![],
+            args: vec![
+                bcs::to_bytes(&amount).unwrap_or_default(),
+                bcs::to_bytes(&to).unwrap_or_default(),
+            ],
+            gas_limit,
+            gas_price,
             sequence_number,
         }
     }
 
     /// Create a burn transaction with default gas settings
     pub fn new_burn(from: String, amount: u64, sequence_number: u64) -> Self {
-        Self::Burn {
-            from,
-            amount,
-            gas_limit: 100_000,
-            gas_price: 1000,
+        Self::new_burn_with_gas(from, amount, sequence_number, 100_000, 1000)
+    }
+
+    pub fn new_burn_with_gas(
+        from: String,
+        amount: u64,
+        sequence_number: u64,
+        gas_limit: u64,
+        gas_price: u64,
+    ) -> Self {
+        Self::ExecuteFunction {
+            sender: from,
+            module: Self::KANARI_MODULE.to_string(),
+            function: Self::BURN_AMOUNT_FUNCTION.to_string(),
+            type_args: vec![],
+            args: vec![bcs::to_bytes(&amount).unwrap_or_default()],
+            gas_limit,
+            gas_price,
             sequence_number,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transfer_helper_builds_native_execute_function() {
+        let tx = Transaction::new_transfer("0x1".to_string(), "0x2".to_string(), 42, 7);
+
+        match &tx {
+            Transaction::ExecuteFunction {
+                module,
+                function,
+                sequence_number,
+                ..
+            } => {
+                assert_eq!(module, Transaction::KANARI_MODULE);
+                assert_eq!(function, Transaction::TRANSFER_AMOUNT_FUNCTION);
+                assert_eq!(*sequence_number, 7);
+            }
+            Transaction::PublishModule { .. } => panic!("transfer helper must build a call"),
+        }
+
+        assert_eq!(
+            tx.native_call(),
+            Some(NativeCall::TransferAmount {
+                recipient: "0x2".to_string(),
+                amount: 42,
+            })
+        );
+        assert_eq!(tx.tx_type_label(), "transfer");
+    }
+
+    #[test]
+    fn burn_helper_builds_native_execute_function() {
+        let tx = Transaction::new_burn("0x1".to_string(), 9, 3);
+
+        assert_eq!(tx.native_call(), Some(NativeCall::BurnAmount { amount: 9 }));
+        assert_eq!(tx.tx_type_label(), "burn");
     }
 }

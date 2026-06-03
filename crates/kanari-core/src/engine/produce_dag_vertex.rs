@@ -523,14 +523,12 @@ mod tests {
         let engine_a = Arc::new(engine_a);
         let dag_a = DagEngine::new(engine_a, "0x1".to_string(), authorities.clone()).unwrap();
 
-        let tx = SignedTransaction::new(Transaction::Transfer {
-            from: "0x1".to_string(),
-            to: "0x2".to_string(),
-            amount: 1,
-            gas_limit: 1000,
-            gas_price: 1,
-            sequence_number: 0,
-        });
+        let tx = SignedTransaction::new(Transaction::new_transfer(
+            "0x1".to_string(),
+            "0x2".to_string(),
+            1,
+            0,
+        ));
         dag_a
             .engine
             .pending_txs
@@ -573,14 +571,12 @@ mod tests {
         let source_dag =
             DagEngine::new(source_engine, "0x1".to_string(), authorities.clone()).unwrap();
 
-        let tx = SignedTransaction::new(Transaction::Transfer {
-            from: "0x1".to_string(),
-            to: "0x2".to_string(),
-            amount: 1,
-            gas_limit: 1000,
-            gas_price: 1,
-            sequence_number: 0,
-        });
+        let tx = SignedTransaction::new(Transaction::new_transfer(
+            "0x1".to_string(),
+            "0x2".to_string(),
+            1,
+            0,
+        ));
         source_dag
             .engine
             .pending_txs
@@ -623,14 +619,12 @@ mod tests {
         let source_dag =
             DagEngine::new(source_engine, "0x1".to_string(), authorities.clone()).unwrap();
 
-        let mut tx = SignedTransaction::new(Transaction::Transfer {
-            from: "0x1".to_string(),
-            to: "0x2".to_string(),
-            amount: 1,
-            gas_limit: 1000,
-            gas_price: 1,
-            sequence_number: 0,
-        });
+        let mut tx = SignedTransaction::new(Transaction::new_transfer(
+            "0x1".to_string(),
+            "0x2".to_string(),
+            1,
+            0,
+        ));
         tx.signature = vec![1];
         source_dag
             .engine
@@ -673,14 +667,12 @@ mod tests {
         )
         .unwrap();
 
-        let tx = SignedTransaction::new(Transaction::Transfer {
-            from: "0x1".to_string(),
-            to: "0x2".to_string(),
-            amount: 1,
-            gas_limit: 1000,
-            gas_price: 1,
-            sequence_number: 0,
-        });
+        let tx = SignedTransaction::new(Transaction::new_transfer(
+            "0x1".to_string(),
+            "0x2".to_string(),
+            1,
+            0,
+        ));
 
         let prev_hash = {
             let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
