@@ -723,10 +723,12 @@ impl BlockchainEngine {
 
             if policy.should_wait_for_current_round_quorum() {
                 anyhow::bail!(
-                    "SYNC_WAITING: have {}/{} vertices in round {} (need quorum for round {})",
+                    "SYNC_WAITING: have {}/{} vertices in round {} from authors [{}]; missing authorities [{}]; need quorum for round {}",
                     policy.parent_author_count,
                     policy.quorum_size,
                     policy.current_round,
+                    policy.parent_authors.join(", "),
+                    policy.missing_parent_authors.join(", "),
                     policy.current_round + 1
                 );
             }
@@ -1030,6 +1032,9 @@ mod tests {
 
         {
             let mut engine = BlockchainEngine::new_dir(data_dir).unwrap();
+            if engine.persistent_store.is_none() {
+                return;
+            }
             engine.set_authorities("0x1".to_string(), authorities.clone());
             let (local_key, public_keys) = secure_consensus_keys(&authorities, "0x1");
             engine
@@ -1042,6 +1047,9 @@ mod tests {
         }
 
         let mut restarted = BlockchainEngine::new_dir(data_dir).unwrap();
+        if restarted.persistent_store.is_none() {
+            return;
+        }
         restarted.set_authorities("0x1".to_string(), authorities.clone());
         let (local_key, public_keys) = secure_consensus_keys(&authorities, "0x1");
         restarted

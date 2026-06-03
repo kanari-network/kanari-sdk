@@ -54,6 +54,22 @@ pub struct SyncManager {
 }
 
 impl SyncManager {
+    fn divergence_kind(
+        local_checkpoint_hash: &str,
+        local_state_root: &str,
+        peer_info: &PeerInfoMsg,
+    ) -> Option<&'static str> {
+        let checkpoint_mismatch = peer_info.latest_checkpoint_hash != local_checkpoint_hash;
+        let state_root_mismatch = peer_info.latest_state_root != local_state_root;
+
+        match (checkpoint_mismatch, state_root_mismatch) {
+            (true, true) => Some("checkpoint-history-and-state-root"),
+            (true, false) => Some("checkpoint-history"),
+            (false, true) => Some("state-root"),
+            (false, false) => None,
+        }
+    }
+
     fn checkpoint_buffer_guard(
         &self,
     ) -> std::sync::MutexGuard<'_, BTreeMap<u64, VecDeque<BufferedCheckpointCandidate>>> {
@@ -237,8 +253,8 @@ impl SyncManager {
         }
     }
 
-    pub fn broadcast_latest_dag_vertices(&self, reason: &str) {
-        let vertices = match self.engine.latest_own_dag_vertices(16) {
+    pub fn broadcast_latest_dag_vertices(&self, limit: usize, reason: &str) {
+        let vertices = match self.engine.latest_own_dag_vertices(limit) {
             Ok(vertices) => vertices,
             Err(e) => {
                 warn!("Failed to load latest DAG vertices for rebroadcast: {}", e);
@@ -884,19 +900,20 @@ impl SyncManager {
         }
 
         if peer_info.height == stats.height {
-            if peer_info.latest_state_root != local_state_root {
+            if let Some(kind) =
+                Self::divergence_kind(&local_checkpoint_hash, &local_state_root, &peer_info)
+            {
                 warn!(
-                    "[SYNC] Diverged state detected with peer {} at height {}. local_state_root={}, peer_state_root={}",
-                    peer_info.peer_id, stats.height, local_state_root, peer_info.latest_state_root
-                );
-                self.mark_peer_divergent(&peer_info);
-            } else if peer_info.latest_checkpoint_hash != local_checkpoint_hash {
-                warn!(
-                    "[SYNC] Diverged checkpoint history detected with peer {} at height {}. local_checkpoint_hash={}, peer_checkpoint_hash={}",
+                    "[SYNC] Diverged state detected with peer {} at height {} (kind={}). local_checkpoint_hash={}, peer_checkpoint_hash={}, local_state_root={}, peer_state_root={}, local_txs={}, peer_txs={}",
                     peer_info.peer_id,
                     stats.height,
+                    kind,
                     local_checkpoint_hash,
-                    peer_info.latest_checkpoint_hash
+                    peer_info.latest_checkpoint_hash,
+                    local_state_root,
+                    peer_info.latest_state_root,
+                    stats.total_transactions,
+                    peer_info.total_transactions
                 );
                 self.mark_peer_divergent(&peer_info);
             } else if peer_info.peer_id != self.local_peer_id {
@@ -916,11 +933,13 @@ impl SyncManager {
             .cloned()
         {
             warn!(
-                "[SYNC] Peer {} remains quarantined due to divergent history at height {} (checkpoint={}, state_root={}).",
+                "[SYNC] Peer {} remains quarantined due to divergent history at height {} (peer_checkpoint={}, peer_state_root={}). Local checkpoint={}, local_state_root={}.",
                 peer_info.peer_id,
                 divergence.height,
                 divergence.latest_checkpoint_hash,
-                divergence.latest_state_root
+                divergence.latest_state_root,
+                local_checkpoint_hash,
+                local_state_root
             );
             return;
         }
@@ -1016,7 +1035,7 @@ impl SyncManager {
         });
 
         self.send_network_message(msg, "Failed to broadcast peer info");
-        self.broadcast_latest_dag_vertices("during peer info broadcast");
+        self.broadcast_latest_dag_vertices(4, "during peer info broadcast");
     }
 
     /// Index a committed checkpoint using the indexer via its materialized block view.

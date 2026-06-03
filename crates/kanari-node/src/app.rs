@@ -535,7 +535,7 @@ pub async fn run_node(
                         if stats.pending_transactions > 0 {
                             idle_delay = Duration::from_millis(250);
                         }
-                        sync_manager.broadcast_latest_dag_vertices("while waiting for quorum");
+                        sync_manager.broadcast_latest_dag_vertices(16, "while waiting for quorum");
                     } else if !error_text.contains("DAG not ready") {
                         tracing::error!("Block production failed: {}", e);
                     }

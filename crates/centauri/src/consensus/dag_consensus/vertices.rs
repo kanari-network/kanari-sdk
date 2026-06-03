@@ -179,28 +179,31 @@ impl DagConsensus {
             .len();
         let quorum_size = self.quorum_threshold();
 
-        let (parent_round, target_round, parent_ids, parent_author_count, using_catch_up_round) =
+        let (parent_round, target_round, parent_ids, parent_authors, using_catch_up_round) =
             if current_round > 0
                 && !local_has_vertex_in_current_round
                 && current_round_parent_author_count < quorum_size
             {
                 let catch_up_parent_round = current_round.saturating_sub(1);
                 let parent_ids = self.store.get_vertex_ids_in_round(catch_up_parent_round);
-                let parent_author_count = parent_ids
+                let parent_authors = parent_ids
                     .iter()
                     .filter_map(|parent_id| self.store.get_vertex(parent_id))
                     .map(|vertex| vertex.author.clone())
-                    .collect::<HashSet<_>>()
-                    .len();
+                    .collect::<HashSet<_>>();
 
                 (
                     catch_up_parent_round,
                     current_round,
                     parent_ids,
-                    parent_author_count,
+                    parent_authors,
                     true,
                 )
             } else {
+                let parent_authors = current_round_vertices
+                    .iter()
+                    .map(|vertex| vertex.author.clone())
+                    .collect::<HashSet<_>>();
                 (
                     current_round,
                     current_round + 1,
@@ -208,17 +211,29 @@ impl DagConsensus {
                         .iter()
                         .map(|vertex| vertex.id)
                         .collect(),
-                    current_round_parent_author_count,
+                    parent_authors,
                     false,
                 )
             };
+        let mut parent_authors: Vec<_> = parent_authors.into_iter().collect();
+        parent_authors.sort();
+        let mut missing_parent_authors: Vec<_> = self
+            .committee
+            .validators
+            .keys()
+            .filter(|authority| !parent_authors.contains(authority))
+            .cloned()
+            .collect();
+        missing_parent_authors.sort();
 
         DagProductionPolicy {
             current_round,
             parent_round,
             target_round,
             parent_ids,
-            parent_author_count,
+            parent_author_count: parent_authors.len(),
+            parent_authors,
+            missing_parent_authors,
             quorum_size,
             local_has_vertex_in_current_round,
             using_catch_up_round,

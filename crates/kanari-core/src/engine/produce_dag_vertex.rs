@@ -6,7 +6,7 @@
 
 use anyhow::Result;
 use centauri::consensus::{DagConsensus, DagNetworkVertexAction, DagPendingSelection};
-use log::{error, info};
+use log::{error, info, warn};
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
@@ -100,15 +100,24 @@ impl DagEngine {
             blockchain.enable_dag_mode();
         }
 
-        // Load persisted DAG state if it exists
-        if let Some(dag_state) = &engine.persisted_dag_state {
-            let (blockchain_checkpoint_seq, blockchain_checkpoint_hash) = {
-                let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+        let blockchain_checkpoints = Self::blockchain_checkpoints(&engine);
+        let (blockchain_checkpoint_seq, blockchain_checkpoint_hash) =
+            if let Some(checkpoint) = blockchain_checkpoints.last() {
+                (checkpoint.sequence, checkpoint.hash()?)
+            } else {
+                let genesis = centauri::consensus::Checkpoint::genesis();
                 (
-                    chain.latest_checkpoint().sequence,
-                    chain.latest_checkpoint().hash()?,
+                    genesis.sequence,
+                    genesis
+                        .hash()
+                        .expect("genesis checkpoint hash should be infallible"),
                 )
             };
+
+        // Load persisted DAG state if it exists, then force its checkpoint lineage to
+        // match the canonical blockchain. This keeps restart recovery from reusing a
+        // stale consensus checkpoint history after the blockchain has advanced.
+        if let Some(dag_state) = &engine.persisted_dag_state {
             let dag_checkpoint_seq = dag_state
                 .checkpoints
                 .last()
@@ -125,25 +134,43 @@ impl DagEngine {
                         .expect("genesis checkpoint hash should be infallible")
                 });
 
+            let mut dag_state = dag_state.clone();
             if dag_checkpoint_seq != blockchain_checkpoint_seq {
-                error!(
-                    "Persisted DAG state checkpoint sequence ({}) does not match blockchain ({}) - ignoring stale DAG state.",
+                warn!(
+                    "Persisted DAG state checkpoint sequence ({}) does not match blockchain ({}). Rebuilding DAG checkpoint lineage from blockchain.",
                     dag_checkpoint_seq, blockchain_checkpoint_seq
                 );
+                Self::reconcile_dag_state_checkpoints(&mut dag_state, &blockchain_checkpoints);
             } else if dag_checkpoint_hash != blockchain_checkpoint_hash {
-                error!(
-                    "Persisted DAG state checkpoint hash ({}) does not match blockchain ({}), ignoring stale DAG state.",
+                warn!(
+                    "Persisted DAG state checkpoint hash ({}) does not match blockchain ({}). Rebuilding DAG checkpoint lineage from blockchain.",
                     hex::encode(dag_checkpoint_hash),
-                    hex::encode(blockchain_checkpoint_hash)
+                    hex::encode(&blockchain_checkpoint_hash)
                 );
-            } else if let Err(e) = consensus.load_state(dag_state.clone()) {
+                Self::reconcile_dag_state_checkpoints(&mut dag_state, &blockchain_checkpoints);
+            }
+
+            if let Err(e) = consensus.load_state(dag_state.clone()) {
                 error!(
                     "Failed to load persisted DAG state: {}. Creating fresh state.",
                     e
                 );
             } else {
-                info!("Successfully loaded persisted DAG state.");
+                info!(
+                    "Successfully loaded DAG state aligned to blockchain checkpoint {}.",
+                    blockchain_checkpoint_seq
+                );
+                engine.persist_dag_state(consensus.save_state()?)?;
             }
+        } else if blockchain_checkpoint_seq > 0 {
+            let mut dag_state = consensus.save_state()?;
+            Self::reconcile_dag_state_checkpoints(&mut dag_state, &blockchain_checkpoints);
+            consensus.load_state(dag_state)?;
+            engine.persist_dag_state(consensus.save_state()?)?;
+            info!(
+                "Rebuilt DAG checkpoint lineage from blockchain at checkpoint {}.",
+                blockchain_checkpoint_seq
+            );
         }
 
         Ok(Self {
@@ -151,6 +178,23 @@ impl DagEngine {
             consensus: Arc::new(RwLock::new(consensus)),
             authority_id,
         })
+    }
+
+    fn blockchain_checkpoints(engine: &BlockchainEngine) -> Vec<centauri::consensus::Checkpoint> {
+        let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+        chain.dag_checkpoints.iter().cloned().collect()
+    }
+
+    fn reconcile_dag_state_checkpoints(
+        dag_state: &mut centauri::consensus::PersistentDagState,
+        blockchain_checkpoints: &[centauri::consensus::Checkpoint],
+    ) {
+        if blockchain_checkpoints.is_empty() {
+            return;
+        }
+
+        dag_state.checkpoints = blockchain_checkpoints.to_vec();
+        dag_state.last_checkpoint_round = dag_state.current_round;
     }
     /// Produce a DAG vertex with pending transactions
     pub fn produce_vertex(&self) -> Result<DagBlockInfo> {
@@ -505,14 +549,8 @@ mod tests {
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .compute_state_root();
-        let canonical = centauri::consensus::Checkpoint::new(
-            1,
-            vec![],
-            vec![],
-            canonical_root,
-            1,
-            prev_hash,
-        );
+        let canonical =
+            centauri::consensus::Checkpoint::new(1, vec![], vec![], canonical_root, 1, prev_hash);
         engine.apply_checkpoint(canonical).unwrap();
 
         let stale_catch_up = centauri::consensus::Checkpoint::new(
@@ -531,6 +569,70 @@ mod tests {
 
         assert_eq!(resolved.sequence, 1);
         assert_eq!(engine.get_stats().height, 1);
+    }
+
+    #[test]
+    fn test_restart_rebuilds_stale_dag_checkpoint_lineage_from_blockchain() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().to_str().unwrap();
+        let authorities = vec![
+            "auth1".to_string(),
+            "auth2".to_string(),
+            "auth3".to_string(),
+            "auth4".to_string(),
+        ];
+
+        {
+            let engine = BlockchainEngine::new_dir(path).unwrap();
+            if engine.persistent_store.is_none() {
+                return;
+            }
+            let prev_hash = {
+                let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+                chain.latest_checkpoint().hash().unwrap()
+            };
+            let canonical_root = engine
+                .state
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .compute_state_root();
+            let canonical = centauri::consensus::Checkpoint::new(
+                1,
+                vec![],
+                vec![],
+                canonical_root,
+                1,
+                prev_hash,
+            );
+            engine.apply_checkpoint(canonical).unwrap();
+
+            engine
+                .persist_dag_state(centauri::consensus::PersistentDagState {
+                    vertices: vec![],
+                    checkpoints: vec![centauri::consensus::Checkpoint::genesis()],
+                    current_round: 7,
+                    last_checkpoint_round: 7,
+                })
+                .unwrap();
+        }
+
+        let restarted = Arc::new(BlockchainEngine::new_dir(path).unwrap());
+        if restarted.persistent_store.is_none() {
+            return;
+        }
+        assert_eq!(restarted.get_stats().height, 1);
+
+        let dag_engine =
+            DagEngine::new(restarted.clone(), "auth1".to_string(), authorities).unwrap();
+        let consensus = dag_engine.consensus();
+        let consensus = consensus.read().unwrap_or_else(|e| e.into_inner());
+        let latest = consensus.latest_checkpoint();
+
+        assert_eq!(latest.sequence, 1);
+        assert_eq!(
+            hex::encode(latest.hash().unwrap()),
+            restarted.latest_checkpoint_hash_hex()
+        );
     }
 
     #[test]

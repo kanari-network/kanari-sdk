@@ -497,6 +497,8 @@ pub struct DagProductionPolicy {
     pub parent_round: Round,
     pub target_round: Round,
     pub parent_ids: Vec<VertexId>,
+    pub parent_authors: Vec<AuthorityId>,
+    pub missing_parent_authors: Vec<AuthorityId>,
     pub parent_author_count: usize,
     pub quorum_size: usize,
     pub local_has_vertex_in_current_round: bool,
@@ -1299,6 +1301,11 @@ mod tests {
         assert_eq!(policy.parent_round, 1);
         assert_eq!(policy.target_round, 2);
         assert!(policy.local_has_vertex_in_current_round);
+        assert_eq!(policy.parent_authors, vec!["0x1".to_string()]);
+        assert_eq!(
+            policy.missing_parent_authors,
+            vec!["0x2".to_string(), "0x3".to_string()]
+        );
         assert!(policy.should_wait_for_current_round_quorum());
     }
 
