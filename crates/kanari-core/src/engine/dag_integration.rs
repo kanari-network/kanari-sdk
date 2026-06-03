@@ -135,10 +135,12 @@ impl DagConsensusIntegration {
             .clone();
         let state_arc = Arc::new(RwLock::new(state_clone));
 
-        let (executed_count, failed_count) = self
-            .engine
-            .execute_tx_waves_parallel(all_to_execute, &state_arc, Some(timestamp), false, true)
-            .unwrap_or((0, 0));
+        let (executed_count, failed_count) = self.engine.execute_tx_waves_deterministic_parallel(
+            all_to_execute,
+            &state_arc,
+            Some(timestamp),
+            false,
+        )?;
 
         let state_root = match state_arc.write() {
             Ok(guard) => guard.compute_state_root(),
@@ -197,16 +199,12 @@ impl DagConsensusIntegration {
             .clone();
         let state_arc = Arc::new(RwLock::new(state_clone));
 
-        let (executed_count, failed_count) = self
-            .engine
-            .execute_tx_waves_parallel(
-                all_to_execute,
-                &state_arc,
-                Some(vertex.timestamp),
-                false,
-                true,
-            )
-            .unwrap_or((0, 0));
+        let (executed_count, failed_count) = self.engine.execute_tx_waves_deterministic_parallel(
+            all_to_execute,
+            &state_arc,
+            Some(vertex.timestamp),
+            false,
+        )?;
 
         let state_root = match state_arc.write() {
             Ok(guard) => guard.compute_state_root(),

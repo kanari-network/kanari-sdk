@@ -50,7 +50,7 @@ pub struct CheckpointSyncData {
 pub type ExecutionResult = Result<(Vec<u8>, ChangeSet)>;
 pub type ParallelTxResult = (SignedTransaction, ExecutionResult);
 
-const MAX_MEMPOOL_SIZE: usize = 50_000;
+const MAX_MEMPOOL_SIZE: usize = 1_000_000;
 
 /// Complete blockchain engine with Move VM integration
 pub struct BlockchainEngine {
@@ -238,7 +238,8 @@ impl BlockchainEngine {
             .collect()
     }
 
-    pub(crate) fn execute_tx_waves_parallel(
+    #[cfg(test)]
+    fn execute_tx_waves_parallel(
         &self,
         transactions: Vec<SignedTransaction>,
         state_arc: &Arc<RwLock<StateManager>>,
@@ -246,13 +247,49 @@ impl BlockchainEngine {
         persist_objects: bool,
         strict_mode: bool,
     ) -> Result<(usize, usize)> {
+        self.execute_tx_waves_parallel_inner(
+            transactions,
+            state_arc,
+            timestamp,
+            persist_objects,
+            strict_mode,
+            strict_mode,
+        )
+    }
+
+    pub(crate) fn execute_tx_waves_deterministic_parallel(
+        &self,
+        transactions: Vec<SignedTransaction>,
+        state_arc: &Arc<RwLock<StateManager>>,
+        timestamp: Option<u64>,
+        persist_objects: bool,
+    ) -> Result<(usize, usize)> {
+        self.execute_tx_waves_parallel_inner(
+            transactions,
+            state_arc,
+            timestamp,
+            persist_objects,
+            false,
+            true,
+        )
+    }
+
+    fn execute_tx_waves_parallel_inner(
+        &self,
+        transactions: Vec<SignedTransaction>,
+        state_arc: &Arc<RwLock<StateManager>>,
+        timestamp: Option<u64>,
+        persist_objects: bool,
+        serial_execution: bool,
+        fail_hard: bool,
+    ) -> Result<(usize, usize)> {
         let mut executed_count = 0;
         let mut failed_count = 0;
         let has_module_publish = transactions
             .iter()
             .any(|tx| matches!(tx.transaction, Transaction::PublishModule { .. }));
 
-        if strict_mode {
+        if serial_execution {
             if has_module_publish {
                 self.runtime_pool[0].reload_vm_cache()?;
             }
@@ -333,40 +370,69 @@ impl BlockchainEngine {
                     .collect()
             };
 
-            // Apply changesets with proper error handling to prevent node crashes
-            let mut state_write = match state_arc.write() {
-                Ok(guard) => guard,
-                Err(poisoned) => {
-                    log::error!("State lock poisoned during wave execution, recovering...");
-                    poisoned.into_inner()
-                }
-            };
+            if fail_hard {
+                let mut wave_changeset = ChangeSet::new();
+                let mut wave_executed = 0usize;
 
-            for res in results {
-                match res {
-                    Ok(cs) => {
-                        if persist_objects {
-                            let runtime = &self.runtime_pool[0];
-                            runtime.persist_created_objects(&cs);
-                            runtime.persist_deleted_objects(&cs);
-                        }
+                for res in results {
+                    let cs = res.map_err(|e| anyhow::anyhow!("Execution failed: {}", e))?;
 
-                        if let Err(e) = state_write.apply_changeset(&cs) {
-                            if strict_mode {
-                                anyhow::bail!("Failed to apply changeset: {}", e);
-                            }
-                            log::warn!("apply_changeset failed: {}", e);
-                            failed_count += 1;
-                        } else {
-                            executed_count += 1;
-                        }
+                    if persist_objects {
+                        let runtime = &self.runtime_pool[0];
+                        runtime.persist_created_objects(&cs);
+                        runtime.persist_deleted_objects(&cs);
                     }
-                    Err(e) => {
-                        if strict_mode {
-                            anyhow::bail!("Execution failed: {}", e);
+
+                    wave_changeset.merge(cs);
+                    wave_executed += 1;
+                }
+
+                if wave_executed == 0 {
+                    continue;
+                }
+
+                let mut state_write = match state_arc.write() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => {
+                        log::error!("State lock poisoned during wave execution, recovering...");
+                        poisoned.into_inner()
+                    }
+                };
+
+                state_write
+                    .apply_changeset_without_supply_validation(&wave_changeset)
+                    .map_err(|e| anyhow::anyhow!("Failed to apply changeset: {}", e))?;
+                executed_count += wave_executed;
+            } else {
+                // Apply changesets with proper error handling to prevent node crashes
+                let mut state_write = match state_arc.write() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => {
+                        log::error!("State lock poisoned during wave execution, recovering...");
+                        poisoned.into_inner()
+                    }
+                };
+
+                for res in results {
+                    match res {
+                        Ok(cs) => {
+                            if persist_objects {
+                                let runtime = &self.runtime_pool[0];
+                                runtime.persist_created_objects(&cs);
+                                runtime.persist_deleted_objects(&cs);
+                            }
+
+                            if let Err(e) = state_write.apply_changeset(&cs) {
+                                log::warn!("apply_changeset failed: {}", e);
+                                failed_count += 1;
+                            } else {
+                                executed_count += 1;
+                            }
                         }
-                        log::warn!("Parallel execution failed: {}", e);
-                        failed_count += 1;
+                        Err(e) => {
+                            log::warn!("Parallel execution failed: {}", e);
+                            failed_count += 1;
+                        }
                     }
                 }
             }
@@ -804,9 +870,13 @@ impl BlockchainEngine {
 mod tests {
     use super::BlockchainEngine;
     use kanari_crypto::keys::{CurveType, generate_keypair};
+    use kanari_move_runtime_v1::state::Account;
+    use kanari_types::balance::BalanceRecord;
+    use kanari_types::kanari::KANARI_TOKEN_TYPE;
     use kanari_types::transaction::{SignedTransaction, Transaction};
+    use move_core_types::account_address::AccountAddress;
     use std::collections::BTreeMap;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex, RwLock};
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -826,6 +896,18 @@ mod tests {
             .sign(&sender.private_key, sender.curve_type)
             .unwrap();
         signed_tx
+    }
+
+    fn fund_sender(engine: &BlockchainEngine, address: &str, balance: u64) {
+        let addr = AccountAddress::from_hex_literal(address).unwrap();
+        let mut account = Account::with_native_balance(addr, balance);
+        account.set_token_balance(KANARI_TOKEN_TYPE.to_string(), BalanceRecord::new(balance));
+        engine
+            .state
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .save_account(&account)
+            .unwrap();
     }
 
     fn secure_consensus_keys(
@@ -969,5 +1051,52 @@ mod tests {
         let err = engine.submit_transactions_batch(vec![tx]).unwrap_err();
 
         assert!(err.to_string().contains("Sequence number too high"));
+    }
+
+    #[test]
+    fn deterministic_parallel_execution_matches_strict_serial_root() {
+        let engine = BlockchainEngine::new_in_memory().unwrap();
+        let mut txs = Vec::new();
+
+        for _ in 0..16 {
+            let sender = generate_keypair(CurveType::Ed25519).unwrap();
+            let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+            fund_sender(&engine, &sender.address, 1_000_000);
+
+            let tx =
+                Transaction::new_transfer(sender.tagged_address(), recipient.address.clone(), 1, 0);
+            let mut signed_tx = SignedTransaction::new(tx);
+            signed_tx
+                .sign(&sender.private_key, sender.curve_type)
+                .unwrap();
+            txs.push(signed_tx);
+        }
+
+        let base_state = engine
+            .state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let strict_state = Arc::new(RwLock::new(base_state.clone()));
+        let parallel_state = Arc::new(RwLock::new(base_state));
+
+        let strict_counts = engine
+            .execute_tx_waves_parallel(txs.clone(), &strict_state, Some(123), false, true)
+            .unwrap();
+        let parallel_counts = engine
+            .execute_tx_waves_deterministic_parallel(txs, &parallel_state, Some(123), false)
+            .unwrap();
+
+        let strict_root = strict_state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .compute_state_root();
+        let parallel_root = parallel_state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .compute_state_root();
+
+        assert_eq!(strict_counts, parallel_counts);
+        assert_eq!(strict_root, parallel_root);
     }
 }

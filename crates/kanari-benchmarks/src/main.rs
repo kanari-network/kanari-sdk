@@ -3,7 +3,8 @@
 
 use anyhow::{Context, Result, bail};
 use kanari_core::{BlockInfo, BlockchainEngine};
-use kanari_crypto::keys::{CurveType, generate_keypair};
+use kanari_crypto::hash_data_blake3;
+use kanari_crypto::keys::{CurveType, KeyPair, keypair_from_private_key};
 use kanari_types::balance::BalanceRecord;
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use kanari_types::transaction::{SignedTransaction, Transaction};
@@ -11,6 +12,9 @@ use move_core_types::account_address::AccountAddress;
 use std::fmt;
 use std::time::Instant;
 use tempfile::TempDir;
+
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum HarnessMode {
@@ -340,6 +344,23 @@ fn execute_parallel(
     })
 }
 
+fn deterministic_sender_keypair(index: usize) -> Result<KeyPair> {
+    let mut seed_material = Vec::with_capacity(24);
+    seed_material.extend_from_slice(b"kanari-bench-sender");
+    seed_material.extend_from_slice(&(index as u64).to_le_bytes());
+    let seed = hash_data_blake3(&seed_material);
+    let private_key = format!("kanari{}", hex::encode(seed));
+    keypair_from_private_key(&private_key, CurveType::Ed25519)
+        .map_err(|e| anyhow::anyhow!("failed to derive deterministic sender keypair: {}", e))
+}
+
+fn deterministic_recipient_address(index: usize) -> String {
+    let mut seed_material = Vec::with_capacity(27);
+    seed_material.extend_from_slice(b"kanari-bench-recipient");
+    seed_material.extend_from_slice(&(index as u64).to_le_bytes());
+    format!("0x{}", hex::encode(hash_data_blake3(&seed_material)))
+}
+
 fn run_harness(config: &HarnessConfig) -> Result<HarnessReport> {
     eprintln!(
         "Kanari benchmarks: creating engine and preparing {} txs in {} mode",
@@ -350,13 +371,10 @@ fn run_harness(config: &HarnessConfig) -> Result<HarnessReport> {
     let temp_dir = tempfile::Builder::new().prefix("kanari_tps").tempdir()?;
     let engine = prepare_engine(&temp_dir)?;
 
-    eprintln!("Generating keypairs and transactions...");
+    eprintln!("Deriving deterministic benchmark senders...");
     let senders: Vec<_> = (0..config.tx_count)
-        .map(|_| generate_keypair(CurveType::Ed25519).expect("key generation should succeed"))
-        .collect();
-    let recipients: Vec<_> = (0..config.tx_count)
-        .map(|_| generate_keypair(CurveType::Ed25519).expect("key generation should succeed"))
-        .collect();
+        .map(deterministic_sender_keypair)
+        .collect::<Result<Vec<_>>>()?;
     let sender_addresses: Vec<_> = senders.iter().map(|kp| kp.address.clone()).collect();
 
     eprintln!("Funding accounts...");
@@ -365,10 +383,14 @@ fn run_harness(config: &HarnessConfig) -> Result<HarnessReport> {
     eprintln!("Signing transactions...");
     let signed_txs: Vec<_> = senders
         .iter()
-        .zip(recipients.iter())
-        .map(|(sender, recipient)| {
-            let tx =
-                Transaction::new_transfer(sender.tagged_address(), recipient.address.clone(), 1, 0);
+        .enumerate()
+        .map(|(index, sender)| {
+            let tx = Transaction::new_transfer(
+                sender.tagged_address(),
+                deterministic_recipient_address(index),
+                1,
+                0,
+            );
             let mut signed_tx = SignedTransaction::new(tx);
             signed_tx
                 .sign(&sender.private_key, sender.curve_type)

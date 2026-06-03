@@ -492,6 +492,7 @@ pub async fn run_node(
         }
 
         let mut did_work = false;
+        let mut idle_delay = Duration::from_secs(1);
 
         if stats.pending_transactions > 0 || engine.should_produce_dag_progress() {
             match engine.produce_block() {
@@ -571,6 +572,9 @@ pub async fn run_node(
                         || error_text.contains("Not enough parents for quorum")
                     {
                         tracing::info!("Block production waiting: {}", error_text);
+                        if stats.pending_transactions > 0 {
+                            idle_delay = Duration::from_millis(250);
+                        }
                         rebroadcast_latest_dag_vertex(&engine, &network_tx, &peer_id);
                     } else if !error_text.contains("DAG not ready") {
                         tracing::error!("Block production failed: {}", e);
@@ -585,7 +589,7 @@ pub async fn run_node(
                     log_shutdown();
                     break;
                 }
-                _ = sleep(Duration::from_secs(1)) => {}
+                _ = sleep(idle_delay) => {}
             }
         } else if tokio::time::timeout(Duration::from_millis(1), tokio::signal::ctrl_c())
             .await

@@ -135,6 +135,7 @@ impl StateManager {
         let mut index = self.load_index_list(key)?;
         if !index.contains(&value) {
             index.push(value);
+            index.sort();
             self.save_index_list(key, &index)?;
         }
         Ok(())
@@ -713,8 +714,32 @@ impl StateManager {
     }
 
     pub fn save_account(&mut self, account: &Account) -> Result<()> {
-        self.save_internal(&Self::account_key(&account.address), account)?;
+        self.save_account_record(account)?;
         self.add_to_index_list(ACCOUNT_INDEX_KEY, account.address.to_hex_literal())
+    }
+
+    fn save_account_record(&mut self, account: &Account) -> Result<()> {
+        self.save_internal(&Self::account_key(&account.address), account)
+    }
+
+    fn add_many_to_index_list<I>(&mut self, key: &[u8], values: I) -> Result<()>
+    where
+        I: IntoIterator<Item = String>,
+    {
+        let existing = self.load_index_list(key)?;
+        let mut index: BTreeSet<String> = existing.into_iter().collect();
+        let mut changed = false;
+
+        for value in values {
+            changed |= index.insert(value);
+        }
+
+        if changed {
+            let sorted = index.into_iter().collect::<Vec<_>>();
+            self.save_index_list(key, &sorted)?;
+        }
+
+        Ok(())
     }
 
     fn load_account_addresses(&self) -> Result<Vec<AccountAddress>> {
@@ -942,9 +967,37 @@ impl StateManager {
     /// Apply ChangeSet from Move VM execution
     /// This is the ONLY way to modify state - all changes must come from Move VM
     pub fn apply_changeset(&mut self, changeset: &ChangeSet) -> Result<()> {
+        self.apply_changeset_with_options(changeset, true)
+    }
+
+    pub fn apply_changeset_without_supply_validation(
+        &mut self,
+        changeset: &ChangeSet,
+    ) -> Result<()> {
+        self.apply_changeset_with_options(changeset, false)
+    }
+
+    fn needs_object_locked_reconciliation(changeset: &ChangeSet) -> bool {
+        !changeset.treasuries.is_empty()
+            || !changeset.token_balance_sets.is_empty()
+            || !changeset.created_objects.is_empty()
+            || !changeset.deleted_objects.is_empty()
+    }
+
+    fn apply_changeset_with_options(
+        &mut self,
+        changeset: &ChangeSet,
+        validate_supply: bool,
+    ) -> Result<()> {
         let mut supply_delta: i64 = 0;
         let mut supplies_dirty = false;
-        let token_types_before = self.supply_tracking_token_types(changeset);
+        let mut account_index_additions = Vec::with_capacity(changeset.account_changes.len());
+        let reconcile_object_locked = Self::needs_object_locked_reconciliation(changeset);
+        let token_types_before = if reconcile_object_locked {
+            self.supply_tracking_token_types(changeset)
+        } else {
+            BTreeSet::new()
+        };
         let mut issued_before = BTreeMap::new();
         let mut visible_before = BTreeMap::new();
         for token_type in token_types_before {
@@ -985,12 +1038,15 @@ impl StateManager {
             for module_name in &change.modules_added {
                 account.add_module(module_name.clone());
             }
-            self.save_account(&account)?;
+            self.save_account_record(&account)?;
+            account_index_additions.push(account.address.to_hex_literal());
             if self.adjust_global_supplies_for_account_delta(&old_balances, &account.token_balances)
             {
                 supplies_dirty = true;
             }
         }
+
+        self.add_many_to_index_list(ACCOUNT_INDEX_KEY, account_index_additions)?;
 
         // Update total supply if there was mint/burn (supply_delta != 0)
         if supply_delta != 0 {
@@ -1160,7 +1216,9 @@ impl StateManager {
             }
         }
 
-        self.reconcile_object_locked_coin_records(changeset, &issued_before, &visible_before)?;
+        if reconcile_object_locked {
+            self.reconcile_object_locked_coin_records(changeset, &issued_before, &visible_before)?;
+        }
 
         if supplies_dirty {
             let supplies_clone = self.global_token_supplies.clone();
@@ -1181,7 +1239,7 @@ impl StateManager {
             self.overlay.insert(df_key, None);
         }
 
-        if let Err(e) = self.validate_supply_invariants() {
+        if validate_supply && let Err(e) = self.validate_supply_invariants() {
             Self::report_supply_invariant_violation("after apply_changeset", &e);
         }
 
