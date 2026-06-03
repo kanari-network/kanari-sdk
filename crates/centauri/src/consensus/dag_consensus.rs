@@ -1,15 +1,15 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Mysticeti DAG consensus implementation.
+//! Kanari DAG consensus with Mysticeti-inspired commit geometry.
 //!
 //! This module implements a Directed Acyclic Graph consensus mechanism that separates:
 //! - Data Availability (DA): Broadcasting and storing transaction data
 //! - Ordering: Determining the total order of transactions
 //!
-//! The committer follows Mysticeti's strict quorum, three-round wave, pipelined
-//! multi-leader commit geometry while retaining Kanari's local vertex, checkpoint,
-//! execution, and networking types.
+//! The committer uses Mysticeti-style strict quorum, three-round decision depth,
+//! and deterministic multi-leader selection while retaining Kanari's local vertex,
+//! checkpoint, execution, and networking types.
 //!
 //! This design enables:
 //! - High throughput through parallel block production

@@ -257,7 +257,13 @@ impl DagConsensusIntegration {
         checkpoint: centauri::consensus::Checkpoint,
         log_prefix: &str,
     ) -> Result<centauri::consensus::Checkpoint> {
+        let already_finalized = self.engine.get_stats().height >= checkpoint.sequence;
         let checkpoint = self.apply_checkpoint_once(checkpoint, log_prefix, true)?;
+
+        if already_finalized {
+            self.reconcile_consensus_to_finalized_chain()?;
+            return Ok(checkpoint);
+        }
 
         {
             let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
@@ -265,6 +271,31 @@ impl DagConsensusIntegration {
         }
         self.persist_consensus_state()?;
         Ok(checkpoint)
+    }
+
+    fn reconcile_consensus_to_finalized_chain(&self) -> Result<()> {
+        let checkpoints = {
+            let chain = self
+                .engine
+                .blockchain
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
+            chain.dag_checkpoints.iter().cloned().collect::<Vec<_>>()
+        };
+
+        if checkpoints.len() <= 1 {
+            return Ok(());
+        }
+
+        {
+            let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
+            let mut state = consensus.save_state()?;
+            state.checkpoints = checkpoints;
+            state.last_checkpoint_round = state.current_round;
+            consensus.load_state(state)?;
+        }
+
+        self.persist_consensus_state()
     }
 
     pub(crate) fn apply_checkpoint_once(

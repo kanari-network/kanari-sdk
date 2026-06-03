@@ -1,7 +1,9 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::p2p::{CheckpointRequestMsg, CheckpointResponseMsg, P2PMessage, PeerInfoMsg};
+use crate::p2p::{
+    CheckpointRequestMsg, CheckpointResponseMsg, DagVertexMsg, P2PMessage, PeerInfoMsg,
+};
 use centauri::consensus::DagVertex;
 use kanari_core::{BlockchainEngine, CheckpointSyncData};
 use kanari_types::transaction::SignedTransaction;
@@ -231,6 +233,49 @@ impl SyncManager {
             Err(e) => {
                 error!("{}: {}", context, e);
                 false
+            }
+        }
+    }
+
+    pub fn broadcast_latest_dag_vertices(&self, reason: &str) {
+        let vertices = match self.engine.latest_own_dag_vertices(16) {
+            Ok(vertices) => vertices,
+            Err(e) => {
+                warn!("Failed to load latest DAG vertices for rebroadcast: {}", e);
+                return;
+            }
+        };
+
+        if vertices.is_empty() {
+            return;
+        }
+
+        let nonce_base = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+
+        for vertex in vertices {
+            let Ok(vertex_data) = serde_json::to_string(&vertex) else {
+                warn!(
+                    "Failed to serialize DAG vertex {} for rebroadcast",
+                    hex::encode(vertex.id)
+                );
+                continue;
+            };
+
+            let msg = P2PMessage::DagVertexRebroadcast(DagVertexMsg {
+                vertex_data,
+                nonce: nonce_base ^ vertex.round,
+                sender_peer_id: self.local_peer_id.clone(),
+            });
+            if self.send_network_message(msg, "Failed to queue DAG vertex rebroadcast") {
+                info!(
+                    "Rebroadcasting DAG vertex {} (round {}) {}",
+                    hex::encode(vertex.id),
+                    vertex.round,
+                    reason
+                );
             }
         }
     }
@@ -971,6 +1016,7 @@ impl SyncManager {
         });
 
         self.send_network_message(msg, "Failed to broadcast peer info");
+        self.broadcast_latest_dag_vertices("during peer info broadcast");
     }
 
     /// Index a committed checkpoint using the indexer via its materialized block view.

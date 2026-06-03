@@ -486,6 +486,54 @@ mod tests {
     }
 
     #[test]
+    fn test_finalize_checkpoint_ignores_already_finalized_catch_up_checkpoint() {
+        let engine = Arc::new(BlockchainEngine::new().unwrap());
+        let authorities = vec![
+            "auth1".to_string(),
+            "auth2".to_string(),
+            "auth3".to_string(),
+            "auth4".to_string(),
+        ];
+        let dag_engine = DagEngine::new(engine.clone(), "auth1".to_string(), authorities).unwrap();
+
+        let prev_hash = {
+            let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            chain.latest_checkpoint().hash().unwrap()
+        };
+        let canonical_root = engine
+            .state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .compute_state_root();
+        let canonical = centauri::consensus::Checkpoint::new(
+            1,
+            vec![],
+            vec![],
+            canonical_root,
+            1,
+            prev_hash,
+        );
+        engine.apply_checkpoint(canonical).unwrap();
+
+        let stale_catch_up = centauri::consensus::Checkpoint::new(
+            1,
+            vec![],
+            vec![],
+            vec![9u8; 32],
+            99,
+            vec![7u8; 32],
+        );
+
+        let resolved = dag_engine
+            .integration()
+            .finalize_checkpoint(stale_catch_up, "[TEST]")
+            .unwrap();
+
+        assert_eq!(resolved.sequence, 1);
+        assert_eq!(engine.get_stats().height, 1);
+    }
+
+    #[test]
     fn test_partial_round_allows_safe_catch_up_vertex() {
         let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
 

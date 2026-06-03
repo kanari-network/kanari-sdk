@@ -749,6 +749,10 @@ impl BlockchainEngine {
     }
 
     pub fn should_produce_dag_progress(&self) -> bool {
+        if self.consensus_signing_key.is_none() {
+            return false;
+        }
+
         let dag_engine_guard = match self.dag_engine.read() {
             Ok(guard) => guard,
             Err(poisoned) => {
@@ -759,9 +763,17 @@ impl BlockchainEngine {
             }
         };
 
-        dag_engine_guard
-            .as_ref()
-            .is_some_and(|dag_engine| dag_engine.needs_progress())
+        if let Some(dag_engine) = dag_engine_guard.as_ref() {
+            return dag_engine.needs_progress();
+        }
+        drop(dag_engine_guard);
+
+        self.dag_engine_instance()
+            .map(|dag_engine| dag_engine.needs_progress())
+            .unwrap_or_else(|e| {
+                log::warn!("Failed to initialize DAG engine for progress check: {}", e);
+                false
+            })
     }
 
     fn clone_for_dag(&self) -> BlockchainEngine {
@@ -1008,6 +1020,36 @@ mod tests {
         let block = engine.produce_block().unwrap();
 
         assert_eq!(block.round, 1);
+    }
+
+    #[test]
+    fn restarted_engine_detects_persisted_dag_progress_before_pending_txs() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let data_dir = temp_dir.path().to_str().unwrap();
+        let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
+
+        {
+            let mut engine = BlockchainEngine::new_dir(data_dir).unwrap();
+            engine.set_authorities("0x1".to_string(), authorities.clone());
+            let (local_key, public_keys) = secure_consensus_keys(&authorities, "0x1");
+            engine
+                .set_consensus_signing_key(local_key, public_keys)
+                .unwrap();
+
+            let block = engine.produce_block().unwrap();
+            assert_eq!(block.round, 1);
+            assert_eq!(block.tx_count, 0);
+        }
+
+        let mut restarted = BlockchainEngine::new_dir(data_dir).unwrap();
+        restarted.set_authorities("0x1".to_string(), authorities.clone());
+        let (local_key, public_keys) = secure_consensus_keys(&authorities, "0x1");
+        restarted
+            .set_consensus_signing_key(local_key, public_keys)
+            .unwrap();
+
+        assert_eq!(restarted.get_stats().pending_transactions, 0);
+        assert!(restarted.should_produce_dag_progress());
     }
 
     #[test]
