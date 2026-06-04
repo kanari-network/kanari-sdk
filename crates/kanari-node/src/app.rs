@@ -18,7 +18,7 @@ use tokio::time::sleep;
 
 use crate::NetworkMode;
 use crate::indexer::NodeIndexer;
-use crate::p2p::{DagVertexMsg, P2PEventHandler, P2PMessage, P2PNetwork};
+use crate::p2p::{P2PEventHandler, P2PMessage, P2PNetwork};
 use crate::peer_store::PeerStore;
 use crate::sync::SyncManager;
 
@@ -191,46 +191,6 @@ fn serialize_and_queue_message<T: Serialize>(
         Err(e) => {
             tracing::error!("{}: {}", serialize_context, e);
             None
-        }
-    }
-}
-
-fn rebroadcast_latest_dag_vertex(
-    engine: &Arc<BlockchainEngine>,
-    network_tx: &tokio::sync::mpsc::UnboundedSender<P2PMessage>,
-    peer_id: &str,
-) {
-    let vertices = match engine.latest_own_dag_vertices(16) {
-        Ok(vertices) => vertices,
-        Err(e) => {
-            tracing::warn!("Failed to load latest DAG vertices for rebroadcast: {}", e);
-            return;
-        }
-    };
-
-    if vertices.is_empty() {
-        return;
-    }
-
-    let nonce_base = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64;
-
-    for vertex in vertices {
-        if let Ok(vertex_data) = serde_json::to_string(&vertex) {
-            let msg = P2PMessage::DagVertexRebroadcast(DagVertexMsg {
-                vertex_data,
-                nonce: nonce_base ^ vertex.round,
-                sender_peer_id: peer_id.to_string(),
-            });
-            if queue_network_message(network_tx, msg, "Failed to queue DAG vertex rebroadcast") {
-                tracing::info!(
-                    "Rebroadcasting DAG vertex {} (round {}) while waiting for quorum",
-                    hex::encode(vertex.id),
-                    vertex.round
-                );
-            }
         }
     }
 }
@@ -492,6 +452,7 @@ pub async fn run_node(
         }
 
         let mut did_work = false;
+        let mut idle_delay = Duration::from_secs(1);
 
         if stats.pending_transactions > 0 || engine.should_produce_dag_progress() {
             match engine.produce_block() {
@@ -571,7 +532,10 @@ pub async fn run_node(
                         || error_text.contains("Not enough parents for quorum")
                     {
                         tracing::info!("Block production waiting: {}", error_text);
-                        rebroadcast_latest_dag_vertex(&engine, &network_tx, &peer_id);
+                        if stats.pending_transactions > 0 {
+                            idle_delay = Duration::from_millis(250);
+                        }
+                        sync_manager.broadcast_latest_dag_vertices(16, "while waiting for quorum");
                     } else if !error_text.contains("DAG not ready") {
                         tracing::error!("Block production failed: {}", e);
                     }
@@ -585,7 +549,7 @@ pub async fn run_node(
                     log_shutdown();
                     break;
                 }
-                _ = sleep(Duration::from_secs(1)) => {}
+                _ = sleep(idle_delay) => {}
             }
         } else if tokio::time::timeout(Duration::from_millis(1), tokio::signal::ctrl_c())
             .await

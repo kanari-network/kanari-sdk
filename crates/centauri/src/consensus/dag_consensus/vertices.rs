@@ -54,25 +54,50 @@ impl DagConsensus {
         &self,
         plan: &DagProductionPlan,
         pending: &[SignedTransaction],
-        mut is_externally_executed: F,
+        is_externally_executed: F,
     ) -> DagPendingSelection
     where
-        F: FnMut(&[u8]) -> bool,
+        F: Fn(&[u8]) -> bool + Send + Sync,
     {
-        let mut included = Vec::new();
-        let mut remove_hashes = Vec::new();
+        use rayon::prelude::*;
+        use std::sync::Arc;
 
-        for tx in pending.iter().take(500_000) {
-            let hash = logical_tx_hash(tx);
+        // Wrap the closure in Arc for thread-safe sharing
+        let is_executed_fn = Arc::new(is_externally_executed);
 
-            if plan.history_tx_hashes.contains(&hash) {
-                continue;
+        // Process transactions in parallel and collect results
+        let results: Vec<(Option<SignedTransaction>, Option<Vec<u8>>)> = pending
+            .par_iter()
+            .take(500_000)
+            .map(|tx| {
+                let hash = logical_tx_hash(tx);
+
+                // Skip if already in history
+                if plan.history_tx_hashes.contains(&hash) {
+                    return (None, None);
+                }
+
+                // Check if executed
+                let is_executed = self.has_executed_transaction(&hash) || is_executed_fn(&hash);
+
+                if is_executed {
+                    (None, Some(hash))
+                } else {
+                    (Some(tx.clone()), None)
+                }
+            })
+            .collect();
+
+        // Separate included and remove_hashes with pre-allocated vectors
+        let mut included = Vec::with_capacity(results.len() / 2);
+        let mut remove_hashes = Vec::with_capacity(results.len() / 4);
+
+        for (tx_opt, hash_opt) in results {
+            if let Some(tx) = tx_opt {
+                included.push(tx);
             }
-
-            if self.has_executed_transaction(&hash) || is_externally_executed(&hash) {
+            if let Some(hash) = hash_opt {
                 remove_hashes.push(hash);
-            } else {
-                included.push(tx.clone());
             }
         }
 
@@ -154,28 +179,31 @@ impl DagConsensus {
             .len();
         let quorum_size = self.quorum_threshold();
 
-        let (parent_round, target_round, parent_ids, parent_author_count, using_catch_up_round) =
+        let (parent_round, target_round, parent_ids, parent_authors, using_catch_up_round) =
             if current_round > 0
                 && !local_has_vertex_in_current_round
                 && current_round_parent_author_count < quorum_size
             {
                 let catch_up_parent_round = current_round.saturating_sub(1);
                 let parent_ids = self.store.get_vertex_ids_in_round(catch_up_parent_round);
-                let parent_author_count = parent_ids
+                let parent_authors = parent_ids
                     .iter()
                     .filter_map(|parent_id| self.store.get_vertex(parent_id))
                     .map(|vertex| vertex.author.clone())
-                    .collect::<HashSet<_>>()
-                    .len();
+                    .collect::<HashSet<_>>();
 
                 (
                     catch_up_parent_round,
                     current_round,
                     parent_ids,
-                    parent_author_count,
+                    parent_authors,
                     true,
                 )
             } else {
+                let parent_authors = current_round_vertices
+                    .iter()
+                    .map(|vertex| vertex.author.clone())
+                    .collect::<HashSet<_>>();
                 (
                     current_round,
                     current_round + 1,
@@ -183,17 +211,29 @@ impl DagConsensus {
                         .iter()
                         .map(|vertex| vertex.id)
                         .collect(),
-                    current_round_parent_author_count,
+                    parent_authors,
                     false,
                 )
             };
+        let mut parent_authors: Vec<_> = parent_authors.into_iter().collect();
+        parent_authors.sort();
+        let mut missing_parent_authors: Vec<_> = self
+            .committee
+            .validators
+            .keys()
+            .filter(|authority| !parent_authors.contains(authority))
+            .cloned()
+            .collect();
+        missing_parent_authors.sort();
 
         DagProductionPolicy {
             current_round,
             parent_round,
             target_round,
             parent_ids,
-            parent_author_count,
+            parent_author_count: parent_authors.len(),
+            parent_authors,
+            missing_parent_authors,
             quorum_size,
             local_has_vertex_in_current_round,
             using_catch_up_round,

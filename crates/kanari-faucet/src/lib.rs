@@ -131,14 +131,12 @@ pub async fn request_from_dev(
             .context("Failed to derive public key from wallet")?;
     let sender_for_tx = keypair.tagged_address();
 
-    let tx = Transaction::Transfer {
-        from: sender_for_tx.clone(),
-        to: recipient.clone(),
-        amount: amount_mist,
-        gas_limit: 100_000,
-        gas_price: 1000,
-        sequence_number: account.sequence_number,
-    };
+    let tx = Transaction::new_transfer(
+        sender_for_tx.clone(),
+        recipient.clone(),
+        amount_mist,
+        account.sequence_number,
+    );
 
     let mut signed_tx = SignedTransaction::new(tx);
     signed_tx

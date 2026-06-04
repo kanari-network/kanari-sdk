@@ -135,12 +135,7 @@ impl IndexerDB {
         for signed_tx in transactions {
             let tx_hash = hex::encode(signed_tx.hash());
             let sender = signed_tx.transaction.sender().to_string();
-            let tx_type = match &signed_tx.transaction {
-                Transaction::PublishModule { .. } => "publish_module",
-                Transaction::ExecuteFunction { .. } => "execute_function",
-                Transaction::Transfer { .. } => "transfer",
-                Transaction::Burn { .. } => "burn",
-            };
+            let tx_type = signed_tx.transaction.tx_type_label();
 
             let signature = hex::encode(&signed_tx.signature);
             let raw_data = bcs::to_bytes(&signed_tx.transaction).ok();

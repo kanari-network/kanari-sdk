@@ -10,7 +10,7 @@ use kanari_rpc_api::{
     ViewFunctionRequest,
 };
 use kanari_types::address::Address;
-use kanari_types::transaction::{SignedTransaction, Transaction};
+use kanari_types::transaction::{NativeCall, SignedTransaction, Transaction};
 use move_binary_format::CompiledModule;
 use std::collections::HashSet;
 use tracing::{error, info};
@@ -80,14 +80,11 @@ fn tx_matches_account(tx: &Transaction, account_norm: Option<&str>) -> bool {
         return true;
     };
 
-    match tx {
-        Transaction::PublishModule { sender, .. }
-        | Transaction::ExecuteFunction { sender, .. }
-        | Transaction::Burn { from: sender, .. } => normalize_addr(sender) == acct,
-        Transaction::Transfer { from, to, .. } => {
-            normalize_addr(from) == acct || normalize_addr(to) == acct
-        }
+    if let Some(NativeCall::TransferAmount { recipient, .. }) = tx.native_call() {
+        return normalize_addr(tx.sender()) == acct || normalize_addr(&recipient) == acct;
     }
+
+    normalize_addr(tx.sender()) == acct
 }
 
 fn push_unique_tx_details(
@@ -246,7 +243,7 @@ fn map_transaction_to_details(
                 hash,
                 status_str,
                 block_height,
-                "call",
+                tx.tx_type_label(),
                 sender.clone(),
                 *sequence_number,
                 *gas_limit,
@@ -255,45 +252,11 @@ fn map_transaction_to_details(
             details.module = Some(module.clone());
             details.function = Some(function.clone());
             details.module_functions = lookup_module_functions(state, module);
+            if let Some(NativeCall::TransferAmount { recipient, .. }) = tx.native_call() {
+                details.module = Some(format!("To: {}", recipient));
+            }
             details
         }
-        Transaction::Transfer {
-            from,
-            to,
-            sequence_number,
-            gas_limit,
-            gas_price,
-            ..
-        } => {
-            let mut details = base_transaction_details(
-                hash,
-                status_str,
-                block_height,
-                "transfer",
-                from.clone(),
-                *sequence_number,
-                *gas_limit,
-                *gas_price,
-            );
-            details.module = Some(format!("To: {}", to));
-            details
-        }
-        Transaction::Burn {
-            from,
-            sequence_number,
-            gas_limit,
-            gas_price,
-            ..
-        } => base_transaction_details(
-            hash,
-            status_str,
-            block_height,
-            "burn",
-            from.clone(),
-            *sequence_number,
-            *gas_limit,
-            *gas_price,
-        ),
     }
 }
 
@@ -488,14 +451,14 @@ pub async fn handle_submit_transaction(
                 Err(response) => return *response,
             };
 
-            Transaction::Transfer {
-                from: tx_data.sender.clone(),
-                to: recipient.to_string(),
+            Transaction::new_transfer_with_gas(
+                tx_data.sender.clone(),
+                recipient.to_string(),
                 amount,
-                gas_limit: tx_data.gas_limit,
-                gas_price: tx_data.gas_price,
-                sequence_number: tx_data.sequence_number,
-            }
+                tx_data.sequence_number,
+                tx_data.gas_limit,
+                tx_data.gas_price,
+            )
         } else if let (None, Some(amount)) = (&tx_data.recipient, tx_data.amount) {
             let system_addr =
                 Address::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS).unwrap_or(Address::ZERO);
@@ -509,13 +472,13 @@ pub async fn handle_submit_transaction(
                 );
             }
 
-            Transaction::Burn {
-                from: tx_data.sender.clone(),
+            Transaction::new_burn_with_gas(
+                tx_data.sender.clone(),
                 amount,
-                gas_limit: tx_data.gas_limit,
-                gas_price: tx_data.gas_price,
-                sequence_number: tx_data.sequence_number,
-            }
+                tx_data.sequence_number,
+                tx_data.gas_limit,
+                tx_data.gas_price,
+            )
         } else {
             return invalid_params_response(
                 request.id,

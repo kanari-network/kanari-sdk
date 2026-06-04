@@ -1,11 +1,11 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Mysticeti consensus protocol parameters.
+//! Mysticeti-style consensus protocol parameters.
 //!
-//! This mirrors Mysticeti's protocol and commit semantics: user-facing protocol
-//! selection is converted into concrete thresholds and round geometry used by
-//! the existing DAG committer.
+//! User-facing protocol selection is converted into concrete thresholds and
+//! round geometry used by Kanari's DAG committer. This is not a full port of
+//! Mysticeti's runtime, storage, skip, or direct/indirect leader-status model.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};

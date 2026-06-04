@@ -1,4 +1,4 @@
-use centauri::consensus::{AdaptiveQuorumConfig, DagConsensus, NetworkHealth, ShardId, ShardedDag};
+use centauri::consensus::{AdaptiveQuorumConfig, DagConsensus, NetworkHealth};
 
 fn four_authorities() -> Vec<String> {
     vec![
@@ -11,16 +11,6 @@ fn four_authorities() -> Vec<String> {
 
 fn single_authority() -> Vec<String> {
     vec!["auth1".to_string()]
-}
-
-fn routing_key_for_target(dag: &ShardedDag, target: ShardId) -> Vec<u8> {
-    for candidate in 0u32..10_000 {
-        let key = format!("integration-route-key-{candidate}");
-        if dag.route_payload(key.as_bytes()) == target {
-            return key.into_bytes();
-        }
-    }
-    panic!("failed to find routing key for target shard {target}");
 }
 
 fn advance_consensus_to_checkpoint_one(consensus: &mut DagConsensus) {
@@ -62,50 +52,21 @@ fn blackbox_consensus_state_roundtrip_preserves_progress_and_allows_further_comm
 }
 
 #[test]
-fn blackbox_sharded_cross_shard_delivery_uses_latest_checkpoint_context() {
-    let mut source = ShardedDag::new(0, 2, "auth1".to_string(), single_authority()).unwrap();
-    let mut target = ShardedDag::new(1, 2, "auth1".to_string(), single_authority()).unwrap();
+fn blackbox_adaptive_quorum_changes_threshold_and_can_be_reverted() {
+    let mut consensus = DagConsensus::new("auth1".to_string(), four_authorities());
+    let static_quorum = consensus.committee().required_quorum();
 
-    advance_consensus_to_checkpoint_one(source.local_dag_mut());
-    let source_checkpoint = source.local_dag().latest_checkpoint();
-    let routing_key = routing_key_for_target(&source, 1);
-
-    source
-        .submit_payload(&routing_key, b"blackbox-cross-shard".to_vec())
-        .unwrap();
-    let drained = source.drain_outbound_for(1);
-    assert_eq!(drained.len(), 1);
-
-    let message = drained.into_iter().next().unwrap();
-    assert_eq!(
-        message.proof.checkpoint_sequence,
-        source_checkpoint.sequence
-    );
-    assert_eq!(
-        message.proof.checkpoint_hash,
-        source_checkpoint.hash().unwrap()
-    );
-
-    target.receive_message(message.clone()).unwrap();
-    assert_eq!(target.pop_inbound(), Some(message));
-}
-
-#[test]
-fn blackbox_adaptive_quorum_changes_sharded_dag_threshold_and_can_be_reverted() {
-    let mut dag = ShardedDag::new(0, 2, "auth1".to_string(), four_authorities()).unwrap();
-    let static_quorum = dag.local_dag().committee().required_quorum();
-
-    dag.enable_adaptive_quorum(AdaptiveQuorumConfig::default());
-    dag.update_network_health(NetworkHealth {
+    consensus.enable_adaptive_quorum(AdaptiveQuorumConfig::default());
+    consensus.update_network_health(NetworkHealth {
         connectivity_ratio: 0.30,
         delivery_success_ratio: 0.40,
         timeout_ratio: 0.50,
         median_latency_ms: 4_000,
     });
 
-    let elevated_quorum = dag.local_dag().committee().required_quorum();
+    let elevated_quorum = consensus.committee().required_quorum();
     assert!(elevated_quorum > static_quorum);
 
-    dag.local_dag_mut().disable_adaptive_quorum();
-    assert_eq!(dag.local_dag().committee().required_quorum(), static_quorum);
+    consensus.disable_adaptive_quorum();
+    assert_eq!(consensus.committee().required_quorum(), static_quorum);
 }

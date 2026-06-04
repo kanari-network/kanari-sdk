@@ -46,13 +46,6 @@ pub use committee::{
     AdaptiveQuorum, AdaptiveQuorumConfig, Committee, NetworkHealth, ValidatorInfo,
 };
 
-// Cross-shard DAG communication
-mod sharding;
-pub use sharding::{
-    AtomicCommitPhase, AtomicCommitPlan, AtomicCommitVote, CrossShardDispatch, CrossShardMessage,
-    CrossShardProof, CrossShardQueue, ShardId, ShardedDag,
-};
-
 // Persistent storage for DAG consensus
 mod persistent_store;
 pub use persistent_store::{PersistentDagStore, StorageStats};

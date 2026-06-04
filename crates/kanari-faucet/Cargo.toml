@@ -18,4 +18,4 @@ kanari-rpc-api = { workspace = true }
 kanari-crypto = { workspace = true }
 kanari-types = { workspace = true }
 kanari-common = { workspace = true }
-dotenvy = "0.15.7"
+dotenvy = { workspace = true }

@@ -135,10 +135,12 @@ impl DagConsensusIntegration {
             .clone();
         let state_arc = Arc::new(RwLock::new(state_clone));
 
-        let (executed_count, failed_count) = self
-            .engine
-            .execute_tx_waves_parallel(all_to_execute, &state_arc, Some(timestamp), false, true)
-            .unwrap_or((0, 0));
+        let (executed_count, failed_count) = self.engine.execute_tx_waves_deterministic_parallel(
+            all_to_execute,
+            &state_arc,
+            Some(timestamp),
+            false,
+        )?;
 
         let state_root = match state_arc.write() {
             Ok(guard) => guard.compute_state_root(),
@@ -197,16 +199,12 @@ impl DagConsensusIntegration {
             .clone();
         let state_arc = Arc::new(RwLock::new(state_clone));
 
-        let (executed_count, failed_count) = self
-            .engine
-            .execute_tx_waves_parallel(
-                all_to_execute,
-                &state_arc,
-                Some(vertex.timestamp),
-                false,
-                true,
-            )
-            .unwrap_or((0, 0));
+        let (executed_count, failed_count) = self.engine.execute_tx_waves_deterministic_parallel(
+            all_to_execute,
+            &state_arc,
+            Some(vertex.timestamp),
+            false,
+        )?;
 
         let state_root = match state_arc.write() {
             Ok(guard) => guard.compute_state_root(),
@@ -259,7 +257,13 @@ impl DagConsensusIntegration {
         checkpoint: centauri::consensus::Checkpoint,
         log_prefix: &str,
     ) -> Result<centauri::consensus::Checkpoint> {
+        let already_finalized = self.current_chain_height() >= checkpoint.sequence;
         let checkpoint = self.apply_checkpoint_once(checkpoint, log_prefix, true)?;
+
+        if already_finalized {
+            self.reconcile_consensus_to_finalized_chain()?;
+            return Ok(checkpoint);
+        }
 
         {
             let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
@@ -269,13 +273,38 @@ impl DagConsensusIntegration {
         Ok(checkpoint)
     }
 
+    fn reconcile_consensus_to_finalized_chain(&self) -> Result<()> {
+        let checkpoints = {
+            let chain = self
+                .engine
+                .blockchain
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
+            chain.dag_checkpoints.iter().cloned().collect::<Vec<_>>()
+        };
+
+        if checkpoints.len() <= 1 {
+            return Ok(());
+        }
+
+        {
+            let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
+            let mut state = consensus.save_state()?;
+            state.checkpoints = checkpoints;
+            state.last_checkpoint_round = state.current_round;
+            consensus.load_state(state)?;
+        }
+
+        self.persist_consensus_state()
+    }
+
     pub(crate) fn apply_checkpoint_once(
         &self,
         mut checkpoint: centauri::consensus::Checkpoint,
         log_prefix: &str,
         allow_root_override: bool,
     ) -> Result<centauri::consensus::Checkpoint> {
-        let current_height = self.engine.get_stats().height;
+        let current_height = self.current_chain_height();
         if current_height >= checkpoint.sequence {
             if let Some(canonical) = self.canonical_checkpoint_if_current(checkpoint.sequence) {
                 info!(
@@ -362,5 +391,13 @@ impl DagConsensusIntegration {
             .unwrap_or_else(|e| e.into_inner());
         let latest = chain.latest_checkpoint();
         (latest.sequence == sequence).then(|| latest.clone())
+    }
+
+    fn current_chain_height(&self) -> u64 {
+        self.engine
+            .blockchain
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .height()
     }
 }

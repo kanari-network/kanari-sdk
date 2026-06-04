@@ -10,6 +10,20 @@ use log::{error, info};
 use std::sync::{Arc, RwLock};
 
 impl BlockchainEngine {
+    fn requires_runtime_side_effect_persistence(transactions: &[SignedTransaction]) -> bool {
+        transactions.iter().any(|signed_tx| {
+            if signed_tx.transaction.is_native_balance_call() {
+                return false;
+            }
+
+            matches!(
+                signed_tx.transaction,
+                kanari_types::transaction::Transaction::PublishModule { .. }
+                    | kanari_types::transaction::Transaction::ExecuteFunction { .. }
+            )
+        })
+    }
+
     fn apply_system_prologue_to_state(
         &self,
         state_arc: &Arc<RwLock<StateManager>>,
@@ -73,12 +87,11 @@ impl BlockchainEngine {
             self.apply_system_prologue_to_state(&state_arc, checkpoint.timestamp, false)?;
         }
 
-        self.execute_tx_waves_parallel(
+        self.execute_tx_waves_deterministic_parallel(
             to_execute.clone(),
             &state_arc,
             Some(checkpoint.timestamp),
             false, // persist_objects = false
-            true,  // strict_mode = true
         )?;
 
         let verified_state = state_arc.read().unwrap_or_else(|e| e.into_inner()).clone();
@@ -138,17 +151,16 @@ impl BlockchainEngine {
         verified_state: StateManager,
         to_execute: Vec<SignedTransaction>,
     ) -> Result<()> {
-        if !to_execute.is_empty() {
+        if !to_execute.is_empty() && Self::requires_runtime_side_effect_persistence(&to_execute) {
             let side_effect_state = Arc::new(RwLock::new(
                 self.state.read().unwrap_or_else(|e| e.into_inner()).clone(),
             ));
             self.apply_system_prologue_to_state(&side_effect_state, checkpoint.timestamp, true)?;
-            self.execute_tx_waves_parallel(
+            self.execute_tx_waves_deterministic_parallel(
                 to_execute,
                 &side_effect_state,
                 Some(checkpoint.timestamp),
                 true, // persist_objects = true
-                true, // strict_mode = true
             )?;
         }
 

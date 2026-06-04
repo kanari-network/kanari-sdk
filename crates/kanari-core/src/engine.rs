@@ -12,7 +12,7 @@ pub use kanari_rpc_api::{AccountInfo, BlockData, BlockchainStats, FullBlockData,
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::event::Event;
 use kanari_types::gas_v2::{GasMeter, GasOperation};
-use kanari_types::transaction::{SignedTransaction, Transaction};
+use kanari_types::transaction::{NativeCall, SignedTransaction, Transaction};
 use log::{error, info, warn};
 use lru::LruCache;
 use move_core_types::{
@@ -50,7 +50,7 @@ pub struct CheckpointSyncData {
 pub type ExecutionResult = Result<(Vec<u8>, ChangeSet)>;
 pub type ParallelTxResult = (SignedTransaction, ExecutionResult);
 
-const MAX_MEMPOOL_SIZE: usize = 50_000;
+const MAX_MEMPOOL_SIZE: usize = 1_000_000;
 
 /// Complete blockchain engine with Move VM integration
 pub struct BlockchainEngine {
@@ -238,7 +238,8 @@ impl BlockchainEngine {
             .collect()
     }
 
-    pub(crate) fn execute_tx_waves_parallel(
+    #[cfg(test)]
+    fn execute_tx_waves_parallel(
         &self,
         transactions: Vec<SignedTransaction>,
         state_arc: &Arc<RwLock<StateManager>>,
@@ -246,13 +247,49 @@ impl BlockchainEngine {
         persist_objects: bool,
         strict_mode: bool,
     ) -> Result<(usize, usize)> {
+        self.execute_tx_waves_parallel_inner(
+            transactions,
+            state_arc,
+            timestamp,
+            persist_objects,
+            strict_mode,
+            strict_mode,
+        )
+    }
+
+    pub(crate) fn execute_tx_waves_deterministic_parallel(
+        &self,
+        transactions: Vec<SignedTransaction>,
+        state_arc: &Arc<RwLock<StateManager>>,
+        timestamp: Option<u64>,
+        persist_objects: bool,
+    ) -> Result<(usize, usize)> {
+        self.execute_tx_waves_parallel_inner(
+            transactions,
+            state_arc,
+            timestamp,
+            persist_objects,
+            false,
+            true,
+        )
+    }
+
+    fn execute_tx_waves_parallel_inner(
+        &self,
+        transactions: Vec<SignedTransaction>,
+        state_arc: &Arc<RwLock<StateManager>>,
+        timestamp: Option<u64>,
+        persist_objects: bool,
+        serial_execution: bool,
+        fail_hard: bool,
+    ) -> Result<(usize, usize)> {
         let mut executed_count = 0;
         let mut failed_count = 0;
         let has_module_publish = transactions
             .iter()
             .any(|tx| matches!(tx.transaction, Transaction::PublishModule { .. }));
 
-        if strict_mode {
+        if serial_execution {
             if has_module_publish {
                 self.runtime_pool[0].reload_vm_cache()?;
             }
@@ -333,40 +370,69 @@ impl BlockchainEngine {
                     .collect()
             };
 
-            // Apply changesets with proper error handling to prevent node crashes
-            let mut state_write = match state_arc.write() {
-                Ok(guard) => guard,
-                Err(poisoned) => {
-                    log::error!("State lock poisoned during wave execution, recovering...");
-                    poisoned.into_inner()
-                }
-            };
+            if fail_hard {
+                let mut wave_changeset = ChangeSet::new();
+                let mut wave_executed = 0usize;
 
-            for res in results {
-                match res {
-                    Ok(cs) => {
-                        if persist_objects {
-                            let runtime = &self.runtime_pool[0];
-                            runtime.persist_created_objects(&cs);
-                            runtime.persist_deleted_objects(&cs);
-                        }
+                for res in results {
+                    let cs = res.map_err(|e| anyhow::anyhow!("Execution failed: {}", e))?;
 
-                        if let Err(e) = state_write.apply_changeset(&cs) {
-                            if strict_mode {
-                                anyhow::bail!("Failed to apply changeset: {}", e);
-                            }
-                            log::warn!("apply_changeset failed: {}", e);
-                            failed_count += 1;
-                        } else {
-                            executed_count += 1;
-                        }
+                    if persist_objects {
+                        let runtime = &self.runtime_pool[0];
+                        runtime.persist_created_objects(&cs);
+                        runtime.persist_deleted_objects(&cs);
                     }
-                    Err(e) => {
-                        if strict_mode {
-                            anyhow::bail!("Execution failed: {}", e);
+
+                    wave_changeset.merge(cs);
+                    wave_executed += 1;
+                }
+
+                if wave_executed == 0 {
+                    continue;
+                }
+
+                let mut state_write = match state_arc.write() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => {
+                        log::error!("State lock poisoned during wave execution, recovering...");
+                        poisoned.into_inner()
+                    }
+                };
+
+                state_write
+                    .apply_changeset_without_supply_validation(&wave_changeset)
+                    .map_err(|e| anyhow::anyhow!("Failed to apply changeset: {}", e))?;
+                executed_count += wave_executed;
+            } else {
+                // Apply changesets with proper error handling to prevent node crashes
+                let mut state_write = match state_arc.write() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => {
+                        log::error!("State lock poisoned during wave execution, recovering...");
+                        poisoned.into_inner()
+                    }
+                };
+
+                for res in results {
+                    match res {
+                        Ok(cs) => {
+                            if persist_objects {
+                                let runtime = &self.runtime_pool[0];
+                                runtime.persist_created_objects(&cs);
+                                runtime.persist_deleted_objects(&cs);
+                            }
+
+                            if let Err(e) = state_write.apply_changeset(&cs) {
+                                log::warn!("apply_changeset failed: {}", e);
+                                failed_count += 1;
+                            } else {
+                                executed_count += 1;
+                            }
                         }
-                        log::warn!("Parallel execution failed: {}", e);
-                        failed_count += 1;
+                        Err(e) => {
+                            log::warn!("Parallel execution failed: {}", e);
+                            failed_count += 1;
+                        }
                     }
                 }
             }
@@ -445,6 +511,8 @@ impl BlockchainEngine {
         let mut gas_meter = GasMeter::new(tx.gas_limit(), tx.gas_price());
         let mut changeset = ChangeSet::new();
 
+        let native_call = tx.native_call();
+
         let (gas_op, required_amount) = match tx {
             Transaction::PublishModule { module_bytes, .. } => (
                 GasOperation::PublishModule {
@@ -453,10 +521,11 @@ impl BlockchainEngine {
                 0,
             ),
             Transaction::ExecuteFunction { .. } => {
-                (GasOperation::ExecuteFunction { complexity: 1 }, 0)
-            }
-            Transaction::Transfer { amount, .. } | Transaction::Burn { amount, .. } => {
-                (GasOperation::Transfer, *amount)
+                if let Some(native_call) = &native_call {
+                    (GasOperation::Transfer, native_call.required_native_amount())
+                } else {
+                    (GasOperation::ExecuteFunction { complexity: 1 }, 0)
+                }
             }
         };
 
@@ -530,6 +599,25 @@ impl BlockchainEngine {
                 args,
                 ..
             } => {
+                if let Some(native_call) = native_call {
+                    match native_call {
+                        NativeCall::TransferAmount { recipient, amount } => {
+                            let to_addr = KanariAddress::parse_to_account_address(&recipient)?;
+                            changeset.transfer(sender_addr, to_addr, amount);
+                        }
+                        NativeCall::BurnAmount { amount } => {
+                            changeset.burn(sender_addr, amount);
+                        }
+                    }
+                    Self::apply_gas_and_sequence(
+                        &mut changeset,
+                        sender_addr,
+                        gas_cost,
+                        gas_meter.gas_used,
+                    )?;
+                    return Ok(changeset);
+                }
+
                 let parts: Vec<&str> = module.split("::").collect();
                 if parts.len() != 2 {
                     changeset.mark_failed(
@@ -569,15 +657,6 @@ impl BlockchainEngine {
                         changeset.mark_failed(format!("Execution failed: {}", e));
                     }
                 }
-            }
-
-            Transaction::Transfer { to, amount, .. } => {
-                let to_addr = KanariAddress::parse_to_account_address(to)?;
-                changeset.transfer(sender_addr, to_addr, *amount);
-            }
-
-            Transaction::Burn { amount, .. } => {
-                changeset.burn(sender_addr, *amount);
             }
         }
 
@@ -644,10 +723,12 @@ impl BlockchainEngine {
 
             if policy.should_wait_for_current_round_quorum() {
                 anyhow::bail!(
-                    "SYNC_WAITING: have {}/{} vertices in round {} (need quorum for round {})",
+                    "SYNC_WAITING: have {}/{} vertices in round {} from authors [{}]; missing authorities [{}]; need quorum for round {}",
                     policy.parent_author_count,
                     policy.quorum_size,
                     policy.current_round,
+                    policy.parent_authors.join(", "),
+                    policy.missing_parent_authors.join(", "),
                     policy.current_round + 1
                 );
             }
@@ -670,6 +751,10 @@ impl BlockchainEngine {
     }
 
     pub fn should_produce_dag_progress(&self) -> bool {
+        if self.consensus_signing_key.is_none() {
+            return false;
+        }
+
         let dag_engine_guard = match self.dag_engine.read() {
             Ok(guard) => guard,
             Err(poisoned) => {
@@ -680,9 +765,17 @@ impl BlockchainEngine {
             }
         };
 
-        dag_engine_guard
-            .as_ref()
-            .is_some_and(|dag_engine| dag_engine.needs_progress())
+        if let Some(dag_engine) = dag_engine_guard.as_ref() {
+            return dag_engine.needs_progress();
+        }
+        drop(dag_engine_guard);
+
+        self.dag_engine_instance()
+            .map(|dag_engine| dag_engine.needs_progress())
+            .unwrap_or_else(|e| {
+                log::warn!("Failed to initialize DAG engine for progress check: {}", e);
+                false
+            })
     }
 
     fn clone_for_dag(&self) -> BlockchainEngine {
@@ -804,9 +897,13 @@ impl BlockchainEngine {
 mod tests {
     use super::BlockchainEngine;
     use kanari_crypto::keys::{CurveType, generate_keypair};
+    use kanari_move_runtime_v1::state::Account;
+    use kanari_types::balance::BalanceRecord;
+    use kanari_types::kanari::KANARI_TOKEN_TYPE;
     use kanari_types::transaction::{SignedTransaction, Transaction};
+    use move_core_types::account_address::AccountAddress;
     use std::collections::BTreeMap;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex, RwLock};
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -826,6 +923,18 @@ mod tests {
             .sign(&sender.private_key, sender.curve_type)
             .unwrap();
         signed_tx
+    }
+
+    fn fund_sender(engine: &BlockchainEngine, address: &str, balance: u64) {
+        let addr = AccountAddress::from_hex_literal(address).unwrap();
+        let mut account = Account::with_native_balance(addr, balance);
+        account.set_token_balance(KANARI_TOKEN_TYPE.to_string(), BalanceRecord::new(balance));
+        engine
+            .state
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .save_account(&account)
+            .unwrap();
     }
 
     fn secure_consensus_keys(
@@ -916,6 +1025,42 @@ mod tests {
     }
 
     #[test]
+    fn restarted_engine_detects_persisted_dag_progress_before_pending_txs() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let data_dir = temp_dir.path().to_str().unwrap();
+        let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
+
+        {
+            let mut engine = BlockchainEngine::new_dir(data_dir).unwrap();
+            if engine.persistent_store.is_none() {
+                return;
+            }
+            engine.set_authorities("0x1".to_string(), authorities.clone());
+            let (local_key, public_keys) = secure_consensus_keys(&authorities, "0x1");
+            engine
+                .set_consensus_signing_key(local_key, public_keys)
+                .unwrap();
+
+            let block = engine.produce_block().unwrap();
+            assert_eq!(block.round, 1);
+            assert_eq!(block.tx_count, 0);
+        }
+
+        let mut restarted = BlockchainEngine::new_dir(data_dir).unwrap();
+        if restarted.persistent_store.is_none() {
+            return;
+        }
+        restarted.set_authorities("0x1".to_string(), authorities.clone());
+        let (local_key, public_keys) = secure_consensus_keys(&authorities, "0x1");
+        restarted
+            .set_consensus_signing_key(local_key, public_keys)
+            .unwrap();
+
+        assert_eq!(restarted.get_stats().pending_transactions, 0);
+        assert!(restarted.should_produce_dag_progress());
+    }
+
+    #[test]
     fn batch_submit_accepts_contiguous_sequences_for_same_sender() {
         let engine = BlockchainEngine::new().unwrap();
         let sender = generate_keypair(CurveType::Ed25519).unwrap();
@@ -969,5 +1114,52 @@ mod tests {
         let err = engine.submit_transactions_batch(vec![tx]).unwrap_err();
 
         assert!(err.to_string().contains("Sequence number too high"));
+    }
+
+    #[test]
+    fn deterministic_parallel_execution_matches_strict_serial_root() {
+        let engine = BlockchainEngine::new_in_memory().unwrap();
+        let mut txs = Vec::new();
+
+        for _ in 0..16 {
+            let sender = generate_keypair(CurveType::Ed25519).unwrap();
+            let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+            fund_sender(&engine, &sender.address, 1_000_000);
+
+            let tx =
+                Transaction::new_transfer(sender.tagged_address(), recipient.address.clone(), 1, 0);
+            let mut signed_tx = SignedTransaction::new(tx);
+            signed_tx
+                .sign(&sender.private_key, sender.curve_type)
+                .unwrap();
+            txs.push(signed_tx);
+        }
+
+        let base_state = engine
+            .state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let strict_state = Arc::new(RwLock::new(base_state.clone()));
+        let parallel_state = Arc::new(RwLock::new(base_state));
+
+        let strict_counts = engine
+            .execute_tx_waves_parallel(txs.clone(), &strict_state, Some(123), false, true)
+            .unwrap();
+        let parallel_counts = engine
+            .execute_tx_waves_deterministic_parallel(txs, &parallel_state, Some(123), false)
+            .unwrap();
+
+        let strict_root = strict_state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .compute_state_root();
+        let parallel_root = parallel_state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .compute_state_root();
+
+        assert_eq!(strict_counts, parallel_counts);
+        assert_eq!(strict_root, parallel_root);
     }
 }

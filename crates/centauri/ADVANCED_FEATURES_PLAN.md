@@ -17,7 +17,6 @@ The repository already includes:
 - parallel validation
 - metrics export
 - adaptive quorum policy hooks
-- cross-shard consensus-layer primitives
 
 The next work should focus on integration quality, operational readiness, and narrowing the gap between primitives and production flows.
 
@@ -37,7 +36,7 @@ The next work should focus on integration quality, operational readiness, and na
 **Exit Criteria**:
 
 - core `centauri`, `kanari-core`, and `kanari-rpc-server` test suites pass reliably
-- metrics, quorum policy, and sharding primitives are reachable through stable runtime paths
+- metrics and quorum policy are reachable through stable runtime paths
 - docs describe current behavior without roadmap drift
 
 ### Milestone B: Observability and Operations
@@ -57,24 +56,7 @@ The next work should focus on integration quality, operational readiness, and na
 - hot-path regressions are visible through tests or benchmarks
 - failure modes around backpressure, sync lag, and storage are measurable
 
-### Milestone C: Sharding Integration
-
-**Goal**: move from consensus-layer sharding primitives to usable runtime integration.
-
-**Scope**:
-
-- connect `ShardedDag` message flow to higher-level execution paths
-- define the payload contract for cross-shard operations
-- add shard-aware ingress/egress handling around proof verification
-- clarify how atomic commit primitives map to real execution coordination
-
-**Exit Criteria**:
-
-- cross-shard messages can move through a full runtime path, not just local queues
-- shard routing and verification behavior are covered by integration tests
-- the boundary between consensus responsibility and execution responsibility is documented
-
-### Milestone D: Adaptive Policy Maturation
+### Milestone C: Adaptive Policy Maturation
 
 **Goal**: turn adaptive quorum from a policy hook into an operationally credible feature.
 
@@ -95,6 +77,7 @@ The next work should focus on integration quality, operational readiness, and na
 
 These are intentionally out of the near-term roadmap:
 
+- sharding and cross-shard atomic commit
 - optimistic execution
 - ML-based Byzantine prediction
 - light-client redesign

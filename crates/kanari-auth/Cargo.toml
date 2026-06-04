@@ -46,7 +46,7 @@ chrono.workspace = true
 uuid.workspace = true
 
 # Email validation
-regex = "1.12.3"
+regex.workspace = true
 
 # Database
 rusqlite = { workspace = true }

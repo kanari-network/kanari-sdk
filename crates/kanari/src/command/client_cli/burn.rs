@@ -55,13 +55,7 @@ impl Burn {
         let sender_for_tx = get_sender_for_tx(&wallet, &from_addr)?;
 
         // Create burn transaction
-        let tx = Transaction::Burn {
-            from: sender_for_tx.clone(),
-            amount: amount_mist,
-            gas_limit: 100_000,
-            gas_price: 1000,
-            sequence_number: account.sequence_number,
-        };
+        let tx = Transaction::new_burn(sender_for_tx.clone(), amount_mist, account.sequence_number);
 
         sign_and_submit_transaction(&client, tx, &wallet, sender_for_tx, None, Some(amount_mist))
             .await?;
