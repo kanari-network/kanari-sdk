@@ -4,6 +4,34 @@
 const DEFAULT_RPC_URL = "http://192.168.1.103:19001";
 const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || DEFAULT_RPC_URL;
 
+export const RPC_METHODS = {
+  GET_ACCOUNT: "kanari_getAccount",
+  GET_TOKEN_BALANCE: "kanari_getTokenBalance",
+  LIST_TOKENS: "kanari_listTokens",
+  GET_ALL_BALANCES: "kanari_getAllBalances",
+  GET_BLOCK: "kanari_getBlock",
+  GET_FULL_BLOCK: "kanari_getFullBlock",
+  GET_TRANSACTION: "kanari_getTransaction",
+  GET_ALL_TRANSACTIONS: "kanari_getAllTransactions",
+  PRODUCE_BLOCK: "kanari_produceBlock",
+  GET_BLOCK_HEIGHT: "kanari_getBlockHeight",
+  GET_STATS: "kanari_getStats",
+  SUBMIT_TRANSACTION: "kanari_submitTransaction",
+  HEALTH: "kanari_health",
+  GET_NETWORK_STATUS: "kanari_getNetworkStatus",
+  PUBLISH_MODULE: "kanari_publishModule",
+  GET_MODULE: "kanari_getModule",
+  LIST_MODULES: "kanari_listModules",
+  VERIFY_MODULE: "kanari_verifyModule",
+  CALL_FUNCTION: "kanari_callFunction",
+  VIEW_FUNCTION: "kanari_viewFunction",
+  GET_OBJECT: "kanari_getObject",
+  GET_OWNED_OBJECTS: "kanari_getOwnedObjects",
+  GET_OWNED_NFTS: "kanari_getOwnedNfts",
+  LIST_COLLECTIONS: "kanari_listCollections",
+  GET_NFTS_BY_COLLECTION: "kanari_getNftsByCollection",
+} as const;
+
 export type RpcEndpoint = {
   name: string;
   url: string;
@@ -30,6 +58,50 @@ export type NodeHealth = {
   pendingTransactions: number | null;
   latencyMs: number | null;
   error?: string;
+};
+
+export type RpcBytes = number[];
+
+export type SignedTransactionPayload = {
+  sender: string;
+  recipient?: string | null;
+  amount?: number | null;
+  gas_limit: number;
+  gas_price: number;
+  sequence_number: number;
+  signature?: RpcBytes | null;
+};
+
+export type PublishModulePayload = {
+  sender: string;
+  module_bytes: RpcBytes;
+  module_name: string;
+  gas_limit: number;
+  gas_price: number;
+  sequence_number: number;
+  signature?: RpcBytes | null;
+  execute_immediate?: boolean;
+};
+
+export type FunctionCallPayload = {
+  package: string;
+  module: string;
+  function: string;
+  type_args?: string[];
+  args?: RpcBytes[];
+};
+
+export type CallFunctionPayload = FunctionCallPayload & {
+  sender: string;
+  gas_limit: number;
+  gas_price: number;
+  sequence_number: number;
+  signature?: RpcBytes | null;
+  execute_immediate?: boolean;
+};
+
+export type GetOwnedObjectsOptions = {
+  object_type?: string | null;
 };
 
 function parseRpcEndpoints(): RpcEndpoint[] {
@@ -126,32 +198,32 @@ export async function callRpc(
   }
 }
 export async function getTokenBalance(address: string, token_type: string) {
-  return callRpc("kanari_getTokenBalance", { address, token_type });
+  return callRpc(RPC_METHODS.GET_TOKEN_BALANCE, { address, token_type });
 }
 
 export async function getAllBalances(address: string) {
-  const resp = await callRpc("kanari_getAllBalances", { address });
+  const resp = await callRpc(RPC_METHODS.GET_ALL_BALANCES, { address });
   return resp?.balances ?? resp;
 }
 
 export async function getAccount(address: string) {
-  return callRpc("kanari_getAccount", address);
+  return callRpc(RPC_METHODS.GET_ACCOUNT, address);
 }
 
 export async function getTokens() {
-  return callRpc("kanari_listTokens", {});
+  return callRpc(RPC_METHODS.LIST_TOKENS, []);
 }
 
 export async function getStats(rpcUrl?: string) {
-  return callRpc("kanari_getStats", [], rpcUrl);
+  return callRpc(RPC_METHODS.GET_STATS, [], rpcUrl);
 }
 
 export async function getHealth(rpcUrl?: string) {
-  return callRpc("kanari_health", [], rpcUrl);
+  return callRpc(RPC_METHODS.HEALTH, [], rpcUrl);
 }
 
 export async function getNetworkStatus(rpcUrl?: string): Promise<NetworkStatus> {
-  return callRpc("kanari_getNetworkStatus", [], rpcUrl);
+  return callRpc(RPC_METHODS.GET_NETWORK_STATUS, [], rpcUrl);
 }
 
 export async function getNodeHealth(endpoint: RpcEndpoint): Promise<NodeHealth> {
@@ -189,11 +261,23 @@ export async function getNodeHealth(endpoint: RpcEndpoint): Promise<NodeHealth> 
 // 🚨 FIX 2: ดักจับ Error ของ getBlockHeight แบบเงียบๆ ป้องกันหน้า Home พังหากฝั่ง Rust ยังไม่ได้ทำ API นี้ไว้
 export async function getBlockHeight() {
   try {
-    return await callRpc("kanari_getBlockHeight", []);
+    return await callRpc(RPC_METHODS.GET_BLOCK_HEIGHT, []);
   } catch {
     console.warn("getBlockHeight not available yet, returning null.");
     return null;
   }
+}
+
+export async function getBlock(height: number) {
+  return callRpc(RPC_METHODS.GET_BLOCK, height);
+}
+
+export async function getFullBlock(height: number) {
+  return callRpc(RPC_METHODS.GET_FULL_BLOCK, height);
+}
+
+export async function produceBlock() {
+  return callRpc(RPC_METHODS.PRODUCE_BLOCK, []);
 }
 
 function readField(value: unknown, field: string): unknown {
@@ -218,7 +302,7 @@ function dedupeTransactions<T>(transactions: T[]): T[] {
 export async function getAllTransactions(limit: number = 50, account?: string) {
   const params: { limit: number; account?: string } = { limit };
   if (account) params.account = account;
-  const response = await callRpc("kanari_getAllTransactions", params);
+  const response = await callRpc(RPC_METHODS.GET_ALL_TRANSACTIONS, params);
   if (Array.isArray(response)) return dedupeTransactions(response);
 
   const result = readField(response, "result");
@@ -234,18 +318,67 @@ export async function getAllTransactions(limit: number = 50, account?: string) {
 
 // ค้นหาธุรกรรมแบบเจาะจงด้วย Hash
 export async function getTransaction(hash: string) {
-  return callRpc("kanari_getTransaction", { hash });
+  return callRpc(RPC_METHODS.GET_TRANSACTION, { hash });
 }
 
+export async function submitTransaction(transaction: SignedTransactionPayload) {
+  return callRpc(RPC_METHODS.SUBMIT_TRANSACTION, transaction);
+}
+
+export async function publishModule(payload: PublishModulePayload) {
+  return callRpc(RPC_METHODS.PUBLISH_MODULE, payload);
+}
+
+export async function getModule(address: string, name: string) {
+  return callRpc(RPC_METHODS.GET_MODULE, { address, name });
+}
+
+export async function listModules() {
+  return callRpc(RPC_METHODS.LIST_MODULES, []);
+}
+
+export async function verifyModule(module_bytes: RpcBytes) {
+  return callRpc(RPC_METHODS.VERIFY_MODULE, { module_bytes });
+}
+
+export async function callFunction(payload: CallFunctionPayload) {
+  return callRpc(RPC_METHODS.CALL_FUNCTION, {
+    ...payload,
+    args: payload.args ?? [],
+    type_args: payload.type_args ?? [],
+  });
+}
+
+export async function viewFunction(payload: FunctionCallPayload) {
+  return callRpc(RPC_METHODS.VIEW_FUNCTION, [
+    {
+      ...payload,
+      args: payload.args ?? [],
+      type_args: payload.type_args ?? [],
+    },
+  ]);
+}
+
+export async function getObject(object_id: string) {
+  return callRpc(RPC_METHODS.GET_OBJECT, { object_id });
+}
+
+export async function getOwnedObjects(owner: string, options: GetOwnedObjectsOptions = {}) {
+  const response = await callRpc(RPC_METHODS.GET_OWNED_OBJECTS, {
+    owner,
+    object_type: options.object_type ?? null,
+  });
+  return response?.objects ?? response;
+}
 
 export async function getOwnedNfts(address: string) {
-  return callRpc("kanari_getOwnedNfts", address);
+  return callRpc(RPC_METHODS.GET_OWNED_NFTS, address);
 }
 
 export async function getCollections() {
-  return callRpc("kanari_listCollections", []);
+  return callRpc(RPC_METHODS.LIST_COLLECTIONS, []);
 }
 
 export async function getNftsByCollection(collectionId: string) {
-  return callRpc("kanari_getNftsByCollection", collectionId);
+  return callRpc(RPC_METHODS.GET_NFTS_BY_COLLECTION, collectionId);
 }
