@@ -198,6 +198,14 @@ impl DagEngine {
     }
     /// Produce a DAG vertex with pending transactions
     pub fn produce_vertex(&self) -> Result<DagBlockInfo> {
+        self.produce_vertex_inner(true)
+    }
+
+    pub fn produce_vertex_summary(&self) -> Result<DagBlockInfo> {
+        self.produce_vertex_inner(false)
+    }
+
+    fn produce_vertex_inner(&self, include_vertex: bool) -> Result<DagBlockInfo> {
         let production_plan = {
             let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
             consensus.production_plan()?
@@ -247,21 +255,20 @@ impl DagEngine {
             let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
             let v = consensus.create_vertex_from_plan(
                 &production_plan,
-                transactions.clone(),
+                transactions,
                 state_root.clone(),
                 timestamp,
             )?;
             info!(
                 "[DAG] Created vertex for round {} with {} transactions",
-                v.round,
-                transactions.len()
+                v.round, tx_count
             );
             v
         };
 
         let vertex_id = hex::encode(vertex.id);
         let round = vertex.round;
-        let vertex_for_broadcast = vertex.clone();
+        let vertex_for_broadcast = include_vertex.then(|| vertex.clone());
         let checkpoint_info = {
             let checkpoint = integration.submit_vertex(vertex)?;
 
@@ -286,7 +293,7 @@ impl DagEngine {
             failed,
             events,
             checkpoint: checkpoint_info,
-            vertex: Some(vertex_for_broadcast),
+            vertex: vertex_for_broadcast,
         })
     }
 
@@ -760,7 +767,7 @@ mod tests {
     }
 
     #[test]
-    fn test_network_vertex_accepts_preview_root_from_deterministic_replay() {
+    fn test_network_vertex_accepts_provisional_checkpoint_root() {
         let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
 
         let mut source_engine = BlockchainEngine::new_in_memory().unwrap();
@@ -792,7 +799,7 @@ mod tests {
             .latest_checkpoint()
             .state_root
             .clone();
-        assert_ne!(remote_vertex.metadata.state_root, source_checkpoint_root);
+        assert_eq!(remote_vertex.metadata.state_root, source_checkpoint_root);
 
         let mut target_engine = BlockchainEngine::new_in_memory().unwrap();
         target_engine.set_authorities("0x2".to_string(), authorities.clone());

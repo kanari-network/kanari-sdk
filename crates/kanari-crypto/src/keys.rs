@@ -416,7 +416,7 @@ fn generate_k256_keypair() -> Result<KeyPair, KeyError> {
     secret_bytes_mut.zeroize();
 
     // Format private key with kanari prefix using secure string
-    let private_key = format!("{}{}", KANARI_KEY_PREFIX, &*raw_private_key);
+    let private_key = format!("{}{}", KANARI_KEY_PREFIX, *raw_private_key);
 
     Ok(KeyPair {
         private_key: Zeroizing::new(private_key),
@@ -461,7 +461,7 @@ fn generate_p256_keypair() -> Result<KeyPair, KeyError> {
     let address = format!("0x{}", hex::encode(digest));
 
     // Format private key with kanari prefix using secure string
-    let private_key = format!("{}{}", KANARI_KEY_PREFIX, &*raw_private_key);
+    let private_key = format!("{}{}", KANARI_KEY_PREFIX, *raw_private_key);
 
     Ok(KeyPair {
         private_key: Zeroizing::new(private_key),
@@ -510,7 +510,7 @@ pub fn generate_ed25519_keypair() -> Result<KeyPair, KeyError> {
     let address = format!("0x{}", hex::encode(digest));
 
     // Format private key with kanari prefix using secure string
-    let private_key = format!("{}{}", KANARI_KEY_PREFIX, &*raw_private_key);
+    let private_key = format!("{}{}", KANARI_KEY_PREFIX, *raw_private_key);
 
     Ok(KeyPair {
         private_key: Zeroizing::new(private_key),
@@ -542,7 +542,7 @@ fn generate_dilithium2_keypair() -> Result<KeyPair, KeyError> {
     let raw_private_key = secure_hex_encode(secret_key.as_bytes());
 
     // Combine into private key format with secure string
-    let private_key = format!("{}{}:{}", KANAPQC_PREFIX, &*raw_private_key, hex_encoded);
+    let private_key = format!("{}{}:{}", KANAPQC_PREFIX, *raw_private_key, hex_encoded);
 
     Ok(KeyPair {
         private_key: Zeroizing::new(private_key),
@@ -570,7 +570,7 @@ fn generate_dilithium3_keypair() -> Result<KeyPair, KeyError> {
     let raw_private_key = secure_hex_encode(secret_key.as_bytes());
 
     // Combine into private key format with secure string
-    let private_key = format!("{}{}:{}", KANAPQC_PREFIX, &*raw_private_key, hex_encoded);
+    let private_key = format!("{}{}:{}", KANAPQC_PREFIX, *raw_private_key, hex_encoded);
 
     Ok(KeyPair {
         private_key: Zeroizing::new(private_key),
@@ -598,7 +598,7 @@ fn generate_dilithium5_keypair() -> Result<KeyPair, KeyError> {
     let raw_private_key = secure_hex_encode(secret_key.as_bytes());
 
     // Combine into private key format with secure string
-    let private_key = format!("{}{}:{}", KANAPQC_PREFIX, &*raw_private_key, hex_encoded);
+    let private_key = format!("{}{}:{}", KANAPQC_PREFIX, *raw_private_key, hex_encoded);
 
     Ok(KeyPair {
         private_key: Zeroizing::new(private_key),
@@ -728,7 +728,7 @@ pub fn keypair_from_mnemonic(phrase: &str, curve_type: CurveType) -> Result<KeyP
             let address = format!("0x{}", hex::encode(digest));
             // Use secure hex encoding for private key
             let raw_private_key = secure_hex_encode(&signing_key.to_bytes());
-            let private_key = format!("{}{}", KANARI_KEY_PREFIX, &*raw_private_key);
+            let private_key = format!("{}{}", KANARI_KEY_PREFIX, *raw_private_key);
 
             Ok(KeyPair {
                 private_key: Zeroizing::new(private_key),
@@ -753,7 +753,7 @@ pub fn keypair_from_mnemonic(phrase: &str, curve_type: CurveType) -> Result<KeyP
             let address = format!("0x{}", hex::encode(digest));
             // Use secure hex encoding for private key
             let raw_private_key = secure_hex_encode(&signing_key.to_bytes());
-            let private_key = format!("{}{}", KANARI_KEY_PREFIX, &*raw_private_key);
+            let private_key = format!("{}{}", KANARI_KEY_PREFIX, *raw_private_key);
 
             Ok(KeyPair {
                 private_key: Zeroizing::new(private_key),
@@ -784,7 +784,7 @@ pub fn keypair_from_mnemonic(phrase: &str, curve_type: CurveType) -> Result<KeyP
             let address = format!("0x{}", hex::encode(digest));
 
             // Format private key with kanari prefix using secure string
-            let private_key = format!("{}{}", KANARI_KEY_PREFIX, &*raw_private_key);
+            let private_key = format!("{}{}", KANARI_KEY_PREFIX, *raw_private_key);
 
             Ok(KeyPair {
                 private_key: Zeroizing::new(private_key),

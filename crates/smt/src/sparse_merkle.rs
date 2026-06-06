@@ -250,7 +250,7 @@ impl SparseMerkleTree {
         }
 
         // sort and dedup by hash to coalesce shared prefixes
-        keyed.sort_by(|a, b| a.1.cmp(&b.1));
+        keyed.sort_by_key(|a| a.1);
         keyed.dedup_by(|a, b| a.1 == b.1);
 
         let mut batch = WriteBatch::default();

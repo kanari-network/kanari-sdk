@@ -592,8 +592,6 @@ mod tests {
 
     #[test]
     fn test_apply_sync_response() {
-        use serde::Serialize;
-
         let mut sync = StateSynchronizer::new();
 
         // 1. Create Keypair and Committee for testing
@@ -612,33 +610,8 @@ mod tests {
         let mut vertex =
             DagVertex::new_for_test(1, "auth1".to_string(), vec![], vec![], vec![0u8; 32], 0);
 
-        // 3. Create mock signature (Sign) to pass ParallelValidator::verify_vertex_signature
-        #[derive(Serialize)]
-        struct DagVertexSigningRef<'a> {
-            id: &'a VertexId,
-            round: Round,
-            author: &'a AuthorityId,
-            chain_id: &'a String,
-            parents: &'a Vec<VertexId>,
-            transactions: &'a Vec<kanari_types::transaction::SignedTransaction>,
-            timestamp: u64,
-            signature: &'static [u8],
-            metadata: &'a crate::consensus::dag_consensus::VertexMetadata,
-        }
-
-        let signing_ref = DagVertexSigningRef {
-            id: &vertex.id,
-            round: vertex.round,
-            author: &vertex.author,
-            chain_id: &vertex.chain_id,
-            parents: &vertex.parents,
-            transactions: &vertex.transactions,
-            timestamp: vertex.timestamp,
-            signature: &[],
-            metadata: &vertex.metadata,
-        };
-        let payload = bcs::to_bytes(&signing_ref).unwrap();
-        vertex.signature = keypair.sign(&payload);
+        // 3. Create mock signature to pass ParallelValidator::verify_vertex_signature
+        vertex.signature = keypair.sign(&vertex.id);
 
         // 4. Create SyncResponse
         let response = SyncResponse {

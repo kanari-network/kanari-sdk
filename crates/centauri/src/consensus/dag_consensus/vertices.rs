@@ -379,9 +379,7 @@ impl DagConsensus {
     }
 
     fn signing_payload(vertex: &DagVertex) -> Result<Vec<u8>> {
-        let mut to_sign = vertex.clone();
-        to_sign.signature.clear();
-        bcs::to_bytes(&to_sign).map_err(|e| anyhow::anyhow!("Failed to serialize vertex: {}", e))
+        Ok(vertex.id.to_vec())
     }
 
     fn sign_vertex_with_key(

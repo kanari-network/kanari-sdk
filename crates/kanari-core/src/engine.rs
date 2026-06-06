@@ -1,6 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use ahash::AHashMap;
 use anyhow::{Context, Result};
 use centauri::blockchain::Blockchain;
 use centauri::consensus::{Checkpoint, DagMetrics, PersistentDagState};
@@ -58,6 +59,7 @@ pub struct BlockchainEngine {
     pub state: Arc<RwLock<StateManager>>,
     pub pending_txs: Arc<RwLock<Vec<SignedTransaction>>>,
     pending_tx_hashes: Arc<RwLock<HashSet<Vec<u8>>>>,
+    pending_sender_counts: Arc<RwLock<AHashMap<String, u64>>>,
     pub persistent_store: Option<Arc<PersistentStore>>,
     // Reusable pool of MoveRuntime instances for parallel execution
     pub runtime_pool: Vec<kanari_move_runtime_v1::move_runtime::MoveRuntime>,
@@ -192,7 +194,7 @@ impl BlockchainEngine {
             .map(|acc| acc.sequence_number)
             .unwrap_or(0);
 
-        self.for_each_pending_tx_from_sender(address_hex, |_| seq += 1);
+        seq += self.pending_tx_count_for_sender(address_hex);
         seq
     }
 
@@ -230,7 +232,7 @@ impl BlockchainEngine {
             }
         }
 
-        coins.sort_by(|a, b| b.0.cmp(&a.0));
+        coins.sort_by_key(|coin| std::cmp::Reverse(coin.0));
         coins
             .into_iter()
             .map(|(_, info)| info)
@@ -737,6 +739,36 @@ impl BlockchainEngine {
         dag_engine.produce_vertex()
     }
 
+    pub fn produce_block_summary(&self) -> Result<BlockInfo> {
+        let dag_engine = self.dag_engine_instance()?;
+
+        {
+            let consensus_lock = dag_engine.consensus();
+            let consensus = match consensus_lock.read() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    log::error!("Consensus lock poisoned in produce_block_summary, recovering...");
+                    poisoned.into_inner()
+                }
+            };
+            let policy = consensus.production_policy();
+
+            if policy.should_wait_for_current_round_quorum() {
+                anyhow::bail!(
+                    "SYNC_WAITING: have {}/{} vertices in round {} from authors [{}]; missing authorities [{}]; need quorum for round {}",
+                    policy.parent_author_count,
+                    policy.quorum_size,
+                    policy.current_round,
+                    policy.parent_authors.join(", "),
+                    policy.missing_parent_authors.join(", "),
+                    policy.current_round + 1
+                );
+            }
+        }
+
+        dag_engine.produce_vertex_summary()
+    }
+
     pub fn latest_own_dag_vertices(
         &self,
         limit: usize,
@@ -784,6 +816,7 @@ impl BlockchainEngine {
             state: self.state.clone(),
             pending_txs: self.pending_txs.clone(),
             pending_tx_hashes: self.pending_tx_hashes.clone(),
+            pending_sender_counts: self.pending_sender_counts.clone(),
             persistent_store: self.persistent_store.clone(),
             runtime_pool: self.runtime_pool.clone(),
             proof_cache: self.proof_cache.clone(),

@@ -110,12 +110,33 @@ Response (invalid):
 { "jsonrpc": "2.0", "result": { "valid": false, "error": "<verifier error>" }, "id": 1 }
 ```
 
+**Transaction methods**
+
+- `kanari_submitTransaction` - submit a signed transfer or burn transaction
+
+Request `params` (SignedTransactionData):
+
+```json
+{
+  "sender": "Ed25519:<public-key-hex>",
+  "recipient": "0x...",
+  "amount": 1000,
+  "gas_limit": 1000000,
+  "gas_price": 1,
+  "sequence_number": 0,
+  "signature": [1,2,3],
+  "execute_immediate": true
+}
+```
+
+When `execute_immediate` is `true`, the RPC server attempts execution immediately and returns the resulting changeset. When omitted or `false`, the transaction is submitted as pending.
+
 **Examples (curl)**
 
 Publish (submit pending tx):
 
 ```bash
-curl -X POST http://127.0.0.1:19001rpc \
+curl -X POST http://127.0.0.1:19001/rpc \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"kanari_publishModule","params":{"sender":"0x1","module_bytes":[1,2,3],"module_name":"M","gas_limit":1000000,"gas_price":1,"sequence_number":0},"id":1}'
 ```
@@ -123,7 +144,7 @@ curl -X POST http://127.0.0.1:19001rpc \
 Get module:
 
 ```bash
-curl -X POST http://127.0.0.1:19001rpc \
+curl -X POST http://127.0.0.1:19001/rpc \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"kanari_getModule","params":{"address":"0x1","name":"M"},"id":2}'
 ```
@@ -131,7 +152,7 @@ curl -X POST http://127.0.0.1:19001rpc \
 Verify module:
 
 ```bash
-curl -X POST http://127.0.0.1:19001rpc \
+curl -X POST http://127.0.0.1:19001/rpc \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"kanari_verifyModule","params":{"module_bytes":[1,2,3]},"id":3}'
 ```

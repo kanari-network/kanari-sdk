@@ -98,7 +98,7 @@ pub async fn sign_and_submit_transaction(
         .context("Failed to sign transaction")?;
     eprintln!("  Transaction signed");
 
-    eprintln!("  Submitting transaction to node...");
+    eprintln!("  Executing transaction on node...");
 
     let tx_data = SignedTransactionData {
         sender: sender_tagged,
@@ -108,6 +108,7 @@ pub async fn sign_and_submit_transaction(
         gas_price: signed_tx.transaction.gas_price(),
         sequence_number: signed_tx.transaction.sequence_number(),
         signature: Some(signed_tx.signature.clone()),
+        execute_immediate: Some(true),
     };
 
     let status = client
@@ -124,7 +125,7 @@ pub async fn sign_and_submit_transaction(
         );
     }
 
-    eprintln!("  Transaction submitted successfully");
+    eprintln!("  Transaction completed successfully");
     eprintln!("  Transaction hash: {}", status.hash);
     eprintln!("  Status: {}", status.status);
 

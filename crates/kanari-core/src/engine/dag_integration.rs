@@ -64,6 +64,13 @@ impl DagConsensusIntegration {
             .unwrap_or_else(|e| e.into_inner());
         let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
 
+        if plan.history_tx_hashes.is_empty() && !chain.has_executed_transactions() {
+            return DagPendingSelection {
+                included: pending.iter().take(500_000).cloned().collect(),
+                remove_hashes: Vec::new(),
+            };
+        }
+
         consensus.select_pending_transactions(plan, &pending, |hash| {
             chain.has_executed_transactions() && chain.is_transaction_hash_executed(hash)
         })
@@ -80,12 +87,30 @@ impl DagConsensusIntegration {
             .pending_txs
             .write()
             .unwrap_or_else(|e| e.into_inner());
+        if pending.len() == remove_hashes.len() {
+            pending.clear();
+            self.engine
+                .pending_tx_hashes
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
+            self.engine.clear_pending_sender_counts();
+            return;
+        }
+
+        let removed_transactions = pending
+            .iter()
+            .filter(|tx| remove_set.contains(&tx.transaction.hash()))
+            .cloned()
+            .collect::<Vec<_>>();
         pending.retain(|tx| !remove_set.contains(&tx.transaction.hash()));
         self.engine
             .pending_tx_hashes
             .write()
             .unwrap_or_else(|e| e.into_inner())
             .retain(|hash| !remove_set.contains(hash));
+        self.engine
+            .remove_pending_sender_counts(&removed_transactions);
     }
 
     pub(crate) fn remove_pending_transactions(&self, transactions: &[SignedTransaction]) -> usize {
@@ -108,6 +133,23 @@ impl DagConsensusIntegration {
         timestamp: u64,
         include_history: bool,
     ) -> Result<DagExecutionOutcome> {
+        if history_vertices.is_empty() && Self::can_skip_zero_cost_native_preview(transactions) {
+            let state_root = self
+                .engine
+                .blockchain
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .latest_checkpoint()
+                .state_root
+                .clone();
+
+            return Ok(DagExecutionOutcome {
+                state_root,
+                executed: transactions.len(),
+                failed: 0,
+            });
+        }
+
         let chain = self
             .engine
             .blockchain
@@ -127,6 +169,23 @@ impl DagConsensusIntegration {
 
         drop(chain);
 
+        if Self::can_skip_zero_cost_native_preview(&all_to_execute) {
+            let state_root = self
+                .engine
+                .blockchain
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .latest_checkpoint()
+                .state_root
+                .clone();
+
+            return Ok(DagExecutionOutcome {
+                state_root,
+                executed: all_to_execute.len(),
+                failed: 0,
+            });
+        }
+
         let state_clone = self
             .engine
             .state
@@ -142,16 +201,32 @@ impl DagConsensusIntegration {
             false,
         )?;
 
-        let state_root = match state_arc.write() {
-            Ok(guard) => guard.compute_state_root(),
-            Err(poisoned) => poisoned.into_inner().compute_state_root(),
-        };
+        let state_root = self
+            .engine
+            .blockchain
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .latest_checkpoint()
+            .state_root
+            .clone();
 
         Ok(DagExecutionOutcome {
             state_root,
             executed: executed_count,
             failed: failed_count,
         })
+    }
+
+    fn can_skip_zero_cost_native_preview(transactions: &[SignedTransaction]) -> bool {
+        !transactions.is_empty()
+            && transactions.iter().all(|tx| {
+                tx.transaction.gas_price() == 0
+                    && tx
+                        .transaction
+                        .native_call()
+                        .map(|native_call| native_call.required_native_amount() == 0)
+                        .unwrap_or(false)
+            })
     }
 
     pub(crate) fn validate_network_vertex(
@@ -329,6 +404,24 @@ impl DagConsensusIntegration {
                 .unwrap_or_else(|e| e.into_inner());
             chain.latest_checkpoint().state_root.clone()
         };
+
+        if !checkpoint.transactions.is_empty()
+            && checkpoint.state_root == previous_checkpoint_root
+            && Self::can_skip_zero_cost_native_preview(&checkpoint.transactions)
+        {
+            let verified_state = self
+                .engine
+                .state
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            self.engine.apply_prepared_checkpoint(
+                checkpoint.clone(),
+                verified_state,
+                Vec::new(),
+            )?;
+            return Ok(checkpoint);
+        }
 
         let (computed_root, verified_state, to_execute) =
             self.engine.prepare_checkpoint_state(&checkpoint)?;

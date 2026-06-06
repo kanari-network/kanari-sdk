@@ -335,8 +335,6 @@ impl DagConsensus {
         let all_transactions = self.collect_checkpoint_transactions(&vertices_to_commit);
         let latest = self.store.latest_checkpoint();
         let prev_hash = latest.hash()?;
-        let tx_hashes: Vec<Vec<u8>> = all_transactions.iter().map(logical_tx_hash).collect();
-        let tx_digest = hash_data_blake3(&bcs::to_bytes(&tx_hashes)?);
         let timestamp = commit_timestamps.into_iter().max().unwrap_or(0);
         let state_root = self.checkpoint_state_root(&vertices_to_commit, &all_transactions)?;
         let checkpoint = Checkpoint::new(
@@ -348,17 +346,25 @@ impl DagConsensus {
             prev_hash,
         );
 
-        tracing::info!(
-            "[Consensus] Built checkpoint seq={} commit_round={} leaders={:?} vertices={} txs={} tx_digest={} prev={} provisional_root={}",
-            checkpoint.sequence,
-            commit_round,
-            committed_leaders,
-            checkpoint.vertices.len(),
-            checkpoint.transactions.len(),
-            hex::encode(tx_digest),
-            hex::encode(&checkpoint.prev_checkpoint_hash),
-            hex::encode(&checkpoint.state_root)
-        );
+        if tracing::enabled!(tracing::Level::INFO) {
+            let tx_hashes: Vec<Vec<u8>> = checkpoint
+                .transactions
+                .iter()
+                .map(logical_tx_hash)
+                .collect();
+            let tx_digest = hash_data_blake3(&bcs::to_bytes(&tx_hashes)?);
+            tracing::info!(
+                "[Consensus] Built checkpoint seq={} commit_round={} leaders={:?} vertices={} txs={} tx_digest={} prev={} provisional_root={}",
+                checkpoint.sequence,
+                commit_round,
+                committed_leaders,
+                checkpoint.vertices.len(),
+                checkpoint.transactions.len(),
+                hex::encode(tx_digest),
+                hex::encode(&checkpoint.prev_checkpoint_hash),
+                hex::encode(&checkpoint.state_root)
+            );
+        }
 
         Ok(checkpoint)
     }

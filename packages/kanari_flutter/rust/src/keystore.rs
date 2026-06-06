@@ -172,7 +172,7 @@ impl Keystore {
         let mut keystore: Keystore = serde_json::from_str(&keystore_data)?;
 
         // Upgrade any keys that might be using the old format
-        for (_, encrypted_data) in keystore.keys.iter_mut() {
+        for encrypted_data in keystore.keys.values_mut() {
             *encrypted_data = crate::encryption::upgrade_encrypted_data(encrypted_data.clone());
         }
 

@@ -26,7 +26,6 @@ fn main() -> Result<()> {
         .prefix("kanari_dag_demo")
         .tempdir()?;
     let db_path = temp_dir.path().to_str().unwrap();
-    // let _ = std::fs::remove_dir_all(db_path); // Clean up previous run - handled by tempfile
     let engine = Arc::new(BlockchainEngine::new_dir(db_path)?);
     println!("   ✓ Engine created\n");
 
@@ -39,11 +38,6 @@ fn main() -> Result<()> {
     // 3. Create DAG engine (optimized for high throughput)
     println!("3. Creating DAG engine...");
 
-    // Choose configuration based on your hardware:
-    // - DagEngine::new() - Default (100K TPS, 32+ cores, 16GB RAM)
-    // - DagEngine::new_moderate() - Moderate (10K-30K TPS, 8-16 cores, 16-32GB RAM)
-    // - DagEngine::new_high_throughput() - Extreme (500K+ TPS, 64+ cores, 32GB+ RAM)
-
     let dag_engine = DagEngine::new(
         engine.clone(),
         "0xAUTH1".to_string(), // This node's authority ID
@@ -52,32 +46,16 @@ fn main() -> Result<()> {
     println!("   ✓ DAG engine created (default config)");
     println!("   ✓ Authority ID: {}", dag_engine.authority_id());
 
-    // For 8-16 core machines (moderate throughput):
-    // let dag_engine = DagEngine::new_moderate(
-    //     engine.clone(),
-    //     "0xAUTH1".to_string(),
-    //     authorities.clone(),
-    // )?;
-
-    // For high-throughput production deployment with 64+ cores:
-    // let dag_engine = DagEngine::new_high_throughput(
-    //     engine.clone(),
-    //     "0xAUTH1".to_string(),
-    //     authorities.clone(),
-    // )?;
-    println!("   💡 Tip: Use new_high_throughput() for 500K+ TPS\n");
-
     // 4. Generate some test transactions
     println!("4. Generating test transactions...");
     let keypair = kanari_crypto::keys::generate_keypair(CurveType::Ed25519)?;
-    let sender_address = keypair.tagged_address(); // Use tagged address for proper signature verification
+    let sender_address = keypair.tagged_address();
     let private_key = keypair.private_key.to_string();
 
     // Fund the sender account manually for the demo
     {
         let mut state = engine.state.write().unwrap();
-        // We still need the raw address for account lookup, extract it from the tagged address
-        let raw_address = keypair.address.clone(); // Just for funding purposes
+        let raw_address = keypair.address.clone();
         let addr = AccountAddress::from_hex_literal(&raw_address)?;
         let mut account = state
             .get_account(&addr)

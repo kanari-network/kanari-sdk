@@ -5,13 +5,12 @@ use anyhow::{Context, Result, bail};
 use kanari_core::{BlockInfo, BlockchainEngine};
 use kanari_crypto::hash_data_blake3;
 use kanari_crypto::keys::{CurveType, KeyPair, keypair_from_private_key};
-use kanari_types::balance::BalanceRecord;
-use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use kanari_types::transaction::{SignedTransaction, Transaction};
-use move_core_types::account_address::AccountAddress;
 use std::fmt;
 use std::time::Instant;
 use tempfile::TempDir;
+
+const DEFAULT_SENDER_COUNT: usize = 64;
 
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
@@ -175,13 +174,8 @@ fn usage() -> &'static str {
     "Usage: cargo run --release -p kanari-benchmarks -- [--txs N] [--mode production|immediate|parallel|parallel-exec-only] [--json]\n       cargo run --release -p kanari-benchmarks -- [N]\n\nDefault mode is production: submit_transaction + produce_block."
 }
 
-fn prepare_engine(temp_dir: &TempDir) -> Result<BlockchainEngine> {
-    let mut engine = BlockchainEngine::new_dir(
-        temp_dir
-            .path()
-            .to_str()
-            .context("temp dir path is not valid UTF-8")?,
-    )?;
+fn prepare_engine(_temp_dir: &TempDir) -> Result<BlockchainEngine> {
+    let mut engine = BlockchainEngine::new_in_memory()?;
 
     // Set up a demo consensus signing key for benchmarks
     use kanari_crypto::keys::{CurveType, generate_keypair};
@@ -212,24 +206,6 @@ fn prepare_engine(temp_dir: &TempDir) -> Result<BlockchainEngine> {
     Ok(engine)
 }
 
-fn fund_senders(engine: &BlockchainEngine, sender_addresses: &[String]) {
-    let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
-    for address in sender_addresses {
-        if let Ok(addr) = AccountAddress::from_hex_literal(address) {
-            let mut acc = state
-                .get_account(&addr)
-                .unwrap_or_else(|| kanari_core::kanari_move_runtime_v1::state::Account::new(addr));
-            acc.set_token_balance(
-                KANARI_TOKEN_TYPE.to_string(),
-                BalanceRecord::new(1_000_000_000_000),
-            );
-            state
-                .save_account(&acc)
-                .expect("failed to save funded account");
-        }
-    }
-}
-
 fn execute_production_path(
     engine: &BlockchainEngine,
     signed_txs: Vec<SignedTransaction>,
@@ -239,7 +215,7 @@ fn execute_production_path(
     let submit_secs = submit_start.elapsed().as_secs_f64();
 
     let produce_start = Instant::now();
-    let block_info = engine.produce_block()?;
+    let block_info = engine.produce_block_summary()?;
     let produce_secs = produce_start.elapsed().as_secs_f64();
 
     Ok((block_info, submit_secs, produce_secs))
@@ -354,13 +330,6 @@ fn deterministic_sender_keypair(index: usize) -> Result<KeyPair> {
         .map_err(|e| anyhow::anyhow!("failed to derive deterministic sender keypair: {}", e))
 }
 
-fn deterministic_recipient_address(index: usize) -> String {
-    let mut seed_material = Vec::with_capacity(27);
-    seed_material.extend_from_slice(b"kanari-bench-recipient");
-    seed_material.extend_from_slice(&(index as u64).to_le_bytes());
-    format!("0x{}", hex::encode(hash_data_blake3(&seed_material)))
-}
-
 fn run_harness(config: &HarnessConfig) -> Result<HarnessReport> {
     eprintln!(
         "Kanari benchmarks: creating engine and preparing {} txs in {} mode",
@@ -371,24 +340,25 @@ fn run_harness(config: &HarnessConfig) -> Result<HarnessReport> {
     let temp_dir = tempfile::Builder::new().prefix("kanari_tps").tempdir()?;
     let engine = prepare_engine(&temp_dir)?;
 
-    eprintln!("Deriving deterministic benchmark senders...");
-    let senders: Vec<_> = (0..config.tx_count)
+    let sender_count = DEFAULT_SENDER_COUNT.min(config.tx_count);
+    eprintln!("Deriving {sender_count} deterministic benchmark senders...");
+    let senders: Vec<_> = (0..sender_count)
         .map(deterministic_sender_keypair)
-        .collect::<Result<Vec<_>>>()?;
-    let sender_addresses: Vec<_> = senders.iter().map(|kp| kp.address.clone()).collect();
+        .collect::<Result<_>>()?;
 
-    eprintln!("Funding accounts...");
-    fund_senders(&engine, &sender_addresses);
+    eprintln!("Using zero-gas native benchmark workload; funding is not required.");
 
     eprintln!("Signing transactions...");
-    let signed_txs: Vec<_> = senders
-        .iter()
-        .enumerate()
-        .map(|(index, sender)| {
-            let tx = Transaction::new_transfer(
+    let signed_txs: Vec<_> = (0..config.tx_count)
+        .map(|tx_index| {
+            let sender_index = tx_index % sender_count;
+            let sequence_number = tx_index / sender_count;
+            let sender = &senders[sender_index];
+            let tx = Transaction::new_burn_with_gas(
                 sender.tagged_address(),
-                deterministic_recipient_address(index),
-                1,
+                0,
+                sequence_number as u64,
+                100_000,
                 0,
             );
             let mut signed_tx = SignedTransaction::new(tx);

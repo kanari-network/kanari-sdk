@@ -114,10 +114,6 @@ fn parse_hex_address(id: u64, raw: &str, field: &str) -> Result<Address, Box<Rpc
     })
 }
 
-fn required_signature(id: u64, signature: Option<Vec<u8>>) -> Result<Vec<u8>, Box<RpcResponse>> {
-    signature.ok_or_else(|| Box::new(invalid_params_response(id, "Missing signature")))
-}
-
 fn extract_hash_param(params: &serde_json::Value) -> Option<String> {
     serde_json::from_value::<String>(params.clone())
         .ok()
@@ -362,6 +358,10 @@ fn execute_or_submit_response(
     action: &str,
     pending_submit_error: &str,
 ) -> RpcResponse {
+    if signed_tx.signature.is_empty() {
+        return invalid_params_response(request_id, "Missing or empty signature");
+    }
+
     if !execute_immediate {
         return submit_pending_response(state, request_id, signed_tx, action, pending_submit_error);
     }
@@ -486,25 +486,17 @@ pub async fn handle_submit_transaction(
             );
         };
 
-    let sig = match required_signature(request.id, tx_data.signature) {
-        Ok(sig) => sig,
-        Err(response) => return *response,
-    };
-
     let mut signed_tx = SignedTransaction::new(transaction);
-    signed_tx.signature = sig;
+    maybe_attach_signature(&mut signed_tx, tx_data.signature);
 
-    match state.engine.submit_transactions_batch(vec![signed_tx]) {
-        Ok(tx_hashes) => {
-            let tx_hash_hex = hex::encode(&tx_hashes[0]);
-            info!("Transaction submitted successfully: {}", tx_hash_hex);
-            respond_with_serialize(
-                request.id,
-                serde_json::json!({ "hash": tx_hash_hex, "status": "pending" }),
-            )
-        }
-        Err(e) => internal_error_response(request.id, format!("Submission failed: {}", e)),
-    }
+    execute_or_submit_response(
+        state,
+        request.id,
+        signed_tx,
+        tx_data.execute_immediate.unwrap_or(false),
+        "submit",
+        "Submission failed",
+    )
 }
 
 /// Handle get transaction by hash request

@@ -123,16 +123,31 @@ impl BlockchainEngine {
         // 3. Remove committed transactions from pending pool
         {
             let mut pending = self.pending_txs.write().unwrap_or_else(|e| e.into_inner());
-            let committed_hashes: std::collections::HashSet<_> = checkpoint
-                .transactions
-                .iter()
-                .map(|tx| tx.transaction.hash())
-                .collect();
-            pending.retain(|tx| !committed_hashes.contains(&tx.transaction.hash()));
-            self.pending_tx_hashes
-                .write()
-                .unwrap_or_else(|e| e.into_inner())
-                .retain(|hash| !committed_hashes.contains(hash));
+            if pending.len() == checkpoint.transactions.len() {
+                pending.clear();
+                self.pending_tx_hashes
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clear();
+                self.clear_pending_sender_counts();
+            } else {
+                let committed_hashes: std::collections::HashSet<_> = checkpoint
+                    .transactions
+                    .iter()
+                    .map(|tx| tx.transaction.hash())
+                    .collect();
+                let removed_transactions = pending
+                    .iter()
+                    .filter(|tx| committed_hashes.contains(&tx.transaction.hash()))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                pending.retain(|tx| !committed_hashes.contains(&tx.transaction.hash()));
+                self.pending_tx_hashes
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .retain(|hash| !committed_hashes.contains(hash));
+                self.remove_pending_sender_counts(&removed_transactions);
+            }
         }
 
         // 4. Persist blockchain state

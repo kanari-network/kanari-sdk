@@ -202,9 +202,9 @@ arbitrary = { version = "1.4.2", features = ["derive"] }                        
 # ============================================================================
 # Authentication & 2FA
 # ============================================================================
-totp-rs = { version = "5.7.1", features = ["gen_secret", "otpauth"] }                 # TOTP for 2FA
-qrcode = "0.14.1"                                                                     # QR code generation
-data-encoding = "2.11.0"                                                               # Data encoding utilities
+totp-rs = { version = "5.7.1", features = ["gen_secret", "otpauth"] }               # TOTP for 2FA
+qrcode = "0.14.1"                                                                   # QR code generation
+data-encoding = "2.11.0"                                                            # Data encoding utilities
 
 # ============================================================================
 # Time & Date Handling

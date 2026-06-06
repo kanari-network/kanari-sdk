@@ -12,8 +12,6 @@ use super::cache::LruCache;
 use super::crypto_signatures::Ed25519Keypair;
 use super::dag_consensus::{DagVertex, VertexId};
 use super::persistent_store::PersistentDagStore;
-use crate::consensus::AuthorityId;
-use crate::consensus::Round;
 use std::hash::{Hash, Hasher};
 
 // --- Security Constants (FIX #3: Prevent DoS via excessive parents) ---
@@ -482,34 +480,7 @@ impl ParallelValidator {
         vertex: &DagVertex,
         public_key: &ed25519_dalek::VerifyingKey,
     ) -> Result<()> {
-        #[derive(Serialize)]
-        struct DagVertexSigningRef<'a> {
-            id: &'a VertexId,
-            round: Round,
-            author: &'a AuthorityId,
-            chain_id: &'a String,
-            parents: &'a Vec<VertexId>,
-            transactions: &'a Vec<kanari_types::transaction::SignedTransaction>,
-            timestamp: u64,
-            signature: &'static [u8],
-            metadata: &'a crate::consensus::dag_consensus::VertexMetadata,
-        }
-
-        let signing_ref = DagVertexSigningRef {
-            id: &vertex.id,
-            round: vertex.round,
-            author: &vertex.author,
-            chain_id: &vertex.chain_id,
-            parents: &vertex.parents,
-            transactions: &vertex.transactions,
-            timestamp: vertex.timestamp,
-            signature: &[],
-            metadata: &vertex.metadata,
-        };
-
-        let payload = bcs::to_bytes(&signing_ref)
-            .map_err(|e| anyhow::anyhow!("Serialization failed: {}", e))?;
-        Ed25519Keypair::verify(public_key, &payload, &vertex.signature)
+        Ed25519Keypair::verify(public_key, &vertex.id, &vertex.signature)
     }
 
     fn update_stats(&mut self, results: &[ValidationResult], duration: std::time::Duration) {
@@ -685,11 +656,7 @@ mod tests {
         public_keys.insert("validator_0".to_string(), keypair.public());
 
         let mut vertex = create_test_vertex(1, "validator_0".to_string());
-
-        let mut vertex_for_signing = vertex.clone();
-        vertex_for_signing.signature = vec![];
-        let vertex_bytes = bcs::to_bytes(&vertex_for_signing)?;
-        vertex.signature = keypair.sign(&vertex_bytes);
+        vertex.signature = keypair.sign(&vertex.id);
 
         let results = validator.validate_and_verify_signatures(vec![vertex], public_keys)?;
 
@@ -740,9 +707,7 @@ mod tests {
         let mut validator = ParallelValidator::new(config)?;
         let keypair = Ed25519Keypair::generate();
         let mut vertex = create_test_vertex(1, "validator_0".to_string());
-        let mut for_signing = vertex.clone();
-        for_signing.signature.clear();
-        vertex.signature = keypair.sign(&bcs::to_bytes(&for_signing)?);
+        vertex.signature = keypair.sign(&vertex.id);
 
         let ok = validator.validate_vertex_with_public_key(&vertex, &keypair.public())?;
         assert!(ok.is_valid);

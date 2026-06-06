@@ -30,6 +30,7 @@ lru = { workspace = true }
 rayon = { workspace = true }
 smt = { workspace = true }
 ed25519-dalek = { workspace = true }
+ahash = { workspace = true }
 
 centauri = { workspace = true }
 

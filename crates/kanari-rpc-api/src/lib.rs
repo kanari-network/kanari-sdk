@@ -257,6 +257,8 @@ pub struct SignedTransactionData {
     pub gas_price: u64,
     pub sequence_number: u64,
     pub signature: Option<Vec<u8>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execute_immediate: Option<bool>,
 }
 
 /// Publish module request

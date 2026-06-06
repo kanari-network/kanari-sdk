@@ -394,7 +394,7 @@ impl BackupManager {
         }
 
         // Sort by creation time (newest first)
-        backups.sort_by(|a, b| b.metadata.created_at.cmp(&a.metadata.created_at));
+        backups.sort_by_key(|backup| std::cmp::Reverse(backup.metadata.created_at));
 
         Ok(backups)
     }

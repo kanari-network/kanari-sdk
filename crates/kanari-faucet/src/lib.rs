@@ -151,6 +151,7 @@ pub async fn request_from_dev(
         gas_price: signed_tx.transaction.gas_price(),
         sequence_number: account.sequence_number,
         signature: Some(signed_tx.signature.clone()),
+        execute_immediate: Some(false),
     };
 
     eprintln!("Submitting faucet transaction...");

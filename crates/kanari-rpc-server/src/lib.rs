@@ -365,6 +365,18 @@ mod tests {
         create_router(RpcServerState::new(engine))
     }
 
+    fn fund_test_account(engine: &BlockchainEngine, address: &str, balance: u64) {
+        let owner = AccountAddress::from_hex_literal(address).unwrap();
+        let mut account = Account::with_native_balance(owner, balance);
+        account.set_token_balance(KANARI_TOKEN_TYPE.to_string(), BalanceRecord::new(balance));
+        engine
+            .state
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .save_account(&account)
+            .unwrap();
+    }
+
     async fn rpc_call(
         app: Router,
         method: &str,
@@ -395,6 +407,33 @@ mod tests {
             "unexpected rpc error: {json}"
         );
         json["result"].clone()
+    }
+
+    async fn rpc_call_response(
+        app: Router,
+        method: &str,
+        params: serde_json::Value,
+        id: u64,
+    ) -> serde_json::Value {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/rpc")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "method": method,
+                    "params": params,
+                    "id": id
+                })
+                .to_string(),
+            ))
+            .unwrap();
+
+        let response: Response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        serde_json::from_slice(&body).unwrap()
     }
 
     #[tokio::test]
@@ -585,6 +624,87 @@ mod tests {
                 .map(|candidate| candidate == format!("0x{}", hash))
                 .unwrap_or(false)
         }));
+
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn submit_transaction_can_execute_immediately() {
+        let guard = test_guard();
+        let mut engine = BlockchainEngine::new_in_memory().unwrap();
+        engine.set_authorities(
+            "0x1".to_string(),
+            vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()],
+        );
+
+        let sender = generate_keypair(CurveType::Ed25519).unwrap();
+        let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+        fund_test_account(&engine, &sender.address, 2_000_000);
+
+        let sender_tagged = sender.tagged_address();
+        let recipient_address = recipient.address.clone();
+        let transaction = Transaction::new_transfer_with_gas(
+            sender_tagged.clone(),
+            recipient_address.clone(),
+            1,
+            0,
+            1_000_000,
+            1,
+        );
+        let mut signed_tx = SignedTransaction::new(transaction);
+        signed_tx
+            .sign(&sender.private_key, sender.curve_type)
+            .unwrap();
+
+        let app = create_router(RpcServerState::new(Arc::new(engine)));
+        let submitted = rpc_call(
+            app,
+            methods::SUBMIT_TRANSACTION,
+            serde_json::json!({
+                "sender": sender_tagged,
+                "recipient": recipient_address,
+                "amount": 1,
+                "gas_limit": 1_000_000,
+                "gas_price": 1,
+                "sequence_number": 0,
+                "signature": signed_tx.signature,
+                "execute_immediate": true,
+            }),
+            20,
+        )
+        .await;
+
+        assert_eq!(submitted["status"], "executed");
+        assert_eq!(submitted["action"], "submit");
+        assert!(submitted["changeset"].is_object());
+
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn submit_transaction_rejects_missing_signature() {
+        let guard = test_guard();
+        let app = build_test_router();
+
+        let response = rpc_call_response(
+            app,
+            methods::SUBMIT_TRANSACTION,
+            serde_json::json!({
+                "sender": "0x1111",
+                "recipient": "0x2222",
+                "amount": 1,
+                "gas_limit": 1_000_000,
+                "gas_price": 1,
+                "sequence_number": 0,
+                "execute_immediate": true,
+            }),
+            30,
+        )
+        .await;
+
+        assert_eq!(response["error"]["code"], -32602);
+        assert_eq!(response["error"]["message"], "Missing or empty signature");
+        assert!(response["result"].is_null());
 
         drop(guard);
     }
