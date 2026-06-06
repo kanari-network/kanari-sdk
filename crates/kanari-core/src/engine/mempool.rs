@@ -181,7 +181,8 @@ impl BlockchainEngine {
 
         sequence_groups.par_iter().try_for_each(
             |(sender, expected_start, tx_sequences)| -> Result<()> {
-                for (expected_seq, tx_seq) in (*expected_start..).zip(tx_sequences.iter().copied()) {
+                for (expected_seq, tx_seq) in (*expected_start..).zip(tx_sequences.iter().copied())
+                {
                     if tx_seq < expected_seq {
                         anyhow::bail!(
                             "Sequence number too low: expected {}, got {}",

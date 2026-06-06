@@ -486,14 +486,15 @@ impl SyncManager {
         }
 
         if buffer.len() >= self.max_dag_vertex_buffer_size
-            && let Some(evicted) = buffer.pop_front() {
-                warn!(
-                    "[DAG SYNC] Evicting buffered DAG vertex {} (round {}) due to buffer limit {}",
-                    hex::encode(evicted.id),
-                    evicted.round,
-                    self.max_dag_vertex_buffer_size
-                );
-            }
+            && let Some(evicted) = buffer.pop_front()
+        {
+            warn!(
+                "[DAG SYNC] Evicting buffered DAG vertex {} (round {}) due to buffer limit {}",
+                hex::encode(evicted.id),
+                evicted.round,
+                self.max_dag_vertex_buffer_size
+            );
+        }
 
         info!(
             "[DAG SYNC] Buffering DAG vertex {} (round {}) for retry: {}",

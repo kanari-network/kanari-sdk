@@ -163,7 +163,9 @@ pub fn run_move_unit_tests<W: Write + Send>(
     // Get the source files for all modules. We need this in order to report source-mapped error
     // messages.
     let dep_file_map: HashMap<_, _> = resolution_graph
-        .package_table.values().flat_map(|rpkg| {
+        .package_table
+        .values()
+        .flat_map(|rpkg| {
             rpkg.get_sources(&resolution_graph.build_options)
                 .unwrap()
                 .iter()
