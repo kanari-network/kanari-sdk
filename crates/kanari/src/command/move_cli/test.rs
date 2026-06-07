@@ -36,9 +36,11 @@ use std::os::unix::prelude::ExitStatusExt;
 compile_error!("Unsupported OS, currently we only support windows and unix family");
 
 /// Run Move unit tests in this package.
-#[derive(Parser)]
+#[derive(Parser, Clone)]
 #[clap(name = "test")]
 pub struct Test {
+    #[clap(flatten)]
+    pub build_config: BuildConfig,
     /// Bound the amount of gas used by any one test.
     #[clap(name = "gas-limit", short = 'i', long = "gas-limit")]
     pub gas_limit: Option<u64>,
@@ -110,6 +112,7 @@ impl Test {
             check_stackless_vm,
             verbose_mode,
             compute_coverage: _,
+            build_config: _,
         } = self;
         UnitTestingConfig {
             gas_limit,

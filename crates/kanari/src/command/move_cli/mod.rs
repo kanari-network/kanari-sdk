@@ -50,12 +50,12 @@ impl MoveCommand {
     pub fn execute(self) -> anyhow::Result<()> {
         match self {
             MoveCommand::Build(b) => {
-                let config = move_package::BuildConfig::default();
+                let config = b.build_config.clone();
                 b.execute(None, config)
             }
             MoveCommand::New(n) => n.execute_with_defaults(None),
             MoveCommand::Test(t) => {
-                let config = move_package::BuildConfig::default();
+                let config = t.build_config.clone();
                 // Construct standard library natives so native functions used by Move
                 // packages (e.g., stdlib and unit_test helpers) are available to the VM
                 let std_addr =
@@ -93,11 +93,11 @@ impl MoveCommand {
                 t.execute(None, config, natives, None)
             }
             MoveCommand::Docgen(d) => {
-                let config = move_package::BuildConfig::default();
+                let config = d.build_config.clone();
                 d.execute(None, config)
             }
             MoveCommand::Publish(p) => {
-                let config = move_package::BuildConfig::default();
+                let config = p.build_config.clone();
                 p.execute(None, config)
             }
             MoveCommand::Verify(v) => v.execute(),

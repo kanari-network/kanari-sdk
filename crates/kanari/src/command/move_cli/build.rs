@@ -7,9 +7,12 @@ use move_package::BuildConfig;
 use std::path::PathBuf;
 
 /// Build the package at `path`. If no path is provided defaults to current directory.
-#[derive(Parser)]
+#[derive(Parser, Clone)]
 #[clap(name = "build")]
-pub struct Build;
+pub struct Build {
+    #[clap(flatten)]
+    pub build_config: BuildConfig,
+}
 
 impl Build {
     pub fn execute(self, path: Option<PathBuf>, config: BuildConfig) -> anyhow::Result<()> {

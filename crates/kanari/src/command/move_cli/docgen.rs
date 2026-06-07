@@ -8,9 +8,11 @@ use move_package::{BuildConfig, ModelConfig};
 use std::{fs, path::PathBuf};
 
 /// Generate javadoc style documentation for Move packages
-#[derive(Parser)]
+#[derive(Parser, Clone)]
 #[clap(name = "docgen")]
 pub struct Docgen {
+    #[clap(flatten)]
+    pub build_config: BuildConfig,
     /// The level where we start sectioning. Often markdown sections are rendered with
     /// unnecessary large section fonts, setting this value high reduces the size
     #[clap(long = "section-level-start", value_name = "HEADER_LEVEL")]

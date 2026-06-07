@@ -15,9 +15,11 @@ use move_package::BuildConfig;
 use std::path::PathBuf;
 
 /// Publish the Move module to the blockchain
-#[derive(Parser)]
+#[derive(Parser, Clone)]
 #[clap(name = "publish")]
 pub struct Publish {
+    #[clap(flatten)]
+    pub build_config: BuildConfig,
     /// Path to the Move package (defaults to current directory)
     #[clap(long = "package-path")]
     pub package_path: Option<PathBuf>,
