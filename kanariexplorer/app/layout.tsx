@@ -23,11 +23,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: `try{var t=localStorage.getItem('theme');var d=t?t==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.classList.toggle('dark',d)}catch(e){}` }} />
       </head>
       <body>
-        <div className="site-shell">
-          <PageShell>
-            <body>{children}</body>
-          </PageShell>
-        </div>
+        <PageShell>{children}</PageShell>
       </body>
     </html>
   );

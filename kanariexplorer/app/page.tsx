@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -18,6 +19,30 @@ import { asArray, formatNumber, Panel, readString, SearchForm, StatCard, StatusP
 
 function shortUrl(url: string) {
   return url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+}
+
+function NetworkGraphic() {
+  return (
+    <div className="network-graphic" aria-hidden="true">
+      <span className="network-glow network-glow--one" />
+      <span className="network-glow network-glow--two" />
+      <div className="network-rotor">
+        <div className="network-orbit network-orbit--one" />
+        <div className="network-orbit network-orbit--two" />
+        <div className="network-orbit network-orbit--three" />
+        <span className="network-node network-node--one"><span>01</span></span>
+        <span className="network-node network-node--two"><span>K</span></span>
+        <span className="network-node network-node--three"><span>+</span></span>
+        <span className="network-node network-node--four"><span>M</span></span>
+        <span className="network-spark network-spark--one" />
+        <span className="network-spark network-spark--two" />
+        <span className="network-spark network-spark--three" />
+      </div>
+      <div className="network-core">
+        <Image src="/kariicon1.png" alt="" width={92} height={92} priority />
+      </div>
+    </div>
+  );
 }
 
 export default function Home() {
@@ -90,17 +115,24 @@ export default function Home() {
   return (
     <div className="explorer-wrap">
       <section className="hero-section">
-        <p className="eyebrow">{networkStatusLabel}</p>
-        <h1 className="hero-title">
-          Explore
-          <br />
-          <span>Kanari.</span>
-        </h1>
-        <p className="hero-copy">
-          Track node health, transactions, token registry, accounts, and NFT collections across the Kanari event-driven ledger.
-        </p>
-        <div className="hero-actions">
-          <SearchForm value={search} onChange={setSearch} onSubmit={handleSearch} placeholder="Search address or transaction hash" />
+        <div className="hero-copy">
+          <p className="eyebrow"><span /> {networkStatusLabel}</p>
+          <h1>
+            Explore<br />
+            <span>Kanari.</span>
+          </h1>
+          <p className="hero-description">
+            Track node health, transactions, token registry, accounts, and NFT collections across the Kanari event-driven ledger.
+          </p>
+          <div className="hero-actions">
+            <SearchForm value={search} onChange={setSearch} onSubmit={handleSearch} placeholder="Search address or transaction hash" />
+          </div>
+        </div>
+
+        <div className="hero-visual">
+          <div className="hero-sticker hero-sticker--top">LIVE<br />RPC</div>
+          <NetworkGraphic />
+          <div className="hero-sticker hero-sticker--bottom">OPEN<br />DATA</div>
         </div>
       </section>
 

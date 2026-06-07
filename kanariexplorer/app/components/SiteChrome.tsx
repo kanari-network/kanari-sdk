@@ -19,7 +19,11 @@ export function SiteHeader() {
   const previousScrollY = useRef(0);
 
   useEffect(() => {
-    setDarkMode(document.documentElement.classList.contains('dark'));
+    const syncTheme = window.setTimeout(() => {
+      setDarkMode(document.documentElement.classList.contains('dark'));
+    }, 0);
+
+    return () => window.clearTimeout(syncTheme);
   }, []);
 
   useEffect(() => {
@@ -95,15 +99,15 @@ export function SiteFooter() {
       </Link>
       <p>Community-powered infrastructure for digital ownership.</p>
       <div>
-        <Link href="/DeveloperPortal">Developers</Link>
-        <Link href="/connect/ecosystem">Ecosystem</Link>
-        <Link href="/connect/community">Community</Link>
-        <Link href="/KanariFoundation">Foundation</Link>
-        <Link href="/MediaKit">Media kit</Link>
-        <Link href="/Team">Team</Link>
+        <Link href="https://kanarinetwork.site//DeveloperPortal">Developers</Link>
+        <Link href="https://kanarinetwork.site//connect/ecosystem">Ecosystem</Link>
+        <Link href="https://kanarinetwork.site//connect/community">Community</Link>
+        <Link href="https://kanarinetwork.site//KanariFoundation">Foundation</Link>
+        <Link href="https://kanarinetwork.site/MediaKit">Media kit</Link>
+        <Link href="https://kanarinetwork.site//Team">Team</Link>
         <a href="https://github.com/kanari-network" target="_blank" rel="noreferrer">GitHub</a>
         <a href="https://docs.kanarinetwork.site/" target="_blank" rel="noreferrer">Docs</a>
-        <Link href="/PrivacyPolicy">Privacy</Link>
+        <Link href="https://kanarinetwork.site//PrivacyPolicy">Privacy</Link>
       </div>
     </footer>
   );

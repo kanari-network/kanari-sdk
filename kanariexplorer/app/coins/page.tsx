@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { Suspense, useEffect, useState } from "react";
 import { asArray, EmptyState, formatBalance, PageHeader, RawDetails, readString, SearchForm, StatusPill } from "../components/ExplorerUI";
 import { getAllBalances, getTokens } from "../lib/rpc";
@@ -11,6 +12,12 @@ function pickSupply(token: unknown) {
     if (value && value !== "0") return value;
   }
   return "0";
+}
+
+function getTokenIcon(token: unknown, symbol: string) {
+  const iconUrl = readString(token, "icon_url", readString(token, "logo_url", readString(token, "image_url", "")));
+  if (iconUrl) return iconUrl;
+  return symbol.toUpperCase() === "KANARI" ? "/kariicon1.png" : "";
 }
 
 function CoinsContent() {
@@ -84,11 +91,21 @@ function CoinsContent() {
               const symbol = readString(token, "symbol", "UNK");
               const decimals = readString(token, "decimals", "9");
               const amount = address ? readString(token, "amount", readString(token, "balance", "0")) : pickSupply(token);
+              const icon = getTokenIcon(token, symbol);
               return (
                 <div className="data-row data-row--tokens" key={`${symbol}-${index}`}>
-                  <div className="primary-text">
-                    <strong>{readString(token, "name", symbol)}</strong>
-                    <div className="muted-text mono">{readString(token, "token_type", readString(token, "token", symbol))}</div>
+                  <div className="token-identity primary-text">
+                    <span className="token-logo" aria-hidden="true">
+                      {icon ? (
+                        <Image src={icon} alt="" width={42} height={42} unoptimized={icon.startsWith("http")} />
+                      ) : (
+                        symbol.slice(0, 2).toUpperCase()
+                      )}
+                    </span>
+                    <span>
+                      <strong>{readString(token, "name", symbol)}</strong>
+                      <span className="muted-text mono">{readString(token, "token_type", readString(token, "token", symbol))}</span>
+                    </span>
                   </div>
                   <div>
                     <p className="tiny-label">Symbol</p>
