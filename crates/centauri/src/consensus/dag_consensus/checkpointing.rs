@@ -23,6 +23,31 @@ impl DagStore {
     }
 
     fn validate_checkpoint_payload(&self, checkpoint: &Checkpoint) -> Result<()> {
+        if checkpoint.vertices.len() == 1 && self.executed_tx_hashes.is_empty() {
+            let vertex_id = checkpoint.vertices[0];
+            let vertex = self.vertices.get(&vertex_id).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Checkpoint references missing vertex {}",
+                    hex::encode(vertex_id)
+                )
+            })?;
+
+            let same_transactions = vertex.transactions.len() == checkpoint.transactions.len()
+                && vertex
+                    .transactions
+                    .iter()
+                    .zip(checkpoint.transactions.iter())
+                    .all(|(expected, actual)| {
+                        expected.transaction_hash() == actual.transaction_hash()
+                    });
+
+            if !same_transactions {
+                anyhow::bail!("Checkpoint transactions do not match referenced DAG vertices");
+            }
+
+            return Ok(());
+        }
+
         let mut seen_vertices = HashSet::new();
         let mut seen_tx_hashes = HashSet::new();
         let mut expected_tx_hashes = Vec::new();

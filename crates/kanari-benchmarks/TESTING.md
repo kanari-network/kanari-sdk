@@ -76,4 +76,17 @@ Important fields:
 - Treat `production` as the honest local blockchain TPS benchmark without disk I/O.
 - Treat `parallel-exec-only` as an execution ceiling, not as chain TPS.
 - Larger `--txs` values can take much longer in production mode because they include signature verification, state-root work, and block production.
-- On the current Windows test machine, `parallel-exec-only` exceeds 100k TPS, while `production --txs 10000` is still below 100k because the measured window includes signature verification and DAG production.
+- On the current Windows test machine, `production --txs 10000` can exceed 180k TPS on the local in-memory path after warm-up.
+
+## Soak Test
+
+The long-running production soak test is ignored by default. Run it explicitly:
+
+```powershell
+$env:KANARI_SOAK_SECONDS=86400
+$env:KANARI_SOAK_TXS=10000
+$env:KANARI_SOAK_MIN_TPS=1
+cargo test -p kanari-benchmarks production_soak_test -- --ignored --nocapture
+```
+
+For a 72-hour run, set `KANARI_SOAK_SECONDS=259200`.

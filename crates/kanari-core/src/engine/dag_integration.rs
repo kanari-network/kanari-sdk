@@ -52,6 +52,18 @@ impl DagConsensusIntegration {
         Ok(checkpoint)
     }
 
+    pub(crate) fn submit_local_vertex(
+        &self,
+        vertex: centauri::consensus::DagVertex,
+    ) -> Result<Option<centauri::consensus::Checkpoint>> {
+        let checkpoint = {
+            let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
+            consensus.add_trusted_local_vertex_and_try_commit(vertex)?
+        };
+        self.persist_consensus_state()?;
+        Ok(checkpoint)
+    }
+
     pub(crate) fn select_pending_for_production(
         &self,
         plan: &DagProductionPlan,
@@ -441,17 +453,8 @@ impl DagConsensusIntegration {
             && checkpoint.state_root == previous_checkpoint_root
             && Self::can_skip_zero_cost_native_preview(&checkpoint.transactions)
         {
-            let verified_state = self
-                .engine
-                .state
-                .read()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone();
-            self.engine.apply_prepared_checkpoint(
-                checkpoint.clone(),
-                verified_state,
-                Vec::new(),
-            )?;
+            self.engine
+                .finalize_checkpoint_without_state_changes(checkpoint.clone())?;
             return Ok(checkpoint);
         }
 

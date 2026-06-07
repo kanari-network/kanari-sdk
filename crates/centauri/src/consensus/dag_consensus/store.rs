@@ -59,8 +59,15 @@ impl DagStore {
         Some(vertex)
     }
 
-    fn validate_new_vertex(&self, vertex: &DagVertex, required_quorum: usize) -> Result<()> {
-        vertex.verify()?;
+    fn validate_new_vertex(
+        &self,
+        vertex: &DagVertex,
+        required_quorum: usize,
+        skip_integrity_check: bool,
+    ) -> Result<()> {
+        if !skip_integrity_check {
+            vertex.verify()?;
+        }
         if self.vertices.contains_key(&vertex.id) {
             anyhow::bail!("Vertex already exists");
         }
@@ -177,6 +184,23 @@ impl DagStore {
         vertex: Arc<DagVertex>,
         required_quorum: usize,
     ) -> Result<()> {
+        self.add_vertex_arc_with_quorum_internal(vertex, required_quorum, false)
+    }
+
+    pub(super) fn add_trusted_local_vertex_arc_with_quorum(
+        &mut self,
+        vertex: Arc<DagVertex>,
+        required_quorum: usize,
+    ) -> Result<()> {
+        self.add_vertex_arc_with_quorum_internal(vertex, required_quorum, true)
+    }
+
+    fn add_vertex_arc_with_quorum_internal(
+        &mut self,
+        vertex: Arc<DagVertex>,
+        required_quorum: usize,
+        skip_integrity_check: bool,
+    ) -> Result<()> {
         if self.should_apply_backpressure() {
             anyhow::bail!(
                 "Backpressure applied: {} pending vertices (max: {})",
@@ -184,7 +208,7 @@ impl DagStore {
                 self.max_pending_vertices
             );
         }
-        self.validate_new_vertex(&vertex, required_quorum)?;
+        self.validate_new_vertex(&vertex, required_quorum, skip_integrity_check)?;
         if vertex.round > self.current_round {
             self.current_round = vertex.round;
         }

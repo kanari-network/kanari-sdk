@@ -270,7 +270,7 @@ impl DagEngine {
         let round = vertex.round;
         let vertex_for_broadcast = include_vertex.then(|| vertex.clone());
         let checkpoint_info = {
-            let checkpoint = integration.submit_vertex(vertex)?;
+            let checkpoint = integration.submit_local_vertex(vertex)?;
 
             if let Some(checkpoint) = checkpoint {
                 let checkpoint = integration.finalize_checkpoint(checkpoint, "[DAG]")?;

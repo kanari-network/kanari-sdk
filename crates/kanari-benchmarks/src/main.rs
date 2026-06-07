@@ -37,6 +37,8 @@ impl HarnessMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct HarnessConfig {
     tx_count: usize,
+    sender_count: Option<usize>,
+    runs: usize,
     json: bool,
     mode: HarnessMode,
 }
@@ -45,6 +47,8 @@ impl Default for HarnessConfig {
     fn default() -> Self {
         Self {
             tx_count: 512,
+            sender_count: None,
+            runs: 1,
             json: false,
             mode: HarnessMode::Production,
         }
@@ -140,6 +144,21 @@ where
                 config.tx_count = value;
             }
             "--json" => config.json = true,
+            "--runs" => {
+                config.runs = args
+                    .next()
+                    .context("missing value after --runs")?
+                    .parse::<usize>()
+                    .context("failed to parse --runs as usize")?;
+            }
+            "--senders" => {
+                let value = args
+                    .next()
+                    .context("missing value after --senders")?
+                    .parse::<usize>()
+                    .context("failed to parse --senders as usize")?;
+                config.sender_count = Some(value);
+            }
             "--mode" => {
                 let value = args.next().context("missing value after --mode")?;
                 config.mode = match value.as_str() {
@@ -166,12 +185,18 @@ where
     if config.tx_count == 0 {
         bail!("tx count must be greater than zero");
     }
+    if config.runs == 0 {
+        bail!("run count must be greater than zero");
+    }
+    if matches!(config.sender_count, Some(0)) {
+        bail!("sender count must be greater than zero");
+    }
 
     Ok(config)
 }
 
 fn usage() -> &'static str {
-    "Usage: cargo run --release -p kanari-benchmarks -- [--txs N] [--mode production|immediate|parallel|parallel-exec-only] [--json]\n       cargo run --release -p kanari-benchmarks -- [N]\n\nDefault mode is production: submit_transaction + produce_block."
+    "Usage: cargo run --release -p kanari-benchmarks -- [--txs N] [--senders N] [--runs N] [--mode production|immediate|parallel|parallel-exec-only] [--json]\n       cargo run --release -p kanari-benchmarks -- [N]\n\nDefault mode is production: submit_transaction + produce_block."
 }
 
 fn prepare_engine(_temp_dir: &TempDir) -> Result<BlockchainEngine> {
@@ -340,7 +365,15 @@ fn run_harness(config: &HarnessConfig) -> Result<HarnessReport> {
     let temp_dir = tempfile::Builder::new().prefix("kanari_tps").tempdir()?;
     let engine = prepare_engine(&temp_dir)?;
 
-    let sender_count = DEFAULT_SENDER_COUNT.min(config.tx_count);
+    let configured_sender_count = config
+        .sender_count
+        .or_else(|| {
+            std::env::var("KANARI_BENCH_SENDERS")
+                .ok()
+                .and_then(|value| value.parse::<usize>().ok())
+        })
+        .unwrap_or(DEFAULT_SENDER_COUNT);
+    let sender_count = configured_sender_count.min(config.tx_count);
     eprintln!("Deriving {sender_count} deterministic benchmark senders...");
     let senders: Vec<_> = (0..sender_count)
         .map(deterministic_sender_keypair)
@@ -403,12 +436,42 @@ fn run_harness(config: &HarnessConfig) -> Result<HarnessReport> {
 
 fn main() -> Result<()> {
     let config = parse_args(std::env::args())?;
-    let report = run_harness(&config)?;
-
-    if config.json {
-        eprintln!("{}", report.render_json());
+    if config.runs == 1 {
+        let report = run_harness(&config)?;
+        if config.json {
+            eprintln!("{}", report.render_json());
+        } else {
+            eprintln!("{report}");
+        }
     } else {
-        eprintln!("{report}");
+        let reports = (0..config.runs)
+            .map(|_| run_harness(&config))
+            .collect::<Result<Vec<_>>>()?;
+        let mut sorted_tps = reports.iter().map(|report| report.tps).collect::<Vec<_>>();
+        sorted_tps.sort_by(|a, b| a.total_cmp(b));
+        let min_tps = *sorted_tps.first().unwrap_or(&0.0);
+        let max_tps = *sorted_tps.last().unwrap_or(&0.0);
+        let median_tps = sorted_tps[sorted_tps.len() / 2];
+
+        if config.json {
+            let runs = reports
+                .iter()
+                .map(HarnessReport::render_json)
+                .collect::<Vec<_>>()
+                .join(",");
+            eprintln!(
+                "{{\"runs\":{},\"median_tps\":{:.6},\"min_tps\":{:.6},\"max_tps\":{:.6},\"results\":[{}]}}",
+                config.runs, median_tps, min_tps, max_tps, runs
+            );
+        } else {
+            eprintln!(
+                "Kanari benchmark summary\nruns={}\nmedian_tps={:.2}\nmin_tps={:.2}\nmax_tps={:.2}",
+                config.runs, median_tps, min_tps, max_tps
+            );
+            for (index, report) in reports.iter().enumerate() {
+                eprintln!("run={} tps={:.2}", index + 1, report.tps);
+            }
+        }
     }
 
     Ok(())
@@ -429,6 +492,8 @@ mod tests {
             config,
             HarnessConfig {
                 tx_count: 128,
+                sender_count: None,
+                runs: 1,
                 json: false,
                 mode: HarnessMode::Production,
             }
@@ -450,10 +515,32 @@ mod tests {
             config,
             HarnessConfig {
                 tx_count: 64,
+                sender_count: None,
+                runs: 1,
                 json: true,
                 mode: HarnessMode::ParallelExecOnly,
             }
         );
+    }
+
+    #[test]
+    fn parse_args_accepts_sender_count() {
+        let config = parse_args(args(&[
+            "kanari-benchmarks",
+            "--txs",
+            "128",
+            "--senders",
+            "32",
+        ]))
+        .unwrap();
+        assert_eq!(config.sender_count, Some(32));
+    }
+
+    #[test]
+    fn parse_args_accepts_runs() {
+        let config =
+            parse_args(args(&["kanari-benchmarks", "--txs", "128", "--runs", "3"])).unwrap();
+        assert_eq!(config.runs, 3);
     }
 
     #[test]
@@ -488,5 +575,47 @@ mod tests {
         assert!(json.contains("\"mode\":\"immediate\""));
         assert!(json.contains("\"executed\":5"));
         assert!(json.contains("\"tps\":10.000000"));
+    }
+
+    #[test]
+    #[ignore = "long-running soak test; enable explicitly with --ignored"]
+    fn production_soak_test() {
+        let duration_secs = std::env::var("KANARI_SOAK_SECONDS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(24 * 60 * 60);
+        let tx_count = std::env::var("KANARI_SOAK_TXS")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(10_000);
+        let min_tps = std::env::var("KANARI_SOAK_MIN_TPS")
+            .ok()
+            .and_then(|value| value.parse::<f64>().ok())
+            .unwrap_or(1.0);
+
+        let deadline = Instant::now() + std::time::Duration::from_secs(duration_secs);
+        let config = HarnessConfig {
+            tx_count,
+            sender_count: None,
+            runs: 1,
+            json: true,
+            mode: HarnessMode::Production,
+        };
+        let mut runs = 0usize;
+
+        while Instant::now() < deadline {
+            let report = run_harness(&config).expect("soak benchmark run should succeed");
+            assert_eq!(report.block_info.executed, tx_count);
+            assert_eq!(report.block_info.failed, 0);
+            assert!(
+                report.tps >= min_tps,
+                "soak TPS below threshold: {} < {}",
+                report.tps,
+                min_tps
+            );
+            runs += 1;
+        }
+
+        assert!(runs > 0, "soak test should run at least once");
     }
 }

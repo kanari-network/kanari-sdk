@@ -337,6 +337,14 @@ impl DagConsensus {
         self.try_commit()
     }
 
+    pub fn add_trusted_local_vertex_and_try_commit(
+        &mut self,
+        vertex: DagVertex,
+    ) -> Result<Option<Checkpoint>> {
+        self.add_vertex_internal(vertex, true)?;
+        self.try_commit()
+    }
+
     pub fn try_new(authority_id: AuthorityId, authorities: Vec<AuthorityId>) -> Result<Self> {
         Self::try_with_chain_id(authority_id, authorities, "kanari-default".to_string())
     }
@@ -379,7 +387,7 @@ impl DagConsensus {
     }
 
     fn signing_payload(vertex: &DagVertex) -> Result<Vec<u8>> {
-        Ok(vertex.id.to_vec())
+        Ok(dag_vertex_signature_payload(&vertex.id))
     }
 
     fn sign_vertex_with_key(
@@ -703,6 +711,10 @@ impl DagConsensus {
     }
 
     pub fn add_vertex(&mut self, vertex: DagVertex) -> Result<()> {
+        self.add_vertex_internal(vertex, false)
+    }
+
+    fn add_vertex_internal(&mut self, vertex: DagVertex, trusted_local: bool) -> Result<()> {
         if vertex.chain_id != self.chain_id {
             anyhow::bail!(
                 "Cross-chain replay attack detected! Expected chain_id '{}', got '{}'",
@@ -734,7 +746,13 @@ impl DagConsensus {
             ));
         }
 
-        self.verify_vertex_signature(&vertex)?;
+        if trusted_local {
+            if author != self.authority_id {
+                anyhow::bail!("Trusted local vertex author does not match local authority");
+            }
+        } else {
+            self.verify_vertex_signature(&vertex)?;
+        }
 
         for parent_id in &vertex.parents {
             if self.caches.vertices.get(parent_id).is_none()
@@ -801,8 +819,15 @@ impl DagConsensus {
             }
         }
 
-        self.store
-            .add_vertex_arc_with_quorum(Arc::clone(&vertex_arc), required_quorum)?;
+        if trusted_local {
+            self.store.add_trusted_local_vertex_arc_with_quorum(
+                Arc::clone(&vertex_arc),
+                required_quorum,
+            )?;
+        } else {
+            self.store
+                .add_vertex_arc_with_quorum(Arc::clone(&vertex_arc), required_quorum)?;
+        }
 
         self.caches
             .vertices

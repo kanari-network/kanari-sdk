@@ -59,12 +59,17 @@ impl SignedTransaction {
             anyhow::bail!("Transaction not signed");
         }
 
+        let current_hash = self.transaction.hash();
+        if tx_hash != current_hash.as_slice() {
+            return Ok(false);
+        }
+
         let signature = &self.signature;
         if self
             .cached_verified_signature
             .get()
             .map(|(cached_hash, cached_signature)| {
-                cached_hash.as_slice() == tx_hash && cached_signature == signature
+                cached_hash.as_slice() == current_hash.as_slice() && cached_signature == signature
             })
             .unwrap_or(false)
         {
@@ -74,7 +79,38 @@ impl SignedTransaction {
         let sender = self.transaction.sender();
 
         verify_signature(sender, tx_hash, signature)
-            .map_err(|e| anyhow::anyhow!("Signature verification failed: {}", e))
+            .map_err(|e| anyhow::anyhow!("Signature verification failed: {}", e))?;
+        let _ = self
+            .cached_verified_signature
+            .set((current_hash, signature.clone()));
+        Ok(true)
+    }
+
+    pub fn verified_transaction_hash(&self) -> Result<Vec<u8>> {
+        if self.signature.is_empty() {
+            anyhow::bail!("Transaction not signed");
+        }
+
+        let current_hash = self.transaction.hash();
+        let signature = &self.signature;
+        if self
+            .cached_verified_signature
+            .get()
+            .map(|(cached_hash, cached_signature)| {
+                cached_hash.as_slice() == current_hash.as_slice() && cached_signature == signature
+            })
+            .unwrap_or(false)
+        {
+            return Ok(current_hash);
+        }
+
+        let sender = self.transaction.sender();
+        verify_signature(sender, &current_hash, signature)
+            .map_err(|e| anyhow::anyhow!("Signature verification failed: {}", e))?;
+        let _ = self
+            .cached_verified_signature
+            .set((current_hash.clone(), signature.clone()));
+        Ok(current_hash)
     }
 
     pub fn hash(&self) -> Vec<u8> {
@@ -377,5 +413,51 @@ mod tests {
 
         assert_eq!(tx.native_call(), Some(NativeCall::BurnAmount { amount: 9 }));
         assert_eq!(tx.tx_type_label(), "burn");
+    }
+
+    #[test]
+    fn tampering_transaction_after_signing_invalidates_signature_cache() {
+        let keypair = kanari_crypto::keys::generate_keypair(CurveType::Ed25519).unwrap();
+        let mut signed_tx = SignedTransaction::new(Transaction::new_burn_with_gas(
+            keypair.tagged_address(),
+            0,
+            0,
+            100_000,
+            0,
+        ));
+        signed_tx
+            .sign(&keypair.private_key, keypair.curve_type)
+            .unwrap();
+
+        assert!(signed_tx.verify_signature().unwrap());
+
+        match &mut signed_tx.transaction {
+            Transaction::ExecuteFunction {
+                sequence_number, ..
+            } => *sequence_number += 1,
+            Transaction::PublishModule { .. } => unreachable!(),
+        }
+
+        assert!(!signed_tx.verify_signature().unwrap());
+    }
+
+    #[test]
+    fn deserialized_transaction_verifies_without_in_memory_signature_cache() {
+        let keypair = kanari_crypto::keys::generate_keypair(CurveType::Ed25519).unwrap();
+        let mut signed_tx = SignedTransaction::new(Transaction::new_burn_with_gas(
+            keypair.tagged_address(),
+            0,
+            0,
+            100_000,
+            0,
+        ));
+        signed_tx
+            .sign(&keypair.private_key, keypair.curve_type)
+            .unwrap();
+
+        let bytes = bcs::to_bytes(&signed_tx).unwrap();
+        let decoded: SignedTransaction = bcs::from_bytes(&bytes).unwrap();
+
+        assert!(decoded.verify_signature().unwrap());
     }
 }

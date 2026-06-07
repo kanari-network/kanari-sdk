@@ -105,7 +105,6 @@ impl BlockchainEngine {
             .validate_supply_invariants()
             .context("Supply invariants failed before checkpoint commit")?;
 
-        // 1. Update canonical state
         {
             let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
             *state = new_state;
@@ -114,13 +113,31 @@ impl BlockchainEngine {
                 .context("Failed to commit state to RocksDB")?;
         }
 
-        // 2. Update blockchain
+        self.finalize_checkpoint_metadata(checkpoint)
+    }
+
+    pub(crate) fn finalize_checkpoint_without_state_changes(
+        &self,
+        checkpoint: Checkpoint,
+    ) -> Result<()> {
+        {
+            let state = self.state.read().unwrap_or_else(|e| e.into_inner());
+            state
+                .validate_supply_invariants()
+                .context("Supply invariants failed before metadata-only checkpoint commit")?;
+        }
+
+        self.finalize_checkpoint_metadata(checkpoint)
+    }
+
+    fn finalize_checkpoint_metadata(&self, checkpoint: Checkpoint) -> Result<()> {
+        // 1. Update blockchain
         {
             let mut chain = self.blockchain.write().unwrap_or_else(|e| e.into_inner());
             chain.add_checkpoint_with_validation(checkpoint.clone(), false)?;
         }
 
-        // 3. Remove committed transactions from pending pool
+        // 2. Remove committed transactions from pending pool
         {
             let mut pending = self.pending_txs.write().unwrap_or_else(|e| e.into_inner());
             if pending.len() == checkpoint.transactions.len() {
@@ -150,7 +167,7 @@ impl BlockchainEngine {
             }
         }
 
-        // 4. Persist blockchain state
+        // 3. Persist blockchain state
         if let Some(store) = &self.persistent_store {
             let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
             if let Err(e) = store.save(b"blockchain", &*chain) {

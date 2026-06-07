@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use super::cache::LruCache;
 use super::crypto_signatures::Ed25519Keypair;
-use super::dag_consensus::{DagVertex, VertexId};
+use super::dag_consensus::{DagVertex, VertexId, dag_vertex_signature_payload};
 use super::persistent_store::PersistentDagStore;
 use std::hash::{Hash, Hasher};
 
@@ -480,7 +480,8 @@ impl ParallelValidator {
         vertex: &DagVertex,
         public_key: &ed25519_dalek::VerifyingKey,
     ) -> Result<()> {
-        Ed25519Keypair::verify(public_key, &vertex.id, &vertex.signature)
+        let payload = dag_vertex_signature_payload(&vertex.id);
+        Ed25519Keypair::verify(public_key, &payload, &vertex.signature)
     }
 
     fn update_stats(&mut self, results: &[ValidationResult], duration: std::time::Duration) {
@@ -656,7 +657,7 @@ mod tests {
         public_keys.insert("validator_0".to_string(), keypair.public());
 
         let mut vertex = create_test_vertex(1, "validator_0".to_string());
-        vertex.signature = keypair.sign(&vertex.id);
+        vertex.signature = keypair.sign(&dag_vertex_signature_payload(&vertex.id));
 
         let results = validator.validate_and_verify_signatures(vec![vertex], public_keys)?;
 
@@ -707,7 +708,7 @@ mod tests {
         let mut validator = ParallelValidator::new(config)?;
         let keypair = Ed25519Keypair::generate();
         let mut vertex = create_test_vertex(1, "validator_0".to_string());
-        vertex.signature = keypair.sign(&vertex.id);
+        vertex.signature = keypair.sign(&dag_vertex_signature_payload(&vertex.id));
 
         let ok = validator.validate_vertex_with_public_key(&vertex, &keypair.public())?;
         assert!(ok.is_valid);
@@ -715,6 +716,20 @@ mod tests {
         vertex.signature = vec![0u8; 64];
         let bad = validator.validate_vertex_with_public_key(&vertex, &keypair.public())?;
         assert!(!bad.is_valid);
+        Ok(())
+    }
+
+    #[test]
+    fn test_vertex_signature_rejects_legacy_unversioned_payload() -> Result<()> {
+        let config = ParallelValidatorConfig::default();
+        let mut validator = ParallelValidator::new(config)?;
+        let keypair = Ed25519Keypair::generate();
+        let mut vertex = create_test_vertex(1, "validator_0".to_string());
+
+        vertex.signature = keypair.sign(&vertex.id);
+
+        let result = validator.validate_vertex_with_public_key(&vertex, &keypair.public())?;
+        assert!(!result.is_valid);
         Ok(())
     }
 

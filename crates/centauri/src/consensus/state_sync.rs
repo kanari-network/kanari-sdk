@@ -611,7 +611,8 @@ mod tests {
             DagVertex::new_for_test(1, "auth1".to_string(), vec![], vec![], vec![0u8; 32], 0);
 
         // 3. Create mock signature to pass ParallelValidator::verify_vertex_signature
-        vertex.signature = keypair.sign(&vertex.id);
+        vertex.signature = keypair
+            .sign(&crate::consensus::dag_consensus::dag_vertex_signature_payload(&vertex.id));
 
         // 4. Create SyncResponse
         let response = SyncResponse {

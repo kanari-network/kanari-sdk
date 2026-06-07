@@ -53,6 +53,19 @@ pub type Round = u64;
 /// Authority/validator identifier
 pub type AuthorityId = String;
 
+pub const DAG_VERTEX_SIGNATURE_VERSION: u16 = 1;
+pub const DAG_VERTEX_SIGNATURE_DOMAIN: &[u8] = b"kanari-dag-vertex";
+
+pub(crate) fn dag_vertex_signature_payload(id: &VertexId) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(
+        DAG_VERTEX_SIGNATURE_DOMAIN.len() + std::mem::size_of::<u16>() + id.len(),
+    );
+    payload.extend_from_slice(DAG_VERTEX_SIGNATURE_DOMAIN);
+    payload.extend_from_slice(&DAG_VERTEX_SIGNATURE_VERSION.to_le_bytes());
+    payload.extend_from_slice(id);
+    payload
+}
+
 fn vertex_id_from_hash_bytes(bytes: &[u8]) -> VertexId {
     let mut result = [0u8; 32];
     result.copy_from_slice(&bytes[..32]);

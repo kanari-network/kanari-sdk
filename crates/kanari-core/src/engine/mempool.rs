@@ -47,11 +47,8 @@ impl BlockchainEngine {
         let batch_metadata = signed_txs
             .par_iter()
             .map(|signed_tx| -> Result<(Vec<u8>, String, u64)> {
-                let tx_hash = signed_tx.transaction_hash().to_vec();
+                let tx_hash = signed_tx.verified_transaction_hash()?;
                 let sender = signed_tx.transaction.sender_address();
-                if !signed_tx.verify_signature_for_hash(&tx_hash)? {
-                    anyhow::bail!("Invalid or missing transaction signature");
-                }
                 Ok((
                     tx_hash,
                     sender_cache
