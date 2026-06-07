@@ -73,7 +73,7 @@ impl Blockchain {
         I: IntoIterator<Item = &'a SignedTransaction>,
     {
         for signed_tx in txs {
-            let hash = signed_tx.transaction.hash();
+            let hash = signed_tx.transaction_hash().to_vec();
             if self.executed_tx_hashes.insert(hash.clone()) {
                 self.tx_hash_queue.push_back(hash);
             }
@@ -166,7 +166,7 @@ impl Blockchain {
 
         for checkpoint in &self.dag_checkpoints {
             for tx in &checkpoint.transactions {
-                let hash = tx.transaction.hash();
+                let hash = tx.transaction_hash().to_vec();
 
                 // Insert and track in queue simultaneously
                 if self.executed_tx_hashes.insert(hash.clone()) {
@@ -217,7 +217,7 @@ impl Blockchain {
             // FIX #7: Check for duplicate transactions WITHIN the same checkpoint
             let mut seen_txs = std::collections::HashSet::new();
             for tx in &checkpoint.transactions {
-                let tx_hash = tx.transaction.hash();
+                let tx_hash = tx.transaction_hash().to_vec();
                 if !seen_txs.insert(tx_hash.clone()) {
                     anyhow::bail!("Duplicate transaction found within checkpoint");
                 }

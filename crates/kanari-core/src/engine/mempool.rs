@@ -3,7 +3,6 @@
 
 use super::*;
 use ahash::AHashSet;
-use kanari_crypto::{keys::KeyPair, signatures::verify_signature_with_curve};
 
 impl BlockchainEngine {
     pub fn submit_transactions_batch(
@@ -36,69 +35,33 @@ impl BlockchainEngine {
             anyhow::bail!("Mempool is currently full. Please try again later.");
         }
 
-        // Parallel hash and metadata extraction. Sender parsing is done once per unique
-        // sender below instead of once per transaction.
-        let batch_metadata = signed_txs
-            .par_iter()
-            .map(|signed_tx| -> (Vec<u8>, String, u64) {
-                let tx_hash = signed_tx.transaction.hash();
-                (
-                    tx_hash,
-                    signed_tx.transaction.sender_address().to_string(),
-                    signed_tx.transaction.sequence_number(),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        let mut sender_cache = ahash::AHashMap::with_capacity(batch_metadata.len().min(batch_size));
-        for (_, sender, _) in &batch_metadata {
+        let mut sender_cache = ahash::AHashMap::with_capacity(batch_size);
+        for signed_tx in &signed_txs {
+            let sender = signed_tx.transaction.sender_address();
             sender_cache
-                .entry(sender.clone())
-                .or_insert_with(|| -> Result<_> {
-                    let (curve_type, address) =
-                        KeyPair::parse_tagged_address(sender).ok_or_else(|| {
-                            anyhow::anyhow!("Tagged address required for signature verification")
-                        })?;
-                    Ok((Self::normalize_addr(sender), address, curve_type))
-                });
+                .entry(sender.to_string())
+                .or_insert_with(|| Self::normalize_addr(sender));
         }
 
-        let sender_cache = sender_cache
-            .into_iter()
-            .map(|(sender, parsed)| parsed.map(|parsed| (sender, parsed)))
-            .collect::<Result<ahash::AHashMap<_, _>>>()?;
-
-        batch_metadata
+        // Hash, verify, and extract metadata in one parallel pass.
+        let batch_metadata = signed_txs
             .par_iter()
-            .zip(signed_txs.par_iter())
-            .try_for_each(|((tx_hash, sender, _), signed_tx)| -> Result<()> {
-                let (_, address, curve_type) = sender_cache
-                    .get(sender)
-                    .expect("sender cache must contain every batch sender");
-                let valid = verify_signature_with_curve(
-                    address,
-                    tx_hash,
-                    &signed_tx.signature,
-                    *curve_type,
-                )
-                .map_err(|e| anyhow::anyhow!("Signature verification failed: {}", e))?;
-                if !valid {
+            .map(|signed_tx| -> Result<(Vec<u8>, String, u64)> {
+                let tx_hash = signed_tx.transaction_hash().to_vec();
+                let sender = signed_tx.transaction.sender_address();
+                if !signed_tx.verify_signature_for_hash(&tx_hash)? {
                     anyhow::bail!("Invalid or missing transaction signature");
                 }
-                Ok(())
-            })?;
-
-        let batch_metadata = batch_metadata
-            .into_iter()
-            .map(|(tx_hash, sender, sequence_number)| {
-                let sender = sender_cache
-                    .get(&sender)
-                    .expect("sender normalization must exist")
-                    .0
-                    .clone();
-                (tx_hash, sender, sequence_number)
+                Ok((
+                    tx_hash,
+                    sender_cache
+                        .get(sender)
+                        .expect("sender cache must contain every batch sender")
+                        .clone(),
+                    signed_tx.transaction.sequence_number(),
+                ))
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>>>()?;
 
         // Batch read account sequences to minimize state lock contention
         let base_sequences = {
@@ -242,7 +205,7 @@ impl BlockchainEngine {
             anyhow::bail!("Invalid transaction signature");
         }
 
-        let tx_hash = signed_tx.transaction.hash();
+        let tx_hash = signed_tx.transaction_hash().to_vec();
         let tx = signed_tx.transaction;
 
         let changeset = {
@@ -300,7 +263,7 @@ impl BlockchainEngine {
                 );
 
                 let final_result = match result {
-                    Ok(cs) => Ok((tx.transaction.hash(), cs)),
+                    Ok(cs) => Ok((tx.transaction_hash().to_vec(), cs)),
                     Err(e) => Err(anyhow::anyhow!("Parallel execution failed: {}", e)),
                 };
 

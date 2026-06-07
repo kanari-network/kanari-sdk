@@ -77,7 +77,7 @@ impl BlockchainEngine {
                 .transactions
                 .iter()
                 .filter(|signed_tx| {
-                    !chain.is_transaction_hash_executed(&signed_tx.transaction.hash())
+                    !chain.is_transaction_hash_executed(signed_tx.transaction_hash())
                 })
                 .cloned()
                 .collect()
@@ -134,14 +134,14 @@ impl BlockchainEngine {
                 let committed_hashes: std::collections::HashSet<_> = checkpoint
                     .transactions
                     .iter()
-                    .map(|tx| tx.transaction.hash())
+                    .map(|tx| tx.transaction_hash().to_vec())
                     .collect();
                 let removed_transactions = pending
                     .iter()
-                    .filter(|tx| committed_hashes.contains(&tx.transaction.hash()))
+                    .filter(|tx| committed_hashes.contains(tx.transaction_hash()))
                     .cloned()
                     .collect::<Vec<_>>();
-                pending.retain(|tx| !committed_hashes.contains(&tx.transaction.hash()));
+                pending.retain(|tx| !committed_hashes.contains(tx.transaction_hash()));
                 self.pending_tx_hashes
                     .write()
                     .unwrap_or_else(|e| e.into_inner())

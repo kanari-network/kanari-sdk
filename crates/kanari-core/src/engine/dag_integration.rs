@@ -29,6 +29,10 @@ impl DagConsensusIntegration {
     }
 
     pub(crate) fn persist_consensus_state(&self) -> Result<()> {
+        if self.engine.persistent_store.is_none() {
+            return Ok(());
+        }
+
         let state = {
             let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
             consensus.save_state()?
@@ -57,19 +61,47 @@ impl DagConsensusIntegration {
             .blockchain
             .read()
             .unwrap_or_else(|e| e.into_inner());
+        if plan.history_tx_hashes.is_empty() && !chain.has_executed_transactions() {
+            let mut pending = self
+                .engine
+                .pending_txs
+                .write()
+                .unwrap_or_else(|e| e.into_inner());
+            let included = if pending.len() <= 500_000 {
+                let included = std::mem::take(&mut *pending);
+                self.engine
+                    .pending_tx_hashes
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clear();
+                self.engine.clear_pending_sender_counts();
+                included
+            } else {
+                let included = pending.drain(..500_000).collect::<Vec<_>>();
+                let remove_hashes = included
+                    .iter()
+                    .map(|tx| tx.transaction_hash().to_vec())
+                    .collect::<HashSet<_>>();
+                self.engine
+                    .pending_tx_hashes
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .retain(|hash| !remove_hashes.contains(hash));
+                self.engine.remove_pending_sender_counts(&included);
+                included
+            };
+            return DagPendingSelection {
+                included,
+                remove_hashes: Vec::new(),
+            };
+        }
+
         let pending = self
             .engine
             .pending_txs
             .read()
             .unwrap_or_else(|e| e.into_inner());
         let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
-
-        if plan.history_tx_hashes.is_empty() && !chain.has_executed_transactions() {
-            return DagPendingSelection {
-                included: pending.iter().take(500_000).cloned().collect(),
-                remove_hashes: Vec::new(),
-            };
-        }
 
         consensus.select_pending_transactions(plan, &pending, |hash| {
             chain.has_executed_transactions() && chain.is_transaction_hash_executed(hash)
@@ -100,10 +132,10 @@ impl DagConsensusIntegration {
 
         let removed_transactions = pending
             .iter()
-            .filter(|tx| remove_set.contains(&tx.transaction.hash()))
+            .filter(|tx| remove_set.contains(tx.transaction_hash()))
             .cloned()
             .collect::<Vec<_>>();
-        pending.retain(|tx| !remove_set.contains(&tx.transaction.hash()));
+        pending.retain(|tx| !remove_set.contains(tx.transaction_hash()));
         self.engine
             .pending_tx_hashes
             .write()
@@ -116,7 +148,7 @@ impl DagConsensusIntegration {
     pub(crate) fn remove_pending_transactions(&self, transactions: &[SignedTransaction]) -> usize {
         let remove_hashes: Vec<Vec<u8>> = transactions
             .iter()
-            .map(|tx| tx.transaction.hash())
+            .map(|tx| tx.transaction_hash().to_vec())
             .collect();
         self.remove_pending_hashes(&remove_hashes);
         self.engine

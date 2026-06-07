@@ -8,6 +8,7 @@ use kanari_crypto::verify_signature;
 use kanari_crypto::{hash_data_blake3, signatures::sign_message};
 use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 use tracing::error;
 
 /// Signed transaction wrapper
@@ -15,6 +16,10 @@ use tracing::error;
 pub struct SignedTransaction {
     pub transaction: Transaction,
     pub signature: Vec<u8>,
+    #[serde(skip, default)]
+    cached_transaction_hash: OnceLock<Vec<u8>>,
+    #[serde(skip, default)]
+    cached_verified_signature: OnceLock<(Vec<u8>, Vec<u8>)>,
 }
 
 impl SignedTransaction {
@@ -22,20 +27,31 @@ impl SignedTransaction {
         Self {
             transaction,
             signature: vec![],
+            cached_transaction_hash: OnceLock::new(),
+            cached_verified_signature: OnceLock::new(),
         }
     }
 
     pub fn sign(&mut self, private_key: &str, curve_type: CurveType) -> Result<()> {
-        let tx_hash = self.transaction.hash();
+        let tx_hash = self.transaction_hash().to_vec();
         let signature = sign_message(private_key, &tx_hash, curve_type)
             .map_err(|e| anyhow::anyhow!("Failed to sign transaction: {}", e))?;
         self.signature = signature;
+        let _ = self
+            .cached_verified_signature
+            .set((tx_hash, self.signature.clone()));
         Ok(())
     }
 
     pub fn verify_signature(&self) -> Result<bool> {
-        let tx_hash = self.transaction.hash();
+        let tx_hash = self.transaction_hash();
         self.verify_signature_for_hash(&tx_hash)
+    }
+
+    pub fn transaction_hash(&self) -> &[u8] {
+        self.cached_transaction_hash
+            .get_or_init(|| self.transaction.hash())
+            .as_slice()
     }
 
     pub fn verify_signature_for_hash(&self, tx_hash: &[u8]) -> Result<bool> {
@@ -44,6 +60,17 @@ impl SignedTransaction {
         }
 
         let signature = &self.signature;
+        if self
+            .cached_verified_signature
+            .get()
+            .map(|(cached_hash, cached_signature)| {
+                cached_hash.as_slice() == tx_hash && cached_signature == signature
+            })
+            .unwrap_or(false)
+        {
+            return Ok(true);
+        }
+
         let sender = self.transaction.sender();
 
         verify_signature(sender, tx_hash, signature)

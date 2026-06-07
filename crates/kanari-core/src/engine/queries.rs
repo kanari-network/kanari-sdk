@@ -289,7 +289,7 @@ impl BlockchainEngine {
             block_data.height
         );
         for (i, signed_tx) in block_data.transactions.iter().enumerate() {
-            let tx_hash = signed_tx.transaction.hash();
+            let tx_hash = signed_tx.transaction_hash().to_vec();
             if !signed_tx.verify_signature_for_hash(&tx_hash)? {
                 anyhow::bail!(
                     "Invalid or missing signature for transaction {} in block #{}",
@@ -351,7 +351,7 @@ impl BlockchainEngine {
             checkpoint.sequence
         );
         for (i, signed_tx) in checkpoint.transactions.iter().enumerate() {
-            let tx_hash = signed_tx.transaction.hash();
+            let tx_hash = signed_tx.transaction_hash().to_vec();
             if !signed_tx.verify_signature_for_hash(&tx_hash)? {
                 anyhow::bail!(
                     "Invalid or missing signature for transaction {} in checkpoint #{}",

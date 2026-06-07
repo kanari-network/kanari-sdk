@@ -60,7 +60,7 @@ fn vertex_id_from_hash_bytes(bytes: &[u8]) -> VertexId {
 }
 
 fn logical_tx_hash(tx: &SignedTransaction) -> Vec<u8> {
-    tx.transaction.hash()
+    tx.transaction_hash().to_vec()
 }
 
 fn timestamp_bounds(parent_timestamps: &[u64]) -> Option<(u64, u64)> {
