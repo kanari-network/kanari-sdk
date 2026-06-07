@@ -30,17 +30,49 @@ pub struct SparseMerkleTree {
     default_hashes: &'static [[u8; 32]],
 }
 
-fn node_key(depth: usize, prefix: &[u8]) -> Vec<u8> {
-    let mut out = b"n:".to_vec();
-    let d = (depth as u16).to_be_bytes();
-    out.extend(&d);
-    out.extend(prefix);
-    out
+const ROOT_NODE_KEY: [u8; 4] = [b'n', b':', 0, 0];
+type NodeCacheKey = [u8; 36];
+
+fn fill_node_key_for_hash(out: &mut [u8; 36], depth: usize, key_hash: &[u8; 32]) -> usize {
+    let prefix_bytes = depth.div_ceil(8);
+    out[0] = b'n';
+    out[1] = b':';
+    out[2..4].copy_from_slice(&(depth as u16).to_be_bytes());
+    out[4..4 + prefix_bytes].copy_from_slice(&key_hash[..prefix_bytes]);
+
+    let excess = (prefix_bytes * 8) - depth;
+    if excess > 0 {
+        out[4 + prefix_bytes - 1] &= 0xFF_u8 << excess;
+    }
+
+    4 + prefix_bytes
 }
 
-fn data_key(key_hash: &[u8; 32]) -> Vec<u8> {
-    let mut out = b"d:".to_vec();
-    out.extend(key_hash);
+fn node_cache_key(depth: usize, key_hash: &[u8; 32]) -> (NodeCacheKey, usize) {
+    let mut key = [0u8; 36];
+    let len = fill_node_key_for_hash(&mut key, depth, key_hash);
+    (key, len)
+}
+
+fn flip_last_key_bit(node_key: &mut [u8], depth: usize) {
+    let (byte_idx, bit_in_byte) = key_bit_position(depth);
+    node_key[4 + byte_idx] ^= 1u8 << bit_in_byte;
+}
+
+fn key_bit_position(depth: usize) -> (usize, usize) {
+    let bit_index = depth - 1;
+    (bit_index / 8, 7 - (bit_index % 8))
+}
+
+fn node_cache_capacity(item_count: usize) -> usize {
+    item_count.saturating_mul(256).min(16_384)
+}
+
+fn data_key(key_hash: &[u8; 32]) -> [u8; 34] {
+    let mut out = [0u8; 34];
+    out[0] = b'd';
+    out[1] = b':';
+    out[2..].copy_from_slice(key_hash);
     out
 }
 
@@ -75,8 +107,7 @@ impl SparseMerkleTree {
 
     pub fn root_hash(&self) -> Result<[u8; 32]> {
         // root is stored at depth 0 with empty prefix
-        let key = node_key(0, &[]);
-        if let Ok(Some(v)) = self.db.get(key) {
+        if let Ok(Some(v)) = self.db.get(ROOT_NODE_KEY) {
             let mut arr = [0u8; 32];
             arr.copy_from_slice(&v);
             Ok(arr)
@@ -87,7 +118,8 @@ impl SparseMerkleTree {
 
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let kh = digest(key);
-        if let Some(v) = self.db.get(data_key(&kh))? {
+        let data_key = data_key(&kh);
+        if let Some(v) = self.db.get(&data_key)? {
             Ok(Some(v.to_vec()))
         } else {
             Ok(None)
@@ -97,41 +129,27 @@ impl SparseMerkleTree {
     /// Produce a proof for `key`. Returns (is_member, leaf_hash, siblings bottom-up)
     pub fn proof(&self, key: &[u8]) -> Result<(bool, [u8; 32], Vec<[u8; 32]>)> {
         let kh = digest(key);
+        let data_key = data_key(&kh);
 
         // check membership
-        let is_member = self.db.get(data_key(&kh))?.is_some();
+        let value = self.db.get(&data_key)?;
+        let is_member = value.is_some();
 
         // leaf hash
-        let leaf_hash = if is_member {
-            let val = self.db.get(data_key(&kh))?.unwrap();
+        let leaf_hash = if let Some(val) = value {
             hash_leaf(&kh, &val)
         } else {
             self.default_hashes[256]
         };
 
         let mut siblings: Vec<[u8; 32]> = Vec::with_capacity(256);
+        let mut sibling_key = [0u8; 36];
 
         // traverse from leaf depth down to 1 and collect sibling at each level
         for depth in (1..=256).rev() {
-            let prefix_bits: usize = depth;
-            let prefix_bytes = prefix_bits.div_ceil(8_usize);
-            let mut prefix = vec![0u8; prefix_bytes];
-            prefix.copy_from_slice(&kh[..prefix_bytes]);
-            let excess = (prefix_bytes * 8) - prefix_bits;
-            if excess > 0 {
-                let mask = 0xFF << excess;
-                let last = prefix_bytes - 1;
-                prefix[last] &= mask as u8;
-            }
-
-            let last_bit_index = prefix_bits - 1;
-            let byte_idx = last_bit_index / 8;
-            let bit_in_byte = 7 - (last_bit_index % 8);
-
-            let mut sibling_prefix = prefix.clone();
-            sibling_prefix[byte_idx] ^= 1u8 << bit_in_byte;
-            let sibling_key = node_key(depth, &sibling_prefix);
-            if let Ok(Some(v)) = self.db.get(&sibling_key) {
+            let sibling_key_len = fill_node_key_for_hash(&mut sibling_key, depth, &kh);
+            flip_last_key_bit(&mut sibling_key[..sibling_key_len], depth);
+            if let Ok(Some(v)) = self.db.get(&sibling_key[..sibling_key_len]) {
                 let mut a = [0u8; 32];
                 a.copy_from_slice(&v);
                 siblings.push(a);
@@ -152,8 +170,9 @@ impl SparseMerkleTree {
         // node hashes we write during this batch so subsequent keys can see
         // sibling updates without additional DB reads.
         let mut batch = WriteBatch::default();
-        use std::collections::BTreeMap;
-        let mut node_cache: BTreeMap<Vec<u8>, [u8; 32]> = BTreeMap::new();
+        use std::collections::HashMap;
+        let mut node_cache: HashMap<NodeCacheKey, [u8; 32]> =
+            HashMap::with_capacity(node_cache_capacity(kvs.len()));
 
         for (k, v) in kvs.iter() {
             let key = k.as_slice();
@@ -164,35 +183,22 @@ impl SparseMerkleTree {
             let leaf_hash = hash_leaf(&kh, value);
 
             // queue data write
-            batch.put(data_key(&kh), value);
+            let data_key = data_key(&kh);
+            batch.put(&data_key, value);
 
             // current hash as array
             let mut cur = leaf_hash;
 
             for depth in (1..=256).rev() {
-                let prefix_bits: usize = depth;
-                let prefix_bytes = prefix_bits.div_ceil(8_usize);
-                let mut prefix = vec![0u8; prefix_bytes];
-                prefix.copy_from_slice(&kh[..prefix_bytes]);
-                let excess = (prefix_bytes * 8) - prefix_bits;
-                if excess > 0 {
-                    let mask = 0xFF << excess;
-                    let last = prefix_bytes - 1;
-                    prefix[last] &= mask as u8;
-                }
+                let (byte_idx, bit_in_byte) = key_bit_position(depth);
 
-                let last_bit_index = prefix_bits - 1;
-                let byte_idx = last_bit_index / 8;
-                let bit_in_byte = 7 - (last_bit_index % 8);
-
-                let mut sibling_prefix = prefix.clone();
-                sibling_prefix[byte_idx] ^= 1u8 << bit_in_byte;
-                let sibling_key_vec = node_key(depth, &sibling_prefix);
+                let (mut node_k, node_k_len) = node_cache_key(depth, &kh);
+                flip_last_key_bit(&mut node_k, depth);
 
                 // try cache first, then DB
-                let sibling_hash = if let Some(h) = node_cache.get(&sibling_key_vec) {
+                let sibling_hash = if let Some(h) = node_cache.get(&node_k) {
                     *h
-                } else if let Ok(Some(vb)) = self.db.get(&sibling_key_vec) {
+                } else if let Ok(Some(vb)) = self.db.get(&node_k[..node_k_len]) {
                     let mut a = [0u8; 32];
                     a.copy_from_slice(&vb);
                     a
@@ -210,11 +216,11 @@ impl SparseMerkleTree {
                 let parent = hash_node(&left, &right);
                 let parent_arr = parent;
 
-                let node_k = node_key(depth, &prefix);
+                flip_last_key_bit(&mut node_k, depth);
                 if cur == self.default_hashes[depth] {
-                    batch.delete(node_k.clone());
+                    batch.delete(&node_k[..node_k_len]);
                 } else {
-                    batch.put(node_k.clone(), cur);
+                    batch.put(&node_k[..node_k_len], cur);
                 }
                 node_cache.insert(node_k, cur);
 
@@ -222,7 +228,7 @@ impl SparseMerkleTree {
             }
 
             // root
-            batch.put(node_key(0, &[]), cur);
+            batch.put(ROOT_NODE_KEY, cur);
         }
 
         self.db.write(batch)?;
@@ -241,52 +247,39 @@ impl SparseMerkleTree {
             return Ok(());
         }
 
-        use std::collections::BTreeMap;
-        // prepare (key, key_hash) pairs
-        let mut keyed: Vec<(Vec<u8>, [u8; 32])> = Vec::with_capacity(keys.len());
+        // prepare key hashes
+        let mut keyed: Vec<[u8; 32]> = Vec::with_capacity(keys.len());
         for k in keys.iter() {
             let khd = digest(k.as_slice());
-            keyed.push((k.clone(), khd));
+            keyed.push(khd);
         }
 
         // sort and dedup by hash to coalesce shared prefixes
-        keyed.sort_by_key(|a| a.1);
-        keyed.dedup_by(|a, b| a.1 == b.1);
+        keyed.sort();
+        keyed.dedup();
 
         let mut batch = WriteBatch::default();
-        let mut node_cache: BTreeMap<Vec<u8>, [u8; 32]> = BTreeMap::new();
+        let mut node_cache: std::collections::HashMap<NodeCacheKey, [u8; 32]> =
+            std::collections::HashMap::with_capacity(node_cache_capacity(keyed.len()));
 
-        for (_key, kh) in keyed.into_iter() {
+        for kh in keyed.into_iter() {
             // delete stored data entry
-            batch.delete(data_key(&kh));
+            let data_key = data_key(&kh);
+            batch.delete(&data_key);
 
             // start with default leaf
             let mut cur = self.default_hashes[256];
 
             for depth in (1..=256).rev() {
-                let prefix_bits: usize = depth;
-                let prefix_bytes = prefix_bits.div_ceil(8_usize);
-                let mut prefix = vec![0u8; prefix_bytes];
-                prefix.copy_from_slice(&kh[..prefix_bytes]);
-                let excess = (prefix_bytes * 8) - prefix_bits;
-                if excess > 0 {
-                    let mask = 0xFF << excess;
-                    let last = prefix_bytes - 1;
-                    prefix[last] &= mask as u8;
-                }
+                let (byte_idx, bit_in_byte) = key_bit_position(depth);
 
-                let last_bit_index = prefix_bits - 1;
-                let byte_idx = last_bit_index / 8;
-                let bit_in_byte = 7 - (last_bit_index % 8);
-
-                let mut sibling_prefix = prefix.clone();
-                sibling_prefix[byte_idx] ^= 1u8 << bit_in_byte;
-                let sibling_key = node_key(depth, &sibling_prefix);
+                let (mut node_k, node_k_len) = node_cache_key(depth, &kh);
+                flip_last_key_bit(&mut node_k, depth);
 
                 // try cache first, then DB
-                let sibling_hash = if let Some(h) = node_cache.get(&sibling_key) {
+                let sibling_hash = if let Some(h) = node_cache.get(&node_k) {
                     *h
-                } else if let Ok(Some(v)) = self.db.get(&sibling_key) {
+                } else if let Ok(Some(v)) = self.db.get(&node_k[..node_k_len]) {
                     let mut a = [0u8; 32];
                     a.copy_from_slice(&v);
                     a
@@ -304,12 +297,12 @@ impl SparseMerkleTree {
                 let parent_arr = hash_node(&left, &right);
 
                 // if current equals default at this depth, remove stored node, else write
-                let node_k = node_key(depth, &prefix);
+                flip_last_key_bit(&mut node_k, depth);
                 if cur == self.default_hashes[depth] {
-                    batch.delete(node_k.clone());
+                    batch.delete(&node_k[..node_k_len]);
                     node_cache.insert(node_k, self.default_hashes[depth]);
                 } else {
-                    batch.put(node_k.clone(), cur);
+                    batch.put(&node_k[..node_k_len], cur);
                     node_cache.insert(node_k, cur);
                 }
 
@@ -318,9 +311,9 @@ impl SparseMerkleTree {
 
             // root
             if cur == self.default_hashes[0] {
-                batch.delete(node_key(0, &[]));
+                batch.delete(ROOT_NODE_KEY);
             } else {
-                batch.put(node_key(0, &[]), cur);
+                batch.put(ROOT_NODE_KEY, cur);
             }
         }
 
@@ -344,9 +337,7 @@ pub fn verify_proof(root: &[u8; 32], key: &[u8], proof: (bool, [u8; 32], Vec<[u8
     for (i, sibling) in siblings.into_iter().enumerate() {
         // siblings vector is bottom-up from leaf (depth=256) upwards
         let depth = 256 - i;
-        let bit_index = depth - 1;
-        let byte_idx = bit_index / 8;
-        let bit_in_byte = 7 - (bit_index % 8);
+        let (byte_idx, bit_in_byte) = key_bit_position(depth);
         let bit = ((kh[byte_idx] >> bit_in_byte) & 1u8) == 0;
 
         let (left, right) = if bit { (cur, sibling) } else { (sibling, cur) };

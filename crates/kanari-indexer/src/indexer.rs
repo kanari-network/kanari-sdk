@@ -108,12 +108,9 @@ impl Indexer {
                         .context(format!("Failed to insert coin from tx {}", tx_hash))?;
                 }
 
-                // Index events for this transaction
-                let events: Vec<kanari_types::event::Event> = block.events.clone();
-
-                if !events.is_empty() {
+                if !block.events.is_empty() {
                     self.db
-                        .insert_events(height, &[(tx_hash, events)])
+                        .insert_events(height, &[(tx_hash.as_str(), block.events.as_slice())])
                         .context(format!("Failed to insert events for block {}", height))?;
                 }
             }

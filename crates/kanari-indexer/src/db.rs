@@ -13,6 +13,8 @@ use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
 use tracing::{debug, info};
 
+type EventBatch<'a> = (&'a str, &'a [kanari_types::event::Event]);
+
 /// Main database interface for the indexer
 pub struct IndexerDB {
     conn: Connection,
@@ -132,6 +134,15 @@ impl IndexerDB {
         block_height: u64,
         transactions: &[SignedTransaction],
     ) -> Result<()> {
+        let mut insert_tx_stmt = self.conn.prepare_cached(
+            "INSERT OR REPLACE INTO transactions 
+                 (tx_hash, block_height, sender, tx_type, sequence_number, gas_limit, gas_price, status, signature, raw_data, timestamp)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        )?;
+        let mut insert_arg_stmt = self.conn.prepare_cached(
+            "INSERT INTO transaction_args (tx_hash, arg_index, arg_value) VALUES (?1, ?2, ?3)",
+        )?;
+
         for signed_tx in transactions {
             let tx_hash = hex::encode(signed_tx.hash());
             let sender = signed_tx.transaction.sender().to_string();
@@ -140,12 +151,9 @@ impl IndexerDB {
             let signature = hex::encode(&signed_tx.signature);
             let raw_data = bcs::to_bytes(&signed_tx.transaction).ok();
 
-            self.conn.execute(
-                "INSERT OR REPLACE INTO transactions 
-                 (tx_hash, block_height, sender, tx_type, sequence_number, gas_limit, gas_price, status, signature, raw_data, timestamp)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                params![
-                    tx_hash,
+            insert_tx_stmt
+                .execute(params![
+                    &tx_hash,
                     block_height as i64,
                     sender,
                     tx_type,
@@ -156,18 +164,15 @@ impl IndexerDB {
                     signature,
                     raw_data,
                     Utc::now().timestamp_millis(),
-                ],
-            )
-            .context("Failed to insert transaction")?;
+                ])
+                .context("Failed to insert transaction")?;
 
             // Insert transaction arguments for ExecuteFunction
             if let Transaction::ExecuteFunction { args, .. } = &signed_tx.transaction {
                 for (idx, arg) in args.iter().enumerate() {
-                    self.conn.execute(
-                        "INSERT INTO transaction_args (tx_hash, arg_index, arg_value) VALUES (?1, ?2, ?3)",
-                        params![hex::encode(signed_tx.hash()), idx as u32, arg],
-                    )
-                    .context("Failed to insert transaction argument")?;
+                    insert_arg_stmt
+                        .execute(params![&tx_hash, idx as u32, arg])
+                        .context("Failed to insert transaction argument")?;
                 }
             }
         }
@@ -289,30 +294,32 @@ impl IndexerDB {
     pub fn insert_events(
         &self,
         block_height: u64,
-        tx_hash_events: &[(String, Vec<kanari_types::event::Event>)],
+        tx_hash_events: &[EventBatch<'_>],
     ) -> Result<()> {
-        for (tx_hash, events) in tx_hash_events {
+        let mut insert_event_stmt = self.conn.prepare_cached(
+            "INSERT INTO events (event_key, sequence_number, type_tag, event_data, tx_hash, block_height)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        )?;
+
+        for &(tx_hash, events) in tx_hash_events {
             for event in events {
                 let event_key = hex::encode(&event.key);
                 let event_data = if event.event_data.is_empty() {
                     None
                 } else {
-                    Some(event.event_data.clone())
+                    Some(event.event_data.as_slice())
                 };
 
-                self.conn.execute(
-                    "INSERT INTO events (event_key, sequence_number, type_tag, event_data, tx_hash, block_height)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    params![
+                insert_event_stmt
+                    .execute(params![
                         event_key,
                         event.sequence_number as i64,
-                        event.type_tag,
+                        &event.type_tag,
                         event_data,
                         tx_hash,
                         block_height as i64,
-                    ],
-                )
-                .context("Failed to insert event")?;
+                    ])
+                    .context("Failed to insert event")?;
             }
         }
 
@@ -377,7 +384,7 @@ impl IndexerDB {
 
     /// Insert or update a coin
     pub fn upsert_coin(&self, coin: &IndexedCoin) -> Result<()> {
-        self.conn.execute(
+        let mut stmt = self.conn.prepare_cached(
             "INSERT INTO coins (id, owner, coin_type, balance, is_frozen, created_tx_hash, last_updated_tx_hash, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(id) DO UPDATE SET
@@ -385,18 +392,18 @@ impl IndexerDB {
                 is_frozen = excluded.is_frozen,
                 last_updated_tx_hash = excluded.last_updated_tx_hash,
                 updated_at = excluded.updated_at",
-            params![
-                coin.id,
-                coin.owner,
-                coin.coin_type,
-                coin.balance as i64,
-                coin.is_frozen as i32,
-                coin.created_tx_hash,
-                coin.last_updated_tx_hash,
-                coin.created_at,
-                coin.updated_at,
-            ],
-        )
+        )?;
+        stmt.execute(params![
+            &coin.id,
+            &coin.owner,
+            &coin.coin_type,
+            coin.balance as i64,
+            coin.is_frozen as i32,
+            &coin.created_tx_hash,
+            &coin.last_updated_tx_hash,
+            coin.created_at,
+            coin.updated_at,
+        ])
         .context("Failed to upsert coin")?;
 
         // Update account balance
@@ -407,16 +414,16 @@ impl IndexerDB {
 
     /// Update account balance aggregation
     fn update_account_balance(&self, address: &str, coin_type: &str, balance: i64) -> Result<()> {
-        self.conn.execute(
+        let mut stmt = self.conn.prepare_cached(
             "INSERT INTO account_balances (address, coin_type, total_balance, coin_count, last_updated)
              VALUES (?1, ?2, ?3, 1, datetime('now'))
              ON CONFLICT(address, coin_type) DO UPDATE SET
                 total_balance = total_balance + ?3,
                 coin_count = coin_count + 1,
                 last_updated = datetime('now')",
-            params![address, coin_type, balance],
-        )
-        .context("Failed to update account balance")?;
+        )?;
+        stmt.execute(params![address, coin_type, balance])
+            .context("Failed to update account balance")?;
 
         Ok(())
     }

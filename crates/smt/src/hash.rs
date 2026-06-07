@@ -13,18 +13,21 @@ pub fn digest(data: &[u8]) -> [u8; 32] {
 
 /// Hash a leaf: H(0x00 || key_hash || value)
 pub fn hash_leaf(key_hash: &[u8; 32], value: &[u8]) -> [u8; 32] {
-    let mut buf = Vec::with_capacity(1 + 32 + value.len());
-    buf.push(0x00);
-    buf.extend_from_slice(key_hash);
-    buf.extend_from_slice(value);
-    digest(&buf)
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(&[0x00]);
+    hasher.update(key_hash);
+    hasher.update(value);
+
+    let mut out = [0u8; 32];
+    out.copy_from_slice(hasher.finalize().as_bytes());
+    out
 }
 
 /// Hash an internal node: H(0x01 || left || right)
 pub fn hash_node(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
-    let mut buf = Vec::with_capacity(1 + 32 + 32);
-    buf.push(0x01);
-    buf.extend_from_slice(left);
-    buf.extend_from_slice(right);
-    digest(&buf)
+    let mut input = [0u8; 65];
+    input[0] = 0x01;
+    input[1..33].copy_from_slice(left);
+    input[33..65].copy_from_slice(right);
+    digest(&input)
 }

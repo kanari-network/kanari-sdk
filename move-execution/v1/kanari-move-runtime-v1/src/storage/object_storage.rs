@@ -209,7 +209,7 @@ impl ObjectStorage {
                 if let Ok(Some(obj)) =
                     store.load::<StoredObject>(format!("object:{}", id).as_bytes())
                 {
-                    objects_map.insert(id.clone(), obj);
+                    objects_map.insert(id, obj);
                 }
             }
         }
@@ -305,7 +305,7 @@ impl ObjectStorage {
             let key = Self::owner_key(owner);
             let ids = Self::load_id_index(store, &key).unwrap_or_default();
 
-            let mut results = Vec::new();
+            let mut results = Vec::with_capacity(ids.len());
             for id in ids {
                 if let Some(obj) = self.get_object(&id) {
                     results.push(obj);
@@ -424,18 +424,17 @@ impl ObjectStorage {
         value_bytes: &[u8],
     ) -> Result<()> {
         let key = derive_dynamic_field_key(object_id, name_bytes);
+        let value = value_bytes.to_vec();
 
         {
             let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
-            state
-                .dynamic_fields
-                .insert(key.clone(), value_bytes.to_vec());
+            state.dynamic_fields.insert(key.clone(), value.clone());
         }
 
         if let Some(store) = &self.persistent {
             // Use vector load/save to comply with PersistentStore BCS requirements
             store
-                .save(key.as_bytes(), &value_bytes.to_vec())
+                .save(key.as_bytes(), &value)
                 .map_err(|e| anyhow::anyhow!("RocksDB Error (put_dynamic_field): {}", e))?;
         }
 

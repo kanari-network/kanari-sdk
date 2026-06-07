@@ -8,72 +8,49 @@ use crate::hash_node;
 
 type MerkleProofItem = (Vec<u8>, usize, Vec<Vec<u8>>);
 
-/// Optimized merkle root computation using fixed-size arrays to avoid allocation
-pub fn compute_merkle_root_optimized(hashes: Vec<[u8; 32]>) -> [u8; 32] {
-    if hashes.is_empty() {
+fn compute_merkle_root_arrays(mut current_level: Vec<[u8; 32]>) -> [u8; 32] {
+    if current_level.is_empty() {
         return [0u8; 32];
     }
-    if hashes.len() == 1 {
-        return hashes[0];
-    }
-
-    let mut current_level = hashes;
 
     while current_level.len() > 1 {
-        // Pre-allocate next level
-        let next_len = current_level.len().div_ceil(2);
-        let mut next_level = Vec::with_capacity(next_len);
+        let mut next_level = Vec::with_capacity(current_level.len().div_ceil(2));
 
         for chunk in current_level.chunks(2) {
             if chunk.len() == 2 {
-                // hash_node expects &[u8; 32], chunk is &[u8; 32] slice
-                let hash = crate::hash::hash_node(&chunk[0], &chunk[1]);
-                next_level.push(hash);
+                next_level.push(hash_node(&chunk[0], &chunk[1]));
             } else {
                 next_level.push(chunk[0]);
             }
         }
+
         current_level = next_level;
     }
 
     current_level[0]
 }
 
+fn tx_hashes_to_arrays(tx_hashes: &[Vec<u8>]) -> Vec<[u8; 32]> {
+    tx_hashes.iter().map(|hash| bytes_to_hash(hash)).collect()
+}
+
+fn bytes_to_hash(bytes: &[u8]) -> [u8; 32] {
+    bytes.try_into().unwrap_or([0u8; 32])
+}
+
+/// Optimized merkle root computation using fixed-size arrays to avoid allocation
+pub fn compute_merkle_root_optimized(hashes: Vec<[u8; 32]>) -> [u8; 32] {
+    compute_merkle_root_arrays(hashes)
+}
+
 /// Build a merkle tree from transaction hashes and return the merkle root
 /// Uses the same Blake3 hashing as the SMT for consistency
 pub fn compute_merkle_root(tx_hashes: &[Vec<u8>]) -> Vec<u8> {
-    if tx_hashes.is_empty() {
-        return vec![0u8; 32]; // Empty tree has zero hash
-    }
-
     if tx_hashes.len() == 1 {
         return tx_hashes[0].clone();
     }
 
-    // Build tree bottom-up
-    let mut current_level = tx_hashes.to_vec();
-
-    while current_level.len() > 1 {
-        let mut next_level = Vec::new();
-
-        // Process pairs
-        for chunk in current_level.chunks(2) {
-            if chunk.len() == 2 {
-                // Hash pair using SMT's hash_node function (consistent with SMT)
-                let left: [u8; 32] = chunk[0].as_slice().try_into().unwrap_or([0u8; 32]);
-                let right: [u8; 32] = chunk[1].as_slice().try_into().unwrap_or([0u8; 32]);
-                let hash = hash_node(&left, &right);
-                next_level.push(hash.to_vec());
-            } else {
-                // Odd node - just pass it up to the next level to avoid malleability (CVE-2012-2459)
-                next_level.push(chunk[0].clone());
-            }
-        }
-
-        current_level = next_level;
-    }
-
-    current_level[0].clone()
+    compute_merkle_root_arrays(tx_hashes_to_arrays(tx_hashes)).to_vec()
 }
 
 /// Generate merkle proof for a transaction at given index
@@ -83,12 +60,12 @@ pub fn generate_merkle_proof(tx_hashes: &[Vec<u8>], index: usize) -> Vec<Vec<u8>
         return Vec::new();
     }
 
-    let mut proof = Vec::new();
-    let mut current_level = tx_hashes.to_vec();
+    let mut proof = Vec::with_capacity(tx_hashes.len().ilog2() as usize + 1);
+    let mut current_level = tx_hashes_to_arrays(tx_hashes);
     let mut current_index = index;
 
     while current_level.len() > 1 {
-        let mut next_level = Vec::new();
+        let mut next_level = Vec::with_capacity(current_level.len().div_ceil(2));
 
         // Determine sibling index
         let sibling_index = if current_index.is_multiple_of(2) {
@@ -99,7 +76,7 @@ pub fn generate_merkle_proof(tx_hashes: &[Vec<u8>], index: usize) -> Vec<Vec<u8>
 
         // Add sibling to proof if exists
         if sibling_index < current_level.len() {
-            proof.push(current_level[sibling_index].clone());
+            proof.push(current_level[sibling_index].to_vec());
         } else {
             // Push an empty vector to indicate a pass-through (no sibling at this level)
             proof.push(Vec::new());
@@ -108,12 +85,9 @@ pub fn generate_merkle_proof(tx_hashes: &[Vec<u8>], index: usize) -> Vec<Vec<u8>
         // Build next level
         for chunk in current_level.chunks(2) {
             if chunk.len() == 2 {
-                let left: [u8; 32] = chunk[0].as_slice().try_into().unwrap_or([0u8; 32]);
-                let right: [u8; 32] = chunk[1].as_slice().try_into().unwrap_or([0u8; 32]);
-                let hash = hash_node(&left, &right);
-                next_level.push(hash.to_vec());
+                next_level.push(hash_node(&chunk[0], &chunk[1]));
             } else {
-                next_level.push(chunk[0].clone());
+                next_level.push(chunk[0]);
             }
         }
 
@@ -138,7 +112,7 @@ pub fn verify_merkle_proof(
         return true; // Single transaction tree
     }
 
-    let mut current_hash: [u8; 32] = tx_hash.try_into().unwrap_or([0u8; 32]);
+    let mut current_hash = bytes_to_hash(tx_hash);
     let mut current_index = index;
     let proof_iter = proof.iter();
 
@@ -148,7 +122,7 @@ pub fn verify_merkle_proof(
 
     for sibling_vec in proof_iter {
         if !sibling_vec.is_empty() {
-            let sibling: [u8; 32] = sibling_vec.as_slice().try_into().unwrap_or([0u8; 32]);
+            let sibling = bytes_to_hash(sibling_vec);
             current_hash = if current_index.is_multiple_of(2) {
                 // Current is left, sibling is right
                 hash_node(&current_hash, &sibling)
@@ -185,13 +159,13 @@ pub fn generate_merkle_multiproof(tx_hashes: &[Vec<u8>], indices: &[usize]) -> V
 
     // Track all nodes we need in the proof
     let mut proof_nodes = std::collections::BTreeSet::new();
-    let mut current_level = tx_hashes.to_vec();
+    let mut current_level = tx_hashes_to_arrays(tx_hashes);
 
     // For each level, track which indices we're proving
     let mut current_indices: std::collections::BTreeSet<usize> = indices.iter().copied().collect();
 
     while current_level.len() > 1 {
-        let mut next_level = Vec::new();
+        let mut next_level = Vec::with_capacity(current_level.len().div_ceil(2));
         let mut next_indices = std::collections::BTreeSet::new();
 
         for chunk_idx in 0..current_level.len().div_ceil(2) {
@@ -207,28 +181,23 @@ pub fn generate_merkle_multiproof(tx_hashes: &[Vec<u8>], indices: &[usize]) -> V
             // Add siblings to proof (but not the nodes we're proving)
             if need_left && !need_right {
                 if right_idx < current_level.len() {
-                    proof_nodes.insert(current_level[right_idx].clone());
+                    proof_nodes.insert(current_level[right_idx].to_vec());
                 } else {
                     // Push an empty vector to indicate a pass-through (consistent with generate_merkle_proof)
                     proof_nodes.insert(Vec::new());
                 }
             } else if need_right && !need_left {
-                proof_nodes.insert(current_level[left_idx].clone());
+                proof_nodes.insert(current_level[left_idx].to_vec());
             }
 
             // Build next level
             if right_idx < current_level.len() {
-                let left: [u8; 32] = current_level[left_idx]
-                    .as_slice()
-                    .try_into()
-                    .unwrap_or([0u8; 32]);
-                let right: [u8; 32] = current_level[right_idx]
-                    .as_slice()
-                    .try_into()
-                    .unwrap_or([0u8; 32]);
-                next_level.push(hash_node(&left, &right).to_vec());
+                next_level.push(hash_node(
+                    &current_level[left_idx],
+                    &current_level[right_idx],
+                ));
             } else {
-                next_level.push(current_level[left_idx].clone());
+                next_level.push(current_level[left_idx]);
             }
 
             // Track parent index for next level
@@ -255,7 +224,7 @@ pub struct CompressedMerkleProof {
 impl CompressedMerkleProof {
     /// Compress a standard merkle proof
     pub fn from_proof(_tx_hash: &[u8], index: usize, proof: &[Vec<u8>]) -> Self {
-        let mut flags = Vec::new();
+        let mut flags = Vec::with_capacity(proof.len());
         let mut current_index = index;
 
         for _ in proof {
@@ -279,11 +248,11 @@ impl CompressedMerkleProof {
             return false; // Invalid compressed proof
         }
 
-        let mut current_hash: [u8; 32] = tx_hash.try_into().unwrap_or([0u8; 32]);
+        let mut current_hash = bytes_to_hash(tx_hash);
 
         for (sibling_vec, &is_right) in self.siblings.iter().zip(self.flags.iter()) {
             if !sibling_vec.is_empty() {
-                let sibling: [u8; 32] = sibling_vec.as_slice().try_into().unwrap_or([0u8; 32]);
+                let sibling = bytes_to_hash(sibling_vec);
                 current_hash = if is_right {
                     // Current is left, sibling is right
                     hash_node(&current_hash, &sibling)
@@ -300,7 +269,9 @@ impl CompressedMerkleProof {
 
     /// Serialize to compact bytes (for network transmission)
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
+        let flag_bytes = self.flags.len().div_ceil(8);
+        let sibling_bytes: usize = self.siblings.iter().map(Vec::len).sum();
+        let mut bytes = Vec::with_capacity(4 + flag_bytes + sibling_bytes);
 
         // Write number of siblings
         bytes.extend(&(self.siblings.len() as u32).to_le_bytes());
@@ -345,7 +316,7 @@ impl CompressedMerkleProof {
         }
 
         // Read flags
-        let mut flags = Vec::new();
+        let mut flags = Vec::with_capacity(count);
         for i in 0..count {
             let byte_idx = 4 + i / 8;
             let bit_idx = i % 8;
@@ -354,7 +325,7 @@ impl CompressedMerkleProof {
         }
 
         // Read siblings
-        let mut siblings = Vec::new();
+        let mut siblings = Vec::with_capacity(count);
         let sibling_start = 4 + flag_bytes_needed;
         for i in 0..count {
             let start = sibling_start + i * 32;

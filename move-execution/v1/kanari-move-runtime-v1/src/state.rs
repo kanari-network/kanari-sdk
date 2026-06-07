@@ -133,21 +133,23 @@ impl StateManager {
 
     fn add_to_index_list(&mut self, key: &[u8], value: String) -> Result<()> {
         let mut index = self.load_index_list(key)?;
-        if !index.contains(&value) {
-            index.push(value);
-            index.sort();
-            self.save_index_list(key, &index)?;
-        }
+        let Err(pos) = index.binary_search(&value) else {
+            return Ok(());
+        };
+
+        index.insert(pos, value);
+        self.save_index_list(key, &index)?;
         Ok(())
     }
 
     fn remove_from_index_list(&mut self, key: &[u8], value: &str) -> Result<()> {
         let mut index = self.load_index_list(key)?;
-        let initial_len = index.len();
-        index.retain(|entry| entry != value);
-        if index.len() != initial_len {
-            self.save_index_list(key, &index)?;
-        }
+        let Ok(pos) = index.binary_search_by(|entry| entry.as_str().cmp(value)) else {
+            return Ok(());
+        };
+
+        index.remove(pos);
+        self.save_index_list(key, &index)?;
         Ok(())
     }
 
@@ -1302,7 +1304,23 @@ impl StateManager {
         // When speculative writes are still buffered in the overlay, fold them into a
         // deterministic root derivation so pre-commit checkpoint roots reflect the
         // logical state that validators are comparing.
-        let mut materialized = Vec::new();
+        let materialized_len = b"kanari:state-root:v1".len()
+            + base_root.len()
+            + std::mem::size_of::<u64>()
+            + self
+                .overlay
+                .iter()
+                .map(|(key, value_opt)| {
+                    std::mem::size_of::<u64>()
+                        + key.len()
+                        + 1
+                        + value_opt
+                            .as_ref()
+                            .map(|value| std::mem::size_of::<u64>() + value.len())
+                            .unwrap_or(0)
+                })
+                .sum::<usize>();
+        let mut materialized = Vec::with_capacity(materialized_len);
         materialized.extend_from_slice(b"kanari:state-root:v1");
         materialized.extend_from_slice(&base_root);
         materialized.extend_from_slice(&(self.overlay.len() as u64).to_le_bytes());
