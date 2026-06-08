@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 
 export type DataRecord = Record<string, unknown>;
 
@@ -20,6 +20,12 @@ export function readString(value: unknown, key: string, fallback = "-") {
   if (typeof item === "string") return item;
   if (typeof item === "number" || typeof item === "bigint") return String(item);
   return fallback;
+}
+
+export function readAddress(value: unknown, primaryKey: string, fallbackKey?: string, fallback = "-") {
+  const primary = readString(value, primaryKey, "");
+  if (primary) return primary;
+  return fallbackKey ? readString(value, fallbackKey, fallback) : fallback;
 }
 
 export function readNumber(value: unknown, key: string) {
@@ -73,21 +79,19 @@ export function PageHeader({
   children?: ReactNode;
 }) {
   return (
-    <section className="page-head">
-      <div className="page-head__content">
-        <p className="eyebrow">{eyebrow}</p>
-        <h1 className="page-title">
-          {title}
-          {accent ? (
-            <>
-              <br />
-              <span>{accent}</span>
-            </>
-          ) : null}
-        </h1>
-        <p className="page-description">{description}</p>
-        {children ? <div className="toolbar">{children}</div> : null}
-      </div>
+    <section className="subpage-hero explorer-page-hero">
+      <p className="section-kicker">{eyebrow}</p>
+      <h1>
+        {title}
+        {accent ? (
+          <>
+            <br />
+            <span>{accent}</span>
+          </>
+        ) : null}
+      </h1>
+      <p className="subpage-hero__description">{description}</p>
+      {children ? <div className="hero-actions explorer-page-actions">{children}</div> : null}
     </section>
   );
 }
@@ -128,9 +132,9 @@ export function SearchForm({
 
 export function StatCard({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <article className="panel stat-card">
-      <span className="stat-card__label">{label}</span>
-      <strong className="stat-card__value">{value}</strong>
+    <article className="stat-card">
+      <strong>{value}</strong>
+      <span>{label}</span>
       <p className="stat-card__detail">{detail}</p>
     </article>
   );
@@ -165,7 +169,7 @@ export function StatusPill({ label, state = "ok" }: { label: string; state?: "ok
   return (
     <span className="status-pill">
       <span className={`dot ${state === "warn" ? "dot--warn" : state === "down" ? "dot--down" : ""}`} />
-      {label}
+      <span className="status-pill__label">{label}</span>
     </span>
   );
 }
@@ -176,6 +180,28 @@ export function EmptyState({ loading, label }: { loading?: boolean; label: strin
       {loading ? <div className="spinner" /> : null}
       {label}
     </div>
+  );
+}
+
+export function CopyButton({ value, label = "Copy" }: { value: string; label?: string }) {
+  async function copyValue(event: MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      // Clipboard permissions can be blocked in non-secure contexts.
+    }
+  }
+
+  return (
+    <button className="copy-button" type="button" onClick={copyValue} aria-label={label} title={label}>
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M8 8h10v12H8z" />
+        <path d="M6 16H4V4h12v2" />
+      </svg>
+    </button>
   );
 }
 

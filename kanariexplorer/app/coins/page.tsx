@@ -75,7 +75,7 @@ function CoinsContent() {
         <SearchForm value={address} onChange={setAddress} onSubmit={() => loadBalances(address)} placeholder="Filter by address" buttonLabel="View" />
       </PageHeader>
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel">
         <div className="panel-head">
           <div>
             <h2 className="panel-title">{address ? "Address Balances" : "Token Registry"}</h2>

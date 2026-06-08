@@ -1,8 +1,9 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   deriveAuthorityRpcEndpoints,
   getBlock,
@@ -15,6 +16,7 @@ import {
   type NodeHealth,
   type RpcEndpoint,
 } from "./lib/rpc";
+import { ArrowIcon } from "./components/SiteChrome";
 import { asArray, formatNumber, Panel, readString, SearchForm, StatCard, StatusPill } from "./components/ExplorerUI";
 
 function shortUrl(url: string) {
@@ -42,6 +44,138 @@ function NetworkGraphic() {
         <Image src="/kariicon1.png" alt="" width={92} height={92} priority />
       </div>
     </div>
+  );
+}
+
+function CentauriNodeGraph({
+  blockHeight,
+  configuredEndpoints,
+  maxHeight,
+  nodes,
+  pendingTransactions,
+  syncedNodes,
+  totalTransactions,
+}: {
+  blockHeight: number | null;
+  configuredEndpoints: RpcEndpoint[];
+  maxHeight: number;
+  nodes: NodeHealth[];
+  pendingTransactions: number;
+  syncedNodes: number;
+  totalTransactions: number | null;
+}) {
+  const visualNodes = (
+    nodes.length > 0
+      ? nodes
+      : configuredEndpoints.map(
+        (endpoint): NodeHealth => ({
+          endpoint,
+          error: undefined,
+          height: null,
+          latencyMs: null,
+          online: false,
+          pendingTransactions: null,
+          status: "loading",
+          totalAccounts: null,
+          totalTransactions: null,
+        }),
+      )
+  ).slice(0, 8);
+  const activeHeight = maxHeight || blockHeight || 0;
+  const nodeCount = Math.max(visualNodes.length, 1);
+  const positionedNodes = visualNodes.map((node, index) => {
+    const angle = -90 + (360 / nodeCount) * index;
+    const radians = (angle * Math.PI) / 180;
+    const radius = index % 2 === 0 ? 40 : 32;
+    const x = 50 + Math.cos(radians) * radius;
+    const y = 50 + Math.sin(radians) * radius;
+    const lag = maxHeight - (node.height ?? 0);
+    const state = !node.online ? "down" : lag > 0 ? "warn" : "ok";
+    const label = String(index + 1).padStart(2, "0");
+    const status = !node.online ? node.status : lag > 0 ? `lag ${lag}` : "synced";
+    return { label, node, state, status, x, y };
+  });
+
+  return (
+    <section className="panel centauri-graph-panel">
+      <div className="panel-head">
+        <div>
+          <h2 className="panel-title">Centauri Node Work</h2>
+          <p className="panel-subtitle">Consensus work map across live RPC nodes</p>
+        </div>
+        <StatusPill label={`${syncedNodes}/${nodes.length || configuredEndpoints.length} synced`} />
+      </div>
+
+      <div className="centauri-graph">
+        <div className="centauri-map" aria-label="Centauri node work graph">
+          <span className="centauri-orbit centauri-orbit--outer" />
+          <span className="centauri-orbit centauri-orbit--middle" />
+          <span className="centauri-orbit centauri-orbit--inner" />
+          <span className="centauri-packet centauri-packet--one" />
+          <span className="centauri-packet centauri-packet--two" />
+          <span className="centauri-label centauri-label--proposal">Propose</span>
+          <span className="centauri-label centauri-label--vote">Vote</span>
+          <span className="centauri-label centauri-label--commit">Commit</span>
+
+          <svg className="centauri-edges" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            {positionedNodes.map(({ node, state, x, y }) => (
+              <line className={`centauri-edge centauri-edge--${state}`} key={node.endpoint.url} x1="50" x2={x} y1="50" y2={y} />
+            ))}
+          </svg>
+
+          <div className="centauri-core">
+            <Image src="/kariicon1.png" alt="" width={64} height={64} />
+            <strong>Centauri</strong>
+            <span className="mono">H {formatNumber(activeHeight)}</span>
+          </div>
+
+          {positionedNodes.map(({ label, node, state, status, x, y }) => (
+            <div
+              className={`centauri-node centauri-node--${state}`}
+              key={node.endpoint.url}
+              style={{ "--node-x": `${x}%`, "--node-y": `${y}%` } as CSSProperties}
+              title={`${node.endpoint.name}: ${status}`}
+            >
+              <span>{label}</span>
+              <small>{status}</small>
+            </div>
+          ))}
+        </div>
+
+        <div className="centauri-work">
+          <div className="centauri-work-card">
+            <p className="tiny-label">Committee</p>
+            <strong className="mono">{syncedNodes}/{nodes.length || configuredEndpoints.length}</strong>
+            <span>synced authorities</span>
+          </div>
+          <div className="centauri-work-card">
+            <p className="tiny-label">Round Height</p>
+            <strong className="mono">{formatNumber(activeHeight)}</strong>
+            <span>latest observed block</span>
+          </div>
+          <div className="centauri-work-lanes">
+            {[
+              ["Propose", activeHeight ? 100 : 28],
+              ["Vote", syncedNodes && nodeCount ? Math.round((syncedNodes / nodeCount) * 100) : 12],
+              ["Commit", pendingTransactions === 0 ? 100 : 64],
+            ].map(([label, value]) => (
+              <div className="centauri-lane" key={label}>
+                <div>
+                  <p className="tiny-label">{label}</p>
+                  <span className="mono">{value}%</span>
+                </div>
+                <i style={{ width: `${value}%` }} />
+              </div>
+            ))}
+          </div>
+          <div className="centauri-work-card centauri-work-card--accent">
+            <p className="tiny-label centauri-work-label">Work Queue</p>
+            <strong className="mono">{formatNumber(pendingTransactions)}</strong>
+            <span>{formatNumber(totalTransactions)} committed txs</span>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -125,7 +259,12 @@ export default function Home() {
             Track node health, transactions, token registry, accounts, and NFT collections across the Kanari event-driven ledger.
           </p>
           <div className="hero-actions">
-            <SearchForm value={search} onChange={setSearch} onSubmit={handleSearch} placeholder="Search address or transaction hash" />
+            <Link className="button button--dark" href="/tx">
+              Transactions <ArrowIcon />
+            </Link>
+            <Link className="button button--ghost" href="/account">
+              Accounts <ArrowIcon />
+            </Link>
           </div>
         </div>
 
@@ -136,12 +275,30 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="grid-cards">
+      <section className="explorer-search-panel">
+        <div>
+          <p className="section-kicker">{networkStatusLabel}</p>
+          <h2>Explorer search.</h2>
+        </div>
+        <SearchForm value={search} onChange={setSearch} onSubmit={handleSearch} placeholder="Search address or transaction hash" />
+      </section>
+
+      <section className="stat-grid explorer-stat-grid">
         <StatCard label="Nodes" value={`${onlineNodes.length}/${nodes.length || configuredEndpoints.length}`} detail={offlineNodes ? `${offlineNodes} offline` : `${laggingNodes} lagging`} />
         <StatCard label="Height" value={formatNumber(maxHeight || blockHeight)} detail="Highest reported block height" />
         <StatCard label="Transactions" value={formatNumber(totalTransactions)} detail={`${formatNumber(pendingTransactions)} pending in mempool`} />
         <StatCard label="Tokens" value={formatNumber(tokenCount)} detail={`${formatNumber(totalAccounts)} accounts indexed`} />
       </section>
+
+      <CentauriNodeGraph
+        blockHeight={blockHeight}
+        configuredEndpoints={configuredEndpoints}
+        maxHeight={maxHeight}
+        nodes={nodes}
+        pendingTransactions={pendingTransactions}
+        syncedNodes={syncedNodes}
+        totalTransactions={totalTransactions}
+      />
 
       <section className="content-grid">
         <Panel

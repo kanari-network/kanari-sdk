@@ -1,4 +1,4 @@
-import { EmptyState, RawDetails, readString, shortHash } from "./ExplorerUI";
+import { EmptyState, RawDetails, readAddress, readString, shortHash } from "./ExplorerUI";
 
 function readFirstString(value: unknown, keys: string[], fallback = "-") {
   for (const key of keys) {
@@ -41,6 +41,7 @@ export default function TransactionDetailsModal({
 
   const hash = readFirstString(transaction, ["hash", "tx_hash"]);
   const status = readFirstString(transaction, ["status"], "unknown");
+  const senderAddress = readAddress(transaction, "sender_address", "sender");
   const moduleFunctions = readOptionalArray(transaction, "module_functions");
 
   return (
@@ -78,8 +79,8 @@ export default function TransactionDetailsModal({
               <section className="tx-detail-grid" aria-label="Transaction fields">
                 <DetailItem label="Type" value={readFirstString(transaction, ["tx_type", "type"], "operation").replace(/_/g, " ")} />
                 <DetailItem label="Block Height" value={readFirstString(transaction, ["block_height", "height"])} mono />
-                <DetailItem label="Sender" value={readFirstString(transaction, ["sender", "from"])} mono wide />
-                <DetailItem label="Recipient / Target" value={readFirstString(transaction, ["recipient", "to", "module"])} mono wide />
+                <DetailItem label="Sender" value={senderAddress} mono wide />
+                <DetailItem label="Recipient / Target" value={shortHash(readFirstString(transaction, ["recipient", "to", "module"]))} mono wide />
                 <DetailItem label="Function" value={readFirstString(transaction, ["function"])} mono />
                 <DetailItem label="Sequence" value={readFirstString(transaction, ["sequence_number", "sequence", "nonce"])} mono />
                 <DetailItem label="Gas Limit" value={readFirstString(transaction, ["gas_limit", "gas"])} mono />

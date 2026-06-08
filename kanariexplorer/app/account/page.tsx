@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import TransactionDetailsModal from "../components/TransactionDetailsModal";
 import {
   asArray,
+  CopyButton,
   EmptyState,
   formatBalance,
   PageHeader,
@@ -17,6 +18,18 @@ import {
 import { getAccount, getAllBalances, getAllTransactions, getOwnedNfts, getOwnedObjects, getTransaction } from "../lib/rpc";
 
 type AccountTab = "coins" | "nfts" | "objects" | "activity";
+
+function readBytes(value: unknown, key: string) {
+  const record = typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const item = record[key];
+  if (!Array.isArray(item)) return [];
+  return item.filter((entry): entry is number => typeof entry === "number" && Number.isFinite(entry));
+}
+
+function formatHex(bytes: number[]) {
+  if (bytes.length === 0) return "-";
+  return `0x${bytes.map((byte) => Math.max(0, Math.min(255, byte)).toString(16).padStart(2, "0")).join("")}`;
+}
 
 function AccountContent() {
   const searchParams = useSearchParams();
@@ -91,11 +104,16 @@ function AccountContent() {
       </PageHeader>
 
       {account ? (
-        <section className="panel" style={{ marginTop: 18 }}>
+        <section className="panel account-state-panel">
           <div className="panel-head">
             <div>
               <h2 className="panel-title">Account State</h2>
-              <p className="panel-subtitle mono">{readString(account, "address", address)}</p>
+              <div className="panel-subtitle mono account-address-copy">
+                <span className="copy-row copy-row--wrap">
+                  <span className="break-anywhere">{readString(account, "address", address)}</span>
+                  <CopyButton value={readString(account, "address", address)} label="Copy account address" />
+                </span>
+              </div>
             </div>
             <StatusPill label={`Sequence ${readString(account, "sequence_number", "0")}`} />
           </div>
@@ -174,9 +192,12 @@ function AccountContent() {
                 <div className="data-row" key={`${hash}-${index}`}>
                   <div>
                     <p className="tiny-label">Txn Hash</p>
-                    <button className="hash-button mono" type="button" onClick={() => openTransaction(hash)}>
-                      {shortHash(hash)}
-                    </button>
+                    <span className="copy-row copy-row--wrap">
+                      <button className="hash-button mono break-anywhere" type="button" onClick={() => openTransaction(hash)}>
+                        {hash}
+                      </button>
+                      <CopyButton value={hash} label="Copy transaction hash" />
+                    </span>
                   </div>
                   <div>
                     <p className="tiny-label">Type</p>
@@ -184,7 +205,7 @@ function AccountContent() {
                   </div>
                   <div>
                     <p className="tiny-label">Target</p>
-                    <span className="mono muted-text">{readString(transaction, "module", "-")}</span>
+                    <span className="mono muted-text">{shortHash(readString(transaction, "module", "-"))}</span>
                   </div>
                   <div>
                     <p className="tiny-label">Status</p>
@@ -206,24 +227,53 @@ function AccountContent() {
           <div className="data-list">
             {objects.map((object, index) => {
               const objectId = readString(object, "object_id", readString(object, "id", `object-${index}`));
+              const objectType = readString(object, "type_", readString(object, "type", readString(object, "object_type", "-")));
+              const owner = readString(object, "owner", address);
+              const dataBytes = readBytes(object, "data");
+              const objectJson =
+                object && typeof object === "object" && !Array.isArray(object)
+                  ? { ...(object as Record<string, unknown>), data_hex: formatHex(dataBytes) }
+                  : { value: object, data_hex: formatHex(dataBytes) };
               return (
-                <div className="data-row" key={`${objectId}-${index}`}>
-                  <div className="primary-text">
-                    <strong className="mono">{shortHash(objectId)}</strong>
-                    <div className="muted-text mono">{readString(object, "type", readString(object, "object_type", "object"))}</div>
+                <div className="data-row data-row--objects" key={`${objectId}-${index}`}>
+                  <div className="object-main primary-text">
+                    <p className="tiny-label">Object ID</p>
+                    <span className="copy-row copy-row--inline">
+                      <strong className="mono break-anywhere">{objectId}</strong>
+                      <CopyButton value={objectId} label="Copy object id" />
+                    </span>
                   </div>
-                  <div>
-                    <p className="tiny-label">Owner</p>
-                    <span className="mono muted-text">{shortHash(readString(object, "owner", address))}</span>
+
+                  <div className="object-detail-grid">
+                    <div className="object-detail-field object-detail-field--wide">
+                      <p className="tiny-label">Type</p>
+                      <span className="mono muted-text break-anywhere">{objectType}</span>
+                    </div>
+                    <div className="object-detail-field object-detail-field--wide">
+                      <p className="tiny-label">Owner</p>
+                      <span className="copy-row copy-row--inline">
+                        <span className="mono muted-text break-anywhere">{owner}</span>
+                        <CopyButton value={owner} label="Copy owner address" />
+                      </span>
+                    </div>
+                    <div className="object-detail-field">
+                      <p className="tiny-label">Version</p>
+                      <span className="mono">{readString(object, "version", "-")}</span>
+                    </div>
+                    <div className="object-detail-field">
+                      <p className="tiny-label">Data Bytes</p>
+                      <span className="mono">{dataBytes.length.toLocaleString()}</span>
+                    </div>
+                    <div className="object-detail-field">
+                      <p className="tiny-label">Status</p>
+                      <StatusPill label={readString(object, "status", "owned")} />
+                    </div>
                   </div>
-                  <div>
-                    <p className="tiny-label">Version</p>
-                    <span className="mono">{readString(object, "version", "-")}</span>
-                  </div>
-                  <div>
-                    <p className="tiny-label">Status</p>
-                    <StatusPill label={readString(object, "status", "owned")} />
-                  </div>
+
+                  <details className="object-json-details">
+                    <summary>Object JSON</summary>
+                    <pre className="custom-scrollbar">{JSON.stringify(objectJson, null, 2)}</pre>
+                  </details>
                 </div>
               );
             })}

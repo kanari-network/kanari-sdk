@@ -38,7 +38,7 @@ export default function CollectionPage({ params }: { params: Promise<{ id: strin
         </Link>
       </PageHeader>
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel">
         <div className="panel-head">
           <div>
             <h2 className="panel-title">Collection Items</h2>
@@ -51,7 +51,7 @@ export default function CollectionPage({ params }: { params: Promise<{ id: strin
       </section>
 
       {items.length > 0 ? (
-        <div className="nft-grid" style={{ marginTop: 18 }}>
+        <div className="nft-grid">
           {items.map((item, index) => {
             const objectId = readString(item, "object_id", `nft-${index}`);
             return (

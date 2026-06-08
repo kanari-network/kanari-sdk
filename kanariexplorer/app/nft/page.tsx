@@ -33,7 +33,7 @@ export default function NftPage() {
         description="Browse Kanari NFT collections and open a collection to inspect the objects inside."
       />
 
-      <section className="panel" style={{ marginTop: 18 }}>
+      <section className="panel">
         <div className="panel-head">
           <div>
             <h2 className="panel-title">Collections</h2>
@@ -46,7 +46,7 @@ export default function NftPage() {
       </section>
 
       {collections.length > 0 ? (
-        <div className="nft-grid" style={{ marginTop: 18 }}>
+        <div className="nft-grid">
           {collections.map((collection, index) => {
             const id = readString(collection, "id", readString(collection, "collection_id", readString(collection, "object_id", String(index))));
             return (

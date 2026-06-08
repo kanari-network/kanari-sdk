@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import TransactionDetailsModal from "../components/TransactionDetailsModal";
-import { asArray, EmptyState, PageHeader, RawDetails, readString, SearchForm, shortHash, StatusPill } from "../components/ExplorerUI";
+import { asArray, CopyButton, EmptyState, PageHeader, RawDetails, readAddress, readString, SearchForm, StatusPill } from "../components/ExplorerUI";
 import { getAllTransactions, getTransaction } from "../lib/rpc";
 
 function TxContent() {
@@ -91,7 +91,7 @@ function PanelTransactions({
   onOpen: (hash: string) => void;
 }) {
   return (
-    <section className="panel" style={{ marginTop: 18 }}>
+    <section className="panel">
       <div className="panel-head">
         <div>
           <h2 className="panel-title">Latest Transactions</h2>
@@ -106,13 +106,17 @@ function PanelTransactions({
           {transactions.map((transaction, index) => {
             const hash = readString(transaction, "hash", `transaction-${index}`);
             const status = readString(transaction, "status", "unknown");
+            const senderAddress = readAddress(transaction, "sender_address", "sender");
             return (
               <div className="data-row" key={`${hash}-${index}`}>
                 <div>
                   <p className="tiny-label">Txn Hash</p>
-                  <button className="hash-button mono" type="button" onClick={() => onOpen(hash)}>
-                    {shortHash(hash)}
-                  </button>
+                  <span className="copy-row copy-row--wrap">
+                    <button className="hash-button mono break-anywhere" type="button" onClick={() => onOpen(hash)}>
+                      {hash}
+                    </button>
+                    <CopyButton value={hash} label="Copy transaction hash" />
+                  </span>
                 </div>
                 <div>
                   <p className="tiny-label">Type</p>
@@ -120,9 +124,16 @@ function PanelTransactions({
                 </div>
                 <div>
                   <p className="tiny-label">Sender</p>
-                  <Link className="text-link mono" href={`/account?address=${encodeURIComponent(readString(transaction, "sender", ""))}`}>
-                    {shortHash(readString(transaction, "sender", "-"))}
-                  </Link>
+                  {senderAddress === "-" ? (
+                    <span className="mono muted-text">-</span>
+                  ) : (
+                    <span className="copy-row copy-row--wrap">
+                      <Link className="text-link mono break-anywhere" href={`/account?address=${encodeURIComponent(senderAddress)}`}>
+                        {senderAddress}
+                      </Link>
+                      <CopyButton value={senderAddress} label="Copy sender address" />
+                    </span>
+                  )}
                 </div>
                 <div>
                   <p className="tiny-label">Status</p>

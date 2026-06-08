@@ -220,6 +220,8 @@ pub struct TransactionDetails {
     pub gas_used: Option<u64>,
     pub tx_type: String,
     pub sender: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sender_address: Option<String>,
     pub sequence_number: u64,
     pub gas_limit: u64,
     pub gas_price: u64,

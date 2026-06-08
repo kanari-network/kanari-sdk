@@ -159,6 +159,7 @@ fn base_transaction_details(
     block_height: Option<u64>,
     tx_type: &str,
     sender: String,
+    sender_address: String,
     sequence_number: u64,
     gas_limit: u64,
     gas_price: u64,
@@ -170,6 +171,7 @@ fn base_transaction_details(
         gas_used: None,
         tx_type: tx_type.to_string(),
         sender,
+        sender_address: Some(sender_address),
         sequence_number,
         gas_limit,
         gas_price,
@@ -192,6 +194,9 @@ fn map_transaction_to_details(
 ) -> TransactionDetails {
     let hash = format!("0x{}", tx_hash_hex);
     let status_str = status.to_string();
+    let sender_address = Address::parse_to_account_address(tx.sender_address())
+        .map(|addr| addr.to_hex_literal())
+        .unwrap_or_else(|_| tx.sender_address().to_string());
 
     match tx {
         Transaction::PublishModule {
@@ -218,6 +223,7 @@ fn map_transaction_to_details(
                 block_height,
                 "publish_module",
                 sender.clone(),
+                sender_address.clone(),
                 *sequence_number,
                 *gas_limit,
                 *gas_price,
@@ -241,6 +247,7 @@ fn map_transaction_to_details(
                 block_height,
                 tx.tx_type_label(),
                 sender.clone(),
+                sender_address.clone(),
                 *sequence_number,
                 *gas_limit,
                 *gas_price,
