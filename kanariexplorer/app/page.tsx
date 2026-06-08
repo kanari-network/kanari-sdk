@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   deriveAuthorityRpcEndpoints,
   getBlock,
@@ -17,10 +17,100 @@ import {
   type RpcEndpoint,
 } from "./lib/rpc";
 import { ArrowIcon } from "./components/SiteChrome";
-import { asArray, formatNumber, Panel, readString, SearchForm, StatCard, StatusPill } from "./components/ExplorerUI";
+import { asArray, CopyButton, formatNumber, Panel, readString, SearchForm, StatCard, StatusPill } from "./components/ExplorerUI";
+
+const ROOT_SCAN_DEPTH = 8;
+const ROOT_SCAN_ENDPOINT_LIMIT = 8;
+
+type StabilitySample = {
+  height: number;
+  online: number;
+  pending: number;
+  timestamp: number;
+};
+
+type StateRootCheck = {
+  endpoint: string;
+  error?: string;
+  height: number | null;
+  node: string;
+  online: boolean;
+  root: string | null;
+};
+
+type DivergenceScan = {
+  checks: StateRootCheck[];
+  height: number;
+};
 
 function shortUrl(url: string) {
   return url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+}
+
+function shortRoot(root: string | null) {
+  if (!root) return "-";
+  return root.length > 22 ? `${root.slice(0, 10)}...${root.slice(-8)}` : root;
+}
+
+function formatDuration(ms: number | null) {
+  if (ms === null) return "No event";
+  if (ms < 1000) return `${ms} ms`;
+  return `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} s`;
+}
+
+function groupRoots(checks: StateRootCheck[]) {
+  const groups = new Map<string, StateRootCheck[]>();
+  checks.forEach((check) => {
+    if (!check.root) return;
+    const list = groups.get(check.root) ?? [];
+    list.push(check);
+    groups.set(check.root, list);
+  });
+  return [...groups.entries()]
+    .map(([root, members]) => ({ members, root }))
+    .sort((a, b) => b.members.length - a.members.length);
+}
+
+async function readStateRootChecksAtHeight(
+  height: number,
+  endpoints: RpcEndpoint[],
+  nodeByUrl: Map<string, NodeHealth>,
+): Promise<StateRootCheck[]> {
+  return Promise.all(
+    endpoints.map(async (endpoint): Promise<StateRootCheck> => {
+      const node = nodeByUrl.get(endpoint.url);
+      if (!node?.online) {
+        return {
+          endpoint: endpoint.url,
+          height: null,
+          node: endpoint.name,
+          online: false,
+          root: null,
+        };
+      }
+
+      try {
+        const block = await getFullBlock(height, endpoint.url).catch(() => getBlock(height, endpoint.url).catch(() => null));
+        const root = readString(block, "state_root", "");
+        return {
+          endpoint: endpoint.url,
+          height,
+          node: endpoint.name,
+          online: true,
+          root: root && root !== "-" ? root : null,
+        };
+      } catch (err) {
+        return {
+          endpoint: endpoint.url,
+          error: err instanceof Error ? err.message : "block unavailable",
+          height,
+          node: endpoint.name,
+          online: true,
+          root: null,
+        };
+      }
+    }),
+  );
 }
 
 function NetworkGraphic() {
@@ -44,6 +134,252 @@ function NetworkGraphic() {
         <Image src="/kariicon1.png" alt="" width={92} height={92} priority />
       </div>
     </div>
+  );
+}
+
+function ConsensusStabilityPanel({
+  blockHeight,
+  lastRecoveryMs,
+  nodes,
+  pendingTransactions,
+  samples,
+  stateRootChecks,
+}: {
+  blockHeight: number | null;
+  lastRecoveryMs: number | null;
+  nodes: NodeHealth[];
+  pendingTransactions: number;
+  samples: StabilitySample[];
+  stateRootChecks: StateRootCheck[];
+}) {
+  const onlineNodes = nodes.filter((node) => node.online);
+  const maxHeight = Math.max(0, ...nodes.map((node) => node.height ?? 0), blockHeight ?? 0);
+  const minOnlineHeight = Math.min(...onlineNodes.map((node) => node.height ?? maxHeight));
+  const heightSpread = onlineNodes.length > 0 ? maxHeight - minOnlineHeight : 0;
+  const laggingNodes = onlineNodes.filter((node) => (node.height ?? 0) < maxHeight).length;
+  const offlineNodes = nodes.length - onlineNodes.length;
+  const missedVoteEstimate = laggingNodes + offlineNodes;
+  const roots = stateRootChecks
+    .map((check) => check.root)
+    .filter((root): root is string => Boolean(root));
+  const uniqueRootCount = new Set(roots).size;
+  const comparisonHeight = stateRootChecks.find((check) => check.height !== null)?.height ?? null;
+  const forkCounter = roots.length > 1 ? Math.max(0, uniqueRootCount - 1) : 0;
+  const rootStatus = roots.length < 2 ? "Insufficient" : uniqueRootCount === 1 ? "Match" : "Diverged";
+  const partitionState = offlineNodes > 0 || heightSpread > 1 || uniqueRootCount > 1 ? "Watch" : "Clear";
+  const firstSample = samples[0];
+  const lastSample = samples[samples.length - 1];
+  const productionRate =
+    firstSample && lastSample && lastSample.timestamp > firstSample.timestamp
+      ? ((lastSample.height - firstSample.height) / ((lastSample.timestamp - firstSample.timestamp) / 1000)) * 60
+      : null;
+  const finalityLabel =
+    pendingTransactions === 0 && partitionState === "Clear" && roots.length > 0 ? "1 poll" : pendingTransactions > 0 ? "Pending" : "Watching";
+
+  const metrics = [
+    {
+      detail: finalityLabel === "1 poll" ? "observed stable in current polling window" : "needs finality timestamp RPC for exact ms",
+      label: "Finality Time",
+      tone: finalityLabel === "Pending" ? "warn" : "ok",
+      value: finalityLabel,
+    },
+    {
+      detail: samples.length > 1 ? "derived from height delta over recent polls" : "waiting for more samples",
+      label: "Block Production Rate",
+      tone: productionRate === null ? "idle" : "ok",
+      value: productionRate === null ? "Collecting" : `${productionRate.toFixed(2)} / min`,
+    },
+    {
+      detail: lastRecoveryMs === null ? "no offline-to-online transition observed" : "latest node recovery window",
+      label: "Node Recovery Time",
+      tone: lastRecoveryMs === null ? "idle" : "ok",
+      value: formatDuration(lastRecoveryMs),
+    },
+    {
+      detail: "inferred from lagging or offline authorities",
+      label: "Missed Vote",
+      tone: missedVoteEstimate > 0 ? "warn" : "ok",
+      value: formatNumber(missedVoteEstimate),
+    },
+    {
+      detail: roots.length > 1 ? `state roots checked at height ${formatNumber(comparisonHeight)}` : "requires at least two readable roots",
+      label: "Fork Counter",
+      tone: forkCounter > 0 ? "down" : roots.length > 1 ? "ok" : "idle",
+      value: roots.length > 1 ? formatNumber(forkCounter) : "-",
+    },
+    {
+      detail: `height spread ${formatNumber(heightSpread)}, offline ${formatNumber(offlineNodes)}`,
+      label: "Network Partition Detector",
+      tone: partitionState === "Clear" ? "ok" : "warn",
+      value: partitionState,
+    },
+    {
+      detail:
+        rootStatus === "Match"
+          ? `${roots.length} nodes share one state root`
+          : rootStatus === "Diverged"
+            ? `${uniqueRootCount} unique roots observed`
+            : "waiting for multi-node block reads",
+      label: "State Root Comparison",
+      tone: rootStatus === "Diverged" ? "down" : rootStatus === "Match" ? "ok" : "idle",
+      value: rootStatus,
+    },
+  ];
+
+  return (
+    <section className="panel consensus-stability-panel">
+      <div className="panel-head">
+        <div>
+          <h2 className="panel-title">Consensus Stability</h2>
+          <p className="panel-subtitle">Observed health signals for Centauri consensus stability</p>
+        </div>
+        <StatusPill label={partitionState === "Clear" ? "Stable" : "Watching"} state={partitionState === "Clear" ? "ok" : "warn"} />
+      </div>
+      <div className="stability-grid">
+        {metrics.map((metric) => (
+          <div className={`stability-card stability-card--${metric.tone}`} key={metric.label}>
+            <p className="tiny-label">{metric.label}</p>
+            <strong className="mono">{metric.value}</strong>
+            <span>{metric.detail}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function StateDivergenceAudit({
+  divergenceWindow,
+  stateRootChecks,
+}: {
+  divergenceWindow: DivergenceScan[];
+  stateRootChecks: StateRootCheck[];
+}) {
+  const groups = groupRoots(stateRootChecks);
+  const readableChecks = stateRootChecks.filter((check) => check.root);
+  const onlineChecks = stateRootChecks.filter((check) => check.online);
+  const quorum = onlineChecks.length > 0 ? Math.floor((onlineChecks.length * 2) / 3) + 1 : 0;
+  const leader = groups[0];
+  const leaderCount = leader?.members.length ?? 0;
+  const leadingRoot = leader?.root ?? null;
+  const canonicalRoot = leader && leaderCount >= quorum ? leader.root : null;
+  const rootMode = canonicalRoot ? "Quorum" : leadingRoot ? "Leading" : "Unknown";
+  const currentSplit = groups.length > 1;
+  const divergingNodes =
+    leadingRoot === null
+      ? []
+      : stateRootChecks.filter((check) => check.online && check.root && check.root !== leadingRoot);
+  const firstDivergence = divergenceWindow.find((scan) => groupRoots(scan.checks).length > 1);
+  const comparisonHeight = stateRootChecks.find((check) => check.height !== null)?.height ?? null;
+  const rootSummary =
+    canonicalRoot ??
+    leadingRoot ??
+    null;
+  const suspectLabels = divergingNodes.map((check) => check.node).join(", ");
+
+  const cards = [
+    {
+      detail: divergingNodes.length > 0 ? suspectLabels : readableChecks.length > 1 ? "all readable roots agree" : "waiting for multiple readable nodes",
+      label: "Diverging Nodes",
+      tone: divergingNodes.length > 0 ? "down" : readableChecks.length > 1 ? "ok" : "idle",
+      value: divergingNodes.length > 0 ? formatNumber(divergingNodes.length) : readableChecks.length > 1 ? "None" : "Collecting",
+    },
+    {
+      detail: firstDivergence ? `first observed split in last ${ROOT_SCAN_DEPTH} checked blocks` : "no split in recent root window",
+      label: "Divergence Start Block",
+      tone: firstDivergence ? "down" : "ok",
+      value: firstDivergence ? formatNumber(firstDivergence.height) : "None",
+    },
+    {
+      detail:
+        rootMode === "Quorum"
+          ? `${leaderCount}/${onlineChecks.length} nodes agree at height ${formatNumber(comparisonHeight)}`
+          : rootMode === "Leading"
+            ? `${leaderCount}/${onlineChecks.length} nodes share the leading root, below quorum`
+            : "state root RPC reads unavailable",
+      label: "Canonical Root",
+      tone: canonicalRoot ? "ok" : leadingRoot ? "warn" : "idle",
+      value: rootMode,
+    },
+    {
+      detail: divergingNodes.length > 0 ? `root outliers: ${suspectLabels}` : "Centauri vote proof RPC is required to prove a bad vote",
+      label: "Wrong Vote Proof",
+      tone: divergingNodes.length > 0 ? "warn" : "idle",
+      value: "Unavailable",
+    },
+  ];
+
+  return (
+    <section className="panel state-audit-panel">
+      <div className="panel-head">
+        <div>
+          <h2 className="panel-title">State Divergence Audit</h2>
+          <p className="panel-subtitle">Detects root split, likely canonical root, and root outlier nodes from live RPC state roots.</p>
+        </div>
+        <StatusPill label={currentSplit ? "Diverged" : "Aligned"} state={currentSplit ? "down" : "ok"} />
+      </div>
+      <div className="state-audit-grid">
+        {cards.map((card) => (
+          <div className={`state-audit-card state-audit-card--${card.tone}`} key={card.label}>
+            <p className="tiny-label">{card.label}</p>
+            <strong className="mono">{card.value}</strong>
+            <span>{card.detail}</span>
+          </div>
+        ))}
+      </div>
+      <div className="state-root-table">
+        <div className="state-root-table__head">
+          <div>
+            <p className="tiny-label">Observed Root</p>
+            <span className="copy-row copy-row--inline">
+              <strong className="mono break-anywhere">{shortRoot(rootSummary)}</strong>
+              {rootSummary ? <CopyButton value={rootSummary} label="Copy observed root" /> : null}
+            </span>
+          </div>
+          <div>
+            <p className="tiny-label">Comparison Height</p>
+            <strong className="mono">{formatNumber(comparisonHeight)}</strong>
+          </div>
+          <div>
+            <p className="tiny-label">Quorum</p>
+            <strong className="mono">{quorum ? `${leaderCount}/${quorum}` : "-"}</strong>
+          </div>
+        </div>
+        <div className="state-root-list">
+          {stateRootChecks.length === 0 ? (
+            <div className="state-root-row">
+              <span className="muted-text">Waiting for state root reads...</span>
+            </div>
+          ) : (
+            stateRootChecks.map((check) => {
+              const isOutlier = Boolean(leadingRoot && check.root && check.root !== leadingRoot);
+              return (
+                <div className={`state-root-row ${isOutlier ? "state-root-row--outlier" : ""}`} key={check.endpoint}>
+                  <div>
+                    <p className="tiny-label">Node</p>
+                    <strong>{check.node}</strong>
+                  </div>
+                  <div>
+                    <p className="tiny-label">State Root</p>
+                    <span className="copy-row copy-row--inline">
+                      <span className="mono break-anywhere">{shortRoot(check.root)}</span>
+                      {check.root ? <CopyButton value={check.root} label={`Copy ${check.node} root`} /> : null}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="tiny-label">Signal</p>
+                    <StatusPill
+                      label={!check.online ? "offline" : isOutlier ? "outlier" : check.root ? "aligned" : "unreadable"}
+                      state={!check.online || isOutlier ? "warn" : check.root ? "ok" : "warn"}
+                    />
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -186,7 +522,12 @@ export default function Home() {
   const [configuredEndpoints, setConfiguredEndpoints] = useState<RpcEndpoint[]>(RPC_ENDPOINTS);
   const [latestBlock, setLatestBlock] = useState<unknown>(null);
   const [nodes, setNodes] = useState<NodeHealth[]>([]);
+  const [lastRecoveryMs, setLastRecoveryMs] = useState<number | null>(null);
   const [lastUpdated, setLastUpdated] = useState("");
+  const [divergenceWindow, setDivergenceWindow] = useState<DivergenceScan[]>([]);
+  const [stabilitySamples, setStabilitySamples] = useState<StabilitySample[]>([]);
+  const [stateRootChecks, setStateRootChecks] = useState<StateRootCheck[]>([]);
+  const offlineSinceRef = useRef<Map<string, number>>(new Map());
   const router = useRouter();
 
   const onlineNodes = nodes.filter((node) => node.online);
@@ -222,16 +563,65 @@ export default function Home() {
       const nodeResults = await Promise.all(nextEndpoints.map((endpoint) => getNodeHealth(endpoint)));
       const parsedHeight = typeof heightRes === "number" ? heightRes : Number(heightRes);
       const latestHeight = Number.isFinite(parsedHeight) ? parsedHeight : null;
+      const onlineHeights = nodeResults
+        .filter((node) => node.online && node.height !== null)
+        .map((node) => node.height as number);
+      const liveHeight = Math.max(0, latestHeight ?? 0, ...onlineHeights);
+      const commonHeight = onlineHeights.length > 0 ? Math.min(...onlineHeights) : null;
       const blockRes =
         latestHeight === null
           ? null
           : await getFullBlock(latestHeight).catch(() => getBlock(latestHeight).catch(() => null));
+      const nodeByUrl = new Map(nodeResults.map((node) => [node.endpoint.url, node]));
+      const nextStateRootChecks =
+        commonHeight === null
+          ? []
+          : await readStateRootChecksAtHeight(commonHeight, nextEndpoints, nodeByUrl);
+      const scanEndpoints = nextEndpoints.slice(0, ROOT_SCAN_ENDPOINT_LIMIT);
+      const scanStart = commonHeight === null ? null : Math.max(0, commonHeight - ROOT_SCAN_DEPTH + 1);
+      const nextDivergenceWindow =
+        commonHeight === null || scanStart === null
+          ? []
+          : await Promise.all(
+            Array.from({ length: commonHeight - scanStart + 1 }, (_, index) => scanStart + index).map(async (height) => ({
+              checks: await readStateRootChecksAtHeight(height, scanEndpoints, nodeByUrl),
+              height,
+            })),
+          );
+
+      const now = Date.now();
+      nodeResults.forEach((node) => {
+        const key = node.endpoint.url;
+        if (!node.online) {
+          if (!offlineSinceRef.current.has(key)) offlineSinceRef.current.set(key, now);
+          return;
+        }
+
+        const offlineSince = offlineSinceRef.current.get(key);
+        if (offlineSince !== undefined) {
+          setLastRecoveryMs(now - offlineSince);
+          offlineSinceRef.current.delete(key);
+        }
+      });
 
       setTokenCount(asArray(tokensRes).length || null);
       setBlockHeight(latestHeight);
       setLatestBlock(blockRes);
       setConfiguredEndpoints(nextEndpoints);
       setNodes(nodeResults);
+      setDivergenceWindow(nextDivergenceWindow);
+      setStabilitySamples((current) =>
+        [
+          ...current,
+          {
+            height: liveHeight,
+            online: nodeResults.filter((node) => node.online).length,
+            pending: nodeResults.reduce((sum, node) => sum + (node.pendingTransactions ?? 0), 0),
+            timestamp: now,
+          },
+        ].slice(-24),
+      );
+      setStateRootChecks(nextStateRootChecks);
       setLastUpdated(new Date().toLocaleTimeString());
     }
 
@@ -299,6 +689,17 @@ export default function Home() {
         syncedNodes={syncedNodes}
         totalTransactions={totalTransactions}
       />
+
+      <ConsensusStabilityPanel
+        blockHeight={blockHeight}
+        lastRecoveryMs={lastRecoveryMs}
+        nodes={nodes}
+        pendingTransactions={pendingTransactions}
+        samples={stabilitySamples}
+        stateRootChecks={stateRootChecks}
+      />
+
+      <StateDivergenceAudit divergenceWindow={divergenceWindow} stateRootChecks={stateRootChecks} />
 
       <section className="content-grid">
         <Panel

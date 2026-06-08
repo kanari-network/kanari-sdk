@@ -268,12 +268,12 @@ export async function getBlockHeight() {
   }
 }
 
-export async function getBlock(height: number) {
-  return callRpc(RPC_METHODS.GET_BLOCK, height);
+export async function getBlock(height: number, rpcUrl?: string) {
+  return callRpc(RPC_METHODS.GET_BLOCK, height, rpcUrl);
 }
 
-export async function getFullBlock(height: number) {
-  return callRpc(RPC_METHODS.GET_FULL_BLOCK, height);
+export async function getFullBlock(height: number, rpcUrl?: string) {
+  return callRpc(RPC_METHODS.GET_FULL_BLOCK, height, rpcUrl);
 }
 
 export async function produceBlock() {
