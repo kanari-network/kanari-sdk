@@ -34,6 +34,7 @@ type StateRootCheck = {
   error?: string;
   height: number | null;
   node: string;
+  nodeHeight: number | null;
   online: boolean;
   root: string | null;
 };
@@ -56,6 +57,25 @@ function formatDuration(ms: number | null) {
   if (ms === null) return "No event";
   if (ms < 1000) return `${ms} ms`;
   return `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} s`;
+}
+
+function readNumber(source: unknown, ...keys: string[]) {
+  for (const key of keys) {
+    const raw = readString(source, key, "");
+    if (!raw || raw === "-") continue;
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function isLaggingAt(check: StateRootCheck, height: number | null) {
+  return check.online && height !== null && check.nodeHeight !== null && check.nodeHeight < height;
+}
+
+function comparableRootChecks(checks: StateRootCheck[], height: number | null) {
+  if (height === null) return [];
+  return checks.filter((check) => check.height === height && check.root && !isLaggingAt(check, height));
 }
 
 function groupRoots(checks: StateRootCheck[]) {
@@ -84,18 +104,46 @@ async function readStateRootChecksAtHeight(
           endpoint: endpoint.url,
           height: null,
           node: endpoint.name,
+          nodeHeight: node?.height ?? null,
           online: false,
+          root: null,
+        };
+      }
+
+      const nodeHeight = node.height ?? null;
+      if (nodeHeight !== null && nodeHeight < height) {
+        return {
+          endpoint: endpoint.url,
+          error: `lagging at height ${nodeHeight}`,
+          height,
+          node: endpoint.name,
+          nodeHeight,
+          online: true,
           root: null,
         };
       }
 
       try {
         const block = await getFullBlock(height, endpoint.url).catch(() => getBlock(height, endpoint.url).catch(() => null));
+        const returnedHeight = readNumber(block, "height", "block_height", "number");
+        if (returnedHeight !== height) {
+          return {
+            endpoint: endpoint.url,
+            error: returnedHeight === null ? "block height unavailable" : `returned height ${returnedHeight}`,
+            height,
+            node: endpoint.name,
+            nodeHeight,
+            online: true,
+            root: null,
+          };
+        }
+
         const root = readString(block, "state_root", "");
         return {
           endpoint: endpoint.url,
           height,
           node: endpoint.name,
+          nodeHeight,
           online: true,
           root: root && root !== "-" ? root : null,
         };
@@ -105,6 +153,7 @@ async function readStateRootChecksAtHeight(
           error: err instanceof Error ? err.message : "block unavailable",
           height,
           node: endpoint.name,
+          nodeHeight,
           online: true,
           root: null,
         };
@@ -159,11 +208,12 @@ function ConsensusStabilityPanel({
   const laggingNodes = onlineNodes.filter((node) => (node.height ?? 0) < maxHeight).length;
   const offlineNodes = nodes.length - onlineNodes.length;
   const missedVoteEstimate = laggingNodes + offlineNodes;
-  const roots = stateRootChecks
+  const comparisonHeight = stateRootChecks.find((check) => check.height !== null)?.height ?? null;
+  const comparableChecks = comparableRootChecks(stateRootChecks, comparisonHeight);
+  const roots = comparableChecks
     .map((check) => check.root)
     .filter((root): root is string => Boolean(root));
   const uniqueRootCount = new Set(roots).size;
-  const comparisonHeight = stateRootChecks.find((check) => check.height !== null)?.height ?? null;
   const forkCounter = roots.length > 1 ? Math.max(0, uniqueRootCount - 1) : 0;
   const rootStatus = roots.length < 2 ? "Insufficient" : uniqueRootCount === 1 ? "Match" : "Diverged";
   const partitionState = offlineNodes > 0 || heightSpread > 1 || uniqueRootCount > 1 ? "Watch" : "Clear";
@@ -202,7 +252,7 @@ function ConsensusStabilityPanel({
       value: formatNumber(missedVoteEstimate),
     },
     {
-      detail: roots.length > 1 ? `state roots checked at height ${formatNumber(comparisonHeight)}` : "requires at least two readable roots",
+      detail: roots.length > 1 ? `comparable roots checked at height ${formatNumber(comparisonHeight)}` : "requires at least two exact-height roots",
       label: "Fork Counter",
       tone: forkCounter > 0 ? "down" : roots.length > 1 ? "ok" : "idle",
       value: roots.length > 1 ? formatNumber(forkCounter) : "-",
@@ -219,7 +269,7 @@ function ConsensusStabilityPanel({
           ? `${roots.length} nodes share one state root`
           : rootStatus === "Diverged"
             ? `${uniqueRootCount} unique roots observed`
-            : "waiting for multi-node block reads",
+            : "waiting for exact-height block reads",
       label: "State Root Comparison",
       tone: rootStatus === "Diverged" ? "down" : rootStatus === "Match" ? "ok" : "idle",
       value: rootStatus,
@@ -255,9 +305,11 @@ function StateDivergenceAudit({
   divergenceWindow: DivergenceScan[];
   stateRootChecks: StateRootCheck[];
 }) {
-  const groups = groupRoots(stateRootChecks);
-  const readableChecks = stateRootChecks.filter((check) => check.root);
-  const onlineChecks = stateRootChecks.filter((check) => check.online);
+  const comparisonHeight = stateRootChecks.find((check) => check.height !== null)?.height ?? null;
+  const comparableChecks = comparableRootChecks(stateRootChecks, comparisonHeight);
+  const groups = groupRoots(comparableChecks);
+  const readableChecks = comparableChecks.filter((check) => check.root);
+  const onlineChecks = stateRootChecks.filter((check) => check.online && !isLaggingAt(check, comparisonHeight));
   const quorum = onlineChecks.length > 0 ? Math.floor((onlineChecks.length * 2) / 3) + 1 : 0;
   const leader = groups[0];
   const leaderCount = leader?.members.length ?? 0;
@@ -268,9 +320,8 @@ function StateDivergenceAudit({
   const divergingNodes =
     leadingRoot === null
       ? []
-      : stateRootChecks.filter((check) => check.online && check.root && check.root !== leadingRoot);
-  const firstDivergence = divergenceWindow.find((scan) => groupRoots(scan.checks).length > 1);
-  const comparisonHeight = stateRootChecks.find((check) => check.height !== null)?.height ?? null;
+      : comparableChecks.filter((check) => check.online && check.root && check.root !== leadingRoot);
+  const firstDivergence = divergenceWindow.find((scan) => groupRoots(comparableRootChecks(scan.checks, scan.height)).length > 1);
   const rootSummary =
     canonicalRoot ??
     leadingRoot ??
@@ -352,12 +403,16 @@ function StateDivergenceAudit({
             </div>
           ) : (
             stateRootChecks.map((check) => {
-              const isOutlier = Boolean(leadingRoot && check.root && check.root !== leadingRoot);
+              const isLagging = isLaggingAt(check, comparisonHeight);
+              const isOutlier = Boolean(!isLagging && leadingRoot && check.root && check.root !== leadingRoot);
+              const signalLabel = !check.online ? "offline" : isLagging ? "lagging" : isOutlier ? "outlier" : check.root ? "aligned" : "unreadable";
+              const signalState = !check.online || isLagging || isOutlier ? "warn" : check.root ? "ok" : "warn";
               return (
                 <div className={`state-root-row ${isOutlier ? "state-root-row--outlier" : ""}`} key={check.endpoint}>
                   <div>
                     <p className="tiny-label">Node</p>
                     <strong>{check.node}</strong>
+                    <div className="muted-text mono">height {formatNumber(check.nodeHeight)}</div>
                   </div>
                   <div>
                     <p className="tiny-label">State Root</p>
@@ -368,10 +423,7 @@ function StateDivergenceAudit({
                   </div>
                   <div>
                     <p className="tiny-label">Signal</p>
-                    <StatusPill
-                      label={!check.online ? "offline" : isOutlier ? "outlier" : check.root ? "aligned" : "unreadable"}
-                      state={!check.online || isOutlier ? "warn" : check.root ? "ok" : "warn"}
-                    />
+                    <StatusPill label={signalLabel} state={signalState} />
                   </div>
                 </div>
               );
