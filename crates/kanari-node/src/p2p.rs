@@ -36,6 +36,8 @@ pub enum P2PMessage {
     NewCheckpoint(String),  // Serialized committed checkpoint sync payload
     NewDagVertex(String),   // Serialized DAG vertex for multi-node sync
     DagVertexRebroadcast(DagVertexMsg),
+    DagVertexRequest(DagVertexRequestMsg),
+    DagVertexResponse(DagVertexResponseMsg),
     CheckpointRequest(u64, u64), // (sequence, timestamp) - timestamp makes it unique
     CheckpointResponse(String),  // Serialized checkpoint sync payload
     TargetedCheckpointRequest(CheckpointRequestMsg),
@@ -62,6 +64,27 @@ pub struct DagVertexMsg {
     pub vertex_data: String,
     pub nonce: u64,
     pub sender_peer_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
+pub struct DagVertexRequestMsg {
+    pub requester_peer_id: String,
+    pub parent_round: u64,
+    pub current_round: u64,
+    pub target_round: u64,
+    pub missing_authorities: Vec<String>,
+    pub requester_vertex_data: Vec<String>,
+    pub timestamp: u64,
+    pub limit: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
+pub struct DagVertexResponseMsg {
+    pub requester_peer_id: String,
+    pub responder_peer_id: String,
+    pub request_timestamp: u64,
+    pub parent_round: u64,
+    pub vertex_data: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
@@ -255,6 +278,8 @@ impl P2PNetwork {
             P2PMessage::PeerInfo(_) => &self.topics.peers,
             P2PMessage::NewDagVertex(_)
             | P2PMessage::DagVertexRebroadcast(_)
+            | P2PMessage::DagVertexRequest(_)
+            | P2PMessage::DagVertexResponse(_)
             | P2PMessage::CompressedDagVertex(_) => &self.topics.dag_vertices,
         }
     }
@@ -279,6 +304,25 @@ impl P2PNetwork {
                     msg.sender_peer_id,
                     msg.nonce,
                     msg.vertex_data.len()
+                );
+            }
+            P2PMessage::DagVertexRequest(req) => {
+                info!(
+                    "[P2P] Publishing DagVertexRequest: requester={}, parent_round={}, target_round={}, missing={:?}, limit={}",
+                    req.requester_peer_id,
+                    req.parent_round,
+                    req.target_round,
+                    req.missing_authorities,
+                    req.limit
+                );
+            }
+            P2PMessage::DagVertexResponse(resp) => {
+                info!(
+                    "[P2P] Publishing DagVertexResponse: responder={}, requester={}, parent_round={}, vertices={}",
+                    resp.responder_peer_id,
+                    resp.requester_peer_id,
+                    resp.parent_round,
+                    resp.vertex_data.len()
                 );
             }
             P2PMessage::CheckpointRequest(seq, t) => {
@@ -622,6 +666,26 @@ impl P2PEventHandler {
                     "[P2P] Received CompressedDagVertex from {} (size: {})",
                     source,
                     compressed_data.len()
+                );
+            }
+            P2PMessage::DagVertexRequest(req) => {
+                info!(
+                    "[P2P] Received DagVertexRequest from {}: requester={}, parent_round={}, target_round={}, missing={:?}",
+                    source,
+                    req.requester_peer_id,
+                    req.parent_round,
+                    req.target_round,
+                    req.missing_authorities
+                );
+            }
+            P2PMessage::DagVertexResponse(resp) => {
+                info!(
+                    "[P2P] Received DagVertexResponse from {}: responder={}, requester={}, parent_round={}, vertices={}",
+                    source,
+                    resp.responder_peer_id,
+                    resp.requester_peer_id,
+                    resp.parent_round,
+                    resp.vertex_data.len()
                 );
             }
             _ => {

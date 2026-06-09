@@ -497,7 +497,9 @@ impl BlockchainEngine {
         gas_used: u64,
     ) -> Result<()> {
         let sender_change = changeset.get_or_create_change(sender);
-        sender_change.increment_sequence();
+        if sender_change.sequence_increment == 0 {
+            sender_change.increment_sequence();
+        }
         sender_change.debit(gas_cost);
 
         let dao_addr = AccountAddress::from_hex_literal(KanariAddress::DAO_ADDRESS)?;
@@ -611,7 +613,7 @@ impl BlockchainEngine {
                 match runtime.publish_module_with_context_and_persistence(
                     module_bytes.clone(),
                     KanariAddress::parse_to_account_address(sender)?,
-                    Some((tx.gas_limit(), tx.gas_price())),
+                    None,
                     timestamp,
                     Some(tx.hash()),
                     persist_runtime_state,
@@ -678,7 +680,7 @@ impl BlockchainEngine {
                     type_tags,
                     args.clone(),
                     Some(sender_addr),
-                    Some((tx.gas_limit(), tx.gas_price())),
+                    None,
                     timestamp,
                     Some(tx.hash()),
                     persist_runtime_state,
@@ -796,6 +798,19 @@ impl BlockchainEngine {
         }
 
         dag_engine.produce_vertex_summary()
+    }
+
+    pub fn dag_production_policy(&self) -> Result<centauri::consensus::DagProductionPolicy> {
+        let dag_engine = self.dag_engine_instance()?;
+        let consensus_lock = dag_engine.consensus();
+        let consensus = match consensus_lock.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                log::error!("Consensus lock poisoned while reading DAG production policy");
+                poisoned.into_inner()
+            }
+        };
+        Ok(consensus.production_policy())
     }
 
     pub fn latest_own_dag_vertices(
@@ -959,6 +974,7 @@ impl BlockchainEngine {
 mod tests {
     use super::BlockchainEngine;
     use kanari_crypto::keys::{CurveType, generate_keypair};
+    use kanari_move_runtime_v1::changeset::ChangeSet;
     use kanari_move_runtime_v1::state::Account;
     use kanari_types::balance::BalanceRecord;
     use kanari_types::kanari::KANARI_TOKEN_TYPE;
@@ -1140,6 +1156,19 @@ mod tests {
                 .len(),
             2
         );
+    }
+
+    #[test]
+    fn gas_application_does_not_increment_sequence_twice() {
+        let sender = AccountAddress::random();
+        let mut changeset = ChangeSet::new();
+        changeset.get_or_create_change(sender).increment_sequence();
+
+        BlockchainEngine::apply_gas_and_sequence(&mut changeset, sender, 10, 10).unwrap();
+
+        let sender_change = changeset.account_changes.get(&sender).unwrap();
+        assert_eq!(sender_change.sequence_increment, 1);
+        assert_eq!(sender_change.balance_delta, -10);
     }
 
     #[test]

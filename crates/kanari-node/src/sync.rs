@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::p2p::{
-    CheckpointRequestMsg, CheckpointResponseMsg, DagVertexMsg, P2PMessage, PeerInfoMsg,
+    CheckpointRequestMsg, CheckpointResponseMsg, DagVertexMsg, DagVertexRequestMsg,
+    DagVertexResponseMsg, P2PMessage, PeerInfoMsg,
 };
 use centauri::consensus::DagVertex;
 use kanari_core::{BlockchainEngine, CheckpointSyncData};
@@ -16,7 +17,9 @@ use tracing::{error, info, warn};
 use std::time::Duration;
 
 const REQUEST_RETRY_COOLDOWN_MS: u64 = 2_000;
+const DAG_VERTEX_REQUEST_RETRY_COOLDOWN_MS: u64 = 1_000;
 const MAX_CHECKPOINTS_PER_REQUEST: u64 = 200;
+const MAX_DAG_VERTICES_PER_RESPONSE: usize = 8;
 
 #[derive(Clone)]
 struct BufferedCheckpointCandidate {
@@ -45,6 +48,8 @@ pub struct SyncManager {
     divergent_peers: Mutex<BTreeMap<String, DivergentPeerInfo>>,
     /// Last request timestamp per checkpoint sequence to avoid request spam while still retrying fast.
     pending_checkpoint_requests: Mutex<BTreeMap<u64, u64>>,
+    /// Last request timestamp per DAG parent round to avoid request storms while catching up.
+    pending_dag_vertex_requests: Mutex<BTreeMap<u64, u64>>,
     /// DAG vertices that arrived before their parents. Gossip delivery is unordered,
     /// so retry these after each successful vertex import.
     dag_vertex_buffer: Mutex<VecDeque<DagVertex>>,
@@ -96,6 +101,12 @@ impl SyncManager {
             .unwrap_or_else(|e| e.into_inner())
     }
 
+    fn pending_dag_vertex_requests_guard(&self) -> std::sync::MutexGuard<'_, BTreeMap<u64, u64>> {
+        self.pending_dag_vertex_requests
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
     fn dag_vertex_buffer_guard(&self) -> std::sync::MutexGuard<'_, VecDeque<DagVertex>> {
         self.dag_vertex_buffer
             .lock()
@@ -117,6 +128,7 @@ impl SyncManager {
             peer_heights: Mutex::new(BTreeMap::new()),
             divergent_peers: Mutex::new(BTreeMap::new()),
             pending_checkpoint_requests: Mutex::new(BTreeMap::new()),
+            pending_dag_vertex_requests: Mutex::new(BTreeMap::new()),
             dag_vertex_buffer: Mutex::new(VecDeque::new()),
             max_buffer_size: 1000, // Limit buffer to 1000 checkpoints for 200-node networks
             max_dag_vertex_buffer_size: 2048,
@@ -175,6 +187,27 @@ impl SyncManager {
                     msg.sender_peer_id
                 );
                 self.handle_new_dag_vertex(msg.vertex_data).await;
+            }
+            P2PMessage::DagVertexRequest(req) => {
+                if req.requester_peer_id == self.local_peer_id {
+                    return;
+                }
+                info!(
+                    "[P2P] Received DagVertexRequest for parent round {} from {}",
+                    req.parent_round, req.requester_peer_id
+                );
+                self.handle_dag_vertex_request(req).await;
+            }
+            P2PMessage::DagVertexResponse(resp) => {
+                if resp.requester_peer_id != self.local_peer_id {
+                    return;
+                }
+                info!(
+                    "[P2P] Received DagVertexResponse from {} with {} vertices",
+                    resp.responder_peer_id,
+                    resp.vertex_data.len()
+                );
+                self.handle_dag_vertex_response(resp).await;
             }
             P2PMessage::CheckpointRequest(sequence, timestamp) => {
                 info!("[P2P] Received CheckpointRequest for sequence {}", sequence);
@@ -253,6 +286,22 @@ impl SyncManager {
         }
     }
 
+    fn serialize_dag_vertices(vertices: Vec<DagVertex>, context: &str) -> Vec<String> {
+        let mut vertex_data = Vec::with_capacity(vertices.len());
+        for vertex in vertices {
+            match serde_json::to_string(&vertex) {
+                Ok(data) => vertex_data.push(data),
+                Err(e) => warn!(
+                    "{}: failed to serialize vertex {}: {}",
+                    context,
+                    hex::encode(vertex.id),
+                    e
+                ),
+            }
+        }
+        vertex_data
+    }
+
     pub fn broadcast_latest_dag_vertices(&self, limit: usize, reason: &str) {
         let vertices = match self.engine.latest_own_dag_vertices(limit) {
             Ok(vertices) => vertices,
@@ -293,6 +342,142 @@ impl SyncManager {
                     reason
                 );
             }
+        }
+    }
+
+    pub async fn request_dag_vertices_for_quorum(&self) {
+        let policy = match self.engine.dag_production_policy() {
+            Ok(policy) => policy,
+            Err(e) => {
+                warn!(
+                    "[DAG SYNC] Failed to read production policy for vertex request: {}",
+                    e
+                );
+                return;
+            }
+        };
+
+        if !policy.should_wait_for_current_round_quorum() {
+            return;
+        }
+
+        let timestamp = Self::current_timestamp();
+        if !self.should_request_dag_vertices_for_round(policy.parent_round, timestamp) {
+            return;
+        }
+
+        let requester_vertex_data = match self.engine.latest_own_dag_vertices(8) {
+            Ok(vertices) => {
+                Self::serialize_dag_vertices(vertices, "[DAG SYNC] Preparing request context")
+            }
+            Err(e) => {
+                warn!(
+                    "[DAG SYNC] Failed to load requester vertices for vertex request: {}",
+                    e
+                );
+                Vec::new()
+            }
+        };
+
+        let request = DagVertexRequestMsg {
+            requester_peer_id: self.local_peer_id.clone(),
+            parent_round: policy.parent_round,
+            current_round: policy.current_round,
+            target_round: policy.target_round,
+            missing_authorities: policy.missing_parent_authors.clone(),
+            requester_vertex_data,
+            timestamp,
+            limit: MAX_DAG_VERTICES_PER_RESPONSE as u64,
+        };
+
+        if self.send_network_message(
+            P2PMessage::DagVertexRequest(request),
+            "[DAG SYNC] Failed to queue DAG vertex request",
+        ) {
+            info!(
+                "[DAG SYNC] Requested missing vertices for round {} from authorities {:?}",
+                policy.parent_round, policy.missing_parent_authors
+            );
+        }
+    }
+
+    async fn handle_dag_vertex_request(&self, request: DagVertexRequestMsg) {
+        for vertex_data in &request.requester_vertex_data {
+            self.handle_new_dag_vertex(vertex_data.clone()).await;
+        }
+
+        let local_authority = self.engine.authority_id().to_string();
+        if !request.missing_authorities.is_empty()
+            && !request
+                .missing_authorities
+                .iter()
+                .any(|authority| authority == &local_authority)
+        {
+            return;
+        }
+
+        match self.engine.produce_block() {
+            Ok(block_info) => {
+                info!(
+                    "[DAG SYNC] Produced catch-up vertex for request: round {}, txs {}",
+                    block_info.round, block_info.tx_count
+                );
+            }
+            Err(e) => {
+                let error_text = e.to_string();
+                if !error_text.contains("No new transactions")
+                    && !error_text.contains("DAG_WAITING")
+                    && !error_text.contains("SYNC_WAITING")
+                    && !error_text.contains("DAG not ready")
+                    && !error_text.contains("Not enough parents for quorum")
+                {
+                    warn!(
+                        "[DAG SYNC] Catch-up production for request failed: {}",
+                        error_text
+                    );
+                }
+            }
+        }
+
+        let limit = (request.limit as usize).clamp(1, MAX_DAG_VERTICES_PER_RESPONSE);
+        let vertices = match self.engine.latest_own_dag_vertices(limit) {
+            Ok(vertices) => vertices,
+            Err(e) => {
+                warn!(
+                    "[DAG SYNC] Failed to load vertices for request response: {}",
+                    e
+                );
+                return;
+            }
+        };
+
+        if vertices.is_empty() {
+            return;
+        }
+
+        let vertex_data = Self::serialize_dag_vertices(vertices, "[DAG SYNC] Preparing response");
+
+        if vertex_data.is_empty() {
+            return;
+        }
+
+        let response = DagVertexResponseMsg {
+            requester_peer_id: request.requester_peer_id,
+            responder_peer_id: self.local_peer_id.clone(),
+            request_timestamp: request.timestamp,
+            parent_round: request.parent_round,
+            vertex_data,
+        };
+
+        self.send_network_message(
+            P2PMessage::DagVertexResponse(response),
+            "[DAG SYNC] Failed to queue DAG vertex response",
+        );
+    }
+
+    async fn handle_dag_vertex_response(&self, response: DagVertexResponseMsg) {
+        for vertex_data in response.vertex_data {
+            self.handle_new_dag_vertex(vertex_data).await;
         }
     }
 
@@ -454,6 +639,21 @@ impl SyncManager {
             }
             _ => {
                 pending.insert(sequence, now);
+                true
+            }
+        }
+    }
+
+    fn should_request_dag_vertices_for_round(&self, parent_round: u64, now: u64) -> bool {
+        let mut pending = self.pending_dag_vertex_requests_guard();
+        match pending.get(&parent_round).copied() {
+            Some(last_requested)
+                if now.saturating_sub(last_requested) < DAG_VERTEX_REQUEST_RETRY_COOLDOWN_MS =>
+            {
+                false
+            }
+            _ => {
+                pending.insert(parent_round, now);
                 true
             }
         }
