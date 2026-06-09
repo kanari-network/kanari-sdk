@@ -258,7 +258,7 @@ fn execute_immediate(
         match engine.execute_transaction_immediate(signed_tx) {
             Ok((_tx_hash, changeset)) => {
                 if changeset.success {
-                    let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
+                    let mut state = engine.state_write();
                     state.apply_changeset(&changeset)?;
                     state.commit()?;
                     executed += 1;
@@ -306,7 +306,7 @@ fn execute_parallel(
     let mut executed = 0usize;
     let mut failed = 0usize;
     let mut state = if apply_results {
-        Some(engine.state.write().unwrap_or_else(|e| e.into_inner()))
+        Some(engine.state_write())
     } else {
         None
     };

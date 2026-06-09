@@ -69,7 +69,7 @@ impl BlockchainEngine {
         &self,
         checkpoint: &Checkpoint,
     ) -> Result<(Vec<u8>, StateManager, Vec<SignedTransaction>)> {
-        let state_snapshot = self.state.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let state_snapshot = self.state_read().clone();
         let state_arc = Arc::new(RwLock::new(state_snapshot));
         let to_execute: Vec<SignedTransaction> = {
             let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
@@ -87,7 +87,7 @@ impl BlockchainEngine {
             self.apply_system_prologue_to_state(&state_arc, checkpoint.timestamp, false)?;
         }
 
-        self.execute_tx_waves_deterministic_parallel(
+        self.execute_tx_waves_strict_serial(
             to_execute.clone(),
             &state_arc,
             Some(checkpoint.timestamp),
@@ -106,25 +106,15 @@ impl BlockchainEngine {
             .context("Supply invariants failed before checkpoint commit")?;
 
         {
-            let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+            let mut state = self.state_write();
             *state = new_state;
             state
                 .commit()
                 .context("Failed to commit state to RocksDB")?;
         }
 
-        self.finalize_checkpoint_metadata(checkpoint)
-    }
-
-    pub(crate) fn finalize_checkpoint_without_state_changes(
-        &self,
-        checkpoint: Checkpoint,
-    ) -> Result<()> {
-        {
-            let state = self.state.read().unwrap_or_else(|e| e.into_inner());
-            state
-                .validate_supply_invariants()
-                .context("Supply invariants failed before metadata-only checkpoint commit")?;
+        for runtime in &self.runtime_pool {
+            runtime.clear_object_cache()?;
         }
 
         self.finalize_checkpoint_metadata(checkpoint)
@@ -184,11 +174,9 @@ impl BlockchainEngine {
         to_execute: Vec<SignedTransaction>,
     ) -> Result<()> {
         if !to_execute.is_empty() && Self::requires_runtime_side_effect_persistence(&to_execute) {
-            let side_effect_state = Arc::new(RwLock::new(
-                self.state.read().unwrap_or_else(|e| e.into_inner()).clone(),
-            ));
+            let side_effect_state = Arc::new(RwLock::new(self.state_read().clone()));
             self.apply_system_prologue_to_state(&side_effect_state, checkpoint.timestamp, true)?;
-            self.execute_tx_waves_deterministic_parallel(
+            self.execute_tx_waves_strict_serial(
                 to_execute,
                 &side_effect_state,
                 Some(checkpoint.timestamp),

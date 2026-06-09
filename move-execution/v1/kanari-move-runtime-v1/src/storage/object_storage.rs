@@ -123,11 +123,20 @@ impl ObjectStorage {
         key
     }
 
+    fn canonical_owned_objects_key(owner: &AccountAddress) -> Vec<u8> {
+        let mut key = b"owned_objects:".to_vec();
+        key.extend_from_slice(owner.as_ref());
+        key
+    }
+
     fn load_id_index(
         store: &PersistentStore,
         key: &[u8],
     ) -> Result<Vec<String>, ObjectStorageError> {
-        Ok(store.load(key)?.unwrap_or_default())
+        let mut ids: Vec<String> = store.load(key)?.unwrap_or_default();
+        ids.sort();
+        ids.dedup();
+        Ok(ids)
     }
 
     fn save_id_index(
@@ -140,17 +149,23 @@ impl ObjectStorage {
     }
 
     fn add_index_id(ids: &mut Vec<String>, id: &str) -> bool {
-        if ids.iter().any(|existing| existing == id) {
-            return false;
+        match ids.binary_search_by(|existing| existing.as_str().cmp(id)) {
+            Ok(_) => false,
+            Err(pos) => {
+                ids.insert(pos, id.to_string());
+                true
+            }
         }
-        ids.push(id.to_string());
-        true
     }
 
     fn remove_index_id(ids: &mut Vec<String>, id: &str) -> bool {
-        let initial_len = ids.len();
-        ids.retain(|existing| existing != id);
-        ids.len() != initial_len
+        match ids.binary_search_by(|existing| existing.as_str().cmp(id)) {
+            Ok(pos) => {
+                ids.remove(pos);
+                true
+            }
+            Err(_) => false,
+        }
     }
 
     fn new() -> Self {
@@ -180,7 +195,8 @@ impl ObjectStorage {
         owner: AccountAddress,
         coin_type: &move_core_types::language_storage::TypeTag,
     ) -> Vec<StoredObject> {
-        self.get_objects_by_owner(&owner)
+        let mut coins: Vec<_> = self
+            .get_objects_by_owner(&owner)
             .into_iter()
             .filter(|obj| {
                 if let Ok(struct_tag) = obj
@@ -194,14 +210,13 @@ impl ObjectStorage {
                 }
                 false
             })
-            .collect()
+            .collect();
+        coins.sort_by(|a, b| a.id.cmp(&b.id));
+        coins
     }
 
-    /// Create a new ObjectStorage backed by RocksDB persistence (uses `PersistentStore::open_default`).
-    fn new_with_persistence() -> Result<Self> {
-        let store = PersistentStore::open_default()?;
-        let store = Arc::new(store);
-
+    /// Create a new ObjectStorage backed by an already-open persistent store.
+    pub(crate) fn new_with_store(store: Arc<PersistentStore>) -> Result<Self> {
         let mut objects_map: BTreeMap<String, StoredObject> = BTreeMap::new();
 
         if let Ok(Some(ids)) = store.load::<Vec<String>>(Self::OBJECT_INDEX_KEY.as_bytes()) {
@@ -221,6 +236,19 @@ impl ObjectStorage {
             })),
             persistent: Some(store),
         })
+    }
+
+    /// Create a new ObjectStorage backed by RocksDB persistence (uses `PersistentStore::open_default`).
+    fn new_with_persistence() -> Result<Self> {
+        let store = Arc::new(PersistentStore::open_default()?);
+        Self::new_with_store(store)
+    }
+
+    pub(crate) fn boxed_with_store(store: Arc<PersistentStore>) -> Result<Box<dyn ObjectStore>> {
+        if cfg!(miri) {
+            return Ok(Self::boxed_inmemory());
+        }
+        Ok(Box::new(Self::new_with_store(store)?))
     }
 
     pub(crate) fn boxed_with_persistence() -> Result<Box<dyn ObjectStore>> {
@@ -302,8 +330,12 @@ impl ObjectStorage {
     fn get_objects_by_owner(&self, owner: &AccountAddress) -> Vec<StoredObject> {
         // 🚨 Read Owner Index from DB directly if persistent
         if let Some(store) = &self.persistent {
-            let key = Self::owner_key(owner);
-            let ids = Self::load_id_index(store, &key).unwrap_or_default();
+            let canonical_key = Self::canonical_owned_objects_key(owner);
+            let mut ids = Self::load_id_index(store, &canonical_key).unwrap_or_default();
+            if ids.is_empty() {
+                let legacy_key = Self::owner_key(owner);
+                ids = Self::load_id_index(store, &legacy_key).unwrap_or_default();
+            }
 
             let mut results = Vec::with_capacity(ids.len());
             for id in ids {
@@ -311,17 +343,20 @@ impl ObjectStorage {
                     results.push(obj);
                 }
             }
+            results.sort_by(|a, b| a.id.cmp(&b.id));
             return results;
         }
 
         // 🚨 Fallback: in-memory calculation (used in testing environments)
         let state = self.state.read().unwrap_or_else(|e| e.into_inner());
-        state
+        let mut results: Vec<_> = state
             .objects
             .values()
             .filter(|obj| obj.owner == *owner)
             .cloned()
-            .collect()
+            .collect();
+        results.sort_by(|a, b| a.id.cmp(&b.id));
+        results
     }
 
     // Transfer object ownership
@@ -538,5 +573,52 @@ impl ObjectStore for ObjectStorage {
 
     fn remove_dynamic_field(&self, object_id: &str, name_bytes: &[u8]) -> Result<()> {
         ObjectStorage::remove_dynamic_field(self, object_id, name_bytes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn persistent_owner_lookup_prefers_canonical_owned_objects_index() -> Result<()> {
+        let store = Arc::new(PersistentStore::open_in_memory()?);
+        let owner = AccountAddress::from_hex_literal("0x1")?;
+        let stale_id = "0xaaaa".to_string();
+        let canonical_id = "0xbbbb".to_string();
+
+        store.save(
+            format!("object:{}", stale_id).as_bytes(),
+            &StoredObject {
+                id: stale_id.clone(),
+                owner,
+                type_name: "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
+                data: vec![1],
+                version: 1,
+            },
+        )?;
+        store.save(
+            format!("object:{}", canonical_id).as_bytes(),
+            &StoredObject {
+                id: canonical_id.clone(),
+                owner,
+                type_name: "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
+                data: vec![2],
+                version: 1,
+            },
+        )?;
+        store.save(&ObjectStorage::owner_key(&owner), &vec![stale_id.clone()])?;
+        store.save(
+            &ObjectStorage::canonical_owned_objects_key(&owner),
+            &vec![canonical_id.clone()],
+        )?;
+
+        let storage = ObjectStorage::new_with_store(store)?;
+        let objects = storage.get_objects_by_owner(&owner);
+
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].id, canonical_id);
+
+        Ok(())
     }
 }

@@ -734,12 +734,13 @@ impl DagConsensus {
 
     /// Save the essential state of the DAG to a serializable struct
     pub fn save_state(&self) -> Result<PersistentDagState> {
-        let vertices = self
+        let mut vertices: Vec<_> = self
             .store
             .vertices
             .values()
             .map(|v| (**v).clone())
             .collect();
+        vertices.sort_by_key(|vertex| vertex.id);
         let state = PersistentDagState {
             vertices,
             checkpoints: self.store.checkpoints.iter().cloned().collect(),
@@ -777,7 +778,10 @@ impl DagConsensus {
             .keys()
             .filter(|&id| !committed_vertices.contains(id))
             .cloned()
+            .collect::<Vec<_>>()
+            .into_iter()
             .collect();
+        new_store.pending_vertices.make_contiguous().sort();
         for checkpoint in &new_store.checkpoints {
             for tx in &checkpoint.transactions {
                 new_store.executed_tx_hashes.insert(logical_tx_hash(tx));
@@ -890,6 +894,62 @@ mod tests {
         let replay =
             DagVertex::new_for_test(0, "auth1".to_string(), vec![], vec![tx], vec![3u8; 32], 1);
         assert!(store.add_vertex(replay, store.num_authorities()).is_err());
+    }
+
+    #[test]
+    fn test_checkpoint_transaction_order_is_canonical_across_vertex_order() {
+        let mut consensus = DagConsensus::new(
+            "auth1".to_string(),
+            vec!["auth1".to_string(), "auth2".to_string()],
+        );
+        let tx_a = SignedTransaction::new(Transaction::new_transfer(
+            "0x2".to_string(),
+            "0x3".to_string(),
+            1,
+            7,
+        ));
+        let tx_b = SignedTransaction::new(Transaction::new_transfer(
+            "0x1".to_string(),
+            "0x3".to_string(),
+            1,
+            7,
+        ));
+
+        let vertex_a = DagVertex::new_for_test(
+            0,
+            "auth1".to_string(),
+            vec![],
+            vec![tx_a.clone()],
+            vec![1u8; 32],
+            1,
+        );
+        let vertex_b = DagVertex::new_for_test(
+            0,
+            "auth2".to_string(),
+            vec![],
+            vec![tx_b.clone()],
+            vec![2u8; 32],
+            1,
+        );
+        let id_a = vertex_a.id;
+        let id_b = vertex_b.id;
+        consensus
+            .store
+            .add_vertex(vertex_a, consensus.store.num_authorities())
+            .unwrap();
+        consensus
+            .store
+            .add_vertex(vertex_b, consensus.store.num_authorities())
+            .unwrap();
+
+        let first = consensus.collect_checkpoint_transactions(&[id_a, id_b]);
+        let second = consensus.collect_checkpoint_transactions(&[id_b, id_a]);
+        let first_hashes: Vec<Vec<u8>> = first.iter().map(logical_tx_hash).collect();
+        let second_hashes: Vec<Vec<u8>> = second.iter().map(logical_tx_hash).collect();
+
+        assert_eq!(first_hashes, second_hashes);
+        assert_eq!(first[0].transaction.sender_address(), "0x1");
+        assert_eq!(first[1].transaction.sender_address(), "0x2");
     }
 
     #[test]
@@ -1181,6 +1241,39 @@ mod tests {
 
         consensus.add_checkpoint(checkpoint.clone()).unwrap();
         assert_eq!(consensus.latest_checkpoint().sequence, 1);
+    }
+
+    #[test]
+    fn test_checkpoint_timestamp_is_canonical_by_sequence() {
+        let authorities = vec!["auth1".to_string()];
+        let mut consensus = DagConsensus::new("auth1".to_string(), authorities);
+
+        let round1 = consensus
+            .create_vertex(vec![], vec![1u8; 32], 1_700_000_000_000)
+            .unwrap();
+        consensus.add_vertex(round1).unwrap();
+
+        let round2 = consensus
+            .create_vertex(vec![], vec![2u8; 32], 1_800_000_000_000)
+            .unwrap();
+        consensus.add_vertex(round2).unwrap();
+
+        let round3 = consensus
+            .create_vertex(vec![], vec![3u8; 32], 1_750_000_000_000)
+            .unwrap();
+        consensus.add_vertex(round3).unwrap();
+
+        let checkpoint = consensus
+            .try_commit()
+            .unwrap()
+            .expect("checkpoint should be produced after quorum-supported rounds");
+
+        assert_eq!(checkpoint.sequence, 1);
+        assert_eq!(
+            checkpoint.timestamp,
+            checkpointing::canonical_checkpoint_timestamp(checkpoint.sequence)
+        );
+        assert_ne!(checkpoint.timestamp, 1_800_000_000_000);
     }
 
     #[test]

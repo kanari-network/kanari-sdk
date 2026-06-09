@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use crate::storage::shared_db::get_or_open_db;
-use rocksdb::DB;
+use rocksdb::{DB, IteratorMode, WriteBatch};
 
 /// Custom error type for PersistentStore operations
 #[derive(Debug)]
@@ -158,6 +158,61 @@ impl PersistentStore {
         Ok(())
     }
 
+    /// Return a stable snapshot of logical state entries, excluding SMT internals.
+    pub fn logical_entries(
+        &self,
+    ) -> std::result::Result<Vec<(Vec<u8>, Vec<u8>)>, PersistentStoreError> {
+        let mut entries = Vec::new();
+
+        if let Some(db) = &self.db {
+            for item in db.iterator(IteratorMode::Start) {
+                let (key, value) = item?;
+                if Self::is_internal_smt_key(&key) {
+                    continue;
+                }
+                entries.push((key.to_vec(), value.to_vec()));
+            }
+        } else if let Some(store) = &self.memory_store {
+            entries.extend(
+                store
+                    .read()
+                    .unwrap()
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone())),
+            );
+        }
+
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(entries)
+    }
+
+    /// Apply raw state key updates/deletes atomically where the backend supports it.
+    pub fn apply_raw_changes(
+        &self,
+        updates: &[(Vec<u8>, Vec<u8>)],
+        deletes: &[Vec<u8>],
+    ) -> std::result::Result<(), PersistentStoreError> {
+        if let Some(db) = &self.db {
+            let mut batch = WriteBatch::default();
+            for (key, value) in updates {
+                batch.put(key, value);
+            }
+            for key in deletes {
+                batch.delete(key);
+            }
+            db.write(batch)?;
+        } else if let Some(store) = &self.memory_store {
+            let mut guard = store.write().unwrap();
+            for (key, value) in updates {
+                guard.insert(key.clone(), value.clone());
+            }
+            for key in deletes {
+                guard.remove(key);
+            }
+        }
+        Ok(())
+    }
+
     /// Expose underlying RocksDB instance for other components (e.g. SMT)
     pub fn get_db(&self) -> Option<Arc<DB>> {
         self.db.clone()
@@ -174,5 +229,9 @@ impl PersistentStore {
         // Note: In-memory batch application is not supported directly via RocksDB batch type
         // For in-memory, callers should use save_raw individually or implement a custom batch
         Ok(())
+    }
+
+    fn is_internal_smt_key(key: &[u8]) -> bool {
+        key.starts_with(b"n:") || key.starts_with(b"d:")
     }
 }

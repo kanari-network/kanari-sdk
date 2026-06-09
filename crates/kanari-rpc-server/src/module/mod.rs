@@ -179,7 +179,7 @@ pub async fn handle_get_object(state: &RpcServerState, request: &RpcRequest) -> 
     };
 
     let id = req.object_id;
-    let state_guard = state.engine.state.read().unwrap_or_else(|e| e.into_inner());
+    let state_guard = state.engine.state_read();
 
     if let Ok(Some(obj)) = state_guard.get_object(&id) {
         return respond_with_serialize(request.id, build_object_info(id, obj));
@@ -204,7 +204,7 @@ pub async fn handle_get_owned_objects(state: &RpcServerState, request: &RpcReque
         }
     };
 
-    let state_guard = state.engine.state.read().unwrap_or_else(|e| e.into_inner());
+    let state_guard = state.engine.state_read();
 
     // Get all owned object IDs for the owner
     let owned_ids = match state_guard.get_owned_objects(&owner_addr) {

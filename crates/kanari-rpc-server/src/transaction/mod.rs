@@ -269,10 +269,7 @@ fn map_transaction_to_details(
 fn format_changeset_json(state: &RpcServerState, changeset: &ChangeSet) -> serde_json::Value {
     let mut cs_value = serde_json::to_value(changeset).unwrap_or(serde_json::json!(null));
 
-    let state_guard = state.engine.state.read().unwrap_or_else(|p| {
-        error!("state lock poisoned while formatting changeset; recovering");
-        p.into_inner()
-    });
+    let state_guard = state.engine.state_read();
 
     if let Some(map) = cs_value.as_object_mut()
         && let Some(created_val) = map.get_mut("created_objects")

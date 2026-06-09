@@ -177,23 +177,6 @@ impl DagConsensusIntegration {
         timestamp: u64,
         include_history: bool,
     ) -> Result<DagExecutionOutcome> {
-        if history_vertices.is_empty() && Self::can_skip_zero_cost_native_preview(transactions) {
-            let state_root = self
-                .engine
-                .blockchain
-                .read()
-                .unwrap_or_else(|e| e.into_inner())
-                .latest_checkpoint()
-                .state_root
-                .clone();
-
-            return Ok(DagExecutionOutcome {
-                state_root,
-                executed: transactions.len(),
-                failed: 0,
-            });
-        }
-
         let chain = self
             .engine
             .blockchain
@@ -213,29 +196,7 @@ impl DagConsensusIntegration {
 
         drop(chain);
 
-        if Self::can_skip_zero_cost_native_preview(&all_to_execute) {
-            let state_root = self
-                .engine
-                .blockchain
-                .read()
-                .unwrap_or_else(|e| e.into_inner())
-                .latest_checkpoint()
-                .state_root
-                .clone();
-
-            return Ok(DagExecutionOutcome {
-                state_root,
-                executed: all_to_execute.len(),
-                failed: 0,
-            });
-        }
-
-        let state_clone = self
-            .engine
-            .state
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
+        let state_clone = self.engine.state_read().clone();
         let state_arc = Arc::new(RwLock::new(state_clone));
 
         let (executed_count, failed_count) = self.engine.execute_tx_waves_deterministic_parallel(
@@ -245,32 +206,16 @@ impl DagConsensusIntegration {
             false,
         )?;
 
-        let state_root = self
-            .engine
-            .blockchain
+        let state_root = state_arc
             .read()
             .unwrap_or_else(|e| e.into_inner())
-            .latest_checkpoint()
-            .state_root
-            .clone();
+            .compute_state_root();
 
         Ok(DagExecutionOutcome {
             state_root,
             executed: executed_count,
             failed: failed_count,
         })
-    }
-
-    fn can_skip_zero_cost_native_preview(transactions: &[SignedTransaction]) -> bool {
-        !transactions.is_empty()
-            && transactions.iter().all(|tx| {
-                tx.transaction.gas_price() == 0
-                    && tx
-                        .transaction
-                        .native_call()
-                        .map(|native_call| native_call.required_native_amount() == 0)
-                        .unwrap_or(false)
-            })
     }
 
     pub(crate) fn validate_network_vertex(
@@ -299,23 +244,13 @@ impl DagConsensusIntegration {
 
         if all_to_execute.is_empty() {
             return Ok(Some(DagExecutionOutcome {
-                state_root: self
-                    .engine
-                    .state
-                    .read()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .compute_state_root(),
+                state_root: self.engine.state_read().compute_state_root(),
                 executed: 0,
                 failed: 0,
             }));
         }
 
-        let state_clone = self
-            .engine
-            .state
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
+        let state_clone = self.engine.state_read().clone();
         let state_arc = Arc::new(RwLock::new(state_clone));
 
         let (executed_count, failed_count) = self.engine.execute_tx_waves_deterministic_parallel(
@@ -325,7 +260,7 @@ impl DagConsensusIntegration {
             false,
         )?;
 
-        let state_root = match state_arc.write() {
+        let state_root = match state_arc.read() {
             Ok(guard) => guard.compute_state_root(),
             Err(poisoned) => poisoned.into_inner().compute_state_root(),
         };
@@ -448,15 +383,6 @@ impl DagConsensusIntegration {
                 .unwrap_or_else(|e| e.into_inner());
             chain.latest_checkpoint().state_root.clone()
         };
-
-        if !checkpoint.transactions.is_empty()
-            && checkpoint.state_root == previous_checkpoint_root
-            && Self::can_skip_zero_cost_native_preview(&checkpoint.transactions)
-        {
-            self.engine
-                .finalize_checkpoint_without_state_changes(checkpoint.clone())?;
-            return Ok(checkpoint);
-        }
 
         let (computed_root, verified_state, to_execute) =
             self.engine.prepare_checkpoint_state(&checkpoint)?;

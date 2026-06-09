@@ -102,7 +102,7 @@ pub async fn handle_get_owned_nfts(state: &RpcServerState, request: &RpcRequest)
         Err(_) => return invalid_params_response(request.id, "Invalid address format"),
     };
 
-    let state_guard = state.engine.state.read().unwrap_or_else(|p| p.into_inner());
+    let state_guard = state.engine.state_read();
     let owned_ids = match state_guard.get_owned_objects(&addr) {
         Ok(ids) => ids,
         Err(_) => return respond_with_serialize(request.id, Vec::<serde_json::Value>::new()),
@@ -129,7 +129,7 @@ pub async fn handle_get_owned_nfts(state: &RpcServerState, request: &RpcRequest)
 }
 
 pub async fn handle_list_collections(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let state_guard = state.engine.state.read().unwrap_or_else(|p| p.into_inner());
+    let state_guard = state.engine.state_read();
     let ids = state_guard.get_all_collection_ids();
     let mut collections = Vec::new();
 
@@ -163,7 +163,7 @@ pub async fn handle_get_nfts_by_collection(
         Err(response) => return *response,
     };
 
-    let state_guard = state.engine.state.read().unwrap_or_else(|p| p.into_inner());
+    let state_guard = state.engine.state_read();
     let nft_ids = state_guard.get_collection_nft_ids(&coll_id);
     let mut nfts = Vec::new();
 

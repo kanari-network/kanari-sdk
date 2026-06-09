@@ -5,6 +5,24 @@ use super::*;
 
 type CommitVertexSelection = (Arc<DagVertex>, Vec<VertexId>, Vec<SignedTransaction>);
 
+pub(crate) const CANONICAL_CHECKPOINT_TIMESTAMP_EPOCH_MS: u64 = 4_102_444_800_000;
+
+pub(crate) fn canonical_checkpoint_timestamp(sequence: u64) -> u64 {
+    CANONICAL_CHECKPOINT_TIMESTAMP_EPOCH_MS.saturating_add(sequence)
+}
+
+fn canonical_checkpoint_tx_key(tx: &SignedTransaction) -> (String, u64, Vec<u8>) {
+    (
+        tx.transaction.sender_address().to_ascii_lowercase(),
+        tx.transaction.sequence_number(),
+        logical_tx_hash(tx),
+    )
+}
+
+fn sort_checkpoint_transactions(transactions: &mut [SignedTransaction]) {
+    transactions.sort_by_key(canonical_checkpoint_tx_key);
+}
+
 impl DagStore {
     fn same_checkpoint_payload_except_state_root(
         existing: &Checkpoint,
@@ -32,9 +50,10 @@ impl DagStore {
                 )
             })?;
 
-            let same_transactions = vertex.transactions.len() == checkpoint.transactions.len()
-                && vertex
-                    .transactions
+            let mut expected_transactions = vertex.transactions.clone();
+            sort_checkpoint_transactions(&mut expected_transactions);
+            let same_transactions = expected_transactions.len() == checkpoint.transactions.len()
+                && expected_transactions
                     .iter()
                     .zip(checkpoint.transactions.iter())
                     .all(|(expected, actual)| {
@@ -50,7 +69,7 @@ impl DagStore {
 
         let mut seen_vertices = HashSet::new();
         let mut seen_tx_hashes = HashSet::new();
-        let mut expected_tx_hashes = Vec::new();
+        let mut expected_transactions = Vec::new();
         for vertex_id in &checkpoint.vertices {
             if !seen_vertices.insert(*vertex_id) {
                 anyhow::bail!(
@@ -72,11 +91,14 @@ impl DagStore {
                     continue;
                 }
                 if seen_tx_hashes.insert(tx_hash.clone()) {
-                    expected_tx_hashes.push(tx_hash);
+                    expected_transactions.push(tx.clone());
                 }
             }
         }
 
+        sort_checkpoint_transactions(&mut expected_transactions);
+        let expected_tx_hashes: Vec<Vec<u8>> =
+            expected_transactions.iter().map(logical_tx_hash).collect();
         let actual_tx_hashes: Vec<Vec<u8>> = checkpoint
             .transactions
             .iter()
@@ -344,12 +366,10 @@ impl DagConsensus {
     ) -> Result<Checkpoint> {
         let mut seen_vertices = HashSet::new();
         let mut vertices_to_commit = Vec::new();
-        let mut commit_timestamps = Vec::new();
         let mut committed_leaders = Vec::new();
 
-        for (leader_id, (commit_vertex, leader_vertices, _)) in selections {
+        for (leader_id, (_commit_vertex, leader_vertices, _)) in selections {
             committed_leaders.push(leader_id);
-            commit_timestamps.push(commit_vertex.timestamp);
             for vertex_id in leader_vertices {
                 if seen_vertices.insert(vertex_id) {
                     vertices_to_commit.push(vertex_id);
@@ -360,10 +380,11 @@ impl DagConsensus {
         let all_transactions = self.collect_checkpoint_transactions(&vertices_to_commit);
         let latest = self.store.latest_checkpoint();
         let prev_hash = latest.hash()?;
-        let timestamp = commit_timestamps.into_iter().max().unwrap_or(0);
+        let sequence = latest.sequence + 1;
+        let timestamp = canonical_checkpoint_timestamp(sequence);
         let state_root = self.checkpoint_state_root(&vertices_to_commit, &all_transactions)?;
         let checkpoint = Checkpoint::new(
-            latest.sequence + 1,
+            sequence,
             vertices_to_commit,
             all_transactions,
             state_root,
@@ -415,6 +436,7 @@ impl DagConsensus {
             }
         }
 
+        sort_checkpoint_transactions(&mut all_transactions);
         all_transactions
     }
 

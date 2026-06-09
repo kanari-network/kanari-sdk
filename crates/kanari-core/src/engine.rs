@@ -26,7 +26,7 @@ use rayon::prelude::*;
 use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::num::NonZeroUsize;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 type ProofCache = LruCache<(u64, usize), (String, Vec<Vec<u8>>)>;
 
@@ -166,16 +166,24 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
 }
 
 impl BlockchainEngine {
+    pub fn state_read(&self) -> RwLockReadGuard<'_, StateManager> {
+        self.state.read().unwrap_or_else(|poisoned| {
+            error!("State lock poisoned while reading runtime state; recovering...");
+            poisoned.into_inner()
+        })
+    }
+
+    pub fn state_write(&self) -> RwLockWriteGuard<'_, StateManager> {
+        self.state.write().unwrap_or_else(|poisoned| {
+            error!("State lock poisoned while writing runtime state; recovering...");
+            poisoned.into_inner()
+        })
+    }
+
     pub fn execute_system_prologue(&self, timestamp_ms: u64) -> Result<()> {
         let runtime = &self.runtime_pool[0];
 
-        let mut state_write = match self.state.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                log::error!("State lock poisoned in system prologue, recovering...");
-                poisoned.into_inner()
-            }
-        };
+        let mut state_write = self.state_write();
 
         let clock_id = runtime.ensure_system_clock(&mut state_write)?;
         let changeset = runtime.execute_clock_consensus_commit_prologue(clock_id, timestamp_ms)?;
@@ -203,8 +211,9 @@ impl BlockchainEngine {
         state: &StateManager,
         owner_addr: &AccountAddress,
     ) -> Vec<ObjectInfo> {
-        let raw_owned_ids = state.get_owned_objects(owner_addr).unwrap_or_default();
-        let unique_ids: std::collections::HashSet<_> = raw_owned_ids.into_iter().collect();
+        let mut unique_ids = state.get_owned_objects(owner_addr).unwrap_or_default();
+        unique_ids.sort();
+        unique_ids.dedup();
 
         let mut coins = Vec::new();
         let mut others = Vec::new();
@@ -232,7 +241,8 @@ impl BlockchainEngine {
             }
         }
 
-        coins.sort_by_key(|coin| std::cmp::Reverse(coin.0));
+        coins.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
+        others.sort_by(|a, b| a.id.cmp(&b.id));
         coins
             .into_iter()
             .map(|(_, info)| info)
@@ -272,6 +282,23 @@ impl BlockchainEngine {
             timestamp,
             persist_objects,
             false,
+            true,
+        )
+    }
+
+    pub(crate) fn execute_tx_waves_strict_serial(
+        &self,
+        transactions: Vec<SignedTransaction>,
+        state_arc: &Arc<RwLock<StateManager>>,
+        timestamp: Option<u64>,
+        persist_objects: bool,
+    ) -> Result<(usize, usize)> {
+        self.execute_tx_waves_parallel_inner(
+            transactions,
+            state_arc,
+            timestamp,
+            persist_objects,
+            true,
             true,
         )
     }
@@ -581,10 +608,12 @@ impl BlockchainEngine {
                 module_bytes,
                 ..
             } => {
-                match runtime.publish_module_with_persistence(
+                match runtime.publish_module_with_context_and_persistence(
                     module_bytes.clone(),
                     KanariAddress::parse_to_account_address(sender)?,
                     Some((tx.gas_limit(), tx.gas_price())),
+                    timestamp,
+                    Some(tx.hash()),
                     persist_runtime_state,
                 ) {
                     Ok(move_cs) => changeset.merge(move_cs),

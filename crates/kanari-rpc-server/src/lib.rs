@@ -359,7 +359,7 @@ mod tests {
         );
         let engine = Arc::new(engine);
         {
-            let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
+            let mut state = engine.state_write();
             seed_runtime_state(&mut state);
         }
         create_router(RpcServerState::new(engine))

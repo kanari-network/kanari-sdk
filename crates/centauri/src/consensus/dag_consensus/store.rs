@@ -223,21 +223,27 @@ impl DagStore {
     }
 
     pub fn get_vertices_in_round(&self, round: Round) -> Vec<Arc<DagVertex>> {
-        self.vertices_by_round
+        let mut vertices: Vec<Arc<DagVertex>> = self
+            .vertices_by_round
             .get(&round)
             .map(|ids| {
                 ids.iter()
                     .filter_map(|id| self.vertices.get(id).cloned())
                     .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+        vertices.sort_by_key(|vertex| vertex.id);
+        vertices
     }
 
     pub fn get_vertex_ids_in_round(&self, round: Round) -> Vec<VertexId> {
-        self.vertices_by_round
+        let mut ids = self
+            .vertices_by_round
             .get(&round)
             .cloned()
-            .unwrap_or_default()
+            .unwrap_or_default();
+        ids.sort();
+        ids
     }
 
     pub fn get_vertices_by_authority(&self, authority: &AuthorityId) -> Vec<Arc<DagVertex>> {

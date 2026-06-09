@@ -19,6 +19,17 @@ pub struct MoveVMState {
 impl MoveVMState {
     const MODULE_INDEX_KEY: &'static [u8] = b"module_index";
 
+    /// Use an already-open persistent store shared with the chain state.
+    pub fn new(store: Arc<PersistentStore>) -> Self {
+        MoveVMState { store }
+    }
+
+    /// Return the shared backing store so callers can create isolated runtime caches
+    /// over the same canonical module/resource database.
+    pub fn store(&self) -> Arc<PersistentStore> {
+        self.store.clone()
+    }
+
     /// Create an in-memory MoveVMState for testing or Miri (no filesystem ops).
     pub fn new_in_memory() -> Result<Self> {
         let store = PersistentStore::open_in_memory()?;

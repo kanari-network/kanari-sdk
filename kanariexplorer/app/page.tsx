@@ -412,7 +412,8 @@ function StateDivergenceAudit({
                   <div>
                     <p className="tiny-label">Node</p>
                     <strong>{check.node}</strong>
-                    <div className="muted-text mono">height {formatNumber(check.nodeHeight)}</div>
+                    <div className="muted-text mono">root height {formatNumber(check.height)}</div>
+                    <div className="muted-text mono">latest {formatNumber(check.nodeHeight)}</div>
                   </div>
                   <div>
                     <p className="tiny-label">State Root</p>

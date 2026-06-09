@@ -62,7 +62,7 @@ impl BlockchainEngine {
 
         // Batch read account sequences to minimize state lock contention
         let base_sequences = {
-            let state = self.state.read().unwrap_or_else(|e| e.into_inner());
+            let state = self.state_read();
             let mut sequences = std::collections::HashMap::with_capacity(batch_metadata.len());
             for (_, sender, _) in &batch_metadata {
                 sequences.entry(sender.clone()).or_insert_with(|| {
@@ -206,15 +206,7 @@ impl BlockchainEngine {
         let tx = signed_tx.transaction;
 
         let changeset = {
-            let mut state_snapshot = match self.state.read() {
-                Ok(guard) => guard.clone(),
-                Err(poisoned) => {
-                    log::error!(
-                        "State lock poisoned in execute_transaction_immediate, recovering..."
-                    );
-                    poisoned.into_inner().clone()
-                }
-            };
+            let mut state_snapshot = self.state_read().clone();
             let sender_addr = tx.sender_address();
             let addr = KanariAddress::parse_to_account_address(sender_addr)?;
 
@@ -227,8 +219,13 @@ impl BlockchainEngine {
                 }
             }
             let state_arc = Arc::new(RwLock::new(state_snapshot));
-            let runtime = &self.runtime_pool[0];
-            self.execute_transaction_with_runtime(&tx, runtime, &state_arc, None)?
+            let runtime = self.runtime_pool[0]
+                .spawn_isolated_worker()
+                .context("Failed to create isolated runtime for immediate execution")?;
+            let changeset =
+                self.execute_transaction_with_runtime(&tx, &runtime, &state_arc, None)?;
+            runtime.clear_object_cache()?;
+            changeset
         };
 
         Ok((tx_hash, changeset))

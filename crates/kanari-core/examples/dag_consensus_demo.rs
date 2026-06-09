@@ -54,7 +54,7 @@ fn main() -> Result<()> {
 
     // Fund the sender account manually for the demo
     {
-        let mut state = engine.state.write().unwrap();
+        let mut state = engine.state_write();
         let raw_address = keypair.address.clone();
         let addr = AccountAddress::from_hex_literal(&raw_address)?;
         let mut account = state

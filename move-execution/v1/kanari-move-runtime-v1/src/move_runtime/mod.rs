@@ -36,6 +36,7 @@ use crate::changeset::ChangeSet;
 use crate::state::StateManager;
 use crate::storage::move_vm_state::MoveVMState;
 use crate::storage::object_storage::{ObjectStorage, ObjectStore, StoredObject};
+use crate::storage::persistent_store::PersistentStore;
 use move_binary_format::compatibility::Compatibility;
 use move_binary_format::normalized;
 use move_bytecode_verifier::verifier::verify_module_unmetered;
@@ -116,15 +117,27 @@ impl MoveRuntime {
         } else {
             MoveVMState::open_default()?
         };
-        Self::new_internal(natives, state)
+        Self::new_internal(natives, state, None)
     }
 
     pub fn new_with_natives_in_memory(natives: Vec<NativeFunctionTable>) -> Result<Self> {
         let state = MoveVMState::new_in_memory()?;
-        Self::new_internal(natives, state)
+        Self::new_internal(natives, state, None)
     }
 
-    fn new_internal(natives: Vec<NativeFunctionTable>, state: MoveVMState) -> Result<Self> {
+    pub fn new_with_natives_and_store(
+        natives: Vec<NativeFunctionTable>,
+        store: Arc<PersistentStore>,
+    ) -> Result<Self> {
+        let state = MoveVMState::new(store.clone());
+        Self::new_internal(natives, state, Some(store))
+    }
+
+    fn new_internal(
+        natives: Vec<NativeFunctionTable>,
+        state: MoveVMState,
+        shared_store: Option<Arc<PersistentStore>>,
+    ) -> Result<Self> {
         let all_natives: NativeFunctionTable = natives
             .into_iter()
             .flat_map(|table| table.into_iter())
@@ -133,16 +146,22 @@ impl MoveRuntime {
         let vm = MoveVM::new(all_natives.clone())
             .map_err(|e| anyhow::anyhow!(format!("VM init error: {:?}", e)))?;
 
-        let object_storage: Arc<dyn ObjectStore> = if cfg!(miri) {
-            Arc::from(ObjectStorage::boxed_inmemory())
-        } else {
-            match ObjectStorage::boxed_with_persistence() {
+        let object_storage: Arc<dyn ObjectStore> = match shared_store {
+            Some(store) if !cfg!(miri) => match ObjectStorage::boxed_with_store(store) {
+                Ok(store) => Arc::from(store),
+                Err(e) => {
+                    log::warn!("[RUNTIME] shared object store load failed: {}", e);
+                    Arc::from(ObjectStorage::boxed_inmemory())
+                }
+            },
+            _ if cfg!(miri) => Arc::from(ObjectStorage::boxed_inmemory()),
+            _ => match ObjectStorage::boxed_with_persistence() {
                 Ok(store) => Arc::from(store),
                 Err(e) => {
                     log::warn!("[RUNTIME] DB load failed. Fallback to in-memory: {}", e);
                     Arc::from(ObjectStorage::boxed_inmemory())
                 }
-            }
+            },
         };
 
         let resolver = KanariMoveResolver {
@@ -184,6 +203,13 @@ impl MoveRuntime {
         Ok(runtime)
     }
 
+    pub fn new_with_kanari_natives_and_store(store: Arc<PersistentStore>) -> Result<Self> {
+        let natives = Self::get_kanari_natives_list();
+        let runtime = Self::new_with_natives_and_store(natives, store)?;
+        runtime.load_system_modules()?;
+        Ok(runtime)
+    }
+
     fn get_kanari_natives_list() -> Vec<NativeFunctionTable> {
         let sys_addr = KanariAddress::kanari_system_account_address();
         vec![
@@ -214,6 +240,45 @@ impl MoveRuntime {
         })
     }
 
+    pub fn spawn_isolated_worker(&self) -> Result<Self> {
+        let vm = MoveVM::new(self.all_natives.as_ref().clone())
+            .map_err(|e| anyhow::anyhow!("Isolated worker VM init error: {:?}", e))?;
+
+        let object_storage: Arc<dyn ObjectStore> =
+            match ObjectStorage::boxed_with_store(self.state.store()) {
+                Ok(store) => Arc::from(store),
+                Err(e) => {
+                    log::warn!("[RUNTIME] isolated object store load failed: {}", e);
+                    Arc::from(ObjectStorage::boxed_inmemory())
+                }
+            };
+
+        let resolver = KanariMoveResolver {
+            state: self.state.clone(),
+            _object_storage: object_storage.clone(),
+        };
+
+        let published_modules = self
+            .published_modules
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+
+        let runtime = MoveRuntime {
+            vm: Arc::new(RwLock::new(vm)),
+            all_natives: self.all_natives.clone(),
+            resolver,
+            state: self.state.clone(),
+            published_modules: Arc::new(RwLock::new(published_modules)),
+            object_storage,
+            type_tag_cache: Arc::new(RwLock::new(HashMap::new())),
+            module_publish_lock: Arc::new(Mutex::new(())),
+        };
+
+        runtime.preload_system_modules_into_vm()?;
+        Ok(runtime)
+    }
+
     /// Rebuild the VM instance so cached module state is refreshed.
     pub fn reload_vm_cache(&self) -> Result<()> {
         let new_vm = MoveVM::new(self.all_natives.as_ref().clone())
@@ -227,6 +292,12 @@ impl MoveRuntime {
 
         log::debug!("[RUNTIME] MoveVM cache cleared and reloaded");
         Ok(())
+    }
+
+    pub fn clear_object_cache(&self) -> Result<()> {
+        self.object_storage
+            .clear()
+            .map_err(|e| anyhow::anyhow!("Failed to clear runtime object cache: {}", e))
     }
 
     /// Preload system modules into the VM cache to ensure dependencies are available
@@ -302,9 +373,16 @@ impl MoveRuntime {
         module_bytes: Vec<u8>,
         sender: AccountAddress,
         gas_info: Option<(u64, u64)>,
-        _timestamp: Option<u64>,
+        timestamp: Option<u64>,
     ) -> Result<ChangeSet> {
-        self.publish_module_with_persistence(module_bytes, sender, gas_info, true)
+        self.publish_module_with_context_and_persistence(
+            module_bytes,
+            sender,
+            gas_info,
+            timestamp,
+            None,
+            true,
+        )
     }
 
     pub fn publish_module_with_persistence(
@@ -312,6 +390,25 @@ impl MoveRuntime {
         module_bytes: Vec<u8>,
         sender: AccountAddress,
         gas_info: Option<(u64, u64)>,
+        persist_runtime_state: bool,
+    ) -> Result<ChangeSet> {
+        self.publish_module_with_context_and_persistence(
+            module_bytes,
+            sender,
+            gas_info,
+            None,
+            None,
+            persist_runtime_state,
+        )
+    }
+
+    pub fn publish_module_with_context_and_persistence(
+        &self,
+        module_bytes: Vec<u8>,
+        sender: AccountAddress,
+        gas_info: Option<(u64, u64)>,
+        _timestamp: Option<u64>,
+        _tx_hash: Option<Vec<u8>>,
         persist_runtime_state: bool,
     ) -> Result<ChangeSet> {
         let _publish_guard = self
@@ -539,12 +636,7 @@ impl MoveRuntime {
         tx_hash: Option<&[u8]>,
     ) -> Result<Vec<u8>> {
         let sender_addr = sender.unwrap_or(AccountAddress::ZERO);
-        let epoch_timestamp_ms = timestamp.unwrap_or_else(|| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64
-        });
+        let epoch_timestamp_ms = timestamp.unwrap_or(0);
         let tx_hash = if let Some(raw_tx_hash) = tx_hash {
             if raw_tx_hash.len() == 32 {
                 raw_tx_hash.to_vec()
@@ -1175,7 +1267,11 @@ impl MoveRuntime {
                     processed_ids.insert(borrowed.object_id);
                 }
 
-                self.add_transferred_objects_to_changeset(&mut cs, transferred);
+                self.add_transferred_objects_to_changeset(
+                    &mut cs,
+                    transferred,
+                    persist_runtime_state,
+                );
 
                 for ev in captured_events.into_iter() {
                     cs.add_event(Event {
@@ -1507,5 +1603,54 @@ impl MoveRuntime {
         }
 
         serde_json::to_value(bytes).expect("serializing byte slices to JSON should not fail")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::Deserialize;
+
+    #[derive(Debug, Deserialize, PartialEq, Eq)]
+    struct SerializedTxContext {
+        sender: AccountAddress,
+        tx_hash: Vec<u8>,
+        ids_created: u64,
+        epoch_timestamp_ms: u64,
+        sponsor: u64,
+    }
+
+    #[test]
+    fn tx_context_without_timestamp_is_deterministic() -> Result<()> {
+        let runtime = MoveRuntime::new_with_natives_in_memory(vec![])?;
+        let sender = AccountAddress::from_hex_literal("0x1111")?;
+
+        let first = runtime.build_tx_context_bytes(Some(sender), None, None)?;
+        let second = runtime.build_tx_context_bytes(Some(sender), None, None)?;
+        let ctx: SerializedTxContext = bcs::from_bytes(&first)?;
+
+        assert_eq!(first, second);
+        assert_eq!(ctx.sender, sender);
+        assert_eq!(ctx.epoch_timestamp_ms, 0);
+        assert_eq!(ctx.ids_created, 0);
+        assert_eq!(ctx.sponsor, 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn tx_context_uses_canonical_timestamp_and_hash() -> Result<()> {
+        let runtime = MoveRuntime::new_with_natives_in_memory(vec![])?;
+        let sender = AccountAddress::from_hex_literal("0x1111")?;
+        let tx_hash = vec![7u8; 32];
+
+        let bytes = runtime.build_tx_context_bytes(Some(sender), Some(42), Some(&tx_hash))?;
+        let ctx: SerializedTxContext = bcs::from_bytes(&bytes)?;
+
+        assert_eq!(ctx.sender, sender);
+        assert_eq!(ctx.tx_hash, tx_hash);
+        assert_eq!(ctx.epoch_timestamp_ms, 42);
+
+        Ok(())
     }
 }

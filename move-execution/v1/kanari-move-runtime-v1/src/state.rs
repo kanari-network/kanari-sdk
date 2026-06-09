@@ -581,20 +581,16 @@ impl StateManager {
     pub fn commit(&mut self) -> Result<()> {
         let mut updates = Vec::new();
         let mut deletes = Vec::new();
-        let mut batch = rocksdb::WriteBatch::default();
 
         for (key, val_opt) in &self.overlay {
             if let Some(val) = val_opt {
-                batch.put(key, val);
                 updates.push((key.clone(), val.clone()));
             } else {
-                batch.delete(key);
                 deletes.push(key.clone());
             }
         }
 
-        // Apply batch to RocksDB atomically
-        self.store.apply_batch(batch)?;
+        self.store.apply_raw_changes(&updates, &deletes)?;
 
         // Update SMT if available
         if let Some(smt) = &self.smt {
@@ -694,6 +690,59 @@ impl StateManager {
         key.extend_from_slice(b":");
         key.extend_from_slice(hex::encode(&hash[0..16]).as_bytes());
         key
+    }
+
+    fn is_canonical_state_root_key(key: &[u8]) -> bool {
+        key == ACCOUNT_INDEX_KEY
+            || key == OBJECT_LOCKED_COIN_RECORDS_KEY
+            || key == b"total_supply"
+            || key == b"global_token_supplies"
+            || key == b"treasury_index"
+            || key == b"nft_collection_index"
+            || key.starts_with(b"account:")
+            || key.starts_with(b"owned_objects:")
+            || key.starts_with(b"df:")
+            || key.starts_with(b"system:")
+            || key.starts_with(b"supply:")
+            || key.starts_with(b"treasury:")
+            || key.starts_with(b"nft:")
+            || key.starts_with(b"collection_members:")
+            || key.starts_with(b"metadata_decimals:")
+            || key.starts_with(b"metadata_name:")
+            || key.starts_with(b"metadata_symbol:")
+            || key.starts_with(b"metadata_description:")
+            || key.starts_with(b"metadata_icon_url:")
+    }
+
+    fn canonical_object_keys(entries: &BTreeMap<Vec<u8>, Vec<u8>>) -> BTreeSet<Vec<u8>> {
+        let mut object_keys = BTreeSet::new();
+
+        for (key, value) in entries {
+            if !key.starts_with(b"owned_objects:") {
+                continue;
+            }
+
+            let Ok(object_ids) = bcs::from_bytes::<Vec<String>>(value) else {
+                log::warn!(
+                    "[StateManager] Skipping malformed owned object index while computing state root"
+                );
+                continue;
+            };
+
+            for object_id in object_ids {
+                object_keys.insert(Self::object_key(&object_id));
+            }
+        }
+
+        object_keys
+    }
+
+    fn retain_canonical_state_root_entries(entries: &mut BTreeMap<Vec<u8>, Vec<u8>>) {
+        let canonical_object_keys = Self::canonical_object_keys(entries);
+        entries.retain(|key, _| {
+            Self::is_canonical_state_root_key(key)
+                || (key.starts_with(b"object:") && canonical_object_keys.contains(key))
+        });
     }
 
     pub fn get_system_clock_object_id(&self) -> Result<Option<AccountAddress>> {
@@ -1111,7 +1160,7 @@ impl StateManager {
         }
 
         // Record Global Token Supplies to database only once after all processing
-        let mut owners_to_recompute: HashSet<AccountAddress> = HashSet::new();
+        let mut owners_to_recompute: BTreeSet<AccountAddress> = BTreeSet::new();
 
         for obj_id in &changeset.deleted_objects {
             if let Some((stored_id, existing)) = self.load_stored_object_by_any_id(obj_id)? {
@@ -1251,14 +1300,9 @@ impl StateManager {
     /// Get all object IDs owned by an address
     pub fn get_owned_objects(&self, owner: &AccountAddress) -> Result<Vec<String>> {
         let owner_key = Self::owned_objects_key(owner);
-        let raw_ids: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
-        let mut unique = HashSet::new();
-        let mut clean = Vec::new();
-        for id in raw_ids {
-            if unique.insert(id.clone()) {
-                clean.push(id);
-            }
-        }
+        let mut clean: Vec<String> = self.load_internal(&owner_key)?.unwrap_or_default();
+        clean.sort();
+        clean.dedup();
         Ok(clean)
     }
 
@@ -1287,57 +1331,44 @@ impl StateManager {
     }
 
     pub fn compute_state_root(&self) -> Vec<u8> {
-        let mut base_root = smt::default_hashes()[0].to_vec();
+        let mut entries: BTreeMap<Vec<u8>, Vec<u8>> = match self.store.logical_entries() {
+            Ok(entries) => entries.into_iter().collect(),
+            Err(e) => {
+                log::error!("Failed to materialize state root snapshot: {}", e);
+                BTreeMap::new()
+            }
+        };
 
-        // If SMT is available, use it as the committed-state base root.
-        if let Some(smt) = &self.smt {
-            match smt.root_hash() {
-                Ok(root) => base_root = root.to_vec(),
-                Err(e) => log::error!("Failed to compute SMT root: {}", e),
+        for (key, value_opt) in &self.overlay {
+            if let Some(value) = value_opt {
+                entries.insert(key.clone(), value.clone());
+            } else {
+                entries.remove(key);
             }
         }
 
-        if self.overlay.is_empty() {
-            return base_root;
-        }
+        Self::retain_canonical_state_root_entries(&mut entries);
 
-        // When speculative writes are still buffered in the overlay, fold them into a
-        // deterministic root derivation so pre-commit checkpoint roots reflect the
-        // logical state that validators are comparing.
-        let materialized_len = b"kanari:state-root:v1".len()
-            + base_root.len()
+        let materialized_len = b"kanari:state-root:v2".len()
             + std::mem::size_of::<u64>()
-            + self
-                .overlay
+            + entries
                 .iter()
-                .map(|(key, value_opt)| {
+                .map(|(key, value)| {
                     std::mem::size_of::<u64>()
                         + key.len()
-                        + 1
-                        + value_opt
-                            .as_ref()
-                            .map(|value| std::mem::size_of::<u64>() + value.len())
-                            .unwrap_or(0)
+                        + std::mem::size_of::<u64>()
+                        + value.len()
                 })
                 .sum::<usize>();
         let mut materialized = Vec::with_capacity(materialized_len);
-        materialized.extend_from_slice(b"kanari:state-root:v1");
-        materialized.extend_from_slice(&base_root);
-        materialized.extend_from_slice(&(self.overlay.len() as u64).to_le_bytes());
+        materialized.extend_from_slice(b"kanari:state-root:v2");
+        materialized.extend_from_slice(&(entries.len() as u64).to_le_bytes());
 
-        for (key, value_opt) in &self.overlay {
+        for (key, value) in entries {
             materialized.extend_from_slice(&(key.len() as u64).to_le_bytes());
-            materialized.extend_from_slice(key);
-            match value_opt {
-                Some(value) => {
-                    materialized.push(1);
-                    materialized.extend_from_slice(&(value.len() as u64).to_le_bytes());
-                    materialized.extend_from_slice(value);
-                }
-                None => {
-                    materialized.push(0);
-                }
-            }
+            materialized.extend_from_slice(&key);
+            materialized.extend_from_slice(&(value.len() as u64).to_le_bytes());
+            materialized.extend_from_slice(&value);
         }
 
         hash_data_blake3(&materialized).to_vec()
@@ -1435,6 +1466,16 @@ impl StateManager {
 mod tests {
     use super::*;
 
+    fn set_native_supply_for_test(state: &mut StateManager, total_supply: u64) -> Result<()> {
+        state.total_supply = total_supply;
+        state.store.save(b"total_supply", &total_supply)?;
+        state.store.save(
+            &StateManager::supply_key(KANARI_TOKEN_TYPE),
+            &TreasuryCap { total_supply },
+        )?;
+        Ok(())
+    }
+
     #[test]
     fn treasury_update_syncs_native_total_supply() -> Result<()> {
         let mut state = StateManager::new_in_memory();
@@ -1452,18 +1493,23 @@ mod tests {
     fn validate_supply_invariants_detects_native_supply_overcount() -> Result<()> {
         let alice = AccountAddress::from_hex_literal("0x1111")?;
         let mut state = StateManager::new_in_memory();
+        let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
 
         let account = Account::with_native_balance(alice, 500);
         state.save_account(&account)?;
-        state.total_supply = 400;
-        state
-            .global_token_supplies
-            .insert(KANARI_TOKEN_TYPE.to_string(), 500);
+        set_native_supply_for_test(&mut state, base.total_supply + 400)?;
+        state.global_token_supplies.insert(
+            KANARI_TOKEN_TYPE.to_string(),
+            base.wallet_visible_supply + 500,
+        );
 
         let err = state
             .validate_supply_invariants()
             .expect_err("validation should detect overcount");
-        assert!(err.to_string().contains("wallet_visible_supply=500"));
+        assert!(err.to_string().contains(&format!(
+            "wallet_visible_supply={}",
+            base.wallet_visible_supply + 500
+        )));
 
         Ok(())
     }
@@ -1472,17 +1518,22 @@ mod tests {
     fn validate_supply_invariants_allows_native_supply_locked_in_objects() -> Result<()> {
         let alice = AccountAddress::from_hex_literal("0x1111")?;
         let mut state = StateManager::new_in_memory();
+        let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
 
         let account = Account::with_native_balance(alice, 500);
         state.save_account(&account)?;
-        state.total_supply = 600;
-        state
-            .global_token_supplies
-            .insert(KANARI_TOKEN_TYPE.to_string(), 500);
+        set_native_supply_for_test(&mut state, base.total_supply + 600)?;
+        state.global_token_supplies.insert(
+            KANARI_TOKEN_TYPE.to_string(),
+            base.wallet_visible_supply + 500,
+        );
 
         let summary = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
-        assert_eq!(summary.total_supply, 600);
-        assert_eq!(summary.wallet_visible_supply, 500);
+        assert_eq!(summary.total_supply, base.total_supply + 600);
+        assert_eq!(
+            summary.wallet_visible_supply,
+            base.wallet_visible_supply + 500
+        );
         assert_eq!(summary.object_locked_supply, 100);
 
         state.validate_supply_invariants()?;
@@ -1619,6 +1670,142 @@ mod tests {
         assert_ne!(
             root_before, root_after,
             "pending overlay writes should affect speculative state roots"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn compute_state_root_is_stable_across_in_memory_commit() -> Result<()> {
+        let publisher = AccountAddress::from_hex_literal("0x1111")?;
+        let mut state = StateManager::new_in_memory();
+
+        let mut cs = ChangeSet::new();
+        cs.publish_module(publisher, "example".to_string());
+        state.apply_changeset(&cs)?;
+
+        let pending_root = state.compute_state_root();
+        state.commit()?;
+        let committed_root = state.compute_state_root();
+
+        assert_eq!(
+            pending_root, committed_root,
+            "logical state root must not change when overlay is flushed"
+        );
+        assert!(
+            state
+                .get_account(&publisher)
+                .map(|account| account.modules.contains(&"example".to_string()))
+                .unwrap_or(false)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn compute_state_root_ignores_runtime_local_store_keys() -> Result<()> {
+        let owner = AccountAddress::from_hex_literal("0x1111")?;
+        let mut state = StateManager::new_in_memory();
+
+        let account = Account::with_native_balance(owner, 100);
+        state.save_account(&account)?;
+        state.commit()?;
+        let root_before = state.compute_state_root();
+
+        state
+            .store
+            .save(b"module_index", &vec!["local".to_string()])?;
+        state.store.save(b"module:0x1:Local", &vec![1u8, 2, 3])?;
+        state
+            .store
+            .save(b"framework_hash:stdlib", &"node-local-hash")?;
+        state
+            .store
+            .save(b"framework_manifest:stdlib", &vec!["Local"])?;
+        state
+            .store
+            .save(b"object_index", &vec!["0xdead".to_string()])?;
+        state
+            .store
+            .save(b"owner_index:\x00", &vec!["0xdead".to_string()])?;
+        state
+            .store
+            .save(b"object:0xdead", &"orphan-runtime-object")?;
+        state.store.save(b"df_0xdead_local", &vec![9u8])?;
+
+        assert_eq!(
+            root_before,
+            state.compute_state_root(),
+            "runtime metadata and orphan object-storage keys must not affect canonical state root"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn compute_state_root_tracks_indexed_canonical_objects() -> Result<()> {
+        let owner = AccountAddress::from_hex_literal("0x1111")?;
+        let mut state = StateManager::new_in_memory();
+
+        let mut create = ChangeSet::new();
+        create.created_objects.push((
+            "0xcafe".to_string(),
+            CreatedObject {
+                owner,
+                uid: None,
+                id: None,
+                type_: "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
+                data: vec![1, 2, 3],
+                version: 1,
+            },
+        ));
+        state.apply_changeset(&create)?;
+        let first_root = state.compute_state_root();
+
+        let mut update = ChangeSet::new();
+        update.created_objects.push((
+            "0xcafe".to_string(),
+            CreatedObject {
+                owner,
+                uid: None,
+                id: None,
+                type_: "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
+                data: vec![4, 5, 6],
+                version: 2,
+            },
+        ));
+        state.apply_changeset(&update)?;
+
+        assert_ne!(
+            first_root,
+            state.compute_state_root(),
+            "indexed canonical object changes must remain part of state root"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn compute_state_root_is_stable_across_rocksdb_commit() -> Result<()> {
+        let temp_dir = tempfile::tempdir()?;
+        let Ok(store) = PersistentStore::open_with_path(Some(temp_dir.path().join("state"))) else {
+            return Ok(());
+        };
+        let store = Arc::new(store);
+        let publisher = AccountAddress::from_hex_literal("0x1111")?;
+        let mut state = StateManager::new(store);
+
+        let mut cs = ChangeSet::new();
+        cs.publish_module(publisher, "example".to_string());
+        state.apply_changeset(&cs)?;
+
+        let pending_root = state.compute_state_root();
+        state.commit()?;
+        let committed_root = state.compute_state_root();
+
+        assert_eq!(
+            pending_root, committed_root,
+            "logical state root must not change when RocksDB overlay is flushed"
         );
 
         Ok(())

@@ -598,11 +598,11 @@ mod tests {
                 let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
                 chain.latest_checkpoint().hash().unwrap()
             };
-            let canonical_root = engine
-                .state
-                .read()
-                .unwrap_or_else(|e| e.into_inner())
-                .compute_state_root();
+            let canonical_root = {
+                let mut state = engine.state_write();
+                state.commit().unwrap();
+                state.compute_state_root()
+            };
             let canonical = centauri::consensus::Checkpoint::new(
                 1,
                 vec![],
@@ -767,7 +767,7 @@ mod tests {
     }
 
     #[test]
-    fn test_network_vertex_accepts_provisional_checkpoint_root() {
+    fn test_network_vertex_advertises_replayed_state_root() {
         let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
 
         let mut source_engine = BlockchainEngine::new_in_memory().unwrap();
@@ -799,7 +799,7 @@ mod tests {
             .latest_checkpoint()
             .state_root
             .clone();
-        assert_eq!(remote_vertex.metadata.state_root, source_checkpoint_root);
+        assert_ne!(remote_vertex.metadata.state_root, source_checkpoint_root);
 
         let mut target_engine = BlockchainEngine::new_in_memory().unwrap();
         target_engine.set_authorities("0x2".to_string(), authorities.clone());

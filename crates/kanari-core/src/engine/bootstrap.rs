@@ -58,8 +58,8 @@ impl BlockchainEngine {
         let workers = num_cpus::get().max(1);
         let mut runtime_pool = Vec::new();
 
-        let base_runtime = match if persistent_store.is_some() {
-            MoveRuntime::new_with_kanari_natives()
+        let base_runtime = match if let Some(store) = persistent_store.clone() {
+            MoveRuntime::new_with_kanari_natives_and_store(store)
         } else {
             MoveRuntime::new_with_kanari_natives_in_memory()
         } {

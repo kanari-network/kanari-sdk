@@ -19,13 +19,7 @@ impl BlockchainEngine {
     }
 
     pub fn get_stats(&self) -> BlockchainStats {
-        let state = match self.state.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                log::error!("State lock poisoned in get_stats, recovering...");
-                poisoned.into_inner()
-            }
-        };
+        let state = self.state_read();
         let chain = match self.blockchain.read() {
             Ok(guard) => guard,
             Err(poisoned) => {
@@ -52,7 +46,7 @@ impl BlockchainEngine {
     }
 
     pub fn get_account_info(&self, address: &str) -> Option<AccountInfo> {
-        let state = self.state.read().unwrap_or_else(|e| e.into_inner());
+        let state = self.state_read();
 
         state.get_account_by_hex(address).map(|acc| {
             let final_owned_objects = self.resolve_account_objects(&state, &acc.address);

@@ -30,6 +30,7 @@ impl super::MoveRuntime {
         &self,
         cs: &mut ChangeSet,
         transferred: Vec<TransferredObject>,
+        persist_runtime_state: bool,
     ) {
         let count = transferred.len();
         debug!("Processing {} transferred objects", count);
@@ -66,22 +67,23 @@ impl super::MoveRuntime {
                 .map(|existing| existing.version.saturating_add(1))
                 .unwrap_or(1);
 
-            // Persist to ObjectStorage first (before changeset)
-            let stored_obj = StoredObject {
-                id: canonical_id.clone(),
-                owner,
-                type_name: obj_type.clone(),
-                data: data.clone(),
-                version: next_version,
-            };
+            if persist_runtime_state {
+                let stored_obj = StoredObject {
+                    id: canonical_id.clone(),
+                    owner,
+                    type_name: obj_type.clone(),
+                    data: data.clone(),
+                    version: next_version,
+                };
 
-            match self.object_storage.store_object(stored_obj) {
-                Ok(_) => debug!("Object {} persisted to ObjectStorage", canonical_id),
-                Err(e) => {
-                    debug!(
-                        "WARNING: Failed to persist object {} to storage: {}. Object remains in changeset.",
-                        canonical_id, e
-                    );
+                match self.object_storage.store_object(stored_obj) {
+                    Ok(_) => debug!("Object {} persisted to ObjectStorage", canonical_id),
+                    Err(e) => {
+                        debug!(
+                            "WARNING: Failed to persist object {} to storage: {}. Object remains in changeset.",
+                            canonical_id, e
+                        );
+                    }
                 }
             }
 
@@ -154,5 +156,40 @@ impl super::MoveRuntime {
         if count > 0 {
             debug!("Total {} objects added to changeset", count);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::move_runtime::MoveRuntime;
+
+    #[test]
+    fn speculative_transferred_objects_do_not_mutate_object_storage() {
+        let runtime = MoveRuntime::new_with_natives_in_memory(vec![]).unwrap();
+        let owner = AccountAddress::from_hex_literal("0x1234").unwrap();
+        let object_id = "0xabcd".to_string();
+        let object_type = "0x2::test::Object".to_string();
+        let object = TransferredObject {
+            object_id: object_id.clone(),
+            object_type: object_type.clone(),
+            recipient: owner,
+            data: vec![1, 2, 3],
+            should_persist: true,
+            is_frozen: false,
+        };
+
+        let mut speculative = ChangeSet::new();
+        runtime.add_transferred_objects_to_changeset(&mut speculative, vec![object.clone()], false);
+
+        assert_eq!(runtime.object_storage.count(), 0);
+        assert_eq!(speculative.created_objects.len(), 1);
+
+        let mut canonical = ChangeSet::new();
+        runtime.add_transferred_objects_to_changeset(&mut canonical, vec![object], true);
+
+        assert_eq!(runtime.object_storage.count(), 1);
+        let canonical_id = MoveRuntime::canonical_object_id_str(&object_id).unwrap();
+        assert!(runtime.object_storage.get_object(&canonical_id).is_some());
     }
 }

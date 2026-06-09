@@ -128,7 +128,7 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
         None => return internal_error_response(request.id, "Account not found"),
     };
 
-    let state_guard = state.engine.state.read().unwrap_or_else(|p| p.into_inner());
+    let state_guard = state.engine.state_read();
     let balances: Vec<_> = account_info
         .token_balances
         .into_iter()
@@ -146,7 +146,7 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
 
 /// Handle list tokens request ( O(1) Optimized from Global Cache)
 pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let state_guard = state.engine.state.read().unwrap_or_else(|p| p.into_inner());
+    let state_guard = state.engine.state_read();
 
     let mut token_types: BTreeSet<String> =
         state_guard.global_token_supplies.keys().cloned().collect();
