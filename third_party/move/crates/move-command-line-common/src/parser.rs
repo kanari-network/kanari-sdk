@@ -6,10 +6,10 @@ use crate::{
     types::{ParsedFqName, ParsedModuleId, ParsedStructType, ParsedType, TypeToken},
     values::{ParsableValue, ParsedValue, ValueToken},
 };
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use move_core_types::{
     account_address::AccountAddress,
-    u256::{U256FromStrError, U256},
+    u256::{U256, U256FromStrError},
 };
 use num_bigint::BigUint;
 use std::{fmt::Display, iter::Peekable, num::ParseIntError};

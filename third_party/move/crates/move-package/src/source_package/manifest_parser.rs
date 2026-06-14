@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{package_hooks, source_package::parsed_manifest as PM};
-use anyhow::{anyhow, bail, format_err, Context, Result};
+use anyhow::{Context, Result, anyhow, bail, format_err};
 use move_compiler::editions::{Edition, Flavor};
 use move_core_types::account_address::{AccountAddress, AccountAddressParseError};
 use move_symbol_pool::symbol::Symbol;
@@ -147,7 +147,7 @@ pub fn parse_package_info(tval: TV) -> Result<PM::PackageInfo> {
                                 .ok_or_else(|| {
                                     format_err!(
                                         "Invalid author '{}' of type {} found. Expected a string.",
-                                        tval.to_string(),
+                                        tval,
                                         tval.type_str()
                                     )
                                 })
@@ -289,8 +289,11 @@ pub fn parse_dev_addresses(tval: TV) -> Result<PM::DevAddressDeclarations> {
                 match entry.as_str() {
                     Some(entry_str) => {
                         if entry_str == EMPTY_ADDR_STR {
-                            bail!("Found uninstantiated named address '{}'. All addresses in the '{}' field must be instantiated.",
-                            ident, DEV_ADDRESSES_NAME);
+                            bail!(
+                                "Found uninstantiated named address '{}'. All addresses in the '{}' field must be instantiated.",
+                                ident,
+                                DEV_ADDRESSES_NAME
+                            );
                         } else if addresses
                             .insert(
                                 ident,
@@ -360,7 +363,7 @@ pub fn parse_dependency(dep_name: &str, mut tval: TV) -> Result<PM::Dependency> 
         .remove("override")
         .map(parse_dep_override)
         .transpose()?
-        .map_or(false, |o| o);
+        .unwrap_or(false);
 
     let kind = match (
         table.remove("local"),

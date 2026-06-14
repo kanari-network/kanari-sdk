@@ -4,7 +4,7 @@
 
 use crate::abstract_state::{AbstractValue, BorrowState};
 use move_binary_format::file_format::{AbilitySet, Bytecode, Signature, SignatureToken};
-use rand::{rngs::StdRng, Rng};
+use rand::{RngExt, rngs::StdRng};
 use std::collections::{HashMap, VecDeque};
 use tracing::debug;
 
@@ -95,22 +95,22 @@ impl CFG {
             // The number of edges will be at most `2*target_blocks``
             // Since target blocks is at most a `u16`, this will not overflow even if
             // `usize` is a `u32`
-            debug_assert!(edges.len() < usize::max_value());
+            debug_assert!(edges.len() < usize::MAX);
             edges.push((parent_block_id, current_block_id));
             block_queue.push_back(current_block_id);
             // `current_block_id` is bound by the max og `target_block_size`
-            debug_assert!(current_block_id < u16::max_value());
+            debug_assert!(current_block_id < u16::MAX);
             current_block_id += 1;
             // Generate a second child edge with prob = 1/2
-            if rng.gen_bool(0.5) && current_block_id < target_blocks {
+            if rng.random_bool(0.5) && current_block_id < target_blocks {
                 // The number of edges will be at most `2*target_blocks``
                 // Since target blocks is at most a `u16`, this will not overflow even if
                 // `usize` is a `u32`
-                debug_assert!(edges.len() < usize::max_value());
+                debug_assert!(edges.len() < usize::MAX);
                 edges.push((parent_block_id, current_block_id));
                 block_queue.push_back(current_block_id);
                 // `current_block_id` is bound by the max og `target_block_size`
-                debug_assert!(current_block_id < u16::max_value());
+                debug_assert!(current_block_id < u16::MAX);
                 current_block_id += 1;
             }
         }
@@ -156,7 +156,7 @@ impl CFG {
         for (parent, child) in self.edges.iter() {
             if *parent == block_id {
                 // Length is bound by iteration on `self.edges`
-                debug_assert!(children_ids.len() < usize::max_value());
+                debug_assert!(children_ids.len() < usize::MAX);
                 children_ids.push(*child);
             }
         }
@@ -175,7 +175,7 @@ impl CFG {
         for (parent, child) in self.edges.iter() {
             if *child == block_id {
                 // Iteration is bound by the self.edges vector length
-                debug_assert!(parent_ids.len() < usize::max_value());
+                debug_assert!(parent_ids.len() < usize::MAX);
                 parent_ids.push(*parent);
             }
         }
@@ -221,8 +221,8 @@ impl CFG {
     /// Randomly vary the availability of locals
     fn vary_locals(rng: &mut StdRng, locals: BlockLocals) -> BlockLocals {
         let mut locals = locals;
-        for (_, (abstr_val, availability)) in locals.iter_mut() {
-            if rng.gen_bool(0.5) {
+        for (abstr_val, availability) in locals.values_mut() {
+            if rng.random_bool(0.5) {
                 if *availability == BorrowState::Available {
                     *availability = BorrowState::Unavailable;
                 } else {
@@ -318,7 +318,7 @@ impl CFG {
     /// instruction sequence.
     fn get_block_offset(cfg: &CFG, block_order: &[BlockIDSize], block_id: BlockIDSize) -> u16 {
         assert!(
-            (0..block_id).all(|id| cfg.basic_blocks.get(&id).is_some()),
+            (0..block_id).all(|id| cfg.basic_blocks.contains_key(&id)),
             "Error: Invalid block_id given"
         );
         let mut offset: u16 = 0;

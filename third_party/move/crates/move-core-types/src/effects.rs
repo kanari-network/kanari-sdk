@@ -7,7 +7,7 @@ use crate::{
     identifier::Identifier,
     language_storage::{ModuleId, StructTag, TypeTag},
 };
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::collections::btree_map::{self, BTreeMap};
 
 /// A storage operation.
@@ -82,8 +82,8 @@ fn squash<K, V>(map: &mut BTreeMap<K, Op<V>>, other: BTreeMap<K, Op<V>>) -> Resu
 where
     K: Ord,
 {
-    use btree_map::Entry::*;
     use Op::*;
+    use btree_map::Entry::*;
 
     for (key, op) in other.into_iter() {
         match map.entry(key) {
@@ -109,6 +109,12 @@ where
     }
 
     Ok(())
+}
+
+impl Default for AccountChangeSet {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AccountChangeSet {

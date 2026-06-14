@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    diag,
-    diagnostics::{codes::WarningFilter, Diagnostic, WarningFilters},
+    FullyCompiledProgram, diag,
+    diagnostics::{Diagnostic, WarningFilters, codes::WarningFilter},
     editions::{self, Edition, FeatureGate, Flavor},
     expansion::{
         alias_map_builder::{
@@ -14,21 +14,20 @@ use crate::{
         ast::{self as E, Address, Fields, ModuleIdent, ModuleIdent_},
         byte_string, hex_string,
         path_expander::{
-            access_result, Access, LegacyPathExpander, ModuleAccessResult, Move2024PathExpander,
-            PathExpander,
+            Access, LegacyPathExpander, ModuleAccessResult, Move2024PathExpander, PathExpander,
+            access_result,
         },
         translate::known_attributes::{DiagnosticAttribute, KnownAttribute},
     },
     ice, ice_assert,
     parser::ast::{
-        self as P, Ability, BlockLabel, ConstantName, DatatypeName, Field, FieldBindings,
-        FunctionName, ModuleName, NameAccess, Var, VariantName, ENTRY_MODIFIER, MACRO_MODIFIER,
-        NATIVE_MODIFIER,
+        self as P, Ability, BlockLabel, ConstantName, DatatypeName, ENTRY_MODIFIER, Field,
+        FieldBindings, FunctionName, MACRO_MODIFIER, ModuleName, NATIVE_MODIFIER, NameAccess, Var,
+        VariantName,
     },
     shared::{known_attributes::AttributePosition, unique_map::UniqueMap, *},
-    FullyCompiledProgram,
 };
-use move_command_line_common::parser::{parse_u16, parse_u256, parse_u32};
+use move_command_line_common::parser::{parse_u16, parse_u32, parse_u256};
 use move_core_types::account_address::AccountAddress;
 use move_ir_types::location::*;
 use move_proc_macros::growing_stack;
@@ -370,9 +369,9 @@ fn default_aliases(context: &mut Context) -> AliasMapBuilder {
         );
     }
     // if sui is defined and the current package is in Sui mode, add implicit sui aliases
-    if sui_address.is_some() && context.env().package_config(current_package).flavor == Flavor::Sui
+    if let Some(sui_address) = sui_address
+        && context.env().package_config(current_package).flavor == Flavor::Sui
     {
-        let sui_address = sui_address.unwrap();
         modules.extend(
             IMPLICIT_SUI_MODULES
                 .iter()
@@ -535,10 +534,10 @@ pub fn program(
     // Finalization
     //
     for (mident, module) in lib_module_map {
-        if let Err((mident, old_loc)) = source_module_map.add(mident, module) {
-            if !context.env().flags().sources_shadow_deps() {
-                duplicate_module(&mut context, &source_module_map, mident, old_loc)
-            }
+        if let Err((mident, old_loc)) = source_module_map.add(mident, module)
+            && !context.env().flags().sources_shadow_deps()
+        {
+            duplicate_module(&mut context, &source_module_map, mident, old_loc)
         }
     }
     let module_map = source_module_map;
@@ -829,7 +828,7 @@ fn module_(
     assert!(address.is_none());
     set_module_address(context, &name, module_address);
     let _ = check_restricted_name_all_cases(&mut context.defn_context, NameCase::Module, &name.0);
-    if name.value().starts_with(|c| c == '_') {
+    if name.value().starts_with('_') {
         let msg = format!(
             "Invalid module name '{}'. Module names cannot start with '_'",
             name,
@@ -975,7 +974,7 @@ fn check_visibility_modifiers(
     }
 
     // Emit any errors.
-    if public_package_usage.is_some() && friend_usage.is_some() {
+    if let (Some(public_package_usage), Some(friend_usage)) = (public_package_usage, friend_usage) {
         let friend_error_msg = format!(
             "Cannot define 'friend' modules and use '{}' visibility in the same module",
             E::Visibility::PACKAGE
@@ -985,10 +984,7 @@ fn check_visibility_modifiers(
             context.env().add_diag(diag!(
                 Declarations::InvalidVisibilityModifier,
                 (friend.loc, friend_error_msg.clone()),
-                (
-                    public_package_usage.unwrap(),
-                    package_definition_msg.clone()
-                )
+                (public_package_usage, package_definition_msg.clone())
             ));
         }
         let package_error_msg = format!(
@@ -1007,10 +1003,7 @@ fn check_visibility_modifiers(
                     context.env().add_diag(diag!(
                         Declarations::InvalidVisibilityModifier,
                         (loc, friend_error_msg.clone()),
-                        (
-                            public_package_usage.unwrap(),
-                            package_definition_msg.clone()
-                        )
+                        (public_package_usage, package_definition_msg.clone())
                     ));
                 }
                 E::Visibility::Package(loc) => {
@@ -1018,7 +1011,7 @@ fn check_visibility_modifiers(
                         Declarations::InvalidVisibilityModifier,
                         (loc, package_error_msg.clone()),
                         (
-                            friend_usage.unwrap(),
+                            friend_usage,
                             &format!("'{}' visibility used here", E::Visibility::FRIEND_IDENT)
                         )
                     ));
@@ -2350,10 +2343,10 @@ fn sequence(context: &mut Context, loc: Loc, seq: P::Sequence) -> E::Sequence {
             return None;
         }
         let seq_item = items.pop_front().unwrap();
-        if let E::SequenceItem_::Seq(exp) = &seq_item.value {
-            if exp.value == E::Exp_::UnresolvedError {
-                return Some(exp.clone());
-            }
+        if let E::SequenceItem_::Seq(exp) = &seq_item.value
+            && exp.value == E::Exp_::UnresolvedError
+        {
+            return Some(exp.clone());
         }
         items.push_front(seq_item);
         None
@@ -3541,8 +3534,7 @@ fn valid_local_variable_name(s: Symbol) -> bool {
 }
 
 fn check_valid_function_parameter_name(context: &mut Context, is_macro: Option<Loc>, v: &Var) {
-    const SYNTAX_IDENTIFIER_NOTE: &str =
-        "'macro' parameters start with '$' to indicate that their arguments are not evaluated \
+    const SYNTAX_IDENTIFIER_NOTE: &str = "'macro' parameters start with '$' to indicate that their arguments are not evaluated \
         before the macro is expanded, meaning the entire expression is substituted. \
         This is different from regular function parameters that are evaluated before the \
         function is called.";
@@ -3697,7 +3689,7 @@ fn check_valid_module_member_name_impl(
     }
     match member {
         M::Function => {
-            if n.value.starts_with(|c| c == '_') {
+            if n.value.starts_with('_') {
                 let msg = format!(
                     "Invalid {} name '{}'. {} names cannot start with '_'",
                     case.name(),

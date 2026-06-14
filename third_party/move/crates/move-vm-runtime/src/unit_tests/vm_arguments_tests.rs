@@ -8,11 +8,11 @@ use crate::move_vm::MoveVM;
 use move_binary_format::{
     errors::{VMError, VMResult},
     file_format::{
-        empty_module, AbilitySet, AddressIdentifierIndex, Bytecode, CodeUnit, CompiledModule,
-        FieldDefinition, FunctionDefinition, FunctionHandle, FunctionHandleIndex, IdentifierIndex,
-        ModuleHandle, ModuleHandleIndex, Signature, SignatureIndex, SignatureToken,
-        StructDefinition, StructFieldInformation, StructHandle, StructHandleIndex, TableIndex,
-        TypeSignature, Visibility,
+        AbilitySet, AddressIdentifierIndex, Bytecode, CodeUnit, CompiledModule, FieldDefinition,
+        FunctionDefinition, FunctionHandle, FunctionHandleIndex, IdentifierIndex, ModuleHandle,
+        ModuleHandleIndex, Signature, SignatureIndex, SignatureToken, StructDefinition,
+        StructFieldInformation, StructHandle, StructHandleIndex, TableIndex, TypeSignature,
+        Visibility, empty_module,
     },
 };
 use move_core_types::{
@@ -20,7 +20,7 @@ use move_core_types::{
     identifier::{IdentStr, Identifier},
     language_storage::{ModuleId, StructTag, TypeTag},
     resolver::{LinkageResolver, ModuleResolver, ResourceResolver},
-    runtime_value::{serialize_values, MoveValue},
+    runtime_value::{MoveValue, serialize_values},
     u256::U256,
     vm_status::{StatusCode, StatusType},
 };

@@ -2,8 +2,9 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::{bail, format_err, Result};
+use anyhow::{Result, bail, format_err};
 use move_binary_format::{
+    CompiledModule,
     file_format::{
         AbilitySet, AddressIdentifierIndex, CodeOffset, Constant, ConstantPoolIndex, FieldHandle,
         FieldHandleIndex, FieldInstantiation, FieldInstantiationIndex, FunctionDefinitionIndex,
@@ -12,7 +13,6 @@ use move_binary_format::{
         SignatureIndex, SignatureToken, StructDefInstantiation, StructDefInstantiationIndex,
         StructDefinitionIndex, StructHandle, StructHandleIndex, StructTypeParameter, TableIndex,
     },
-    CompiledModule,
 };
 use move_bytecode_source_map::source_map::SourceMap;
 use move_core_types::{
@@ -45,7 +45,7 @@ macro_rules! get_or_add_item_macro {
     }};
 }
 
-pub const TABLE_MAX_SIZE: usize = u16::max_value() as usize;
+pub const TABLE_MAX_SIZE: usize = u16::MAX as usize;
 fn get_or_add_item_ref<K: Clone + Eq + Hash>(
     m: &mut HashMap<K, TableIndex>,
     k: &K,

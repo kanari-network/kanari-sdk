@@ -2,7 +2,7 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use criterion::{measurement::Measurement, Criterion};
+use criterion::{Criterion, measurement::Measurement};
 
 // Use conditional compilation to handle platform-specific code
 #[cfg(unix)]

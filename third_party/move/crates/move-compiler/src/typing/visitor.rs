@@ -5,7 +5,7 @@ use crate::command_line::compiler::Visitor;
 use crate::diagnostics::WarningFilters;
 use crate::expansion::ast::ModuleIdent;
 use crate::parser::ast::{ConstantName, FunctionName};
-use crate::shared::{program_info::TypingProgramInfo, CompilationEnv};
+use crate::shared::{CompilationEnv, program_info::TypingProgramInfo};
 use crate::typing::ast as T;
 
 use move_proc_macros::growing_stack;

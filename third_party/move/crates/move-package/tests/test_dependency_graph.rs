@@ -105,7 +105,8 @@ fn lock_file_roundtrip() {
     let actual = fs::read_to_string(commit).expect("Reading committed lock");
 
     assert_eq!(
-        expect, actual,
+        expect.replace("\r\n", "\n"),
+        actual.replace("\r\n", "\n"),
         "LockFile -> DependencyGraph -> LockFile roundtrip"
     );
 }
@@ -239,16 +240,18 @@ fn merge_simple() {
         }),
     )]);
     let orig_names: BTreeMap<Symbol, Symbol> = dependencies.keys().map(|k| (*k, *k)).collect();
-    assert!(outer
-        .merge(
-            dep_graphs,
-            &DependencyKind::default(),
-            dependencies,
-            &BTreeMap::new(),
-            &orig_names,
-            Symbol::from("Root")
-        )
-        .is_ok(),);
+    assert!(
+        outer
+            .merge(
+                dep_graphs,
+                &DependencyKind::default(),
+                dependencies,
+                &BTreeMap::new(),
+                &orig_names,
+                Symbol::from("Root")
+            )
+            .is_ok(),
+    );
     assert_eq!(
         outer.topological_order(),
         vec![Symbol::from("Root"), Symbol::from("A")],
@@ -294,16 +297,18 @@ fn merge_into_root() {
         }),
     )]);
     let orig_names: BTreeMap<Symbol, Symbol> = dependencies.keys().map(|k| (*k, *k)).collect();
-    assert!(outer
-        .merge(
-            dep_graphs,
-            &DependencyKind::default(),
-            dependencies,
-            &BTreeMap::new(),
-            &orig_names,
-            Symbol::from("Root")
-        )
-        .is_ok());
+    assert!(
+        outer
+            .merge(
+                dep_graphs,
+                &DependencyKind::default(),
+                dependencies,
+                &BTreeMap::new(),
+                &orig_names,
+                Symbol::from("Root")
+            )
+            .is_ok()
+    );
 
     assert_eq!(
         outer.topological_order(),
@@ -461,16 +466,18 @@ fn merge_overlapping() {
         ),
     ]);
     let orig_names: BTreeMap<Symbol, Symbol> = dependencies.keys().map(|k| (*k, *k)).collect();
-    assert!(outer
-        .merge(
-            dep_graphs,
-            &DependencyKind::default(),
-            dependencies,
-            &BTreeMap::new(),
-            &orig_names,
-            Symbol::from("Root")
-        )
-        .is_ok());
+    assert!(
+        outer
+            .merge(
+                dep_graphs,
+                &DependencyKind::default(),
+                dependencies,
+                &BTreeMap::new(),
+                &orig_names,
+                Symbol::from("Root")
+            )
+            .is_ok()
+    );
 }
 
 #[test]

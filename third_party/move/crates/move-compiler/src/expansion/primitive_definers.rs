@@ -4,15 +4,14 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use crate::{
-    diag,
+    FullyCompiledProgram, diag,
     expansion::ast::{ModuleDefinition, ModuleIdent},
     naming::ast::BuiltinTypeName_,
     shared::{
+        CompilationEnv,
         known_attributes::{DefinesPrimitive, KnownAttribute},
         unique_map::UniqueMap,
-        CompilationEnv,
     },
-    FullyCompiledProgram,
 };
 
 use super::ast::Attribute_;

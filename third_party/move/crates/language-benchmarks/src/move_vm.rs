@@ -2,13 +2,13 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use criterion::{measurement::Measurement, Criterion};
+use criterion::{Criterion, measurement::Measurement};
 use move_binary_format::CompiledModule;
 use move_compiler::Compiler;
 use move_core_types::{
     account_address::AccountAddress,
     identifier::{IdentStr, Identifier},
-    language_storage::{ModuleId, CORE_CODE_ADDRESS},
+    language_storage::{CORE_CODE_ADDRESS, ModuleId},
 };
 use move_vm_runtime::move_vm::MoveVM;
 use move_vm_test_utils::BlankStorage;
@@ -90,7 +90,7 @@ fn execute<M: Measurement + 'static>(
                     Vec::<Vec<u8>>::new(),
                     &mut UnmeteredGasMeter,
                 )
-                .unwrap_or_else(|err| panic!("{:?}::{} failed with {:?}", &module_id, fun, err))
+                .unwrap_or_else(|err| panic!("{:?}::{} failed with {:?}", module_id, fun, err))
         })
     });
 }

@@ -127,6 +127,7 @@ fn parse_file(
 )> {
     let mut source_buffer = String::new();
     path.open_file()?.read_to_string(&mut source_buffer)?;
+    source_buffer = source_buffer.replace("\r\n", "\n");
     let file_hash = FileHash::new(&source_buffer);
     let fname = Symbol::from(path.as_str());
     let source_str = Arc::from(source_buffer);

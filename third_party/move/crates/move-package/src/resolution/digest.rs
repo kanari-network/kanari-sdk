@@ -5,7 +5,10 @@
 use anyhow::Result;
 use move_command_line_common::files::MOVE_EXTENSION;
 use sha2::{Digest, Sha256};
-use std::path::{Path, PathBuf};
+use std::{
+    borrow::Cow,
+    path::{Path, PathBuf},
+};
 
 use crate::source_package::{layout::SourcePackageLayout, parsed_manifest::PackageDigest};
 
@@ -13,7 +16,7 @@ pub fn compute_digest(paths: &[PathBuf]) -> Result<PackageDigest> {
     let mut hashed_files = Vec::new();
     let mut hash = |path: &Path| {
         let contents = std::fs::read(path)?;
-        hashed_files.push(digest_str(&contents));
+        hashed_files.push(digest_str(&normalize_source_bytes(&contents)));
         Ok(())
     };
     let mut maybe_hash_file = |path: &Path| -> Result<()> {
@@ -52,9 +55,47 @@ pub fn hashed_files_digest(mut hashed_files: Vec<String>) -> String {
         hasher.update(file_hash.as_bytes());
     }
 
-    format!("{:X}", hasher.finalize())
+    hex::encode_upper(hasher.finalize())
 }
 
 pub fn digest_str(data: &[u8]) -> String {
-    format!("{:X}", Sha256::digest(data))
+    hex::encode_upper(Sha256::digest(data))
+}
+
+fn normalize_source_bytes(contents: &[u8]) -> Cow<'_, [u8]> {
+    if !contents.windows(2).any(|window| window == b"\r\n") {
+        return Cow::Borrowed(contents);
+    }
+
+    let mut normalized = Vec::with_capacity(contents.len());
+    let mut offset = 0;
+    while offset < contents.len() {
+        if contents[offset..].starts_with(b"\r\n") {
+            normalized.push(b'\n');
+            offset += 2;
+        } else {
+            normalized.push(contents[offset]);
+            offset += 1;
+        }
+    }
+    Cow::Owned(normalized)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{digest_str, normalize_source_bytes};
+
+    #[test]
+    fn digest_is_uppercase_sha256() {
+        assert_eq!(
+            digest_str(b""),
+            "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+        );
+    }
+
+    #[test]
+    fn normalizes_crlf_without_changing_other_bytes() {
+        assert_eq!(normalize_source_bytes(b"a\r\nb\r\n").as_ref(), b"a\nb\n");
+        assert_eq!(normalize_source_bytes(b"a\rb\n").as_ref(), b"a\rb\n");
+    }
 }

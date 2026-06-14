@@ -2,7 +2,7 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use std::{collections::BTreeSet, fmt, str::FromStr};
 
 use crate::lexer::*;
@@ -337,7 +337,7 @@ fn parse_copyable_val(tokens: &mut Lexer) -> Result<CopyableVal, ParseError<Loc,
             return Err(ParseError::InvalidToken {
                 location: current_token_loc(tokens),
                 message: format!("unrecognized token kind {:?}", t),
-            })
+            });
         }
     };
     let end_loc = tokens.previous_end_loc();
@@ -487,7 +487,7 @@ fn parse_qualified_function_name(
                     "unrecognized token kind for qualified function name {:?}",
                     t
                 ),
-            })
+            });
         }
     };
     let end_loc = tokens.previous_end_loc();
@@ -1147,7 +1147,7 @@ fn parse_ability(tokens: &mut Lexer) -> Result<(Ability, Loc), ParseError<Loc, a
             return Err(ParseError::InvalidToken {
                 location: current_token_loc(tokens),
                 message: "could not parse ability".to_string(),
-            })
+            });
         }
     };
     tokens.advance()?;
@@ -1229,7 +1229,7 @@ fn parse_type(tokens: &mut Lexer) -> Result<Type, ParseError<Loc, anyhow::Error>
             return Err(ParseError::InvalidToken {
                 location: current_token_loc(tokens),
                 message: format!("invalid token kind for type {:?}", t),
-            })
+            });
         }
     };
     Ok(t)
@@ -1698,6 +1698,6 @@ pub fn parse_module_string(
     let mut tokens = Lexer::new(file_hash, input);
     tokens.advance()?;
     let unit = parse_module(&mut tokens)?;
-    consume_token(&mut tokens, Tok::EOF)?;
+    consume_token(&mut tokens, Tok::Eof)?;
     Ok(unit)
 }

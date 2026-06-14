@@ -11,18 +11,17 @@ use crate::{
         WellKnownFilterName,
     },
     shared::{
-        ast_debug::AstDebug, known_attributes, FILTER_UNUSED_CONST, FILTER_UNUSED_FUNCTION,
-        FILTER_UNUSED_MUT_PARAM, FILTER_UNUSED_MUT_REF, FILTER_UNUSED_STRUCT_FIELD,
-        FILTER_UNUSED_TYPE_PARAMETER,
+        FILTER_UNUSED_CONST, FILTER_UNUSED_FUNCTION, FILTER_UNUSED_MUT_PARAM,
+        FILTER_UNUSED_MUT_REF, FILTER_UNUSED_STRUCT_FIELD, FILTER_UNUSED_TYPE_PARAMETER,
+        ast_debug::AstDebug, known_attributes,
     },
 };
 use codespan_reporting::{
     self as csr,
     files::SimpleFiles,
     term::{
-        emit,
+        Config, emit_to_write_style,
         termcolor::{Buffer, ColorChoice, StandardStream, WriteColor},
-        Config,
     },
 };
 use csr::files::Files;
@@ -318,7 +317,7 @@ fn render_diagnostics(writer: &mut dyn WriteColor, mapping: MappedFiles, diags: 
         }
         seen.insert(diag.clone());
         let rendered = render_diagnostic(&mapping, diag);
-        emit(writer, &Config::default(), &mapping.files, &rendered).unwrap()
+        emit_to_write_style(writer, &Config::default(), &mapping.files, &rendered).unwrap()
     }
 }
 
@@ -667,8 +666,7 @@ macro_rules! diag {
     }};
 }
 
-pub const ICE_BUG_REPORT_MESSAGE: &str =
-    "The Move compiler has encountered an internal compiler error.\n \
+pub const ICE_BUG_REPORT_MESSAGE: &str = "The Move compiler has encountered an internal compiler error.\n \
     Please report this this issue to the Mysten Labs Move language team,\n \
     including this error and any relevant code, to the Mysten Labs issue tracker\n \
     at : https://github.com/MystenLabs/sui/issues";
@@ -706,12 +704,9 @@ macro_rules! ice_assert {
 pub fn print_stack_trace() {
     use std::backtrace::{Backtrace, BacktraceStatus};
     let stacktrace = Backtrace::capture();
-    match stacktrace.status() {
-        BacktraceStatus::Captured => {
-            eprintln!("stacktrace:");
-            eprintln!("{}", stacktrace);
-        }
-        BacktraceStatus::Unsupported | BacktraceStatus::Disabled | _ => (),
+    if stacktrace.status() == BacktraceStatus::Captured {
+        eprintln!("stacktrace:");
+        eprintln!("{}", stacktrace);
     }
 }
 
@@ -1114,13 +1109,13 @@ impl AstDebug for WarningFilters {
         for (prefix, filters) in &self.filters {
             let prefix_str = prefix.unwrap_or(known_attributes::DiagnosticAttribute::ALLOW);
             match filters {
-                UnprefixedWarningFilters::All => w.write(&format!(
+                UnprefixedWarningFilters::All => w.write(format!(
                     "#[{}({})]",
                     prefix_str,
                     WarningFilter::All(*prefix).to_str().unwrap(),
                 )),
                 UnprefixedWarningFilters::Specified { categories, codes } => {
-                    w.write(&format!("#[{}(", prefix_str));
+                    w.write(format!("#[{}(", prefix_str));
                     let items = categories
                         .iter()
                         .map(|(cat, n)| WarningFilter::Category {

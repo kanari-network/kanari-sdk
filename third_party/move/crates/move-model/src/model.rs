@@ -27,7 +27,7 @@ use std::{
 use codespan::{ByteIndex, ByteOffset, ColumnOffset, FileId, Files, LineOffset, Location, Span};
 use codespan_reporting::{
     diagnostic::{Diagnostic, Label, Severity},
-    term::{emit, termcolor::WriteColor, Config},
+    term::{Config, emit_to_write_style, termcolor::WriteColor},
 };
 use itertools::Itertools;
 #[allow(unused_imports)]
@@ -37,6 +37,7 @@ use num::BigUint;
 
 pub use move_binary_format::file_format::{AbilitySet, Visibility as FunctionVisibility};
 use move_binary_format::{
+    CompiledModule,
     file_format::{
         AddressIdentifierIndex, Bytecode, Constant as VMConstant, ConstantPoolIndex,
         FunctionDefinition, FunctionDefinitionIndex, FunctionHandleIndex, FunctionInstantiation,
@@ -44,7 +45,6 @@ use move_binary_format::{
         StructHandleIndex, Visibility,
     },
     normalized::{FunctionRef, Type as MType},
-    CompiledModule,
 };
 use move_bytecode_source_map::{mapping::SourceMapping, source_map::SourceMap};
 use move_command_line_common::{address::NumericalAddress, files::FileHash};
@@ -63,8 +63,7 @@ use crate::{
 };
 
 // =================================================================================================
-/// # Constants
-
+/// # Constants///
 /// A name we use to represent a script as a module.
 pub const SCRIPT_MODULE_NAME: &str = "<SELF>";
 
@@ -83,8 +82,7 @@ const fn address_from_single_byte(b: u8) -> AccountAddress {
 }
 
 // =================================================================================================
-/// # Locations
-
+/// # Locations///
 /// A location, consisting of a FileId and a span in this file.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct Loc {
@@ -177,8 +175,7 @@ pub type MoveIrLoc = move_ir_types::location::Loc;
 /// and index based ids where we do have control (for modules, SpecFun and SpecVar).
 ///
 /// In any case, ids are opaque in the sense that if someone has a StructId or similar in hand,
-/// it is known to be defined in the environment, as it has been obtained also from the environment.
-
+/// it is known to be defined in the environment, as it has been obtained also from the environment.///
 /// Raw index type used in ids. 16 bits are sufficient currently.
 pub type RawIndex = u16;
 
@@ -374,8 +371,7 @@ impl QualifiedInstId<StructId> {
 }
 
 // =================================================================================================
-/// # Global Environment
-
+/// # Global Environment///
 /// Global environment for a set of modules.
 #[derive(Debug)]
 pub struct GlobalEnv {
@@ -854,7 +850,7 @@ impl GlobalEnv {
                 // Avoid showing the same message twice. This can happen e.g. because of
                 // duplication of expressions via schema inclusion.
                 if shown.insert(format!("{:?}", diag)) {
-                    emit(writer, &Config::default(), &self.source_files, diag)
+                    emit_to_write_style(writer, &Config::default(), &self.source_files, diag)
                         .expect("emit must not fail");
                 }
                 *reported = true;
@@ -1334,8 +1330,7 @@ impl Default for GlobalEnv {
 }
 
 // =================================================================================================
-/// # Module Environment
-
+/// # Module Environment///
 /// Represents data for a module.
 #[derive(Debug)]
 pub struct ModuleData {
@@ -2414,8 +2409,7 @@ impl<'env> NamedConstantEnv<'env> {
 }
 
 // =================================================================================================
-/// # Function Environment
-
+/// # Function Environment///
 /// Represents a type parameter.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TypeParameter(pub Symbol, pub AbilityConstraint);
@@ -2559,10 +2553,9 @@ impl<'env> FunctionEnv<'env> {
             .data
             .source_map
             .get_function_source_map(self.data.def_idx)
+            && let Some(loc) = fmap.get_code_location(offset)
         {
-            if let Some(loc) = fmap.get_code_location(offset) {
-                return self.module_env.env.to_loc(&loc);
-            }
+            return self.module_env.env.to_loc(&loc);
         }
         self.get_loc()
     }
@@ -2803,18 +2796,17 @@ impl<'env> FunctionEnv<'env> {
             .data
             .source_map
             .get_function_source_map(self.data.def_idx)
+            && let Some((ident, _)) = fmap.get_parameter_or_local_name(idx as u64)
         {
-            if let Some((ident, _)) = fmap.get_parameter_or_local_name(idx as u64) {
-                // The Move compiler produces temporary names of the form `<foo>%#<num>`,
-                // where <num> seems to be generated non-deterministically.
-                // Substitute this by a deterministic name which the backend accepts.
-                let clean_ident = if ident.contains("%#") {
-                    format!("tmp#${}", idx)
-                } else {
-                    ident
-                };
-                return self.module_env.env.symbol_pool.make(clean_ident.as_str());
-            }
+            // The Move compiler produces temporary names of the form `<foo>%#<num>`,
+            // where <num> seems to be generated non-deterministically.
+            // Substitute this by a deterministic name which the backend accepts.
+            let clean_ident = if ident.contains("%#") {
+                format!("tmp#${}", idx)
+            } else {
+                ident
+            };
+            return self.module_env.env.symbol_pool.make(clean_ident.as_str());
         }
         self.module_env.env.symbol_pool.make(&format!("$t{}", idx))
     }
@@ -3138,8 +3130,7 @@ impl<'env> FunctionEnv<'env> {
 }
 
 // =================================================================================================
-/// # Expression Environment
-
+/// # Expression Environment///
 /// Represents context for an expression.
 #[derive(Debug, Clone)]
 pub struct ExpInfo {
@@ -3163,7 +3154,6 @@ impl ExpInfo {
 
 // =================================================================================================
 /// # Formatting
-
 pub struct LocDisplay<'env> {
     loc: &'env Loc,
     env: &'env GlobalEnv,

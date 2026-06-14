@@ -2,9 +2,9 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use move_command_line_common::files::{
-    extension_equals, find_filenames, find_move_filenames, FileHash, MOVE_COMPILED_EXTENSION,
+    FileHash, MOVE_COMPILED_EXTENSION, extension_equals, find_filenames, find_move_filenames,
 };
 use move_compiler::command_line::DEFAULT_OUTPUT_DIR;
 use move_compiler::{diagnostics::WarningFilters, shared::PackageConfig};
@@ -18,9 +18,10 @@ use std::{
 };
 use treeline::Tree;
 
-use crate::package_hooks::{custom_resolve_pkg_id, PackageIdentifier};
+use crate::package_hooks::{PackageIdentifier, custom_resolve_pkg_id};
 use crate::source_package::parsed_manifest as PM;
 use crate::{
+    BuildConfig,
     source_package::{
         layout::SourcePackageLayout,
         manifest_parser::parse_move_manifest_from_file,
@@ -28,7 +29,6 @@ use crate::{
             FileName, NamedAddress, PackageDigest, PackageName, SourceManifest, SubstOrRename,
         },
     },
-    BuildConfig,
 };
 
 use super::{
@@ -311,8 +311,8 @@ impl ResolvedGraph {
 
     pub fn file_sources(&self) -> BTreeMap<FileHash, (FileName, String)> {
         self.package_table
-            .iter()
-            .flat_map(|(_, rpkg)| {
+            .values()
+            .flat_map(|rpkg| {
                 rpkg.get_sources(&self.build_options)
                     .unwrap()
                     .iter()
@@ -349,7 +349,7 @@ impl Package {
         let pkg_id = custom_resolve_pkg_id(&self.source_package).with_context(|| {
             format!(
                 "Resolving package name for '{}'",
-                &self.source_package.package.name
+                self.source_package.package.name
             )
         })?;
         for (name, addr) in self.source_package.addresses.iter().flatten() {
@@ -369,7 +369,7 @@ impl Package {
         let pkg_id = custom_resolve_pkg_id(&self.source_package).with_context(|| {
             format!(
                 "Resolving package name for '{}'",
-                &self.source_package.package.name
+                self.source_package.package.name
             )
         })?;
         let dep_name = dep.dep_name;
@@ -423,14 +423,14 @@ impl Package {
             );
         };
 
-        if let Some(digest) = dep.digest {
-            if digest != resolved_dep.source_digest {
-                bail!(
-                    "Source digest mismatch in dependency '{dep_name}' of '{pkg_name}'. \
+        if let Some(digest) = dep.digest
+            && digest != resolved_dep.source_digest
+        {
+            bail!(
+                "Source digest mismatch in dependency '{dep_name}' of '{pkg_name}'. \
                      Expected '{digest}' but got '{}'.",
-                    resolved_dep.source_digest
-                )
-            }
+                resolved_dep.source_digest
+            )
         }
 
         Ok(())
@@ -441,7 +441,7 @@ impl Package {
         let pkg_id = custom_resolve_pkg_id(&self.source_package).with_context(|| {
             format!(
                 "Resolving package name for '{}'",
-                &self.source_package.package.name
+                self.source_package.package.name
             )
         })?;
         let mut unresolved_addresses = Vec::new();
@@ -473,7 +473,7 @@ impl Package {
             .with_context(|| {
                 format!(
                     "Resolving package name for '{}'",
-                    &self.source_package.package.name
+                    self.source_package.package.name
                 )
             })
             .unwrap();

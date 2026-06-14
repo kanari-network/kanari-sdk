@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
+    FullyCompiledProgram,
     cfgir::{
         self,
         ast::{self as G, BasicBlock, BasicBlocks, BlockInfo},
@@ -13,8 +14,7 @@ use crate::{
     expansion::ast::{AbilitySet, Attributes, ModuleIdent, Mutability},
     hlir::ast::{self as H, BlockLabel, Label, Value, Value_, Var},
     parser::ast::{ConstantName, DatatypeName, FunctionName},
-    shared::{unique_map::UniqueMap, CompilationEnv},
-    FullyCompiledProgram,
+    shared::{CompilationEnv, unique_map::UniqueMap},
 };
 use cfgir::ast::LoopInfo;
 use move_core_types::{account_address::AccountAddress as MoveAddress, runtime_value::MoveValue};
@@ -222,7 +222,7 @@ fn constants(
 ) -> UniqueMap<ConstantName, G::Constant> {
     // Traverse the constants and compute the dependency graph between constants: if one mentions
     // another, an edge is added between them.
-    let mut graph = DiGraphMap::new();
+    let mut graph: DiGraphMap<ConstantName, ()> = DiGraphMap::new();
     for (name, constant) in consts.key_cloned_iter() {
         let deps = dependent_constants(constant);
         if deps.is_empty() {

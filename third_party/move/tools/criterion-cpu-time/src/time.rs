@@ -20,6 +20,12 @@ struct Rusage {
 
 pub struct ProcessTime;
 
+impl Default for ProcessTime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProcessTime {
     pub fn new() -> Self {
         ProcessTime

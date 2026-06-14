@@ -1,12 +1,12 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use colored::Colorize;
 use move_symbol_pool::Symbol;
-use petgraph::{algo, prelude::DiGraphMap, Direction};
+use petgraph::{Direction, algo, prelude::DiGraphMap};
 use std::{
-    collections::{btree_map::Entry, BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque, btree_map::Entry},
     fmt,
     fs::File,
     io::{Read, Write},
@@ -15,8 +15,8 @@ use std::{
 };
 
 use crate::{
-    lock_file::{schema, LockFile},
-    package_hooks::{self, custom_resolve_pkg_id, resolve_version, PackageIdentifier},
+    lock_file::{LockFile, schema},
+    package_hooks::{self, PackageIdentifier, custom_resolve_pkg_id, resolve_version},
     source_package::{
         layout::SourcePackageLayout,
         manifest_parser::{
@@ -62,7 +62,7 @@ use super::{
 /// files (if they are up-to-date) or by constructing sub-graphs by exploring all their (direct and
 /// indirect) dependencies specified in manifest files. These sub-graphs are then successively
 /// merged into larger graphs until the main combined graph is computed.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DependencyGraph {
     /// Path to the root package and its name (according to its manifest)
     pub root_path: PathBuf,
@@ -87,6 +87,53 @@ pub struct DependencyGraph {
     pub manifest_digest: String,
     /// A hash of all the dependencies (their lock file content) this lock file depends on.
     pub deps_digest: String,
+}
+
+struct StableGraphDebug<'a> {
+    graph: &'a DiGraphMap<PackageIdentifier, Dependency>,
+}
+
+impl fmt::Debug for StableGraphDebug<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut map = f.debug_map();
+        for node in self.graph.nodes() {
+            let adjacent = self
+                .graph
+                .all_edges()
+                .filter_map(|(from, to, _)| {
+                    if from == node {
+                        Some((to, Direction::Outgoing))
+                    } else if to == node {
+                        Some((from, Direction::Incoming))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            map.entry(&node, &adjacent);
+        }
+        map.finish()
+    }
+}
+
+impl fmt::Debug for DependencyGraph {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DependencyGraph")
+            .field("root_path", &self.root_path)
+            .field("root_package_id", &self.root_package_id)
+            .field("root_package_name", &self.root_package_name)
+            .field(
+                "package_graph",
+                &StableGraphDebug {
+                    graph: &self.package_graph,
+                },
+            )
+            .field("package_table", &self.package_table)
+            .field("always_deps", &self.always_deps)
+            .field("manifest_digest", &self.manifest_digest)
+            .field("deps_digest", &self.deps_digest)
+            .finish()
+    }
 }
 
 /// A helper to store additional information about a dependency graph
@@ -222,6 +269,7 @@ impl<Progress: Write> DependencyGraphBuilder<Progress> {
         manifest_string: String,
         lock_string_opt: Option<String>,
     ) -> Result<(DependencyGraph, bool)> {
+        let manifest_string = manifest_string.replace("\r\n", "\n");
         let toml_manifest = parse_move_manifest_string(manifest_string.clone())?;
         let root_manifest = parse_source_manifest(toml_manifest)?;
 
@@ -469,7 +517,7 @@ impl<Progress: Write> DependencyGraphBuilder<Progress> {
                     self.get_graph(&d.kind, pkg_path, manifest_string, lock_string)?;
                 self.visited_dependencies.pop_front();
                 // reroot all packages to normalize local paths across all graphs
-                for (_, p) in pkg_graph.package_table.iter_mut() {
+                for p in pkg_graph.package_table.values_mut() {
                     if modified {
                         // new sub-graph has been constructed whose paths are already re-rooted with
                         // respect to its immediate parent
@@ -678,7 +726,18 @@ impl DependencyGraph {
         // can be reached via a regular path
         pruned_pkgs.retain(|p| !reachable_pkgs.contains(p));
         for pkg in pruned_pkgs {
+            // Overrides replace the pruned package's source and outgoing dependencies, but
+            // packages that depended on it must remain connected. Older petgraph versions left
+            // these incoming edges behind when removing a node; preserve them explicitly.
+            let incoming_edges = self
+                .package_graph
+                .edges_directed(pkg, Direction::Incoming)
+                .map(|(from, to, dep)| (from, to, dep.clone()))
+                .collect::<Vec<_>>();
             self.package_graph.remove_node(pkg);
+            for (from, to, dep) in incoming_edges {
+                self.package_graph.add_edge(from, to, dep);
+            }
             self.package_table.remove(&pkg);
         }
 
@@ -1245,7 +1304,7 @@ impl DependencyGraph {
         let mut dev_dependencies = None;
         let mut packages = None;
         if !writer.is_empty() {
-            let toml = writer.parse::<toml_edit::Document>()?;
+            let toml = writer.parse::<toml_edit::DocumentMut>()?;
             if let Some(value) = toml.get("dependencies").and_then(|v| v.as_value()) {
                 dependencies = Some(value.clone());
             }
@@ -1643,12 +1702,13 @@ impl<'a> fmt::Display for SubstTOML<'a> {
 
 /// Escape a string to output in a TOML file.
 fn str_escape(s: &str) -> Result<String, fmt::Error> {
-    toml::to_string(s).map_err(|_| fmt::Error)
+    Ok(toml_edit::Value::from(s).to_string())
 }
 
 /// Escape a path to output in a TOML file.
 fn path_escape(p: &Path) -> Result<String, fmt::Error> {
-    str_escape(p.to_str().ok_or(fmt::Error)?)
+    let path = p.to_str().ok_or(fmt::Error)?;
+    str_escape(&path.replace(std::path::MAIN_SEPARATOR, "/"))
 }
 
 fn format_deps(

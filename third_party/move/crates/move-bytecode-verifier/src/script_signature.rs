@@ -9,16 +9,16 @@
 //! - (DEPRECATED) Has an empty return type
 //! - All return types are not references
 //! - Satisfies the additional checks provided as an argument via `check_signature`
-//! `check_signature` should be used by adapters to quickly and easily verify custom signature
-//! rules for entrypoints
+//!   `check_signature` should be used by adapters to quickly and easily verify custom signature
+//!   rules for entrypoints
 
 use move_binary_format::{
+    IndexKind,
     errors::{Location, PartialVMError, PartialVMResult, VMResult},
     file_format::{
         CompiledModule, FunctionDefinitionIndex, SignatureIndex, SignatureToken, TableIndex,
     },
     file_format_common::{VERSION_1, VERSION_5},
-    IndexKind,
 };
 use move_core_types::{identifier::IdentStr, vm_status::StatusCode};
 

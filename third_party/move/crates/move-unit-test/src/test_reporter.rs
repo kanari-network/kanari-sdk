@@ -4,7 +4,7 @@
 
 use crate::format_module_id;
 use codespan_reporting::files::{Files, SimpleFiles};
-use colored::{control, Colorize};
+use colored::{Colorize, control};
 use move_binary_format::errors::{ExecutionState, Location, VMError, VMResult};
 use move_command_line_common::files::FileHash;
 use move_compiler::{
@@ -377,15 +377,15 @@ impl TestStatistics {
     pub fn combine(mut self, other: Self) -> Self {
         for (module_id, test_result) in other.passed {
             let entry = self.passed.entry(module_id).or_default();
-            entry.extend(test_result.into_iter());
+            entry.extend(test_result);
         }
         for (module_id, test_result) in other.failed {
             let entry = self.failed.entry(module_id).or_default();
-            entry.extend(test_result.into_iter());
+            entry.extend(test_result);
         }
         for (module_id, test_output) in other.output {
             let entry = self.output.entry(module_id).or_default();
-            entry.extend(test_output.into_iter());
+            entry.extend(test_output);
         }
         self
     }

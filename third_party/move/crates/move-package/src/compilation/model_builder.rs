@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    compilation::compiled_package::make_source_and_deps_for_compiler,
-    resolution::resolution_graph::ResolvedGraph, ModelConfig,
+    ModelConfig, compilation::compiled_package::make_source_and_deps_for_compiler,
+    resolution::resolution_graph::ResolvedGraph,
 };
 use anyhow::Result;
 use itertools::Itertools;

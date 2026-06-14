@@ -9,17 +9,17 @@ use move_ir_types::location::*;
 
 use crate::{
     cfgir::{
+        CFGContext,
         absint::JoinResult,
         ast::Program,
         visitor::{
             LocalState, SimpleAbsInt, SimpleAbsIntConstructor, SimpleDomain, SimpleExecutionContext,
         },
-        CFGContext,
     },
     diag,
     diagnostics::{
-        codes::{custom, DiagnosticInfo, Severity},
         Diagnostic, Diagnostics,
+        codes::{DiagnosticInfo, Severity, custom},
     },
     hlir::ast::{
         Exp, LValue, LValue_, Label, ModuleCall, SingleType, Type, Type_, UnannotatedExp_, Var,
@@ -30,8 +30,8 @@ use crate::{
 use std::collections::BTreeMap;
 
 use super::{
-    type_abilities, LinterDiagCategory, LINTER_DEFAULT_DIAG_CODE, LINT_WARNING_PREFIX,
-    PUBLIC_SHARE_FUN, SHARE_FUN, SUI_PKG_NAME, TRANSFER_MOD_NAME,
+    LINT_WARNING_PREFIX, LINTER_DEFAULT_DIAG_CODE, LinterDiagCategory, PUBLIC_SHARE_FUN, SHARE_FUN,
+    SUI_PKG_NAME, TRANSFER_MOD_NAME, type_abilities,
 };
 
 const SHARE_FUNCTIONS: &[(&str, &str, &str)] = &[

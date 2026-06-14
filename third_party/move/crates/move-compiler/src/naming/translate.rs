@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    debug_display, diag,
+    FullyCompiledProgram, debug_display, diag,
     diagnostics::{self, codes::*},
     editions::FeatureGate,
     expansion::{
@@ -17,10 +17,9 @@ use crate::{
         syntax_methods::resolve_syntax_attributes,
     },
     parser::ast::{
-        self as P, ConstantName, DatatypeName, Field, FunctionName, VariantName, MACRO_MODIFIER,
+        self as P, ConstantName, DatatypeName, Field, FunctionName, MACRO_MODIFIER, VariantName,
     },
     shared::{program_info::NamingProgramInfo, unique_map::UniqueMap, *},
-    FullyCompiledProgram,
 };
 use move_ir_types::location::*;
 use move_proc_macros::growing_stack;
@@ -367,13 +366,15 @@ impl<'env> Context<'env> {
                 (mident, mems)
             })
             .collect();
-        let unscoped_types = vec![N::BuiltinTypeName_::all_names()
-            .iter()
-            .map(|s| {
-                let b_ = RT::BuiltinType(N::BuiltinTypeName_::resolve(s.as_str()).unwrap());
-                (*s, b_)
-            })
-            .collect()];
+        let unscoped_types = vec![
+            N::BuiltinTypeName_::all_names()
+                .iter()
+                .map(|s| {
+                    let b_ = RT::BuiltinType(N::BuiltinTypeName_::resolve(s.as_str()).unwrap());
+                    (*s, b_)
+                })
+                .collect(),
+        ];
         Self {
             env: compilation_env,
             current_module: None,
@@ -713,7 +714,7 @@ impl<'env> Context<'env> {
                         let m = struct_type.original_mident;
                         let tys_opt = etys_opt.map(|etys| {
                             let tys = types(self, TypeAnnotation::Expression, etys);
-                            let name_f = || format!("{}::{}", &m, &n);
+                            let name_f = || format!("{}::{}", m, n);
                             check_type_argument_arity(self, loc, name_f, tys, struct_type.arity)
                         });
                         Some((m, DatatypeName(n), tys_opt, struct_type.field_info))
@@ -1487,28 +1488,28 @@ fn function_signature(
                 check_mut_underscore(context, Some(mut_));
                 mut_ = Mutability::Imm;
             };
-            if param.is_syntax_identifier() {
-                if let Mutability::Mut(mutloc) = mut_ {
-                    let msg = format!(
-                        "Invalid 'mut' parameter. \
+            if param.is_syntax_identifier()
+                && let Mutability::Mut(mutloc) = mut_
+            {
+                let msg = format!(
+                    "Invalid 'mut' parameter. \
                         '{}' parameters cannot be declared as mutable",
-                        MACRO_MODIFIER
-                    );
-                    let mut diag = diag!(NameResolution::InvalidMacroParameter, (mutloc, msg));
-                    diag.add_note(ASSIGN_SYNTAX_IDENTIFIER_NOTE);
-                    context.env.add_diag(diag);
-                    mut_ = Mutability::Imm;
-                }
+                    MACRO_MODIFIER
+                );
+                let mut diag = diag!(NameResolution::InvalidMacroParameter, (mutloc, msg));
+                diag.add_note(ASSIGN_SYNTAX_IDENTIFIER_NOTE);
+                context.env.add_diag(diag);
+                mut_ = Mutability::Imm;
             }
-            if let Err((param, prev_loc)) = declared.add(param, ()) {
-                if !is_underscore {
-                    let msg = format!("Duplicate parameter with name '{}'", param);
-                    context.env.add_diag(diag!(
-                        Declarations::DuplicateItem,
-                        (param.loc(), msg),
-                        (prev_loc, "Previously declared here"),
-                    ))
-                }
+            if let Err((param, prev_loc)) = declared.add(param, ())
+                && !is_underscore
+            {
+                let msg = format!("Duplicate parameter with name '{}'", param);
+                context.env.add_diag(diag!(
+                    Declarations::DuplicateItem,
+                    (param.loc(), msg),
+                    (prev_loc, "Previously declared here"),
+                ))
             }
             let is_parameter = true;
             let nparam = context.declare_local(is_parameter, param.0);
@@ -1774,9 +1775,9 @@ fn types(context: &mut Context, case: TypeAnnotation, tys: Vec<E::Type>) -> Vec<
 }
 
 fn type_(context: &mut Context, case: TypeAnnotation, sp!(loc, ety_): E::Type) -> N::Type {
-    use ResolvedType as RT;
     use E::Type_ as ET;
-    use N::{TypeName_ as NN, Type_ as NT};
+    use N::{Type_ as NT, TypeName_ as NN};
+    use ResolvedType as RT;
     let ty_ = match ety_ {
         ET::Unit => NT::Unit,
         ET::Multiple(tys) => NT::multiple_(
@@ -1810,9 +1811,9 @@ fn type_(context: &mut Context, case: TypeAnnotation, sp!(loc, ety_): E::Type) -
                 };
                 if let Some((case_str, help_str)) = case_str_opt {
                     let msg = format!(
-                          "Invalid usage of a placeholder for type inference '_'. \
+                        "Invalid usage of a placeholder for type inference '_'. \
                           {case_str} require fully specified types. Replace '_' with a specific type{help_str}"
-                      );
+                    );
                     let mut diag = diag!(NameResolution::InvalidTypeAnnotation, (loc, msg));
                     if let TypeAnnotation::FunctionSignature = case {
                         diag.add_note("Only 'macro' functions can use '_' in their signatures");
@@ -1825,7 +1826,7 @@ fn type_(context: &mut Context, case: TypeAnnotation, sp!(loc, ety_): E::Type) -
                 }
             }
             RT::BuiltinType(bn_) => {
-                let name_f = || format!("{}", &bn_);
+                let name_f = || format!("{}", bn_);
                 let arity = bn_.tparam_constraints(loc).len();
                 let tys = types(context, case, tys);
                 let tys = check_type_argument_arity(context, loc, name_f, tys, arity);
@@ -2010,7 +2011,7 @@ fn exp(context: &mut Context, e: Box<E::Exp>) -> Box<N::Exp> {
                 context,
                 TypeAnnotation::Expression,
                 eloc,
-                || format!("{}::{}", &m, &n),
+                || format!("{}::{}", m, n),
                 etys_opt,
                 ty.type_arity(),
             );
@@ -2208,7 +2209,7 @@ fn exp(context: &mut Context, e: Box<E::Exp>) -> Box<N::Exp> {
                 context,
                 TypeAnnotation::Expression,
                 eloc,
-                || format!("{}::{}", &m, &n),
+                || format!("{}::{}", m, n),
                 etys_opt,
                 ty.type_arity(),
             );
@@ -2254,7 +2255,7 @@ fn exp(context: &mut Context, e: Box<E::Exp>) -> Box<N::Exp> {
             };
             let tys_opt = etys_opt.map(|etys| {
                 let tys = types(context, TypeAnnotation::Expression, etys);
-                let name_f = || format!("{}::{}", &m, &n);
+                let name_f = || format!("{}::{}", m, n);
                 check_type_argument_arity(context, eloc, name_f, tys, ty.type_arity())
             });
             check_constructor_form(context, eloc, ConstructorForm::Parens, "instantiation", &ty);
@@ -2337,8 +2338,7 @@ fn exp(context: &mut Context, e: Box<E::Exp>) -> Box<N::Exp> {
                 }
                 ResolvedFunction::Var(v) => {
                     if let Some(mloc) = is_macro {
-                        let msg =
-                            "Unexpected macro invocation. Bound lambdas cannot be invoked as \
+                        let msg = "Unexpected macro invocation. Bound lambdas cannot be invoked as \
                             a macro";
                         context
                             .env
@@ -2724,7 +2724,7 @@ fn unique_pattern_binders(
 ) -> Vec<(Mutability, P::Var)> {
     use E::MatchPattern_ as EP;
 
-    fn report_duplicate(context: &mut Context, var: P::Var, locs: &Vec<(Mutability, Loc)>) {
+    fn report_duplicate(context: &mut Context, var: P::Var, locs: &[(Mutability, Loc)]) {
         assert!(locs.len() > 1, "ICE pattern duplicate detection error");
         let (_, first_loc) = locs.first().unwrap();
         let mut diag = diag!(
@@ -2987,7 +2987,7 @@ fn match_pattern(context: &mut Context, in_pat: Box<E::MatchPattern>) -> Box<N::
                 context,
                 TypeAnnotation::Expression,
                 ploc,
-                || format!("{}::{}", &m, &n),
+                || format!("{}::{}", m, n),
                 etys_opt,
                 ty.type_arity(),
             );
@@ -3030,7 +3030,7 @@ fn match_pattern(context: &mut Context, in_pat: Box<E::MatchPattern>) -> Box<N::
                 context,
                 TypeAnnotation::Expression,
                 ploc,
-                || format!("{}::{}", &m, &n),
+                || format!("{}::{}", m, n),
                 etys_opt,
                 ty.type_arity(),
             );
@@ -3062,7 +3062,7 @@ fn match_pattern(context: &mut Context, in_pat: Box<E::MatchPattern>) -> Box<N::
                 context,
                 TypeAnnotation::Expression,
                 ploc,
-                || format!("{}::{}", &m, &n),
+                || format!("{}::{}", m, n),
                 etys_opt,
                 ty.type_arity(),
             );
@@ -3122,8 +3122,8 @@ fn lvalue(
     case: LValueCase,
     sp!(loc, l_): E::LValue,
 ) -> Option<N::LValue> {
-    use LValueCase as C;
     use E::LValue_ as EL;
+    use LValueCase as C;
     use N::LValue_ as NL;
     let nl_ = match l_ {
         EL::Var(mut_, sp!(_, E::ModuleAccess_::Name(n)), None) => {
@@ -3137,15 +3137,13 @@ fn lvalue(
                         C::Bind => {
                             let msg = format!(
                                 "Duplicate declaration for local '{}' in a given 'let'",
-                                &var
+                                var
                             );
                             ((var.loc, msg), (prev_loc, "Previously declared here"))
                         }
                         C::Assign => {
-                            let msg = format!(
-                                "Duplicate usage of local '{}' in a given assignment",
-                                &var
-                            );
+                            let msg =
+                                format!("Duplicate usage of local '{}' in a given assignment", var);
                             ((var.loc, msg), (prev_loc, "Previously assigned here"))
                         }
                     };

@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use move_binary_format::{
+    CompiledModule,
     file_format::{
-        empty_module, AbilitySet, AddressIdentifierIndex,
+        AbilitySet, AddressIdentifierIndex,
         Bytecode::{self, *},
         CodeUnit, Constant, FieldDefinition, FunctionDefinition, FunctionHandle,
         FunctionHandleIndex, IdentifierIndex, ModuleHandle, ModuleHandleIndex, Signature,
@@ -12,8 +13,8 @@ use move_binary_format::{
         StructDefinition, StructDefinitionIndex, StructFieldInformation, StructHandle,
         StructHandleIndex, TypeSignature, Visibility,
         Visibility::*,
+        empty_module,
     },
-    CompiledModule,
 };
 use move_core_types::{
     account_address::AccountAddress, identifier::Identifier, vm_status::StatusCode,

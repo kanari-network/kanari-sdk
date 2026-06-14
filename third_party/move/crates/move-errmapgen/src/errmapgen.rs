@@ -2,7 +2,7 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use move_command_line_common::files::MOVE_ERROR_DESC_EXTENSION;
 use move_core_types::{
     account_address::AccountAddress,
@@ -63,7 +63,7 @@ impl<'env> ErrmapGen<'env> {
         self.output.to_file(&self.options.output_file);
     }
 
-    pub fn gen(&mut self) {
+    pub fn r#gen(&mut self) {
         for module in self.env.get_modules() {
             if !module.is_script_module() {
                 self.build_error_map(&module).unwrap()

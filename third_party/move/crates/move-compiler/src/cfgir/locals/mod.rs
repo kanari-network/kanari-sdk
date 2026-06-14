@@ -12,7 +12,7 @@ use crate::{
     expansion::ast::{AbilitySet, ModuleIdent, Mutability},
     hlir::{
         ast::*,
-        translate::{display_var, DisplayVar},
+        translate::{DisplayVar, display_var},
     },
     naming::ast::{self as N, TParam},
     parser::ast::{Ability_, DatatypeName},
@@ -505,15 +505,15 @@ fn check_mutability(
                 (eloc, usage_msg),
                 (decl_loc, decl_msg),
             );
-            if let Some(prev) = prev_assignment {
-                if prev != decl_loc {
-                    let msg = if eloc == prev {
-                        "The variable is assigned multiple times here in a loop"
-                    } else {
-                        "The variable was initially assigned here"
-                    };
-                    diag.add_secondary_label((prev, msg));
-                }
+            if let Some(prev) = prev_assignment
+                && prev != decl_loc
+            {
+                let msg = if eloc == prev {
+                    "The variable is assigned multiple times here in a loop"
+                } else {
+                    "The variable was initially assigned here"
+                };
+                diag.add_secondary_label((prev, msg));
             }
             context.add_diag(diag)
         }
@@ -525,7 +525,7 @@ fn check_mutability(
 //**************************************************************************************************
 
 fn add_drop_ability_tip(context: &Context, diag: &mut Diagnostic, st: SingleType) {
-    use N::{TypeName_ as TN, Type_ as T};
+    use N::{Type_ as T, TypeName_ as TN};
     let ty = single_type_to_naming_type(st);
     let owned_abilities;
     let (declared_loc_opt, declared_abilities, ty_args) = match &ty.value {
@@ -586,8 +586,8 @@ fn single_type_to_naming_type(sp!(loc, st_): SingleType) -> N::Type {
 }
 
 fn single_type_to_naming_type_(st_: SingleType_) -> N::Type_ {
-    use SingleType_ as S;
     use N::Type_ as T;
+    use SingleType_ as S;
     match st_ {
         S::Ref(mut_, b) => T::Ref(mut_, Box::new(base_type_to_naming_type(b))),
         S::Base(sp!(_, b_)) => base_type_to_naming_type_(b_),
@@ -618,8 +618,8 @@ fn type_name_to_naming_type_name(sp!(loc, tn_): TypeName) -> N::TypeName {
 }
 
 fn type_name_to_naming_type_name_(tn_: TypeName_) -> N::TypeName_ {
-    use TypeName_ as TN;
     use N::TypeName_ as NTN;
+    use TypeName_ as TN;
     match tn_ {
         TN::Builtin(b) => NTN::Builtin(b),
         TN::ModuleType(m, n) => NTN::ModuleType(m, n),

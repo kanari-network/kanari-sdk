@@ -10,12 +10,12 @@ use crate::{
     reference_safety, stack_usage_verifier::StackUsageVerifier, type_safety,
 };
 use move_binary_format::{
+    IndexKind,
     control_flow_graph::ControlFlowGraph,
     errors::{Location, PartialVMError, PartialVMResult, VMResult},
     file_format::{
         CompiledModule, FunctionDefinition, FunctionDefinitionIndex, IdentifierIndex, TableIndex,
     },
-    IndexKind,
 };
 use move_bytecode_verifier_meter::{Meter, Scope};
 use move_core_types::vm_status::StatusCode;
@@ -62,10 +62,10 @@ impl<'a> CodeUnitVerifier<'a> {
             .map_err(|err| err.at_index(IndexKind::FunctionDefinition, index.0))?;
             total_back_edges += num_back_edges;
         }
-        if let Some(limit) = verifier_config.max_back_edges_per_module {
-            if total_back_edges > limit {
-                return Err(PartialVMError::new(StatusCode::TOO_MANY_BACK_EDGES));
-            }
+        if let Some(limit) = verifier_config.max_back_edges_per_module
+            && total_back_edges > limit
+        {
+            return Err(PartialVMError::new(StatusCode::TOO_MANY_BACK_EDGES));
         }
         Ok(())
     }
@@ -100,21 +100,21 @@ impl<'a> CodeUnitVerifier<'a> {
             meter,
         )?;
 
-        if let Some(limit) = verifier_config.max_basic_blocks {
-            if function_context.cfg().blocks().len() > limit {
-                return Err(
-                    PartialVMError::new(StatusCode::TOO_MANY_BASIC_BLOCKS).at_code_offset(index, 0)
-                );
-            }
+        if let Some(limit) = verifier_config.max_basic_blocks
+            && function_context.cfg().blocks().len() > limit
+        {
+            return Err(
+                PartialVMError::new(StatusCode::TOO_MANY_BASIC_BLOCKS).at_code_offset(index, 0)
+            );
         }
 
         let num_back_edges = function_context.cfg().num_back_edges();
-        if let Some(limit) = verifier_config.max_back_edges_per_function {
-            if num_back_edges > limit {
-                return Err(
-                    PartialVMError::new(StatusCode::TOO_MANY_BACK_EDGES).at_code_offset(index, 0)
-                );
-            }
+        if let Some(limit) = verifier_config.max_back_edges_per_function
+            && num_back_edges > limit
+        {
+            return Err(
+                PartialVMError::new(StatusCode::TOO_MANY_BACK_EDGES).at_code_offset(index, 0)
+            );
         }
 
         // verify

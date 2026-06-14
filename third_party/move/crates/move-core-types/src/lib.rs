@@ -4,6 +4,8 @@
 
 //! Core types for Move.
 
+#![allow(non_local_definitions)]
+
 use std::fmt;
 
 pub mod abi;

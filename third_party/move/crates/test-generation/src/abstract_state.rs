@@ -4,10 +4,10 @@
 
 use crate::{borrow_graph::BorrowGraph, error::VMError};
 use move_binary_format::file_format::{
-    empty_module, Ability, AbilitySet, CompiledModule, FieldInstantiation, FieldInstantiationIndex,
+    Ability, AbilitySet, CompiledModule, FieldInstantiation, FieldInstantiationIndex,
     FunctionHandleIndex, FunctionInstantiation, FunctionInstantiationIndex, Signature,
     SignatureIndex, SignatureToken, StructDefInstantiation, StructDefInstantiationIndex,
-    StructDefinitionIndex, TableIndex,
+    StructDefinitionIndex, TableIndex, empty_module,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -511,7 +511,7 @@ impl AbstractState {
     pub fn stack_push(&mut self, item: AbstractValue) {
         // Programs that are large enough to exceed this bound
         // will not be generated
-        debug_assert!(self.stack.len() < usize::max_value());
+        debug_assert!(self.stack.len() < usize::MAX);
         self.stack.push(item);
     }
 
@@ -521,7 +521,7 @@ impl AbstractState {
         if let Some(abstract_value) = self.register_move() {
             // Programs that are large enough to exceed this bound
             // will not be generated
-            debug_assert!(self.stack.len() < usize::max_value());
+            debug_assert!(self.stack.len() < usize::MAX);
             self.stack.push(abstract_value);
             Ok(())
         } else {
@@ -557,7 +557,7 @@ impl AbstractState {
 
     /// Check if the local at index `i` exists
     pub fn local_exists(&self, i: usize) -> bool {
-        self.locals.get(&i).is_some()
+        self.locals.contains_key(&i)
     }
 
     /// Get the local at index `i` if it exists
@@ -588,7 +588,7 @@ impl AbstractState {
                     SignatureToken::Reference(Box::new(abstract_value.token.clone()))
                 }
                 Mutability::Either => {
-                    return Err(VMError::new("Mutability cannot be Either".to_string()))
+                    return Err(VMError::new("Mutability cannot be Either".to_string()));
                 }
             };
             self.register = Some(AbstractValue::new_reference(

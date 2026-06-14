@@ -5,10 +5,9 @@ use std::{collections::BTreeMap, fmt::Debug};
 
 use crate::{
     cfgir::{
-        self,
+        self, CFGContext,
         absint::{AbstractDomain, AbstractInterpreter, JoinResult, TransferFunctions},
         cfg::ImmForwardCFG,
-        CFGContext,
     },
     command_line::compiler::Visitor,
     diagnostics::{Diagnostic, Diagnostics},

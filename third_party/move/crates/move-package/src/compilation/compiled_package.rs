@@ -3,15 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
+    BuildConfig,
     compilation::package_layout::CompiledPackageLayout,
     resolution::resolution_graph::{Package, Renaming, ResolvedGraph, ResolvedTable},
     source_package::{
-        layout::{SourcePackageLayout, REFERENCE_TEMPLATE_FILENAME},
+        layout::{REFERENCE_TEMPLATE_FILENAME, SourcePackageLayout},
         parsed_manifest::{FileName, PackageDigest, PackageName},
     },
-    BuildConfig,
 };
-use anyhow::{ensure, Result};
+use anyhow::{Result, ensure};
 use colored::Colorize;
 use itertools::{Either, Itertools};
 use move_binary_format::file_format::CompiledModule;
@@ -20,18 +20,18 @@ use move_bytecode_utils::Modules;
 use move_command_line_common::{
     env::get_bytecode_version_from_env,
     files::{
-        extension_equals, find_filenames, try_exists, MOVE_COMPILED_EXTENSION, MOVE_EXTENSION,
-        SOURCE_MAP_EXTENSION,
+        MOVE_COMPILED_EXTENSION, MOVE_EXTENSION, SOURCE_MAP_EXTENSION, extension_equals,
+        find_filenames, try_exists,
     },
 };
 use move_compiler::{
+    Compiler,
     compiled_unit::{AnnotatedCompiledUnit, CompiledUnit, NamedCompiledModule},
     diagnostics::FilesSourceText,
     editions::Flavor,
     linters,
     shared::{NamedAddressMap, NumericalAddress, PackageConfig, PackagePaths},
     sui_mode::{self},
-    Compiler,
 };
 use move_docgen::{Docgen, DocgenOptions};
 use move_model::{model::GlobalEnv, options::ModelBuilderOptions, run_model_builder_with_options};
@@ -469,14 +469,14 @@ impl CompiledPackage {
                 ModuleFormat::Bytecode => Either::Right(p),
             });
         // If bytecode dependency is not empty, do not allow renaming
-        if !bytecode_deps.is_empty() {
-            if let Some(pkg_name) = resolution_graph.contains_renaming() {
-                anyhow::bail!(
-                    "Found address renaming in package '{}' when \
+        if !bytecode_deps.is_empty()
+            && let Some(pkg_name) = resolution_graph.contains_renaming()
+        {
+            anyhow::bail!(
+                "Found address renaming in package '{}' when \
                     building with bytecode dependencies -- this is currently not supported",
-                    pkg_name
-                )
-            }
+                pkg_name
+            )
         }
 
         // invoke the compiler
@@ -484,10 +484,7 @@ impl CompiledPackage {
         paths.push(sources_package_paths.clone());
 
         let lint_level = resolution_graph.build_options.lint_flag.get();
-        let sui_mode = resolution_graph
-            .build_options
-            .default_flavor
-            .map_or(false, |f| f == Flavor::Sui);
+        let sui_mode = resolution_graph.build_options.default_flavor == Some(Flavor::Sui);
 
         let mut compiler = Compiler::from_package_paths(vfs_root, paths, bytecode_deps)
             .unwrap()
@@ -647,7 +644,8 @@ impl CompiledPackage {
             })
             .collect::<Vec<_>>();
         if !errs.is_empty() {
-            anyhow::bail!("Module and/or script names found that would cause failures on case insensitive \
+            anyhow::bail!(
+                "Module and/or script names found that would cause failures on case insensitive \
                 file systems when compiling package '{}':\n{}\nPlease rename these scripts and/or modules to resolve these conflicts.",
                 self.compiled_package_info.package_name,
                 errs.join("\n"),
@@ -759,7 +757,7 @@ impl CompiledPackage {
             ..DocgenOptions::default()
         };
         let docgen = Docgen::new(model, &doc_options);
-        docgen.gen()
+        docgen.r#gen()
     }
 }
 

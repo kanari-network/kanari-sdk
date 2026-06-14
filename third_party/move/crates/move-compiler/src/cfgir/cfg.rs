@@ -205,9 +205,9 @@ impl<'a> ImmForwardCFG<'a> {
     /// Returns
     /// - A CFG
     /// - A set of infinite loop heads
-    /// This _must_ be called after `BlockMutCFG::new`, as the mutable version optimizes the code
-    /// This will be done for external usage,
-    /// since the Mut CFG is used during the building of the cfgir::ast::Program
+    ///   This _must_ be called after `BlockMutCFG::new`, as the mutable version optimizes the code
+    ///   This will be done for external usage,
+    ///   since the Mut CFG is used during the building of the cfgir::ast::Program
     pub fn new<'info>(
         start: Label,
         blocks: &'a BasicBlocks,
@@ -261,9 +261,7 @@ impl<T: Deref<Target = BasicBlocks>> CFG for ForwardCFG<T> {
     fn is_back_edge(&self, cur: Label, next: Label) -> bool {
         self.loop_heads
             .get(&next)
-            .map_or(false, |back_edge_predecessors| {
-                back_edge_predecessors.contains(&cur)
-            })
+            .is_some_and(|back_edge_predecessors| back_edge_predecessors.contains(&cur))
     }
 
     fn debug(&self) {
@@ -417,9 +415,11 @@ fn post_order_traversal(
                     .map(|successor| (*successor, /* is_first_visit */ true)),
             );
         } else {
-            debug_assert!(dag[&cur]
-                .iter()
-                .all(|successor| finished.contains(successor)));
+            debug_assert!(
+                dag[&cur]
+                    .iter()
+                    .all(|successor| finished.contains(successor))
+            );
             if finished.insert(cur) {
                 post_order.push(cur)
             }
@@ -645,9 +645,7 @@ impl<'forward, Blocks: Deref<Target = BasicBlocks>> CFG for ReverseCFG<'forward,
     fn is_back_edge(&self, cur: Label, next: Label) -> bool {
         self.loop_heads
             .get(&next)
-            .map_or(false, |back_edge_predecessors| {
-                back_edge_predecessors.contains(&cur)
-            })
+            .is_some_and(|back_edge_predecessors| back_edge_predecessors.contains(&cur))
     }
 
     fn debug(&self) {
@@ -696,7 +694,7 @@ impl<'a, T: Deref<Target = BasicBlocks>> AstDebug for ReverseCFG<'a, T> {
             loop_heads,
         } = self;
         w.writeln("--ReverseBlockCFG--");
-        w.writeln(&format!("terminal: {}", terminal));
+        w.writeln(format!("terminal: {}", terminal));
         ast_debug_cfg(
             w,
             traversal_order[0],
@@ -721,8 +719,8 @@ fn ast_debug_cfg<'a>(
     w.write("successor_map:");
     w.indent(4, |w| {
         for (lbl, nexts) in successor_map {
-            w.write(&format!("{} => [", lbl));
-            w.comma(nexts, |w, next| w.write(&format!("{}", next)));
+            w.write(format!("{} => [", lbl));
+            w.comma(nexts, |w, next| w.write(format!("{}", next)));
             w.writeln("]")
         }
     });
@@ -730,8 +728,8 @@ fn ast_debug_cfg<'a>(
     w.write("predecessor_map:");
     w.indent(4, |w| {
         for (lbl, nexts) in predecessor_map {
-            w.write(&format!("{} <= [", lbl));
-            w.comma(nexts, |w, next| w.write(&format!("{}", next)));
+            w.write(format!("{} <= [", lbl));
+            w.comma(nexts, |w, next| w.write(format!("{}", next)));
             w.writeln("]")
         }
     });
@@ -739,7 +737,7 @@ fn ast_debug_cfg<'a>(
     w.write("traversal:");
     w.indent(4, |w| {
         for (cur, next) in traversal {
-            w.writeln(&format!("{} => {}", cur, next))
+            w.writeln(format!("{} => {}", cur, next))
         }
     });
 
@@ -747,7 +745,7 @@ fn ast_debug_cfg<'a>(
     w.indent(4, |w| {
         for (loop_head, back_edge_predecessors) in loop_heads {
             for pred in back_edge_predecessors {
-                w.writeln(&format!(
+                w.writeln(format!(
                     "loop head: {}. back edge predecessor: {}",
                     loop_head, pred
                 ))
@@ -755,7 +753,7 @@ fn ast_debug_cfg<'a>(
         }
     });
 
-    w.writeln(&format!("start: {}", start));
+    w.writeln(format!("start: {}", start));
     w.writeln("blocks:");
     w.indent(4, |w| blocks.ast_debug(w));
 }

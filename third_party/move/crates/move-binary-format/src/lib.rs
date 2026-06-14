@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![forbid(unsafe_code)]
+#![allow(non_local_definitions)]
 
 use std::fmt;
 

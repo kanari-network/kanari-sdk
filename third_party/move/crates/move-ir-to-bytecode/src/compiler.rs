@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::context::{CompiledDependency, Context, MaterializedPools, TABLE_MAX_SIZE};
-use anyhow::{bail, format_err, Result};
+use anyhow::{Result, bail, format_err};
 use move_binary_format::{
     file_format::{
         Ability, AbilitySet, Bytecode, CodeOffset, CodeUnit, CompiledModule, Constant,
@@ -25,8 +25,8 @@ use move_symbol_pool::Symbol;
 use std::{
     clone::Clone,
     collections::{
-        hash_map::Entry::{Occupied, Vacant},
         BTreeSet, HashMap, HashSet,
+        hash_map::Entry::{Occupied, Vacant},
     },
     fmt::Write,
 };
@@ -145,7 +145,9 @@ impl FunctionFrame {
     // Manage the stack info for the function
     fn push(&mut self) -> Result<()> {
         if self.cur_stack_depth == i64::MAX {
-            bail!("ICE Stack depth accounting overflow. The compiler can only support a maximum stack depth of up to i64::max_value")
+            bail!(
+                "ICE Stack depth accounting overflow. The compiler can only support a maximum stack depth of up to i64::max_value"
+            )
         }
         self.cur_stack_depth += 1;
         self.max_stack_depth = std::cmp::max(self.max_stack_depth, self.cur_stack_depth);
@@ -154,7 +156,9 @@ impl FunctionFrame {
 
     fn pop(&mut self) -> Result<()> {
         if self.cur_stack_depth == i64::MIN {
-            bail!("ICE Stack depth accounting underflow. The compiler can only support a minimum stack depth of up to i64::min_value")
+            bail!(
+                "ICE Stack depth accounting underflow. The compiler can only support a minimum stack depth of up to i64::min_value"
+            )
         }
         self.cur_stack_depth -= 1;
         Ok(())
@@ -239,10 +243,10 @@ fn verify_move_function_body(code: &[Block]) -> Result<()> {
             match &statement.value {
                 Statement_::Jump(label)
                 | Statement_::JumpIf(_, label)
-                | Statement_::JumpIfFalse(_, label) => {
-                    if !labels.contains(&label.value) {
-                        undeclared.push(&label.value);
-                    }
+                | Statement_::JumpIfFalse(_, label)
+                    if !labels.contains(&label.value) =>
+                {
+                    undeclared.push(&label.value);
                 }
                 _ => {}
             }
@@ -274,10 +278,10 @@ fn verify_bytecode_function_body(code: &[(BlockLabel_, BytecodeBlock)]) -> Resul
             match &statement.value {
                 IRBytecode_::Branch(label)
                 | IRBytecode_::BrTrue(label)
-                | IRBytecode_::BrFalse(label) => {
-                    if !labels.contains(&label) {
-                        undeclared.push(label);
-                    }
+                | IRBytecode_::BrFalse(label)
+                    if !labels.contains(&label) =>
+                {
+                    undeclared.push(label);
                 }
                 _ => {}
             }

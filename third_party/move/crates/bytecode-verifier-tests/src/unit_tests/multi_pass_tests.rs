@@ -4,8 +4,8 @@
 
 use move_binary_format::CompiledModule;
 use move_bytecode_verifier::{
-    ability_field_requirements, constants, instantiation_loops::InstantiationLoopChecker,
     DuplicationChecker, InstructionConsistency, RecursiveStructDefChecker, SignatureChecker,
+    ability_field_requirements, constants, instantiation_loops::InstantiationLoopChecker,
 };
 use proptest::prelude::*;
 

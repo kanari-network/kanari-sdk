@@ -9,9 +9,9 @@ use crate::{
     diag,
     parser::{
         ast as P,
-        filter::{filter_program, FilterContext},
+        filter::{FilterContext, filter_program},
     },
-    shared::{known_attributes, CompilationEnv},
+    shared::{CompilationEnv, known_attributes},
 };
 
 struct Context<'env> {
@@ -58,15 +58,13 @@ impl FilterContext for Context<'_> {
         // (but again, need expansion for that)
         let silence_warning =
             !self.is_source_def || self.env.package_config(self.current_package).is_dependency;
-        if !silence_warning {
-            if let Some(loc) = is_verify_only_loc {
-                let msg = format!(
-                    "The '{}' attribute has been deprecated along with specification blocks",
-                    VerificationAttribute::VERIFY_ONLY
-                );
-                self.env
-                    .add_diag(diag!(Uncategorized::DeprecatedWillBeRemoved, (*loc, msg)));
-            }
+        if !silence_warning && let Some(loc) = is_verify_only_loc {
+            let msg = format!(
+                "The '{}' attribute has been deprecated along with specification blocks",
+                VerificationAttribute::VERIFY_ONLY
+            );
+            self.env
+                .add_diag(diag!(Uncategorized::DeprecatedWillBeRemoved, (*loc, msg)));
         }
         should_remove
     }

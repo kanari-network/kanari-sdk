@@ -4,16 +4,16 @@
 
 use crate::{
     account_address::AccountAddress,
-    annotated_visitor::{visit_struct, visit_value, Error as VError, Visitor},
+    annotated_visitor::{Error as VError, Visitor, visit_struct, visit_value},
     identifier::Identifier,
     language_storage::{StructTag, TypeTag},
     runtime_value as R, u256,
 };
 use anyhow::Result as AResult;
 use serde::{
+    Deserialize, Serialize,
     de::Error as DeError,
     ser::{SerializeMap, SerializeSeq, SerializeStruct},
-    Deserialize, Serialize,
 };
 use std::{
     convert::From,

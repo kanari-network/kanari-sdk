@@ -12,9 +12,9 @@ use crate::{
     hlir::translate::display_var,
     parser::ast::ConstantName,
     shared::{
+        CompilationEnv, Identifier, NumericalAddress,
         known_attributes::{self, TestingAttribute},
         unique_map::UniqueMap,
-        CompilationEnv, Identifier, NumericalAddress,
     },
     unit_test::{ExpectedFailure, ExpectedMoveError, ModuleTestPlan, TestCase},
 };
@@ -311,7 +311,9 @@ fn parse_failure_attribute(
                 let invalid_attr_msg = format!(
                     "Invalid #[expected_failure(...)] attribute, expected 1 failure kind but found {}. Expected one of: {}",
                     expected_failure_kind_vec.len(),
-                    TestingAttribute::expected_failure_cases().to_vec().join(", ")
+                    TestingAttribute::expected_failure_cases()
+                        .to_vec()
+                        .join(", ")
                 );
                 context
                     .env
@@ -657,7 +659,7 @@ fn convert_attribute_value_u64(
 ) -> Option<(Loc, u64)> {
     use E::{AttributeValue_ as EAV, Value_ as EV};
     match value {
-        sp!(vloc, EAV::Value(sp!(_, EV::InferredNum(u)))) if *u <= U256::from(std::u64::MAX) => {
+        sp!(vloc, EAV::Value(sp!(_, EV::InferredNum(u)))) if *u <= U256::from(u64::MAX) => {
             Some((*vloc, u.down_cast_lossy()))
         }
         sp!(vloc, EAV::Value(sp!(_, EV::U64(u)))) => Some((*vloc, *u)),

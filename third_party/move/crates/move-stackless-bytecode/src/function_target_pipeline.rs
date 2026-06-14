@@ -4,18 +4,14 @@
 
 use core::fmt;
 use std::{
-    cmp::Ordering,
-    collections::{btree_map::Entry as MapEntry, BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, btree_map::Entry as MapEntry},
     fmt::Formatter,
     fs,
 };
 
 use itertools::{Either, Itertools};
 use log::{debug, info};
-use petgraph::{
-    algo::has_path_connecting,
-    graph::{DiGraph, NodeIndex},
-};
+use petgraph::graph::{DiGraph, NodeIndex};
 
 use move_model::model::{FunId, FunctionEnv, GlobalEnv, QualifiedId};
 
@@ -377,7 +373,7 @@ impl FunctionTargetPipeline {
         targets: &FunctionTargetsHolder,
     ) -> Vec<Either<QualifiedId<FunId>, Vec<QualifiedId<FunId>>>> {
         // collect sccs
-        let (graph, nodes) = Self::build_call_graph(env, targets);
+        let (graph, _) = Self::build_call_graph(env, targets);
         let sccs = Self::derive_call_graph_sccs(env, &graph);
 
         let mut scc_staging = BTreeMap::new();
@@ -404,28 +400,17 @@ impl FunctionTargetPipeline {
         // NOTE: this algorithm produces a deterministic ordering of functions to be analyzed
         let mut dep_ordered = vec![];
         while !worklist.is_empty() {
-            worklist.sort_by(|(caller1, callees1), (caller2, callees2)| {
-                // rules of ordering:
-                // - if function A depends on B (i.e., calls B), put B towards the end of the worklist
-                // - if there are no dependencies among A and B, rank them by callee size
-
-                let node1 = *nodes.get(caller1).unwrap();
-                let node2 = *nodes.get(caller2).unwrap();
-                match (
-                    has_path_connecting(&graph, node1, node2, None),
-                    has_path_connecting(&graph, node2, node1, None),
-                ) {
-                    (true, true) => Ordering::Equal,
-                    (true, false) => Ordering::Less,
-                    (false, true) => Ordering::Greater,
-                    (false, false) => {
-                        // Put functions with 0 calls first in line, at the end of the vector
-                        callees2.len().cmp(&callees1.len())
-                    }
-                }
-            });
-
-            let (call_id, callees) = worklist.pop().unwrap();
+            let ready_index = worklist
+                .iter()
+                .position(|(caller, callees)| {
+                    callees.is_empty()
+                        || sccs
+                            .get(caller)
+                            .and_then(Option::as_ref)
+                            .is_some_and(|scc| callees.iter().all(|callee| scc.contains(callee)))
+                })
+                .expect("call graph must contain a ready function or recursive group");
+            let (call_id, callees) = worklist.remove(ready_index);
 
             // At this point, one of two things is true:
             // 1. callees is empty (common case)

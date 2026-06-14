@@ -71,14 +71,14 @@ impl<'a> StacklessBytecodeGenerator<'a> {
             | MoveBytecode::Branch(code_offset) = bytecode
             {
                 let offs = *code_offset as CodeOffset;
-                if label_map.get(&offs).is_none() {
+                if !label_map.contains_key(&offs) {
                     let label = Label::new(label_map.len());
                     label_map.insert(offs, label);
                 }
             }
             if let MoveBytecode::BrTrue(_) | MoveBytecode::BrFalse(_) = bytecode {
                 let next_offs = (pos + 1) as CodeOffset;
-                if label_map.get(&next_offs).is_none() {
+                if !label_map.contains_key(&next_offs) {
                     let fall_through_label = Label::new(label_map.len());
                     label_map.insert(next_offs, fall_through_label);
                     self.fallthrough_labels.insert(fall_through_label);
@@ -94,10 +94,11 @@ impl<'a> StacklessBytecodeGenerator<'a> {
         // Eliminate fall-through for non-branching instructions
         let code = std::mem::take(&mut self.code);
         for bytecode in code.into_iter() {
-            if let Bytecode::Label(attr_id, label) = bytecode {
-                if !self.code.is_empty() && !self.code[self.code.len() - 1].is_branch() {
-                    self.code.push(Bytecode::Jump(attr_id, label));
-                }
+            if let Bytecode::Label(attr_id, label) = bytecode
+                && !self.code.is_empty()
+                && !self.code[self.code.len() - 1].is_branch()
+            {
+                self.code.push(Bytecode::Jump(attr_id, label));
             }
             self.code.push(bytecode);
         }
@@ -272,18 +273,18 @@ impl<'a> StacklessBytecodeGenerator<'a> {
             MoveBytecode::FreezeRef => {
                 let mutable_ref_index = self.temp_stack.pop().unwrap();
                 let mutable_ref_sig = self.local_types[mutable_ref_index].clone();
-                if let Type::Reference(is_mut, signature) = mutable_ref_sig {
-                    if is_mut {
-                        let immutable_ref_index = self.temp_count;
-                        self.temp_stack.push(immutable_ref_index);
-                        self.local_types.push(Type::Reference(false, signature));
-                        self.code.push(mk_call(
-                            Operation::FreezeRef,
-                            vec![immutable_ref_index],
-                            vec![mutable_ref_index],
-                        ));
-                        self.temp_count += 1;
-                    }
+                if let Type::Reference(is_mut, signature) = mutable_ref_sig
+                    && is_mut
+                {
+                    let immutable_ref_index = self.temp_count;
+                    self.temp_stack.push(immutable_ref_index);
+                    self.local_types.push(Type::Reference(false, signature));
+                    self.code.push(mk_call(
+                        Operation::FreezeRef,
+                        vec![immutable_ref_index],
+                        vec![mutable_ref_index],
+                    ));
+                    self.temp_count += 1;
                 }
             }
 

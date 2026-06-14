@@ -8,12 +8,12 @@
 use crate::{
     diag,
     diagnostics::{
-        codes::{custom, DiagnosticInfo, Severity},
         WarningFilters,
+        codes::{DiagnosticInfo, Severity, custom},
     },
     naming::ast as N,
     parser::ast as P,
-    shared::{program_info::TypingProgramInfo, CompilationEnv, Identifier},
+    shared::{CompilationEnv, Identifier, program_info::TypingProgramInfo},
     typing::{
         ast as T,
         visitor::{TypingVisitorConstructor, TypingVisitorContext},
@@ -21,11 +21,11 @@ use crate::{
 };
 
 use super::{
-    base_type, LinterDiagCategory, BAG_MOD_NAME, BAG_STRUCT_NAME, LINKED_TABLE_MOD_NAME,
-    LINKED_TABLE_STRUCT_NAME, LINTER_DEFAULT_DIAG_CODE, LINT_WARNING_PREFIX, OBJECT_BAG_MOD_NAME,
+    BAG_MOD_NAME, BAG_STRUCT_NAME, LINKED_TABLE_MOD_NAME, LINKED_TABLE_STRUCT_NAME,
+    LINT_WARNING_PREFIX, LINTER_DEFAULT_DIAG_CODE, LinterDiagCategory, OBJECT_BAG_MOD_NAME,
     OBJECT_BAG_STRUCT_NAME, OBJECT_TABLE_MOD_NAME, OBJECT_TABLE_STRUCT_NAME, SUI_PKG_NAME,
     TABLE_MOD_NAME, TABLE_STRUCT_NAME, TABLE_VEC_MOD_NAME, TABLE_VEC_STRUCT_NAME, VEC_MAP_MOD_NAME,
-    VEC_MAP_STRUCT_NAME, VEC_SET_MOD_NAME, VEC_SET_STRUCT_NAME,
+    VEC_MAP_STRUCT_NAME, VEC_SET_MOD_NAME, VEC_SET_STRUCT_NAME, base_type,
 };
 
 const COLLECTIONS_EQUALITY_DIAG: DiagnosticInfo = custom(
@@ -98,8 +98,9 @@ impl TypingVisitorContext for Context<'_> {
                 let msg = format!(
                     "Comparing collections of type '{caddr}::{cmodule}::{cname}' may yield unexpected result."
                 );
-                let note_msg =
-                    format!("Equality for collections of type '{caddr}::{cmodule}::{cname}' IS NOT a structural check based on content");
+                let note_msg = format!(
+                    "Equality for collections of type '{caddr}::{cmodule}::{cname}' IS NOT a structural check based on content"
+                );
                 let mut d = diag!(COLLECTIONS_EQUALITY_DIAG, (op.loc, msg),);
                 d.add_note(note_msg);
                 self.env.add_diag(d);

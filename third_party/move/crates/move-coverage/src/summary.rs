@@ -8,12 +8,12 @@ use crate::coverage_map::{
     ExecCoverageMap, ExecCoverageMapWithModules, ModuleCoverageMap, TraceMap,
 };
 use move_binary_format::{
+    CompiledModule,
     control_flow_graph::{BlockId, ControlFlowGraph, VMControlFlowGraph},
     file_format::{Bytecode, CodeOffset},
-    CompiledModule,
 };
 use move_core_types::{identifier::Identifier, language_storage::ModuleId};
-use petgraph::{algo::tarjan_scc, Graph};
+use petgraph::{Graph, algo::tarjan_scc};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -281,11 +281,13 @@ pub fn summarize_path_cov(module: &CompiledModule, trace_map: &TraceMap) -> Modu
                             }
 
                             for (path_end_scc, path_end_reachability) in reachability.into_iter() {
-                                assert!(path_nums
-                                    .get_mut(&path_end_scc)
-                                    .unwrap()
-                                    .insert(scc_idx, path_end_reachability)
-                                    .is_none());
+                                assert!(
+                                    path_nums
+                                        .get_mut(&path_end_scc)
+                                        .unwrap()
+                                        .insert(scc_idx, path_end_reachability)
+                                        .is_none()
+                                );
                             }
 
                             // move to branch info if there are more than one branches
@@ -335,7 +337,7 @@ pub fn summarize_path_cov(module: &CompiledModule, trace_map: &TraceMap) -> Modu
         BTreeMap<BTreeSet<(CodeOffset, CodeOffset)>, u64>,
     > = BTreeMap::new();
 
-    for (_, trace) in trace_map.exec_maps.iter() {
+    for trace in trace_map.exec_maps.values() {
         let mut call_stack: Vec<&FunctionInfo> = Vec::new();
         let mut path_stack: Vec<BTreeSet<(CodeOffset, CodeOffset)>> = Vec::new();
         let mut path_store: Vec<(Identifier, BTreeSet<(CodeOffset, CodeOffset)>)> = Vec::new();

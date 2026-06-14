@@ -8,14 +8,14 @@ use crate::{
     session::LoadedFunctionInstantiation,
 };
 use move_binary_format::{
-    errors::{verification_error, Location, PartialVMError, PartialVMResult, VMResult},
+    IndexKind,
+    errors::{Location, PartialVMError, PartialVMResult, VMResult, verification_error},
     file_format::{
         AbilitySet, Bytecode, CompiledModule, Constant, ConstantPoolIndex, FieldHandleIndex,
         FieldInstantiationIndex, FunctionDefinition, FunctionDefinitionIndex, FunctionHandleIndex,
         FunctionInstantiationIndex, SignatureIndex, SignatureToken, StructDefInstantiationIndex,
         StructDefinitionIndex, StructFieldInformation, TableIndex, TypeParameterIndex,
     },
-    IndexKind,
 };
 use move_bytecode_verifier::{self, cyclic_dependencies, dependencies};
 use move_core_types::{
@@ -34,7 +34,7 @@ use move_vm_types::{
 };
 use parking_lot::RwLock;
 use std::{
-    collections::{btree_map::Entry, BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, btree_map::Entry},
     fmt::Debug,
     hash::Hash,
     sync::Arc,
@@ -1700,24 +1700,23 @@ impl LoadedModule {
                         | Bytecode::VecPushBack(si)
                         | Bytecode::VecPopBack(si)
                         | Bytecode::VecUnpack(si, _)
-                        | Bytecode::VecSwap(si) => {
-                            if !single_signature_token_map.contains_key(si) {
-                                let ty = match module.signature_at(*si).0.first() {
-                                    None => {
-                                        return Err(PartialVMError::new(
-                                            StatusCode::VERIFIER_INVARIANT_VIOLATION,
-                                        )
-                                        .with_message(
-                                            "the type argument for vector-related bytecode \
+                        | Bytecode::VecSwap(si)
+                            if !single_signature_token_map.contains_key(si) =>
+                        {
+                            let ty = match module.signature_at(*si).0.first() {
+                                None => {
+                                    return Err(PartialVMError::new(
+                                        StatusCode::VERIFIER_INVARIANT_VIOLATION,
+                                    )
+                                    .with_message(
+                                        "the type argument for vector-related bytecode \
                                                 expects one and only one signature token"
-                                                .to_owned(),
-                                        ));
-                                    }
-                                    Some(sig_token) => sig_token,
-                                };
-                                single_signature_token_map
-                                    .insert(*si, cache.make_type(module, ty)?);
-                            }
+                                            .to_owned(),
+                                    ));
+                                }
+                                Some(sig_token) => sig_token,
+                            };
+                            single_signature_token_map.insert(*si, cache.make_type(module, ty)?);
                         }
                         _ => {}
                     }
@@ -2219,14 +2218,14 @@ impl Loader {
         count: &mut u64,
         depth: u64,
     ) -> PartialVMResult<R::MoveStructLayout> {
-        if let Some(struct_map) = self.type_cache.read().structs.get(&gidx) {
-            if let Some(struct_info) = struct_map.get(ty_args) {
-                if let Some(node_count) = &struct_info.node_count {
-                    *count += *node_count
-                }
-                if let Some(layout) = &struct_info.struct_layout {
-                    return Ok(layout.clone());
-                }
+        if let Some(struct_map) = self.type_cache.read().structs.get(&gidx)
+            && let Some(struct_info) = struct_map.get(ty_args)
+        {
+            if let Some(node_count) = &struct_info.node_count {
+                *count += *node_count
+            }
+            if let Some(layout) = &struct_info.struct_layout {
+                return Ok(layout.clone());
             }
         }
 
@@ -2312,14 +2311,14 @@ impl Loader {
         count: &mut u64,
         depth: u64,
     ) -> PartialVMResult<A::MoveStructLayout> {
-        if let Some(struct_map) = self.type_cache.read().structs.get(&gidx) {
-            if let Some(struct_info) = struct_map.get(ty_args) {
-                if let Some(annotated_node_count) = &struct_info.annotated_node_count {
-                    *count += *annotated_node_count
-                }
-                if let Some(layout) = &struct_info.annotated_struct_layout {
-                    return Ok(layout.clone());
-                }
+        if let Some(struct_map) = self.type_cache.read().structs.get(&gidx)
+            && let Some(struct_info) = struct_map.get(ty_args)
+        {
+            if let Some(annotated_node_count) = &struct_info.annotated_node_count {
+                *count += *annotated_node_count
+            }
+            if let Some(layout) = &struct_info.annotated_struct_layout {
+                return Ok(layout.clone());
             }
         }
 

@@ -68,4 +68,6 @@ fn test_runner(path: &Path) -> datatest_stable::Result<()> {
     Ok(())
 }
 
-datatest_stable::harness!(test_runner, "tests/sources", r".*\.move");
+datatest_stable::harness! {
+    { test = test_runner, root = "tests/sources", pattern = r".*\.move" },
+}

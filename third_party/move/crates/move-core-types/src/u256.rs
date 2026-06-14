@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use ethnum::U256 as EthnumU256;
-use num::{bigint::Sign, BigInt};
+use num::{BigInt, bigint::Sign};
 #[cfg(any(test, feature = "fuzzing"))]
 use proptest::strategy::BoxedStrategy;
 use rand::{
-    distributions::{
-        uniform::{SampleUniform, UniformSampler},
-        Distribution, Standard,
+    Rng, RngExt,
+    distr::{
+        Distribution, StandardUniform,
+        uniform::{Error as UniformError, SampleBorrow, SampleUniform, UniformSampler},
     },
-    Rng,
 };
 use std::{
     fmt,
@@ -20,8 +20,6 @@ use std::{
         RemAssign, Shl, Shr, Sub, SubAssign,
     },
 };
-use uint::FromStrRadixErr;
-
 // This U256 impl was chosen for now but we are open to changing it as needed
 use primitive_types::U256 as PrimitiveU256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -31,7 +29,7 @@ const U256_NUM_BITS: usize = 256;
 pub const U256_NUM_BYTES: usize = U256_NUM_BITS / NUM_BITS_PER_BYTE;
 
 #[derive(Debug)]
-pub struct U256FromStrError(FromStrRadixErr);
+pub struct U256FromStrError(Box<dyn std::error::Error + Send + Sync>);
 
 /// A list of error categories encountered when parsing numbers.
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -300,7 +298,7 @@ impl U256 {
     pub fn from_str_radix(src: &str, radix: u32) -> Result<Self, U256FromStrError> {
         PrimitiveU256::from_str_radix(src.trim_start_matches('0'), radix)
             .map(Self)
-            .map_err(U256FromStrError)
+            .map_err(|err| U256FromStrError(Box::new(err)))
     }
 
     /// U256 from 32 little endian bytes
@@ -310,9 +308,7 @@ impl U256 {
 
     /// U256 to 32 little endian bytes
     pub fn to_le_bytes(self) -> [u8; U256_NUM_BYTES] {
-        let mut bytes = [0u8; U256_NUM_BYTES];
-        self.0.to_little_endian(&mut bytes);
-        bytes
+        self.0.to_little_endian()
     }
 
     /// Leading zeros of the number
@@ -555,11 +551,11 @@ impl TryFrom<U256> for u128 {
     }
 }
 
-impl Distribution<U256> for Standard {
+impl Distribution<U256> for StandardUniform {
     #[inline]
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> U256 {
         let mut dest = [0; U256_NUM_BYTES];
-        rng.fill_bytes(&mut dest);
+        rng.fill(&mut dest);
         U256::from_le_bytes(&dest)
     }
 }
@@ -580,28 +576,29 @@ impl SampleUniform for U256 {
 impl UniformSampler for UniformU256 {
     type X = U256;
 
-    fn new<B1, B2>(low: B1, high: B2) -> Self
+    fn new<B1, B2>(low: B1, high: B2) -> Result<Self, UniformError>
     where
-        B1: rand::distributions::uniform::SampleBorrow<Self::X> + Sized,
-        B2: rand::distributions::uniform::SampleBorrow<Self::X> + Sized,
+        B1: SampleBorrow<Self::X> + Sized,
+        B2: SampleBorrow<Self::X> + Sized,
     {
         let low = *low.borrow();
         let high = *high.borrow();
-        assert!(low < high, "Uniform::new called with `low >= high`");
+        if low >= high {
+            return Err(UniformError::EmptyRange);
+        }
         UniformSampler::new_inclusive(low, high - U256::one())
     }
 
-    fn new_inclusive<B1, B2>(low: B1, high: B2) -> Self
+    fn new_inclusive<B1, B2>(low: B1, high: B2) -> Result<Self, UniformError>
     where
-        B1: rand::distributions::uniform::SampleBorrow<Self::X> + Sized,
-        B2: rand::distributions::uniform::SampleBorrow<Self::X> + Sized,
+        B1: SampleBorrow<Self::X> + Sized,
+        B2: SampleBorrow<Self::X> + Sized,
     {
         let low = *low.borrow();
         let high = *high.borrow();
-        assert!(
-            low <= high,
-            "Uniform::new_inclusive called with `low > high`"
-        );
+        if low > high {
+            return Err(UniformError::EmptyRange);
+        }
         let unsigned_max = U256::max_value();
 
         let range = high.wrapping_sub(low).wrapping_add(U256::one());
@@ -612,11 +609,11 @@ impl UniformSampler for UniformU256 {
             U256::zero()
         };
 
-        UniformU256 {
+        Ok(UniformU256 {
             low,
             range,
             z: ints_to_reject,
-        }
+        })
     }
 
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> Self::X {
@@ -625,7 +622,7 @@ impl UniformSampler for UniformU256 {
             let unsigned_max = U256::max_value();
             let zone = unsigned_max - self.z;
             loop {
-                let v: U256 = rng.gen();
+                let v: U256 = rng.random();
                 let (hi, lo) = v.wmul(range);
                 if lo <= zone {
                     return self.low.wrapping_add(hi);
@@ -633,18 +630,24 @@ impl UniformSampler for UniformU256 {
             }
         } else {
             // Sample from the entire integer range.
-            rng.gen()
+            rng.random()
         }
     }
 
-    fn sample_single<R: rand::Rng + ?Sized, B1, B2>(low: B1, high: B2, rng: &mut R) -> Self::X
+    fn sample_single<R: rand::Rng + ?Sized, B1, B2>(
+        low: B1,
+        high: B2,
+        rng: &mut R,
+    ) -> Result<Self::X, UniformError>
     where
-        B1: rand::distributions::uniform::SampleBorrow<Self::X> + Sized,
-        B2: rand::distributions::uniform::SampleBorrow<Self::X> + Sized,
+        B1: SampleBorrow<Self::X> + Sized,
+        B2: SampleBorrow<Self::X> + Sized,
     {
         let low = *low.borrow();
         let high = *high.borrow();
-        assert!(low < high, "UniformSampler::sample_single: low >= high");
+        if low >= high {
+            return Err(UniformError::EmptyRange);
+        }
         Self::sample_single_inclusive(low, high - U256::one(), rng)
     }
 
@@ -652,32 +655,31 @@ impl UniformSampler for UniformU256 {
         low: B1,
         high: B2,
         rng: &mut R,
-    ) -> Self::X
+    ) -> Result<Self::X, UniformError>
     where
-        B1: rand::distributions::uniform::SampleBorrow<Self::X> + Sized,
-        B2: rand::distributions::uniform::SampleBorrow<Self::X> + Sized,
+        B1: SampleBorrow<Self::X> + Sized,
+        B2: SampleBorrow<Self::X> + Sized,
     {
         let low = *low.borrow();
         let high = *high.borrow();
-        assert!(
-            low <= high,
-            "UniformSampler::sample_single_inclusive: low > high"
-        );
+        if low > high {
+            return Err(UniformError::EmptyRange);
+        }
         let range = high.wrapping_sub(low).wrapping_add(U256::one());
         // If the above resulted in wrap-around to 0, the range is U256::MIN..=U256::MAX,
         // and any integer will do.
         if range == U256::zero() {
-            return rng.gen();
+            return Ok(rng.random());
         }
         // conservative but fast approximation. `- 1` is necessary to allow the
         // same comparison without bias.
         let zone = (range << range.leading_zeros()).wrapping_sub(U256::one());
 
         loop {
-            let v: U256 = rng.gen();
+            let v: U256 = rng.random();
             let (hi, lo) = v.wmul(range);
             if lo <= zone {
-                return low.wrapping_add(hi);
+                return Ok(low.wrapping_add(hi));
             }
         }
     }

@@ -17,7 +17,7 @@ use move_vm_types::{
     pop_arg,
     values::{Reference, Value},
 };
-use ripemd160::Ripemd160;
+use ripemd::Ripemd160;
 use sha2::Digest;
 use sha2::Sha256;
 use sha3::{Keccak256, Sha3_256};
@@ -273,9 +273,7 @@ fn native_ripemd160(
             );
     native_charge_gas_early_exit!(context, cost);
 
-    let mut hasher = Ripemd160::new();
-    hasher.update(&hash_arg);
-    let result = hasher.finalize();
+    let result = <Ripemd160 as ripemd::Digest>::digest(&hash_arg);
     Ok(NativeResult::ok(
         context.gas_used(),
         smallvec![Value::vector_u8(result.to_vec())],
@@ -314,4 +312,18 @@ pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, Nati
     ];
 
     make_module_natives(natives)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ripemd160_matches_known_answer() {
+        let result = <Ripemd160 as ripemd::Digest>::digest([]);
+        assert_eq!(
+            &result[..],
+            &hex::decode("9c1185a5c5e9fc54612808977ee8f548b2258d31").unwrap()
+        );
+    }
 }

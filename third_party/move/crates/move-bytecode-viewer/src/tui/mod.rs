@@ -13,11 +13,11 @@ use std::{error::Error, io::Write};
 use crossterm::event::{self, Event, KeyCode as Key, KeyEvent};
 
 use tui::{
+    Frame,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::Style,
     widgets::{Block, Borders, Paragraph},
-    Frame,
 };
 
 pub struct TUI<Interface: TUIInterface> {

@@ -16,8 +16,10 @@ pub trait Visitor {
     /// Visitors can return any error as long as it can represent an error from the visitor itself.
     /// The easiest way to achieve this is to use `thiserror`:
     ///
-    /// ```rust,no_doc
-    /// #[derive(thiserror::Error)]
+    /// ```rust
+    /// use move_core_types::annotated_visitor;
+    ///
+    /// #[derive(Debug, thiserror::Error)]
     /// enum Error {
     ///     #[error(transparent)]
     ///     Visitor(#[from] annotated_visitor::Error)
@@ -56,9 +58,20 @@ pub trait Visitor {
 /// traversal that doesn't want to look inside structs and vectors needs to provide a custom
 /// implementation with an empty body:
 ///
-/// ```rust,no_run
-/// fn traverse_vector(&mut self, _: &mut VecDriver) -> Result<(), Self::Error> {
-///     Ok(())
+/// ```rust
+/// use move_core_types::annotated_visitor::{Error, Traversal, VecDriver};
+///
+/// struct ShallowTraversal;
+///
+/// impl Traversal for ShallowTraversal {
+///     type Error = Error;
+///
+///     fn traverse_vector(
+///         &mut self,
+///         _: &mut VecDriver<'_, '_, '_>,
+///     ) -> Result<(), Self::Error> {
+///         Ok(())
+///     }
 /// }
 /// ```
 pub trait Traversal {

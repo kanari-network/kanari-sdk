@@ -12,20 +12,20 @@ use move_ir_types::location::*;
 
 use crate::{
     cfgir::{
+        CFGContext, MemberName,
         absint::JoinResult,
         ast::Program,
         visitor::{
             LocalState, SimpleAbsInt, SimpleAbsIntConstructor, SimpleDomain, SimpleExecutionContext,
         },
-        CFGContext, MemberName,
     },
     diag,
     diagnostics::{
-        codes::{custom, DiagnosticInfo, Severity},
         Diagnostic, Diagnostics,
+        codes::{DiagnosticInfo, Severity, custom},
     },
     hlir::ast::{
-        BaseType_, Label, ModuleCall, SingleType, SingleType_, Type, TypeName_, Type_, Var,
+        BaseType_, Label, ModuleCall, SingleType, SingleType_, Type, Type_, TypeName_, Var,
     },
     parser::ast::Ability_,
     shared::{CompilationEnv, Identifier},
@@ -33,7 +33,7 @@ use crate::{
 use std::collections::BTreeMap;
 
 use super::{
-    LinterDiagCategory, FREEZE_FUN, INVALID_LOC, LINTER_DEFAULT_DIAG_CODE, LINT_WARNING_PREFIX,
+    FREEZE_FUN, INVALID_LOC, LINT_WARNING_PREFIX, LINTER_DEFAULT_DIAG_CODE, LinterDiagCategory,
     RECEIVE_FUN, SHARE_FUN, SUI_PKG_NAME, TRANSFER_FUN, TRANSFER_MOD_NAME,
 };
 
@@ -132,40 +132,44 @@ impl SimpleAbsInt for CustomStateChangeVerifierAI {
         if let Some((_, _, fname)) = PRIVATE_OBJ_FUNCTIONS
             .iter()
             .find(|(addr, module, fun)| f.is(addr, module, fun))
+            && let Value::LocalObjWithStore(obj_addr_loc) = args[0]
         {
-            if let Value::LocalObjWithStore(obj_addr_loc) = args[0] {
-                let msg = format!(
-                    "Potential unintended implementation of a custom {} function.",
-                    fname
-                );
-                let (op, action) = if *fname == TRANSFER_FUN {
-                    ("transfer", "transferred")
-                } else if *fname == SHARE_FUN {
-                    ("share", "shared")
-                } else if *fname == FREEZE_FUN {
-                    ("freeze", "frozen")
-                } else {
-                    ("receive", "received")
-                };
-                let uid_msg = format!(
-                    "Instances of a type with a store ability can be {action} using \
+            let msg = format!(
+                "Potential unintended implementation of a custom {} function.",
+                fname
+            );
+            let (op, action) = if *fname == TRANSFER_FUN {
+                ("transfer", "transferred")
+            } else if *fname == SHARE_FUN {
+                ("share", "shared")
+            } else if *fname == FREEZE_FUN {
+                ("freeze", "frozen")
+            } else {
+                ("receive", "received")
+            };
+            let uid_msg = format!(
+                "Instances of a type with a store ability can be {action} using \
                                        the public_{fname} function which often negates the intent \
                                        of enforcing a custom {op} policy"
+            );
+            let note_msg = format!(
+                "A custom {op} policy for a given type is implemented through calling \
+                                       the private {fname} function variant in the module defining this type"
+            );
+            let mut d = diag!(
+                CUSTOM_STATE_CHANGE_DIAG,
+                (self.fn_name_loc, msg),
+                (f.name.loc(), uid_msg)
+            );
+            d.add_note(note_msg);
+            if obj_addr_loc != INVALID_LOC {
+                let loc_msg = format!(
+                    "An instance of a module-private type with a store ability to be {} coming from here",
+                    action
                 );
-                let note_msg = format!("A custom {op} policy for a given type is implemented through calling \
-                                       the private {fname} function variant in the module defining this type");
-                let mut d = diag!(
-                    CUSTOM_STATE_CHANGE_DIAG,
-                    (self.fn_name_loc, msg),
-                    (f.name.loc(), uid_msg)
-                );
-                d.add_note(note_msg);
-                if obj_addr_loc != INVALID_LOC {
-                    let loc_msg = format!("An instance of a module-private type with a store ability to be {} coming from here", action);
-                    d.add_secondary_label((obj_addr_loc, loc_msg));
-                }
-                context.add_diag(d)
+                d.add_secondary_label((obj_addr_loc, loc_msg));
             }
+            context.add_diag(d)
         }
         Some(match &return_ty.value {
             Type_::Unit => vec![],
@@ -187,10 +191,10 @@ fn is_local_obj_with_store(sp!(_, st_): &SingleType, context: &CFGContext) -> bo
             // no store ability
             return false;
         }
-        if let TypeName_::ModuleType(mident, _) = tname {
-            if mident.value == context.module.value {
-                return true;
-            }
+        if let TypeName_::ModuleType(mident, _) = tname
+            && mident.value == context.module.value
+        {
+            return true;
         }
     }
     false

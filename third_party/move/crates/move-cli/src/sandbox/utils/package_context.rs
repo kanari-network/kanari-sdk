@@ -1,10 +1,10 @@
 // Copyright (c) The Diem Core Contributors
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
-use crate::{sandbox::utils::OnDiskStateView, DEFAULT_BUILD_DIR};
+use crate::{DEFAULT_BUILD_DIR, sandbox::utils::OnDiskStateView};
 use anyhow::Result;
 use move_command_line_common::env::get_bytecode_version_from_env;
-use move_package::{compilation::compiled_package::CompiledPackage, BuildConfig};
+use move_package::{BuildConfig, compilation::compiled_package::CompiledPackage};
 use std::path::{Path, PathBuf};
 
 /// The PackageContext controls the package that the CLI is executing with respect to, and handles the

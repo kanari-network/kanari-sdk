@@ -10,7 +10,8 @@ use whoami::username;
 const PACKAGE_LOCK_NAME: &str = "move_pkg_lock";
 static PACKAGE_THREAD_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 static PACKAGE_PROCESS_MUTEX: Lazy<NamedLock> = Lazy::new(|| {
-    let user_lock_file = format!("{}_{}", PACKAGE_LOCK_NAME, username());
+    let username = username().expect("failed to determine username for package lock");
+    let user_lock_file = format!("{}_{}", PACKAGE_LOCK_NAME, username);
     NamedLock::create(user_lock_file.as_str()).unwrap()
 });
 
@@ -25,7 +26,7 @@ static PACKAGE_PROCESS_MUTEX: Lazy<NamedLock> = Lazy::new(|| {
 /// this is why we grab both a thread lock and process lock.
 pub(crate) struct PackageLock {
     _thread_lock: MutexGuard<'static, ()>,
-    _process_lock: NamedLockGuard<'static>,
+    _process_lock: NamedLockGuard,
 }
 
 impl PackageLock {

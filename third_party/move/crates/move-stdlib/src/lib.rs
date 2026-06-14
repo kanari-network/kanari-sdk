@@ -5,7 +5,7 @@
 use log::LevelFilter;
 use move_command_line_common::{
     address::NumericalAddress,
-    files::{extension_equals, find_filenames, MOVE_EXTENSION},
+    files::{MOVE_EXTENSION, extension_equals, find_filenames},
 };
 use std::{collections::BTreeMap, path::PathBuf};
 
@@ -107,9 +107,11 @@ pub fn build_stdlib_doc(output_path: &str) {
     build_doc(
         output_path,
         "",
-        vec![path_in_crate(OVERVIEW_TEMPLATE)
-            .to_string_lossy()
-            .to_string()],
+        vec![
+            path_in_crate(OVERVIEW_TEMPLATE)
+                .to_string_lossy()
+                .to_string(),
+        ],
         Some(
             path_in_crate(REFERENCES_TEMPLATE)
                 .to_string_lossy()

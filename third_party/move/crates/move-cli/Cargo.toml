@@ -7,13 +7,15 @@ repository = "https://github.com/diem/diem"
 homepage = "https://diem.com"
 license = "Apache-2.0"
 publish = false
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 anyhow.workspace = true
 colored.workspace = true
 difference.workspace = true
 serde_yaml.workspace = true
+serde-reflection.workspace = true
+serde.workspace = true
 clap.workspace = true
 tempfile.workspace = true
 walkdir.workspace = true
@@ -34,7 +36,7 @@ move-compiler.workspace = true
 move-stdlib.workspace = true
 move-stdlib-natives.workspace = true
 move-vm-types.workspace = true
-move-vm-runtime.workspace = true
+move-vm-runtime = { workspace = true, features = ["debugging"] }
 move-vm-profiler.workspace = true
 move-vm-test-utils.workspace = true
 move-read-write-set-types.workspace = true

@@ -3,9 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
+    IndexKind,
     errors::{
-        bounds_error, offset_out_of_bounds as offset_out_of_bounds_error, verification_error,
-        PartialVMError, PartialVMResult,
+        PartialVMError, PartialVMResult, bounds_error,
+        offset_out_of_bounds as offset_out_of_bounds_error, verification_error,
     },
     file_format::{
         AbilitySet, Bytecode, CodeOffset, CodeUnit, CompiledModule, Constant, FieldHandle,
@@ -14,7 +15,6 @@ use crate::{
         StructDefInstantiation, StructDefinition, StructFieldInformation, StructHandle, TableIndex,
     },
     internals::ModuleIndex,
-    IndexKind,
 };
 use move_core_types::vm_status::StatusCode;
 
@@ -368,15 +368,13 @@ impl<'a> BoundsChecker<'a> {
                     // check type parameters in borrow are bound to the function type parameters
                     if let Some(field_inst) =
                         self.module.field_instantiations().get(idx.into_index())
-                    {
-                        if let Some(sig) = self
+                        && let Some(sig) = self
                             .module
                             .signatures()
                             .get(field_inst.type_parameters.into_index())
-                        {
-                            for ty in &sig.0 {
-                                self.check_type_parameter(ty, type_param_count)?
-                            }
+                    {
+                        for ty in &sig.0 {
+                            self.check_type_parameter(ty, type_param_count)?
                         }
                     }
                 }
@@ -394,15 +392,13 @@ impl<'a> BoundsChecker<'a> {
                     // check type parameters in call are bound to the function type parameters
                     if let Some(func_inst) =
                         self.module.function_instantiations().get(idx.into_index())
-                    {
-                        if let Some(sig) = self
+                        && let Some(sig) = self
                             .module
                             .signatures()
                             .get(func_inst.type_parameters.into_index())
-                        {
-                            for ty in &sig.0 {
-                                self.check_type_parameter(ty, type_param_count)?
-                            }
+                    {
+                        for ty in &sig.0 {
+                            self.check_type_parameter(ty, type_param_count)?
                         }
                     }
                 }
@@ -432,15 +428,13 @@ impl<'a> BoundsChecker<'a> {
                     // check type parameters in type operations are bound to the function type parameters
                     if let Some(struct_inst) =
                         self.module.struct_instantiations().get(idx.into_index())
-                    {
-                        if let Some(sig) = self
+                        && let Some(sig) = self
                             .module
                             .signatures()
                             .get(struct_inst.type_parameters.into_index())
-                        {
-                            for ty in &sig.0 {
-                                self.check_type_parameter(ty, type_param_count)?
-                            }
+                    {
+                        for ty in &sig.0 {
+                            self.check_type_parameter(ty, type_param_count)?
                         }
                     }
                 }
@@ -514,32 +508,32 @@ impl<'a> BoundsChecker<'a> {
                 | Reference(_) | MutableReference(_) | Vector(_) => (),
                 Struct(idx) => {
                     check_bounds_impl(self.module.struct_handles(), *idx)?;
-                    if let Some(sh) = self.module.struct_handles().get(idx.into_index()) {
-                        if !sh.type_parameters.is_empty() {
-                            return Err(PartialVMError::new(
-                                StatusCode::NUMBER_OF_TYPE_ARGUMENTS_MISMATCH,
-                            )
-                            .with_message(format!(
-                                "expected {} type parameters got 0 (Struct)",
-                                sh.type_parameters.len(),
-                            )));
-                        }
+                    if let Some(sh) = self.module.struct_handles().get(idx.into_index())
+                        && !sh.type_parameters.is_empty()
+                    {
+                        return Err(PartialVMError::new(
+                            StatusCode::NUMBER_OF_TYPE_ARGUMENTS_MISMATCH,
+                        )
+                        .with_message(format!(
+                            "expected {} type parameters got 0 (Struct)",
+                            sh.type_parameters.len(),
+                        )));
                     }
                 }
                 StructInstantiation(struct_inst) => {
                     let (idx, type_params) = &**struct_inst;
                     check_bounds_impl(self.module.struct_handles(), *idx)?;
-                    if let Some(sh) = self.module.struct_handles().get(idx.into_index()) {
-                        if sh.type_parameters.len() != type_params.len() {
-                            return Err(PartialVMError::new(
-                                StatusCode::NUMBER_OF_TYPE_ARGUMENTS_MISMATCH,
-                            )
-                            .with_message(format!(
-                                "expected {} type parameters got {}",
-                                sh.type_parameters.len(),
-                                type_params.len(),
-                            )));
-                        }
+                    if let Some(sh) = self.module.struct_handles().get(idx.into_index())
+                        && sh.type_parameters.len() != type_params.len()
+                    {
+                        return Err(PartialVMError::new(
+                            StatusCode::NUMBER_OF_TYPE_ARGUMENTS_MISMATCH,
+                        )
+                        .with_message(format!(
+                            "expected {} type parameters got {}",
+                            sh.type_parameters.len(),
+                            type_params.len(),
+                        )));
                     }
                 }
             }
@@ -632,7 +626,10 @@ impl<'a> BoundsChecker<'a> {
     ) -> PartialVMError {
         match self.context {
             BoundsCheckingContext::Module => {
-                let msg = format!("Indexing into bytecode {} during bounds checking but 'current_function' was not set", cur_bytecode_offset);
+                let msg = format!(
+                    "Indexing into bytecode {} during bounds checking but 'current_function' was not set",
+                    cur_bytecode_offset
+                );
                 PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR).with_message(msg)
             }
             BoundsCheckingContext::ModuleFunction(current_function_index) => {

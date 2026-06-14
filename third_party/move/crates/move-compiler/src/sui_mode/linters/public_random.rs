@@ -10,15 +10,15 @@ use crate::sui_mode::SUI_ADDR_NAME;
 use crate::typing::visitor::{TypingVisitorConstructor, TypingVisitorContext};
 use crate::{
     diag,
-    diagnostics::codes::{custom, DiagnosticInfo, Severity},
+    diagnostics::codes::{DiagnosticInfo, Severity, custom},
     expansion::ast::Visibility,
     naming::ast as N,
-    shared::{program_info::TypingProgramInfo, CompilationEnv},
+    shared::{CompilationEnv, program_info::TypingProgramInfo},
     typing::ast as T,
 };
 
 use super::{
-    LinterDiagCategory, LINTER_DEFAULT_DIAG_CODE, LINT_WARNING_PREFIX,
+    LINT_WARNING_PREFIX, LINTER_DEFAULT_DIAG_CODE, LinterDiagCategory,
     RANDOM_GENERATOR_STRUCT_NAME, RANDOM_MOD_NAME, RANDOM_STRUCT_NAME, SUI_PKG_NAME,
 };
 
@@ -78,8 +78,10 @@ impl TypingVisitorContext for Context<'_> {
                 let msg =
                     format!("'public' function '{fname}' accepts '{struct_name}' as a parameter");
                 let mut d = diag!(PUBLIC_RANDOM_DIAG, (tloc, msg));
-                let note = format!("Functions that accept '{}::{}::{}' as a parameter might be abused by attackers by inspecting the results of randomness",
-                                   SUI_PKG_NAME, RANDOM_MOD_NAME, struct_name);
+                let note = format!(
+                    "Functions that accept '{}::{}::{}' as a parameter might be abused by attackers by inspecting the results of randomness",
+                    SUI_PKG_NAME, RANDOM_MOD_NAME, struct_name
+                );
                 d.add_note(note);
                 d.add_note("Non-public functions are preferred");
                 self.env.add_diag(d);

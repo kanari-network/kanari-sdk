@@ -1,7 +1,7 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::parser::lexer::{Tok, TOK_COUNT};
+use crate::parser::lexer::{TOK_COUNT, Tok};
 
 use move_symbol_pool::Symbol;
 

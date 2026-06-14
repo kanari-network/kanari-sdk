@@ -26,8 +26,8 @@ use crate::{
         player,
         settings::InterpreterSettings,
         ty::{
-            convert_model_base_type, BaseType, IntType, PrimitiveType, StructField,
-            StructInstantiation,
+            BaseType, IntType, PrimitiveType, StructField, StructInstantiation,
+            convert_model_base_type,
         },
         value::{GlobalState, TypedValue},
     },
@@ -128,7 +128,7 @@ fn check_and_convert_type_args_and_args(
         ));
     }
     let mut converted_args = vec![];
-    for (i, (arg, param)) in args.iter().zip(params.into_iter()).enumerate() {
+    for (i, (arg, param)) in args.iter().zip(params).enumerate() {
         let local_ty = fun_env.get_local_type(i);
         debug_assert_eq!(local_ty, param.1);
 
@@ -281,7 +281,7 @@ fn check_type_instantiation(
         ));
     }
     for (arg, param) in args.iter().zip(params) {
-        if !param.1 .0.is_subset(get_abilities(env, arg)?) {
+        if !param.1.0.is_subset(get_abilities(env, arg)?) {
             return Err(PartialVMError::new(StatusCode::CONSTRAINT_NOT_SATISFIED));
         }
     }

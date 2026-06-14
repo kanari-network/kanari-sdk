@@ -1124,7 +1124,7 @@ pub fn order_fields_by_decl<T>(
             .map(|(ndx, (f, (_exp_idx, t)))| (ndx, f, t))
             .collect()
     };
-    texp_fields.sort_by(|(decl_idx1, _, _), (decl_idx2, _, _)| decl_idx1.cmp(decl_idx2));
+    texp_fields.sort_by_key(|(decl_idx1, _, _)| *decl_idx1);
     texp_fields
 }
 
@@ -2111,9 +2111,7 @@ fn find_counterexample(
     has_guards: bool,
 ) -> bool {
     fn make_wildcards(n: usize) -> Vec<CounterExample> {
-        std::iter::repeat(CounterExample::Wildcard)
-            .take(n)
-            .collect()
+        std::iter::repeat_n(CounterExample::Wildcard, n).collect()
     }
 
     fn find_counterexample_bool(
@@ -2315,10 +2313,7 @@ fn find_counterexample(
                             datatype_name,
                             ctor,
                             is_positional,
-                            names
-                                .into_iter()
-                                .zip(ctor_args.into_iter())
-                                .collect::<Vec<_>>(),
+                            names.into_iter().zip(ctor_args).collect::<Vec<_>>(),
                         )]
                         .into_iter()
                         .chain(counterexample)

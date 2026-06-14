@@ -1,7 +1,7 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::parser::{parse_address_number, NumberFormat};
+use crate::parser::{NumberFormat, parse_address_number};
 use anyhow::anyhow;
 use move_core_types::account_address::AccountAddress;
 use num_bigint::BigUint;

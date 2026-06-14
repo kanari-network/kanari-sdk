@@ -57,18 +57,18 @@
 use crate::{
     context::Context,
     diagnostics::{lsp_diagnostics, lsp_empty_diagnostics},
-    utils::get_loc,
+    utils::{get_loc, path_to_uri, uri_to_file_path},
 };
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use codespan_reporting::files::SimpleFiles;
 use crossbeam::channel::Sender;
 use derivative::*;
 use im::ordmap::OrdMap;
 use lsp_server::{Request, RequestId};
 use lsp_types::{
-    request::GotoTypeDefinitionParams, Diagnostic, DocumentSymbol, DocumentSymbolParams,
-    GotoDefinitionParams, Hover, HoverContents, HoverParams, Location, MarkupContent, MarkupKind,
-    Position, Range, ReferenceParams, SymbolKind,
+    Diagnostic, DocumentSymbol, DocumentSymbolParams, GotoDefinitionParams, Hover, HoverContents,
+    HoverParams, Location, MarkupContent, MarkupKind, Position, Range, ReferenceParams, SymbolKind,
+    request::GotoTypeDefinitionParams,
 };
 
 use std::{
@@ -80,29 +80,28 @@ use std::{
     thread,
 };
 use tempfile::tempdir;
-use url::Url;
 use vfs::{
-    impls::{memory::MemoryFS, overlay::OverlayFS, physical::PhysicalFS},
     VfsPath,
+    impls::{memory::MemoryFS, overlay::OverlayFS, physical::PhysicalFS},
 };
 
 use move_command_line_common::files::FileHash;
 use move_compiler::{
-    command_line::compiler::{construct_pre_compiled_lib, FullyCompiledProgram},
+    PASS_CFGIR, PASS_PARSER, PASS_TYPING,
+    command_line::compiler::{FullyCompiledProgram, construct_pre_compiled_lib},
     editions::{Edition, FeatureGate, Flavor},
     expansion::ast::{
         self as E, AbilitySet, Fields, ModuleIdent, ModuleIdent_, Mutability, Value, Value_,
         Visibility,
     },
     linters::LintLevel,
-    naming::ast::{StructDefinition, StructFields, TParam, Type, TypeName_, Type_, UseFuns},
+    naming::ast::{StructDefinition, StructFields, TParam, Type, Type_, TypeName_, UseFuns},
     parser::ast::{self as P, DatatypeName},
-    shared::{unique_map::UniqueMap, Identifier, Name},
+    shared::{Identifier, Name, unique_map::UniqueMap},
     typing::ast::{
-        BuiltinFunction_, Exp, ExpListItem, Function, FunctionBody_, LValue, LValueList, LValue_,
+        BuiltinFunction_, Exp, ExpListItem, Function, FunctionBody_, LValue, LValue_, LValueList,
         ModuleCall, ModuleDefinition, SequenceItem, SequenceItem_, UnannotatedExp_,
     },
-    PASS_CFGIR, PASS_PARSER, PASS_TYPING,
 };
 use move_ir_types::location::*;
 use move_package::{
@@ -534,7 +533,7 @@ fn visibility_to_ide_string(visibility: &Visibility) -> String {
     visibility_str
 }
 
-fn type_args_to_ide_string(type_args: &Vec<Type>) -> String {
+fn type_args_to_ide_string(type_args: &[Type]) -> String {
     let mut type_args_str = "".to_string();
     if !type_args.is_empty() {
         type_args_str.push('<');
@@ -544,7 +543,7 @@ fn type_args_to_ide_string(type_args: &Vec<Type>) -> String {
     type_args_str
 }
 
-fn struct_type_args_to_ide_string(type_args: &Vec<(Type, bool)>) -> String {
+fn struct_type_args_to_ide_string(type_args: &[(Type, bool)]) -> String {
     let mut type_args_str = "".to_string();
     if !type_args.is_empty() {
         type_args_str.push('<');
@@ -688,12 +687,8 @@ fn ast_exp_to_ide_string(exp: &Exp) -> Option<String> {
         UE::UnaryExp(op, exp) => ast_exp_to_ide_string(exp).map(|s| format!("{op}{s}")),
 
         UE::BinopExp(lexp, op, _, rexp) => {
-            let Some(ls) = ast_exp_to_ide_string(lexp) else {
-                return None;
-            };
-            let Some(rs) = ast_exp_to_ide_string(rexp) else {
-                return None;
-            };
+            let ls = ast_exp_to_ide_string(lexp)?;
+            let rs = ast_exp_to_ide_string(rexp)?;
             Some(format!("{ls} {op} {rs}"))
         }
         _ => None,
@@ -1046,12 +1041,8 @@ impl Symbols {
     }
 
     pub fn mod_defs(&self, fhash: &FileHash, mod_ident: ModuleIdent_) -> Option<&ModuleDefs> {
-        let Some(fpath) = self.file_name_mapping.get(fhash) else {
-            return None;
-        };
-        let Some(mod_defs) = self.file_mods.get(fpath) else {
-            return None;
-        };
+        let fpath = self.file_name_mapping.get(fhash)?;
+        let mod_defs = self.file_mods.get(fpath)?;
         mod_defs.iter().find(|d| d.ident == mod_ident)
     }
 }
@@ -1415,19 +1406,19 @@ fn mark_positional_struct(
         .source_definitions
         .iter()
         .find(|pkg_def| {
-            if let P::Definition::Module(mod_def) = &pkg_def.def {
-                if let Some(parsed_mod_ident_str) = parsing_mod_def_to_map_key(mod_def) {
-                    return mod_ident_str == &parsed_mod_ident_str;
-                }
+            if let P::Definition::Module(mod_def) = &pkg_def.def
+                && let Some(parsed_mod_ident_str) = parsing_mod_def_to_map_key(mod_def)
+            {
+                return mod_ident_str == &parsed_mod_ident_str;
             }
             false
         })
         .or_else(|| {
             parsed_program.lib_definitions.iter().find(|pkg_def| {
-                if let P::Definition::Module(mod_def) = &pkg_def.def {
-                    if let Some(parsed_mod_ident_str) = parsing_mod_def_to_map_key(mod_def) {
-                        return mod_ident_str == &parsed_mod_ident_str;
-                    }
+                if let P::Definition::Module(mod_def) = &pkg_def.def
+                    && let Some(parsed_mod_ident_str) = parsing_mod_def_to_map_key(mod_def)
+                {
+                    return mod_ident_str == &parsed_mod_ident_str;
                 }
                 false
             })
@@ -1485,8 +1476,8 @@ fn file_sources(
 ) -> BTreeMap<FileHash, (FileName, String)> {
     resolved_graph
         .package_table
-        .iter()
-        .flat_map(|(_, rpkg)| {
+        .values()
+        .flat_map(|rpkg| {
             rpkg.get_sources(&resolved_graph.build_options)
                 .unwrap()
                 .iter()
@@ -1502,6 +1493,7 @@ fn file_sources(
                     let vfs_file_path = overlay_fs.join(fname.as_str()).unwrap();
                     let mut vfs_file = vfs_file_path.open_file().unwrap();
                     let _ = vfs_file.read_to_string(&mut contents);
+                    contents = contents.replace("\r\n", "\n");
                     let fhash = FileHash::new(&contents);
                     // write to top layer of the overlay file system so that the content
                     // is immutable for the duration of compilation and symbolication
@@ -1561,7 +1553,6 @@ pub fn empty_symbols() -> Symbols {
 }
 
 /// Main AST traversal functions
-
 /// Get symbols for outer definitions in the module (functions, structs, and consts)
 fn get_mod_outer_defs(
     loc: &Loc,
@@ -1698,7 +1689,7 @@ fn get_mod_outer_defs(
             fun.signature
                 .type_parameters
                 .iter()
-                .map(|t| (sp(t.user_specified_name.loc, Type_::Param(t.clone()))))
+                .map(|t| sp(t.user_specified_name.loc, Type_::Param(t.clone())))
                 .collect(),
             fun.signature
                 .parameters
@@ -2487,11 +2478,8 @@ impl<'a> TypingSymbolicator<'a> {
                 // process RHS first to avoid accidentally binding its identifiers to LHS (which now
                 // will be put into the current scope only after RHS is processed)
                 self.exp_symbols(e, scope);
-                for opt_t in opt_types {
-                    match opt_t {
-                        Some(t) => self.add_type_id_use_def(t),
-                        None => (),
-                    }
+                for t in opt_types.iter().flatten() {
+                    self.add_type_id_use_def(t)
                 }
                 self.lvalue_list_symbols(true, lvalues, scope);
             }
@@ -2632,11 +2620,8 @@ impl<'a> TypingSymbolicator<'a> {
             }
             E::Assign(lvalues, opt_types, e) => {
                 self.lvalue_list_symbols(false, lvalues, scope);
-                for opt_t in opt_types {
-                    match opt_t {
-                        Some(t) => self.add_type_id_use_def(t),
-                        None => (),
-                    }
+                for t in opt_types.iter().flatten() {
+                    self.add_type_id_use_def(t)
                 }
                 self.exp_symbols(e, scope);
             }
@@ -2740,7 +2725,7 @@ impl<'a> TypingSymbolicator<'a> {
             .get(&expansion_mod_ident_to_map_key(&mod_ident.value))
             .unwrap();
 
-        if mod_def.functions.get(&mod_call.name.value()).is_none() {
+        if !mod_def.functions.contains_key(&mod_call.name.value()) {
             return;
         }
 
@@ -2783,7 +2768,6 @@ impl<'a> TypingSymbolicator<'a> {
     }
 
     /// Helper functions
-
     /// Add type parameter to a scope holding type params
     fn add_type_param(&mut self, tp: &TParam, tp_scope: &mut BTreeMap<Symbol, DefLoc>) {
         match get_start_loc(
@@ -3331,10 +3315,7 @@ fn find_struct(
     mod_ident: &ModuleIdent_,
     struct_name: &Symbol,
 ) -> Option<DefLoc> {
-    let mod_defs = match mod_outer_defs.get(&format!("{}", mod_ident)) {
-        Some(v) => v,
-        None => return None,
-    };
+    let mod_defs = mod_outer_defs.get(&format!("{}", mod_ident))?;
     mod_defs.structs.get(struct_name).map(|struct_def| {
         let fhash = mod_defs.fhash;
         let start = struct_def.name_start;
@@ -3349,13 +3330,9 @@ fn extract_doc_string(
     name_start: &Position,
     file_hash: &FileHash,
 ) -> Option<String> {
-    let Some(file_id) = file_id_mapping.get(file_hash) else {
-        return None;
-    };
+    let file_id = file_id_mapping.get(file_hash)?;
 
-    let Some(file_lines) = file_id_to_lines.get(file_id) else {
-        return None;
-    };
+    let file_lines = file_id_to_lines.get(file_id)?;
 
     if name_start.line == 0 {
         return None;
@@ -3423,12 +3400,8 @@ pub fn on_go_to_def_request(context: &Context, request: &Request, symbols: &Symb
     let parameters = serde_json::from_value::<GotoDefinitionParams>(request.params.clone())
         .expect("could not deserialize go-to-def request");
 
-    let fpath = parameters
-        .text_document_position_params
-        .text_document
-        .uri
-        .to_file_path()
-        .unwrap();
+    let fpath =
+        uri_to_file_path(&parameters.text_document_position_params.text_document.uri).unwrap();
     let loc = parameters.text_document_position_params.position;
     let line = loc.line;
     let col = loc.character;
@@ -3450,7 +3423,7 @@ pub fn on_go_to_def_request(context: &Context, request: &Request, symbols: &Symb
             };
             let path = symbols.file_name_mapping.get(&u.def_loc.fhash).unwrap();
             let loc = Location {
-                uri: Url::from_file_path(path).unwrap(),
+                uri: path_to_uri(path).unwrap(),
                 range,
             };
             Some(serde_json::to_value(loc).unwrap())
@@ -3463,12 +3436,8 @@ pub fn on_go_to_type_def_request(context: &Context, request: &Request, symbols: 
     let parameters = serde_json::from_value::<GotoTypeDefinitionParams>(request.params.clone())
         .expect("could not deserialize go-to-type-def request");
 
-    let fpath = parameters
-        .text_document_position_params
-        .text_document
-        .uri
-        .to_file_path()
-        .unwrap();
+    let fpath =
+        uri_to_file_path(&parameters.text_document_position_params.text_document.uri).unwrap();
     let loc = parameters.text_document_position_params.position;
     let line = loc.line;
     let col = loc.character;
@@ -3488,7 +3457,7 @@ pub fn on_go_to_type_def_request(context: &Context, request: &Request, symbols: 
                 };
                 let path = symbols.file_name_mapping.get(&u.def_loc.fhash).unwrap();
                 let loc = Location {
-                    uri: Url::from_file_path(path).unwrap(),
+                    uri: path_to_uri(path).unwrap(),
                     range,
                 };
                 Some(serde_json::to_value(loc).unwrap())
@@ -3503,12 +3472,7 @@ pub fn on_references_request(context: &Context, request: &Request, symbols: &Sym
     let parameters = serde_json::from_value::<ReferenceParams>(request.params.clone())
         .expect("could not deserialize references request");
 
-    let fpath = parameters
-        .text_document_position
-        .text_document
-        .uri
-        .to_file_path()
-        .unwrap();
+    let fpath = uri_to_file_path(&parameters.text_document_position.text_document.uri).unwrap();
     let loc = parameters.text_document_position.position;
     let line = loc.line;
     let col = loc.character;
@@ -3538,7 +3502,7 @@ pub fn on_references_request(context: &Context, request: &Request, symbols: &Sym
                         };
                         let path = symbols.file_name_mapping.get(&ref_loc.fhash).unwrap();
                         locs.push(Location {
-                            uri: Url::from_file_path(path).unwrap(),
+                            uri: path_to_uri(path).unwrap(),
                             range,
                         });
                     }
@@ -3559,12 +3523,8 @@ pub fn on_hover_request(context: &Context, request: &Request, symbols: &Symbols)
     let parameters = serde_json::from_value::<HoverParams>(request.params.clone())
         .expect("could not deserialize hover request");
 
-    let fpath = parameters
-        .text_document_position_params
-        .text_document
-        .uri
-        .to_file_path()
-        .unwrap();
+    let fpath =
+        uri_to_file_path(&parameters.text_document_position_params.text_document.uri).unwrap();
     let loc = parameters.text_document_position_params.position;
     let line = loc.line;
     let col = loc.character;
@@ -3608,13 +3568,13 @@ pub fn on_use_request(
     let mut result = None;
 
     let mut use_def_found = false;
-    if let Some(mod_symbols) = symbols.file_use_defs.get(use_fpath) {
-        if let Some(uses) = mod_symbols.get(use_line) {
-            for u in uses {
-                if use_col >= u.col_start && use_col <= u.col_end {
-                    result = use_def_action(&u);
-                    use_def_found = true;
-                }
+    if let Some(mod_symbols) = symbols.file_use_defs.get(use_fpath)
+        && let Some(uses) = mod_symbols.get(use_line)
+    {
+        for u in uses {
+            if use_col >= u.col_start && use_col <= u.col_end {
+                result = use_def_action(&u);
+                use_def_found = true;
             }
         }
     }
@@ -3641,7 +3601,7 @@ pub fn on_document_symbol_request(context: &Context, request: &Request, symbols:
     let parameters = serde_json::from_value::<DocumentSymbolParams>(request.params.clone())
         .expect("could not deserialize document symbol request");
 
-    let fpath = parameters.text_document.uri.to_file_path().unwrap();
+    let fpath = uri_to_file_path(&parameters.text_document.uri).unwrap();
     eprintln!("on_document_symbol_request: {:?}", fpath);
 
     let empty_mods: BTreeSet<ModuleDefs> = BTreeSet::new();
@@ -3651,7 +3611,7 @@ pub fn on_document_symbol_request(context: &Context, request: &Request, symbols:
     for mod_def in mods {
         let name = mod_def.ident.module.clone().to_string();
         let detail = Some(mod_def.ident.clone().to_string());
-        let kind = SymbolKind::Module;
+        let kind = SymbolKind::MODULE;
         let range = Range {
             start: mod_def.start,
             end: mod_def.start,
@@ -3670,7 +3630,7 @@ pub fn on_document_symbol_request(context: &Context, request: &Request, symbols:
             children.push(DocumentSymbol {
                 name: sym.clone().to_string(),
                 detail: None,
-                kind: SymbolKind::Constant,
+                kind: SymbolKind::CONSTANT,
                 range: const_range,
                 selection_range: const_range,
                 children: None,
@@ -3693,7 +3653,7 @@ pub fn on_document_symbol_request(context: &Context, request: &Request, symbols:
             children.push(DocumentSymbol {
                 name: sym.clone().to_string(),
                 detail: None,
-                kind: SymbolKind::Struct,
+                kind: SymbolKind::STRUCT,
                 range: struct_range,
                 selection_range: struct_range,
                 children: Some(fields),
@@ -3718,7 +3678,7 @@ pub fn on_document_symbol_request(context: &Context, request: &Request, symbols:
             children.push(DocumentSymbol {
                 name: sym.clone().to_string(),
                 detail,
-                kind: SymbolKind::Function,
+                kind: SymbolKind::FUNCTION,
                 range: func_range,
                 selection_range: func_range,
                 children: None,
@@ -3764,7 +3724,7 @@ fn handle_struct_fields(struct_def: StructDef, fields: &mut Vec<DocumentSymbol>)
         fields.push(DocumentSymbol {
             name: field_def.name.clone().to_string(),
             detail: None,
-            kind: SymbolKind::Field,
+            kind: SymbolKind::FIELD,
             range: field_range,
             selection_range: field_range,
             children: None,
@@ -4063,7 +4023,9 @@ fn docstring_test() {
         "M6.move",
         "fun Symbols::M6::other_doc_struct(): Symbols::M7::OtherDocStruct",
         Some((3, 11, "M7.move")),
-        Some("\nThis is a multiline docstring\n\nThis docstring has empty lines.\n\nIt uses the ** format instead of ///\n\n"),
+        Some(
+            "\nThis is a multiline docstring\n\nThis docstring has empty lines.\n\nIt uses the ** format instead of ///\n\n",
+        ),
     );
 
     // docstring construction for single-line /** .. */ based strings

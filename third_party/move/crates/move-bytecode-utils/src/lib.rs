@@ -12,7 +12,7 @@ use move_core_types::{
     account_address::AccountAddress, identifier::IdentStr, language_storage::ModuleId,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::collections::BTreeMap;
 
 /// Set of Move modules indexed by module Id

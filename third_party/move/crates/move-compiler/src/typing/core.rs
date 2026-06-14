@@ -3,24 +3,23 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    debug_display, diag,
+    FullyCompiledProgram, debug_display, diag,
     diagnostics::{
-        codes::{NameResolution, TypeSafety},
         Diagnostic,
+        codes::{NameResolution, TypeSafety},
     },
     editions::FeatureGate,
     expansion::ast::{AbilitySet, ModuleIdent, ModuleIdent_, Mutability, Visibility},
     ice,
     naming::ast::{
         self as N, BlockLabel, BuiltinTypeName_, Color, DatatypeTypeParameter, EnumDefinition,
-        IndexSyntaxMethods, ResolvedUseFuns, StructDefinition, TParam, TParamID, TVar, Type,
-        TypeName, TypeName_, Type_, UseFun, UseFunKind, Var,
+        IndexSyntaxMethods, ResolvedUseFuns, StructDefinition, TParam, TParamID, TVar, Type, Type_,
+        TypeName, TypeName_, UseFun, UseFunKind, Var,
     },
     parser::ast::{
-        Ability_, ConstantName, DatatypeName, Field, FunctionName, VariantName, ENTRY_MODIFIER,
+        Ability_, ConstantName, DatatypeName, ENTRY_MODIFIER, Field, FunctionName, VariantName,
     },
     shared::{known_attributes::TestingAttribute, program_info::*, unique_map::UniqueMap, *},
-    FullyCompiledProgram,
 };
 use move_ir_types::location::*;
 use move_symbol_pool::Symbol;
@@ -729,7 +728,7 @@ impl ast_debug::AstDebug for Subst {
             let mut tvars = tvars.iter().collect::<Vec<_>>();
             tvars.sort_by_key(|(v, _)| *v);
             for (tvar, bt) in tvars {
-                w.write(&format!("{:?} => ", tvar));
+                w.write(format!("{:?} => ", tvar));
                 bt.ast_debug(w);
                 w.new_line();
             }
@@ -739,7 +738,7 @@ impl ast_debug::AstDebug for Subst {
             let mut num_vars = num_vars.keys().collect::<Vec<_>>();
             num_vars.sort();
             for tvar in num_vars {
-                w.writeln(&format!("{:?}", tvar))
+                w.writeln(format!("{:?}", tvar))
             }
         })
     }
@@ -809,11 +808,7 @@ fn error_format_impl_(b_: &Type_, subst: &Subst, nested: bool) -> String {
             error_format_nested(ty, subst)
         ),
     };
-    if nested {
-        res
-    } else {
-        format!("'{}'", res)
-    }
+    if nested { res } else { format!("'{}'", res) }
 }
 
 //**************************************************************************************************
@@ -1358,11 +1353,11 @@ pub fn make_function_type(
                     .package
                     .map(|pkg_name| format!("{}", pkg_name))
                     .unwrap_or("<unknown package>".to_string()),
-                &context
+                context
                     .current_module
                     .map(|cur_module| cur_module.value.address.to_string())
                     .unwrap_or("<unknown addr>".to_string()),
-                &context
+                context
                     .current_module
                     .and_then(|cur_module| context.module_info(&cur_module).package)
                     .map(|pkg_name| format!("{}", pkg_name))
@@ -1438,22 +1433,22 @@ fn visibility_error(
         (call_loc, call_msg),
         (vis_loc, vis_msg),
     );
-    if context.env.flags().is_testing() {
-        if let Some(case) = public_for_testing {
-            let (test_loc, test_msg) = match case {
-                PublicForTesting::Entry(entry_loc) => {
-                    let entry_msg = format!(
-                        "'{}' functions can be called in tests, \
+    if context.env.flags().is_testing()
+        && let Some(case) = public_for_testing
+    {
+        let (test_loc, test_msg) = match case {
+            PublicForTesting::Entry(entry_loc) => {
+                let entry_msg = format!(
+                    "'{}' functions can be called in tests, \
                     but only from testing contexts, e.g. '#[{}]' or '#[{}]'",
-                        ENTRY_MODIFIER,
-                        TestingAttribute::TEST,
-                        TestingAttribute::TEST_ONLY,
-                    );
-                    (entry_loc, entry_msg)
-                }
-            };
-            diag.add_secondary_label((test_loc, test_msg))
-        }
+                    ENTRY_MODIFIER,
+                    TestingAttribute::TEST,
+                    TestingAttribute::TEST_ONLY,
+                );
+                (entry_loc, entry_msg)
+            }
+        };
+        diag.add_secondary_label((test_loc, test_msg))
     }
     context.env.add_diag(diag)
 }
@@ -1641,8 +1636,8 @@ fn solve_builtin_type_constraint(
     op: &'static str,
     ty: Type,
 ) {
-    use TypeName_::*;
     use Type_::*;
+    use TypeName_::*;
     let t = unfold_type(&context.subst, ty);
     let tloc = t.loc;
     let mk_tmsg = || {
@@ -1686,8 +1681,8 @@ fn solve_builtin_type_constraint(
 }
 
 fn solve_base_type_constraint(context: &mut Context, loc: Loc, msg: String, ty: &Type) {
-    use TypeName_::*;
     use Type_::*;
+    use TypeName_::*;
     let sp!(tyloc, unfolded_) = unfold_type(&context.subst, ty.clone());
     match unfolded_ {
         Var(_) => unreachable!(),
@@ -1705,8 +1700,8 @@ fn solve_base_type_constraint(context: &mut Context, loc: Loc, msg: String, ty: 
 }
 
 fn solve_single_type_constraint(context: &mut Context, loc: Loc, msg: String, ty: &Type) {
-    use TypeName_::*;
     use Type_::*;
+    use TypeName_::*;
     let sp!(tyloc, unfolded_) = unfold_type(&context.subst, ty.clone());
     match unfolded_ {
         Var(_) => unreachable!(),
@@ -2150,8 +2145,8 @@ fn join_impl(
     lhs: &Type,
     rhs: &Type,
 ) -> Result<(Subst, Type), TypingError> {
-    use TypeName_::*;
     use Type_::*;
+    use TypeName_::*;
     use TypingCase::*;
     match (lhs, rhs) {
         (sp!(_, Anything), other) | (other, sp!(_, Anything)) => Ok((subst, other.clone())),
@@ -2170,7 +2165,7 @@ fn join_impl(
                     return Err(TypingError::InvariantError(
                         Box::new(lhs.clone()),
                         Box::new(rhs.clone()),
-                    ))
+                    ));
                 }
                 // imm <: imm
                 // mut <: imm
@@ -2182,7 +2177,7 @@ fn join_impl(
                     return Err(TypingError::SubtypeError(
                         Box::new(lhs.clone()),
                         Box::new(rhs.clone()),
-                    ))
+                    ));
                 }
             };
             let (subst, t) = join_impl(subst, case, t1, t2)?;

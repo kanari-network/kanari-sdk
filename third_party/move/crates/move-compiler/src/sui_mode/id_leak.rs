@@ -6,12 +6,11 @@ use move_symbol_pool::Symbol;
 
 use crate::{
     cfgir::{
-        self,
+        self, CFGContext, MemberName,
         absint::JoinResult,
         visitor::{
             LocalState, SimpleAbsInt, SimpleAbsIntConstructor, SimpleDomain, SimpleExecutionContext,
         },
-        CFGContext, MemberName,
     },
     diag,
     diagnostics::{Diagnostic, Diagnostics},
@@ -19,7 +18,7 @@ use crate::{
     expansion::ast::AbilitySet,
     hlir::ast::{Exp, Label, ModuleCall, SingleType, Type, Type_, Var},
     parser::ast::{Ability_, DatatypeName},
-    shared::{unique_map::UniqueMap, CompilationEnv, Identifier},
+    shared::{CompilationEnv, Identifier, unique_map::UniqueMap},
     sui_mode::{OBJECT_NEW, TEST_SCENARIO_MODULE_NAME, TS_NEW_OBJECT},
 };
 use std::collections::BTreeMap;

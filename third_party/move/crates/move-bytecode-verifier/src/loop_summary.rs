@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use move_binary_format::control_flow_graph::{BlockId, ControlFlowGraph, VMControlFlowGraph};
-use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
 /// Dense index into nodes in the same `LoopSummary`
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]

@@ -7,6 +7,7 @@ use move_ir_types::location::Loc;
 use move_symbol_pool::Symbol;
 
 use crate::{
+    FullyCompiledProgram,
     expansion::ast::{AbilitySet, Attributes, ModuleIdent, Visibility},
     naming::ast::{
         self as N, DatatypeTypeParameter, EnumDefinition, FunctionSignature, ResolvedUseFuns,
@@ -16,7 +17,6 @@ use crate::{
     shared::unique_map::UniqueMap,
     shared::*,
     typing::ast::{self as T},
-    FullyCompiledProgram,
 };
 
 #[derive(Debug, Clone)]

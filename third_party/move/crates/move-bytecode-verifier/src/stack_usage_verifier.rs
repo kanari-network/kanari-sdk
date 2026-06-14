@@ -11,10 +11,10 @@
 //! block for any basic block.
 use crate::absint::FunctionContext;
 use move_binary_format::{
+    CompiledModule,
     control_flow_graph::{BlockId, ControlFlowGraph},
     errors::{PartialVMError, PartialVMResult},
     file_format::{Bytecode, CodeUnit, FunctionDefinitionIndex, Signature, StructFieldInformation},
-    CompiledModule,
 };
 use move_bytecode_verifier_meter::Meter;
 use move_core_types::vm_status::StatusCode;
@@ -64,11 +64,11 @@ impl<'a> StackUsageVerifier<'a> {
             };
 
             // Check that the accumulated pushes does not exceed a pre-defined max size
-            if let Some(max_push_size) = config.max_push_size {
-                if overall_push > max_push_size as u64 {
-                    return Err(PartialVMError::new(StatusCode::VALUE_STACK_PUSH_OVERFLOW)
-                        .at_code_offset(self.current_function(), block_start));
-                }
+            if let Some(max_push_size) = config.max_push_size
+                && overall_push > max_push_size as u64
+            {
+                return Err(PartialVMError::new(StatusCode::VALUE_STACK_PUSH_OVERFLOW)
+                    .at_code_offset(self.current_function(), block_start));
             }
 
             // Check that the stack height is sufficient to accommodate the number

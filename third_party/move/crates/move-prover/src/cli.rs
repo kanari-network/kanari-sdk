@@ -19,7 +19,8 @@ use move_compiler::shared::NumericalAddress;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use simplelog::{
-    CombinedLogger, Config, ConfigBuilder, LevelPadding, SimpleLogger, TermLogger, TerminalMode,
+    ColorChoice, CombinedLogger, Config, ConfigBuilder, LevelPadding, SimpleLogger, TermLogger,
+    TerminalMode,
 };
 
 use codespan_reporting::diagnostic::Severity;
@@ -645,10 +646,12 @@ impl Options {
         }
         if matches.contains_id("docgen-template") {
             options.run_docgen = true;
-            options.docgen.root_doc_templates = vec![matches
-                .get_one::<String>("docgen-template")
-                .map(|s| s.to_string())
-                .unwrap()]
+            options.docgen.root_doc_templates = vec![
+                matches
+                    .get_one::<String>("docgen-template")
+                    .map(|s| s.to_string())
+                    .unwrap(),
+            ]
         }
         if matches.get_flag("errmapgen") {
             options.run_errmapgen = true;
@@ -703,6 +706,7 @@ impl Options {
                 self.verbosity_level,
                 config,
                 TerminalMode::Mixed,
+                ColorChoice::Auto,
             )])
         } else {
             CombinedLogger::init(vec![SimpleLogger::new(self.verbosity_level, config)])

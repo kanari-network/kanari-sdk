@@ -12,15 +12,15 @@
 //!
 //! Overall the binary format is structured in a number of sections:
 //! - **Header**: this must start at offset 0 in the binary. It contains a blob that starts every
-//! Diem binary, followed by the version of the VM used to compile the code, and last is the
-//! number of tables present in this binary.
+//!   Diem binary, followed by the version of the VM used to compile the code, and last is the
+//!   number of tables present in this binary.
 //! - **Table Specification**: it's a number of tuple of the form
-//! `(table type, starting_offset, byte_count)`. The number of entries is specified in the
-//! header (last entry in header). There can only be a single entry per table type. The
-//! `starting offset` is from the beginning of the binary. Tables must cover the entire size of
-//! the binary blob and cannot overlap.
+//!   `(table type, starting_offset, byte_count)`. The number of entries is specified in the
+//!   header (last entry in header). There can only be a single entry per table type. The
+//!   `starting offset` is from the beginning of the binary. Tables must cover the entire size of
+//!   the binary blob and cannot overlap.
 //! - **Table Content**: the serialized form of the specific entries in the table. Those roughly
-//! map to the structs defined in this module. Entries in each table must be unique.
+//!   map to the structs defined in this module. Entries in each table must be unique.
 //!
 //! We have two formats: one for modules here represented by `CompiledModule`, another
 //! for transaction scripts which is `CompiledScript`. Building those tables and passing them
@@ -28,10 +28,10 @@
 //! those structs translate to tables and table specifications.
 
 use crate::{
+    IndexKind, SignatureTokenKind,
     errors::{PartialVMError, PartialVMResult},
     file_format_common,
     internals::ModuleIndex,
-    IndexKind, SignatureTokenKind,
 };
 use move_core_types::{
     account_address::AccountAddress,
@@ -1111,12 +1111,11 @@ impl SignatureToken {
     /// Panics if this token doesn't contain a struct handle.
     pub fn debug_set_sh_idx(&mut self, sh_idx: StructHandleIndex) {
         match self {
-            SignatureToken::Struct(ref mut wrapped) => *wrapped = sh_idx,
-            SignatureToken::StructInstantiation(ref mut struct_inst) => {
-                Box::as_mut(struct_inst).0 = sh_idx
+            SignatureToken::Struct(wrapped) => *wrapped = sh_idx,
+            SignatureToken::StructInstantiation(struct_inst) => Box::as_mut(struct_inst).0 = sh_idx,
+            SignatureToken::Reference(token) | SignatureToken::MutableReference(token) => {
+                token.debug_set_sh_idx(sh_idx)
             }
-            SignatureToken::Reference(ref mut token)
-            | SignatureToken::MutableReference(ref mut token) => token.debug_set_sh_idx(sh_idx),
             other => panic!(
                 "debug_set_sh_idx (to {}) called for non-struct token {:?}",
                 sh_idx, other
@@ -1293,8 +1292,10 @@ pub enum Bytecode {
     ///
     /// Stack transition:
     ///
-    /// ```..., arg(1), arg(2), ...,  arg(n) -> ..., return_value(1), return_value(2), ...,
-    /// return_value(k)```
+    /// ```text
+    /// ..., arg(1), arg(2), ..., arg(n) -> ..., return_value(1), return_value(2), ...,
+    /// return_value(k)
+    /// ```
     Call(FunctionHandleIndex),
     CallGeneric(FunctionInstantiationIndex),
     /// Create an instance of the type specified via `StructHandleIndex` and push it on the stack.
@@ -1314,8 +1315,8 @@ pub enum Bytecode {
     /// The values of the fields of the instance appear on the stack in the order defined
     /// in the struct definition.
     ///
-    /// This order makes Unpack<T> the inverse of Pack<T>. So `Unpack<T>; Pack<T>` is the identity
-    /// for struct T.
+    /// This order makes `Unpack<T>` the inverse of `Pack<T>`. So `Unpack<T>; Pack<T>` is the
+    /// identity for struct `T`.
     ///
     /// Stack transition:
     ///
@@ -2201,12 +2202,15 @@ pub fn empty_module() -> CompiledModule {
 }
 
 /// Create the following module which is convenient in tests:
-/// // module <SELF> {
-/// //     struct Bar { x: u64 }
-/// //
-/// //     foo() {
-/// //     }
-/// // }
+///
+/// ```text
+/// module <SELF> {
+///     struct Bar { x: u64 }
+///
+///     foo() {
+///     }
+/// }
+/// ```
 pub fn basic_test_module() -> CompiledModule {
     let mut m = empty_module();
 

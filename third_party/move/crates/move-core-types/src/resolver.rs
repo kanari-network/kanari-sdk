@@ -10,8 +10,7 @@ use crate::{
 use std::fmt::Debug;
 use std::sync::Arc;
 
-/// Traits for resolving Move modules and resources from persistent storage
-
+/// Traits for resolving Move modules and resources from persistent storage///
 /// An execution context that remaps the modules referred to at runtime according to a linkage
 /// table, allowing the same module in storage to be run against different dependencies.
 ///
@@ -47,10 +46,10 @@ pub trait LinkageResolver {
 ///   - Ok(Some(..)) if the data exists
 ///   - Ok(None)     if the data does not exist
 ///   - Err(..)      only when something really wrong happens, for example
-///                    - invariants are broken and observable from the storage side
-///                      (this is not currently possible as ModuleId and StructTag
-///                       are always structurally valid)
-///                    - storage encounters internal error
+///     - invariants are broken and observable from the storage side
+///       (this is not currently possible as ModuleId and StructTag
+///       are always structurally valid)
+///     - storage encounters internal error
 pub trait ModuleResolver {
     type Error: Debug;
 
@@ -62,10 +61,10 @@ pub trait ModuleResolver {
 ///   - Ok(Some(..)) if the data exists
 ///   - Ok(None)     if the data does not exist
 ///   - Err(..)      only when something really wrong happens, for example
-///                    - invariants are broken and observable from the storage side
-///                      (this is not currently possible as ModuleId and StructTag
-///                       are always structurally valid)
-///                    - storage encounters internal error
+///     - invariants are broken and observable from the storage side
+///       (this is not currently possible as ModuleId and StructTag
+///       are always structurally valid)
+///     - storage encounters internal error
 pub trait ResourceResolver {
     type Error: Debug;
 
@@ -86,12 +85,9 @@ pub trait MoveResolver:
 }
 
 impl<
-        E: Debug,
-        T: LinkageResolver<Error = E>
-            + ModuleResolver<Error = E>
-            + ResourceResolver<Error = E>
-            + ?Sized,
-    > MoveResolver for T
+    E: Debug,
+    T: LinkageResolver<Error = E> + ModuleResolver<Error = E> + ResourceResolver<Error = E> + ?Sized,
+> MoveResolver for T
 {
     type Err = E;
 }

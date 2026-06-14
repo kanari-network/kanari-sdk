@@ -550,7 +550,7 @@ impl Interpreter {
         debug_writeln!(buf, "        Code:")?;
         let pc = frame.pc as usize;
         let code = func.code();
-        let before = if pc > 3 { pc - 3 } else { 0 };
+        let before = pc.saturating_sub(3);
         let after = min(code.len(), pc + 4);
         for (idx, instr) in code.iter().enumerate().take(pc).skip(before) {
             debug_writeln!(buf, "            [{}] {:?}", idx, instr)?;
@@ -1287,11 +1287,7 @@ impl Frame {
             for instruction in &code[self.pc as usize..] {
                 trace!(
                     &self.function,
-                    &self.locals,
-                    self.pc,
-                    instruction,
-                    resolver,
-                    interpreter
+                    &self.locals, self.pc, instruction, resolver, interpreter
                 );
 
                 fail_point!("move_vm::interpreter_loop", |_| {
@@ -1405,11 +1401,15 @@ impl Frame {
                     PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
                         .with_message("Struct Definition not resolved".to_string())
                 })?;
-                check_depth!(struct_type
-                    .depth
-                    .as_ref()
-                    .ok_or_else(|| { PartialVMError::new(StatusCode::VM_MAX_VALUE_DEPTH_REACHED) })?
-                    .solve(&[])?)
+                check_depth!(
+                    struct_type
+                        .depth
+                        .as_ref()
+                        .ok_or_else(|| {
+                            PartialVMError::new(StatusCode::VM_MAX_VALUE_DEPTH_REACHED)
+                        })?
+                        .solve(&[])?
+                )
             }
             Type::StructInstantiation(struct_inst) => {
                 let (si, ty_args) = &**struct_inst;
@@ -1425,18 +1425,22 @@ impl Frame {
                     PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
                         .with_message("Struct Definition not resolved".to_string())
                 })?;
-                check_depth!(struct_type
-                    .depth
-                    .as_ref()
-                    .ok_or_else(|| { PartialVMError::new(StatusCode::VM_MAX_VALUE_DEPTH_REACHED) })?
-                    .solve(&ty_arg_depths)?)
+                check_depth!(
+                    struct_type
+                        .depth
+                        .as_ref()
+                        .ok_or_else(|| {
+                            PartialVMError::new(StatusCode::VM_MAX_VALUE_DEPTH_REACHED)
+                        })?
+                        .solve(&ty_arg_depths)?
+                )
             }
             // NB: substitution must be performed before calling this function
             Type::TyParam(_) => {
                 return Err(
                     PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
                         .with_message("Type parameter should be fully resolved".to_string()),
-                )
+                );
             }
         };
 

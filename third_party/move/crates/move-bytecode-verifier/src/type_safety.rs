@@ -677,7 +677,7 @@ fn verify_instr(
                 _ => {
                     return Err(
                         verifier.error(StatusCode::WRITEREF_NO_MUTABLE_REFERENCE_ERROR, offset)
-                    )
+                    );
                 }
             };
             if !verifier.abilities(&ref_inner_signature)?.has_drop() {

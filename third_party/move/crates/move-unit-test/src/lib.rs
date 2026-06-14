@@ -11,11 +11,10 @@ use crate::test_runner::TestRunner;
 use clap::*;
 use move_command_line_common::files::verify_and_create_named_address_mapping;
 use move_compiler::{
-    self,
+    self, Compiler, Flags, PASS_CFGIR,
     diagnostics::{self},
     shared::{self, NumericalAddress},
     unit_test::{self, TestPlan},
-    Compiler, Flags, PASS_CFGIR,
 };
 use move_core_types::language_storage::ModuleId;
 use move_vm_runtime::native_functions::NativeFunctionTable;

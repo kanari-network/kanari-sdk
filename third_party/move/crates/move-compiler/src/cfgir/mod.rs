@@ -18,7 +18,7 @@ use crate::{
     expansion::ast::{AbilitySet, Attributes, ModuleIdent, Mutability},
     hlir::ast::{FunctionSignature, Label, SingleType, Var, Visibility},
     parser::ast::DatatypeName,
-    shared::{unique_map::UniqueMap, CompilationEnv, Name},
+    shared::{CompilationEnv, Name, unique_map::UniqueMap},
 };
 use cfg::*;
 use move_ir_types::location::Loc;

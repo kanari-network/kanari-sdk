@@ -484,7 +484,7 @@ impl BaseType {
     }
 }
 
-macro_rules! gen {
+macro_rules! generate_type_helpers {
     (
         $mk_base:ident, $mk_ref:ident,
         $is_base:ident, $is_ref:ident
@@ -572,17 +572,17 @@ impl Type {
     // factory
     //
 
-    gen!(mk_bool, mk_ref_bool, is_bool, is_ref_bool);
-    gen!(mk_u8, mk_ref_u8, is_u8, is_ref_u8);
-    gen!(mk_u16, mk_ref_u16, is_u16, is_ref_u16);
-    gen!(mk_u32, mk_ref_u32, is_u32, is_ref_u32);
-    gen!(mk_u64, mk_ref_u64, is_u64, is_ref_u64);
-    gen!(mk_u128, mk_ref_u128, is_u128, is_ref_u128);
-    gen!(mk_u256, mk_ref_u256, is_u256, is_ref_u256);
-    gen!(mk_num, mk_ref_num, is_num, is_ref_num);
-    gen!(mk_address, mk_ref_address, is_address, is_ref_address);
-    gen!(mk_signer, mk_ref_signer, is_signer, is_ref_signer);
-    gen!(
+    generate_type_helpers!(mk_bool, mk_ref_bool, is_bool, is_ref_bool);
+    generate_type_helpers!(mk_u8, mk_ref_u8, is_u8, is_ref_u8);
+    generate_type_helpers!(mk_u16, mk_ref_u16, is_u16, is_ref_u16);
+    generate_type_helpers!(mk_u32, mk_ref_u32, is_u32, is_ref_u32);
+    generate_type_helpers!(mk_u64, mk_ref_u64, is_u64, is_ref_u64);
+    generate_type_helpers!(mk_u128, mk_ref_u128, is_u128, is_ref_u128);
+    generate_type_helpers!(mk_u256, mk_ref_u256, is_u256, is_ref_u256);
+    generate_type_helpers!(mk_num, mk_ref_num, is_num, is_ref_num);
+    generate_type_helpers!(mk_address, mk_ref_address, is_address, is_ref_address);
+    generate_type_helpers!(mk_signer, mk_ref_signer, is_signer, is_ref_signer);
+    generate_type_helpers!(
         mk_vector,
         mk_ref_vector,
         is_vector,
@@ -596,7 +596,7 @@ impl Type {
         is_vector_of,
         is_ref_vector_of
     );
-    gen!(
+    generate_type_helpers!(
         mk_struct,
         mk_ref_struct,
         is_struct,
@@ -623,7 +623,7 @@ impl Type {
         matches!(
             self,
             Type::Reference(self_is_mut, _)
-            if is_mut_opt.map_or(true, |is_mut| *self_is_mut == is_mut)
+            if is_mut_opt.is_none_or(|is_mut| *self_is_mut == is_mut)
         )
     }
 

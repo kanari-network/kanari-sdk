@@ -4,7 +4,7 @@
 
 //! This module defines the control-flow graph uses for bytecode verification.
 use crate::file_format::{Bytecode, CodeOffset};
-use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
 // BTree/Hash agnostic type wrappers
 type Map<K, V> = BTreeMap<K, V>;
@@ -326,7 +326,7 @@ impl ControlFlowGraph for VMControlFlowGraph {
     fn is_back_edge(&self, cur: BlockId, next: BlockId) -> bool {
         self.loop_heads
             .get(&next)
-            .map_or(false, |back_edges| back_edges.contains(&cur))
+            .is_some_and(|back_edges| back_edges.contains(&cur))
     }
 
     fn num_back_edges(&self) -> usize {

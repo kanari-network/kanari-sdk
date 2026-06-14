@@ -2,10 +2,10 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use move_cli::base::test::{run_move_unit_tests, UnitTestResult};
+use move_cli::base::test::{UnitTestResult, run_move_unit_tests};
 use move_core_types::account_address::AccountAddress;
 use move_stdlib::path_in_crate;
-use move_stdlib_natives::{all_natives, nursery_natives, GasParameters, NurseryGasParameters};
+use move_stdlib_natives::{GasParameters, NurseryGasParameters, all_natives, nursery_natives};
 use move_unit_test::UnitTestingConfig;
 use tempfile::tempdir;
 

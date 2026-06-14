@@ -39,7 +39,6 @@ pub(crate) struct ExpTranslator<'env, 'translator, 'module_translator> {
 }
 
 /// # General
-
 impl<'env, 'translator, 'module_translator> ExpTranslator<'env, 'translator, 'module_translator> {
     pub fn new(parent: &'module_translator mut ModuleBuilder<'env, 'translator>) -> Self {
         let node_counter_start = parent.parent.env.next_free_node_number();
@@ -232,7 +231,6 @@ impl<'env, 'translator, 'module_translator> ExpTranslator<'env, 'translator, 'mo
 }
 
 /// # Type Translation
-
 impl<'env, 'translator, 'module_translator> ExpTranslator<'env, 'translator, 'module_translator> {
     /// Translates a source AST type into a target AST type.
     pub fn translate_type(&mut self, ty: &EA::Type) -> Type {
@@ -261,7 +259,7 @@ impl<'env, 'translator, 'module_translator> ExpTranslator<'env, 'translator, 'mo
                             return check_zero_args(self, Type::new_prim(PrimitiveType::U128));
                         }
                         "u256" => {
-                            return check_zero_args(self, Type::new_prim(PrimitiveType::U256))
+                            return check_zero_args(self, Type::new_prim(PrimitiveType::U256));
                         }
                         "num" => return check_zero_args(self, Type::new_prim(PrimitiveType::Num)),
                         "range" => {
@@ -328,7 +326,6 @@ impl<'env, 'translator, 'module_translator> ExpTranslator<'env, 'translator, 'mo
 }
 
 /// # Expression Translation
-
 impl<'env, 'translator, 'module_translator> ExpTranslator<'env, 'translator, 'module_translator> {
     pub fn translate_value(&mut self, v: &EA::Value) -> Option<(Value, Type)> {
         let loc = self.to_loc(&v.loc);

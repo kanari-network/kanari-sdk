@@ -3,12 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    diag,
+    FileCommentMap, MatchedFileCommentMap, diag,
     diagnostics::Diagnostic,
-    editions::{create_feature_error, Edition, FeatureGate},
+    editions::{Edition, FeatureGate, create_feature_error},
     parser::{syntax::make_loc, token_set::TokenSet},
     shared::CompilationEnv,
-    FileCommentMap, MatchedFileCommentMap,
 };
 use move_command_line_common::{character_sets::DisplayChar, files::FileHash};
 use move_ir_types::location::Loc;
@@ -355,7 +354,7 @@ impl<'input> Lexer<'input> {
                 if is_doc {
                     let end = get_offset(text);
                     let mut comment = &self.text[(start + 3)..end];
-                    comment = comment.trim_end_matches(|c: char| c == '\r');
+                    comment = comment.trim_end_matches('\r');
 
                     self.doc_comments
                         .insert((start as u32, end as u32), comment.to_string());

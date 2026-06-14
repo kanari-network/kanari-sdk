@@ -177,7 +177,7 @@ impl<'l, S: MoveResolver> DataStore for TransactionDataCache<'l, S> {
                 _ =>
                 // non-struct top-level value; can't happen
                 {
-                    return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR))
+                    return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR));
                 }
             };
             // TODO(Gas): Shall we charge for this?
@@ -252,10 +252,10 @@ impl<'l, S: MoveResolver> DataStore for TransactionDataCache<'l, S> {
     }
 
     fn load_module(&self, module_id: &ModuleId) -> VMResult<Vec<u8>> {
-        if let Some(account_cache) = self.account_map.get(module_id.address()) {
-            if let Some(blob) = account_cache.module_map.get(module_id.name()) {
-                return Ok(blob.clone());
-            }
+        if let Some(account_cache) = self.account_map.get(module_id.address())
+            && let Some(blob) = account_cache.module_map.get(module_id.name())
+        {
+            return Ok(blob.clone());
         }
         match self.remote.get_module(module_id) {
             Ok(Some(bytes)) => Ok(bytes),

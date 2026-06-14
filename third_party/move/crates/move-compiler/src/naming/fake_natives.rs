@@ -12,7 +12,7 @@ use crate::{
     expansion::ast::{Address, ModuleIdent, ModuleIdent_},
     naming::ast as N,
     parser::ast::FunctionName,
-    shared::{known_attributes::NativeAttribute, CompilationEnv, Identifier},
+    shared::{CompilationEnv, Identifier, known_attributes::NativeAttribute},
 };
 use move_ir_types::ast as IR;
 use move_symbol_pool::symbol;

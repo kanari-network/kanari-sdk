@@ -3,13 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use move_binary_format::{
+    CompiledModule,
     control_flow_graph::{BlockId, ControlFlowGraph, VMControlFlowGraph},
     errors::PartialVMResult,
     file_format::{
         AbilitySet, Bytecode, CodeOffset, CodeUnit, FunctionDefinitionIndex, FunctionHandle,
         Signature,
     },
-    CompiledModule,
 };
 use move_bytecode_verifier_meter::{Meter, Scope};
 use std::collections::BTreeMap;

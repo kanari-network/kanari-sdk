@@ -5,5 +5,5 @@ edition = "2024"
 
 [dependencies]
 criterion.workspace = true
-libc = "0.2.172"
-windows-sys = { version = "0.59.0", features = ["Win32_System_Threading", "Win32_Foundation"] }
+libc = "0.2.186"
+windows-sys = { version = "0.61.2", features = ["Win32_System_Threading", "Win32_Foundation"] }

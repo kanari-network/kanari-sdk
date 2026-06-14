@@ -71,8 +71,8 @@ impl Docgen {
         if !self.template.is_empty() {
             options.root_doc_templates = self.template;
         }
-        if self.section_level_start.is_some() {
-            options.section_level_start = self.section_level_start.unwrap();
+        if let Some(section_level_start) = self.section_level_start {
+            options.section_level_start = section_level_start;
         }
         if self.exclude_private_fun {
             options.include_private_fun = false;
@@ -86,14 +86,14 @@ impl Docgen {
         if self.exclude_impl {
             options.include_impl = false;
         }
-        if self.toc_depth.is_some() {
-            options.toc_depth = self.toc_depth.unwrap();
+        if let Some(toc_depth) = self.toc_depth {
+            options.toc_depth = toc_depth;
         }
         if self.no_collapsed_sections {
             options.collapsed_sections = false;
         }
-        if self.output_directory.is_some() {
-            options.output_directory = self.output_directory.unwrap();
+        if let Some(output_directory) = self.output_directory {
+            options.output_directory = output_directory;
         }
         if self.references_file.is_some() {
             options.references_file = self.references_file;
@@ -107,7 +107,7 @@ impl Docgen {
         // and the actual move_docgen::Docgen.
         let generator = move_docgen::Docgen::new(&model, &options);
 
-        for (file, content) in generator.gen() {
+        for (file, content) in generator.r#gen() {
             let path = PathBuf::from(&file);
             fs::create_dir_all(path.parent().unwrap())?;
             fs::write(path.as_path(), content)?;

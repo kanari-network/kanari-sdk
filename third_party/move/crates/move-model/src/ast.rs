@@ -77,8 +77,7 @@ impl fmt::Display for Value {
 }
 
 // =================================================================================================
-/// # Names
-
+/// # Names///
 /// Represents a module name, consisting of address and name.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub struct ModuleName(BigUint, Symbol);

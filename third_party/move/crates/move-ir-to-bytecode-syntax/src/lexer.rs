@@ -8,7 +8,7 @@ use move_ir_types::location::*;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Tok {
-    EOF,
+    Eof,
     AccountAddressValue,
     U8Value,
     U16Value,
@@ -109,7 +109,7 @@ impl<'input> Lexer<'input> {
             prev_end: 0,
             cur_start: 0,
             cur_end: 0,
-            token: Tok::EOF,
+            token: Tok::Eof,
         }
     }
 
@@ -138,7 +138,7 @@ impl<'input> Lexer<'input> {
         loop {
             // Trim the only whitespace characters we recognize: newline, tab, and space.
             text = text.trim_start_matches("\r\n");
-            text = text.trim_start_matches(|c: char| matches!(c, '\n' | '\t' | ' '));
+            text = text.trim_start_matches(['\n', '\t', ' ']);
             // Trim the only comments we recognize: '// ... \n'.
             if text.starts_with("//") {
                 text = text.trim_start_matches(|c: char| c != '\n');
@@ -187,7 +187,7 @@ impl<'input> Lexer<'input> {
         let c: char = match text.chars().next() {
             Some(next_char) => next_char,
             None => {
-                return Ok((Tok::EOF, 0));
+                return Ok((Tok::Eof, 0));
             }
         };
         let (tok, len) = match c {

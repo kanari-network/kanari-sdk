@@ -7,9 +7,10 @@ use clap::Parser;
 use crossbeam::channel::{bounded, select};
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
-    notification::Notification as _, request::Request as _, CompletionOptions, Diagnostic,
-    HoverProviderCapability, OneOf, SaveOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextDocumentSyncOptions, TypeDefinitionProviderCapability, WorkDoneProgressOptions,
+    CompletionOptions, Diagnostic, HoverProviderCapability, OneOf, SaveOptions,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+    TypeDefinitionProviderCapability, WorkDoneProgressOptions, notification::Notification as _,
+    request::Request as _,
 };
 use move_compiler::linters::LintLevel;
 use std::{
@@ -19,11 +20,13 @@ use std::{
 };
 
 use move_analyzer::{
-    completion::on_completion_request, context::Context, symbols,
+    completion::on_completion_request,
+    context::Context,
+    symbols,
+    utils::{path_to_uri, uri_to_file_path},
     vfs::on_text_document_sync_notification,
 };
-use url::Url;
-use vfs::{impls::memory::MemoryFS, VfsPath};
+use vfs::{VfsPath, impls::memory::MemoryFS};
 
 const LINT_NONE: &str = "none";
 const LINT_DEFAULT: &str = "default";
@@ -78,7 +81,7 @@ fn main() {
                 // data be sent "over the wire." However, to do so, our language server would need
                 // to be capable of applying deltas to its view of the client's open files. See the
                 // 'move_analyzer::vfs' module for details.
-                change: Some(TextDocumentSyncKind::Full),
+                change: Some(TextDocumentSyncKind::FULL),
                 will_save: None,
                 will_save_wait_until: None,
                 save: Some(
@@ -105,6 +108,7 @@ fn main() {
             work_done_progress_options: WorkDoneProgressOptions {
                 work_done_progress: None,
             },
+            completion_item: None,
         }),
         definition_provider: Some(OneOf::Left(symbols::DEFS_AND_REFS_SUPPORT)),
         type_definition_provider: Some(TypeDefinitionProviderCapability::Simple(
@@ -154,18 +158,26 @@ fn main() {
         // with diagnostics as they will be recomputed whenever the first source file is opened. The
         // main reason for this is to enable unit tests that rely on the symbolication information
         // to be available right after the client is initialized.
-        if let Some(uri) = initialize_params.root_uri {
-            if let Some(p) = symbols::SymbolicatorRunner::root_dir(&uri.to_file_path().unwrap()) {
-                if let Ok((Some(new_symbols), _)) = symbols::get_symbols(
-                    Arc::new(Mutex::new(BTreeMap::new())),
-                    ide_files_root.clone(),
-                    p.as_path(),
-                    lint,
-                ) {
-                    let mut old_symbols = symbols.lock().unwrap();
-                    (*old_symbols).merge(new_symbols);
-                }
-            }
+        let root_uri = initialize_params
+            .workspace_folders
+            .as_ref()
+            .and_then(|folders| folders.first())
+            .map(|folder| folder.uri.clone())
+            .or_else(|| {
+                #[allow(deprecated)]
+                initialize_params.root_uri.clone()
+            });
+        if let Some(uri) = root_uri
+            && let Some(p) = symbols::SymbolicatorRunner::root_dir(&uri_to_file_path(&uri).unwrap())
+            && let Ok((Some(new_symbols), _)) = symbols::get_symbols(
+                Arc::new(Mutex::new(BTreeMap::new())),
+                ide_files_root.clone(),
+                p.as_path(),
+                lint,
+            )
+        {
+            let mut old_symbols = symbols.lock().unwrap();
+            (*old_symbols).merge(new_symbols);
         }
     };
 
@@ -188,8 +200,8 @@ fn main() {
                         match result {
                             Ok(diags) => {
                                 for (k, v) in diags {
-                                    let url = Url::from_file_path(k).unwrap();
-                                    let params = lsp_types::PublishDiagnosticsParams::new(url, v, None);
+                                    let uri = path_to_uri(&k).unwrap();
+                                    let params = lsp_types::PublishDiagnosticsParams::new(uri, v, None);
                                     let notification = Notification::new(lsp_types::notification::PublishDiagnostics::METHOD.to_string(), params);
                                     if let Err(err) = context
                                         .connection
@@ -200,7 +212,7 @@ fn main() {
                                 }
                             },
                             Err(err) => {
-                                let typ = lsp_types::MessageType::Error;
+                                    let typ = lsp_types::MessageType::ERROR;
                                 let message = format!("{err}");
                                     // report missing manifest only once to avoid re-generating
                                     // user-visible error in cases when the developer decides to

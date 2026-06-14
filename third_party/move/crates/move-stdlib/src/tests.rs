@@ -68,7 +68,10 @@ fn check_dirs_not_diff<A: AsRef<Path>, B: AsRef<Path>>(
                 display_dir_entry(b),
             )
         }
-        if a.file_type().is_file() && std::fs::read(a.path())? != std::fs::read(b.path())? {
+        if a.file_type().is_file()
+            && normalize_line_endings(std::fs::read_to_string(a.path())?)
+                != normalize_line_endings(std::fs::read_to_string(b.path())?)
+        {
             bail!("{} needs to be updated", display_dir_entry(a))
         }
     }
@@ -102,4 +105,8 @@ fn sorted_walk_dir<P: AsRef<Path>>(path: P) -> Result<walkdir::IntoIter, std::io
 
 fn display_dir_entry(d: walkdir::DirEntry) -> String {
     d.into_path().to_string_lossy().to_string()
+}
+
+fn normalize_line_endings(contents: String) -> String {
+    contents.replace("\r\n", "\n")
 }

@@ -15,16 +15,13 @@ use crate::{
     },
 };
 use proptest::{
-    collection::{vec, SizeRange},
+    collection::{SizeRange, vec},
     option,
     prelude::*,
     sample::Index as PropIndex,
     std_facade::hash_set::HashSet,
 };
 use std::collections::BTreeSet;
-
-#[derive(Debug)]
-struct TypeSignatureIndex(u16);
 
 #[derive(Debug)]
 pub struct StDefnMaterializeState {

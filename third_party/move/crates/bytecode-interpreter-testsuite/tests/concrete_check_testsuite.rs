@@ -10,7 +10,7 @@ use move_stdlib::move_stdlib_files;
 use move_unit_test::UnitTestingConfig;
 
 fn test_runner(path: &Path) -> datatest_stable::Result<()> {
-    env::set_var("NO_COLOR", "1");
+    unsafe { env::set_var("NO_COLOR", "1") };
 
     let source_files = vec![path.to_str().unwrap().to_owned()];
     let config = UnitTestingConfig {
@@ -37,4 +37,6 @@ fn test_runner(path: &Path) -> datatest_stable::Result<()> {
     Ok(())
 }
 
-datatest_stable::harness!(test_runner, "tests/concrete_check", r".*\.move$");
+datatest_stable::harness! {
+    { test = test_runner, root = "tests/concrete_check", pattern = r".*\.move$" },
+}

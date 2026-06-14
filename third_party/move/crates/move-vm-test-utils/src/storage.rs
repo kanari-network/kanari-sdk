@@ -2,7 +2,7 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use move_core_types::{
     account_address::AccountAddress,
     effects::{AccountChangeSet, ChangeSet, Op},
@@ -11,7 +11,7 @@ use move_core_types::{
     resolver::{LinkageResolver, ModuleResolver, MoveResolver, ResourceResolver},
 };
 use std::{
-    collections::{btree_map, BTreeMap},
+    collections::{BTreeMap, btree_map},
     fmt::Debug,
 };
 
@@ -73,10 +73,10 @@ impl<'a, 'b, S: ModuleResolver> ModuleResolver for DeltaStorage<'a, 'b, S> {
     type Error = S::Error;
 
     fn get_module(&self, module_id: &ModuleId) -> Result<Option<Vec<u8>>, Self::Error> {
-        if let Some(account_storage) = self.delta.accounts().get(module_id.address()) {
-            if let Some(blob_opt) = account_storage.modules().get(module_id.name()) {
-                return Ok(blob_opt.clone().ok());
-            }
+        if let Some(account_storage) = self.delta.accounts().get(module_id.address())
+            && let Some(blob_opt) = account_storage.modules().get(module_id.name())
+        {
+            return Ok(blob_opt.clone().ok());
         }
 
         self.base.get_module(module_id)
@@ -120,8 +120,8 @@ fn apply_changes<K, V>(
 where
     K: Ord + Debug,
 {
-    use btree_map::Entry::*;
     use Op::*;
+    use btree_map::Entry::*;
 
     for (k, op) in changes.into_iter() {
         match (map.entry(k), op) {

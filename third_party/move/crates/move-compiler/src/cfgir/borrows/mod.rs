@@ -10,10 +10,10 @@ use crate::{
     diagnostics::Diagnostics,
     hlir::{
         ast::*,
-        translate::{display_var, DisplayVar},
+        translate::{DisplayVar, display_var},
     },
     parser::ast::BinOp_,
-    shared::{unique_map::UniqueMap, CompilationEnv},
+    shared::{CompilationEnv, unique_map::UniqueMap},
 };
 use move_proc_macros::growing_stack;
 

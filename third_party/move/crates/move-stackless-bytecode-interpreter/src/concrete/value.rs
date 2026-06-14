@@ -1189,7 +1189,7 @@ impl GlobalState {
     pub fn has_resource(&self, addr: &AccountAddress, key: &StructInstantiation) -> bool {
         self.accounts
             .get(addr)
-            .map_or(false, |account| account.has_resource(key))
+            .is_some_and(|account| account.has_resource(key))
     }
 
     /// Emit an event to the event store

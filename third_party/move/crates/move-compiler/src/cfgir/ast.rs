@@ -9,7 +9,7 @@ use crate::{
         BaseType, Command, Command_, EnumDefinition, FunctionSignature, Label, SingleType,
         StructDefinition, Var, Visibility,
     },
-    parser::ast::{ConstantName, DatatypeName, FunctionName, ENTRY_MODIFIER},
+    parser::ast::{ConstantName, DatatypeName, ENTRY_MODIFIER, FunctionName},
     shared::{ast_debug::*, unique_map::UniqueMap},
 };
 use move_core_types::runtime_value::MoveValue;
@@ -190,7 +190,7 @@ impl AstDebug for Program {
         let Program { modules } = self;
 
         for (m, mdef) in modules.key_cloned_iter() {
-            w.write(&format!("module {}", m));
+            w.write(format!("module {}", m));
             w.block(|w| mdef.ast_debug(w));
             w.new_line();
         }
@@ -213,7 +213,7 @@ impl AstDebug for ModuleDefinition {
         } = self;
         warning_filter.ast_debug(w);
         if let Some(n) = package_name {
-            w.writeln(&format!("{}", n))
+            w.writeln(format!("{}", n))
         }
         attributes.ast_debug(w);
         if *is_source_module {
@@ -221,9 +221,9 @@ impl AstDebug for ModuleDefinition {
         } else {
             w.writeln("source module")
         }
-        w.writeln(&format!("dependency order #{}", dependency_order));
+        w.writeln(format!("dependency order #{}", dependency_order));
         for (mident, _loc) in friends.key_cloned_iter() {
-            w.write(&format!("friend {};", mident));
+            w.write(format!("friend {};", mident));
             w.new_line();
         }
         for sdef in structs.key_cloned_iter() {
@@ -260,7 +260,7 @@ impl AstDebug for (ConstantName, &Constant) {
         ) = self;
         warning_filter.ast_debug(w);
         attributes.ast_debug(w);
-        w.write(&format!("const#{index} {name}:"));
+        w.write(format!("const#{index} {name}:"));
         signature.ast_debug(w);
         w.write(" = ");
         match value {
@@ -275,14 +275,14 @@ impl AstDebug for MoveValue {
     fn ast_debug(&self, w: &mut AstWriter) {
         use MoveValue as V;
         match self {
-            V::U8(u) => w.write(&format!("{}", u)),
-            V::U16(u) => w.write(&format!("{}", u)),
-            V::U32(u) => w.write(&format!("{}", u)),
-            V::U64(u) => w.write(&format!("{}", u)),
-            V::U128(u) => w.write(&format!("{}", u)),
-            V::U256(u) => w.write(&format!("{}", u)),
-            V::Bool(b) => w.write(&format!("{}", b)),
-            V::Address(a) => w.write(&format!("{}", a)),
+            V::U8(u) => w.write(format!("{}", u)),
+            V::U16(u) => w.write(format!("{}", u)),
+            V::U32(u) => w.write(format!("{}", u)),
+            V::U64(u) => w.write(format!("{}", u)),
+            V::U128(u) => w.write(format!("{}", u)),
+            V::U256(u) => w.write(format!("{}", u)),
+            V::Bool(b) => w.write(format!("{}", b)),
+            V::Address(a) => w.write(format!("{}", a)),
             V::Vector(vs) => {
                 w.write("vector[");
                 w.comma(vs, |w, v| v.ast_debug(w));
@@ -317,12 +317,12 @@ impl AstDebug for (FunctionName, &Function) {
         compiled_visibility.ast_debug(w);
         w.write(") ");
         if entry.is_some() {
-            w.write(&format!("{} ", ENTRY_MODIFIER));
+            w.write(format!("{} ", ENTRY_MODIFIER));
         }
         if let FunctionBody_::Native = &body.value {
             w.write("native ");
         }
-        w.write(&format!("fun#{index} {name}"));
+        w.write(format!("fun#{index} {name}"));
         signature.ast_debug(w);
         match &body.value {
             FunctionBody_::Defined {
@@ -335,7 +335,7 @@ impl AstDebug for (FunctionName, &Function) {
                 w.indent(4, |w| {
                     w.list(locals, ",", |w, (_, v, (mut_, st))| {
                         mut_.ast_debug(w);
-                        w.write(&format!("{}: ", v));
+                        w.write(format!("{}: ", v));
                         st.ast_debug(w);
                         true
                     })
@@ -344,11 +344,11 @@ impl AstDebug for (FunctionName, &Function) {
                 w.writeln("block info:");
                 w.indent(4, |w| {
                     for (lbl, info) in block_info {
-                        w.writeln(&format!("{lbl}: "));
+                        w.writeln(format!("{lbl}: "));
                         info.ast_debug(w);
                     }
                 });
-                w.writeln(&format!("start={}", start.0));
+                w.writeln(format!("start={}", start.0));
                 w.new_line();
                 blocks.ast_debug(w);
             }),
@@ -369,7 +369,7 @@ impl AstDebug for BasicBlocks {
 
 impl AstDebug for (&Label, &BasicBlock) {
     fn ast_debug(&self, w: &mut AstWriter) {
-        w.write(&format!("label {}:", (self.0).0));
+        w.write(format!("label {}:", (self.0).0));
         w.indent(4, |w| w.semicolon(self.1, |w, cmd| cmd.ast_debug(w)))
     }
 }
@@ -389,7 +389,7 @@ impl AstDebug for LoopInfo {
             is_loop_stmt,
             loop_end,
         } = self;
-        w.write(&format!(
+        w.write(format!(
             "{{ is_loop_stmt: {}, end: ",
             if *is_loop_stmt { "true" } else { "false" }
         ));
@@ -402,7 +402,7 @@ impl AstDebug for LoopEnd {
     fn ast_debug(&self, w: &mut AstWriter) {
         match self {
             LoopEnd::Unused => w.write("unused end"),
-            LoopEnd::Target(lbl) => w.write(&format!("{lbl}")),
+            LoopEnd::Target(lbl) => w.write(format!("{lbl}")),
         }
     }
 }

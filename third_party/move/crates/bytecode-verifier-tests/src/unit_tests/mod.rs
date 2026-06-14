@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use move_vm_config::verifier::{
-    MeterConfig, VerifierConfig, DEFAULT_MAX_CONSTANT_VECTOR_LEN, DEFAULT_MAX_IDENTIFIER_LENGTH,
+    DEFAULT_MAX_CONSTANT_VECTOR_LEN, DEFAULT_MAX_IDENTIFIER_LENGTH, MeterConfig, VerifierConfig,
 };
 
 pub mod ability_field_requirements_tests;

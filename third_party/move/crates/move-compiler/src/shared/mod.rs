@@ -6,12 +6,12 @@ use crate::{
     cfgir::visitor::{AbsIntVisitorObj, AbstractInterpreterVisitor},
     command_line as cli,
     diagnostics::{
-        codes::{Category, Declarations, DiagnosticsID, Severity, WarningFilter},
         Diagnostic, Diagnostics, FileName, MappedFiles, WarningFilters,
+        codes::{Category, Declarations, DiagnosticsID, Severity, WarningFilter},
     },
     editions::{
-        check_feature_or_error as edition_check_feature, feature_edition_error_msg, Edition,
-        FeatureGate, Flavor,
+        Edition, FeatureGate, Flavor, check_feature_or_error as edition_check_feature,
+        feature_edition_error_msg,
     },
     expansion::ast as E,
     naming::ast as N,
@@ -30,8 +30,8 @@ use std::{
     hash::Hash,
     rc::Rc,
     sync::{
-        atomic::{AtomicUsize, Ordering as AtomicOrdering},
         Arc,
+        atomic::{AtomicUsize, Ordering as AtomicOrdering},
     },
 };
 use vfs::{VfsError, VfsPath};
@@ -50,8 +50,8 @@ pub use ast_debug::AstDebug;
 //**************************************************************************************************
 
 pub use move_command_line_common::parser::{
-    parse_address_number as parse_address, parse_u128, parse_u16, parse_u256, parse_u32, parse_u64,
-    parse_u8, NumberFormat,
+    NumberFormat, parse_address_number as parse_address, parse_u8, parse_u16, parse_u32, parse_u64,
+    parse_u128, parse_u256,
 };
 
 //**************************************************************************************************
@@ -454,10 +454,12 @@ impl CompilationEnv {
     /// Should only be called after compilation is finished
     pub fn take_final_warning_diags(&mut self) -> Diagnostics {
         let final_diags = self.take_final_diags();
-        debug_assert!(final_diags
-            .max_severity()
-            .map(|s| s == Severity::Warning)
-            .unwrap_or(true));
+        debug_assert!(
+            final_diags
+                .max_severity()
+                .map(|s| s == Severity::Warning)
+                .unwrap_or(true)
+        );
         final_diags
     }
 
@@ -831,11 +833,11 @@ impl Visitors {
 ///
 /// * `$e` - The initial expression to start processing.
 /// * `$work_pat` - The pattern used to disassemble entries in the work queue. Note that the work
-///    queue may contain any arbitrary type (such as a tuple of a block and expression), so the
-///    work pattern is used to disassemble and bind component parts.
+///   queue may contain any arbitrary type (such as a tuple of a block and expression), so the
+///   work pattern is used to disassemble and bind component parts.
 /// * `$work_exp` - The actual expression to match on, as defined in the `$work_pat`.
 /// * `$binop_pat` - This is a pattern matched against the `$work_exp` that matches if and only if
-///    the `$work_exp` is in fact a binary operation expression.
+///   the `$work_exp` is in fact a binary operation expression.
 /// * `$bind_rhs` - This block is executed when `$work_exp` matches `$binop_pat`, with any pattern
 ///   binders from `$binop_pat` in scope. This block must return a 3-tuple consisting of the
 ///   left-hand side work queue entry, the `$optype` entry for the operand, and the right-hand side
@@ -857,7 +859,6 @@ impl Visitors {
 ///
 /// Examples of usage can be found in `expansion/`, `naming/`, `typing/`, and `hlir/`, in their
 /// respective `translation.rs` implementations.
-
 macro_rules! process_binops {
     ($optype:ty,
      $valtype:ty,
@@ -998,6 +999,7 @@ pub(crate) use format_oxford_list;
 /// - `fmt`: calls `println!("{}", val)`
 /// - `dbg`: calls `println!("{:?}", val)`
 /// - `sdbg`: calls `println!("{:#?}", val)`
+#[cfg(debug_assertions)]
 macro_rules! debug_print_format {
     ($val:expr) => {{
         $val.print();
@@ -1016,6 +1018,7 @@ macro_rules! debug_print_format {
     }};
 }
 
+#[cfg(debug_assertions)]
 pub(crate) use debug_print_format;
 
 /// Print formatter for debugging. Allows a few different forms:
@@ -1026,6 +1029,7 @@ pub(crate) use debug_print_format;
 /// `(lines name => val [; fmt]) ` as "name: " + for n in val { debug_print_format!(n; fmt) }
 ///
 /// See `debug_print_format` for different `fmt` options.
+#[cfg(debug_assertions)]
 macro_rules! debug_print_internal {
     () => {};
     (($name:expr => $val:expr $(; $fmt:ident)?)) => {
@@ -1057,11 +1061,12 @@ macro_rules! debug_print_internal {
     };
 }
 
+#[cfg(debug_assertions)]
 pub(crate) use debug_print_internal;
 
 /// Macro for a small DSL for compactling printing debug information based on the provided flag.
 ///
-///  ```
+///  ```ignore
 ///  debug_print!(
 ///      context.debug_flags.match_compilation,
 ///      ("subject" => subject),

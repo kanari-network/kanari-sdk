@@ -18,16 +18,16 @@ The following changes will be made.
 
 --- ./sources/address_migration.move
 +++ ./sources/address_migration.move
-@@ -1,2 +1,2 @@
+@@ -1,4 +1,2 @@
 -address 0x2 {
 -module m {
+-}
+-module n {
 +/* address 0x2 { */
 +module 0x2::m {
-@@ -4 +4 @@
--module n {
+@@ -5,0 +4 @@
 +module 0x2::n {
-@@ -6 +6 @@
--}
+@@ -6,0 +6 @@
 +/* } */
 --- ./sources/address_migration1.move
 +++ ./sources/address_migration1.move
@@ -52,16 +52,16 @@ The following changes will be made.
 +/* address 0x2{ */ module 0x2::m {} module 0x2::n {}/* } */
 --- ./sources/address_migration3.move
 +++ ./sources/address_migration3.move
-@@ -1,2 +1,2 @@
+@@ -1,4 +1,2 @@
 -address A {
 -module m {
+-}
+-module n {
 +/* address A { */
 +module A::m {
-@@ -4 +4 @@
--module n {
+@@ -5,0 +4 @@
 +module A::n {
-@@ -6 +6 @@
--}
+@@ -6,0 +6 @@
 +/* } */
 
 

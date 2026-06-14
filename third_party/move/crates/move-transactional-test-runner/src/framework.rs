@@ -5,10 +5,10 @@
 #![forbid(unsafe_code)]
 
 use crate::tasks::{
-    taskify, InitCommand, PrintBytecodeCommand, PublishCommand, RunCommand, SyntaxChoice,
-    TaskCommand, TaskInput,
+    InitCommand, PrintBytecodeCommand, PublishCommand, RunCommand, SyntaxChoice, TaskCommand,
+    TaskInput, taskify,
 };
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use clap::Parser;
 use move_binary_format::file_format::CompiledModule;
@@ -17,16 +17,16 @@ use move_command_line_common::{
     address::ParsedAddress,
     env::read_bool_env_var,
     files::{MOVE_EXTENSION, MOVE_IR_EXTENSION},
-    testing::{add_update_baseline_fix, format_diff, read_env_update_baseline, EXP_EXT},
+    testing::{EXP_EXT, add_update_baseline_fix, format_diff, read_env_update_baseline},
     types::ParsedType,
     values::{ParsableValue, ParsedValue},
 };
 use move_compiler::{
+    FullyCompiledProgram,
     compiled_unit::AnnotatedCompiledUnit,
     diagnostics::{Diagnostics, FilesSourceText, WarningFilters},
     editions::{Edition, Flavor},
     shared::{NumericalAddress, PackageConfig},
-    FullyCompiledProgram,
 };
 use move_core_types::{
     account_address::AccountAddress,
@@ -733,13 +733,13 @@ where
     };
     let (mut adapter, result_opt) =
         Adapter::init(default_syntax, fully_compiled_program_opt, init_opt, path).await;
-    if let Some(result) = result_opt {
-        if let Err(e) = writeln!(output, "\ninit:\n{}", result) {
-            // TODO: if this fails, it masks the actual error, need better error handling
-            // in case cleanup_resources() fails
-            adapter.cleanup_resources().await?;
-            return Err(Box::new(e));
-        }
+    if let Some(result) = result_opt
+        && let Err(e) = writeln!(output, "\ninit:\n{}", result)
+    {
+        // TODO: if this fails, it masks the actual error, need better error handling
+        // in case cleanup_resources() fails
+        adapter.cleanup_resources().await?;
+        return Err(Box::new(e));
     }
     for task in tasks {
         handle_known_task(&mut output, &mut adapter, task).await;

@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use move_binary_format::{
-    errors::{verification_error, Location, PartialVMError, PartialVMResult, VMResult},
-    file_format::{CompiledModule, SignatureToken, StructFieldInformation, TableIndex},
     IndexKind,
+    errors::{Location, PartialVMError, PartialVMResult, VMResult, verification_error},
+    file_format::{CompiledModule, SignatureToken, StructFieldInformation, TableIndex},
 };
 use move_core_types::{runtime_value::MoveValue, vm_status::StatusCode};
 use move_vm_config::verifier::VerifierConfig;
@@ -46,17 +46,17 @@ impl<'a> LimitsVerifier<'a> {
 
     fn verify_function_handles(&self, config: &VerifierConfig) -> PartialVMResult<()> {
         for (idx, function_handle) in self.module.function_handles().iter().enumerate() {
-            if let Some(limit) = config.max_generic_instantiation_length {
-                if function_handle.type_parameters.len() > limit {
-                    return Err(PartialVMError::new(StatusCode::TOO_MANY_TYPE_PARAMETERS)
-                        .at_index(IndexKind::FunctionHandle, idx as u16));
-                }
+            if let Some(limit) = config.max_generic_instantiation_length
+                && function_handle.type_parameters.len() > limit
+            {
+                return Err(PartialVMError::new(StatusCode::TOO_MANY_TYPE_PARAMETERS)
+                    .at_index(IndexKind::FunctionHandle, idx as u16));
             };
-            if let Some(limit) = config.max_function_parameters {
-                if self.module.signature_at(function_handle.parameters).0.len() > limit {
-                    return Err(PartialVMError::new(StatusCode::TOO_MANY_PARAMETERS)
-                        .at_index(IndexKind::FunctionHandle, idx as u16));
-                }
+            if let Some(limit) = config.max_function_parameters
+                && self.module.signature_at(function_handle.parameters).0.len() > limit
+            {
+                return Err(PartialVMError::new(StatusCode::TOO_MANY_PARAMETERS)
+                    .at_index(IndexKind::FunctionHandle, idx as u16));
             };
         }
         Ok(())
@@ -115,21 +115,21 @@ impl<'a> LimitsVerifier<'a> {
 
     fn verify_definitions(&self, config: &VerifierConfig) -> PartialVMResult<()> {
         let defs = self.module.function_defs();
-        if let Some(max_function_definitions) = config.max_function_definitions {
-            if defs.len() > max_function_definitions {
-                return Err(PartialVMError::new(
-                    StatusCode::MAX_FUNCTION_DEFINITIONS_REACHED,
-                ));
-            }
+        if let Some(max_function_definitions) = config.max_function_definitions
+            && defs.len() > max_function_definitions
+        {
+            return Err(PartialVMError::new(
+                StatusCode::MAX_FUNCTION_DEFINITIONS_REACHED,
+            ));
         }
 
         let defs = self.module.struct_defs();
-        if let Some(max_struct_definitions) = config.max_struct_definitions {
-            if defs.len() > max_struct_definitions {
-                return Err(PartialVMError::new(
-                    StatusCode::MAX_STRUCT_DEFINITIONS_REACHED,
-                ));
-            }
+        if let Some(max_struct_definitions) = config.max_struct_definitions
+            && defs.len() > max_struct_definitions
+        {
+            return Err(PartialVMError::new(
+                StatusCode::MAX_STRUCT_DEFINITIONS_REACHED,
+            ));
         }
         if let Some(max_fields_in_struct) = config.max_fields_in_struct {
             for def in defs {
@@ -160,11 +160,11 @@ impl<'a> LimitsVerifier<'a> {
                         )
                     })?
                 {
-                    if let Some(lim) = config.max_constant_vector_len {
-                        if cons.len() > lim as usize {
-                            return Err(PartialVMError::new(StatusCode::TOO_MANY_VECTOR_ELEMENTS)
-                                .with_message(format!("vector size limit is {}", lim)));
-                        }
+                    if let Some(lim) = config.max_constant_vector_len
+                        && cons.len() > lim as usize
+                    {
+                        return Err(PartialVMError::new(StatusCode::TOO_MANY_VECTOR_ELEMENTS)
+                            .with_message(format!("vector size limit is {}", lim)));
                     }
                 } else {
                     return Err(verification_error(

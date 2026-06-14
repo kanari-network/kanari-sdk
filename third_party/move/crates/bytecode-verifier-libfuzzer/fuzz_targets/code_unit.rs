@@ -3,22 +3,21 @@
 
 #![no_main]
 use move_binary_format::file_format::{
-    empty_module, AbilitySet, CodeUnit, Constant, FieldDefinition, FunctionDefinition,
-    FunctionHandle, FunctionHandleIndex, IdentifierIndex, ModuleHandleIndex, Signature,
-    SignatureIndex,
-    SignatureToken::{Address, Bool, U128, U64},
+    AbilitySet, CodeUnit, Constant, FieldDefinition, FunctionDefinition, FunctionHandle,
+    FunctionHandleIndex, IdentifierIndex, ModuleHandleIndex, Signature, SignatureIndex,
+    SignatureToken::{Address, Bool, U64, U128},
     StructDefinition, StructFieldInformation, StructHandle, StructHandleIndex, TypeSignature,
-    Visibility,
+    Visibility, empty_module,
 };
 use move_core_types::{account_address::AccountAddress, identifier::Identifier};
 use std::str::FromStr;
 
 use libfuzzer_sys::fuzz_target;
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn main() -> i32 {
     libfuzzer_sys::initialize(std::ptr::null(), std::ptr::null());
-    return 0;
+    0
 }
 
 fuzz_target!(|code_unit: CodeUnit| {

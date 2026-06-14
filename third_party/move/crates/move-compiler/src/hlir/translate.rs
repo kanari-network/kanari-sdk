@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    debug_display, debug_display_verbose, diag,
+    FullyCompiledProgram, debug_display, debug_display_verbose, diag,
     editions::{FeatureGate, Flavor},
     expansion::ast::{self as E, Fields, ModuleIdent, Mutability},
     hlir::{
@@ -18,7 +18,6 @@ use crate::{
     shared::{process_binops, unique_map::UniqueMap, *},
     sui_mode::ID_FIELD_NAME,
     typing::ast as T,
-    FullyCompiledProgram,
 };
 
 use move_ir_types::location::*;
@@ -125,6 +124,7 @@ type VariantPositionalMap =
 
 type StructPositionalMap = UniqueMap<ModuleIdent, UniqueMap<DatatypeName, bool>>;
 
+#[cfg(debug_assertions)]
 pub(super) struct HLIRDebugFlags {
     pub(super) match_translation: bool,
     pub(super) match_variant_translation: bool,
@@ -135,6 +135,7 @@ pub(super) struct HLIRDebugFlags {
 
 pub(super) struct Context<'env> {
     pub env: &'env mut CompilationEnv,
+    #[cfg(debug_assertions)]
     pub debug: HLIRDebugFlags,
     current_package: Option<Symbol>,
     structs: UniqueMap<ModuleIdent, UniqueMap<DatatypeName, UniqueMap<Field, usize>>>,
@@ -233,7 +234,7 @@ impl<'env> Context<'env> {
                     enum_indexed_variants.push((variant_name, vdef.index));
                     enum_variant_fields.add(variant_name, fields).unwrap();
                 }
-                enum_indexed_variants.sort_by(|(_, ndx0), (_, ndx1)| ndx0.cmp(ndx1));
+                enum_indexed_variants.sort_by_key(|(_, ndx0)| *ndx0);
                 cur_enums_variants
                     .add(
                         ename,
@@ -319,6 +320,7 @@ impl<'env> Context<'env> {
                 &mdef.enums,
             );
         }
+        #[cfg(debug_assertions)]
         let debug = HLIRDebugFlags {
             match_translation: false,
             match_variant_translation: false,
@@ -328,6 +330,7 @@ impl<'env> Context<'env> {
         };
         Context {
             env,
+            #[cfg(debug_assertions)]
             debug,
             current_package: None,
             structs,
@@ -818,7 +821,7 @@ fn struct_fields(context: &mut Context, tfields: N::StructFields) -> H::StructFi
         .into_iter()
         .map(|(f, (idx, t))| (idx, (f, base_type(context, t))))
         .collect::<Vec<_>>();
-    indexed_fields.sort_by(|(idx1, _), (idx2, _)| idx1.cmp(idx2));
+    indexed_fields.sort_by_key(|(idx1, _)| *idx1);
     H::StructFields::Defined(indexed_fields.into_iter().map(|(_, f_ty)| f_ty).collect())
 }
 
@@ -865,7 +868,7 @@ fn variant_fields(context: &mut Context, tfields: N::VariantFields) -> Vec<(Fiel
         .into_iter()
         .map(|(f, (idx, t))| (idx, (f, base_type(context, t))))
         .collect::<Vec<_>>();
-    indexed_fields.sort_by(|(idx1, _), (idx2, _)| idx1.cmp(idx2));
+    indexed_fields.sort_by_key(|(idx1, _)| *idx1);
     indexed_fields.into_iter().map(|(_, f_ty)| f_ty).collect()
 }
 
@@ -965,7 +968,7 @@ fn single_type(context: &mut Context, sp!(loc, ty_): N::Type) -> H::SingleType {
 
 fn type_(context: &mut Context, sp!(loc, ty_): N::Type) -> H::Type {
     use H::Type_ as HT;
-    use N::{TypeName_ as TN, Type_ as NT};
+    use N::{Type_ as NT, TypeName_ as TN};
     let t_ = match ty_ {
         NT::Unit => HT::Unit,
         NT::Apply(None, _, _) => {
@@ -1172,11 +1175,7 @@ fn tail(
                     block: loop_body,
                 },
             ));
-            if has_break {
-                Some(result)
-            } else {
-                None
-            }
+            if has_break { Some(result) } else { None }
         }
         e_ @ E::Loop { .. } => {
             // A loop wthout a break has no concrete type for its binders, but since we'll never
@@ -1601,7 +1600,7 @@ fn value(
                         .map(|(ndx, (f, (exp_idx, (bt, tf))))| (ndx, f, exp_idx, bt, tf))
                         .collect()
                 };
-            texp_fields.sort_by(|(_, _, eidx1, _, _), (_, _, eidx2, _, _)| eidx1.cmp(eidx2));
+            texp_fields.sort_by_key(|(_, _, eidx1, _, _)| *eidx1);
 
             let reorder_fields = texp_fields
                 .iter()
@@ -1678,7 +1677,7 @@ fn value(
                         .map(|(ndx, (f, (exp_idx, (bt, tf))))| (ndx, f, exp_idx, bt, tf))
                         .collect()
                 };
-            texp_fields.sort_by(|(_, _, eidx1, _, _), (_, _, eidx2, _, _)| eidx1.cmp(eidx2));
+            texp_fields.sort_by_key(|(_, _, eidx1, _, _)| *eidx1);
 
             let reorder_fields = texp_fields
                 .iter()
@@ -2595,7 +2594,7 @@ fn assign_struct_fields(
             })
             .collect(),
     };
-    tfields_vec.sort_by(|(idx1, _, _, _), (idx2, _, _, _)| idx1.cmp(idx2));
+    tfields_vec.sort_by_key(|(idx1, _, _, _)| *idx1);
     tfields_vec
 }
 
@@ -2625,7 +2624,7 @@ fn assign_variant_fields(
             })
             .collect(),
     };
-    tfields_vec.sort_by(|(idx1, _, _, _), (idx2, _, _, _)| idx1.cmp(idx2));
+    tfields_vec.sort_by_key(|(idx1, _, _, _)| *idx1);
     tfields_vec
 }
 

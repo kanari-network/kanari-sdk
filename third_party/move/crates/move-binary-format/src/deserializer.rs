@@ -332,7 +332,7 @@ fn read_table(cursor: &mut VersionedCursor) -> BinaryLoaderResult<Table> {
         Ok(kind) => kind,
         Err(_) => {
             return Err(PartialVMError::new(StatusCode::MALFORMED)
-                .with_message("Error reading table".to_string()))
+                .with_message("Error reading table".to_string()));
         }
     };
     let table_offset = load_table_offset(cursor)?;
@@ -345,7 +345,7 @@ fn read_table(cursor: &mut VersionedCursor) -> BinaryLoaderResult<Table> {
 /// Tables cannot have duplicates, must cover the entire blob and must be disjoint.
 fn check_tables(tables: &mut Vec<Table>, binary_len: usize) -> BinaryLoaderResult<u32> {
     // there is no real reason to pass a mutable reference but we are sorting next line
-    tables.sort_by(|t1, t2| t1.offset.cmp(&t2.offset));
+    tables.sort_by_key(|t1| t1.offset);
 
     let mut current_offset: u32 = 0;
     let mut table_types = HashSet::new();
@@ -774,7 +774,7 @@ fn load_address_identifiers(
     addresses: &mut AddressIdentifierPool,
 ) -> BinaryLoaderResult<()> {
     let mut start = table.offset as usize;
-    if table.count as usize % AccountAddress::LENGTH != 0 {
+    if !(table.count as usize).is_multiple_of(AccountAddress::LENGTH) {
         return Err(PartialVMError::new(StatusCode::MALFORMED)
             .with_message("Bad Address Identifier pool size".to_string()));
     }
@@ -1077,7 +1077,7 @@ fn load_ability_set(
             Ok(byte) => byte,
             Err(_) => {
                 return Err(PartialVMError::new(StatusCode::MALFORMED)
-                    .with_message("Unexpected EOF".to_string()))
+                    .with_message("Unexpected EOF".to_string()));
             }
         };
         match pos {
@@ -1094,9 +1094,9 @@ fn load_ability_set(
             AbilitySetPosition::FunctionTypeParameters
             | AbilitySetPosition::StructTypeParameters => {
                 let set = match DeprecatedKind::from_u8(byte)? {
-                    DeprecatedKind::ALL => AbilitySet::EMPTY,
-                    DeprecatedKind::COPYABLE => AbilitySet::EMPTY | Ability::Copy | Ability::Drop,
-                    DeprecatedKind::RESOURCE => AbilitySet::EMPTY | Ability::Key,
+                    DeprecatedKind::All => AbilitySet::EMPTY,
+                    DeprecatedKind::Copyable => AbilitySet::EMPTY | Ability::Copy | Ability::Drop,
+                    DeprecatedKind::Resource => AbilitySet::EMPTY | Ability::Key,
                 };
                 Ok(match pos {
                     AbilitySetPosition::StructHandle => unreachable!(),
@@ -1170,7 +1170,7 @@ fn load_struct_defs(
             Ok(byte) => SerializedNativeStructFlag::from_u8(byte)?,
             Err(_) => {
                 return Err(PartialVMError::new(StatusCode::MALFORMED)
-                    .with_message("Invalid field info in struct".to_string()))
+                    .with_message("Invalid field info in struct".to_string()));
             }
         };
         let field_information = match field_information_flag {
@@ -1384,15 +1384,15 @@ fn load_code(cursor: &mut VersionedCursor, code: &mut Vec<Bytecode>) -> BinaryLo
             | Opcodes::VEC_PUSH_BACK
             | Opcodes::VEC_POP_BACK
             | Opcodes::VEC_UNPACK
-            | Opcodes::VEC_SWAP => {
-                if cursor.version() < VERSION_4 {
-                    return Err(
-                        PartialVMError::new(StatusCode::MALFORMED).with_message(format!(
-                            "Vector operations not available before bytecode version {}",
-                            VERSION_4
-                        )),
-                    );
-                }
+            | Opcodes::VEC_SWAP
+                if cursor.version() < VERSION_4 =>
+            {
+                return Err(
+                    PartialVMError::new(StatusCode::MALFORMED).with_message(format!(
+                        "Vector operations not available before bytecode version {}",
+                        VERSION_4
+                    )),
+                );
             }
             _ => {}
         };
@@ -1619,17 +1619,17 @@ impl DeprecatedNominalResourceFlag {
 #[allow(non_camel_case_types)]
 #[repr(u8)]
 enum DeprecatedKind {
-    ALL                     = 0x1,
-    COPYABLE                = 0x2,
-    RESOURCE                = 0x3,
+    All                     = 0x1,
+    Copyable                = 0x2,
+    Resource                = 0x3,
 }
 
 impl DeprecatedKind {
     fn from_u8(value: u8) -> BinaryLoaderResult<DeprecatedKind> {
         match value {
-            0x1 => Ok(DeprecatedKind::ALL),
-            0x2 => Ok(DeprecatedKind::COPYABLE),
-            0x3 => Ok(DeprecatedKind::RESOURCE),
+            0x1 => Ok(DeprecatedKind::All),
+            0x2 => Ok(DeprecatedKind::Copyable),
+            0x3 => Ok(DeprecatedKind::Resource),
             _ => Err(PartialVMError::new(StatusCode::UNKNOWN_ABILITY)),
         }
     }

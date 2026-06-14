@@ -36,14 +36,14 @@ use move_model::{
     run_model_builder_with_options_and_compilation_flags,
 };
 use move_stackless_bytecode_interpreter::{
+    StacklessBytecodeInterpreter,
     concrete::{settings::InterpreterSettings, value::GlobalState},
     shared::bridge::adapt_move_vm_result,
-    StacklessBytecodeInterpreter,
 };
 use move_vm_runtime::{move_vm::MoveVM, native_functions::NativeFunctionTable};
 use move_vm_test_utils::{
-    gas_schedule::{unit_cost_schedule, CostTable, Gas, GasStatus},
     InMemoryStorage,
+    gas_schedule::{CostTable, Gas, GasStatus, unit_cost_schedule},
 };
 use rayon::prelude::*;
 use std::{collections::BTreeMap, io::Write, marker::Send, sync::Mutex, time::Instant};
@@ -290,10 +290,10 @@ impl SharedTestingConfig {
                 .map(|(bytes, _layout)| bytes)
                 .collect()
         });
-        if !self.report_stacktrace_on_abort {
-            if let Err(err) = &mut return_result {
-                err.remove_exec_state();
-            }
+        if !self.report_stacktrace_on_abort
+            && let Err(err) = &mut return_result
+        {
+            err.remove_exec_state();
         }
         let test_run_info = TestRunInfo::new(
             function_name.to_string(),

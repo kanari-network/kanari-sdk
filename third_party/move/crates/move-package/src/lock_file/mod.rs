@@ -82,10 +82,18 @@ impl LockFile {
 
     /// Consume the lock file, moving it to its final position at `lock_path`.  NOTE: If this
     /// function is not called, the contents of the lock file will be discarded.
-    pub fn commit(self, lock_path: impl AsRef<Path>) -> Result<()> {
-        self.file
-            .persist(lock_path)
-            .context("Committing lock file")?;
+    pub fn commit(mut self, lock_path: impl AsRef<Path>) -> Result<()> {
+        let lock_path = lock_path.as_ref();
+        let parent = lock_path.parent().unwrap_or_else(|| Path::new("."));
+        let mut staged = tempfile::Builder::new()
+            .prefix("Move.lock")
+            .tempfile_in(parent)
+            .context("Staging lock file for commit")?;
+
+        self.file.seek(SeekFrom::Start(0))?;
+        std::io::copy(&mut self.file, &mut staged).context("Copying lock file for commit")?;
+        staged.flush()?;
+        staged.persist(lock_path).context("Committing lock file")?;
         Ok(())
     }
 }

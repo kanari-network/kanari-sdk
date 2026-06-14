@@ -3,17 +3,18 @@
 // SPDX-License-Identifier: Apache-2.0
 #![allow(hidden_glob_reexports)]
 use crate::sandbox::utils::on_disk_state_view::OnDiskStateView;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 use move_binary_format::{
+    IndexKind,
     compatibility::Compatibility,
     errors::{Location, VMError},
     file_format::{AbilitySet, CompiledModule, FunctionDefinitionIndex, SignatureToken},
-    normalized, IndexKind,
+    normalized,
 };
 use move_bytecode_utils::Modules;
 use move_command_line_common::files::{FileHash, MOVE_COMPILED_EXTENSION};
-use move_compiler::diagnostics::{self, report_diagnostics, Diagnostic, Diagnostics, FileName};
+use move_compiler::diagnostics::{self, Diagnostic, Diagnostics, FileName, report_diagnostics};
 use move_core_types::{
     account_address::AccountAddress,
     effects::{ChangeSet, Op},
@@ -40,7 +41,7 @@ use move_vm_test_utils::gas_schedule::{CostTable, GasStatus};
 pub use on_disk_state_view::*;
 pub use package_context::*;
 
-pub fn get_gas_status(cost_table: &CostTable, gas_budget: Option<u64>) -> Result<GasStatus> {
+pub fn get_gas_status(cost_table: &CostTable, gas_budget: Option<u64>) -> Result<GasStatus<'_>> {
     let gas_status = if let Some(gas_budget) = gas_budget {
         // TODO(Gas): This should not be hardcoded.
         let max_gas_budget = u64::MAX.checked_div(1000).unwrap();
@@ -156,7 +157,9 @@ pub(crate) fn explain_publish_error(
             println!("Module {} exists already.", module_id);
         }
         BACKWARD_INCOMPATIBLE_MODULE_UPDATE => {
-            println!("Breaking change detected--publishing aborted. Re-run with --ignore-breaking-changes to publish anyway.");
+            println!(
+                "Breaking change detected--publishing aborted. Re-run with --ignore-breaking-changes to publish anyway."
+            );
 
             let old_module = state.get_module_by_id(&module_id)?.unwrap();
             let old_api = normalized::Module::new(&old_module);
@@ -175,7 +178,10 @@ pub(crate) fn explain_publish_error(
             {
                 // TODO: we could choose to make this more precise by walking the global state and looking for published
                 // structs of this type. but probably a bad idea
-                println!("Layout API for structs of module {} has changed. Need to do a data migration of published structs", module_id)
+                println!(
+                    "Layout API for structs of module {} has changed. Need to do a data migration of published structs",
+                    module_id
+                )
             } else if (Compatibility {
                 check_struct_and_pub_function_linking: true,
                 check_struct_layout: false,
@@ -189,7 +195,10 @@ pub(crate) fn explain_publish_error(
             {
                 // TODO: this will report false positives if we *are* simultaneously redeploying all dependent modules.
                 // but this is not easy to check without walking the global state and looking for everything
-                println!("Linking API for structs/functions of module {} has changed. Need to redeploy all dependent modules.", module_id)
+                println!(
+                    "Linking API for structs/functions of module {} has changed. Need to redeploy all dependent modules.",
+                    module_id
+                )
             }
         }
         CYCLIC_MODULE_DEPENDENCY => {
@@ -375,7 +384,7 @@ pub(crate) fn explain_execution_error(
 /// Return `true` if `path` is a Move bytecode file based on its extension
 pub(crate) fn is_bytecode_file(path: &Path) -> bool {
     path.extension()
-        .map_or(false, |ext| ext == MOVE_COMPILED_EXTENSION)
+        .is_some_and(|ext| ext == MOVE_COMPILED_EXTENSION)
 }
 
 /// Return `true` if path contains a valid Move bytecode module

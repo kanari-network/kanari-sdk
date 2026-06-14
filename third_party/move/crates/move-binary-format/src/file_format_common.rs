@@ -9,10 +9,10 @@
 //! integer indexes.
 //!
 //! We use LEB128 for integer compression. LEB128 is a representation from the DWARF3 spec,
-//! http://dwarfstd.org/Dwarf3Std.php or https://en.wikipedia.org/wiki/LEB128.
+//! <http://dwarfstd.org/Dwarf3Std.php> or <https://en.wikipedia.org/wiki/LEB128>.
 //! It's used to compress mostly indexes into the main binary tables.
 use crate::file_format::Bytecode;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::{
     io::{Cursor, Read},
     mem::size_of,
@@ -225,7 +225,7 @@ pub enum Opcodes {
 }
 
 /// Upper limit on the binary size
-pub const BINARY_SIZE_LIMIT: usize = usize::max_value();
+pub const BINARY_SIZE_LIMIT: usize = usize::MAX;
 
 /// A wrapper for the binary vector
 #[derive(Default, Debug)]

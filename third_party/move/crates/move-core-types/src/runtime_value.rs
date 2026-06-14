@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{account_address::AccountAddress, annotated_value as A, fmt_list, u256};
-use anyhow::{anyhow, Result as AResult};
+use anyhow::{Result as AResult, anyhow};
 use move_proc_macros::test_variant_order;
 use serde::{
+    Deserialize, Serialize,
     de::Error as DeError,
     ser::{SerializeSeq, SerializeTuple},
-    Deserialize, Serialize,
 };
 use std::fmt::{self, Debug};
 

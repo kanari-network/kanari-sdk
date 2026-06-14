@@ -25,7 +25,6 @@ use std::collections::BTreeMap;
 /// (e.g., "is it safe to deploy this new module without updating its dependents and/or restarting
 /// genesis?"), defining schemas for resources stored on-chain, and (possibly in the future)
 /// allowing module updates transactions.
-
 /// A normalized version of `SignatureToken`, a type expression appearing in struct or function
 /// declarations. Unlike `SignatureToken`s, `normalized::Type`s from different modules can safely be
 /// compared.
@@ -271,7 +270,10 @@ impl Type {
         match s {
             Struct(shi) => {
                 let s_handle = m.struct_handle_at(*shi);
-                assert!(s_handle.type_parameters.is_empty(), "A struct with N type parameters should be encoded as StructModuleInstantiation with type_arguments = [TypeParameter(1), ..., TypeParameter(N)]");
+                assert!(
+                    s_handle.type_parameters.is_empty(),
+                    "A struct with N type parameters should be encoded as StructModuleInstantiation with type_arguments = [TypeParameter(1), ..., TypeParameter(N)]"
+                );
                 let m_handle = m.module_handle_at(s_handle.module);
                 Type::Struct {
                     address: *m.address_identifier_at(m_handle.address),

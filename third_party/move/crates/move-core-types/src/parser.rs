@@ -8,7 +8,7 @@ use crate::{
     language_storage::{StructTag, TypeTag},
     transaction_argument::TransactionArgument,
 };
-use anyhow::{bail, format_err, Result};
+use anyhow::{Result, bail, format_err};
 use std::iter::Peekable;
 
 #[derive(Eq, PartialEq, Debug)]
@@ -40,7 +40,7 @@ enum Token {
     Lt,
     Gt,
     Comma,
-    EOF,
+    Eof,
 }
 
 impl Token {
@@ -66,7 +66,7 @@ fn token_as_name(tok: Token) -> Result<String> {
         SignerType => "signer".to_string(),
         Name(s) => s,
         Whitespace(_) | Address(_) | U8(_) | U16(_) | U32(_) | U64(_) | U128(_) | U256(_)
-        | Bytes(_) | ColonColon | Lt | Gt | Comma | EOF => {
+        | Bytes(_) | ColonColon | Lt | Gt | Comma | Eof => {
             bail!("Invalid token. Expected a name but got {:?}", tok)
         }
     })
@@ -359,22 +359,22 @@ where
         .into_iter()
         .filter(|tok| !tok.is_whitespace())
         .collect();
-    tokens.push(Token::EOF);
+    tokens.push(Token::Eof);
     let mut parser = Parser::new(tokens);
     let res = f(&mut parser)?;
-    parser.consume(Token::EOF)?;
+    parser.consume(Token::Eof)?;
     Ok(res)
 }
 
 pub fn parse_string_list(s: &str) -> Result<Vec<String>> {
     parse(s, |parser| {
-        parser.parse_comma_list(|parser| parser.parse_string(), Token::EOF, true)
+        parser.parse_comma_list(|parser| parser.parse_string(), Token::Eof, true)
     })
 }
 
 pub fn parse_type_tags(s: &str) -> Result<Vec<TypeTag>> {
     parse(s, |parser| {
-        parser.parse_comma_list(|parser| parser.parse_type_tag(), Token::EOF, true)
+        parser.parse_comma_list(|parser| parser.parse_type_tag(), Token::Eof, true)
     })
 }
 
@@ -386,7 +386,7 @@ pub fn parse_transaction_arguments(s: &str) -> Result<Vec<TransactionArgument>> 
     parse(s, |parser| {
         parser.parse_comma_list(
             |parser| parser.parse_transaction_argument(),
-            Token::EOF,
+            Token::Eof,
             true,
         )
     })

@@ -7,7 +7,7 @@ use crate::{
     diagnostics::codes::WarningFilter,
     expansion::ast as E,
     hlir::ast::{BaseType_, SingleType, SingleType_},
-    linters::{LintLevel, ALLOW_ATTR_CATEGORY, LINT_WARNING_PREFIX},
+    linters::{ALLOW_ATTR_CATEGORY, LINT_WARNING_PREFIX, LintLevel},
     naming::ast as N,
     typing::visitor::TypingVisitor,
 };

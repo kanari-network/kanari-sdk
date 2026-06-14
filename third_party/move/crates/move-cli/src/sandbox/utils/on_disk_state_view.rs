@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{DEFAULT_BUILD_DIR, DEFAULT_STORAGE_DIR};
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use move_binary_format::file_format::{CompiledModule, FunctionDefinitionIndex};
 use move_bytecode_utils::module_cache::GetModule;
 use move_command_line_common::files::MOVE_COMPILED_EXTENSION;
@@ -16,7 +16,7 @@ use move_core_types::{
 use move_disassembler::disassembler::Disassembler;
 use move_ir_types::location::Spanned;
 use std::{
-    fs,
+    fmt, fs,
     path::{Path, PathBuf},
 };
 
@@ -262,7 +262,7 @@ impl Default for OnDiskStateView {
     }
 }
 
-// wrappers of TypeTag, StructTag, Vec<TypeTag> to allow us to implement the FromStr/ToString traits
+// wrappers of TypeTag, StructTag, Vec<TypeTag> to allow custom display formatting
 #[derive(Debug)]
 #[allow(dead_code)]
 struct TypeID(TypeTag);
@@ -273,42 +273,43 @@ struct StructID(StructTag);
 #[allow(dead_code)]
 struct Generics(Vec<TypeTag>);
 
-impl ToString for TypeID {
-    fn to_string(&self) -> String {
+impl fmt::Display for TypeID {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.0 {
-            TypeTag::Struct(s) => StructID(*s.clone()).to_string(),
-            TypeTag::Vector(t) => format!("vector<{}>", TypeID(*t.clone()).to_string()),
-            t => t.to_string(),
+            TypeTag::Struct(s) => write!(f, "{}", StructID(*s.clone())),
+            TypeTag::Vector(t) => write!(f, "vector<{}>", TypeID(*t.clone())),
+            t => write!(f, "{t}"),
         }
     }
 }
 
-impl ToString for StructID {
-    fn to_string(&self) -> String {
+impl fmt::Display for StructID {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let tag = &self.0;
         // TODO: TypeTag parser insists on leading 0x for StructTag's, so we insert one here.
         // Would be nice to expose a StructTag parser and get rid of the 0x here
-        format!(
+        write!(
+            f,
             "0x{}::{}::{}{}",
             tag.address,
             tag.module,
             tag.name,
-            Generics(tag.type_params.clone()).to_string()
+            Generics(tag.type_params.clone())
         )
     }
 }
 
-impl ToString for Generics {
-    fn to_string(&self) -> String {
+impl fmt::Display for Generics {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.0.is_empty() {
-            "".to_string()
+            Ok(())
         } else {
             let generics: Vec<String> = self
                 .0
                 .iter()
                 .map(|t| TypeID(t.clone()).to_string())
                 .collect();
-            format!("<{}>", generics.join(","))
+            write!(f, "<{}>", generics.join(","))
         }
     }
 }

@@ -2,7 +2,7 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use move_ir_types::location::{sp, Loc};
+use move_ir_types::location::{Loc, sp};
 use move_symbol_pool::Symbol;
 
 use crate::{
@@ -10,9 +10,9 @@ use crate::{
     diag,
     parser::{
         ast::{self as P, NamePath, PathEntry},
-        filter::{filter_program, FilterContext},
+        filter::{FilterContext, filter_program},
     },
-    shared::{known_attributes, CompilationEnv},
+    shared::{CompilationEnv, known_attributes},
 };
 
 use std::sync::Arc;
@@ -130,27 +130,27 @@ fn check_has_unit_test_module(
     let has_unit_test_module = has_unit_test_module(prog)
         || pre_compiled_lib.is_some_and(|p| has_unit_test_module(&p.parser));
 
-    if !has_unit_test_module && compilation_env.flags().is_testing() {
-        if let Some(P::PackageDefinition { def, .. }) = prog
+    if !has_unit_test_module
+        && compilation_env.flags().is_testing()
+        && let Some(P::PackageDefinition { def, .. }) = prog
             .source_definitions
             .iter()
             .chain(prog.lib_definitions.iter())
             .next()
-        {
-            let loc = match def {
-                P::Definition::Module(P::ModuleDefinition { name, .. }) => name.0.loc,
-                P::Definition::Address(P::AddressDefinition { loc, .. }) => *loc,
-            };
-            compilation_env.add_diag(diag!(
-                Attributes::InvalidTest,
-                (
-                    loc,
-                    "Compilation in test mode requires passing the UnitTest module in the Move \
+    {
+        let loc = match def {
+            P::Definition::Module(P::ModuleDefinition { name, .. }) => name.0.loc,
+            P::Definition::Address(P::AddressDefinition { loc, .. }) => *loc,
+        };
+        compilation_env.add_diag(diag!(
+            Attributes::InvalidTest,
+            (
+                loc,
+                "Compilation in test mode requires passing the UnitTest module in the Move \
                      stdlib as a dependency",
-                )
-            ));
-            return false;
-        }
+            )
+        ));
+        return false;
     }
 
     true

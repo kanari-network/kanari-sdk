@@ -10,13 +10,13 @@
 //! - the handles in struct and function definitions point to the self module index
 //! - all struct and function handles pointing to the self module index have a definition
 use move_binary_format::{
-    errors::{verification_error, Location, PartialVMResult, VMResult},
+    IndexKind,
+    errors::{Location, PartialVMResult, VMResult, verification_error},
     file_format::{
         CompiledModule, Constant, FunctionHandle, FunctionHandleIndex, FunctionInstantiation,
         ModuleHandle, Signature, StructFieldInformation, StructHandle, StructHandleIndex,
         TableIndex,
     },
-    IndexKind,
 };
 use move_core_types::{
     account_address::AccountAddress, identifier::Identifier, vm_status::StatusCode,

@@ -7,18 +7,17 @@
 // Note that this allows an optional trailing comma.
 
 use crate::{
-    diag,
+    MatchedFileCommentMap, diag,
     diagnostics::{Diagnostic, Diagnostics},
     editions::{Edition, FeatureGate, UPGRADE_NOTE},
     parser::{ast::*, lexer::*, token_set::*},
     shared::*,
-    MatchedFileCommentMap,
 };
 
 use move_command_line_common::files::FileHash;
 use move_ir_types::location::*;
 use move_proc_macros::growing_stack;
-use move_symbol_pool::{symbol, Symbol};
+use move_symbol_pool::{Symbol, symbol};
 
 struct Context<'env, 'lexer, 'input> {
     current_package: Option<Symbol>,
@@ -748,32 +747,32 @@ fn parse_name_access_chain_<'a, F: Fn() -> &'a str>(
 
     let (mut is_macro, mut tys) =
         parse_macro_opt_and_tyargs_opt(context, tyargs_whitespace_allowed, ln.loc)?;
-    if let Some(loc) = &is_macro {
-        if !macros_allowed {
-            let msg = format!(
-                "Macro invocation are disallowed here. Expected {}",
-                item_description()
-            );
-            context
-                .env
-                .add_diag(diag!(Syntax::InvalidName, (*loc, msg)));
-            is_macro = None;
-        }
+    if let Some(loc) = &is_macro
+        && !macros_allowed
+    {
+        let msg = format!(
+            "Macro invocation are disallowed here. Expected {}",
+            item_description()
+        );
+        context
+            .env
+            .add_diag(diag!(Syntax::InvalidName, (*loc, msg)));
+        is_macro = None;
     }
-    if let Some(sp!(ty_loc, _)) = tys {
-        if !tyargs_allowed {
-            context.env.add_diag(diag!(
-                Syntax::InvalidName,
-                (
-                    ty_loc,
-                    format!(
-                        "Type arguments are disallowed here. Expected {}",
-                        item_description()
-                    )
+    if let Some(sp!(ty_loc, _)) = tys
+        && !tyargs_allowed
+    {
+        context.env.add_diag(diag!(
+            Syntax::InvalidName,
+            (
+                ty_loc,
+                format!(
+                    "Type arguments are disallowed here. Expected {}",
+                    item_description()
                 )
-            ));
-            tys = None;
-        }
+            )
+        ));
+        tys = None;
     }
 
     let ln = match ln {
@@ -830,29 +829,29 @@ fn parse_name_access_chain_<'a, F: Fn() -> &'a str>(
         let name = parse_identifier(context)?;
         let (mut is_macro, mut tys) =
             parse_macro_opt_and_tyargs_opt(context, tyargs_whitespace_allowed, name.loc)?;
-        if let Some(loc) = &is_macro {
-            if !macros_allowed {
-                context.env.add_diag(diag!(
-                    Syntax::InvalidName,
-                    (
-                        *loc,
-                        format!("Cannot use macro invocation '!' in {}", item_description())
-                    )
-                ));
-                is_macro = None;
-            }
+        if let Some(loc) = &is_macro
+            && !macros_allowed
+        {
+            context.env.add_diag(diag!(
+                Syntax::InvalidName,
+                (
+                    *loc,
+                    format!("Cannot use macro invocation '!' in {}", item_description())
+                )
+            ));
+            is_macro = None;
         }
-        if let Some(sp!(ty_loc, _)) = tys {
-            if !tyargs_allowed {
-                context.env.add_diag(diag!(
-                    Syntax::InvalidName,
-                    (
-                        ty_loc,
-                        format!("Cannot use type arguments in {}", item_description())
-                    )
-                ));
-                tys = None;
-            }
+        if let Some(sp!(ty_loc, _)) = tys
+            && !tyargs_allowed
+        {
+            context.env.add_diag(diag!(
+                Syntax::InvalidName,
+                (
+                    ty_loc,
+                    format!("Cannot use type arguments in {}", item_description())
+                )
+            ));
+            tys = None;
         }
 
         path.push_path_entry(name, tys, is_macro)
@@ -1248,9 +1247,11 @@ fn parse_bind(context: &mut Context) -> Result<Bind, Box<Diagnostic>> {
     // The item description specified here should include the special case above for
     // variable names, because if the current context cannot be parsed as a struct name
     // it is possible that the user intention was to use a variable name.
-    let ty = parse_name_access_chain_with_tyarg_whitespace(context, /* macros */ false, || {
-        "a variable or struct name"
-    })?;
+    let ty = parse_name_access_chain_with_tyarg_whitespace(
+        context,
+        /* macros */ false,
+        || "a variable or struct name",
+    )?;
     let args = if context.tokens.peek() == Tok::LParen {
         let current_loc = current_token_loc(context.tokens);
         context.env.check_feature(
@@ -3157,18 +3158,16 @@ fn parse_function_decl(
     );
 
     let return_type = parse_ret_type(context, name)
-        .map_err(|diag| {
+        .inspect_err(|diag| {
             context.advance_until_stop_set(Some(*diag.clone()));
-            diag
         })
         .ok();
 
     context.stop_set.remove(Tok::LBrace);
 
     let body = parse_body(context, native)
-        .map_err(|diag| {
+        .inspect_err(|diag| {
             context.advance_until_stop_set(Some(*diag.clone()));
-            diag
         })
         .ok();
 
@@ -3528,11 +3527,10 @@ fn parse_struct_decl(
 
     let mut abilities = if infix_ability_declaration_loc.is_some() {
         parse_infix_ability_declarations(context)
-            .map_err(|diag| {
+            .inspect_err(|diag| {
                 // if parsing failed, assume no abilities present even if `has` keyword was present
                 infix_ability_declaration_loc = None;
                 context.advance_until_stop_set(Some(*diag.clone()));
-                diag
             })
             .unwrap_or_default()
     } else {
@@ -3578,9 +3576,8 @@ fn parse_struct_decl(
             infix_ability_declaration_loc,
             &mut abilities,
         )
-        .map_err(|diag| {
+        .inspect_err(|diag| {
             context.advance_until_stop_set(Some(*diag.clone()));
-            diag
         })
         .ok();
     }
@@ -4085,8 +4082,7 @@ fn parse_use_decl(
         }
         _ => {
             if let Some(vis) = visibility {
-                let msg =
-                    "Invalid use declaration. Non-'use fun' declarations cannot have visibility \
+                let msg = "Invalid use declaration. Non-'use fun' declarations cannot have visibility \
                            modifiers as they are always internal";
                 context.add_diag(diag!(Syntax::InvalidModifier, (vis.loc().unwrap(), msg)));
             }
@@ -4458,7 +4454,7 @@ fn consume_spec_string(context: &mut Context) -> Result<Spanned<String>, Box<Dia
         ));
     }
 
-    s.push_str(dbg!(context.tokens.content()));
+    s.push_str(context.tokens.content());
     context.tokens.advance()?;
 
     let mut count = 1;

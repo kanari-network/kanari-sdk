@@ -4,7 +4,7 @@
 
 use crate::{
     binary_config::BinaryConfig,
-    file_format::{basic_test_module, CompiledModule},
+    file_format::{CompiledModule, basic_test_module},
     file_format_common::*,
 };
 use move_core_types::{metadata::Metadata, vm_status::StatusCode};

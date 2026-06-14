@@ -12,7 +12,7 @@ use std::{
 use crate::{
     diag,
     diagnostics::Diagnostic,
-    shared::{format_oxford_list, CompilationEnv},
+    shared::{CompilationEnv, format_oxford_list},
 };
 use move_ir_types::location::*;
 use move_symbol_pool::Symbol;
@@ -59,8 +59,7 @@ pub enum Flavor {
     Sui,
 }
 
-pub const UPGRADE_NOTE: &str =
-    "You can update the edition in the 'Move.toml', or via command line flag if invoking the \
+pub const UPGRADE_NOTE: &str = "You can update the edition in the 'Move.toml', or via command line flag if invoking the \
     compiler directly.";
 
 //**************************************************************************************************

@@ -5,6 +5,7 @@
 use crate::{
     context::Context,
     symbols::{self, DefInfo, DefLoc, PrecompiledPkgDeps, SymbolicatorRunner, Symbols},
+    utils::uri_to_file_path,
 };
 use lsp_server::Request;
 use lsp_types::{
@@ -52,9 +53,9 @@ fn keywords() -> Vec<CompletionItem> {
         .chain(PRIMITIVE_TYPES.iter())
         .map(|label| {
             let kind = if label == &"copy" || label == &"move" {
-                CompletionItemKind::Operator
+                CompletionItemKind::OPERATOR
             } else {
-                CompletionItemKind::Keyword
+                CompletionItemKind::KEYWORD
             };
             completion_item(label, kind)
         })
@@ -65,7 +66,7 @@ fn keywords() -> Vec<CompletionItem> {
 fn primitive_types() -> Vec<CompletionItem> {
     PRIMITIVE_TYPES
         .iter()
-        .map(|label| completion_item(label, CompletionItemKind::Keyword))
+        .map(|label| completion_item(label, CompletionItemKind::KEYWORD))
         .collect()
 }
 
@@ -73,7 +74,7 @@ fn primitive_types() -> Vec<CompletionItem> {
 fn builtins() -> Vec<CompletionItem> {
     BUILTINS
         .iter()
-        .map(|label| completion_item(label, CompletionItemKind::Function))
+        .map(|label| completion_item(label, CompletionItemKind::FUNCTION))
         .collect()
 }
 
@@ -122,12 +123,12 @@ fn identifiers(buffer: &str, symbols: &Symbols, path: &Path) -> Vec<CompletionIt
                     .iter()
                     .any(|m| m.functions().contains_key(&Symbol::from(*label)))
                 {
-                    completion_item(label, CompletionItemKind::Function)
+                    completion_item(label, CompletionItemKind::FUNCTION)
                 } else {
-                    completion_item(label, CompletionItemKind::Text)
+                    completion_item(label, CompletionItemKind::TEXT)
                 }
             } else {
-                completion_item(label, CompletionItemKind::Text)
+                completion_item(label, CompletionItemKind::TEXT)
             }
         })
         .collect()
@@ -141,10 +142,7 @@ fn get_cursor_token(buffer: &str, position: &Position) -> Option<Tok> {
         return None;
     }
 
-    let line = match buffer.lines().nth(position.line as usize) {
-        Some(line) => line,
-        None => return None, // Our buffer does not contain the line, and so must be out of date.
-    };
+    let line = buffer.lines().nth(position.line as usize)?;
     match line.chars().nth(position.character as usize - 1) {
         Some('.') => Some(Tok::Period),
         Some(':') => {
@@ -197,10 +195,10 @@ fn context_specific_lbrace(
             let obj_snippet = "\n\tid: UID,\n\t$1\n".to_string();
             let init_completion = CompletionItem {
                 label: "id: UID".to_string(),
-                kind: Some(CompletionItemKind::Snippet),
+                kind: Some(CompletionItemKind::SNIPPET),
                 documentation: Some(Documentation::String("Object snippet".to_string())),
                 insert_text: Some(obj_snippet),
-                insert_text_format: Some(InsertTextFormat::Snippet),
+                insert_text_format: Some(InsertTextFormat::SNIPPET),
                 ..Default::default()
             };
             completions.push(init_completion);
@@ -282,19 +280,21 @@ fn context_specific_no_trigger(
             // the init function has a struct thats an one-time-witness candidate struct
             let otw_candidate = Symbol::from(mod_ident.module.value().to_uppercase());
             let init_snippet = if def_mdef.structs().contains_key(&otw_candidate) {
-                format!("{INIT_FN_NAME}(${{1:witness}}: {otw_candidate}, {sui_ctx_arg}) {{\n\t${{2:}}\n}}\n")
+                format!(
+                    "{INIT_FN_NAME}(${{1:witness}}: {otw_candidate}, {sui_ctx_arg}) {{\n\t${{2:}}\n}}\n"
+                )
             } else {
                 format!("{INIT_FN_NAME}({sui_ctx_arg}) {{\n\t${{1:}}\n}}\n")
             };
 
             let init_completion = CompletionItem {
                 label: INIT_FN_NAME.to_string(),
-                kind: Some(CompletionItemKind::Snippet),
+                kind: Some(CompletionItemKind::SNIPPET),
                 documentation: Some(Documentation::String(
                     "Module initializer snippet".to_string(),
                 )),
                 insert_text: Some(init_snippet),
-                insert_text_format: Some(InsertTextFormat::Snippet),
+                insert_text_format: Some(InsertTextFormat::SNIPPET),
                 ..Default::default()
             };
             completions.push(init_completion);
@@ -368,12 +368,7 @@ pub fn on_completion_request(
     let parameters = serde_json::from_value::<CompletionParams>(request.params.clone())
         .expect("could not deserialize completion request");
 
-    let path = parameters
-        .text_document_position
-        .text_document
-        .uri
-        .to_file_path()
-        .unwrap();
+    let path = uri_to_file_path(&parameters.text_document_position.text_document.uri).unwrap();
 
     let items = match SymbolicatorRunner::root_dir(&path) {
         Some(pkg_path) => {
@@ -427,13 +422,12 @@ fn completion_items(
         .join(path.to_string_lossy())
         .unwrap()
         .open_file()
+        && f.read_to_string(&mut buffer).is_err()
     {
-        if f.read_to_string(&mut buffer).is_err() {
-            eprintln!(
-                "Could not read '{:?}' when handling completion request",
-                path
-            );
-        }
+        eprintln!(
+            "Could not read '{:?}' when handling completion request",
+            path
+        );
     }
     if !buffer.is_empty() {
         let mut only_custom_items = false;

@@ -16,7 +16,7 @@ use move_core_types::{
     gas_algebra::AbstractMemorySize,
     runtime_value::{MoveStructLayout, MoveTypeLayout},
     u256,
-    vm_status::{sub_status::NFE_VECTOR_ERROR_BASE, StatusCode},
+    vm_status::{StatusCode, sub_status::NFE_VECTOR_ERROR_BASE},
 };
 use std::{
     cell::RefCell,
@@ -390,7 +390,7 @@ impl Container {
                 return Err(
                     PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
                         .with_message("cannot copy a Locals container".to_string()),
-                )
+                );
             }
         })
     }
@@ -487,7 +487,7 @@ impl ValueImpl {
             | (ContainerRef(_), _)
             | (IndexedRef(_), _) => {
                 return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)
-                    .with_message(format!("cannot compare values: {:?}, {:?}", self, other)))
+                    .with_message(format!("cannot compare values: {:?}, {:?}", self, other)));
             }
         };
 
@@ -539,7 +539,7 @@ impl Container {
                         "cannot compare container values: {:?}, {:?}",
                         self, other
                     )),
-                )
+                );
             }
         };
 
@@ -649,7 +649,7 @@ impl IndexedRef {
             | (VecBool(_), _)
             | (VecAddress(_), _) => {
                 return Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR)
-                    .with_message(format!("cannot compare references {:?}, {:?}", self, other)))
+                    .with_message(format!("cannot compare references {:?}, {:?}", self, other)));
             }
         };
         Ok(res)
@@ -739,7 +739,7 @@ impl ContainerRef {
                                 )
                                 .with_message(
                                     "failed to write_ref: container type mismatch".to_string(),
-                                ))
+                                ));
                             }
                         };
                         *$r1.borrow_mut() = take_unique_ownership(r)?;
@@ -761,7 +761,7 @@ impl ContainerRef {
                         return Err(PartialVMError::new(
                             StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR,
                         )
-                        .with_message("cannot overwrite Container::Locals".to_string()))
+                        .with_message("cannot overwrite Container::Locals".to_string()));
                     }
                 }
                 self.mark_dirty();
@@ -773,7 +773,7 @@ impl ContainerRef {
                             "cannot write value {:?} to container ref {:?}",
                             v, self
                         )),
-                )
+                );
             }
         }
         Ok(())
@@ -793,7 +793,7 @@ impl IndexedRef {
                             "cannot write value {:?} to indexed ref {:?}",
                             x, self
                         )),
-                )
+                );
             }
             _ => (),
         }
@@ -825,7 +825,7 @@ impl IndexedRef {
                         "cannot write value {:?} to indexed ref {:?}",
                         x, self
                     )),
-                )
+                );
             }
         }
         self.container_ref.mark_dirty();
@@ -953,7 +953,7 @@ impl Locals {
 
             ValueImpl::ContainerRef(_) | ValueImpl::Invalid | ValueImpl::IndexedRef(_) => Err(
                 PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
-                    .with_message(format!("cannot borrow local {:?}", &v[idx])),
+                    .with_message(format!("cannot borrow local {:?}", v[idx])),
             ),
         }
     }
@@ -999,17 +999,14 @@ impl Locals {
         let mut v = self.0.borrow_mut();
         match v.get_mut(idx) {
             Some(v) => {
-                if violation_check {
-                    if let ValueImpl::Container(c) = v {
-                        if c.rc_count() > 1 {
-                            return Err(PartialVMError::new(
-                                StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR,
-                            )
-                            .with_message(
-                                "moving container with dangling references".to_string(),
-                            ));
-                        }
-                    }
+                if violation_check
+                    && let ValueImpl::Container(c) = v
+                    && c.rc_count() > 1
+                {
+                    return Err(
+                        PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
+                            .with_message("moving container with dangling references".to_string()),
+                    );
                 }
                 Ok(Value(std::mem::replace(v, x.0)))
             }
@@ -1803,7 +1800,7 @@ impl IntegerValue {
         match self {
             U8(x) => Ok(x),
             U16(x) => {
-                if x > (std::u8::MAX as u16) {
+                if x > (u8::MAX as u16) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
                         .with_message(format!("Cannot cast u16({}) to u8", x)))
                 } else {
@@ -1811,7 +1808,7 @@ impl IntegerValue {
                 }
             }
             U32(x) => {
-                if x > (std::u8::MAX as u32) {
+                if x > (u8::MAX as u32) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
                         .with_message(format!("Cannot cast u32({}) to u8", x)))
                 } else {
@@ -1819,7 +1816,7 @@ impl IntegerValue {
                 }
             }
             U64(x) => {
-                if x > (std::u8::MAX as u64) {
+                if x > (u8::MAX as u64) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
                         .with_message(format!("Cannot cast u64({}) to u8", x)))
                 } else {
@@ -1827,7 +1824,7 @@ impl IntegerValue {
                 }
             }
             U128(x) => {
-                if x > (std::u8::MAX as u128) {
+                if x > (u8::MAX as u128) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
                         .with_message(format!("Cannot cast u128({}) to u8", x)))
                 } else {
@@ -1835,7 +1832,7 @@ impl IntegerValue {
                 }
             }
             U256(x) => {
-                if x > (u256::U256::from(std::u8::MAX)) {
+                if x > (u256::U256::from(u8::MAX)) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
                         .with_message(format!("Cannot cast u256({}) to u8", x)))
                 } else {
@@ -1852,7 +1849,7 @@ impl IntegerValue {
             U8(x) => Ok(x as u16),
             U16(x) => Ok(x),
             U32(x) => {
-                if x > (std::u16::MAX as u32) {
+                if x > (u16::MAX as u32) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
                         .with_message(format!("Cannot cast u32({}) to u16", x)))
                 } else {
@@ -1860,7 +1857,7 @@ impl IntegerValue {
                 }
             }
             U64(x) => {
-                if x > (std::u16::MAX as u64) {
+                if x > (u16::MAX as u64) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
                         .with_message(format!("Cannot cast u64({}) to u16", x)))
                 } else {
@@ -1868,7 +1865,7 @@ impl IntegerValue {
                 }
             }
             U128(x) => {
-                if x > (std::u16::MAX as u128) {
+                if x > (u16::MAX as u128) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
                         .with_message(format!("Cannot cast u128({}) to u16", x)))
                 } else {
@@ -1876,7 +1873,7 @@ impl IntegerValue {
                 }
             }
             U256(x) => {
-                if x > (u256::U256::from(std::u16::MAX)) {
+                if x > (u256::U256::from(u16::MAX)) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
                         .with_message(format!("Cannot cast u256({}) to u16", x)))
                 } else {
@@ -1894,7 +1891,7 @@ impl IntegerValue {
             U16(x) => Ok(x as u32),
             U32(x) => Ok(x),
             U64(x) => {
-                if x > (std::u32::MAX as u64) {
+                if x > (u32::MAX as u64) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
                         .with_message(format!("Cannot cast u64({}) to u32", x)))
                 } else {
@@ -1902,7 +1899,7 @@ impl IntegerValue {
                 }
             }
             U128(x) => {
-                if x > (std::u32::MAX as u128) {
+                if x > (u32::MAX as u128) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
                         .with_message(format!("Cannot cast u128({}) to u32", x)))
                 } else {
@@ -1910,7 +1907,7 @@ impl IntegerValue {
                 }
             }
             U256(x) => {
-                if x > (u256::U256::from(std::u32::MAX)) {
+                if x > (u256::U256::from(u32::MAX)) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
                         .with_message(format!("Cannot cast u128({}) to u32", x)))
                 } else {
@@ -1929,7 +1926,7 @@ impl IntegerValue {
             U32(x) => Ok(x as u64),
             U64(x) => Ok(x),
             U128(x) => {
-                if x > (std::u64::MAX as u128) {
+                if x > (u64::MAX as u128) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
                         .with_message(format!("Cannot cast u128({}) to u64", x)))
                 } else {
@@ -1937,7 +1934,7 @@ impl IntegerValue {
                 }
             }
             U256(x) => {
-                if x > (u256::U256::from(std::u64::MAX)) {
+                if x > (u256::U256::from(u64::MAX)) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
                         .with_message(format!("Cannot cast u256({}) to u64", x)))
                 } else {
@@ -1957,7 +1954,7 @@ impl IntegerValue {
             U64(x) => Ok(x as u128),
             U128(x) => Ok(x),
             U256(x) => {
-                if x > (u256::U256::from(std::u128::MAX)) {
+                if x > (u256::U256::from(u128::MAX)) {
                     Err(PartialVMError::new(StatusCode::ARITHMETIC_ERROR)
                         .with_message(format!("Cannot cast u256({}) to u128", x)))
                 } else {
@@ -2266,7 +2263,7 @@ impl Vector {
                 return Err(
                     PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
                         .with_message(format!("invalid type param for vector: {:?}", type_param)),
-                )
+                );
             }
         };
 
@@ -2522,7 +2519,7 @@ impl GlobalValueImpl {
     fn move_from(&mut self) -> PartialVMResult<ValueImpl> {
         let fields = match self {
             Self::None | Self::Deleted => {
-                return Err(PartialVMError::new(StatusCode::MISSING_DATA))
+                return Err(PartialVMError::new(StatusCode::MISSING_DATA));
             }
             Self::Fresh { .. } => match std::mem::replace(self, Self::None) {
                 Self::Fresh { fields } => fields,
@@ -2548,7 +2545,7 @@ impl GlobalValueImpl {
                 return Err((
                     PartialVMError::new(StatusCode::RESOURCE_ALREADY_EXISTS),
                     val,
-                ))
+                ));
             }
             Self::None => *self = Self::fresh(val)?,
             Self::Deleted => *self = Self::cached(val, GlobalDataStatus::Dirty)?,
@@ -2724,7 +2721,7 @@ impl Display for ContainerRef {
                 f,
                 "(&container {:x} -- {:?})",
                 container.raw_address(),
-                &*status.borrow(),
+                *status.borrow(),
             ),
         }
     }
@@ -2971,9 +2968,9 @@ pub mod debug {
  *
  **************************************************************************************/
 use serde::{
+    Deserialize,
     de::Error as DeError,
     ser::{Error as SerError, SerializeSeq, SerializeTuple},
-    Deserialize,
 };
 
 impl Value {

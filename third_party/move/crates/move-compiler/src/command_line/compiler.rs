@@ -23,8 +23,8 @@ use crate::{
     unit_test,
 };
 use move_command_line_common::files::{
-    extension_equals, find_filenames_and_keep_specified, MOVE_COMPILED_EXTENSION, MOVE_EXTENSION,
-    SOURCE_MAP_EXTENSION,
+    MOVE_COMPILED_EXTENSION, MOVE_EXTENSION, SOURCE_MAP_EXTENSION, extension_equals,
+    find_filenames_and_keep_specified,
 };
 use move_core_types::language_storage::ModuleId as CompiledModuleId;
 use move_proc_macros::growing_stack;
@@ -37,9 +37,9 @@ use std::{
     sync::Arc,
 };
 use vfs::{
+    VfsPath,
     impls::{memory::MemoryFS, physical::PhysicalFS},
     path::VfsFileType,
-    VfsPath,
 };
 
 //**************************************************************************************************
@@ -86,8 +86,8 @@ enum PassResult {
     Expansion(expansion::ast::Program),
     Naming(naming::ast::Program),
     Typing(typing::ast::Program),
-    HLIR(hlir::ast::Program),
-    CFGIR(cfgir::ast::Program),
+    Hlir(hlir::ast::Program),
+    Cfgir(cfgir::ast::Program),
     Compilation(Vec<AnnotatedCompiledUnit>, /* warnings */ Diagnostics),
 }
 
@@ -587,8 +587,8 @@ ast_stepped_compilers!(
     ),
     (PASS_NAMING, naming, Naming, at_naming, new_at_naming),
     (PASS_TYPING, typing, Typing, at_typing, new_at_typing),
-    (PASS_HLIR, hlir, HLIR, at_hlir, new_at_hlir),
-    (PASS_CFGIR, cfgir, CFGIR, at_cfgir, new_at_cfgir)
+    (PASS_HLIR, hlir, Hlir, at_hlir, new_at_hlir),
+    (PASS_CFGIR, cfgir, Cfgir, at_cfgir, new_at_cfgir)
 );
 
 impl SteppedCompiler<PASS_COMPILATION> {
@@ -654,11 +654,11 @@ pub fn construct_pre_compiled_lib<Paths: Into<Symbol>, NamedAddress: Into<Symbol
             assert!(typing.is_none());
             typing = Some(tprog.clone())
         }
-        PassResult::HLIR(hprog) => {
+        PassResult::Hlir(hprog) => {
             assert!(hlir.is_none());
             hlir = Some(hprog.clone());
         }
-        PassResult::CFGIR(cprog) => {
+        PassResult::Cfgir(cprog) => {
             assert!(cfgir.is_none());
             cfgir = Some(cprog.clone());
         }
@@ -929,8 +929,8 @@ impl PassResult {
             PassResult::Expansion(_) => PASS_EXPANSION,
             PassResult::Naming(_) => PASS_NAMING,
             PassResult::Typing(_) => PASS_TYPING,
-            PassResult::HLIR(_) => PASS_HLIR,
-            PassResult::CFGIR(_) => PASS_CFGIR,
+            PassResult::Hlir(_) => PASS_HLIR,
+            PassResult::Cfgir(_) => PASS_CFGIR,
             PassResult::Compilation(_, _) => PASS_COMPILATION,
         }
     }
@@ -1014,23 +1014,23 @@ fn run(
                 rec(
                     compilation_env,
                     pre_compiled_lib,
-                    PassResult::HLIR(hprog),
+                    PassResult::Hlir(hprog),
                     until,
                     result_check,
                 )
             }
-            PassResult::HLIR(hprog) => {
+            PassResult::Hlir(hprog) => {
                 let cprog =
                     cfgir::translate::program(compilation_env, pre_compiled_lib.clone(), hprog);
                 rec(
                     compilation_env,
                     pre_compiled_lib,
-                    PassResult::CFGIR(cprog),
+                    PassResult::Cfgir(cprog),
                     until,
                     result_check,
                 )
             }
-            PassResult::CFGIR(cprog) => {
+            PassResult::Cfgir(cprog) => {
                 // Don't generate bytecode if there are any errors
                 compilation_env
                     .check_diags_at_or_above_severity(Severity::NonblockingError)

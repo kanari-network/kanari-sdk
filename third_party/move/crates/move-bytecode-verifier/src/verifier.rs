@@ -16,7 +16,7 @@ use move_binary_format::{
     errors::{Location, VMResult},
     file_format::CompiledModule,
 };
-use move_bytecode_verifier_meter::{dummy::DummyMeter, Meter};
+use move_bytecode_verifier_meter::{Meter, dummy::DummyMeter};
 use move_vm_config::verifier::VerifierConfig;
 use std::time::Instant;
 

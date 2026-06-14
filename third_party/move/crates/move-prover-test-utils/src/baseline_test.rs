@@ -34,7 +34,10 @@ pub fn verify_or_update_baseline(baseline_file_name: &Path, text: &str) -> anyho
         } else {
             String::new()
         };
-        diff(clean_for_baseline(text).as_ref(), &contents)
+        diff(
+            clean_for_baseline(text).as_ref(),
+            clean_for_baseline(&contents).as_ref(),
+        )
     }
 }
 
@@ -80,14 +83,16 @@ fn diff(old_content: &str, new_content: &str) -> anyhow::Result<()> {
     };
 
     let diff = diff_lines(new_content, old_content);
-    let mut result = vec!["
+    let mut result = vec![
+        "
 New output differs from baseline!
 Call this test with env variable UPBL=1 to regenerate or remove old baseline files.
 Then use your favorite changelist diff tool to verify you are good with the changes.
 
 Or check the rudimentary diff below:
 "
-    .to_string()];
+        .to_string(),
+    ];
     for d in diff.diff() {
         match d {
             DiffOp::Equal(lines) => print_context(&mut result, lines),
@@ -100,4 +105,17 @@ Or check the rudimentary diff below:
         }
     }
     Err(anyhow!(result.join("\n")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clean_for_baseline;
+
+    #[test]
+    fn clean_for_baseline_normalizes_line_endings() {
+        assert_eq!(
+            clean_for_baseline("first\r\nsecond\r\n"),
+            clean_for_baseline("first\nsecond\n")
+        );
+    }
 }

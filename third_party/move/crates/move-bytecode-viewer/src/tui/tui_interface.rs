@@ -7,10 +7,10 @@ use crate::tui::TUI;
 use crossterm::{
     event::EnableMouseCapture,
     execute,
-    terminal::{enable_raw_mode, EnterAlternateScreen},
+    terminal::{EnterAlternateScreen, enable_raw_mode},
 };
 use std::{error::Error, io};
-use tui::{backend::CrosstermBackend, text::Spans, Terminal};
+use tui::{Terminal, backend::CrosstermBackend, text::Spans};
 
 /// The output that will be display in the TUI. The text in the `left_screen` and `right_screen`
 /// fields will be displayed on the left screen and right screen respectively.
@@ -31,7 +31,7 @@ pub trait TUIInterface {
 
     /// Function called on each redraw. The `TUIOutput` contains that updated data to display on
     /// each pane.
-    fn on_redraw(&mut self, line_number: u16, column_number: u16) -> TUIOutput;
+    fn on_redraw(&mut self, line_number: u16, column_number: u16) -> TUIOutput<'_>;
 
     /// Bounds the line number so that it does not run past the text.
     fn bound_line(&self, line_number: u16) -> u16;
@@ -57,7 +57,7 @@ impl DebugInterface {
 impl TUIInterface for DebugInterface {
     const LEFT_TITLE: &'static str = "Left pane";
     const RIGHT_TITLE: &'static str = "Right pane";
-    fn on_redraw(&mut self, line_number: u16, column_number: u16) -> TUIOutput {
+    fn on_redraw(&mut self, line_number: u16, column_number: u16) -> TUIOutput<'_> {
         TUIOutput {
             left_screen: self.text.iter().map(|x| Spans::from(x.clone())).collect(),
             right_screen: vec![Spans::from(format!(

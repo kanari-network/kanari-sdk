@@ -5,7 +5,7 @@
 use move_binary_format::file_format::CompiledModule;
 use petgraph::graphmap::DiGraphMap;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::collections::BTreeMap;
 
 /// Directed graph capturing dependencies between modules

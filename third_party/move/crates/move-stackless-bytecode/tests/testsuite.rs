@@ -109,7 +109,7 @@ fn get_tested_transformation_pipeline(
 
 fn test_runner(path: &Path) -> datatest_stable::Result<()> {
     let mut sources = extract_test_directives(path, "// dep:")?;
-    sources.push(path.to_string_lossy().to_string());
+    sources.push(path.to_string_lossy().replace('\\', "/"));
     let env: GlobalEnv = run_model_builder_with_options(
         vec![PackagePaths {
             name: None,
@@ -179,4 +179,6 @@ fn test_runner(path: &Path) -> datatest_stable::Result<()> {
     Ok(())
 }
 
-datatest_stable::harness!(test_runner, "tests", r".*\.move");
+datatest_stable::harness! {
+    { test = test_runner, root = "tests", pattern = r".*\.move" },
+}

@@ -6,15 +6,15 @@
 use crate::{
     diag,
     diagnostics::Diagnostic,
-    editions::{create_feature_error, Edition, FeatureGate},
+    editions::{Edition, FeatureGate, create_feature_error},
     expansion::{
         alias_map_builder::{AliasEntry, AliasMapBuilder, NameSpace},
         aliases::{AliasMap, AliasSet},
         ast::{self as E, Address, ModuleIdent, ModuleIdent_},
         legacy_aliases,
         translate::{
-            is_valid_datatype_or_constant_name, make_address, module_ident, top_level_address,
-            top_level_address_opt, value, DefnContext,
+            DefnContext, is_valid_datatype_or_constant_name, make_address, module_ident,
+            top_level_address, top_level_address_opt, value,
         },
     },
     ice, ice_assert,
@@ -25,7 +25,7 @@ use crate::{
     shared::*,
 };
 
-use move_ir_types::location::{sp, Loc, Spanned};
+use move_ir_types::location::{Loc, Spanned, sp};
 
 //**************************************************************************************************
 // Definitions
@@ -296,40 +296,40 @@ impl Move2024PathExpander {
             tyargs: &Option<Spanned<Vec<Type>>>,
             result: &NR,
         ) {
-            if let NR::Address(_, _) | NR::ModuleIdent(_, _) | NR::Variant(_, _, _) = result {
-                if let Some(tyargs) = tyargs {
-                    let mut diag = diag!(
-                        NameResolution::InvalidTypeParameter,
-                        (
-                            tyargs.loc,
-                            format!("Cannot use type parameters on {}", result.err_name())
-                        )
-                    );
-                    if let NR::Variant(_, sp!(_, (mident, name)), variant) = result {
-                        let tys = tyargs
-                            .value
-                            .iter()
-                            .map(|ty| format!("{}", ty.value))
-                            .collect::<Vec<_>>()
-                            .join(",");
-                        diag.add_note(format!("Type arguments are used with the enum, as '{mident}::{name}<{tys}>::{variant}'"))
-                    }
-                    context.env.add_diag(diag);
+            if let NR::Address(_, _) | NR::ModuleIdent(_, _) | NR::Variant(_, _, _) = result
+                && let Some(tyargs) = tyargs
+            {
+                let mut diag = diag!(
+                    NameResolution::InvalidTypeParameter,
+                    (
+                        tyargs.loc,
+                        format!("Cannot use type parameters on {}", result.err_name())
+                    )
+                );
+                if let NR::Variant(_, sp!(_, (mident, name)), variant) = result {
+                    let tys = tyargs
+                        .value
+                        .iter()
+                        .map(|ty| format!("{}", ty.value))
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    diag.add_note(format!("Type arguments are used with the enum, as '{mident}::{name}<{tys}>::{variant}'"))
                 }
+                context.env.add_diag(diag);
             }
         }
 
         fn check_is_macro(context: &mut DefnContext, is_macro: &Option<Loc>, result: &NR) {
-            if let NR::Address(_, _) | NR::ModuleIdent(_, _) = result {
-                if let Some(loc) = is_macro {
-                    context.env.add_diag(diag!(
-                        NameResolution::InvalidTypeParameter,
-                        (
-                            *loc,
-                            format!("Cannot use {} as a macro invocation", result.err_name())
-                        )
-                    ));
-                }
+            if let NR::Address(_, _) | NR::ModuleIdent(_, _) = result
+                && let Some(loc) = is_macro
+            {
+                context.env.add_diag(diag!(
+                    NameResolution::InvalidTypeParameter,
+                    (
+                        *loc,
+                        format!("Cannot use {} as a macro invocation", result.err_name())
+                    )
+                ));
             }
         }
 
@@ -1175,7 +1175,7 @@ fn unexpected_address_module_error(loc: Loc, nloc: Loc, access: Access) -> Diagn
                     "ICE expected a module name and got one, but tried to report an error"
                 ),
                 (nloc, "Name location")
-            )
+            );
         }
     };
     let unexpected_msg = format!(

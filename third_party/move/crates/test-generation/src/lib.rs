@@ -15,8 +15,8 @@ pub mod transitions;
 
 use crate::config::{Args, EXECUTE_UNVERIFIED_MODULE, RUN_ON_VM};
 use bytecode_generator::BytecodeGenerator;
-use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
-use getrandom::getrandom;
+use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
+use getrandom::fill;
 use module_generation::generate_module;
 use move_binary_format::{
     errors::VMError,
@@ -38,7 +38,7 @@ use move_vm_runtime::move_vm::MoveVM;
 use move_vm_test_utils::{DeltaStorage, InMemoryStorage};
 use move_vm_types::gas::UnmeteredGasMeter;
 use once_cell::sync::Lazy;
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use std::{fs, io::Write, panic, thread};
 use tracing::{debug, error, info};
 
@@ -175,9 +175,9 @@ fn output_error_case(module: CompiledModule, output_path: Option<String>, case_i
                 .expect("Unable to serialize module");
             let output_file = format!("{}/case{}_{}.module", path, tid, case_id);
             let mut f = fs::File::create(output_file)
-                .unwrap_or_else(|err| panic!("Unable to open output file {}: {}", &path, err));
+                .unwrap_or_else(|err| panic!("Unable to open output file {}: {}", path, err));
             f.write_all(&out)
-                .unwrap_or_else(|err| panic!("Unable to write to output file {}: {}", &path, err));
+                .unwrap_or_else(|err| panic!("Unable to write to output file {}: {}", path, err));
         }
         None => {
             debug!("{:#?}", module);
@@ -198,7 +198,7 @@ fn seed(seed: Option<String>) -> [u8; 32] {
             }
         }
         None => {
-            getrandom(&mut array).unwrap();
+            fill(&mut array).unwrap();
         }
     };
     array
@@ -235,9 +235,7 @@ pub fn module_frame_generation(
     let mut module = generate_module(&mut rng, generation_options.clone());
     // Either get the number of iterations provided by the user, or iterate "infinitely"--up to
     // u128::MAX number of times.
-    let iters = num_iters
-        .map(|x| x as u128)
-        .unwrap_or_else(|| std::u128::MAX);
+    let iters = num_iters.map(|x| x as u128).unwrap_or_else(|| u128::MAX);
 
     while generated < iters && sender.send(module).is_ok() {
         module = generate_module(&mut rng, generation_options.clone());
@@ -250,7 +248,7 @@ pub fn module_frame_generation(
             };
         }
 
-        if generated > 0 && generated % 100 == 0 {
+        if generated > 0 && generated.is_multiple_of(100) {
             info!(
                 "Generated: {} Verified: {} Executed: {}",
                 generated,
@@ -300,7 +298,7 @@ pub fn bytecode_generation(
             }
             Err(e) => {
                 error!("{}", e);
-                let uid = rng.gen::<u64>();
+                let uid = rng.random::<u64>();
                 output_error_case(module.clone(), output_path.clone(), uid, tid);
                 if EXECUTE_UNVERIFIED_MODULE {
                     Some(module.clone())
@@ -324,7 +322,7 @@ pub fn bytecode_generation(
                         }
                         _ => {
                             error!("{}", e);
-                            let uid = rng.gen::<u64>();
+                            let uid = rng.random::<u64>();
                             output_error_case(module.clone(), output_path.clone(), uid, tid);
                         }
                     },

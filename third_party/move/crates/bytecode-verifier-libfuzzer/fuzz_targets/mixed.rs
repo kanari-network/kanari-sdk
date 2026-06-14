@@ -3,12 +3,12 @@
 
 #![no_main]
 use move_binary_format::file_format::{
-    empty_module, AbilitySet, Bytecode, CodeUnit, Constant, FieldDefinition, FunctionDefinition,
-    FunctionHandle, FunctionHandleIndex, IdentifierIndex, ModuleHandleIndex, Signature,
-    SignatureIndex, SignatureToken,
+    AbilitySet, Bytecode, CodeUnit, Constant, FieldDefinition, FunctionDefinition, FunctionHandle,
+    FunctionHandleIndex, IdentifierIndex, ModuleHandleIndex, Signature, SignatureIndex,
+    SignatureToken,
     SignatureToken::{Address, Bool},
     StructDefinition, StructFieldInformation, StructHandle, StructHandleIndex, TypeSignature,
-    Visibility,
+    Visibility, empty_module,
 };
 use move_core_types::{account_address::AccountAddress, identifier::Identifier};
 use std::str::FromStr;
@@ -24,10 +24,10 @@ struct Mixed {
     return_type: Option<SignatureToken>,
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn main() -> i32 {
     libfuzzer_sys::initialize(std::ptr::null(), std::ptr::null());
-    return 0;
+    0
 }
 
 fuzz_target!(|mix: Mixed| {

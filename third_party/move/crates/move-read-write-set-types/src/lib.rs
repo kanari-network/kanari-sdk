@@ -172,7 +172,7 @@ impl TrieNode {
             (Some(_), None) => self.data,
             (None, _) => acc,
         };
-        for (_, children) in self.children.iter() {
+        for children in self.children.values() {
             acc = children.get_access_impl(acc)
         }
         acc

@@ -10,13 +10,13 @@ use std::collections::BTreeMap;
 use crate::{
     diag,
     diagnostics::{
-        codes::{custom, DiagnosticInfo, Severity},
         WarningFilters,
+        codes::{DiagnosticInfo, Severity, custom},
     },
     expansion::ast as E,
     naming::ast as N,
     parser::ast::{self as P, Ability_},
-    shared::{program_info::TypingProgramInfo, CompilationEnv, Identifier},
+    shared::{CompilationEnv, Identifier, program_info::TypingProgramInfo},
     typing::{
         ast as T,
         visitor::{TypingVisitorConstructor, TypingVisitorContext},
@@ -26,8 +26,8 @@ use move_ir_types::location::*;
 use move_symbol_pool::Symbol;
 
 use super::{
-    base_type, LinterDiagCategory, FREEZE_FUN, LINTER_DEFAULT_DIAG_CODE, LINT_WARNING_PREFIX,
-    PUBLIC_FREEZE_FUN, SUI_PKG_NAME, TRANSFER_MOD_NAME,
+    FREEZE_FUN, LINT_WARNING_PREFIX, LINTER_DEFAULT_DIAG_CODE, LinterDiagCategory,
+    PUBLIC_FREEZE_FUN, SUI_PKG_NAME, TRANSFER_MOD_NAME, base_type,
 };
 
 const FREEZE_WRAPPING_DIAG: DiagnosticInfo = custom(
@@ -118,30 +118,30 @@ impl<'a> TypingVisitorContext for Context<'a> {
 
     fn visit_exp_custom(&mut self, exp: &mut T::Exp) -> bool {
         use T::UnannotatedExp_ as E;
-        if let E::ModuleCall(fun) = &exp.exp.value {
-            if FREEZE_FUNCTIONS.iter().any(|(addr, module, fname)| {
+        if let E::ModuleCall(fun) = &exp.exp.value
+            && FREEZE_FUNCTIONS.iter().any(|(addr, module, fname)| {
                 fun.module.value.is(*addr, *module) && &fun.name.value().as_str() == fname
-            }) {
-                let Some(bt) = base_type(&fun.type_arguments[0]) else {
-                    // not an (potentially dereferenced) N::Type_::Apply nor N::Type_::Param
-                    return false;
-                };
-                let N::Type_::Apply(_, tname, _) = &bt.value else {
-                    // not a struct type
-                    return false;
-                };
-                let N::TypeName_::ModuleType(mident, sname) = tname.value else {
-                    // struct with a given name not found
-                    return false;
-                };
-                if let Some(wrapping_field_info) = self.find_wrapping_field_loc(mident, sname) {
-                    add_diag(
-                        self.env,
-                        fun.arguments.exp.loc,
-                        sname.value(),
-                        wrapping_field_info,
-                    );
-                }
+            })
+        {
+            let Some(bt) = base_type(&fun.type_arguments[0]) else {
+                // not an (potentially dereferenced) N::Type_::Apply nor N::Type_::Param
+                return false;
+            };
+            let N::Type_::Apply(_, tname, _) = &bt.value else {
+                // not a struct type
+                return false;
+            };
+            let N::TypeName_::ModuleType(mident, sname) = tname.value else {
+                // struct with a given name not found
+                return false;
+            };
+            if let Some(wrapping_field_info) = self.find_wrapping_field_loc(mident, sname) {
+                add_diag(
+                    self.env,
+                    fun.arguments.exp.loc,
+                    sname.value(),
+                    wrapping_field_info,
+                );
             }
         }
         // always return false to process arguments of the call
