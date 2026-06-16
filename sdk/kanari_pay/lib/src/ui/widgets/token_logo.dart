@@ -80,7 +80,7 @@ class TokenLogo extends StatelessWidget {
         color: colorScheme.surfaceContainerHighest,
         shape: BoxShape.circle,
         border: Border.all(
-          color: colorScheme.outline.withOpacity(0.2),
+          color: colorScheme.outline.withValues(alpha: 0.2),
           width: 1.5,
         ),
       ),

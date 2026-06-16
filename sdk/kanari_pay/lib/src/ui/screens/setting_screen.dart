@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:local_auth/local_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,6 +8,7 @@ import '../../client/auth_client.dart';
 import '../../models/auth_models.dart';
 import '../../providers/theme_mode_provider.dart';
 import '../../providers/wallet_provider.dart';
+import '../../wallet_storage.dart';
 import '../widgets/app_ui.dart';
 
 class SettingScreen extends StatelessWidget {
@@ -34,10 +36,13 @@ class SettingScreen extends StatelessWidget {
             onTap: () => _showChangePinDialog(context),
           ),
           const SizedBox(height: 12),
+          const _BiometricSettingsTile(),
+          const SizedBox(height: 12),
           _SettingsTile(
             icon: Icons.shield_moon_rounded,
             title: 'Set Up Two-Factor Authentication',
-            subtitle: 'Scan QR code and protect login with an authenticator app',
+            subtitle:
+                'Scan QR code and protect login with an authenticator app',
             onTap: () => _showSetup2faDialog(context),
           ),
           const SizedBox(height: 12),
@@ -70,15 +75,70 @@ class SettingScreen extends StatelessWidget {
     );
   }
 
-  void _showChangePinDialog(BuildContext context) {
+  Future<void> _showChangePinDialog(BuildContext context) async {
     final state = context.read<WalletState>();
 
-    showDialog(
+    final currentPin = await showAppPinEntrySheet(
       context: context,
-      builder: (_) => AppPinChangeDialog(
-        onSubmit: (oldPin, newPin) => state.changePin(oldPin, newPin),
-      ),
+      title: 'Current PIN',
+      subtitle: 'Enter your current 6-digit PIN.',
+      onBiometricAuthenticate: state.authorizeWithBiometricSession,
+      biometricReason: 'Verify your identity to change the Kanari PIN',
     );
+    if (!context.mounted || currentPin == null) return;
+    final usedBiometric = currentPin == appPinBiometricResult;
+
+    if (!usedBiometric) {
+      final currentPinValid = await state.verifyPin(currentPin);
+      if (!context.mounted) return;
+
+      if (!currentPinValid) {
+        _showSettingsMessage(context, 'Invalid current PIN', isError: true);
+        return;
+      }
+    }
+
+    final newPin = await showAppPinEntrySheet(
+      context: context,
+      title: 'New PIN',
+      subtitle: 'Enter a new 6-digit PIN.',
+    );
+    if (!context.mounted || newPin == null) return;
+
+    final confirmPin = await showAppPinEntrySheet(
+      context: context,
+      title: 'Confirm PIN',
+      subtitle: 'Enter the new PIN again to confirm.',
+    );
+    if (!context.mounted || confirmPin == null) return;
+
+    if (newPin != confirmPin) {
+      _showSettingsMessage(context, 'PINs do not match', isError: true);
+      return;
+    }
+
+    final success = usedBiometric
+        ? await state.changePinWithSession(newPin)
+        : await state.changePin(currentPin, newPin);
+    if (!context.mounted) return;
+
+    _showSettingsMessage(
+      context,
+      success ? 'PIN changed successfully' : 'Failed to change PIN',
+      isError: !success,
+    );
+  }
+
+  void _showSettingsMessage(
+    BuildContext context,
+    String message, {
+    required bool isError,
+  }) {
+    if (isError) {
+      showAppErrorSnackBar(context, message);
+    } else {
+      showAppSuccessSnackBar(context, message);
+    }
   }
 
   Future<void> _showSetup2faDialog(BuildContext context) async {
@@ -87,11 +147,16 @@ class SettingScreen extends StatelessWidget {
     final email = authClient.userEmail;
 
     if (email == null || email.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please login before configuring 2FA')),
-      );
+      showAppErrorSnackBar(context, 'Please login before configuring 2FA');
       return;
     }
+
+    final authorized = await _authorizeSensitiveAction(
+      context,
+      title: 'Confirm Access',
+      subtitle: 'Authenticate before showing 2FA secret and backup codes.',
+    );
+    if (!context.mounted || !authorized) return;
 
     final passwordController = TextEditingController();
     final codeController = TextEditingController();
@@ -149,10 +214,9 @@ class SettingScreen extends StatelessWidget {
 
               if (response.success && outerContext.mounted) {
                 Navigator.of(dialogContext).pop();
-                ScaffoldMessenger.of(outerContext).showSnackBar(
-                  const SnackBar(
-                    content: Text('Two-factor authentication enabled'),
-                  ),
+                showAppSuccessSnackBar(
+                  outerContext,
+                  'Two-factor authentication enabled',
                 );
               }
             }
@@ -181,9 +245,7 @@ class SettingScreen extends StatelessWidget {
                                   setupResponse == null
                                       ? 'Set Up 2FA'
                                       : 'Confirm 2FA Setup',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleLarge
+                                  style: Theme.of(context).textTheme.titleLarge
                                       ?.copyWith(fontWeight: FontWeight.w800),
                                 ),
                               ),
@@ -233,9 +295,9 @@ class SettingScreen extends StatelessWidget {
                             Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .surfaceContainerHighest,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerHighest,
                                 borderRadius: BorderRadius.circular(16),
                               ),
                               child: SelectableText(
@@ -263,9 +325,9 @@ class SettingScreen extends StatelessWidget {
                             Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .surfaceContainerHighest,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerHighest,
                                 borderRadius: BorderRadius.circular(16),
                               ),
                               child: SelectableText(
@@ -333,11 +395,16 @@ class SettingScreen extends StatelessWidget {
     final email = authClient.userEmail;
 
     if (email == null || email.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please login before disabling 2FA')),
-      );
+      showAppErrorSnackBar(context, 'Please login before disabling 2FA');
       return;
     }
+
+    final authorized = await _authorizeSensitiveAction(
+      context,
+      title: 'Confirm Access',
+      subtitle: 'Authenticate before changing two-factor settings.',
+    );
+    if (!context.mounted || !authorized) return;
 
     final passwordController = TextEditingController();
     var isLoading = false;
@@ -370,10 +437,9 @@ class SettingScreen extends StatelessWidget {
 
               if (response.success && outerContext.mounted) {
                 Navigator.of(dialogContext).pop();
-                ScaffoldMessenger.of(outerContext).showSnackBar(
-                  const SnackBar(
-                    content: Text('Two-factor authentication disabled'),
-                  ),
+                showAppSuccessSnackBar(
+                  outerContext,
+                  'Two-factor authentication disabled',
                 );
               }
             }
@@ -491,12 +557,24 @@ class SettingScreen extends StatelessWidget {
     if (!context.mounted) return;
 
     Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          logoutAll ? 'Logged out from all devices' : 'Logged out successfully',
-        ),
-      ),
+    showAppInfoSnackBar(
+      context,
+      logoutAll ? 'Logged out from all devices' : 'Logged out successfully',
+    );
+  }
+
+  Future<bool> _authorizeSensitiveAction(
+    BuildContext context, {
+    required String title,
+    required String subtitle,
+  }) async {
+    final walletState = context.read<WalletState>();
+    return showAppPinVerificationSheet(
+      context: context,
+      onVerify: walletState.verifyPin,
+      lockRemaining: walletState.pinLockRemaining,
+      title: title,
+      subtitle: subtitle,
     );
   }
 }
@@ -508,44 +586,192 @@ class _ThemeModeCard extends StatelessWidget {
 
     return AppPanel(
       padding: EdgeInsets.zero,
-      child: Column(
-        children: [
-          RadioListTile<ThemeMode>(
-            value: ThemeMode.system,
-            groupValue: themeModeProvider.themeMode,
-            title: const Text('System'),
-            subtitle: const Text('Follow device appearance'),
-            onChanged: (value) {
-              if (value != null) {
-                themeModeProvider.setThemeMode(value);
-              }
-            },
-          ),
-          const Divider(height: 1),
-          RadioListTile<ThemeMode>(
-            value: ThemeMode.light,
-            groupValue: themeModeProvider.themeMode,
-            title: const Text('Light'),
-            subtitle: const Text('Always use the light theme'),
-            onChanged: (value) {
-              if (value != null) {
-                themeModeProvider.setThemeMode(value);
-              }
-            },
-          ),
-          const Divider(height: 1),
-          RadioListTile<ThemeMode>(
-            value: ThemeMode.dark,
-            groupValue: themeModeProvider.themeMode,
-            title: const Text('Dark'),
-            subtitle: const Text('Always use the dark theme'),
-            onChanged: (value) {
-              if (value != null) {
-                themeModeProvider.setThemeMode(value);
-              }
-            },
-          ),
-        ],
+      child: RadioGroup<ThemeMode>(
+        groupValue: themeModeProvider.themeMode,
+        onChanged: (value) {
+          if (value != null) {
+            themeModeProvider.setThemeMode(value);
+          }
+        },
+        child: Column(
+          children: const [
+            RadioListTile<ThemeMode>(
+              value: ThemeMode.system,
+              title: Text('System'),
+              subtitle: Text('Follow device appearance'),
+            ),
+            Divider(height: 1),
+            RadioListTile<ThemeMode>(
+              value: ThemeMode.light,
+              title: Text('Light'),
+              subtitle: Text('Always use the light theme'),
+            ),
+            Divider(height: 1),
+            RadioListTile<ThemeMode>(
+              value: ThemeMode.dark,
+              title: Text('Dark'),
+              subtitle: Text('Always use the dark theme'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BiometricSettingsTile extends StatefulWidget {
+  const _BiometricSettingsTile();
+
+  @override
+  State<_BiometricSettingsTile> createState() => _BiometricSettingsTileState();
+}
+
+class _BiometricSettingsTileState extends State<_BiometricSettingsTile> {
+  final LocalAuthentication _localAuth = LocalAuthentication();
+  bool _enabled = false;
+  bool _supported = false;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    var supported = false;
+    try {
+      supported =
+          await _localAuth.isDeviceSupported() &&
+          await _localAuth.canCheckBiometrics;
+    } catch (_) {
+      supported = false;
+    }
+
+    final enabled = supported && await WalletStorage.isBiometricEnabled();
+
+    if (!mounted) return;
+    setState(() {
+      _supported = supported;
+      _enabled = enabled;
+      _loading = false;
+    });
+  }
+
+  Future<void> _setEnabled(bool value) async {
+    if (_loading) return;
+    final walletState = context.read<WalletState>();
+
+    if (value && !_supported) {
+      _showMessage('Biometric authentication is not available', isError: true);
+      return;
+    }
+
+    if (!value) {
+      await walletState.disableBiometricUnlock();
+      if (!mounted) return;
+      setState(() => _enabled = false);
+      _showMessage('Biometric authentication disabled', isError: false);
+      return;
+    }
+
+    try {
+      final verified = await _localAuth.authenticate(
+        localizedReason: 'Enable biometric authentication for Kanari Wallet',
+        biometricOnly: true,
+        persistAcrossBackgrounding: true,
+      );
+
+      if (!mounted) return;
+
+      if (!verified) {
+        _showMessage('Biometric setup was cancelled', isError: true);
+        return;
+      }
+
+      final enabled = await walletState.enableBiometricUnlock();
+      if (!mounted) return;
+
+      if (!enabled) {
+        setState(() => _enabled = false);
+        _showMessage(
+          'Biometric unlock needs an active wallet session on this device',
+          isError: true,
+        );
+        return;
+      }
+
+      setState(() => _enabled = true);
+      _showMessage('Biometric authentication enabled', isError: false);
+    } catch (_) {
+      if (!mounted) return;
+      await walletState.disableBiometricUnlock();
+      setState(() => _enabled = false);
+      _showMessage('Biometric authentication failed', isError: true);
+    }
+  }
+
+  void _showMessage(String message, {required bool isError}) {
+    if (isError) {
+      showAppErrorSnackBar(context, message);
+    } else {
+      showAppSuccessSnackBar(context, message);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final subtitle = _supported
+        ? 'Use fingerprint or face unlock for wallet actions'
+        : 'Biometric authentication is not available on this device';
+
+    return Material(
+      color: colorScheme.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(20),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Row(
+          children: [
+            Icon(
+              Icons.fingerprint_rounded,
+              color: _supported
+                  ? colorScheme.primary
+                  : colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Biometric Authentication',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (_loading)
+              const SizedBox.square(
+                dimension: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              Switch(
+                value: _enabled,
+                onChanged: _supported ? _setEnabled : null,
+              ),
+          ],
+        ),
       ),
     );
   }

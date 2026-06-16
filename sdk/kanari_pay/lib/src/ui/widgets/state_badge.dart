@@ -2,6 +2,8 @@
 
 import 'package:flutter/material.dart';
 
+import 'app_ui.dart';
+
 /// Reusable widget สำหรับแสดง State badge
 class StateBadge extends StatelessWidget {
   final int state;
@@ -23,22 +25,32 @@ class StateBadge extends StatelessWidget {
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final (background, foreground) = switch (state) {
+      1 => (Colors.orange.withValues(alpha: 0.16), Colors.orange.shade800),
+      2 => (Colors.blue.withValues(alpha: 0.16), Colors.blue.shade800),
+      3 => (Colors.green.withValues(alpha: 0.16), Colors.green.shade800),
+      4 => (colorScheme.errorContainer, colorScheme.onErrorContainer),
+      _ => (colorScheme.surfaceContainerHighest, colorScheme.onSurfaceVariant),
+    };
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppUiTokens.badgeHorizontalPadding,
+        vertical: AppUiTokens.badgeVerticalPadding,
+      ),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colorScheme.outline.withOpacity(0.3)),
+        color: background,
+        borderRadius: BorderRadius.circular(AppUiTokens.pillRadius),
+        border: Border.all(color: foreground.withValues(alpha: 0.2)),
       ),
       child: Text(
         _getStateName(),
         style: TextStyle(
-          color: colorScheme.onSurface,
-          fontWeight: FontWeight.bold,
+          color: foreground,
+          fontWeight: FontWeight.w700,
           fontSize: 12,
         ),
       ),

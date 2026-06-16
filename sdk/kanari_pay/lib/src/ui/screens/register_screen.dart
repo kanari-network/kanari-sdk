@@ -80,16 +80,11 @@ class _KanariRegisterScreenState extends State<KanariRegisterScreen> {
 
       if (response.success) {
         final walletAddr = response.data?.walletAddress;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              walletAddr != null
-                  ? 'Registration successful! Wallet: ${walletAddr.substring(0, 10)}...'
-                  : 'Registration successful!',
-            ),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 4),
-          ),
+        showAppSuccessSnackBar(
+          context,
+          walletAddr != null
+              ? 'Registration successful! Wallet: ${walletAddr.substring(0, 10)}...'
+              : 'Registration successful!',
         );
         widget.onRegistrationSuccess?.call();
       } else {
@@ -260,7 +255,7 @@ class _KanariRegisterScreenState extends State<KanariRegisterScreen> {
                         ),
                         const SizedBox(height: 16),
                         DropdownButtonFormField<String>(
-                          value: _selectedCurveType,
+                          initialValue: _selectedCurveType,
                           decoration: const InputDecoration(
                             labelText: 'Curve Type',
                             prefixIcon: Icon(Icons.security_rounded),
@@ -331,7 +326,7 @@ class _RequirementsCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colorScheme.outline.withOpacity(0.2)),
+        border: Border.all(color: colorScheme.outline.withValues(alpha: 0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

@@ -1,5 +1,5 @@
 // modules/escrow/operations.dart
-/// Escrow transaction operations
+// Escrow transaction operations.
 
 import '../../client/kanari_client.dart';
 import '../../core/bcs_utils.dart';

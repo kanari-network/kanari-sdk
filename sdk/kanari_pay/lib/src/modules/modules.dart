@@ -1,5 +1,7 @@
+// ignore_for_file: dangling_library_doc_comments
+
 // modules/modules.dart
-/// Modules barrel file - Central export point for all modules
+// Modules barrel file - central export point for all modules.
 ///
 /// To use a module:
 /// ```dart
@@ -9,13 +11,11 @@
 /// final tokenOps = TokenOperations(url, queries, client);
 /// final nftQueries = NftQueries(url, baseQueries, client);
 /// ```
-
 // Core modules (implemented)
 export 'transactions/transactions.dart';
 export 'queries.dart';
 
 // Feature modules (templates - ready for implementation)
-
 
 // Future modules (uncomment when implemented)
 // export 'governance/governance.dart';

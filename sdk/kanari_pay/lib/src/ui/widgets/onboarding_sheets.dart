@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../kanaricurve.dart';
+import 'app_ui.dart';
 
 class AppCurveSelectionSheet extends StatefulWidget {
   final String title;
@@ -45,31 +46,25 @@ class _AppCurveSelectionSheetState extends State<AppCurveSelectionSheet> {
             ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 8),
-          Text(
-            widget.subtitle,
-            style: const TextStyle(fontSize: 13, color: Colors.grey),
-            textAlign: TextAlign.center,
+          const SizedBox(height: 24),
+          AppFormSection(
+            title: 'Wallet Options',
+            subtitle: widget.subtitle,
+            children: [
+              AppDropdownField<KanariCurve>(
+                initialValue: _selectedCurve,
+                label: 'Curve Type',
+                items: KanariCurve.values.map((curve) {
+                  return DropdownMenuItem(
+                    value: curve,
+                    child: Text(curve.name, overflow: TextOverflow.ellipsis),
+                  );
+                }).toList(),
+                onChanged: (val) => setState(() => _selectedCurve = val!),
+              ),
+            ],
           ),
           const SizedBox(height: 24),
-          DropdownButtonFormField<KanariCurve>(
-            initialValue: _selectedCurve,
-            isExpanded: true,
-            decoration: InputDecoration(
-              labelText: 'Curve Type',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            items: KanariCurve.values.map((curve) {
-              return DropdownMenuItem(
-                value: curve,
-                child: Text(curve.name, overflow: TextOverflow.ellipsis),
-              );
-            }).toList(),
-            onChanged: (val) => setState(() => _selectedCurve = val!),
-          ),
-          const SizedBox(height: 32),
           FilledButton(
             style: FilledButton.styleFrom(
               minimumSize: const Size(double.infinity, 56),
@@ -121,7 +116,6 @@ class _AppImportWalletSheetState extends State<AppImportWalletSheet>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -130,7 +124,8 @@ class _AppImportWalletSheetState extends State<AppImportWalletSheet>
         24,
         MediaQuery.of(context).viewInsets.bottom + 24,
       ),
-      child: SingleChildScrollView(
+      child: SizedBox(
+        height: 460,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -143,73 +138,89 @@ class _AppImportWalletSheetState extends State<AppImportWalletSheet>
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
-            TabBar(
-              controller: _tabController,
-              tabs: const [
-                Tab(text: 'Private Key'),
-                Tab(text: 'Mnemonic'),
-              ],
-            ),
-            const SizedBox(height: 24),
-            DropdownButtonFormField<KanariCurve>(
-              initialValue: _curve,
-              decoration: InputDecoration(
-                labelText: 'Curve Type',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-              items: KanariCurve.values
-                  .map((c) => DropdownMenuItem(value: c, child: Text(c.name)))
-                  .toList(),
-              onChanged: (v) => setState(() => _curve = v!),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _dataController,
-              maxLines: 3,
-              decoration: InputDecoration(
-                hintText: 'Enter your key or 12 words',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-            ),
-            const SizedBox(height: 32),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                minimumSize: const Size(double.infinity, 56),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
-              ),
-              onPressed: () {
-                if (_dataController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: const Text('Please enter your key or mnemonic'),
-                      backgroundColor: colorScheme.error,
-                    ),
-                  );
-                  return;
-                }
-
-                final isMnemonic = _tabController.index == 1;
-                Navigator.pop(context);
-                widget.onContinue(
-                  _dataController.text.trim(),
-                  _curve,
-                  isMnemonic,
-                );
-              },
-              child: const Text(
-                'Continue',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            Expanded(
+              child: AppTabPageSection(
+                controller: _tabController,
+                tabs: const [Text('Private Key'), Text('Mnemonic')],
+                viewPadding: const EdgeInsets.only(top: 24),
+                children: [
+                  _buildImportTab(
+                    context,
+                    isMnemonic: false,
+                    hintText: 'Enter your private key',
+                  ),
+                  _buildImportTab(
+                    context,
+                    isMnemonic: true,
+                    hintText: 'Enter your 12-word mnemonic phrase',
+                  ),
+                ],
               ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildImportTab(
+    BuildContext context, {
+    required bool isMnemonic,
+    required String hintText,
+  }) {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AppFormSection(
+            title: isMnemonic
+                ? 'Import From Mnemonic'
+                : 'Import From Private Key',
+            subtitle: isMnemonic
+                ? 'Paste the recovery phrase for the wallet you want to restore.'
+                : 'Paste the private key for the wallet you want to restore.',
+            children: [
+              AppDropdownField<KanariCurve>(
+                initialValue: _curve,
+                label: 'Curve Type',
+                items: KanariCurve.values
+                    .map((c) => DropdownMenuItem(value: c, child: Text(c.name)))
+                    .toList(),
+                onChanged: (v) => setState(() => _curve = v!),
+              ),
+              const SizedBox(height: AppUiTokens.cardPadding),
+              AppTextInput(
+                controller: _dataController,
+                label: isMnemonic ? 'Mnemonic Phrase' : 'Private Key',
+                hintText: hintText,
+                maxLines: 3,
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          AppWideButton(
+            onPressed: () => _continueImport(context, isMnemonic),
+            icon: isMnemonic ? Icons.key_rounded : Icons.vpn_key_rounded,
+            label: 'Continue',
+            style: AppWideButtonStyle.primary,
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _continueImport(BuildContext context, bool isMnemonic) {
+    if (_dataController.text.trim().isEmpty) {
+      showAppErrorSnackBar(
+        context,
+        isMnemonic
+            ? 'Please enter your mnemonic phrase'
+            : 'Please enter your private key',
+      );
+      return;
+    }
+
+    Navigator.pop(context);
+    widget.onContinue(_dataController.text.trim(), _curve, isMnemonic);
   }
 }

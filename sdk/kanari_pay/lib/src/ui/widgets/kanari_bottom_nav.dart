@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import 'package:kanari_pay/src/ui/screens/escrow_screen.dart';
 import 'package:kanari_pay/src/ui/screens/home_screen.dart';
+import 'package:kanari_pay/src/ui/screens/kanari_welcome_screen.dart';
 import 'package:kanari_pay/src/ui/widgets/transfer_bottom_sheet.dart';
+import 'package:kanari_pay/src/providers/wallet_provider.dart';
+import 'package:kanari_pay/theme.dart';
 
 /// Persistent Bottom Navigation Bar - แสดงทุกหน้า
 class KanariBottomNav extends StatefulWidget {
@@ -28,30 +32,25 @@ class _KanariBottomNavState extends State<KanariBottomNav> {
 
   @override
   Widget build(BuildContext context) {
+    final walletState = context.watch<WalletState>();
+    if (walletState.requiresUnlock) {
+      return const KanariWelcomeScreen();
+    }
+
     return Scaffold(
       body: SafeArea(
         bottom: false,
         child: IndexedStack(index: _currentIndex, children: _screens),
       ),
       bottomNavigationBar: SafeArea(
-        minimum: const EdgeInsets.only(top: 0),
+        minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         child: Container(
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            border: Border(
-              top: BorderSide(
-                color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
-                width: 1,
-              ),
+            color: Theme.of(context).colorScheme.surfaceContainerLowest,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outlineVariant,
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 10,
-                offset: const Offset(0, -2),
-              ),
-            ],
           ),
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
           child: Row(
@@ -112,43 +111,118 @@ class _KanariBottomNavState extends State<KanariBottomNav> {
     bool isActive,
     VoidCallback onTap,
   ) {
-    final colorScheme = Theme.of(context).colorScheme;
+    return _KanariNavItem(
+      activeIcon: activeIcon,
+      inactiveIcon: inactiveIcon,
+      label: label,
+      isActive: isActive,
+      onTap: onTap,
+    );
+  }
+}
+
+class _KanariNavItem extends StatefulWidget {
+  final IconData activeIcon;
+  final IconData inactiveIcon;
+  final String label;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  const _KanariNavItem({
+    required this.activeIcon,
+    required this.inactiveIcon,
+    required this.label,
+    required this.isActive,
+    required this.onTap,
+  });
+
+  @override
+  State<_KanariNavItem> createState() => _KanariNavItemState();
+}
+
+class _KanariNavItemState extends State<_KanariNavItem> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final duration = reduceMotion
+        ? Duration.zero
+        : const Duration(milliseconds: 220);
 
     return Expanded(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(24),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-          decoration: BoxDecoration(
-            color: isActive
-                ? colorScheme.surfaceContainerHighest.withOpacity(0.5)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                isActive ? activeIcon : inactiveIcon,
-                color: isActive
-                    ? colorScheme.primary
-                    : colorScheme.onSurfaceVariant,
-                size: 24,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: AnimatedSlide(
+          duration: duration,
+          curve: Curves.easeOutCubic,
+          offset: Offset(0, _hovered ? -.06 : 0),
+          child: InkWell(
+            onTap: widget.onTap,
+            borderRadius: BorderRadius.circular(16),
+            child: AnimatedContainer(
+              duration: duration,
+              curve: Curves.easeOutCubic,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              decoration: BoxDecoration(
+                color: widget.isActive
+                    ? KanariColors.lime
+                    : _hovered
+                    ? colors.surfaceContainerHigh
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(16),
               ),
-              const SizedBox(height: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
-                  color: isActive
-                      ? colorScheme.primary
-                      : colorScheme.onSurfaceVariant,
-                ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AnimatedScale(
+                    duration: duration,
+                    curve: Curves.easeOutBack,
+                    scale: widget.isActive || _hovered ? 1.1 : 1,
+                    child: AnimatedSwitcher(
+                      duration: duration,
+                      transitionBuilder: (child, animation) =>
+                          RotationTransition(
+                            turns: Tween<double>(
+                              begin: -.08,
+                              end: 0,
+                            ).animate(animation),
+                            child: ScaleTransition(
+                              scale: animation,
+                              child: child,
+                            ),
+                          ),
+                      child: Icon(
+                        widget.isActive
+                            ? widget.activeIcon
+                            : widget.inactiveIcon,
+                        key: ValueKey(widget.isActive),
+                        color: widget.isActive
+                            ? KanariColors.ink
+                            : colors.onSurfaceVariant,
+                        size: 24,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  AnimatedDefaultTextStyle(
+                    duration: duration,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: widget.isActive
+                          ? FontWeight.w800
+                          : FontWeight.w500,
+                      color: widget.isActive
+                          ? KanariColors.ink
+                          : colors.onSurfaceVariant,
+                    ),
+                    child: Text(widget.label),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),

@@ -32,7 +32,6 @@ class EscrowScreen extends StatefulWidget {
 class _EscrowScreenState extends State<EscrowScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
-  late ScrollController _scrollController;
 
   final _dealIdController = TextEditingController();
   final _sellerAddressController = TextEditingController();
@@ -60,14 +59,12 @@ class _EscrowScreenState extends State<EscrowScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    _scrollController = ScrollController();
     _dealIdController.text = _generateDealId();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
-    _scrollController.dispose();
     _dealIdController.dispose();
     _sellerAddressController.dispose();
     _amountController.dispose();
@@ -210,6 +207,16 @@ class _EscrowScreenState extends State<EscrowScreen>
       return;
     }
 
+    final authorized = await showAppPinVerificationSheet(
+      context: context,
+      onVerify: walletState.verifyPin,
+      lockRemaining: walletState.pinLockRemaining,
+      title: 'Confirm Escrow Action',
+      subtitle: 'Enter your 6-digit PIN to authorize this escrow transaction.',
+    );
+
+    if (!mounted || !authorized) return;
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -224,10 +231,11 @@ class _EscrowScreenState extends State<EscrowScreen>
         _errorMessage = _friendlyError(error);
       });
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -679,42 +687,12 @@ class _EscrowScreenState extends State<EscrowScreen>
     }
   }
 
-  String _stateName(int state) {
-    switch (state) {
-      case 1:
-        return 'Locked';
-      case 2:
-        return 'Delivered';
-      case 3:
-        return 'Completed';
-      case 4:
-        return 'Disputed';
-      default:
-        return 'Unknown';
-    }
-  }
-
-  Color _stateColor(int state) {
-    switch (state) {
-      case 1:
-        return Colors.orange;
-      case 2:
-        return Colors.blue;
-      case 3:
-        return Colors.green;
-      case 4:
-        return Colors.red;
-      default:
-        return Colors.grey;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    return Scaffold(
+    return AppGradientScaffold(
       backgroundColor: colorScheme.surface,
       body: _isLoadingTokens
           ? Center(child: SpinKitFadingCircle(color: colorScheme.primary))
@@ -722,120 +700,42 @@ class _EscrowScreenState extends State<EscrowScreen>
               onRefresh: _loadSpendableCoinTypes,
               backgroundColor: colorScheme.surface,
               color: colorScheme.primary,
-              child: CustomScrollView(
-                controller: _scrollController,
-                slivers: [
-                  // TabBar in Sliver
-                  SliverToBoxAdapter(
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.03),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: TabBar(
-                        controller: _tabController,
-                        labelColor: colorScheme.onSurface,
-                        unselectedLabelColor: colorScheme.onSurfaceVariant,
-                        indicator: BoxDecoration(
-                          color: colorScheme.surface,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            // ignore: deprecated_member_use
-                            color: colorScheme.outline.withOpacity(0.15),
-                            width: 1.5,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.04),
-                              blurRadius: 4,
-                              offset: const Offset(0, 1),
-                            ),
-                          ],
-                        ),
-                        indicatorWeight: 0,
-                        dividerColor: Colors.transparent,
-                        labelPadding: EdgeInsets.zero,
-                        tabAlignment: TabAlignment.fill,
-                        isScrollable: false,
-                        labelStyle: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
-                          letterSpacing: 0.3,
-                        ),
-                        unselectedLabelStyle: TextStyle(
-                          fontWeight: FontWeight.w500,
-                          fontSize: 13,
-                          letterSpacing: 0.3,
-                        ),
-                        overlayColor: WidgetStateProperty.resolveWith((states) {
-                          if (states.contains(WidgetState.pressed)) {
-                            return colorScheme.primary.withOpacity(0.08);
-                          }
-                          return null;
-                        }),
-                        splashFactory: InkSplash.splashFactory,
-                        tabs: const [
-                          Tab(
-                            height: 48,
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.add_business_rounded, size: 18),
-                                SizedBox(width: 6),
-                                Text('Create'),
-                              ],
-                            ),
-                          ),
-                          Tab(
-                            height: 48,
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.list_rounded, size: 18),
-                                SizedBox(width: 6),
-                                Text('Deals'),
-                              ],
-                            ),
-                          ),
-                          Tab(
-                            height: 48,
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.history_rounded, size: 18),
-                                SizedBox(width: 6),
-                                Text('History'),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+              child: AppTabPageSection(
+                controller: _tabController,
+                tabBarMargin: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                tabs: const [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.add_business_rounded, size: 18),
+                      SizedBox(width: 6),
+                      Text('Create'),
+                    ],
                   ),
-
-                  // Tab Content
-                  SliverFillRemaining(
-                    hasScrollBody: true,
-                    child: TabBarView(
-                      controller: _tabController,
-                      children: [
-                        _buildCreateDealTab(),
-                        _buildManageDealsTab(),
-                        _buildHistoryTab(),
-                      ],
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.list_rounded, size: 18),
+                      SizedBox(width: 6),
+                      Text('Deals'),
+                    ],
                   ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.history_rounded, size: 18),
+                      SizedBox(width: 6),
+                      Text('History'),
+                    ],
+                  ),
+                ],
+                children: [
+                  _buildCreateDealTab(),
+                  _buildManageDealsTab(),
+                  _buildHistoryTab(),
                 ],
               ),
             ),
@@ -883,26 +783,21 @@ class _EscrowScreenState extends State<EscrowScreen>
                 else if (spendableOptions.isEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 12),
-                    child: Text(
-                      'No spendable escrow token was found in this wallet yet.',
-                      style: TextStyle(color: colorScheme.error),
+                    child: const AppStatusBanner(
+                      message:
+                          'No spendable escrow token was found in this wallet yet.',
+                      tone: AppStatusTone.warning,
                     ),
                   )
                 else
                   Padding(
                     padding: const EdgeInsets.only(top: 12),
-                    child: DropdownButtonFormField<String>(
+                    child: AppDropdownField<String>(
                       initialValue: _selectedTokenType,
+                      label: 'Escrow Token',
+                      prefixIcon: Icons.account_balance_wallet_outlined,
                       isExpanded:
                           true, // ← เพิ่มเพื่อให้ dropdown ใช้พื้นที่เต็มที่
-                      decoration: const InputDecoration(
-                        labelText: 'Escrow Token',
-                        prefixIcon: Icon(Icons.account_balance_wallet_outlined),
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 16,
-                        ),
-                      ),
                       items: spendableOptions
                           .map(
                             (option) => DropdownMenuItem<String>(
@@ -932,7 +827,11 @@ class _EscrowScreenState extends State<EscrowScreen>
                       children: [
                         Text(
                           'Balances found but not selectable for escrow:',
-                          style: TextStyle(color: colorScheme.error),
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                                fontWeight: FontWeight.w600,
+                              ),
                         ),
                         const SizedBox(height: 8),
                         ...balanceOnlyOptions.map(
@@ -961,24 +860,20 @@ class _EscrowScreenState extends State<EscrowScreen>
             helperText: 'Address of the seller',
           ),
           const SizedBox(height: 12),
-          TextFormField(
+          AppTextInput(
             controller: _amountController,
+            label: 'Amount',
+            hintText: 'Enter amount in smallest unit',
+            prefixIcon: Icons.payments,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              labelText: 'Amount',
-              hintText: 'Enter amount in smallest unit',
-              prefixIcon: Icon(Icons.payments),
-            ),
           ),
           const SizedBox(height: 12),
-          TextFormField(
+          AppTextInput(
             controller: _descriptionController,
+            label: 'Description',
+            hintText: 'Describe the deal',
+            prefixIcon: Icons.description,
             maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'Description',
-              hintText: 'Describe the deal',
-              prefixIcon: Icon(Icons.description),
-            ),
           ),
           const SizedBox(height: 24),
           // ใช้ AppWideButton แทน ElevatedButton
@@ -1011,19 +906,10 @@ class _EscrowScreenState extends State<EscrowScreen>
 
           // แสดง current deal state ถ้ามี
           if (_currentDealState != null) ...[
-            AppPanel(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Current State:',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurface.withOpacity(0.7),
-                    ),
-                  ),
-                  _buildStateBadge(_currentDealState!),
-                ],
-              ),
+            AppAccountSummaryPanel(
+              title: 'Current State',
+              subtitle: 'Live state for the selected deal',
+              trailing: _buildStateBadge(_currentDealState!),
             ),
             const SizedBox(height: 16),
           ],
@@ -1032,17 +918,10 @@ class _EscrowScreenState extends State<EscrowScreen>
           if (_allDeals.length > 1) ...[
             AppSectionTitle('Select Deal'),
             const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              value: _selectedDealId,
+            AppDropdownField<String>(
+              initialValue: _selectedDealId,
+              label: 'Deal ID',
               isExpanded: true, // ← เพิ่มเพื่อใช้พื้นที่เต็มที่
-              decoration: const InputDecoration(
-                labelText: 'Deal ID',
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 16,
-                ),
-              ),
               items: _allDeals.map((deal) {
                 final dealId = deal['deal_id'] as String? ?? 'Unknown';
                 final rawAmount = deal['amount'] as int? ?? 0;
@@ -1119,43 +998,19 @@ class _EscrowScreenState extends State<EscrowScreen>
           ),
           const SizedBox(height: 12),
           // เพิ่ม input field สำหรับเหตุผล dispute
-          TextFormField(
+          AppTextInput(
             controller: _disputeReasonController,
+            label: 'Dispute Reason',
+            hintText: 'Explain why you are raising a dispute',
+            prefixIcon: Icons.gavel,
             maxLines: 2,
-            decoration: const InputDecoration(
-              labelText: 'Dispute Reason',
-              hintText: 'Explain why you are raising a dispute',
-              prefixIcon: Icon(Icons.gavel),
-            ),
           ),
           const SizedBox(height: 12),
           // Warning: Dispute will refund immediately
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: colorScheme.errorContainer.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: colorScheme.error.withOpacity(0.3)),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.warning_amber_rounded,
-                  color: colorScheme.error,
-                  size: 20,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Dispute will refund funds to buyer immediately. Cannot be reversed.',
-                    style: TextStyle(
-                      color: colorScheme.onErrorContainer,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+          const AppStatusBanner(
+            message:
+                'Dispute will refund funds to buyer immediately. Cannot be reversed.',
+            tone: AppStatusTone.warning,
           ),
           const SizedBox(height: 12),
           _buildOutlinedButton(
@@ -1280,17 +1135,12 @@ class _EscrowScreenState extends State<EscrowScreen>
     required String subtitle,
     Widget? child,
   }) {
-    return AppPanel(
+    return AppFormSection(
+      title: title,
+      subtitle: subtitle,
       padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AppSectionTitle(title),
-          const SizedBox(height: 4),
-          Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
-          if (child != null) child,
-        ],
-      ),
+      spacing: AppUiTokens.contentSpacing,
+      child: child,
     );
   }
 
@@ -1307,38 +1157,15 @@ class _EscrowScreenState extends State<EscrowScreen>
         if (isError)
           AppErrorBanner(message: message)
         else
-          Container(
-            margin: const EdgeInsets.only(bottom: 16),
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: Colors.green.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.green.withOpacity(0.3)),
-            ),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.check_circle_outline_rounded,
-                  color: Colors.green,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    message,
-                    style: const TextStyle(color: Colors.green),
-                  ),
-                ),
-                IconButton(
-                  onPressed: () {
-                    setState(() {
-                      _errorMessage = null;
-                      _successMessage = null;
-                    });
-                  },
-                  icon: const Icon(Icons.close, color: Colors.green),
-                ),
-              ],
-            ),
+          AppStatusBanner(
+            message: message,
+            tone: AppStatusTone.success,
+            onDismiss: () {
+              setState(() {
+                _errorMessage = null;
+                _successMessage = null;
+              });
+            },
           ),
       ],
     );
@@ -1377,7 +1204,7 @@ class _EscrowScreenState extends State<EscrowScreen>
   String _generateDealId() {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final random = DateTime.now().microsecondsSinceEpoch % 10000;
-    return 'deal-${timestamp}-${random.toString().padLeft(4, '0')}';
+    return 'deal-$timestamp-${random.toString().padLeft(4, '0')}';
   }
 
   /// ดึง wallet address ปัจจุบัน
@@ -1443,122 +1270,39 @@ class _EscrowScreenState extends State<EscrowScreen>
     String? helperText,
     VoidCallback? onChanged,
   }) {
-    return Row(
-      children: [
-        Expanded(
-          child: TextFormField(
-            controller: controller,
-            onChanged: (value) {
-              if (onChanged != null) {
-                onChanged();
-              }
-            },
-            decoration: InputDecoration(
-              labelText: label,
-              hintText: hintText,
-              prefixIcon: Icon(prefixIcon, size: 20),
-              prefixIconConstraints: const BoxConstraints(
-                minWidth: 40,
-                minHeight: 40,
-              ),
-              helperText: helperText,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 16,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 4),
-        SizedBox(
-          width: 40,
-          height: 40,
-          child: IconButton(
-            onPressed: _isLoading ? null : onAutofill,
-            icon: const Icon(Icons.person_pin, size: 20),
-            tooltip: 'Use my wallet address',
-            padding: EdgeInsets.zero,
-          ),
-        ),
-      ],
+    return AppActionTextField(
+      controller: controller,
+      label: label,
+      hintText: hintText,
+      prefixIcon: prefixIcon,
+      helperText: helperText,
+      enabled: !_isLoading,
+      onChanged: onChanged == null ? null : (_) => onChanged(),
+      onAction: onAutofill,
+      actionIcon: Icons.person_pin,
+      actionTooltip: 'Use my wallet address',
     );
   }
 
   /// Widget สำหรับ Deal ID input พร้อมปุ่ม refresh
   Widget _buildDealIdInput() {
-    return Row(
-      children: [
-        Expanded(
-          child: TextFormField(
-            controller: _dealIdController,
-            decoration: const InputDecoration(
-              labelText: 'Deal ID',
-              hintText: 'Auto-generated',
-              prefixIcon: Icon(Icons.tag, size: 20),
-              prefixIconConstraints: BoxConstraints(
-                minWidth: 40,
-                minHeight: 40,
-              ),
-              helperText: 'Auto-generated, but you can edit it',
-              contentPadding: EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 16,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 4),
-        SizedBox(
-          width: 40,
-          height: 40,
-          child: IconButton(
-            onPressed: _isLoading ? null : _refreshDealId,
-            icon: const Icon(Icons.refresh, size: 20),
-            tooltip: 'Generate new Deal ID',
-            padding: EdgeInsets.zero,
-          ),
-        ),
-      ],
+    return AppActionTextField(
+      controller: _dealIdController,
+      label: 'Deal ID',
+      hintText: 'Auto-generated',
+      prefixIcon: Icons.tag,
+      helperText: 'Auto-generated, but you can edit it',
+      enabled: !_isLoading,
+      onAction: _refreshDealId,
+      actionIcon: Icons.refresh_rounded,
+      actionTooltip: 'Generate new Deal ID',
     );
   }
 
   /// Widget สำหรับแสดง state badge
-  Widget _buildStateBadge(int state) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: _stateColor(state),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        _stateName(state),
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
-  }
+  Widget _buildStateBadge(int state) => StateBadge(state: state);
 
   /// Widget สำหรับ detail row
-  Widget _buildDetailRow(String label, String value) {
-    return Row(
-      children: [
-        Text(
-          '$label: ',
-          style: const TextStyle(
-            fontWeight: FontWeight.w500,
-            color: Colors.grey,
-          ),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: const TextStyle(fontWeight: FontWeight.bold),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
-    );
-  }
+  Widget _buildDetailRow(String label, String value) =>
+      AppDetailRow(label: label, value: value);
 }

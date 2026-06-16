@@ -1,5 +1,3 @@
-library kanari_pay;
-
 export 'src/client/kanari_client.dart';
 export 'src/client/escrow_client.dart';
 export 'src/kanari_wallet.dart';

@@ -27,7 +27,7 @@ class ActionButton extends StatelessWidget {
           : colorScheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: colorScheme.outline.withOpacity(0.2)),
+        side: BorderSide(color: colorScheme.outline.withValues(alpha: 0.2)),
       ),
       child: InkWell(
         onTap: onPressed,
@@ -39,7 +39,9 @@ class ActionButton extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: isPrimary ? colorScheme.onSurface : colorScheme.surfaceContainerHighest,
+                  color: isPrimary
+                      ? colorScheme.onSurface
+                      : colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(

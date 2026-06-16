@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:kanari_pay/kanari_pay.dart';
 import '../core/token_utils.dart' as token_utils;
@@ -8,12 +10,14 @@ class WalletState extends ChangeNotifier {
   KanariClient? _client;
   KanariWallet? _wallet;
   List<Map<String, dynamic>> _wallets = [];
+  final Map<String, Map<String, dynamic>> _decryptedWalletCache = {};
   List<TokenBalance> _tokenBalances = [];
 
   bool _isLoading = false;
   String? _error;
   String? _activeWalletId;
   String? _authenticatedWalletId;
+  String? _sessionPin;
   KanariEnvironment _environment = KanariEnvironment.dev;
   bool _isUnlocked = false;
 
@@ -28,6 +32,7 @@ class WalletState extends ChangeNotifier {
   bool get hasWallet => _wallets.isNotEmpty;
   KanariEnvironment get environment => _environment;
   bool get isUnlocked => _isUnlocked;
+  bool get requiresUnlock => hasWallet && !_isUnlocked;
 
   TokenBalance? get kanariTokenBalance {
     for (final token in _tokenBalances) {
@@ -53,18 +58,19 @@ class WalletState extends ChangeNotifier {
 
     for (final walletData in _wallets) {
       try {
-        final candidateWallet = await _walletFromData(walletData);
-        if (_normalizeWalletAddress(candidateWallet.address) !=
-            normalizedTarget) {
+        final candidateAddress = walletData['address']?.toString();
+        if (candidateAddress == null ||
+            _normalizeWalletAddress(candidateAddress) != normalizedTarget) {
           continue;
         }
 
         await WalletStorage.setActiveWallet(walletData['id']);
         _activeWalletId = walletData['id'];
         _authenticatedWalletId = walletData['id'];
-        _wallet = candidateWallet;
-        _isUnlocked = true;
-        await refreshBalance();
+        if (_sessionPin != null) {
+          await _instantiateWalletById(walletData['id'], pin: _sessionPin);
+          _isUnlocked = true;
+        }
         notifyListeners();
         return true;
       } catch (e) {
@@ -97,14 +103,7 @@ class WalletState extends ChangeNotifier {
     });
   }
 
-  Future<void> loadWallets() async {
-    _wallets = await WalletStorage.loadAllWallets();
-    if (_wallets.isNotEmpty) {
-      await _loadActiveWallet();
-    }
-  }
-
-  Future<void> _loadActiveWallet() async {
+  Future<void> _loadActiveWallet({String? pin}) async {
     final activeId = await WalletStorage.getActiveWalletId();
     _activeWalletId = activeId;
     Map<String, dynamic>? activeWalletData;
@@ -121,7 +120,9 @@ class WalletState extends ChangeNotifier {
       return;
     }
 
-    await _instantiateWallet(activeWalletData);
+    if (pin != null) {
+      await _instantiateWalletById(activeWalletData['id'], pin: pin);
+    }
   }
 
   Future<KanariWallet> _walletFromData(Map<String, dynamic> data) async {
@@ -139,9 +140,49 @@ class WalletState extends ChangeNotifier {
     return KanariWallet.fromPrivateKey(data['privateKey'], curve: curve);
   }
 
+  Future<String?> walletAddressFromData(Map<String, dynamic> data) async {
+    final savedAddress = data['address']?.toString();
+    if (savedAddress != null && savedAddress.isNotEmpty) {
+      return savedAddress;
+    }
+
+    try {
+      final wallet = await _walletFromData(data);
+      return wallet.address;
+    } catch (e) {
+      debugPrint('Failed to derive wallet address: $e');
+      return null;
+    }
+  }
+
   Future<void> _instantiateWallet(Map<String, dynamic> data) async {
     _wallet = await _walletFromData(data);
-    await refreshBalance();
+    final walletAddress = _wallet?.address;
+    _clearBalances();
+    if (walletAddress != null) {
+      _tokenBalances = await WalletStorage.loadCachedBalances(walletAddress);
+    }
+    notifyListeners();
+    unawaited(refreshBalance(notifyListenersOnSuccess: true));
+  }
+
+  Future<void> _instantiateWalletById(String walletId, {String? pin}) async {
+    final effectivePin = pin ?? _sessionPin;
+    if (effectivePin == null) {
+      throw StateError('Wallet is locked');
+    }
+
+    final cachedWallet = _decryptedWalletCache[walletId];
+    final decryptedWallet =
+        cachedWallet ??
+        await WalletStorage.loadWalletById(walletId, pin: effectivePin);
+    if (decryptedWallet == null) {
+      throw StateError('Wallet not found');
+    }
+
+    _decryptedWalletCache[walletId] = Map<String, dynamic>.from(decryptedWallet);
+
+    await _instantiateWallet(decryptedWallet);
   }
 
   Future<void> switchWallet(String walletId) async {
@@ -154,25 +195,53 @@ class WalletState extends ChangeNotifier {
 
     await WalletStorage.setActiveWallet(walletId);
     _activeWalletId = walletId;
-    await _instantiateWallet(walletData);
+    await _instantiateWalletById(walletData['id'] as String);
     notifyListeners();
   }
 
   Future<void> addWallet(Map<String, dynamic> walletData, [String? pin]) async {
     _wallets.add(walletData);
 
-    if (pin != null && pin.isNotEmpty && _wallets.length == 1) {
-      await WalletStorage.savePassword(pin);
+    final hasPassword = await WalletStorage.hasPassword();
+    final hasValidPin = pin != null && RegExp(r'^\d{6}$').hasMatch(pin);
+    final effectivePin = hasValidPin ? pin : _sessionPin;
+    if (!hasPassword && !hasValidPin) {
+      _wallets.removeWhere((wallet) => wallet['id'] == walletData['id']);
+      throw StateError('PIN is required before saving a wallet');
     }
 
-    await WalletStorage.saveAllWallets(_wallets);
+    if (!hasPassword) {
+      await WalletStorage.savePassword(pin!);
+      _sessionPin = pin;
+    }
+
+    if (effectivePin == null) {
+      _wallets.removeWhere((wallet) => wallet['id'] == walletData['id']);
+      throw StateError('Wallet is locked');
+    }
+
+    await WalletStorage.saveAllWallets(_wallets, pin: effectivePin);
+    _wallets = await WalletStorage.loadAllWallets();
+    _decryptedWalletCache[walletData['id'] as String] = Map<String, dynamic>.from(
+      walletData,
+    );
     await switchWallet(walletData['id']);
     notifyListeners();
   }
 
   Future<void> removeWallet(String walletId) async {
+    final removedWallet = _wallets.cast<Map<String, dynamic>?>().firstWhere(
+      (wallet) => wallet?['id'] == walletId,
+      orElse: () => null,
+    );
     _wallets.removeWhere((wallet) => wallet['id'] == walletId);
-    await WalletStorage.saveAllWallets(_wallets);
+    await WalletStorage.saveAllWallets(_wallets, pin: _sessionPin);
+    _wallets = await WalletStorage.loadAllWallets();
+    _decryptedWalletCache.remove(walletId);
+    final removedAddress = removedWallet?['address']?.toString();
+    if (removedAddress != null && removedAddress.isNotEmpty) {
+      await WalletStorage.clearCachedBalances(removedAddress);
+    }
 
     if (_authenticatedWalletId == walletId) {
       _authenticatedWalletId = null;
@@ -200,6 +269,7 @@ class WalletState extends ChangeNotifier {
         final walletData = {
           'id': DateTime.now().millisecondsSinceEpoch.toString(),
           'name': 'Wallet ${_wallets.length + 1}',
+          'address': wallet.address,
           'mnemonic': wallet.mnemonic,
           'privateKey': wallet.privateKey,
           'curve': curve.name,
@@ -208,7 +278,6 @@ class WalletState extends ChangeNotifier {
 
         await addWallet(walletData, pin);
         _isUnlocked = true;
-        await refreshBalance(notifyListenersOnSuccess: false);
       } catch (e) {
         _error = 'Creation failed: $e';
       }
@@ -226,7 +295,9 @@ class WalletState extends ChangeNotifier {
         return;
       }
 
-      await loadWallets();
+      _sessionPin = pin;
+      _wallets = await WalletStorage.loadAllWallets();
+      await _loadActiveWallet(pin: pin);
       if (_wallets.isEmpty) {
         _error = 'No saved wallets';
         notifyListeners();
@@ -236,6 +307,54 @@ class WalletState extends ChangeNotifier {
       _isUnlocked = true;
       _error = null;
     });
+  }
+
+  Future<bool> verifyPin(String pin) async {
+    if (pin.length != 6) return false;
+    final success = await WalletStorage.verifyPassword(pin);
+    if (success) {
+      _sessionPin = pin;
+    }
+    return success;
+  }
+
+  Future<Duration?> pinLockRemaining() {
+    return WalletStorage.pinLockRemaining();
+  }
+
+  Future<bool> hasPinSet() {
+    return WalletStorage.hasPassword();
+  }
+
+  Future<bool> authorizeWithBiometricSession() async {
+    return _sessionPin != null;
+  }
+
+  Future<bool> enableBiometricUnlock() async {
+    final sessionPin = _sessionPin;
+    if (sessionPin == null) return false;
+
+    try {
+      await WalletStorage.enableBiometricUnlock(sessionPin);
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('Failed to enable biometric unlock: $e');
+      return false;
+    }
+  }
+
+  Future<void> disableBiometricUnlock() async {
+    await WalletStorage.disableBiometricUnlock();
+    notifyListeners();
+  }
+
+  Future<bool> unlockWithBiometric() async {
+    final pin = _sessionPin ?? await WalletStorage.readBiometricUnlockPin();
+    if (pin == null) return false;
+
+    await unlockWallet(pin);
+    return _isUnlocked;
   }
 
   Future<void> importFromPrivateKey(
@@ -253,6 +372,7 @@ class WalletState extends ChangeNotifier {
         final walletData = {
           'id': DateTime.now().millisecondsSinceEpoch.toString(),
           'name': 'Imported Wallet ${_wallets.length + 1}',
+          'address': wallet.address,
           'mnemonic': '',
           'privateKey': wallet.privateKey,
           'curve': curve.name,
@@ -261,7 +381,6 @@ class WalletState extends ChangeNotifier {
 
         await addWallet(walletData, pin);
         _isUnlocked = true;
-        await refreshBalance(notifyListenersOnSuccess: false);
       } catch (e) {
         _error = 'Import PK failed: $e';
       }
@@ -280,6 +399,7 @@ class WalletState extends ChangeNotifier {
         final walletData = {
           'id': DateTime.now().millisecondsSinceEpoch.toString(),
           'name': 'Imported Wallet ${_wallets.length + 1}',
+          'address': wallet.address,
           'mnemonic': mnemonic,
           'privateKey': wallet.privateKey,
           'curve': curve.name,
@@ -288,7 +408,6 @@ class WalletState extends ChangeNotifier {
 
         await addWallet(walletData, pin);
         _isUnlocked = true;
-        await refreshBalance(notifyListenersOnSuccess: false);
       } catch (e) {
         _error = 'Import Mnemonic failed: $e';
       }
@@ -297,11 +416,24 @@ class WalletState extends ChangeNotifier {
 
   void logout() {
     _wallet = null;
+    _sessionPin = null;
     _error = null;
     _activeWalletId = null;
     _authenticatedWalletId = null;
     _isUnlocked = false;
+    _decryptedWalletCache.clear();
     _clearBalances();
+    notifyListeners();
+  }
+
+  Future<void> lockSession() async {
+    _wallet = null;
+    _sessionPin = null;
+    _authenticatedWalletId = null;
+    _isUnlocked = false;
+    _decryptedWalletCache.clear();
+    _clearBalances();
+    _wallets = await WalletStorage.loadAllWallets();
     notifyListeners();
   }
 
@@ -309,10 +441,12 @@ class WalletState extends ChangeNotifier {
     await WalletStorage.deleteAllWallets();
     _wallets = [];
     _wallet = null;
+    _sessionPin = null;
     _error = null;
     _activeWalletId = null;
     _authenticatedWalletId = null;
     _isUnlocked = false;
+    _decryptedWalletCache.clear();
     _clearBalances();
     notifyListeners();
   }
@@ -322,10 +456,20 @@ class WalletState extends ChangeNotifier {
       return;
     }
 
+    final walletAddress = _wallet!.address;
+
     try {
-      _tokenBalances = await _client!.getAllBalances(_wallet!.address);
+      final balances = await _client!.getAllBalances(walletAddress);
+      if (_wallet?.address != walletAddress) {
+        return;
+      }
+      _tokenBalances = balances;
+      await WalletStorage.saveCachedBalances(walletAddress, balances);
       _error = null;
     } catch (e) {
+      if (_wallet?.address != walletAddress) {
+        return;
+      }
       _clearBalances();
       _error = 'Refresh balance failed: $e';
       debugPrint(_error);
@@ -399,11 +543,32 @@ class WalletState extends ChangeNotifier {
       final isValid = await WalletStorage.verifyPassword(oldPin);
       if (!isValid) return false;
 
-      await WalletStorage.savePassword(newPin);
-      await WalletStorage.saveAllWallets(_wallets);
+      final decryptedWallets = await WalletStorage.loadAllWallets(pin: oldPin);
+      _sessionPin = newPin;
+      await WalletStorage.savePasswordAndWallets(newPin, decryptedWallets);
+      _wallets = await WalletStorage.loadAllWallets();
       notifyListeners();
       return true;
     } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> changePinWithSession(String newPin) async {
+    final currentSessionPin = _sessionPin;
+    if (currentSessionPin == null) return false;
+
+    try {
+      final decryptedWallets = await WalletStorage.loadAllWallets(
+        pin: currentSessionPin,
+      );
+      _sessionPin = newPin;
+      await WalletStorage.savePasswordAndWallets(newPin, decryptedWallets);
+      _wallets = await WalletStorage.loadAllWallets();
+      notifyListeners();
+      return true;
+    } catch (_) {
+      _sessionPin = currentSessionPin;
       return false;
     }
   }

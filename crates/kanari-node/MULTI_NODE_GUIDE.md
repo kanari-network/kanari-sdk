@@ -44,7 +44,7 @@ Keep private key files out of git and do not reuse one private key across valida
 The PowerShell setup script generates consensus keys automatically when they are missing.
 
 ```powershell
-.\setup-multi-node.ps1 -NodeCount 3 -Network devnet -ResetSourceData -ResetReplicaData -ResetConsensusKeys
+.\setup-multi-node.ps1 -NodeCount 4 -Network devnet -ResetSourceData -ResetReplicaData -ResetConsensusKeys
 ```
 
 By default it stores keys under:

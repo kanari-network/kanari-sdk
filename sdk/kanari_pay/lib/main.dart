@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:kanari_crypto/kanari_crypto.dart';
 import 'package:provider/provider.dart';
@@ -10,7 +12,7 @@ import 'src/providers/wallet_provider.dart';
 import 'src/ui/screens/login_screen.dart';
 import 'src/ui/screens/register_screen.dart';
 import 'src/ui/screens/setting_screen.dart';
-import 'src/ui/screens/welcome_screen.dart';
+import 'src/ui/screens/kanari_welcome_screen.dart';
 import 'src/ui/widgets/kanari_bottom_nav.dart';
 
 void main() async {
@@ -110,8 +112,59 @@ Future<void> _saveSession(KanariAuthClient authClient) async {
   }
 }
 
-class KanariApp extends StatelessWidget {
+class KanariApp extends StatefulWidget {
   const KanariApp({super.key});
+
+  @override
+  State<KanariApp> createState() => _KanariAppState();
+}
+
+class _KanariAppState extends State<KanariApp> with WidgetsBindingObserver {
+  static const _backgroundLockDelay = Duration(seconds: 30);
+  Timer? _lockTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _lockTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+
+    switch (state) {
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+        _lockTimer?.cancel();
+        _lockTimer = Timer(_backgroundLockDelay, () {
+          if (!mounted) return;
+          final walletState = context.read<WalletState>();
+          if (walletState.isUnlocked) {
+            walletState.lockSession();
+          }
+        });
+        break;
+      case AppLifecycleState.resumed:
+        _lockTimer?.cancel();
+        break;
+      case AppLifecycleState.detached:
+        _lockTimer?.cancel();
+        final walletState = context.read<WalletState>();
+        if (walletState.isUnlocked) {
+          walletState.lockSession();
+        }
+        break;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -147,7 +200,7 @@ class KanariApp extends StatelessWidget {
           }
 
           debugPrint('Stay on WelcomeScreen');
-          return const WelcomeScreen();
+          return const KanariWelcomeScreen();
         },
         '/login': (context) {
           final authClient = context.read<KanariAuthClient>();

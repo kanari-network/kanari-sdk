@@ -109,6 +109,42 @@ class QueriesModule {
     return resp.result!;
   }
 
+  Future<List<TransactionDetails>> getAllTransactions({
+    int limit = 50,
+    String? account,
+  }) async {
+    final params = <String, dynamic>{'limit': limit};
+    if (account != null && account.trim().isNotEmpty) {
+      params['account'] = _normalizeAddress(account);
+    }
+
+    final resp = await RpcUtils.request(
+      client,
+      url,
+      'kanari_getAllTransactions',
+      params,
+      (j) {
+        final items = switch (j) {
+          final List<dynamic> list => list,
+          final Map<String, dynamic> map =>
+            map['transactions'] as List<dynamic>? ??
+                map['result'] as List<dynamic>? ??
+                const <dynamic>[],
+          _ => const <dynamic>[],
+        };
+
+        return items
+            .map(
+              (item) =>
+                  TransactionDetails.fromJson(item as Map<String, dynamic>),
+            )
+            .toList();
+      },
+    );
+    if (resp.error != null) throw Exception(resp.error!.message);
+    return resp.result!;
+  }
+
   Future<BlockchainStats> getStats() async {
     final resp = await RpcUtils.request(
       client,

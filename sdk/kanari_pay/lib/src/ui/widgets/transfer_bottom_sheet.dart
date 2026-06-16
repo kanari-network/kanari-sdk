@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/token_utils.dart' as token_utils;
 import '../../models/account.dart';
 import '../../providers/wallet_provider.dart';
+import 'app_ui.dart';
 import 'token_logo.dart';
 
 class TransferBottomSheet extends StatefulWidget {
@@ -255,6 +256,17 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
       return;
     }
 
+    final authorized = await showAppPinVerificationSheet(
+      context: context,
+      onVerify: walletState.verifyPin,
+      lockRemaining: walletState.pinLockRemaining,
+      subtitle: 'Enter your 6-digit PIN to send this transaction.',
+    );
+
+    if (!context.mounted || !authorized) {
+      return;
+    }
+
     Navigator.pop(context);
 
     String? result;
@@ -307,13 +319,11 @@ class _TransferBottomSheetState extends State<TransferBottomSheet> {
     String message, {
     required bool isError,
   }) {
-    final colorScheme = Theme.of(context).colorScheme;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? colorScheme.error : colorScheme.primary,
-      ),
-    );
+    if (isError) {
+      showAppErrorSnackBar(context, message);
+    } else {
+      showAppSuccessSnackBar(context, message);
+    }
   }
 }
 

@@ -2,6 +2,8 @@
 
 import 'package:flutter/material.dart';
 
+import 'app_ui.dart';
+
 /// Reusable widget สำหรับแสดง Deal card
 class DealCard extends StatelessWidget {
   final Map<String, dynamic> deal;
@@ -29,73 +31,70 @@ class DealCard extends StatelessWidget {
     final buyer = deal['buyer'] as String? ?? 'N/A';
     final seller = deal['seller'] as String? ?? 'N/A';
     final coinName = coinType.split('::').lastOrNull ?? 'COIN';
+    final theme = Theme.of(context);
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      color: isSelected ? colorScheme.surfaceContainerHighest : null,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: colorScheme.outline.withOpacity(0.2)),
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      margin: const EdgeInsets.only(bottom: AppUiTokens.sectionSpacing),
+      decoration: BoxDecoration(
+        color: isSelected
+            ? colorScheme.secondaryContainer.withValues(
+                alpha: AppUiTokens.selectedFillAlpha,
+              )
+            : colorScheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(AppUiTokens.cardRadius),
+        border: Border.all(
+          color: isSelected
+              ? colorScheme.primary.withValues(
+                  alpha: AppUiTokens.selectedBorderAlpha,
+                )
+              : colorScheme.outline.withValues(
+                  alpha: AppUiTokens.subtleBorderAlpha,
+                ),
+        ),
       ),
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Deal ID',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(AppUiTokens.cardRadius),
+          child: Padding(
+            padding: const EdgeInsets.all(AppUiTokens.cardPadding),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Deal ID',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
-                  ),
-                  if (isSelected)
-                    Icon(
-                      Icons.check_circle,
-                      color: colorScheme.onSurface,
-                      size: 20,
-                    ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              _buildRow('ID', _truncate(dealId, 20)),
-              const SizedBox(height: 4),
-              _buildRow('Amount', '$amount $coinName'),
-              const SizedBox(height: 4),
-              _buildRow('Buyer', _truncate(buyer, 20)),
-              const SizedBox(height: 4),
-              _buildRow('Seller', _truncate(seller, 20)),
-            ],
+                    if (isSelected)
+                      Icon(
+                        Icons.check_circle_rounded,
+                        color: colorScheme.primary,
+                        size: 20,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: AppUiTokens.contentSpacing),
+                AppDetailRow(label: 'ID', value: _truncate(dealId, 20)),
+                const SizedBox(height: AppUiTokens.compactSpacing),
+                AppDetailRow(label: 'Amount', value: '$amount $coinName'),
+                const SizedBox(height: AppUiTokens.compactSpacing),
+                AppDetailRow(label: 'Buyer', value: _truncate(buyer, 20)),
+                const SizedBox(height: AppUiTokens.compactSpacing),
+                AppDetailRow(label: 'Seller', value: _truncate(seller, 20)),
+              ],
+            ),
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildRow(String label, String value) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            value,
-            style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
-            textAlign: TextAlign.end,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
     );
   }
 }

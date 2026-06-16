@@ -73,6 +73,4 @@ class KanariWallet {
       rethrow;
     }
   }
-
-  operator [](String other) {}
 }

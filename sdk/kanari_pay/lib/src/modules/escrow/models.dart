@@ -1,5 +1,5 @@
 // NEW FILE: modules/escrow/models.dart
-/// Escrow data models
+// Escrow data models.
 
 /// Escrow object references
 class EscrowObjectRefs {
@@ -12,7 +12,7 @@ class EscrowObjectRefs {
     required this.proofObjectId,
     required this.coinType,
   });
-  
+
   /// Create from map
   factory EscrowObjectRefs.fromMap(Map<String, dynamic> map) {
     return EscrowObjectRefs(
@@ -21,7 +21,7 @@ class EscrowObjectRefs {
       coinType: map['coinType'] as String,
     );
   }
-  
+
   /// Convert to map
   Map<String, dynamic> toMap() {
     return {
@@ -49,7 +49,7 @@ class DealDetails {
     required this.coinType,
     required this.state,
   });
-  
+
   /// Create from map
   factory DealDetails.fromMap(Map<String, dynamic> map) {
     return DealDetails(
@@ -61,7 +61,7 @@ class DealDetails {
       state: map['state'] as int? ?? 0,
     );
   }
-  
+
   /// Convert to map
   Map<String, dynamic> toMap() {
     return {
@@ -73,7 +73,7 @@ class DealDetails {
       'state': state,
     };
   }
-  
+
   @override
   String toString() {
     return 'DealDetails(dealId: $dealId, buyer: $buyer, seller: $seller, amount: $amount, state: $state)';

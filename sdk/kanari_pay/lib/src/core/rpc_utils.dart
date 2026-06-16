@@ -1,5 +1,5 @@
 // core/rpc_utils.dart
-/// RPC utilities for Kanari SDK
+// RPC utilities for Kanari SDK.
 
 import 'dart:convert';
 import 'package:http/http.dart' as http;

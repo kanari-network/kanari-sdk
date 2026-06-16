@@ -1,5 +1,5 @@
 // modules/transactions/constants.dart
-/// Transaction module constants
+// Transaction module constants.
 
 class TransactionConstants {
   const TransactionConstants._();

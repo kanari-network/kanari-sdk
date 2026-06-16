@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:kanari_pay/src/ui/widgets/token_logo.dart';
 import 'package:provider/provider.dart';
@@ -13,6 +11,8 @@ import '../../core/token_utils.dart' as token_utils;
 import '../widgets/security_card.dart';
 import '../network_selector.dart';
 import '../wallet_info_card.dart';
+import '../widgets/app_ui.dart';
+import 'wallet_transactions_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -99,10 +99,10 @@ class HomeScreenState extends State<HomeScreen> {
                               vertical: 8,
                             ),
                             decoration: BoxDecoration(
-                              color: colorScheme.surface,
-                              borderRadius: BorderRadius.circular(16),
+                              color: colorScheme.surfaceContainerLowest,
+                              borderRadius: BorderRadius.circular(32),
                               border: Border.all(
-                                color: colorScheme.outline.withOpacity(0.2),
+                                color: colorScheme.outlineVariant,
                               ),
                             ),
                             child: Row(
@@ -110,30 +110,21 @@ class HomeScreenState extends State<HomeScreen> {
                               children: [
                                 Row(
                                   children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(10),
-                                      decoration: BoxDecoration(
-                                        color:
-                                            colorScheme.surfaceContainerHighest,
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(
-                                          color: colorScheme.outline
-                                              .withOpacity(0.2),
-                                        ),
-                                      ),
-                                      child: Icon(
-                                        Icons.hexagon_rounded,
-                                        color: colorScheme.onSurface,
-                                        size: 20,
+                                    ClipOval(
+                                      child: Image.asset(
+                                        'assets/branding/kariicon1.png',
+                                        width: 40,
+                                        height: 40,
+                                        fit: BoxFit.cover,
                                       ),
                                     ),
                                     const SizedBox(width: 12),
                                     Text(
-                                      'Kanari',
+                                      'KANARI',
                                       style: theme.textTheme.titleLarge
                                           ?.copyWith(
                                             fontWeight: FontWeight.w800,
-                                            letterSpacing: -0.5,
+                                            letterSpacing: 0,
                                             color: colorScheme.onSurface,
                                           ),
                                     ),
@@ -151,7 +142,7 @@ class HomeScreenState extends State<HomeScreen> {
                                       },
                                       icon: Icon(
                                         Icons.settings_rounded,
-                                        color: colorScheme.onSurfaceVariant,
+                                        color: colorScheme.onSurface,
                                       ),
                                       tooltip: 'Settings',
                                     ),
@@ -301,7 +292,7 @@ class HomeScreenState extends State<HomeScreen> {
             'Your Assets',
             style: theme.textTheme.labelSmall?.copyWith(
               fontWeight: FontWeight.w600,
-              color: theme.colorScheme.onSurface.withOpacity(0.4),
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
               letterSpacing: 1.5,
             ),
           ),
@@ -310,7 +301,9 @@ class HomeScreenState extends State<HomeScreen> {
           decoration: BoxDecoration(
             color: colorScheme.surface,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: colorScheme.outline.withOpacity(0.2)),
+            border: Border.all(
+              color: colorScheme.outline.withValues(alpha: 0.2),
+            ),
           ),
           child: ListView.separated(
             shrinkWrap: true,
@@ -320,7 +313,7 @@ class HomeScreenState extends State<HomeScreen> {
               height: 1,
               indent: 16,
               endIndent: 16,
-              color: colorScheme.outline.withOpacity(0.05),
+              color: colorScheme.outline.withValues(alpha: 0.05),
             ),
             itemBuilder: (context, index) {
               final token = tokens[index];
@@ -363,7 +356,9 @@ class HomeScreenState extends State<HomeScreen> {
                               token.tokenType,
                               style: TextStyle(
                                 fontSize: 10,
-                                color: colorScheme.onSurface.withOpacity(0.4),
+                                color: colorScheme.onSurface.withValues(
+                                  alpha: 0.4,
+                                ),
                                 height: 1.1,
                               ),
                               maxLines: 1,
@@ -397,94 +392,131 @@ class HomeScreenState extends State<HomeScreen> {
     ThemeData theme,
     bool isSmallScreen,
   ) {
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: isSmallScreen ? 16 : 24,
-        vertical: isSmallScreen ? 16 : 24,
-      ),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [colorScheme.primary.withOpacity(0.85), colorScheme.primary],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(32),
-        boxShadow: [
-          BoxShadow(
-            color: colorScheme.primary.withOpacity(0.2),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: isSmallScreen ? 16 : 24,
+            vertical: isSmallScreen ? 16 : 24,
           ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Text(
-                  walletData['name'] ?? 'Wallet',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    color: colorScheme.onPrimary.withOpacity(0.8),
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ),
-              IconButton(
-                onPressed: () => _confirmDeleteWallet(
-                  context,
-                  walletData['id'] as String,
-                  walletData['name'] ?? 'Wallet',
-                ),
-                icon: Icon(
-                  Icons.delete_outline_rounded,
-                  color: colorScheme.onPrimary.withOpacity(0.85),
-                ),
-                tooltip: 'Delete Wallet',
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                colorScheme.primary.withValues(alpha: 0.85),
+                colorScheme.primary,
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(32),
+            boxShadow: [
+              BoxShadow(
+                color: colorScheme.primary.withValues(alpha: 0.2),
+                blurRadius: 15,
+                offset: const Offset(0, 8),
               ),
             ],
           ),
+          child: Column(
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      walletData['name'] ?? 'Wallet',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: colorScheme.onPrimary.withValues(alpha: 0.8),
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _WalletIconAction(
+                        icon: Icons.history_rounded,
+                        tooltip: 'History',
+                        colorScheme: colorScheme,
+                        onPressed: () =>
+                            _openWalletTransactions(context, walletData),
+                      ),
+                      const SizedBox(width: 6),
+                      _WalletIconAction(
+                        icon: Icons.refresh_rounded,
+                        tooltip: 'Refresh',
+                        colorScheme: colorScheme,
+                        onPressed: () {
+                          if (walletData['id'] ==
+                              context.read<WalletState>().activeWalletId) {
+                            context.read<WalletState>().refreshBalance();
+                          }
+                        },
+                      ),
+                      const SizedBox(width: 6),
+                      _WalletIconAction(
+                        icon: Icons.delete_outline_rounded,
+                        tooltip: 'Delete Wallet',
+                        colorScheme: colorScheme,
+                        onPressed: () => _confirmDeleteWallet(
+                          context,
+                          walletData['id'] as String,
+                          walletData['name'] ?? 'Wallet',
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
 
-          Expanded(
-            child: Center(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8.0),
-                  child: _buildIndexSpecificBalanceSection(
-                    context,
-                    colorScheme,
-                    walletData,
-                    isSmallScreen,
-                    theme,
+              Expanded(
+                child: Center(
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: _buildIndexSpecificBalanceSection(
+                        context,
+                        colorScheme,
+                        walletData,
+                        isSmallScreen,
+                        theme,
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
 
-          FilledButton.tonalIcon(
-            onPressed: () {
-              if (walletData['id'] ==
-                  context.read<WalletState>().activeWalletId) {
-                context.read<WalletState>().refreshBalance();
-              }
-            },
-            icon: const Icon(Icons.refresh_rounded, size: 16),
-            label: const Text('Refresh'),
-            style: FilledButton.styleFrom(
-              backgroundColor: colorScheme.onPrimary.withOpacity(0.15),
-              foregroundColor: colorScheme.onPrimary,
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              elevation: 0,
-            ),
+              const SizedBox(height: 2),
+            ],
           ),
-        ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openWalletTransactions(
+    BuildContext context,
+    Map<String, dynamic> walletData,
+  ) async {
+    final walletState = context.read<WalletState>();
+    final address = await walletState.walletAddressFromData(walletData);
+
+    if (!context.mounted) return;
+
+    if (address == null || address.isEmpty) {
+      showAppErrorSnackBar(context, 'Wallet address is unavailable');
+      return;
+    }
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => WalletTransactionsScreen(
+          walletName: walletData['name']?.toString() ?? 'Wallet',
+          walletAddress: address,
+        ),
       ),
     );
   }
@@ -510,7 +542,7 @@ class HomeScreenState extends State<HomeScreen> {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: colorScheme.onPrimary.withOpacity(0.08),
+        color: colorScheme.onPrimary.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(24),
       ),
       padding: EdgeInsets.symmetric(vertical: isSmallScreen ? 16.0 : 28.0),
@@ -520,7 +552,7 @@ class HomeScreenState extends State<HomeScreen> {
           Text(
             'Total Balance',
             style: theme.textTheme.labelMedium?.copyWith(
-              color: colorScheme.onPrimary.withOpacity(0.7),
+              color: colorScheme.onPrimary.withValues(alpha: 0.7),
               letterSpacing: 1.5,
               fontWeight: FontWeight.w500,
             ),
@@ -549,7 +581,7 @@ class HomeScreenState extends State<HomeScreen> {
               vertical: isSmallScreen ? 4 : 6,
             ),
             decoration: BoxDecoration(
-              color: colorScheme.onPrimary.withOpacity(0.12),
+              color: colorScheme.onPrimary.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
@@ -576,10 +608,10 @@ class HomeScreenState extends State<HomeScreen> {
     return Container(
       padding: EdgeInsets.all(isSmallScreen ? 16 : 24),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceVariant.withOpacity(0.3),
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
         borderRadius: BorderRadius.circular(32),
         border: Border.all(
-          color: colorScheme.outlineVariant.withOpacity(0.5),
+          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
           width: 2,
         ),
       ),
@@ -595,7 +627,7 @@ class HomeScreenState extends State<HomeScreen> {
                   color: colorScheme.surfaceContainerHighest,
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: colorScheme.outline.withOpacity(0.3),
+                    color: colorScheme.outline.withValues(alpha: 0.3),
                   ),
                 ),
                 child: Icon(
@@ -637,6 +669,7 @@ class HomeScreenState extends State<HomeScreen> {
     String walletId,
     String walletName,
   ) async {
+    final walletState = context.read<WalletState>();
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -663,12 +696,13 @@ class HomeScreenState extends State<HomeScreen> {
 
     if (confirmed != true) return;
 
-    await context.read<WalletState>().removeWallet(walletId);
+    await walletState.removeWallet(walletId);
+    if (!mounted) return;
 
     if (_pageController.hasClients) {
       final currentPage =
           _pageController.page?.round() ?? _pageController.initialPage;
-      final remainingWallets = context.read<WalletState>().wallets.length;
+      final remainingWallets = walletState.wallets.length;
       final targetPage = remainingWallets > 0
           ? currentPage.clamp(0, remainingWallets - 1)
           : 0;
@@ -696,7 +730,7 @@ class HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<KanariCurve>(
-                value: selectedCurve,
+                initialValue: selectedCurve,
                 isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Curve Type',
@@ -719,28 +753,73 @@ class HomeScreenState extends State<HomeScreen> {
             ),
             FilledButton(
               onPressed: () async {
-                await context.read<WalletState>().createNewWallet(
+                final walletState = context.read<WalletState>();
+                final authorized = await showAppPinVerificationSheet(
+                  context: context,
+                  onVerify: walletState.verifyPin,
+                  lockRemaining: walletState.pinLockRemaining,
+                  title: 'Confirm PIN',
+                  subtitle: 'Enter your 6-digit PIN to create a new wallet.',
+                );
+
+                if (!mounted || !dialogContext.mounted || !authorized) return;
+
+                await walletState.createNewWallet(
                   curve: selectedCurve,
                   pin: '',
                 );
 
-                if (context.mounted) {
-                  Navigator.pop(dialogContext);
+                if (!mounted || !dialogContext.mounted) return;
 
-                  Future.delayed(const Duration(milliseconds: 300), () {
-                    if (_pageController.hasClients) {
-                      _pageController.animateToPage(
-                        context.read<WalletState>().wallets.length - 1,
-                        duration: const Duration(milliseconds: 400),
-                        curve: Curves.easeOutCubic,
-                      );
-                    }
-                  });
-                }
+                Navigator.pop(dialogContext);
+                final targetPage = walletState.wallets.length - 1;
+
+                Future.delayed(const Duration(milliseconds: 300), () {
+                  if (!mounted || !_pageController.hasClients) return;
+                  _pageController.animateToPage(
+                    targetPage,
+                    duration: const Duration(milliseconds: 400),
+                    curve: Curves.easeOutCubic,
+                  );
+                });
               },
               child: const Text('Generate'),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WalletIconAction extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final ColorScheme colorScheme;
+  final VoidCallback onPressed;
+
+  const _WalletIconAction({
+    required this.icon,
+    required this.tooltip,
+    required this.colorScheme,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: 36,
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 19, color: colorScheme.onPrimary),
+        tooltip: tooltip,
+        style: IconButton.styleFrom(
+          backgroundColor: colorScheme.onPrimary.withValues(alpha: 0.08),
+          hoverColor: colorScheme.onPrimary.withValues(alpha: 0.12),
+          padding: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
         ),
       ),
     );

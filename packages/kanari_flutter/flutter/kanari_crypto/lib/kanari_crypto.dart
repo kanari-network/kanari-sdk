@@ -10,6 +10,4 @@ library;
 
 export 'src/api.dart';
 export 'src/frb_generated.dart';
-export 'src/init.dart'
-    if (dart.library.io) 'src/init.io.dart';
-
+export 'src/init.io.dart';

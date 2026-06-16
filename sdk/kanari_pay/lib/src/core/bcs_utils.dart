@@ -1,5 +1,7 @@
+// ignore_for_file: dangling_library_doc_comments
+
 // core/bcs_utils.dart
-/// BCS utilities for Kanari Pay
+// BCS utilities for Kanari Pay.
 ///
 /// ชุด utility functions สำหรับ BCS encoding/decoding
 /// สามารถนำไปใช้ซ้ำได้ในทุกที่ที่ต้องการทำงานกับ BCS data
@@ -19,7 +21,6 @@
 ///   ..addAddress(recipient)
 ///   ..addAmount(amount);
 /// ```
-
 import 'package:bcs/bcs.dart';
 
 /// BCS utilities class
@@ -183,7 +184,7 @@ class BcsUtils {
 
     if (start != -1 && end != -1 && end > start) {
       final inner = objectType.substring(start + 1, end);
-      
+
       // Check if inner type contains another nested generic (Coin<TokenType>)
       if (inner.contains('<')) {
         // Format: Coin<TokenType> → extract TokenType
@@ -193,11 +194,11 @@ class BcsUtils {
           return inner.substring(nestedStart + 1, nestedEnd);
         }
       }
-      
+
       // Direct format: EscrowDeal<TokenType> or just TokenType
       return inner;
     }
-    
+
     return null;
   }
 
@@ -232,7 +233,7 @@ class BcsUtils {
 
     // Normalize package address
     var packageAddr = parts[0];
-    
+
     // Handle short address format (0x2, 0x1, etc.)
     // Short addresses are valid and should be kept as-is
     if (packageAddr.startsWith('0x')) {

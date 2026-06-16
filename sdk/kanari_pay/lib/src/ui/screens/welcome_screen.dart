@@ -159,16 +159,22 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
   // --- Dialogs & Sheets ---
 
-  void _showUnlockSheet(BuildContext context, {bool isAutoTriggered = false}) {
+  Future<void> _showUnlockSheet(
+    BuildContext context, {
+    bool isAutoTriggered = false,
+  }) async {
     final state = context.read<WalletState>();
 
-    showAppModalSheet(
+    final result = await showAppModalSheet<String>(
       context: context,
       isDismissible: !isAutoTriggered,
       enableDrag: !isAutoTriggered,
       builder: (sheetContext) => AppPinEntrySheet(
         title: 'Unlock Wallet',
         subtitle: 'Enter your 6-digit PIN',
+        onBiometricAuthenticate: state.unlockWithBiometric,
+        biometricReason: 'Unlock your Kanari wallet',
+        biometricHandlesPrompt: true,
         onComplete: (pin) async {
           await state.unlockWallet(pin);
 
@@ -178,16 +184,19 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
             debugPrint("🔓 Wallet unlocked successfully");
             Navigator.of(context).pushReplacementNamed('/home');
           } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(state.error ?? 'Invalid PIN'),
-                backgroundColor: Colors.red,
-              ),
-            );
+            showAppErrorSnackBar(context, state.error ?? 'Invalid PIN');
           }
         },
       ),
     );
+
+    if (!context.mounted || result != appPinBiometricResult) return;
+
+    if (state.isUnlocked && state.hasWallet) {
+      Navigator.of(context).pushReplacementNamed('/home');
+    } else if (state.error != null) {
+      showAppErrorSnackBar(context, state.error!);
+    }
   }
 
   void _showCreateSheet(BuildContext context) {
@@ -215,9 +224,12 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       showDragHandle: true,
       builder: (sheetContext) => AppCurveSelectionSheet(
         onConfirm: (selectedCurve) async {
+          Navigator.pop(sheetContext);
+          _showBusyDialog(context, message: 'Creating wallet...');
           await walletState.createNewWallet(curve: selectedCurve, pin: pin);
 
-          if (!sheetContext.mounted || !context.mounted) return;
+          if (!context.mounted) return;
+          Navigator.of(context, rootNavigator: true).pop();
 
           final hasCreatedWallet =
               walletState.hasWallet &&
@@ -225,14 +237,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                   walletState.wallet != null);
 
           if (hasCreatedWallet) {
-            Navigator.pop(sheetContext);
             Navigator.of(context).pushReplacementNamed('/home');
           } else {
-            ScaffoldMessenger.of(sheetContext).showSnackBar(
-              SnackBar(
-                content: Text(walletState.error ?? 'Failed to create wallet'),
-                backgroundColor: Colors.red,
-              ),
+            showAppErrorSnackBar(
+              context,
+              walletState.error ?? 'Failed to create wallet',
             );
           }
         },
@@ -273,6 +282,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         title: 'Set PIN',
         subtitle: 'Set a 6-digit PIN to secure your imported wallet.',
         onComplete: (pin) async {
+          _showBusyDialog(parentContext, message: 'Importing wallet...');
           if (isMnemonic) {
             await walletState.importFromMnemonic(data, curve: curve, pin: pin);
           } else {
@@ -284,6 +294,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           }
 
           if (!parentContext.mounted) return;
+          Navigator.of(parentContext, rootNavigator: true).pop();
 
           final hasImportedWallet =
               walletState.hasWallet &&
@@ -293,11 +304,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           if (hasImportedWallet) {
             Navigator.of(parentContext).pushReplacementNamed('/home');
           } else {
-            ScaffoldMessenger.of(parentContext).showSnackBar(
-              SnackBar(
-                content: Text(walletState.error ?? 'Failed to import wallet'),
-                backgroundColor: Colors.red,
-              ),
+            showAppErrorSnackBar(
+              parentContext,
+              walletState.error ?? 'Failed to import wallet',
             );
           }
         },
@@ -337,5 +346,28 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         authClient.logout();
       }
     });
+  }
+
+  void _showBusyDialog(BuildContext context, {required String message}) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Row(
+            children: [
+              const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2.4),
+              ),
+              const SizedBox(width: 16),
+              Expanded(child: Text(message)),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

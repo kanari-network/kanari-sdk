@@ -1,5 +1,5 @@
 // modules/escrow/queries.dart
-/// Escrow view functions and queries
+// Escrow view functions and queries.
 
 import 'dart:convert';
 import 'package:http/http.dart' as http;

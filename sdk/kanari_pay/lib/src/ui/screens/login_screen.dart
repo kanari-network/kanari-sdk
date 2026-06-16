@@ -89,10 +89,11 @@ class _KanariLoginScreenState extends State<KanariLoginScreen> {
         final walletAddress = response.data?.walletAddress;
         var matchedLocalWallet = false;
 
+        final walletState = context.read<WalletState>();
         if (walletAddress != null && walletAddress.isNotEmpty) {
-          matchedLocalWallet = await context
-              .read<WalletState>()
-              .syncWalletWithAddress(walletAddress);
+          matchedLocalWallet = await walletState.syncWalletWithAddress(
+            walletAddress,
+          );
         }
 
         if (!matchedLocalWallet &&
@@ -105,34 +106,48 @@ class _KanariLoginScreenState extends State<KanariLoginScreen> {
               _passwordController.text,
             );
             final curve = KanariCurve.fromString(response.data!.curveType!);
-            await context.read<WalletState>().importFromPrivateKey(
+            if (!mounted) return;
+            final hasPinSet = await walletState.hasPinSet();
+            if (!mounted) return;
+            String? pin;
+
+            if (!hasPinSet) {
+              pin = await showAppPinEntrySheet(
+                context: context,
+                title: 'Set PIN',
+                subtitle: 'Set a 6-digit PIN to secure this wallet.',
+              );
+              if (!mounted || pin == null) return;
+            }
+
+            await walletState.importFromPrivateKey(
               privateKey,
               curve: curve,
-              pin: '',
+              pin: pin,
             );
 
             if (walletAddress != null && walletAddress.isNotEmpty) {
-              matchedLocalWallet = await context
-                  .read<WalletState>()
-                  .syncWalletWithAddress(walletAddress);
+              matchedLocalWallet = await walletState.syncWalletWithAddress(
+                walletAddress,
+              );
             }
           } catch (e) {
+            if (!mounted) return;
             setState(() {
               _errorMessage = 'Wallet import failed: $e';
             });
           }
         }
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              matchedLocalWallet
-                  ? 'Login successful!'
-                  : 'Login successful, but this wallet is not stored on this device yet.',
-            ),
-            backgroundColor: matchedLocalWallet ? Colors.green : Colors.orange,
-          ),
-        );
+        if (!mounted) return;
+        if (matchedLocalWallet) {
+          showAppSuccessSnackBar(context, 'Login successful!');
+        } else {
+          showAppInfoSnackBar(
+            context,
+            'Login successful, but this wallet is not stored on this device yet.',
+          );
+        }
         widget.onLoginSuccess?.call();
       } else {
         final error = response.error ?? 'Login failed';

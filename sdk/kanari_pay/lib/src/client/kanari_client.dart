@@ -69,6 +69,14 @@ class KanariClient {
     return _queries.getTransaction(hash);
   }
 
+  /// Get recent transactions, optionally filtered by account address.
+  Future<List<TransactionDetails>> getAllTransactions({
+    int limit = 50,
+    String? account,
+  }) {
+    return _queries.getAllTransactions(limit: limit, account: account);
+  }
+
   /// Get blockchain statistics
   Future<BlockchainStats> getStats() {
     return _queries.getStats();

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:kanari_pay/src/providers/wallet_provider.dart';
 import 'package:provider/provider.dart';
 
+import 'app_ui.dart';
+
 class SecurityCard extends StatefulWidget {
   const SecurityCard({super.key});
 
@@ -11,6 +13,25 @@ class SecurityCard extends StatefulWidget {
 
 class _SecurityCardState extends State<SecurityCard> {
   bool _isExpanded = false;
+
+  Future<void> _toggleExpanded(BuildContext context) async {
+    if (_isExpanded) {
+      setState(() => _isExpanded = false);
+      return;
+    }
+
+    final state = context.read<WalletState>();
+    final authorized = await showAppPinVerificationSheet(
+      context: context,
+      onVerify: state.verifyPin,
+      lockRemaining: state.pinLockRemaining,
+      title: 'Unlock Secrets',
+      subtitle: 'Enter your 6-digit PIN before showing wallet secrets.',
+    );
+
+    if (!mounted || !authorized) return;
+    setState(() => _isExpanded = true);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +54,7 @@ class _SecurityCardState extends State<SecurityCard> {
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: theme.colorScheme.outline.withOpacity(0.2),
+          color: theme.colorScheme.outline.withValues(alpha: 0.2),
           width: 1,
         ),
       ),
@@ -41,13 +62,15 @@ class _SecurityCardState extends State<SecurityCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           GestureDetector(
-            onTap: () => setState(() => _isExpanded = !_isExpanded),
+            onTap: () => _toggleExpanded(context),
             child: Row(
               children: [
                 Container(
                   padding: EdgeInsets.all(iconPadding),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
+                    color: theme.colorScheme.surfaceContainerHighest.withValues(
+                      alpha: 0.3,
+                    ),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: Icon(
@@ -74,7 +97,9 @@ class _SecurityCardState extends State<SecurityCard> {
                         'Mnemonic & Private Key',
                         style: TextStyle(
                           fontSize: isSmallScreen ? 10 : 12,
-                          color: theme.colorScheme.onSurface.withOpacity(0.5),
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.5,
+                          ),
                         ),
                       ),
                     ],
@@ -84,7 +109,7 @@ class _SecurityCardState extends State<SecurityCard> {
                   _isExpanded
                       ? Icons.keyboard_arrow_up
                       : Icons.keyboard_arrow_down,
-                  color: theme.colorScheme.onSurface.withOpacity(0.4),
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
                   size: 24,
                 ),
               ],
@@ -109,9 +134,11 @@ class _SecurityCardState extends State<SecurityCard> {
             Container(
               padding: EdgeInsets.all(warningPadding),
               decoration: BoxDecoration(
-                color: theme.colorScheme.errorContainer.withOpacity(0.3),
+                color: theme.colorScheme.errorContainer.withValues(alpha: 0.3),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: theme.colorScheme.error.withOpacity(0.3)),
+                border: Border.all(
+                  color: theme.colorScheme.error.withValues(alpha: 0.3),
+                ),
               ),
               child: Row(
                 children: [
@@ -153,7 +180,7 @@ class _SecurityCardState extends State<SecurityCard> {
           label,
           style: TextStyle(
             fontSize: isSmallScreen ? 10 : 11,
-            color: theme.colorScheme.onSurface.withOpacity(0.4),
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
             fontWeight: FontWeight.w600,
             letterSpacing: 0.8,
           ),
@@ -163,10 +190,10 @@ class _SecurityCardState extends State<SecurityCard> {
           width: double.infinity,
           padding: EdgeInsets.all(isSmallScreen ? 10 : 14),
           decoration: BoxDecoration(
-            color: theme.colorScheme.surface.withOpacity(0.5),
+            color: theme.colorScheme.surface.withValues(alpha: 0.5),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: theme.colorScheme.outline.withOpacity(0.08),
+              color: theme.colorScheme.outline.withValues(alpha: 0.08),
             ),
           ),
           child: SelectableText(

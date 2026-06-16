@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:qr_flutter/qr_flutter.dart';
-import '../providers/wallet_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+
+import '../providers/wallet_provider.dart';
+import 'widgets/app_ui.dart';
 
 class WalletInfoCard extends StatelessWidget {
   const WalletInfoCard({super.key});
@@ -31,7 +33,7 @@ class WalletInfoCard extends StatelessWidget {
             'Wallet Address',
             style: theme.textTheme.labelSmall?.copyWith(
               fontWeight: FontWeight.w600,
-              color: theme.colorScheme.onSurface.withOpacity(0.4),
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
               letterSpacing: 1.5,
             ),
           ),
@@ -42,7 +44,7 @@ class WalletInfoCard extends StatelessWidget {
             color: theme.colorScheme.surface,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: theme.colorScheme.outline.withOpacity(0.2),
+              color: theme.colorScheme.outline.withValues(alpha: 0.2),
               width: 1,
             ),
           ),
@@ -51,7 +53,9 @@ class WalletInfoCard extends StatelessWidget {
               Container(
                 padding: EdgeInsets.all(iconPadding),
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.5,
+                  ),
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Icon(
@@ -85,7 +89,7 @@ class WalletInfoCard extends StatelessWidget {
                   color: theme.colorScheme.surface,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: theme.colorScheme.outline.withOpacity(0.1),
+                    color: theme.colorScheme.outline.withValues(alpha: 0.1),
                   ),
                 ),
                 child: IconButton(
@@ -104,7 +108,7 @@ class WalletInfoCard extends StatelessWidget {
                   color: theme.colorScheme.surface,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: theme.colorScheme.outline.withOpacity(0.1),
+                    color: theme.colorScheme.outline.withValues(alpha: 0.1),
                   ),
                 ),
                 child: IconButton(
@@ -113,17 +117,7 @@ class WalletInfoCard extends StatelessWidget {
                     Clipboard.setData(
                       ClipboardData(text: state.wallet!.address),
                     );
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text('Address copied'),
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        backgroundColor: theme.colorScheme.onSurface
-                            .withOpacity(0.8),
-                      ),
-                    );
+                    showAppInfoSnackBar(context, 'Address copied');
                   },
                   tooltip: 'Copy Address',
                   color: theme.colorScheme.onSurfaceVariant,
@@ -178,7 +172,7 @@ class WalletInfoCard extends StatelessWidget {
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: theme.colorScheme.outline.withOpacity(0.2),
+                    color: theme.colorScheme.outline.withValues(alpha: 0.2),
                     width: 2,
                   ),
                 ),
@@ -196,7 +190,7 @@ class WalletInfoCard extends StatelessWidget {
               Text(
                 'Scan to receive KANARI',
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurface.withOpacity(0.6),
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                 ),
               ),
               const SizedBox(height: 16),
@@ -206,7 +200,9 @@ class WalletInfoCard extends StatelessWidget {
                   vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceVariant.withOpacity(0.1),
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.1,
+                  ),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
@@ -214,7 +210,7 @@ class WalletInfoCard extends StatelessWidget {
                   style: theme.textTheme.bodySmall?.copyWith(
                     fontFamily: 'monospace',
                     fontSize: 10,
-                    color: theme.colorScheme.onSurface.withOpacity(0.7),
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                   ),
                   textAlign: TextAlign.center,
                   maxLines: 2,
@@ -228,16 +224,7 @@ class WalletInfoCard extends StatelessWidget {
                   onPressed: () {
                     Clipboard.setData(ClipboardData(text: address));
                     Navigator.pop(dialogContext);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text('Address copied to clipboard'),
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        backgroundColor: theme.colorScheme.primary,
-                      ),
-                    );
+                    showAppInfoSnackBar(context, 'Address copied to clipboard');
                   },
                   icon: const Icon(Icons.copy_rounded, size: 18),
                   label: const Text('Copy Address'),
