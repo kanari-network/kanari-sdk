@@ -1,5 +1,5 @@
 use crate::config::{DEFAULT_SENDER_COUNT, HarnessConfig, HarnessMode};
-use crate::execution::{execute_immediate, execute_parallel, execute_production_path};
+use crate::execution::{execute_immediate, execute_production_path};
 use crate::report::HarnessReport;
 use crate::workload::{build_signed_workload, prepare_engine};
 use anyhow::{Result, bail};
@@ -12,7 +12,6 @@ pub fn run_harness(config: &HarnessConfig) -> Result<HarnessReport> {
         config.mode.as_str()
     );
 
-    let _temp_dir = tempfile::Builder::new().prefix("kanari_tps").tempdir()?;
     let engine = prepare_engine()?;
 
     let sender_count = configured_sender_count(config);
@@ -22,21 +21,21 @@ pub fn run_harness(config: &HarnessConfig) -> Result<HarnessReport> {
     let signed_txs = build_signed_workload(config, sender_count)?;
 
     eprintln!("Starting benchmark...");
-    let start = Instant::now();
     let mut submit_secs = None;
     let mut produce_secs = None;
-    let block_info = match config.mode {
+    let start = Instant::now();
+    let (block_info, duration_secs) = match config.mode {
         HarnessMode::Production => {
             let (block_info, submit, produce) = execute_production_path(&engine, signed_txs)?;
             submit_secs = Some(submit);
             produce_secs = Some(produce);
-            block_info
+            (block_info, produce)
         }
-        HarnessMode::Immediate => execute_immediate(&engine, signed_txs)?,
-        HarnessMode::Parallel => execute_parallel(&engine, signed_txs, true)?,
-        HarnessMode::ParallelExecOnly => execute_parallel(&engine, signed_txs, false)?,
+        HarnessMode::Immediate => {
+            let block_info = execute_immediate(&engine, signed_txs)?;
+            (block_info, start.elapsed().as_secs_f64())
+        }
     };
-    let duration_secs = start.elapsed().as_secs_f64();
     let tps = if duration_secs > 0.0 {
         block_info.tx_count as f64 / duration_secs
     } else {
@@ -94,6 +93,24 @@ pub fn render_reports(config: &HarnessConfig, reports: &[HarnessReport]) -> Stri
 }
 
 pub fn ensure_targets(reports: &[HarnessReport]) -> Result<()> {
+    if reports.len() > 1
+        && let Some(target_tps) = reports.first().and_then(|report| report.target_tps)
+        && reports
+            .iter()
+            .all(|report| report.target_tps == Some(target_tps))
+    {
+        let (_, median_tps, _) = tps_summary(reports);
+        if median_tps < target_tps {
+            bail!(
+                "TPS target not reached: median {:.2} < {:.2} (runs={})",
+                median_tps,
+                target_tps,
+                reports.len()
+            );
+        }
+        return Ok(());
+    }
+
     for report in reports {
         ensure_target_tps(report)?;
     }

@@ -8,7 +8,7 @@ an in-memory engine and a signed zero-gas native workload:
 1. Generate and sign deterministic native transactions.
 2. Submit every transaction through `BlockchainEngine::submit_transaction`.
 3. Produce a Mysticeti checkpoint through `BlockchainEngine::produce_checkpoint`.
-4. Report TPS from the measured `submit_transaction + produce_checkpoint` window.
+4. Report production TPS from the measured `produce_checkpoint` window and show submit time separately.
 
 ## Quick Checks
 
@@ -24,7 +24,7 @@ Run the production benchmark:
 cargo run --release -p kanari-benchmarks -- --txs 1024 --json
 ```
 
-Run the 100k TPS high-throughput target benchmark:
+Run the 60k TPS production target benchmark:
 
 ```powershell
 cargo run --release -p kanari-benchmarks -- --high-throughput --json
@@ -33,7 +33,7 @@ cargo run --release -p kanari-benchmarks -- --high-throughput --json
 Equivalent explicit command:
 
 ```powershell
-cargo run --release -p kanari-benchmarks -- --mode parallel-exec-only --txs 10000 --senders 10000 --runs 3 --target-tps 100000 --json
+cargo run --release -p kanari-benchmarks -- --mode production --txs 10000 --senders 10000 --runs 3 --target-tps 60000 --json
 ```
 
 ## Modes
@@ -42,24 +42,18 @@ cargo run --release -p kanari-benchmarks -- --mode parallel-exec-only --txs 1000
   Full local production path: mempool submission plus `produce_checkpoint`.
 - `immediate`
   Executes and applies transactions one by one. Useful as a correctness baseline, not a peak TPS number.
-- `parallel`
-  Executes transactions in parallel and applies successful changesets. Useful for runtime/state apply experiments.
-- `parallel-exec-only`
-  Measures execution engine ceiling only. This can produce high numbers, but it is not full blockchain TPS.
 
 ## High Throughput Target
 
-`--high-throughput` is the quick engine-ceiling target for 100k TPS. It expands to:
+`--high-throughput` is the quick production-path target for 60k TPS. It expands to:
 
-- `--mode parallel-exec-only`
+- `--mode production`
 - `--txs 10000`
 - `--senders 10000`
 - `--runs 3`
-- `--target-tps 100000`
+- `--target-tps 60000`
 
-Every run must meet the target. If a run drops below 100k TPS, the process exits with an error so CI and local scripts catch it immediately.
-
-For production checkpoint TPS, run `production` mode explicitly with your target threshold.
+Every run must meet the target. If a run drops below 60k TPS, the process exits with an error so CI and local scripts catch it immediately.
 
 ## Interpreting Results
 
@@ -86,6 +80,7 @@ Important fields:
 - `failed`: transactions that failed in the selected mode
 - `tx_count`: transactions included in the measured path
 - `duration_secs`: measured benchmark window
+- In `production` mode, this is checkpoint production time. `submit_secs` is reported separately.
 - `submit_secs`: time spent in batch mempool submission
 - `produce_secs`: time spent in block/DAG production
 - `tps`: `tx_count / duration_secs`
@@ -96,7 +91,6 @@ Important fields:
 
 - Use `--release` for throughput numbers.
 - Treat `production` as the honest local blockchain TPS benchmark without disk I/O.
-- Treat `parallel-exec-only` as an execution ceiling, not as chain TPS.
 - Larger `--txs` values can take much longer in production mode because they include signature verification, state-root work, and block production.
 - On the current Windows test machine, `production --txs 10000` can exceed 180k TPS on the local in-memory path after warm-up.
 

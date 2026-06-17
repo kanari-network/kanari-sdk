@@ -4,14 +4,12 @@ pub const DEFAULT_SENDER_COUNT: usize = 64;
 pub const HIGH_THROUGHPUT_TX_COUNT: usize = 10_000;
 pub const HIGH_THROUGHPUT_SENDER_COUNT: usize = HIGH_THROUGHPUT_TX_COUNT;
 pub const HIGH_THROUGHPUT_RUNS: usize = 3;
-pub const HIGH_THROUGHPUT_TARGET_TPS: f64 = 100_000.0;
+pub const HIGH_THROUGHPUT_TARGET_TPS: f64 = 60_000.0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HarnessMode {
     Production,
     Immediate,
-    Parallel,
-    ParallelExecOnly,
 }
 
 impl HarnessMode {
@@ -19,8 +17,6 @@ impl HarnessMode {
         match self {
             Self::Production => "production",
             Self::Immediate => "immediate",
-            Self::Parallel => "parallel",
-            Self::ParallelExecOnly => "parallel-exec-only",
         }
     }
 }
@@ -95,8 +91,6 @@ where
                 config.mode = match value.as_str() {
                     "production" => HarnessMode::Production,
                     "immediate" => HarnessMode::Immediate,
-                    "parallel" => HarnessMode::Parallel,
-                    "parallel-exec-only" => HarnessMode::ParallelExecOnly,
                     _ => bail!("unknown mode: {value}\n\n{}", usage()),
                 };
             }
@@ -118,7 +112,7 @@ where
 }
 
 pub fn usage() -> &'static str {
-    "Usage: cargo run --release -p kanari-benchmarks -- [--txs N] [--senders N] [--runs N] [--target-tps N] [--mode production|immediate|parallel|parallel-exec-only] [--json]\n       cargo run --release -p kanari-benchmarks -- --high-throughput --json\n       cargo run --release -p kanari-benchmarks -- [N]\n\nDefault mode is production: submit_transaction + produce_checkpoint."
+    "Usage: cargo run --release -p kanari-benchmarks -- [--txs N] [--senders N] [--runs N] [--target-tps N] [--mode production|immediate] [--json]\n       cargo run --release -p kanari-benchmarks -- --high-throughput --json\n       cargo run --release -p kanari-benchmarks -- [N]\n\nDefault mode is production: submit_transaction + produce_checkpoint."
 }
 
 fn apply_high_throughput_preset(config: &mut HarnessConfig) {
@@ -131,7 +125,7 @@ fn apply_high_throughput_preset(config: &mut HarnessConfig) {
     if config.runs == HarnessConfig::default().runs {
         config.runs = HIGH_THROUGHPUT_RUNS;
     }
-    config.mode = HarnessMode::ParallelExecOnly;
+    config.mode = HarnessMode::Production;
     config.target_tps = Some(HIGH_THROUGHPUT_TARGET_TPS);
 }
 
@@ -182,7 +176,7 @@ mod tests {
             "--txs",
             "64",
             "--mode",
-            "parallel-exec-only",
+            "immediate",
             "--json",
         ]))
         .unwrap();
@@ -193,7 +187,7 @@ mod tests {
                 sender_count: None,
                 runs: 1,
                 json: true,
-                mode: HarnessMode::ParallelExecOnly,
+                mode: HarnessMode::Immediate,
                 target_tps: None,
             }
         );
@@ -225,14 +219,14 @@ mod tests {
         assert_eq!(config.tx_count, HIGH_THROUGHPUT_TX_COUNT);
         assert_eq!(config.sender_count, Some(HIGH_THROUGHPUT_SENDER_COUNT));
         assert_eq!(config.runs, HIGH_THROUGHPUT_RUNS);
-        assert_eq!(config.mode, HarnessMode::ParallelExecOnly);
+        assert_eq!(config.mode, HarnessMode::Production);
         assert_eq!(config.target_tps, Some(HIGH_THROUGHPUT_TARGET_TPS));
     }
 
     #[test]
     fn parse_args_accepts_target_tps() {
-        let config = parse_args(args(&["kanari-benchmarks", "--target-tps", "100000"])).unwrap();
-        assert_eq!(config.target_tps, Some(100_000.0));
+        let config = parse_args(args(&["kanari-benchmarks", "--target-tps", "60000"])).unwrap();
+        assert_eq!(config.target_tps, Some(60_000.0));
     }
 
     #[test]

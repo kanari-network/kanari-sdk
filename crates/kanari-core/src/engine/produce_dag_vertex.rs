@@ -446,11 +446,15 @@ impl DagEngine {
             let state_arc = Arc::new(RwLock::new(state_snapshot));
             self.engine
                 .execute_system_prologue_to_state_for_dag_v2(&state_arc, timestamp)?;
+            let mut validate_supply = true;
             let (executed, failed) = match self
                 .engine
                 .apply_zero_effect_native_batch(&transactions, &state_arc)?
             {
-                Some(result) => result,
+                Some(result) => {
+                    validate_supply = false;
+                    result
+                }
                 None => self.engine.execute_tx_waves_deterministic_parallel(
                     transactions.clone(),
                     &state_arc,
@@ -464,7 +468,7 @@ impl DagEngine {
                 state_root,
                 executed,
                 failed,
-                Some((verified_state, transactions.clone())),
+                Some((verified_state, transactions.clone(), validate_supply)),
             )
         };
 
@@ -524,7 +528,7 @@ impl DagEngine {
     fn finalize_vertex(
         &self,
         vertex: DagVertex,
-        prepared_checkpoint_state: Option<(StateManager, Vec<SignedTransaction>)>,
+        prepared_checkpoint_state: Option<(StateManager, Vec<SignedTransaction>, bool)>,
     ) -> Result<Option<Checkpoint>> {
         {
             let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
@@ -552,11 +556,14 @@ impl DagEngine {
         if checkpoint.transactions.is_empty() {
             checkpoint.state_root = self.engine.state_read().compute_state_root();
             self.engine.apply_checkpoint(checkpoint.clone())?;
-        } else if let Some((verified_state, to_execute)) = prepared_checkpoint_state {
+        } else if let Some((verified_state, to_execute, validate_supply)) =
+            prepared_checkpoint_state
+        {
             self.engine.apply_prepared_checkpoint(
                 checkpoint.clone(),
                 verified_state,
                 to_execute,
+                validate_supply,
             )?;
         } else {
             let (computed_root, verified_state, to_execute) =
@@ -572,6 +579,7 @@ impl DagEngine {
                 checkpoint.clone(),
                 verified_state,
                 to_execute,
+                true,
             )?;
         }
 

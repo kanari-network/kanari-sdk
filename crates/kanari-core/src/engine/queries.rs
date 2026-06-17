@@ -299,7 +299,7 @@ impl BlockchainEngine {
             checkpoint_to_apply.state_root = computed_root;
         }
 
-        self.apply_prepared_checkpoint(checkpoint_to_apply, verified_state, to_execute)?;
+        self.apply_prepared_checkpoint(checkpoint_to_apply, verified_state, to_execute, true)?;
 
         info!(
             "Synced checkpoint #{} with {} transactions",

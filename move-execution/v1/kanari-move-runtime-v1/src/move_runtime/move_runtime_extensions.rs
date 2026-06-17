@@ -80,9 +80,3 @@ impl MoveRuntime {
             .collect()
     }
 }
-
-/// Runtime statistics and configuration
-#[derive(Debug, Clone)]
-pub struct RuntimeStats {
-    pub gas_metering_enabled: bool,
-}

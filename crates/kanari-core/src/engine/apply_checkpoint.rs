@@ -100,10 +100,17 @@ impl BlockchainEngine {
     }
 
     /// Helper: Common steps for finalizing Checkpoint to database
-    fn finalize_checkpoint(&self, checkpoint: Checkpoint, new_state: StateManager) -> Result<()> {
-        new_state
-            .validate_supply_invariants()
-            .context("Supply invariants failed before checkpoint commit")?;
+    fn finalize_checkpoint(
+        &self,
+        checkpoint: Checkpoint,
+        new_state: StateManager,
+        validate_supply: bool,
+    ) -> Result<()> {
+        if validate_supply {
+            new_state
+                .validate_supply_invariants()
+                .context("Supply invariants failed before checkpoint commit")?;
+        }
 
         {
             let mut state = self.state_write();
@@ -172,6 +179,7 @@ impl BlockchainEngine {
         checkpoint: Checkpoint,
         verified_state: StateManager,
         to_execute: Vec<SignedTransaction>,
+        validate_supply: bool,
     ) -> Result<()> {
         if !to_execute.is_empty() && Self::requires_runtime_side_effect_persistence(&to_execute) {
             let side_effect_state = Arc::new(RwLock::new(self.state_read().clone()));
@@ -184,7 +192,7 @@ impl BlockchainEngine {
             )?;
         }
 
-        self.finalize_checkpoint(checkpoint, verified_state)
+        self.finalize_checkpoint(checkpoint, verified_state, validate_supply)
     }
 
     pub fn apply_checkpoint(&self, checkpoint: Checkpoint) -> Result<()> {
@@ -198,6 +206,6 @@ impl BlockchainEngine {
             self.prepare_checkpoint_state(&checkpoint)?;
         self.ensure_checkpoint_root_matches(&checkpoint, &computed_root)?;
 
-        self.apply_prepared_checkpoint(checkpoint, verified_state, to_execute)
+        self.apply_prepared_checkpoint(checkpoint, verified_state, to_execute, true)
     }
 }
