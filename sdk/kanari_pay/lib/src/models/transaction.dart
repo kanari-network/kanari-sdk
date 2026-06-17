@@ -55,6 +55,7 @@ class TransactionDetails extends Equatable {
   final String hash;
   final String status;
   final int? blockHeight;
+  final int? checkpointHeight;
   final int? gasUsed;
   final String txType;
   final String sender;
@@ -70,6 +71,7 @@ class TransactionDetails extends Equatable {
     required this.hash,
     required this.status,
     this.blockHeight,
+    this.checkpointHeight,
     this.gasUsed,
     required this.txType,
     required this.sender,
@@ -86,9 +88,14 @@ class TransactionDetails extends Equatable {
     return TransactionDetails(
       hash: json['hash']?.toString() ?? '',
       status: json['status']?.toString() ?? '',
-      blockHeight: json['block_height'] == null
+      blockHeight:
+          json['checkpoint_height'] == null && json['block_height'] == null
           ? null
-          : _jsonInt(json['block_height']),
+          : _jsonInt(json['checkpoint_height'] ?? json['block_height']),
+      checkpointHeight:
+          json['checkpoint_height'] == null && json['block_height'] == null
+          ? null
+          : _jsonInt(json['checkpoint_height'] ?? json['block_height']),
       gasUsed: json['gas_used'] == null ? null : _jsonInt(json['gas_used']),
       txType: json['tx_type']?.toString() ?? '',
       sender: json['sender']?.toString() ?? '',
@@ -108,6 +115,7 @@ class TransactionDetails extends Equatable {
     'hash': hash,
     'status': status,
     'block_height': blockHeight,
+    'checkpoint_height': checkpointHeight ?? blockHeight,
     'gas_used': gasUsed,
     'tx_type': txType,
     'sender': sender,
@@ -125,6 +133,7 @@ class TransactionDetails extends Equatable {
     hash,
     status,
     blockHeight,
+    checkpointHeight,
     gasUsed,
     txType,
     sender,

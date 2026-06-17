@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kanari_pay/kanari_pay.dart';
 
-
 void main() {
   group('KanariWallet PQC/Hybrid Fixes', () {
     test('fromPrivateKey trims whitespace and removes kanari prefix', () async {

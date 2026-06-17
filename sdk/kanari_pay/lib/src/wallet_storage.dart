@@ -266,7 +266,9 @@ class WalletStorage {
     await prefs.setString(_keyBalanceCache, jsonEncode(cache));
   }
 
-  static Future<List<TokenBalance>> loadCachedBalances(String walletAddress) async {
+  static Future<List<TokenBalance>> loadCachedBalances(
+    String walletAddress,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_keyBalanceCache);
     if (raw == null) return const [];
@@ -277,7 +279,10 @@ class WalletStorage {
       if (entries is! List) return const [];
 
       return entries
-          .map((item) => TokenBalance.fromJson(Map<String, dynamic>.from(item as Map)))
+          .map(
+            (item) =>
+                TokenBalance.fromJson(Map<String, dynamic>.from(item as Map)),
+          )
           .toList();
     } catch (e) {
       debugPrint('Failed to load cached balances: $e');

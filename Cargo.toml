@@ -45,7 +45,6 @@ members = [
       "crates/kanari-open-rpc-spec-builder",
 
       # move-execution
-      "move-execution/v0/kanari-move-runtime", 
       "move-execution/v1/kanari-move-runtime-v1",
 ]
 
@@ -84,7 +83,7 @@ libp2p = { version = "0.56.0", features = ["tcp", "noise", "yamux", "gossipsub",
 ## HTTP/Web APIs
 reqwest = { version = "0.13.4", features = ["json"] }
 axum = "0.8.9"
-tower-http = { version = "0.6.11", features = ["cors"] }
+tower-http = { version = "0.7.0", features = ["cors"] }
 axum-client-ip = "1.3.1"                                                              # IP extraction for axum
 
 # ============================================================================
@@ -270,10 +269,8 @@ kanari-open-rpc-spec = { path = "crates/kanari-open-rpc-spec" }
 
 # SMT Support
 smt = { path = "crates/smt" }
-centauri = { path = "crates/centauri" }
 
 # Move Runtime
-kanari-move-runtime = { path = "move-execution/v0/kanari-move-runtime" }
 kanari-move-runtime-v1 = { path = "move-execution/v1/kanari-move-runtime-v1" }
 
 # Move dependencies
@@ -307,6 +304,10 @@ move-stdlib-natives = { path = "third_party/move/crates/move-stdlib-natives" }
 move-vm-runtime = { path = "third_party/move/crates/move-vm-runtime" }
 move-coverage = { path = "third_party/move/crates/move-coverage" }
 move-bytecode-verifier = { path = "third_party/move/crates/move-bytecode-verifier" }
+
+[patch.crates-io]
+libp2p-kad = { path = "third_party/patches/libp2p-kad-0.48.0" }
+proc-macro-error2 = { path = "third_party/patches/proc-macro-error2-2.0.1" }
 
 
 # Profile Configurations: Define different build profiles for various scenarios.

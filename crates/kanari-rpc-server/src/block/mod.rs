@@ -84,10 +84,13 @@ pub async fn handle_get_stats(state: &RpcServerState, request: &RpcRequest) -> R
     respond_with_serialize(request.id, blockchain_stats)
 }
 
-/// Handle produce block request (force block production now)
-pub async fn handle_produce_block(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    match state.engine.produce_block() {
+/// Handle produce checkpoint request (force Mysticeti checkpoint production now)
+pub async fn handle_produce_checkpoint(
+    state: &RpcServerState,
+    request: &RpcRequest,
+) -> RpcResponse {
+    match state.engine.produce_checkpoint() {
         Ok(info) => respond_with_serialize(request.id, info),
-        Err(e) => internal_error_response(request.id, format!("Produce block failed: {}", e)),
+        Err(e) => internal_error_response(request.id, format!("Produce checkpoint failed: {}", e)),
     }
 }

@@ -17,6 +17,8 @@ class BlockchainStats extends Equatable {
   @JsonKey(name: 'total_supply')
   final int totalSupply;
 
+  int get totalCheckpoints => totalBlocks;
+
   const BlockchainStats({
     required this.height,
     required this.totalBlocks,

@@ -241,9 +241,9 @@ class _TransactionTile extends StatelessWidget {
                   _StatusPill(success: isSuccess, label: transaction.status),
                   const SizedBox(height: 6),
                   Text(
-                    transaction.blockHeight == null
+                    transaction.checkpointHeight == null
                         ? 'Pending'
-                        : '#${transaction.blockHeight}',
+                        : '#${transaction.checkpointHeight}',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: colors.onSurfaceVariant,
                     ),
@@ -311,8 +311,11 @@ class _TransactionDetailsSheet extends StatelessWidget {
               value: transaction.sender,
               copyable: true,
             ),
-            if (transaction.blockHeight != null)
-              _DetailRow(label: 'Block', value: '${transaction.blockHeight}'),
+            if (transaction.checkpointHeight != null)
+              _DetailRow(
+                label: 'Checkpoint',
+                value: '${transaction.checkpointHeight}',
+              ),
             if (transaction.gasUsed != null)
               _DetailRow(label: 'Gas Used', value: '${transaction.gasUsed}'),
             _DetailRow(

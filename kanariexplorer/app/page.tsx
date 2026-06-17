@@ -21,6 +21,9 @@ import { asArray, CopyButton, formatNumber, Panel, readString, SearchForm, StatC
 
 const ROOT_SCAN_DEPTH = 8;
 const ROOT_SCAN_ENDPOINT_LIMIT = 8;
+const NETWORK_POLL_INTERVAL_MS = 750;
+const ROOT_SCAN_INTERVAL_MS = 5000;
+const NETWORK_POLL_LABEL = `${NETWORK_POLL_INTERVAL_MS} ms`;
 
 type StabilitySample = {
   height: number;
@@ -57,6 +60,11 @@ function formatDuration(ms: number | null) {
   if (ms === null) return "No event";
   if (ms < 1000) return `${ms} ms`;
   return `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} s`;
+}
+
+function maxNullable(values: Array<number | null | undefined>) {
+  const numbers = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  return numbers.length ? Math.max(...numbers) : null;
 }
 
 function readNumber(source: unknown, ...keys: string[]) {
@@ -124,12 +132,12 @@ async function readStateRootChecksAtHeight(
       }
 
       try {
-        const block = await getFullBlock(height, endpoint.url).catch(() => getBlock(height, endpoint.url).catch(() => null));
-        const returnedHeight = readNumber(block, "height", "block_height", "number");
+        const checkpoint = await getFullBlock(height, endpoint.url).catch(() => getBlock(height, endpoint.url).catch(() => null));
+        const returnedHeight = readNumber(checkpoint, "height", "checkpoint_height", "block_height", "number");
         if (returnedHeight !== height) {
           return {
             endpoint: endpoint.url,
-            error: returnedHeight === null ? "block height unavailable" : `returned height ${returnedHeight}`,
+            error: returnedHeight === null ? "checkpoint height unavailable" : `returned height ${returnedHeight}`,
             height,
             node: endpoint.name,
             nodeHeight,
@@ -138,7 +146,7 @@ async function readStateRootChecksAtHeight(
           };
         }
 
-        const root = readString(block, "state_root", "");
+        const root = readString(checkpoint, "state_root", "");
         return {
           endpoint: endpoint.url,
           height,
@@ -150,7 +158,7 @@ async function readStateRootChecksAtHeight(
       } catch (err) {
         return {
           endpoint: endpoint.url,
-          error: err instanceof Error ? err.message : "block unavailable",
+          error: err instanceof Error ? err.message : "checkpoint unavailable",
           height,
           node: endpoint.name,
           nodeHeight,
@@ -235,7 +243,7 @@ function ConsensusStabilityPanel({
     },
     {
       detail: samples.length > 1 ? "derived from height delta over recent polls" : "waiting for more samples",
-      label: "Block Production Rate",
+      label: "Checkpoint Production Rate",
       tone: productionRate === null ? "idle" : "ok",
       value: productionRate === null ? "Collecting" : `${productionRate.toFixed(2)} / min`,
     },
@@ -269,7 +277,7 @@ function ConsensusStabilityPanel({
           ? `${roots.length} nodes share one state root`
           : rootStatus === "Diverged"
             ? `${uniqueRootCount} unique roots observed`
-            : "waiting for exact-height block reads",
+            : "waiting for exact-height checkpoint reads",
       label: "State Root Comparison",
       tone: rootStatus === "Diverged" ? "down" : rootStatus === "Match" ? "ok" : "idle",
       value: rootStatus,
@@ -281,7 +289,7 @@ function ConsensusStabilityPanel({
       <div className="panel-head">
         <div>
           <h2 className="panel-title">Consensus Stability</h2>
-          <p className="panel-subtitle">Observed health signals for Centauri consensus stability</p>
+          <p className="panel-subtitle">Observed health signals for Mysticeti checkpoint stability</p>
         </div>
         <StatusPill label={partitionState === "Clear" ? "Stable" : "Watching"} state={partitionState === "Clear" ? "ok" : "warn"} />
       </div>
@@ -336,8 +344,8 @@ function StateDivergenceAudit({
       value: divergingNodes.length > 0 ? formatNumber(divergingNodes.length) : readableChecks.length > 1 ? "None" : "Collecting",
     },
     {
-      detail: firstDivergence ? `first observed split in last ${ROOT_SCAN_DEPTH} checked blocks` : "no split in recent root window",
-      label: "Divergence Start Block",
+      detail: firstDivergence ? `first observed split in last ${ROOT_SCAN_DEPTH} checked checkpoints` : "no split in recent root window",
+      label: "Divergence Start Checkpoint",
       tone: firstDivergence ? "down" : "ok",
       value: firstDivergence ? formatNumber(firstDivergence.height) : "None",
     },
@@ -353,7 +361,7 @@ function StateDivergenceAudit({
       value: rootMode,
     },
     {
-      detail: divergingNodes.length > 0 ? `root outliers: ${suspectLabels}` : "Centauri vote proof RPC is required to prove a bad vote",
+      detail: divergingNodes.length > 0 ? `root outliers: ${suspectLabels}` : "Mysticeti vote proof RPC is required to prove a bad vote",
       label: "Wrong Vote Proof",
       tone: divergingNodes.length > 0 ? "warn" : "idle",
       value: "Unavailable",
@@ -436,7 +444,7 @@ function StateDivergenceAudit({
   );
 }
 
-function CentauriNodeGraph({
+function MysticetiNodeGraph({
   blockHeight,
   configuredEndpoints,
   maxHeight,
@@ -489,14 +497,14 @@ function CentauriNodeGraph({
     <section className="panel centauri-graph-panel">
       <div className="panel-head">
         <div>
-          <h2 className="panel-title">Centauri Node Work</h2>
-          <p className="panel-subtitle">Consensus work map across live RPC nodes</p>
+          <h2 className="panel-title">Mysticeti Node Work</h2>
+          <p className="panel-subtitle">Checkpoint work map across live RPC nodes</p>
         </div>
         <StatusPill label={`${syncedNodes}/${nodes.length || configuredEndpoints.length} synced`} />
       </div>
 
       <div className="centauri-graph">
-        <div className="centauri-map" aria-label="Centauri node work graph">
+        <div className="centauri-map" aria-label="Mysticeti node work graph">
           <span className="centauri-orbit centauri-orbit--outer" />
           <span className="centauri-orbit centauri-orbit--middle" />
           <span className="centauri-orbit centauri-orbit--inner" />
@@ -514,7 +522,7 @@ function CentauriNodeGraph({
 
           <div className="centauri-core">
             <Image src="/kariicon1.png" alt="" width={64} height={64} />
-            <strong>Centauri</strong>
+            <strong>Mysticeti</strong>
             <span className="mono">H {formatNumber(activeHeight)}</span>
           </div>
 
@@ -540,7 +548,7 @@ function CentauriNodeGraph({
           <div className="centauri-work-card">
             <p className="tiny-label">Round Height</p>
             <strong className="mono">{formatNumber(activeHeight)}</strong>
-            <span>latest observed block</span>
+            <span>latest observed checkpoint</span>
           </div>
           <div className="centauri-work-lanes">
             {[
@@ -581,6 +589,7 @@ export default function Home() {
   const [stabilitySamples, setStabilitySamples] = useState<StabilitySample[]>([]);
   const [stateRootChecks, setStateRootChecks] = useState<StateRootCheck[]>([]);
   const offlineSinceRef = useRef<Map<string, number>>(new Map());
+  const lastRootScanAtRef = useRef(0);
   const router = useRouter();
 
   const onlineNodes = nodes.filter((node) => node.online);
@@ -588,8 +597,8 @@ export default function Home() {
   const syncedNodes = onlineNodes.filter((node) => (node.height ?? 0) >= maxHeight).length;
   const laggingNodes = onlineNodes.length - syncedNodes;
   const offlineNodes = nodes.length - onlineNodes.length;
-  const totalTransactions = nodes.find((node) => node.totalTransactions !== null)?.totalTransactions ?? null;
-  const totalAccounts = nodes.find((node) => node.totalAccounts !== null)?.totalAccounts ?? null;
+  const totalTransactions = maxNullable(nodes.map((node) => node.totalTransactions));
+  const totalAccounts = maxNullable(nodes.map((node) => node.totalAccounts));
   const pendingTransactions = nodes.reduce((sum, node) => sum + (node.pendingTransactions ?? 0), 0);
 
   const networkStatusLabel = useMemo(() => {
@@ -625,24 +634,27 @@ export default function Home() {
         latestHeight === null
           ? null
           : await getFullBlock(latestHeight).catch(() => getBlock(latestHeight).catch(() => null));
-      const nodeByUrl = new Map(nodeResults.map((node) => [node.endpoint.url, node]));
-      const nextStateRootChecks =
-        commonHeight === null
-          ? []
-          : await readStateRootChecksAtHeight(commonHeight, nextEndpoints, nodeByUrl);
-      const scanEndpoints = nextEndpoints.slice(0, ROOT_SCAN_ENDPOINT_LIMIT);
-      const scanStart = commonHeight === null ? null : Math.max(0, commonHeight - ROOT_SCAN_DEPTH + 1);
-      const nextDivergenceWindow =
-        commonHeight === null || scanStart === null
-          ? []
-          : await Promise.all(
-            Array.from({ length: commonHeight - scanStart + 1 }, (_, index) => scanStart + index).map(async (height) => ({
-              checks: await readStateRootChecksAtHeight(height, scanEndpoints, nodeByUrl),
-              height,
-            })),
-          );
-
       const now = Date.now();
+      let nextStateRootChecks: StateRootCheck[] | null = null;
+      let nextDivergenceWindow: DivergenceScan[] | null = null;
+      if (commonHeight === null) {
+        nextStateRootChecks = [];
+        nextDivergenceWindow = [];
+        lastRootScanAtRef.current = now;
+      } else if (now - lastRootScanAtRef.current >= ROOT_SCAN_INTERVAL_MS) {
+        const nodeByUrl = new Map(nodeResults.map((node) => [node.endpoint.url, node]));
+        nextStateRootChecks = await readStateRootChecksAtHeight(commonHeight, nextEndpoints, nodeByUrl);
+        const scanEndpoints = nextEndpoints.slice(0, ROOT_SCAN_ENDPOINT_LIMIT);
+        const scanStart = Math.max(0, commonHeight - ROOT_SCAN_DEPTH + 1);
+        nextDivergenceWindow = await Promise.all(
+          Array.from({ length: commonHeight - scanStart + 1 }, (_, index) => scanStart + index).map(async (height) => ({
+            checks: await readStateRootChecksAtHeight(height, scanEndpoints, nodeByUrl),
+            height,
+          })),
+        );
+        lastRootScanAtRef.current = now;
+      }
+
       nodeResults.forEach((node) => {
         const key = node.endpoint.url;
         if (!node.online) {
@@ -662,7 +674,7 @@ export default function Home() {
       setLatestBlock(blockRes);
       setConfiguredEndpoints(nextEndpoints);
       setNodes(nodeResults);
-      setDivergenceWindow(nextDivergenceWindow);
+      if (nextDivergenceWindow !== null) setDivergenceWindow(nextDivergenceWindow);
       setStabilitySamples((current) =>
         [
           ...current,
@@ -674,12 +686,12 @@ export default function Home() {
           },
         ].slice(-24),
       );
-      setStateRootChecks(nextStateRootChecks);
+      if (nextStateRootChecks !== null) setStateRootChecks(nextStateRootChecks);
       setLastUpdated(new Date().toLocaleTimeString());
     }
 
     fetchNetworkData();
-    const interval = window.setInterval(fetchNetworkData, 5000);
+    const interval = window.setInterval(fetchNetworkData, NETWORK_POLL_INTERVAL_MS);
     return () => window.clearInterval(interval);
   }, []);
 
@@ -728,12 +740,12 @@ export default function Home() {
 
       <section className="stat-grid explorer-stat-grid">
         <StatCard label="Nodes" value={`${onlineNodes.length}/${nodes.length || configuredEndpoints.length}`} detail={offlineNodes ? `${offlineNodes} offline` : `${laggingNodes} lagging`} />
-        <StatCard label="Height" value={formatNumber(maxHeight || blockHeight)} detail="Highest reported block height" />
+        <StatCard label="Height" value={formatNumber(maxHeight || blockHeight)} detail="Highest reported checkpoint height" />
         <StatCard label="Transactions" value={formatNumber(totalTransactions)} detail={`${formatNumber(pendingTransactions)} pending in mempool`} />
         <StatCard label="Tokens" value={formatNumber(tokenCount)} detail={`${formatNumber(totalAccounts)} accounts indexed`} />
       </section>
 
-      <CentauriNodeGraph
+      <MysticetiNodeGraph
         blockHeight={blockHeight}
         configuredEndpoints={configuredEndpoints}
         maxHeight={maxHeight}
@@ -757,7 +769,7 @@ export default function Home() {
       <section className="content-grid">
         <Panel
           title="Node Status"
-          subtitle={`Refreshes every 5 seconds${lastUpdated ? `, last ${lastUpdated}` : ""}`}
+          subtitle={`Refreshes every ${NETWORK_POLL_LABEL}${lastUpdated ? `, last ${lastUpdated}` : ""}`}
           action={<StatusPill label={`${syncedNodes} synced`} state={offlineNodes ? "warn" : "ok"} />}
         >
           <div className="data-list">
@@ -805,8 +817,8 @@ export default function Home() {
         </Panel>
 
         <Panel
-          title="Latest Block"
-          subtitle={blockHeight === null ? "Waiting for block height" : `Height ${formatNumber(blockHeight)}`}
+          title="Latest Checkpoint"
+          subtitle={blockHeight === null ? "Waiting for checkpoint height" : `Height ${formatNumber(blockHeight)}`}
           action={<StatusPill label={latestBlock ? "Loaded" : "Pending"} state={latestBlock ? "ok" : "warn"} />}
         >
           <div className="block-summary">
@@ -817,7 +829,9 @@ export default function Home() {
               </div>
               <div>
                 <p className="tiny-label">Transactions</p>
-                <strong className="mono">{readString(latestBlock, "transaction_count", readString(latestBlock, "transactions_len", "-"))}</strong>
+                <strong className="mono">
+                  {readString(latestBlock, "tx_count", readString(latestBlock, "transaction_count", readString(latestBlock, "transactions_len", "-")))}
+                </strong>
               </div>
             </div>
             <div>

@@ -244,7 +244,7 @@ cargo test --package kanari-core -- --nocapture
 
 ## Dependencies
 
-- `kanari-move-runtime` - Move VM integration
+- `kanari-move-runtime-v1` - Move VM integration
 - `kanari-crypto` - Cryptographic primitives (Blake3, Ed25519, etc.)
 - `kanari-types` - Common type definitions
 - `smt` - Sparse Merkle Tree implementation

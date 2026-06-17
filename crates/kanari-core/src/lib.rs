@@ -10,7 +10,7 @@ pub use consensus::{
     PersistentDagState, VertexId,
 };
 pub use engine::{
-    BlockData, BlockInfo, BlockchainEngine, BlockchainStats, CheckpointSyncData, DagBlockInfo,
+    BlockData, BlockchainEngine, BlockchainStats, CheckpointProductionInfo, CheckpointSyncData,
     FullBlockData,
 };
 

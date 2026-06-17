@@ -117,7 +117,7 @@ pub struct TokenBalance {
     pub symbol: String,
 }
 
-/// Block info response (legacy/simple)
+/// Checkpoint-backed block view response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockInfo {
     pub height: u64,
@@ -529,13 +529,13 @@ pub mod methods {
     )]
     pub const GET_ALL_TRANSACTIONS: &str = "kanari_getAllTransactions";
     #[open_rpc_method(
-        summary = "Produce block",
-        description = "Forces block production immediately.",
+        summary = "Produce checkpoint",
+        description = "Forces Mysticeti checkpoint production immediately.",
         params = [],
-        result = ("block_info", "Produced block result.", schema_object()),
-        tags = ["block"]
+        result = ("checkpoint_info", "Produced checkpoint result.", schema_object()),
+        tags = ["checkpoint"]
     )]
-    pub const PRODUCE_BLOCK: &str = "kanari_produceBlock";
+    pub const PRODUCE_CHECKPOINT: &str = "kanari_produceCheckpoint";
     #[open_rpc_method(
         summary = "Submit transaction",
         description = "Submits a transfer or burn transaction to the mempool.",

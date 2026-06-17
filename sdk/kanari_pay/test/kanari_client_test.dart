@@ -39,10 +39,10 @@ void main() {
 
     test('fromEnvironment uses correct URL', () {
       final clientDev = KanariClient.fromEnvironment(KanariEnvironment.dev);
-      expect(clientDev.url, 'https://dev-seed.kanari.network/rpc');
+      expect(clientDev.url, 'http://192.168.1.103:19001');
 
       final clientLocal = KanariClient.fromEnvironment(KanariEnvironment.local);
-      expect(clientLocal.url, 'http://127.0.0.1:6767');
+      expect(clientLocal.url, 'http://127.0.0.1:6767/rpc');
     });
 
     test('transfer signs and submits correctly', () async {
@@ -73,13 +73,33 @@ void main() {
                 'sequence_number': 5,
                 'modules': [],
                 'token_balances': {},
+                'owned_objects': [
+                  {
+                    'id':
+                        '0x0000000000000000000000000000000000000000000000000000000000000abc',
+                    'owner': '0x123',
+                    'type_': '0x2::coin::Coin<0x2::kanari::KANARI>',
+                    'data': [
+                      ...List<int>.filled(32, 0),
+                      232,
+                      3,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                    ],
+                    'version': 1,
+                  },
+                ],
               },
               'id': 1,
             }),
             200,
           );
         }
-        if (method == 'kanari_submitTransaction') {
+        if (method == 'kanari_callFunction') {
           capturedParams = body['params'] as Map<String, dynamic>;
           return http.Response(
             jsonEncode({
@@ -110,15 +130,10 @@ void main() {
       // Verify params normalization and serialization
       expect(capturedParams, isNotNull);
       final txData = capturedParams!;
-      expect(
-        txData['sender'],
-        '0x0000000000000000000000000000000000000000000000000000000000000123',
-      );
-      expect(
-        txData['recipient'],
-        '0x0000000000000000000000000000000000000000000000000000000000000456',
-      );
-      expect(txData['amount'], 1000);
+      expect(txData['sender'], 'Ed25519:0x123');
+      expect(txData['package'], '0x2');
+      expect(txData['module'], 'kanari');
+      expect(txData['function'], 'transfer_amount');
       expect(txData['sequence_number'], 5);
       expect(txData['signature'], isA<List>());
     });
@@ -187,10 +202,7 @@ void main() {
 
       // Verify params
       expect(capturedParams, isNotNull);
-      expect(
-        capturedParams!['sender'],
-        '0x0000000000000000000000000000000000000000000000000000000000000123',
-      );
+      expect(capturedParams!['sender'], 'Ed25519:0x123');
       expect(capturedParams!['module_bytes'], [1, 2, 3]);
       expect(capturedParams!['module_name'], 'TestModule');
       expect(capturedParams!['sequence_number'], 10);
@@ -266,14 +278,8 @@ void main() {
 
       // Verify params
       expect(capturedParams, isNotNull);
-      expect(
-        capturedParams!['sender'],
-        '0x0000000000000000000000000000000000000000000000000000000000000123',
-      );
-      expect(
-        capturedParams!['package'],
-        '0x0000000000000000000000000000000000000000000000000000000000000001',
-      );
+      expect(capturedParams!['sender'], 'Ed25519:0x123');
+      expect(capturedParams!['package'], '0x1');
       expect(capturedParams!['module'], 'test');
       expect(capturedParams!['function'], 'run');
       expect(capturedParams!['args'], [
@@ -344,10 +350,7 @@ void main() {
 
       // Verify params
       expect(capturedParams, isNotNull);
-      expect(
-        capturedParams!['sender'],
-        '0x0000000000000000000000000000000000000000000000000000000000000123',
-      );
+      expect(capturedParams!['sender'], 'Ed25519:0x123');
       expect(capturedParams!['amount'], 500);
       expect(capturedParams!['sequence_number'], 20);
       expect(capturedParams!['signature'], isA<List>());

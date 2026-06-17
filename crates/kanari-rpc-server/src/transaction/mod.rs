@@ -13,7 +13,7 @@ use kanari_types::address::Address;
 use kanari_types::transaction::{NativeCall, SignedTransaction, Transaction};
 use move_binary_format::CompiledModule;
 use std::collections::HashSet;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 // Extract function names from module bytecode (returns None on error)
 fn extract_functions_from_bytes(bytes: &[u8]) -> Option<Vec<String>> {
@@ -334,14 +334,36 @@ fn submit_pending_response(
     submit_error: &str,
 ) -> RpcResponse {
     match state.engine.submit_transactions_batch(vec![signed_tx]) {
-        Ok(tx_hashes) => respond_with_serialize(
-            request_id,
-            serde_json::json!({
-                "hash": hex::encode(&tx_hashes[0]),
-                "status": "pending",
-                "action": action
-            }),
-        ),
+        Ok(tx_hashes) => {
+            match state.engine.produce_checkpoint() {
+                Ok(info) => {
+                    let checkpoint_sequence = info
+                        .checkpoint
+                        .as_ref()
+                        .map(|checkpoint| checkpoint.sequence)
+                        .unwrap_or(info.round);
+                    debug!(
+                        "Flushed pending transaction into checkpoint {} with {} txs",
+                        checkpoint_sequence, info.tx_count
+                    );
+                }
+                Err(e) => {
+                    debug!(
+                        "Pending transaction accepted; checkpoint flush deferred: {}",
+                        e
+                    );
+                }
+            }
+
+            respond_with_serialize(
+                request_id,
+                serde_json::json!({
+                    "hash": hex::encode(&tx_hashes[0]),
+                    "status": "pending",
+                    "action": action
+                }),
+            )
+        }
         Err(e) => RpcResponse {
             jsonrpc: "2.0".into(),
             result: None,

@@ -54,14 +54,24 @@ class KanariClient {
     return _queries.listTokens();
   }
 
-  /// Get block by height
-  Future<BlockInfo> getBlock(int height) {
-    return _queries.getBlock(height);
+  /// Get Mysticeti checkpoint-backed view by height.
+  Future<CheckpointInfo> getCheckpoint(int height) {
+    return _queries.getCheckpoint(height);
   }
 
-  /// Get current block height
+  /// Get checkpoint-backed block view by height.
+  Future<BlockInfo> getBlock(int height) {
+    return getCheckpoint(height);
+  }
+
+  /// Get current checkpoint height.
+  Future<int> getCheckpointHeight() {
+    return _queries.getCheckpointHeight();
+  }
+
+  /// Get current checkpoint height.
   Future<int> getBlockHeight() {
-    return _queries.getBlockHeight();
+    return getCheckpointHeight();
   }
 
   /// Get transaction details

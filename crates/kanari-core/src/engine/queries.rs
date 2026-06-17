@@ -1,7 +1,13 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use anyhow::Context;
+use kanari_rpc_api::{AccountInfo, BlockData, BlockchainStats, FullBlockData};
+use kanari_types::address::Address as KanariAddress;
+use log::{info, warn};
+
 use super::*;
+use crate::{BlockchainEngine, Checkpoint, CheckpointSyncData};
 
 impl BlockchainEngine {
     pub fn latest_checkpoint_hash_hex(&self) -> String {
@@ -37,7 +43,7 @@ impl BlockchainEngine {
 
         BlockchainStats {
             height: chain.height(),
-            total_blocks: chain.blocks.len(),
+            total_blocks: chain.dag_checkpoints.len(),
             total_transactions: chain.get_transaction_count(),
             pending_transactions: pending.len(),
             total_accounts: state.account_count(),
@@ -122,36 +128,33 @@ impl BlockchainEngine {
             .collect()
     }
 
-    fn block_data_from_block(block: &kanari_types::block::Block) -> BlockData {
+    fn checkpoint_hash_hex(checkpoint: &Checkpoint) -> String {
+        checkpoint.hash().map(hex::encode).unwrap_or_default()
+    }
+
+    fn block_data_from_checkpoint(checkpoint: &Checkpoint) -> BlockData {
         BlockData {
-            height: block.header.height,
-            timestamp: block.header.timestamp,
-            hash: hex::encode(block.hash()),
-            prev_hash: hex::encode(&block.header.prev_hash),
-            state_root: hex::encode(&block.header.state_root),
-            tx_count: block.transactions.len(),
-            events: block.events.clone(),
+            height: checkpoint.sequence,
+            timestamp: checkpoint.timestamp,
+            hash: Self::checkpoint_hash_hex(checkpoint),
+            prev_hash: hex::encode(&checkpoint.prev_checkpoint_hash),
+            state_root: hex::encode(&checkpoint.state_root),
+            tx_count: checkpoint.transactions.len(),
+            events: Vec::new(),
         }
     }
 
-    fn full_block_data_from_block(
-        block: &kanari_types::block::Block,
-        checkpoint: Option<&Checkpoint>,
-    ) -> FullBlockData {
-        let vertices = checkpoint
-            .map(|cp| cp.vertices.iter().map(hex::encode).collect())
-            .unwrap_or_default();
-
+    fn full_block_data_from_checkpoint(checkpoint: &Checkpoint) -> FullBlockData {
         FullBlockData {
-            height: block.header.height,
-            timestamp: block.header.timestamp,
-            hash: hex::encode(block.hash()),
-            prev_hash: hex::encode(&block.header.prev_hash),
-            state_root: hex::encode(&block.header.state_root),
-            tx_count: block.transactions.len(),
-            events: block.events.clone(),
-            transactions: block.transactions.clone(),
-            vertices,
+            height: checkpoint.sequence,
+            timestamp: checkpoint.timestamp,
+            hash: Self::checkpoint_hash_hex(checkpoint),
+            prev_hash: hex::encode(&checkpoint.prev_checkpoint_hash),
+            state_root: hex::encode(&checkpoint.state_root),
+            tx_count: checkpoint.transactions.len(),
+            events: Vec::new(),
+            transactions: checkpoint.transactions.clone(),
+            vertices: checkpoint.vertices.iter().map(hex::encode).collect(),
         }
     }
 
@@ -163,7 +166,9 @@ impl BlockchainEngine {
                 poisoned.into_inner()
             }
         };
-        chain.get_block(height).map(Self::block_data_from_block)
+        chain
+            .get_checkpoint(height)
+            .map(Self::block_data_from_checkpoint)
     }
 
     pub fn get_full_block(&self, height: u64) -> Option<FullBlockData> {
@@ -174,9 +179,9 @@ impl BlockchainEngine {
                 poisoned.into_inner()
             }
         };
-        let block = chain.get_block(height)?;
-        let checkpoint = chain.get_checkpoint(height);
-        Some(Self::full_block_data_from_block(block, checkpoint))
+        chain
+            .get_checkpoint(height)
+            .map(Self::full_block_data_from_checkpoint)
     }
 
     pub fn get_checkpoint_sync(&self, sequence: u64) -> Option<CheckpointSyncData> {
@@ -416,7 +421,7 @@ impl BlockchainEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::Checkpoint;
+    use crate::{CheckpointSyncData, consensus::Checkpoint};
 
     #[test]
     fn sync_checkpoint_from_data_applies_next_checkpoint() {

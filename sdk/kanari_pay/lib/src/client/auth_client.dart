@@ -167,7 +167,10 @@ class KanariAuthClient extends ChangeNotifier {
     if (response.statusCode == 200) {
       final data = jsonResponse['data'];
       if (data == null) {
-        return ApiResponse(success: false, error: 'No data returned from server');
+        return ApiResponse(
+          success: false,
+          error: 'No data returned from server',
+        );
       }
 
       return ApiResponse(

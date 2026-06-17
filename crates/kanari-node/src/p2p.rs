@@ -193,8 +193,7 @@ impl P2PNetwork {
         )
         .map_err(|e| anyhow::anyhow!("Failed to create gossipsub: {}", e))?;
 
-        // Keep the legacy topic string for wire compatibility with existing peers.
-        let checkpoints_topic = IdentTopic::new("kanari/blocks");
+        let checkpoints_topic = IdentTopic::new("kanari/checkpoints");
         let tx_topic = IdentTopic::new("kanari/transactions");
         let peers_topic = IdentTopic::new("kanari/peers");
         let dag_vertices_topic = IdentTopic::new("kanari/dag_vertices");

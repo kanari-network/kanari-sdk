@@ -78,7 +78,7 @@ export default function TransactionDetailsModal({
 
               <section className="tx-detail-grid" aria-label="Transaction fields">
                 <DetailItem label="Type" value={readFirstString(transaction, ["tx_type", "type"], "operation").replace(/_/g, " ")} />
-                <DetailItem label="Block Height" value={readFirstString(transaction, ["block_height", "height"])} mono />
+                <DetailItem label="Checkpoint Height" value={readFirstString(transaction, ["checkpoint_height", "block_height", "height"])} mono />
                 <DetailItem label="Sender" value={senderAddress} mono wide />
                 <DetailItem label="Recipient / Target" value={shortHash(readFirstString(transaction, ["recipient", "to", "module"]))} mono wide />
                 <DetailItem label="Function" value={readFirstString(transaction, ["function"])} mono />

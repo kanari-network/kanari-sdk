@@ -13,7 +13,7 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
 use crate::NetworkMode;
@@ -199,7 +199,7 @@ pub fn print_stats() -> Result<()> {
     let stats = BlockchainEngine::new()?.get_stats();
     tracing::info!("Blockchain Statistics:");
     tracing::info!("  Height: {}", stats.height);
-    tracing::info!("  Total Blocks: {}", stats.total_blocks);
+    tracing::info!("  Total Checkpoints: {}", stats.total_blocks);
     tracing::info!("  Total Transactions: {}", stats.total_transactions);
     tracing::info!("  Pending: {}", stats.pending_transactions);
     tracing::info!("  Accounts: {}", stats.total_accounts);
@@ -401,10 +401,10 @@ pub async fn run_node(
 
         let sync_for_broadcast = sync_manager.clone();
         tokio::spawn(async move {
-            sleep(Duration::from_secs(3)).await;
+            sleep(Duration::from_millis(500)).await;
             loop {
                 sync_for_broadcast.broadcast_peer_info().await;
-                sleep(Duration::from_secs(5)).await;
+                sleep(Duration::from_secs(1)).await;
             }
         });
     } else {
@@ -436,32 +436,37 @@ pub async fn run_node(
     eprintln!("RPC server ready at http://{}:{}", display_ip, rpc_port);
     tracing::info!("RPC server ready");
 
+    let mut last_stats_log = Instant::now() - Duration::from_secs(2);
+
     loop {
         let stats = engine.get_stats();
-        let wallets = list_wallet_files().unwrap_or_default();
-        tracing::info!(
-            "Event height: {}, Transactions: {}, Pending: {}, Wallets: {}",
-            stats.height,
-            stats.total_transactions,
-            stats.pending_transactions,
-            wallets.len()
-        );
+        if last_stats_log.elapsed() >= Duration::from_secs(2) {
+            last_stats_log = Instant::now();
+            let wallets = list_wallet_files().unwrap_or_default();
+            tracing::info!(
+                "Event height: {}, Transactions: {}, Pending: {}, Wallets: {}",
+                stats.height,
+                stats.total_transactions,
+                stats.pending_transactions,
+                wallets.len()
+            );
 
-        if let Some(ref node_idx) = node_indexer
-            && stats.height > 0
-            && stats.height.is_multiple_of(10)
-        {
-            match node_idx.get_stats() {
-                Ok(idx_stats) => tracing::info!("[INDEXER] {}", idx_stats),
-                Err(e) => tracing::warn!("[INDEXER] Failed to get stats: {}", e),
+            if let Some(ref node_idx) = node_indexer
+                && stats.height > 0
+                && stats.height.is_multiple_of(10)
+            {
+                match node_idx.get_stats() {
+                    Ok(idx_stats) => tracing::info!("[INDEXER] {}", idx_stats),
+                    Err(e) => tracing::warn!("[INDEXER] Failed to get stats: {}", e),
+                }
             }
         }
 
         let mut did_work = false;
-        let mut idle_delay = Duration::from_secs(1);
+        let mut idle_delay = Duration::from_millis(50);
 
         if stats.pending_transactions > 0 || engine.should_produce_dag_progress() {
-            match engine.produce_block() {
+            match engine.produce_checkpoint() {
                 Ok(block_info) => {
                     did_work = true;
 
@@ -537,14 +542,14 @@ pub async fn run_node(
                         || error_text.contains("SYNC_WAITING")
                         || error_text.contains("Not enough parents for quorum")
                     {
-                        tracing::info!("Block production waiting: {}", error_text);
+                        tracing::info!("Checkpoint production waiting: {}", error_text);
                         if stats.pending_transactions > 0 {
-                            idle_delay = Duration::from_millis(250);
+                            idle_delay = Duration::from_millis(50);
                         }
                         sync_manager.broadcast_latest_dag_vertices(16, "while waiting for quorum");
                         sync_manager.request_dag_vertices_for_quorum().await;
                     } else if !error_text.contains("DAG not ready") {
-                        tracing::error!("Block production failed: {}", e);
+                        tracing::error!("Checkpoint production failed: {}", e);
                     }
                 }
             }

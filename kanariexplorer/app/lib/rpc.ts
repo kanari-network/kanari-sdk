@@ -13,7 +13,7 @@ export const RPC_METHODS = {
   GET_FULL_BLOCK: "kanari_getFullBlock",
   GET_TRANSACTION: "kanari_getTransaction",
   GET_ALL_TRANSACTIONS: "kanari_getAllTransactions",
-  PRODUCE_BLOCK: "kanari_produceBlock",
+  PRODUCE_CHECKPOINT: "kanari_produceCheckpoint",
   GET_BLOCK_HEIGHT: "kanari_getBlockHeight",
   GET_STATS: "kanari_getStats",
   SUBMIT_TRANSACTION: "kanari_submitTransaction",
@@ -276,8 +276,8 @@ export async function getFullBlock(height: number, rpcUrl?: string) {
   return callRpc(RPC_METHODS.GET_FULL_BLOCK, height, rpcUrl);
 }
 
-export async function produceBlock() {
-  return callRpc(RPC_METHODS.PRODUCE_BLOCK, []);
+export async function produceCheckpoint() {
+  return callRpc(RPC_METHODS.PRODUCE_CHECKPOINT, []);
 }
 
 function readField(value: unknown, field: string): unknown {

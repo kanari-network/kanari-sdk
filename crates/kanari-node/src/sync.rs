@@ -140,7 +140,7 @@ impl SyncManager {
         tokio::spawn(async move {
             loop {
                 sync.check_sync_status().await;
-                tokio::time::sleep(Duration::from_secs(2)).await;
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         });
     }
@@ -415,7 +415,7 @@ impl SyncManager {
             return;
         }
 
-        match self.engine.produce_block() {
+        match self.engine.produce_checkpoint() {
             Ok(block_info) => {
                 info!(
                     "[DAG SYNC] Produced catch-up vertex for request: round {}, txs {}",

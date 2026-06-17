@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::{Context, Result, bail};
-use kanari_core::{BlockInfo, BlockchainEngine};
+use kanari_core::{BlockchainEngine, CheckpointProductionInfo};
 use kanari_crypto::hash_data_blake3;
 use kanari_crypto::keys::{CurveType, KeyPair, keypair_from_private_key};
 use kanari_types::transaction::{SignedTransaction, Transaction};
@@ -59,7 +59,7 @@ impl Default for HarnessConfig {
 struct HarnessReport {
     requested_txs: usize,
     mode: HarnessMode,
-    block_info: BlockInfo,
+    block_info: CheckpointProductionInfo,
     duration_secs: f64,
     submit_secs: Option<f64>,
     produce_secs: Option<f64>,
@@ -196,7 +196,7 @@ where
 }
 
 fn usage() -> &'static str {
-    "Usage: cargo run --release -p kanari-benchmarks -- [--txs N] [--senders N] [--runs N] [--mode production|immediate|parallel|parallel-exec-only] [--json]\n       cargo run --release -p kanari-benchmarks -- [N]\n\nDefault mode is production: submit_transaction + produce_block."
+    "Usage: cargo run --release -p kanari-benchmarks -- [--txs N] [--senders N] [--runs N] [--mode production|immediate|parallel|parallel-exec-only] [--json]\n       cargo run --release -p kanari-benchmarks -- [N]\n\nDefault mode is production: submit_transaction + produce_checkpoint."
 }
 
 fn prepare_engine(_temp_dir: &TempDir) -> Result<BlockchainEngine> {
@@ -234,13 +234,13 @@ fn prepare_engine(_temp_dir: &TempDir) -> Result<BlockchainEngine> {
 fn execute_production_path(
     engine: &BlockchainEngine,
     signed_txs: Vec<SignedTransaction>,
-) -> Result<(BlockInfo, f64, f64)> {
+) -> Result<(CheckpointProductionInfo, f64, f64)> {
     let submit_start = Instant::now();
     engine.submit_transactions_batch(signed_txs)?;
     let submit_secs = submit_start.elapsed().as_secs_f64();
 
     let produce_start = Instant::now();
-    let block_info = engine.produce_block_summary()?;
+    let block_info = engine.produce_checkpoint_summary()?;
     let produce_secs = produce_start.elapsed().as_secs_f64();
 
     Ok((block_info, submit_secs, produce_secs))
@@ -249,7 +249,7 @@ fn execute_production_path(
 fn execute_immediate(
     engine: &BlockchainEngine,
     signed_txs: Vec<SignedTransaction>,
-) -> Result<BlockInfo> {
+) -> Result<CheckpointProductionInfo> {
     let mut executed = 0usize;
     let mut failed = 0usize;
     let mut failure_samples = Vec::new();
@@ -285,7 +285,7 @@ fn execute_immediate(
         }
     }
 
-    Ok(BlockInfo {
+    Ok(CheckpointProductionInfo {
         vertex_id: "immediate-mode".to_string(),
         round: 0,
         tx_count: executed + failed,
@@ -301,7 +301,7 @@ fn execute_parallel(
     engine: &BlockchainEngine,
     signed_txs: Vec<SignedTransaction>,
     apply_results: bool,
-) -> Result<BlockInfo> {
+) -> Result<CheckpointProductionInfo> {
     let results = engine.execute_transactions_parallel(signed_txs);
     let mut executed = 0usize;
     let mut failed = 0usize;
@@ -329,7 +329,7 @@ fn execute_parallel(
         state.commit()?;
     }
 
-    Ok(BlockInfo {
+    Ok(CheckpointProductionInfo {
         vertex_id: if apply_results {
             "parallel-mode".to_string()
         } else {
@@ -554,7 +554,7 @@ mod tests {
         let report = HarnessReport {
             requested_txs: 5,
             mode: HarnessMode::Immediate,
-            block_info: BlockInfo {
+            block_info: CheckpointProductionInfo {
                 vertex_id: "vertex".to_string(),
                 round: 1,
                 tx_count: 5,

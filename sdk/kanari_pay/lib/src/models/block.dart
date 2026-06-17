@@ -43,6 +43,8 @@ class BlockInfo extends Equatable {
   ];
 }
 
+typedef CheckpointInfo = BlockInfo;
+
 @JsonSerializable()
 class RpcEvent extends Equatable {
   final List<int> key;

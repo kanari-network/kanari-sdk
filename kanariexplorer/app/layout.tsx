@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Kanari Explorer",
-  description: "Network explorer for Kanari blocks, accounts, tokens, transactions, and NFTs.",
+  description: "Network explorer for Kanari checkpoints, accounts, tokens, transactions, and NFTs.",
   icons: {
     icon: ['/icons/favicon.ico?v=4'],
     apple: ['/icons/apple-touch-icon.png?v=4'],

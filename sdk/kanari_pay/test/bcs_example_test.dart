@@ -5,7 +5,9 @@ void main() {
   group('BCS Package Examples', () {
     test('Vectors', () {
       final intList = Bcs.vector(Bcs.u8()).serialize([1, 2, 3, 4, 5]).toBytes();
-      final stringList = Bcs.vector(Bcs.string()).serialize(['a', 'b', 'c']).toBytes();
+      final stringList = Bcs.vector(
+        Bcs.string(),
+      ).serialize(['a', 'b', 'c']).toBytes();
 
       final parsedIntList = Bcs.vector(Bcs.u8()).parse(intList);
       final parsedStringList = Bcs.vector(Bcs.string()).parse(stringList);
@@ -15,11 +17,20 @@ void main() {
     });
 
     test('Arrays', () {
-      final intArray = Bcs.fixedArray(4, Bcs.u8()).serialize([1, 2, 3, 4]).toBytes();
-      final stringArray = Bcs.fixedArray(3, Bcs.string()).serialize(['a', 'b', 'c']).toBytes();
+      final intArray = Bcs.fixedArray(
+        4,
+        Bcs.u8(),
+      ).serialize([1, 2, 3, 4]).toBytes();
+      final stringArray = Bcs.fixedArray(
+        3,
+        Bcs.string(),
+      ).serialize(['a', 'b', 'c']).toBytes();
 
       final parsedIntArray = Bcs.fixedArray(4, Bcs.u8()).parse(intArray);
-      final parsedStringArray = Bcs.fixedArray(3, Bcs.string()).parse(stringArray);
+      final parsedStringArray = Bcs.fixedArray(
+        3,
+        Bcs.string(),
+      ).parse(stringArray);
 
       expect(parsedIntArray, [1, 2, 3, 4]);
       expect(parsedStringArray, ['a', 'b', 'c']);
@@ -47,7 +58,9 @@ void main() {
       final noTypeEnum = myEnum.serialize({"NoType": null}).toBytes();
       final intEnum = myEnum.serialize({"Int": 100}).toBytes();
       final stringEnum = myEnum.serialize({"String": 'string'}).toBytes();
-      final arrayEnum = myEnum.serialize({"Array": [1, 2, 3]}).toBytes();
+      final arrayEnum = myEnum.serialize({
+        "Array": [1, 2, 3],
+      }).toBytes();
 
       final parsedNoTypeEnum = myEnum.parse(noTypeEnum);
       final parsedIntEnum = myEnum.parse(intEnum);
@@ -57,7 +70,10 @@ void main() {
       expect(parsedNoTypeEnum, {"NoType": true, "\$kind": "NoType"});
       expect(parsedIntEnum, {"Int": 100, "\$kind": "Int"});
       expect(parsedStringEnum, {"String": 'string', "\$kind": "String"});
-      expect(parsedArrayEnum, {"Array": [1, 2, 3], "\$kind": "Array"});
+      expect(parsedArrayEnum, {
+        "Array": [1, 2, 3],
+        "\$kind": "Array",
+      });
     });
 
     test('Struct', () {
@@ -73,17 +89,20 @@ void main() {
     });
 
     test('Tuple', () {
-      final tuple = Bcs.tuple([Bcs.u8(), Bcs.string()]).serialize([1, 'name']).toBytes();
+      final tuple = Bcs.tuple([
+        Bcs.u8(),
+        Bcs.string(),
+      ]).serialize([1, 'name']).toBytes();
       final parsedTuple = Bcs.tuple([Bcs.u8(), Bcs.string()]).parse(tuple);
 
       expect(parsedTuple, [1, 'name']);
     });
 
     test('Map', () {
-      final map = Bcs.map(Bcs.u8(), Bcs.string()).serialize({
-        1: 'one',
-        2: 'two',
-      }).toBytes();
+      final map = Bcs.map(
+        Bcs.u8(),
+        Bcs.string(),
+      ).serialize({1: 'one', 2: 'two'}).toBytes();
 
       final parsedMap = Bcs.map(Bcs.u8(), Bcs.string()).parse(map);
 

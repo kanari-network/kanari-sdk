@@ -7,8 +7,8 @@ an in-memory engine and a signed zero-gas native workload:
 
 1. Generate and sign deterministic native transactions.
 2. Submit every transaction through `BlockchainEngine::submit_transaction`.
-3. Produce a DAG-backed block through `BlockchainEngine::produce_block`.
-4. Report TPS from the measured `submit_transaction + produce_block` window.
+3. Produce a Mysticeti checkpoint through `BlockchainEngine::produce_checkpoint`.
+4. Report TPS from the measured `submit_transaction + produce_checkpoint` window.
 
 ## Quick Checks
 
@@ -33,7 +33,7 @@ cargo run --release -p kanari-benchmarks -- --mode production --txs 1024 --json
 ## Modes
 
 - `production`
-  Full local production path: mempool submission plus `produce_block`.
+  Full local production path: mempool submission plus `produce_checkpoint`.
 - `immediate`
   Executes and applies transactions one by one. Useful as a correctness baseline, not a peak TPS number.
 - `parallel`

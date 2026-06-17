@@ -73,7 +73,7 @@ class QueriesModule {
     return resp.result!;
   }
 
-  Future<BlockInfo> getBlock(int height) async {
+  Future<CheckpointInfo> getCheckpoint(int height) async {
     final resp = await RpcUtils.request(
       client,
       url,
@@ -85,7 +85,11 @@ class QueriesModule {
     return resp.result!;
   }
 
-  Future<int> getBlockHeight() async {
+  Future<BlockInfo> getBlock(int height) {
+    return getCheckpoint(height);
+  }
+
+  Future<int> getCheckpointHeight() async {
     final resp = await RpcUtils.request(
       client,
       url,
@@ -95,6 +99,10 @@ class QueriesModule {
     );
     if (resp.error != null) throw Exception(resp.error!.message);
     return resp.result!;
+  }
+
+  Future<int> getBlockHeight() {
+    return getCheckpointHeight();
   }
 
   Future<TransactionDetails> getTransaction(String hash) async {

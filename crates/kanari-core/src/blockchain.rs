@@ -3,7 +3,6 @@
 
 use crate::consensus::Checkpoint;
 use anyhow::Result;
-use kanari_types::block::Block;
 use kanari_types::transaction::SignedTransaction;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -35,8 +34,6 @@ mod serde_vecdeque {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Blockchain {
-    #[serde(with = "serde_vecdeque")]
-    pub blocks: VecDeque<Block>,
     #[serde(default = "default_dag_checkpoints", with = "serde_vecdeque")]
     pub dag_checkpoints: VecDeque<Checkpoint>,
     #[serde(skip)]
@@ -45,6 +42,8 @@ pub struct Blockchain {
     tx_hash_queue: VecDeque<Vec<u8>>,
     #[serde(skip)]
     tx_location_index: HashMap<Vec<u8>, (u64, usize)>,
+    #[serde(default)]
+    total_transaction_count: usize,
     #[serde(default = "default_dag_mode")]
     pub dag_mode: bool,
 }
@@ -62,11 +61,11 @@ fn default_dag_checkpoints() -> VecDeque<Checkpoint> {
 impl Blockchain {
     pub fn new() -> Self {
         Self {
-            blocks: vec![Block::genesis()].into(),
             dag_checkpoints: vec![Checkpoint::genesis()].into(),
             executed_tx_hashes: HashSet::new(),
             tx_hash_queue: VecDeque::new(),
             tx_location_index: HashMap::new(),
+            total_transaction_count: 0,
             dag_mode: true,
         }
     }
@@ -76,12 +75,6 @@ impl Blockchain {
         if self.dag_checkpoints.is_empty() {
             self.dag_checkpoints.push_back(Checkpoint::genesis());
         }
-    }
-
-    pub fn latest_block(&self) -> &Block {
-        self.blocks
-            .back()
-            .expect("blockchain must contain at least the genesis block")
     }
 
     pub fn latest_checkpoint(&self) -> &Checkpoint {
@@ -106,12 +99,14 @@ impl Blockchain {
         self.executed_tx_hashes.clear();
         self.tx_hash_queue.clear();
         self.tx_location_index.clear();
+        self.total_transaction_count = 0;
 
         for checkpoint in &self.dag_checkpoints {
             for (index, tx) in checkpoint.transactions.iter().enumerate() {
                 let hash = tx.transaction_hash().to_vec();
                 if self.executed_tx_hashes.insert(hash.clone()) {
                     self.tx_hash_queue.push_back(hash.clone());
+                    self.total_transaction_count = self.total_transaction_count.saturating_add(1);
                 }
                 self.tx_location_index
                     .insert(hash, (checkpoint.sequence, index));
@@ -161,24 +156,8 @@ impl Blockchain {
         }
 
         self.track_checkpoint_transactions(&checkpoint);
-
-        let block = Block::new(
-            checkpoint.sequence,
-            self.blocks
-                .back()
-                .map_or_else(|| vec![0u8; 32], |block| block.hash()),
-            checkpoint.state_root.clone(),
-            checkpoint.transactions.clone(),
-            Vec::new(),
-            checkpoint.timestamp,
-        );
-
-        self.blocks.push_back(block);
         self.dag_checkpoints.push_back(checkpoint);
 
-        if self.blocks.len() > MAX_RETAINED_BLOCKS {
-            self.blocks.pop_front();
-        }
         if self.dag_checkpoints.len() > MAX_RETAINED_BLOCKS {
             if let Some(evicted) = self.dag_checkpoints.pop_front() {
                 for tx in evicted.transactions {
@@ -196,6 +175,7 @@ impl Blockchain {
             let hash = tx.transaction_hash().to_vec();
             if self.executed_tx_hashes.insert(hash.clone()) {
                 self.tx_hash_queue.push_back(hash.clone());
+                self.total_transaction_count = self.total_transaction_count.saturating_add(1);
             }
             self.tx_location_index
                 .insert(hash, (checkpoint.sequence, index));
@@ -209,12 +189,6 @@ impl Blockchain {
         }
     }
 
-    pub fn get_block(&self, height: u64) -> Option<&Block> {
-        self.blocks
-            .iter()
-            .find(|block| block.header.height == height)
-    }
-
     pub fn get_checkpoint(&self, sequence: u64) -> Option<&Checkpoint> {
         self.dag_checkpoints
             .iter()
@@ -222,7 +196,7 @@ impl Blockchain {
     }
 
     pub fn get_transaction_count(&self) -> usize {
-        self.executed_tx_hashes.len()
+        self.total_transaction_count
     }
 
     pub fn get_transaction_location(

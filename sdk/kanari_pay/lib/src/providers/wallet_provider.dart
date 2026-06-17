@@ -180,7 +180,9 @@ class WalletState extends ChangeNotifier {
       throw StateError('Wallet not found');
     }
 
-    _decryptedWalletCache[walletId] = Map<String, dynamic>.from(decryptedWallet);
+    _decryptedWalletCache[walletId] = Map<String, dynamic>.from(
+      decryptedWallet,
+    );
 
     await _instantiateWallet(decryptedWallet);
   }
@@ -222,9 +224,8 @@ class WalletState extends ChangeNotifier {
 
     await WalletStorage.saveAllWallets(_wallets, pin: effectivePin);
     _wallets = await WalletStorage.loadAllWallets();
-    _decryptedWalletCache[walletData['id'] as String] = Map<String, dynamic>.from(
-      walletData,
-    );
+    _decryptedWalletCache[walletData['id'] as String] =
+        Map<String, dynamic>.from(walletData);
     await switchWallet(walletData['id']);
     notifyListeners();
   }

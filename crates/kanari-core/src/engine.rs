@@ -16,7 +16,7 @@ use kanari_types::address::Address as KanariAddress;
 use kanari_types::event::Event;
 use kanari_types::gas_v2::{GasMeter, GasOperation};
 use kanari_types::transaction::{NativeCall, SignedTransaction, Transaction};
-use log::{error, info, warn};
+use log::{error, info};
 use lru::LruCache;
 use move_core_types::{
     account_address::AccountAddress,
@@ -38,10 +38,8 @@ mod mempool;
 mod produce_dag_vertex;
 mod queries;
 mod runtime_guards;
-pub use produce_dag_vertex::{CheckpointInfo, DagBlockInfo, DagEngine};
+pub use produce_dag_vertex::{CheckpointInfo, CheckpointProductionInfo, DagEngine};
 pub use runtime_guards::{RuntimeGuardConfig, RuntimeHealthReport};
-
-pub type BlockInfo = DagBlockInfo;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CheckpointSyncData {
@@ -740,21 +738,26 @@ impl BlockchainEngine {
             .ok_or_else(|| anyhow::anyhow!("Failed to initialize DAG engine"))
     }
 
-    pub fn produce_block(&self) -> Result<BlockInfo> {
+    pub fn produce_checkpoint(&self) -> Result<CheckpointProductionInfo> {
         let dag_engine = self.dag_engine_instance()?;
+        let has_pending_transactions = !self
+            .pending_txs
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_empty();
 
         {
             let consensus_lock = dag_engine.consensus();
             let consensus = match consensus_lock.read() {
                 Ok(guard) => guard,
                 Err(poisoned) => {
-                    log::error!("Consensus lock poisoned in produce_block, recovering...");
+                    log::error!("Consensus lock poisoned in produce_checkpoint, recovering...");
                     poisoned.into_inner()
                 }
             };
             let policy = consensus.production_policy();
 
-            if policy.should_wait_for_current_round_quorum() {
+            if !has_pending_transactions && policy.should_wait_for_current_round_quorum() {
                 anyhow::bail!(
                     "SYNC_WAITING: have {}/{} vertices in round {} from authors [{}]; missing authorities [{}]; need quorum for round {}",
                     policy.parent_author_count,
@@ -770,21 +773,28 @@ impl BlockchainEngine {
         dag_engine.produce_vertex()
     }
 
-    pub fn produce_block_summary(&self) -> Result<BlockInfo> {
+    pub fn produce_checkpoint_summary(&self) -> Result<CheckpointProductionInfo> {
         let dag_engine = self.dag_engine_instance()?;
+        let has_pending_transactions = !self
+            .pending_txs
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_empty();
 
         {
             let consensus_lock = dag_engine.consensus();
             let consensus = match consensus_lock.read() {
                 Ok(guard) => guard,
                 Err(poisoned) => {
-                    log::error!("Consensus lock poisoned in produce_block_summary, recovering...");
+                    log::error!(
+                        "Consensus lock poisoned in produce_checkpoint_summary, recovering..."
+                    );
                     poisoned.into_inner()
                 }
             };
             let policy = consensus.production_policy();
 
-            if policy.should_wait_for_current_round_quorum() {
+            if !has_pending_transactions && policy.should_wait_for_current_round_quorum() {
                 anyhow::bail!(
                     "SYNC_WAITING: have {}/{} vertices in round {} from authors [{}]; missing authorities [{}]; need quorum for round {}",
                     policy.parent_author_count,
@@ -1079,7 +1089,7 @@ mod tests {
     fn dag_engine_requires_explicit_consensus_signing_key() {
         let engine = BlockchainEngine::new_in_memory().unwrap();
 
-        let err = engine.produce_block().unwrap_err();
+        let err = engine.produce_checkpoint().unwrap_err();
 
         assert!(err.to_string().contains("requires an explicit signing key"));
     }
@@ -1094,7 +1104,7 @@ mod tests {
             .set_consensus_signing_key(local_key, public_keys)
             .unwrap();
 
-        let block = engine.produce_block().unwrap();
+        let block = engine.produce_checkpoint().unwrap();
 
         assert_eq!(block.round, 1);
     }
@@ -1116,7 +1126,7 @@ mod tests {
                 .set_consensus_signing_key(local_key, public_keys)
                 .unwrap();
 
-            let block = engine.produce_block().unwrap();
+            let block = engine.produce_checkpoint().unwrap();
             assert_eq!(block.round, 1);
             assert_eq!(block.tx_count, 0);
         }
