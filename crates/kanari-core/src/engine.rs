@@ -301,6 +301,48 @@ impl BlockchainEngine {
         )
     }
 
+    pub(crate) fn apply_zero_effect_native_batch(
+        &self,
+        transactions: &[SignedTransaction],
+        state_arc: &Arc<RwLock<StateManager>>,
+    ) -> Result<Option<(usize, usize)>> {
+        if transactions.is_empty() {
+            return Ok(Some((0, 0)));
+        }
+
+        let mut changeset = ChangeSet::new();
+        for signed_tx in transactions {
+            let Transaction::ExecuteFunction { gas_price, .. } = &signed_tx.transaction else {
+                return Ok(None);
+            };
+            if *gas_price != 0 {
+                return Ok(None);
+            }
+
+            match signed_tx.transaction.native_call() {
+                Some(NativeCall::TransferAmount { amount, .. })
+                | Some(NativeCall::BurnAmount { amount })
+                    if amount == 0 =>
+                {
+                    let sender_addr = KanariAddress::parse_to_account_address(
+                        signed_tx.transaction.sender_address(),
+                    )?;
+                    changeset
+                        .get_or_create_change(sender_addr)
+                        .increment_sequence();
+                }
+                _ => return Ok(None),
+            }
+        }
+
+        let mut state_write = state_arc.write().unwrap_or_else(|e| e.into_inner());
+        state_write
+            .apply_changeset_without_supply_validation(&changeset)
+            .map_err(|e| anyhow::anyhow!("Failed to apply zero-effect native batch: {}", e))?;
+
+        Ok(Some((transactions.len(), 0)))
+    }
+
     fn execute_tx_waves_parallel_inner(
         &self,
         transactions: Vec<SignedTransaction>,
@@ -562,7 +604,7 @@ impl BlockchainEngine {
         let gas_cost = gas_meter.total_cost();
         let total_required = required_amount.saturating_add(gas_cost);
 
-        {
+        if validate_sequence || total_required > 0 {
             let state = match state_arc.read() {
                 Ok(guard) => guard,
                 Err(poisoned) => {
@@ -575,30 +617,32 @@ impl BlockchainEngine {
                     .validate_sequence(&sender_addr, tx.sequence_number())
                     .context("Sequence number validation failed")?;
             }
-            let balance = state
-                .get_account(&sender_addr)
-                .map(|acc| acc.native_balance())
-                .unwrap_or(0);
-            if balance < total_required {
-                let msg = if required_amount > 0 {
-                    format!(
-                        "Insufficient balance: need {} (amount: {}, gas: {}) but have {}",
-                        total_required, required_amount, gas_cost, balance
-                    )
-                } else {
-                    format!(
-                        "Insufficient balance for gas: need {}, have {}",
-                        gas_cost, balance
-                    )
-                };
-                changeset.mark_failed(msg);
-                Self::apply_gas_and_sequence(
-                    &mut changeset,
-                    sender_addr,
-                    gas_cost,
-                    gas_meter.gas_used,
-                )?;
-                return Ok(changeset);
+            if total_required > 0 {
+                let balance = state
+                    .get_account(&sender_addr)
+                    .map(|acc| acc.native_balance())
+                    .unwrap_or(0);
+                if balance < total_required {
+                    let msg = if required_amount > 0 {
+                        format!(
+                            "Insufficient balance: need {} (amount: {}, gas: {}) but have {}",
+                            total_required, required_amount, gas_cost, balance
+                        )
+                    } else {
+                        format!(
+                            "Insufficient balance for gas: need {}, have {}",
+                            gas_cost, balance
+                        )
+                    };
+                    changeset.mark_failed(msg);
+                    Self::apply_gas_and_sequence(
+                        &mut changeset,
+                        sender_addr,
+                        gas_cost,
+                        gas_meter.gas_used,
+                    )?;
+                    return Ok(changeset);
+                }
             }
         }
 

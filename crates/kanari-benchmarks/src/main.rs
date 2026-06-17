@@ -11,6 +11,10 @@ use std::time::Instant;
 use tempfile::TempDir;
 
 const DEFAULT_SENDER_COUNT: usize = 64;
+const HIGH_THROUGHPUT_TX_COUNT: usize = 10_000;
+const HIGH_THROUGHPUT_SENDER_COUNT: usize = HIGH_THROUGHPUT_TX_COUNT;
+const HIGH_THROUGHPUT_RUNS: usize = 3;
+const HIGH_THROUGHPUT_TARGET_TPS: f64 = 100_000.0;
 
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
@@ -34,13 +38,14 @@ impl HarnessMode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct HarnessConfig {
     tx_count: usize,
     sender_count: Option<usize>,
     runs: usize,
     json: bool,
     mode: HarnessMode,
+    target_tps: Option<f64>,
 }
 
 impl Default for HarnessConfig {
@@ -51,6 +56,7 @@ impl Default for HarnessConfig {
             runs: 1,
             json: false,
             mode: HarnessMode::Production,
+            target_tps: None,
         }
     }
 }
@@ -64,9 +70,18 @@ struct HarnessReport {
     submit_secs: Option<f64>,
     produce_secs: Option<f64>,
     tps: f64,
+    target_tps: Option<f64>,
 }
 
 impl HarnessReport {
+    fn target_status(&self) -> &'static str {
+        match self.target_tps {
+            Some(target) if self.tps >= target => "pass",
+            Some(_) => "fail",
+            None => "not-set",
+        }
+    }
+
     fn render_text(&self) -> String {
         let breakdown = match (self.submit_secs, self.produce_secs) {
             (Some(submit), Some(produce)) => {
@@ -74,8 +89,17 @@ impl HarnessReport {
             }
             _ => String::new(),
         };
+        let target = self
+            .target_tps
+            .map(|target| {
+                format!(
+                    "\ntarget_tps={target:.2}\ntarget_status={}",
+                    self.target_status()
+                )
+            })
+            .unwrap_or_default();
         format!(
-            "Kanari benchmark completed\nmode={}\nrequested_txs={}\nexecuted={}\nfailed={}\ntx_count={}\nduration_secs={:.3}{}\ntps={:.2}",
+            "Kanari benchmark completed\nmode={}\nrequested_txs={}\nexecuted={}\nfailed={}\ntx_count={}\nduration_secs={:.3}{}\ntps={:.2}{}",
             self.mode.as_str(),
             self.requested_txs,
             self.block_info.executed,
@@ -83,7 +107,8 @@ impl HarnessReport {
             self.block_info.tx_count,
             self.duration_secs,
             breakdown,
-            self.tps
+            self.tps,
+            target
         )
     }
 
@@ -94,6 +119,15 @@ impl HarnessReport {
             }
             _ => String::new(),
         };
+        let target_fields = self
+            .target_tps
+            .map(|target| {
+                format!(
+                    "\"target_tps\":{target:.6},\"target_status\":\"{}\",",
+                    self.target_status()
+                )
+            })
+            .unwrap_or_default();
         format!(
             concat!(
                 "{{",
@@ -103,6 +137,7 @@ impl HarnessReport {
                 "\"failed\":{},",
                 "\"tx_count\":{},",
                 "\"duration_secs\":{:.6},",
+                "{}",
                 "{}",
                 "\"tps\":{:.6}",
                 "}}"
@@ -114,6 +149,7 @@ impl HarnessReport {
             self.block_info.tx_count,
             self.duration_secs,
             timing_fields,
+            target_fields,
             self.tps
         )
     }
@@ -144,6 +180,27 @@ where
                 config.tx_count = value;
             }
             "--json" => config.json = true,
+            "--high-throughput" => {
+                if config.tx_count == HarnessConfig::default().tx_count {
+                    config.tx_count = HIGH_THROUGHPUT_TX_COUNT;
+                }
+                if config.sender_count.is_none() {
+                    config.sender_count = Some(HIGH_THROUGHPUT_SENDER_COUNT);
+                }
+                if config.runs == HarnessConfig::default().runs {
+                    config.runs = HIGH_THROUGHPUT_RUNS;
+                }
+                config.mode = HarnessMode::ParallelExecOnly;
+                config.target_tps = Some(HIGH_THROUGHPUT_TARGET_TPS);
+            }
+            "--target-tps" => {
+                let value = args
+                    .next()
+                    .context("missing value after --target-tps")?
+                    .parse::<f64>()
+                    .context("failed to parse --target-tps as f64")?;
+                config.target_tps = Some(value);
+            }
             "--runs" => {
                 config.runs = args
                     .next()
@@ -191,12 +248,15 @@ where
     if matches!(config.sender_count, Some(0)) {
         bail!("sender count must be greater than zero");
     }
+    if matches!(config.target_tps, Some(value) if value <= 0.0 || !value.is_finite()) {
+        bail!("target TPS must be a finite positive number");
+    }
 
     Ok(config)
 }
 
 fn usage() -> &'static str {
-    "Usage: cargo run --release -p kanari-benchmarks -- [--txs N] [--senders N] [--runs N] [--mode production|immediate|parallel|parallel-exec-only] [--json]\n       cargo run --release -p kanari-benchmarks -- [N]\n\nDefault mode is production: submit_transaction + produce_checkpoint."
+    "Usage: cargo run --release -p kanari-benchmarks -- [--txs N] [--senders N] [--runs N] [--target-tps N] [--mode production|immediate|parallel|parallel-exec-only] [--json]\n       cargo run --release -p kanari-benchmarks -- --high-throughput --json\n       cargo run --release -p kanari-benchmarks -- [N]\n\nDefault mode is production: submit_transaction + produce_checkpoint."
 }
 
 fn prepare_engine(_temp_dir: &TempDir) -> Result<BlockchainEngine> {
@@ -431,7 +491,24 @@ fn run_harness(config: &HarnessConfig) -> Result<HarnessReport> {
         submit_secs,
         produce_secs,
         tps,
+        target_tps: config.target_tps,
     })
+}
+
+fn ensure_target_tps(report: &HarnessReport) -> Result<()> {
+    if let Some(target_tps) = report.target_tps {
+        if report.tps < target_tps {
+            bail!(
+                "TPS target not reached: {:.2} < {:.2} (mode={}, txs={})",
+                report.tps,
+                target_tps,
+                report.mode.as_str(),
+                report.requested_txs
+            );
+        }
+    }
+
+    Ok(())
 }
 
 fn main() -> Result<()> {
@@ -443,6 +520,7 @@ fn main() -> Result<()> {
         } else {
             eprintln!("{report}");
         }
+        ensure_target_tps(&report)?;
     } else {
         let reports = (0..config.runs)
             .map(|_| run_harness(&config))
@@ -472,6 +550,9 @@ fn main() -> Result<()> {
                 eprintln!("run={} tps={:.2}", index + 1, report.tps);
             }
         }
+        for report in &reports {
+            ensure_target_tps(report)?;
+        }
     }
 
     Ok(())
@@ -496,6 +577,7 @@ mod tests {
                 runs: 1,
                 json: false,
                 mode: HarnessMode::Production,
+                target_tps: None,
             }
         );
     }
@@ -519,6 +601,7 @@ mod tests {
                 runs: 1,
                 json: true,
                 mode: HarnessMode::ParallelExecOnly,
+                target_tps: None,
             }
         );
     }
@@ -541,6 +624,22 @@ mod tests {
         let config =
             parse_args(args(&["kanari-benchmarks", "--txs", "128", "--runs", "3"])).unwrap();
         assert_eq!(config.runs, 3);
+    }
+
+    #[test]
+    fn parse_args_accepts_high_throughput_preset() {
+        let config = parse_args(args(&["kanari-benchmarks", "--high-throughput"])).unwrap();
+        assert_eq!(config.tx_count, HIGH_THROUGHPUT_TX_COUNT);
+        assert_eq!(config.sender_count, Some(HIGH_THROUGHPUT_SENDER_COUNT));
+        assert_eq!(config.runs, HIGH_THROUGHPUT_RUNS);
+        assert_eq!(config.mode, HarnessMode::ParallelExecOnly);
+        assert_eq!(config.target_tps, Some(HIGH_THROUGHPUT_TARGET_TPS));
+    }
+
+    #[test]
+    fn parse_args_accepts_target_tps() {
+        let config = parse_args(args(&["kanari-benchmarks", "--target-tps", "100000"])).unwrap();
+        assert_eq!(config.target_tps, Some(100_000.0));
     }
 
     #[test]
@@ -568,13 +667,42 @@ mod tests {
             submit_secs: None,
             produce_secs: None,
             tps: 10.0,
+            target_tps: Some(5.0),
         };
 
         let json = report.render_json();
         assert!(json.contains("\"requested_txs\":5"));
         assert!(json.contains("\"mode\":\"immediate\""));
         assert!(json.contains("\"executed\":5"));
+        assert!(json.contains("\"target_tps\":5.000000"));
+        assert!(json.contains("\"target_status\":\"pass\""));
         assert!(json.contains("\"tps\":10.000000"));
+    }
+
+    #[test]
+    fn target_tps_guard_fails_below_threshold() {
+        let report = HarnessReport {
+            requested_txs: 5,
+            mode: HarnessMode::Immediate,
+            block_info: CheckpointProductionInfo {
+                vertex_id: "vertex".to_string(),
+                round: 1,
+                tx_count: 5,
+                executed: 5,
+                failed: 0,
+                events: vec![],
+                checkpoint: None,
+                vertex: None,
+            },
+            duration_secs: 1.0,
+            submit_secs: None,
+            produce_secs: None,
+            tps: 5.0,
+            target_tps: Some(100_000.0),
+        };
+
+        let err = ensure_target_tps(&report).unwrap_err();
+        assert!(err.to_string().contains("TPS target not reached"));
     }
 
     #[test]
@@ -600,6 +728,7 @@ mod tests {
             runs: 1,
             json: true,
             mode: HarnessMode::Production,
+            target_tps: Some(min_tps),
         };
         let mut runs = 0usize;
 
@@ -607,12 +736,7 @@ mod tests {
             let report = run_harness(&config).expect("soak benchmark run should succeed");
             assert_eq!(report.block_info.executed, tx_count);
             assert_eq!(report.block_info.failed, 0);
-            assert!(
-                report.tps >= min_tps,
-                "soak TPS below threshold: {} < {}",
-                report.tps,
-                min_tps
-            );
+            ensure_target_tps(&report).expect("soak TPS should stay above threshold");
             runs += 1;
         }
 

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Result;
+use kanari_crypto::hash_data_blake3;
 use log::{info, warn};
 use mysticeti_consensus::{
     committer::Committer as MysticetiCommitter,
@@ -127,13 +128,14 @@ impl MysticetiBackend {
         timestamp_ms: u64,
     ) -> Result<Option<MysticetiBlockSummary>> {
         if !transactions.is_empty() {
-            let payload = transactions
-                .iter()
-                .map(|tx| signed_tx_to_mysticeti_transaction(tx, timestamp_ms))
-                .collect::<Result<Vec<_>>>()?;
-            self.transaction_sender.try_send(payload).map_err(|e| {
-                anyhow::anyhow!("Failed to submit transactions to Mysticeti Core: {}", e)
-            })?;
+            self.transaction_sender
+                .try_send(vec![signed_tx_batch_to_mysticeti_transaction(
+                    transactions,
+                    timestamp_ms,
+                )])
+                .map_err(|e| {
+                    anyhow::anyhow!("Failed to submit transactions to Mysticeti Core: {}", e)
+                })?;
         }
 
         self.core.drain_submitted_transactions();
@@ -159,13 +161,24 @@ struct MysticetiBlockSummary {
     parents: Vec<VertexId>,
 }
 
-fn signed_tx_to_mysticeti_transaction(
-    tx: &SignedTransaction,
+fn signed_tx_batch_to_mysticeti_transaction(
+    transactions: &[SignedTransaction],
     timestamp_ms: u64,
-) -> Result<MysticetiTransaction> {
-    let mut bytes = timestamp_ms.to_le_bytes().to_vec();
-    bytes.extend_from_slice(&bcs::to_bytes(tx)?);
-    Ok(MysticetiTransaction::new(minibytes::Bytes::from(bytes)))
+) -> MysticetiTransaction {
+    let mut materialized = Vec::with_capacity(
+        b"kanari:mysticeti-batch:v1".len()
+            + std::mem::size_of::<u64>()
+            + std::mem::size_of::<u64>()
+            + transactions.len() * 32,
+    );
+    materialized.extend_from_slice(b"kanari:mysticeti-batch:v1");
+    materialized.extend_from_slice(&timestamp_ms.to_le_bytes());
+    materialized.extend_from_slice(&(transactions.len() as u64).to_le_bytes());
+    for tx in transactions {
+        materialized.extend_from_slice(tx.transaction_hash());
+    }
+
+    MysticetiTransaction::new(minibytes::Bytes::from(hash_data_blake3(&materialized)))
 }
 
 fn mysticeti_reference_to_vertex_id(reference: &MysticetiBlockReference) -> VertexId {
@@ -456,12 +469,18 @@ impl DagEngine {
             let state_arc = Arc::new(RwLock::new(state_snapshot));
             self.engine
                 .execute_system_prologue_to_state_for_dag_v2(&state_arc, timestamp)?;
-            let (executed, failed) = self.engine.execute_tx_waves_deterministic_parallel(
-                transactions.clone(),
-                &state_arc,
-                Some(timestamp),
-                false,
-            )?;
+            let (executed, failed) = match self
+                .engine
+                .apply_zero_effect_native_batch(&transactions, &state_arc)?
+            {
+                Some(result) => result,
+                None => self.engine.execute_tx_waves_deterministic_parallel(
+                    transactions.clone(),
+                    &state_arc,
+                    Some(timestamp),
+                    false,
+                )?,
+            };
             let verified_state = state_arc.read().unwrap_or_else(|e| e.into_inner()).clone();
             let state_root = verified_state.compute_state_root();
             (

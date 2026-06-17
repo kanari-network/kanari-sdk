@@ -24,10 +24,16 @@ Run the production benchmark:
 cargo run --release -p kanari-benchmarks -- --txs 1024 --json
 ```
 
+Run the 100k TPS high-throughput target benchmark:
+
+```powershell
+cargo run --release -p kanari-benchmarks -- --high-throughput --json
+```
+
 Equivalent explicit command:
 
 ```powershell
-cargo run --release -p kanari-benchmarks -- --mode production --txs 1024 --json
+cargo run --release -p kanari-benchmarks -- --mode parallel-exec-only --txs 10000 --senders 10000 --runs 3 --target-tps 100000 --json
 ```
 
 ## Modes
@@ -40,6 +46,24 @@ cargo run --release -p kanari-benchmarks -- --mode production --txs 1024 --json
   Executes transactions in parallel and applies successful changesets. Useful for runtime/state apply experiments.
 - `parallel-exec-only`
   Measures execution engine ceiling only. This can produce high numbers, but it is not full blockchain TPS.
+
+## High Throughput Target
+
+`--high-throughput` is the quick engine-ceiling target for 100k TPS. It expands to:
+
+- `--mode parallel-exec-only`
+- `--txs 10000`
+- `--senders 10000`
+- `--runs 3`
+- `--target-tps 100000`
+
+Every run must meet the target. If a run drops below 100k TPS, the process exits with an error so CI and local scripts catch it immediately.
+
+For production checkpoint TPS, use:
+
+```powershell
+cargo run --release -p kanari-benchmarks -- --mode production --txs 10000 --senders 256 --target-tps 100000 --json
+```
 
 ## Interpreting Results
 
@@ -69,6 +93,8 @@ Important fields:
 - `submit_secs`: time spent in batch mempool submission
 - `produce_secs`: time spent in block/DAG production
 - `tps`: `tx_count / duration_secs`
+- `target_tps`: configured TPS threshold, when set
+- `target_status`: `pass` or `fail`, when a threshold is set
 
 ## Notes
 
