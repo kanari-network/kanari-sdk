@@ -58,7 +58,6 @@ pub struct MysticetiBackend {
     _committee: Arc<MysticetiCommittee>,
     core: MysticetiCore<MysticetiTokioCtx, MysticetiCommitter>,
     transaction_sender: mpsc::Sender<Vec<MysticetiTransaction>>,
-    _protocol_config: MysticetiConsensusProtocol,
     protocol: MysticetiRuntimeProtocol,
 }
 
@@ -102,7 +101,6 @@ impl MysticetiBackend {
             _committee: committee,
             core,
             transaction_sender,
-            _protocol_config: protocol_config,
             protocol,
         })
     }
@@ -337,18 +335,10 @@ pub struct DagEngine {
     engine: Arc<BlockchainEngine>,
     consensus: Arc<RwLock<CoreDagConsensus>>,
     authority_id: String,
-    local_signing_key: Option<ed25519_dalek::SigningKey>,
+    local_signing_key: ed25519_dalek::SigningKey,
 }
 
 impl DagEngine {
-    pub fn new(
-        engine: Arc<BlockchainEngine>,
-        authority_id: String,
-        authorities: Vec<String>,
-    ) -> Result<Self> {
-        Self::from_parts(engine, authority_id, authorities, None)
-    }
-
     pub fn new_secure(
         engine: Arc<BlockchainEngine>,
         authority_id: String,
@@ -363,20 +353,15 @@ impl DagEngine {
         if *expected_public_key != local_public_key {
             anyhow::bail!("Consensus signing key does not match local authority public key");
         }
-        Self::from_parts(engine, authority_id, authorities, Some(local_signing_key))
+        Self::from_parts(engine, authority_id, authorities, local_signing_key)
     }
 
     fn from_parts(
         engine: Arc<BlockchainEngine>,
         authority_id: String,
         authorities: Vec<String>,
-        local_signing_key: Option<ed25519_dalek::SigningKey>,
+        local_signing_key: ed25519_dalek::SigningKey,
     ) -> Result<Self> {
-        {
-            let mut blockchain = engine.blockchain.write().unwrap_or_else(|e| e.into_inner());
-            blockchain.enable_dag_mode();
-        }
-
         let state = Self::aligned_dag_state(&engine);
         let consensus = CoreDagConsensus::new(authority_id.clone(), authorities, state)?;
         let dag_engine = Self {
@@ -438,14 +423,6 @@ impl DagEngine {
     }
 
     pub fn produce_vertex(&self) -> Result<CheckpointProductionInfo> {
-        self.produce_vertex_inner(true)
-    }
-
-    pub fn produce_vertex_summary(&self) -> Result<CheckpointProductionInfo> {
-        self.produce_vertex_inner(false)
-    }
-
-    fn produce_vertex_inner(&self, include_vertex: bool) -> Result<CheckpointProductionInfo> {
         let policy = {
             let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
             consensus.production_policy()
@@ -516,10 +493,8 @@ impl DagEngine {
         );
         vertex.id = vertex_id;
         vertex.cached_hash = Some(vertex_id.to_vec());
-        if let Some(signing_key) = &self.local_signing_key {
-            use ed25519_dalek::Signer;
-            vertex.signature = signing_key.sign(&vertex.id).to_bytes().to_vec();
-        }
+        use ed25519_dalek::Signer;
+        vertex.signature = self.local_signing_key.sign(&vertex.id).to_bytes().to_vec();
 
         let checkpoint = self.finalize_vertex(vertex.clone(), prepared_checkpoint_state)?;
         let checkpoint_info = checkpoint.as_ref().map(|checkpoint| CheckpointInfo {
@@ -542,7 +517,7 @@ impl DagEngine {
             failed,
             events: Vec::new(),
             checkpoint: checkpoint_info,
-            vertex: include_vertex.then_some(vertex),
+            vertex: Some(vertex),
         })
     }
 
@@ -617,19 +592,6 @@ impl DagEngine {
         consensus.needs_progress()
     }
 
-    pub fn engine(&self) -> Arc<BlockchainEngine> {
-        self.engine.clone()
-    }
-
-    pub fn authority_id(&self) -> &str {
-        &self.authority_id
-    }
-
-    pub fn consensus_protocol(&self) -> ConsensusRuntimeProtocol {
-        let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
-        consensus.protocol()
-    }
-
     pub fn latest_own_vertices(&self, limit: usize) -> Vec<DagVertex> {
         let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
         consensus.latest_vertices_by_authority(&self.authority_id, limit)
@@ -675,7 +637,13 @@ mod tests {
     #[test]
     fn test_dag_engine_defaults_to_mysticeti_protocol() {
         let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
-        let dag_engine = DagEngine::new(
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&[11u8; 32]);
+        let mut public_keys = BTreeMap::new();
+        public_keys.insert(
+            "auth1".to_string(),
+            signing_key.verifying_key().to_bytes().to_vec(),
+        );
+        let dag_engine = DagEngine::new_secure(
             engine,
             "auth1".to_string(),
             vec![
@@ -684,9 +652,15 @@ mod tests {
                 "auth3".to_string(),
                 "auth4".to_string(),
             ],
+            signing_key,
+            public_keys,
         )
         .unwrap();
-        let protocol = dag_engine.consensus_protocol();
+        let protocol = dag_engine
+            .consensus
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .protocol();
 
         assert_eq!(protocol.protocol, "mysticeti");
         assert_eq!(protocol.wave_length, 3);

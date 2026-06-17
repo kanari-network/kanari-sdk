@@ -38,16 +38,13 @@ mod mempool;
 mod produce_dag_vertex;
 mod queries;
 mod runtime_guards;
-pub use produce_dag_vertex::{CheckpointInfo, CheckpointProductionInfo, DagEngine};
+pub use produce_dag_vertex::{CheckpointProductionInfo, DagEngine};
 pub use runtime_guards::{RuntimeGuardConfig, RuntimeHealthReport};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CheckpointSyncData {
     pub checkpoint: Checkpoint,
 }
-
-pub type ExecutionResult = Result<(Vec<u8>, ChangeSet)>;
-pub type ParallelTxResult = (SignedTransaction, ExecutionResult);
 
 const MAX_MEMPOOL_SIZE: usize = 1_000_000;
 
@@ -178,20 +175,7 @@ impl BlockchainEngine {
         })
     }
 
-    pub fn execute_system_prologue(&self, timestamp_ms: u64) -> Result<()> {
-        let runtime = &self.runtime_pool[0];
-
-        let mut state_write = self.state_write();
-
-        let clock_id = runtime.ensure_system_clock(&mut state_write)?;
-        let changeset = runtime.execute_clock_consensus_commit_prologue(clock_id, timestamp_ms)?;
-        state_write.apply_changeset(&changeset)?;
-        runtime.persist_created_objects(&changeset);
-        runtime.persist_deleted_objects(&changeset);
-        Ok(())
-    }
-
-    pub fn get_expected_sequence(&self, address_hex: &str) -> u64 {
+    pub(crate) fn get_expected_sequence(&self, address_hex: &str) -> u64 {
         let mut seq = self
             .state
             .read()
@@ -548,7 +532,7 @@ impl BlockchainEngine {
         Ok(())
     }
 
-    pub fn persist_dag_state(&self, state: PersistentDagState) -> Result<()> {
+    pub(crate) fn persist_dag_state(&self, state: PersistentDagState) -> Result<()> {
         if let Some(store) = &self.persistent_store {
             store
                 .save(b"dag_state", &state)
@@ -748,19 +732,6 @@ impl BlockchainEngine {
             }
         };
         if dag_engine_guard.is_none() {
-            {
-                let mut chain = match self.blockchain.write() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => {
-                        log::error!("Blockchain lock poisoned during DAG init, recovering...");
-                        poisoned.into_inner()
-                    }
-                };
-                if !chain.dag_mode {
-                    chain.enable_dag_mode();
-                }
-            }
-
             let signing_key = self.consensus_signing_key.clone().ok_or_else(|| {
                 anyhow::anyhow!(
                     "DAG consensus requires an explicit signing key. Call set_consensus_signing_key() before producing or syncing DAG vertices."
@@ -815,43 +786,6 @@ impl BlockchainEngine {
         }
 
         dag_engine.produce_vertex()
-    }
-
-    pub fn produce_checkpoint_summary(&self) -> Result<CheckpointProductionInfo> {
-        let dag_engine = self.dag_engine_instance()?;
-        let has_pending_transactions = !self
-            .pending_txs
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .is_empty();
-
-        {
-            let consensus_lock = dag_engine.consensus();
-            let consensus = match consensus_lock.read() {
-                Ok(guard) => guard,
-                Err(poisoned) => {
-                    log::error!(
-                        "Consensus lock poisoned in produce_checkpoint_summary, recovering..."
-                    );
-                    poisoned.into_inner()
-                }
-            };
-            let policy = consensus.production_policy();
-
-            if !has_pending_transactions && policy.should_wait_for_current_round_quorum() {
-                anyhow::bail!(
-                    "SYNC_WAITING: have {}/{} vertices in round {} from authors [{}]; missing authorities [{}]; need quorum for round {}",
-                    policy.parent_author_count,
-                    policy.quorum_size,
-                    policy.current_round,
-                    policy.parent_authors.join(", "),
-                    policy.missing_parent_authors.join(", "),
-                    policy.current_round + 1
-                );
-            }
-        }
-
-        dag_engine.produce_vertex_summary()
     }
 
     pub fn dag_production_policy(&self) -> Result<DagProductionPolicy> {
@@ -1024,6 +958,8 @@ impl BlockchainEngine {
 #[cfg(test)]
 mod tests {
     use super::BlockchainEngine;
+    use crate::blockchain::Blockchain;
+    use crate::consensus::{Checkpoint, PersistentDagState};
     use kanari_crypto::keys::{CurveType, generate_keypair};
     use kanari_move_runtime_v1::changeset::ChangeSet;
     use kanari_move_runtime_v1::state::Account;
@@ -1187,6 +1123,58 @@ mod tests {
 
         assert_eq!(restarted.get_stats().pending_transactions, 0);
         assert!(restarted.should_produce_dag_progress());
+    }
+
+    #[test]
+    fn restart_repairs_missing_transaction_history_from_dag_state() {
+        let sender = generate_keypair(CurveType::Ed25519).unwrap();
+        let tx = signed_transfer_from(&sender, 0);
+
+        let genesis = Checkpoint::genesis();
+        let prev_hash = genesis.hash().unwrap();
+        let vertex_id = [9u8; 32];
+        let state_root = vec![7u8; 32];
+        let timestamp = 42;
+
+        let broken_checkpoint = Checkpoint::new(
+            1,
+            vec![vertex_id],
+            Vec::new(),
+            state_root.clone(),
+            timestamp,
+            prev_hash.clone(),
+        );
+        let good_checkpoint = Checkpoint::new(
+            1,
+            vec![vertex_id],
+            vec![tx],
+            state_root,
+            timestamp,
+            prev_hash,
+        );
+
+        let mut broken_chain = Blockchain::new();
+        broken_chain
+            .add_checkpoint_with_validation(broken_checkpoint, false)
+            .unwrap();
+        let mut chain = Arc::new(RwLock::new(broken_chain));
+
+        let repaired = BlockchainEngine::repair_blockchain_from_dag_state(
+            &mut chain,
+            Some(&PersistentDagState {
+                vertices: Vec::new(),
+                checkpoints: vec![genesis, good_checkpoint],
+                current_round: 1,
+                last_checkpoint_round: 1,
+            }),
+        )
+        .unwrap();
+
+        assert!(repaired);
+        let repaired_chain = chain.read().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(repaired_chain.height(), 1);
+        assert_eq!(repaired_chain.get_transaction_count(), 1);
+        assert_eq!(repaired_chain.latest_checkpoint().transactions.len(), 1);
     }
 
     #[test]

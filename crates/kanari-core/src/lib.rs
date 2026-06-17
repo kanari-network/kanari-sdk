@@ -6,8 +6,8 @@ pub mod consensus;
 pub mod engine;
 
 pub use consensus::{
-    Checkpoint, ConsensusProtocol, ConsensusRuntimeProtocol, DagProductionPolicy, DagVertex,
-    PersistentDagState, VertexId,
+    Checkpoint, ConsensusRuntimeProtocol, DagProductionPolicy, DagVertex, PersistentDagState,
+    VertexId,
 };
 pub use engine::{
     BlockData, BlockchainEngine, BlockchainStats, CheckpointProductionInfo, CheckpointSyncData,

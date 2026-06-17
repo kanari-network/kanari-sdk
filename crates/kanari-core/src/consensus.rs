@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 pub type VertexId = [u8; 32];
 pub type Round = u64;
 pub type AuthorityId = String;
-pub type ConsensusProtocol = mysticeti_consensus::protocol::ConsensusProtocol;
 
 fn logical_tx_hash(tx: &SignedTransaction) -> Vec<u8> {
     tx.transaction_hash().to_vec()

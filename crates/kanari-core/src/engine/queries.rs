@@ -1,7 +1,6 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::Context;
 use kanari_rpc_api::{AccountInfo, BlockData, BlockchainStats, FullBlockData};
 use kanari_types::address::Address as KanariAddress;
 use log::{info, warn};
@@ -219,100 +218,6 @@ impl BlockchainEngine {
             transactions: full_block.transactions.clone(),
             events: full_block.events.clone(),
         }
-    }
-
-    fn decode_hex(s: &str) -> Result<Vec<u8>> {
-        hex::decode(s.trim_start_matches("0x")).context("Invalid hex string")
-    }
-
-    fn decode_hex_32(s: &str) -> [u8; 32] {
-        let bytes = Self::decode_hex(s).unwrap_or_default();
-        let mut arr = [0u8; 32];
-        if bytes.len() == 32 {
-            arr.copy_from_slice(&bytes);
-        }
-        arr
-    }
-
-    fn checkpoint_from_full_block_data(
-        &self,
-        block_data: &FullBlockData,
-        prev_hash: Vec<u8>,
-    ) -> Result<Checkpoint> {
-        let state_root = Self::decode_hex(&block_data.state_root)
-            .context("Invalid state root format in block data")?;
-        let vertices = block_data
-            .vertices
-            .iter()
-            .map(|vertex| Self::decode_hex_32(vertex))
-            .collect();
-
-        Ok(Checkpoint::new(
-            block_data.height,
-            vertices,
-            block_data.transactions.clone(),
-            state_root,
-            block_data.timestamp,
-            prev_hash,
-        ))
-    }
-
-    pub fn sync_full_block_from_data(&self, block_data: &FullBlockData) -> Result<()> {
-        let stats = self.get_stats();
-        info!(
-            "[SYNC] Attempting to sync block #{} (our height: {})",
-            block_data.height, stats.height
-        );
-
-        if block_data.height <= stats.height {
-            info!("[SYNC] Already have block #{}, skipping", block_data.height);
-            return Ok(());
-        }
-
-        if block_data.height != stats.height + 1 {
-            warn!(
-                "[SYNC] Block #{} is not consecutive (need {})",
-                block_data.height,
-                stats.height + 1
-            );
-            anyhow::bail!(
-                "Cannot sync block #{}: current height is {}",
-                block_data.height,
-                stats.height
-            );
-        }
-
-        info!(
-            "[SYNC] Verifying {} transaction signatures from block #{}",
-            block_data.transactions.len(),
-            block_data.height
-        );
-        for (i, signed_tx) in block_data.transactions.iter().enumerate() {
-            let tx_hash = signed_tx.transaction_hash().to_vec();
-            if !signed_tx.verify_signature_for_hash(&tx_hash)? {
-                anyhow::bail!(
-                    "Invalid or missing signature for transaction {} in block #{}",
-                    i + 1,
-                    block_data.height
-                );
-            }
-        }
-
-        let prev_hash = {
-            let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
-            chain.latest_checkpoint().hash()?
-        };
-
-        let checkpoint = self.checkpoint_from_full_block_data(block_data, prev_hash)?;
-        self.apply_checkpoint(checkpoint)?;
-
-        info!(
-            "Synced block #{} with {} transactions",
-            block_data.height,
-            block_data.transactions.len()
-        );
-
-        Ok(())
     }
 
     pub fn sync_checkpoint_from_data(&self, checkpoint_data: &CheckpointSyncData) -> Result<()> {

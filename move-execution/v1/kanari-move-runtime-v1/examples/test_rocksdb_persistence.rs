@@ -91,7 +91,7 @@ fn main() -> Result<()> {
                     println!("7. Test completed successfully!");
                     return Ok(());
                 }
-                Err(e) if attempt < 5 => {
+                Err(_) if attempt < 5 => {
                     std::thread::sleep(std::time::Duration::from_millis(500 * attempt as u64));
                 }
                 Err(e) => {

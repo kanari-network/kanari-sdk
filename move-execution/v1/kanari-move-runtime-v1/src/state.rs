@@ -4,7 +4,7 @@
 use crate::changeset::{ChangeSet, CreatedObject};
 use crate::storage::object_storage::StoredObject;
 use crate::storage::persistent_store::PersistentStore;
-use anyhow::Result;
+use anyhow::{Context, Result, ensure};
 use kanari_crypto::hash_data_blake3;
 use kanari_types::balance::BalanceModule;
 use kanari_types::balance::BalanceRecord;
@@ -501,25 +501,36 @@ impl StateManager {
 
     /// Create a new in-memory state manager for testing
     pub fn new_in_memory() -> Self {
-        let store =
-            Arc::new(PersistentStore::open_in_memory().expect("Failed to create in-memory store"));
-        Self::new(store)
+        Self::try_new_in_memory().expect("Failed to create in-memory state manager")
+    }
+
+    /// Create a new in-memory state manager and surface initialization errors.
+    pub fn try_new_in_memory() -> Result<Self> {
+        let store = Arc::new(
+            PersistentStore::open_in_memory().context("Failed to create in-memory store")?,
+        );
+        Self::try_new(store)
     }
 
     /// Create new state with genesis allocation
     /// Total supply: 11 million KANARI = 11,000,000,000,000,000 Mist
     /// Dev address gets entire supply according to kanari.move
     pub fn new(store: Arc<PersistentStore>) -> Self {
+        Self::try_new(store).expect("Failed to create state manager")
+    }
+
+    /// Create new state with genesis allocation and return initialization errors.
+    pub fn try_new(store: Arc<PersistentStore>) -> Result<Self> {
         // Try to load total supply from DB
         let persisted_total_supply = store
             .load::<u64>(b"total_supply")
-            .unwrap_or(None)
+            .context("Failed to load total_supply")?
             .unwrap_or(0);
 
         // Load existing global token supplies from RocksDB
         let global_token_supplies = store
             .load::<BTreeMap<String, u64>>(b"global_token_supplies")
-            .unwrap_or(None)
+            .context("Failed to load global_token_supplies")?
             .unwrap_or_default();
 
         // Recover native total supply from older databases that persisted the
@@ -547,24 +558,20 @@ impl StateManager {
         };
 
         if persisted_total_supply == 0 && recovered_total_supply > 0 {
-            if let Err(e) = state.save_internal(b"total_supply", &recovered_total_supply) {
-                panic!("Failed to backfill recovered total_supply: {}", e);
-            }
-            if let Err(e) = state.commit() {
-                panic!("Failed to persist recovered total_supply: {}", e);
-            }
+            state
+                .save_internal(b"total_supply", &recovered_total_supply)
+                .context("Failed to backfill recovered total_supply")?;
+            state
+                .commit()
+                .context("Failed to persist recovered total_supply")?;
         }
 
         // If total supply is 0, initialize genesis
         if state.total_supply == 0 {
-            if let Err(e) = crate::genesis::init_genesis(&mut state) {
-                panic!("Genesis initialization failed: {}", e);
-            }
+            crate::genesis::init_genesis(&mut state).context("Genesis initialization failed")?;
             // Flush genesis state to DB immediately
-            if let Err(e) = state.commit() {
-                panic!("Failed to commit genesis state: {}", e);
-            }
-            assert!(
+            state.commit().context("Failed to commit genesis state")?;
+            ensure!(
                 state.total_supply > 0,
                 "Genesis initialization completed but total_supply is still 0"
             );
@@ -574,7 +581,7 @@ impl StateManager {
             Self::report_supply_invariant_violation("on startup", &e);
         }
 
-        state
+        Ok(state)
     }
 
     /// Commit pending overlay changes to the persistent store and update SMT

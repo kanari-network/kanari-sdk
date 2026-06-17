@@ -44,12 +44,6 @@ pub struct Blockchain {
     tx_location_index: HashMap<Vec<u8>, (u64, usize)>,
     #[serde(default)]
     total_transaction_count: usize,
-    #[serde(default = "default_dag_mode")]
-    pub dag_mode: bool,
-}
-
-fn default_dag_mode() -> bool {
-    true
 }
 
 fn default_dag_checkpoints() -> VecDeque<Checkpoint> {
@@ -66,14 +60,6 @@ impl Blockchain {
             tx_hash_queue: VecDeque::new(),
             tx_location_index: HashMap::new(),
             total_transaction_count: 0,
-            dag_mode: true,
-        }
-    }
-
-    pub fn enable_dag_mode(&mut self) {
-        self.dag_mode = true;
-        if self.dag_checkpoints.is_empty() {
-            self.dag_checkpoints.push_back(Checkpoint::genesis());
         }
     }
 
@@ -93,6 +79,13 @@ impl Blockchain {
 
     pub fn has_executed_transactions(&self) -> bool {
         !self.executed_tx_hashes.is_empty()
+    }
+
+    fn retained_transaction_count(&self) -> usize {
+        self.dag_checkpoints
+            .iter()
+            .map(|checkpoint| checkpoint.transactions.len())
+            .sum()
     }
 
     pub fn rebuild_tx_hash_index(&mut self) {
@@ -119,10 +112,6 @@ impl Blockchain {
                 }
             }
         }
-    }
-
-    pub fn add_checkpoint(&mut self, checkpoint: Checkpoint) -> Result<()> {
-        self.add_checkpoint_with_validation(checkpoint, true)
     }
 
     pub fn add_checkpoint_with_validation(
@@ -197,6 +186,7 @@ impl Blockchain {
 
     pub fn get_transaction_count(&self) -> usize {
         self.total_transaction_count
+            .max(self.retained_transaction_count())
     }
 
     pub fn get_transaction_location(

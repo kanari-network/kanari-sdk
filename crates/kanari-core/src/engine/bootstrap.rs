@@ -56,9 +56,16 @@ impl BlockchainEngine {
         tracing::info!("Loading Mysticeti DAG state");
         let persisted_dag_state = Self::load_dag_state(&persistent_store);
         tracing::info!("Repairing checkpoint index from DAG state");
-        Self::repair_blockchain_from_dag_state(&mut blockchain, persisted_dag_state.as_ref())?;
+        if Self::repair_blockchain_from_dag_state(&mut blockchain, persisted_dag_state.as_ref())? {
+            if let Some(store) = &persistent_store {
+                let chain = blockchain.read().unwrap_or_else(|e| e.into_inner());
+                if let Err(e) = store.save(b"blockchain", &*chain) {
+                    tracing::warn!("Failed to persist repaired blockchain: {}", e);
+                }
+            }
+        }
         tracing::info!("Opening state database");
-        let state = Self::load_state(&persistent_store);
+        let state = Self::load_state(&persistent_store)?;
 
         let workers = Self::runtime_worker_count();
         let mut runtime_pool = Vec::new();
@@ -157,12 +164,12 @@ impl BlockchainEngine {
         num_cpus::get().max(1).min(DEFAULT_MAX_RUNTIME_WORKERS)
     }
 
-    fn repair_blockchain_from_dag_state(
+    pub(crate) fn repair_blockchain_from_dag_state(
         blockchain: &mut Arc<RwLock<Blockchain>>,
         persisted_dag_state: Option<&PersistentDagState>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let Some(dag_state) = persisted_dag_state else {
-            return Ok(());
+            return Ok(false);
         };
 
         let latest_dag_sequence = dag_state
@@ -170,13 +177,21 @@ impl BlockchainEngine {
             .last()
             .map(|checkpoint| checkpoint.sequence)
             .unwrap_or(0);
+        let dag_transaction_count: usize = dag_state
+            .checkpoints
+            .iter()
+            .map(|checkpoint| checkpoint.transactions.len())
+            .sum();
 
-        let current_height = blockchain
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .height();
-        if current_height > 0 || latest_dag_sequence == 0 {
-            return Ok(());
+        let (current_height, current_transaction_count) = {
+            let chain = blockchain.read().unwrap_or_else(|e| e.into_inner());
+            (chain.height(), chain.get_transaction_count())
+        };
+        if latest_dag_sequence == 0
+            || current_height > latest_dag_sequence
+            || (current_height > 0 && current_transaction_count >= dag_transaction_count)
+        {
+            return Ok(false);
         }
 
         let mut rebuilt = Blockchain::new();
@@ -186,12 +201,13 @@ impl BlockchainEngine {
         rebuilt.rebuild_tx_hash_index();
 
         info!(
-            "Recovered blockchain from persisted DAG state (height: {}, checkpoints: {})",
+            "Recovered blockchain from persisted DAG state (height: {}, checkpoints: {}, txs: {})",
             rebuilt.height(),
-            rebuilt.dag_checkpoints.len()
+            rebuilt.dag_checkpoints.len(),
+            rebuilt.get_transaction_count()
         );
         *blockchain = Arc::new(RwLock::new(rebuilt));
-        Ok(())
+        Ok(true)
     }
 
     fn load_blockchain(store: &Option<Arc<PersistentStore>>) -> Arc<RwLock<Blockchain>> {
@@ -224,15 +240,13 @@ impl BlockchainEngine {
         }
     }
 
-    fn load_state(store: &Option<Arc<PersistentStore>>) -> Arc<RwLock<StateManager>> {
-        let store = store.clone().unwrap_or_else(|| {
-            Arc::new(PersistentStore::open_in_memory().unwrap_or_else(|e| {
-                error!("Failed to open in-memory store: {}. Using fallback.", e);
-                panic!("Cannot initialize state manager without storage")
-            }))
-        });
+    fn load_state(store: &Option<Arc<PersistentStore>>) -> Result<Arc<RwLock<StateManager>>> {
+        let store = match store.clone() {
+            Some(store) => store,
+            None => Arc::new(PersistentStore::open_in_memory()?),
+        };
         info!("Initializing StateManager with persistent store support (RocksDB)");
-        Arc::new(RwLock::new(StateManager::new(store)))
+        Ok(Arc::new(RwLock::new(StateManager::try_new(store)?)))
     }
 
     fn load_dag_state(store: &Option<Arc<PersistentStore>>) -> Option<PersistentDagState> {

@@ -5,7 +5,7 @@ use anyhow::Result;
 use serde::{Serialize, de::DeserializeOwned};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::storage::shared_db::get_or_open_db;
 use rocksdb::{DB, IteratorMode, WriteBatch};
@@ -95,13 +95,25 @@ impl PersistentStore {
         })
     }
 
+    fn read_memory_store(store: &MemoryStore) -> RwLockReadGuard<'_, HashMap<Vec<u8>, Vec<u8>>> {
+        store
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn write_memory_store(store: &MemoryStore) -> RwLockWriteGuard<'_, HashMap<Vec<u8>, Vec<u8>>> {
+        store
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     fn read_raw(&self, key: &[u8]) -> std::result::Result<Option<Vec<u8>>, PersistentStoreError> {
         if let Some(db) = &self.db {
             return Ok(db.get(key)?);
         }
 
         if let Some(store) = &self.memory_store {
-            return Ok(store.read().unwrap().get(key).cloned());
+            return Ok(Self::read_memory_store(store).get(key).cloned());
         }
 
         Ok(None)
@@ -115,7 +127,7 @@ impl PersistentStore {
         if let Some(db) = &self.db {
             db.put(key, value)?;
         } else if let Some(store) = &self.memory_store {
-            store.write().unwrap().insert(key.to_vec(), value);
+            Self::write_memory_store(store).insert(key.to_vec(), value);
         }
         Ok(())
     }
@@ -153,7 +165,7 @@ impl PersistentStore {
         if let Some(db) = &self.db {
             db.delete(key)?;
         } else if let Some(store) = &self.memory_store {
-            store.write().unwrap().remove(key);
+            Self::write_memory_store(store).remove(key);
         }
         Ok(())
     }
@@ -174,9 +186,7 @@ impl PersistentStore {
             }
         } else if let Some(store) = &self.memory_store {
             entries.extend(
-                store
-                    .read()
-                    .unwrap()
+                Self::read_memory_store(store)
                     .iter()
                     .map(|(key, value)| (key.clone(), value.clone())),
             );
@@ -202,7 +212,7 @@ impl PersistentStore {
             }
             db.write(batch)?;
         } else if let Some(store) = &self.memory_store {
-            let mut guard = store.write().unwrap();
+            let mut guard = Self::write_memory_store(store);
             for (key, value) in updates {
                 guard.insert(key.clone(), value.clone());
             }

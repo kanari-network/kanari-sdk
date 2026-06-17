@@ -43,7 +43,7 @@ use move_bytecode_verifier::verifier::verify_module_unmetered;
 use move_vm_types::loaded_data::runtime_types::Type as RuntimeType;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 #[derive(Clone)]
 pub struct MoveRuntime {
@@ -107,6 +107,18 @@ impl ExecutionOptions {
 }
 
 impl MoveRuntime {
+    fn read_vm(&self) -> RwLockReadGuard<'_, MoveVM> {
+        self.vm
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn write_vm(&self) -> RwLockWriteGuard<'_, MoveVM> {
+        self.vm
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     pub fn new() -> Result<Self> {
         Self::new_with_natives(vec![])
     }
@@ -285,7 +297,7 @@ impl MoveRuntime {
             .map_err(|e| anyhow::anyhow!("Failed to reload MoveVM: {:?}", e))?;
 
         // Replace the VM instance to clear internal caches.
-        *self.vm.write().unwrap() = new_vm;
+        *self.write_vm() = new_vm;
 
         // Preload published modules so follow-up executions can resolve dependencies immediately.
         self.preload_system_modules_into_vm()?;
@@ -302,14 +314,14 @@ impl MoveRuntime {
 
     /// Preload system modules into the VM cache to ensure dependencies are available
     fn preload_system_modules_into_vm(&self) -> Result<()> {
-        let vm_guard = self.vm.read().unwrap();
+        let vm_guard = self.read_vm();
         let session = self.create_session_with_storage_ext(&vm_guard);
 
         // Read the published module set from the runtime index.
         let module_ids: Vec<ModuleId> = self
             .published_modules
             .read()
-            .unwrap()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .iter()
             .cloned()
             .collect();
@@ -421,7 +433,7 @@ impl MoveRuntime {
 
         let (move_changeset, events) = {
             // 🟢 Separate Lock into a variable first to prevent it from being dropped immediately
-            let vm_guard = self.vm.read().unwrap();
+            let vm_guard = self.read_vm();
             let mut session = self.create_session_with_storage_ext(&vm_guard);
 
             let provided_gas_limit = gas_info.map(|(limit, _)| limit).unwrap_or(1_000_000);
@@ -970,7 +982,7 @@ impl MoveRuntime {
             bypass_entry_check,
         } = options;
 
-        let vm_guard = self.vm.read().unwrap();
+        let vm_guard = self.read_vm();
         let mut session = self.create_session_with_storage_ext(&vm_guard);
 
         // Preload object arguments so native object borrows can resolve them from extensions.
@@ -1100,8 +1112,8 @@ impl MoveRuntime {
                                     }) {
                                         let event_type = TypeTag::Struct(Box::new(StructTag {
                                             address: KanariAddress::kanari_system_account_address(),
-                                            module: Identifier::new("system_events").unwrap(),
-                                            name: Identifier::new("AutoMergeReceipt").unwrap(),
+                                            module: Identifier::new("system_events")?,
+                                            name: Identifier::new("AutoMergeReceipt")?,
                                             type_params: vec![TypeTag::Struct(struct_tag.clone())],
                                         }));
                                         synthetic_events.push((event_type, event_bytes));
@@ -1436,7 +1448,7 @@ impl MoveRuntime {
         let module_id = ModuleId::new(addr, Identifier::new(module_name)?);
 
         // Reuse the same session setup as entry-function execution.
-        let vm_guard = self.vm.read().unwrap();
+        let vm_guard = self.read_vm();
         let mut session = self.create_session_with_storage_ext(&vm_guard);
 
         // Preload object arguments so view functions can borrow them through natives.
@@ -1483,7 +1495,10 @@ impl MoveRuntime {
                     .collect();
 
                 if results.len() == 1 {
-                    Ok(results.into_iter().next().unwrap())
+                    results
+                        .into_iter()
+                        .next()
+                        .ok_or_else(|| anyhow::anyhow!("View function returned no values"))
                 } else {
                     Ok(serde_json::Value::Array(results))
                 }
@@ -1602,7 +1617,7 @@ impl MoveRuntime {
             return serde_json::Value::String(addr.to_hex_literal());
         }
 
-        serde_json::to_value(bytes).expect("serializing byte slices to JSON should not fail")
+        serde_json::to_value(bytes).unwrap_or_else(|_| serde_json::Value::Array(Vec::new()))
     }
 }
 

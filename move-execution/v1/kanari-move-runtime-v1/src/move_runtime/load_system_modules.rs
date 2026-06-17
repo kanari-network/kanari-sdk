@@ -50,9 +50,7 @@ pub struct DiscoveredModule {
     pub module_name: String,
     pub file_name: String,
     pub bytes: Vec<u8>,
-    #[allow(dead_code)]
     pub compiled: CompiledModule,
-    #[allow(dead_code)]
     pub deps: Vec<ModuleId>,
 }
 

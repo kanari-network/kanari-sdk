@@ -6,7 +6,6 @@
 use anyhow::Result;
 use kanari_types::address::Address as KanariAddress;
 use move_binary_format::file_format::CompiledModule;
-use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::ModuleId;
 
 use crate::move_runtime::MoveRuntime;
@@ -28,10 +27,8 @@ impl MoveRuntime {
             if !self.has_module(&dep) {
                 // Allow dependencies on stdlib (0x1) and system (0x2)
                 let addr = dep.address();
-                if addr != &AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS).unwrap()
-                    && addr
-                        != &AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS)
-                            .unwrap()
+                if addr != &KanariAddress::std_account_address()
+                    && addr != &KanariAddress::kanari_system_account_address()
                 {
                     anyhow::bail!(
                         "Missing dependency: {}::{}",
@@ -56,9 +53,8 @@ impl MoveRuntime {
     pub fn has_module(&self, module_id: &ModuleId) -> bool {
         // Check by assuming stdlib/system modules are always available
         let addr = module_id.address();
-        if addr == &AccountAddress::from_hex_literal(KanariAddress::STD_ADDRESS).unwrap()
-            || addr
-                == &AccountAddress::from_hex_literal(KanariAddress::KANARI_SYSTEM_ADDRESS).unwrap()
+        if addr == &KanariAddress::std_account_address()
+            || addr == &KanariAddress::kanari_system_account_address()
         {
             return true;
         }
@@ -78,7 +74,7 @@ impl MoveRuntime {
         // Return modules from our maintained index
         self.published_modules
             .read()
-            .unwrap()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .iter()
             .cloned()
             .collect()

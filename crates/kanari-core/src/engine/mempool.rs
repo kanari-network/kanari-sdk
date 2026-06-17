@@ -231,41 +231,6 @@ impl BlockchainEngine {
         Ok((tx_hash, changeset))
     }
 
-    pub fn execute_transactions_parallel(
-        &self,
-        txs: Vec<SignedTransaction>,
-    ) -> Vec<ParallelTxResult> {
-        log::info!(
-            "[PARALLEL ENGINE] Firing up Rayon to execute {} txs concurrently!",
-            txs.len()
-        );
-
-        let state_arc = &self.state;
-
-        txs.into_par_iter()
-            .map(|tx| {
-                let thread_idx = rayon::current_thread_index().unwrap_or(0);
-                let runtime = &self.runtime_pool[thread_idx % self.runtime_pool.len()];
-
-                let result = self.execute_transaction_with_runtime_internal(
-                    &tx.transaction,
-                    runtime,
-                    state_arc,
-                    true,
-                    None,
-                    false,
-                );
-
-                let final_result = match result {
-                    Ok(cs) => Ok((tx.transaction_hash().to_vec(), cs)),
-                    Err(e) => Err(anyhow::anyhow!("Parallel execution failed: {}", e)),
-                };
-
-                (tx, final_result)
-            })
-            .collect()
-    }
-
     pub(crate) fn pending_tx_count_for_sender(&self, sender: &str) -> u64 {
         let normalized_sender = Self::normalize_addr(sender);
         self.pending_sender_counts
