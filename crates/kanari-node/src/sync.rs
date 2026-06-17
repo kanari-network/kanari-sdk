@@ -5,8 +5,7 @@ use crate::p2p::{
     CheckpointRequestMsg, CheckpointResponseMsg, DagVertexMsg, DagVertexRequestMsg,
     DagVertexResponseMsg, P2PMessage, PeerInfoMsg,
 };
-use centauri::consensus::DagVertex;
-use kanari_core::{BlockchainEngine, CheckpointSyncData};
+use kanari_core::{BlockchainEngine, CheckpointSyncData, DagVertex};
 use kanari_types::transaction::SignedTransaction;
 use serde::de::DeserializeOwned;
 use std::collections::{BTreeMap, VecDeque};
@@ -978,7 +977,7 @@ impl SyncManager {
     }
 
     async fn handle_new_dag_vertex(&self, vertex_data: String) {
-        // DAG vertices are serialized as centauri::consensus::DagVertex,
+        // DAG vertices are serialized as kanari_core::DagVertex,
         // not as the higher-level block metadata wrapper.
 
         if let Some(vertex) = Self::parse_message::<DagVertex>(&vertex_data, "DAG vertex") {
@@ -1259,7 +1258,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::*;
-    use centauri::consensus::Checkpoint;
+    use kanari_core::Checkpoint;
 
     fn new_sync_manager() -> SyncManager {
         let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());

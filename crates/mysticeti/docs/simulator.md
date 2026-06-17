@@ -1,0 +1,146 @@
+# Simulator
+
+The `simulator` crate drives the protocols through a **discrete-event simulator**. All time is
+simulated — no wall-clock delay — and everything runs in a single process against a seeded RNG, so
+each run is fully reproducible. Unlike the [geo-replicated testbed](orchestrator.md), the simulator
+isn't about measuring real wire performance; it's about exercising the protocols under
+precisely-controlled network, load, and failure scenarios.
+
+What's simulated and what's real:
+
+- **Simulated**: time, the inter-replica network (uniform-random latency), and cryptography
+  (disabled — signatures are skipped).
+- **Real**: the `consensus` crate, the `replica` orchestration, the block pipeline, the commit rule,
+  the WAL-backed storage (each replica gets its own temporary WAL-backed store, discarded at the end
+  of the run), and the metrics stack. Faults you observe in a simulation run map directly onto faults
+  in the actual protocol code.
+
+## Running a Simulation
+
+The entry point is the `simulate` subcommand of the `replica` binary. With no arguments it runs a
+single simulation with the built-in defaults (committee of 10, 20 s, full mesh, Mysticeti):
+
+```bash
+cargo run --release simulate
+```
+
+To dump the built-in defaults as an annotated YAML starting point:
+
+```bash
+cargo run simulate --dump-config > my-sim.yaml
+```
+
+To run a custom config:
+
+```bash
+cargo run --release simulate --config-path my-sim.yaml
+```
+
+A single YAML file can hold either one simulation (a mapping) or a suite of simulations (a top-level
+sequence). Each entry of a suite is a full `SimulationConfig`, so entries can independently vary any
+parameter. Suites run sequentially and print a final summary table comparing every run.
+
+See [`crates/simulator/examples/single.yaml`](../crates/simulator/examples/single.yaml) for the
+annotated single-run template and
+[`crates/simulator/examples/suite.yaml`](../crates/simulator/examples/suite.yaml) for a suite that
+sweeps committee size, latency, topology, and protocol variant.
+
+## Configuration Reference
+
+All fields are optional and fall back to the defaults shown.
+
+| Field                               | Default                               | Description |
+| ----------------------------------- | ------------------------------------- | ----------- |
+| `name`                              | _(unset)_                             | Optional label shown in logs and the suite summary table. |
+| `committee_size`                    | `10`                                  | Number of replicas. Stake is uniform. |
+| `latency_min_ms` / `latency_max_ms` | `50` / `100`                          | Inclusive range for per-message link latency, sampled uniformly for every delivery. |
+| `topology`                          | `fullMesh`                            | Network topology — see below. |
+| `duration_secs`                     | `20`                                  | Simulated time for which to run the simulation. |
+| `rng_seed`                          | `0`                                   | Seed for the deterministic RNG. Change this to get different per-run noise while keeping everything else fixed. |
+| `replica_parameters`                | `ReplicaParameters::default()`        | Same tunables as a real replica: DAG round timeout, max block size, consensus protocol, leader count. |
+| `load_generator`                    | `LoadGeneratorConfig::new_for_test()` | Built-in transaction generator (`load` tx/s, `transaction_size`, `initial_delay`). `null` for empty blocks. |
+
+## Network Topologies
+
+The `topology` field selects how the simulated network is wired at the start of the run (connections
+are established once and held for the duration):
+
+- **`fullMesh`** — every replica connects to every other. This is the happy path.
+- **`oneDown: <index>`** — every replica except `<index>` is fully connected; `<index>` is isolated.
+  Probes the `f = 1` failure mode.
+- **`star: <center>`** — only `<center>` is connected to all other replicas; non-center replicas can
+  only reach each other through the centre. Useful for studying bottlenecks and leader-fairness
+  behaviour under a single hub.
+- **`partition: [[...], [...], ...]`** — the committee is split into the listed groups; replicas
+  only connect inside their own group. Lets you construct arbitrary network splits — two equal
+  halves exercise "no quorum on either side" conditions.
+
+## Outcomes
+
+Every run ends with one of three verdicts, classified by comparing the committed-leader sequences of
+every replica:
+
+| Outcome      | Meaning                                                                                                                                                              |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Pass`       | Every replica's committed prefix agrees with the others' and at least one replica committed a leader.                                                                |
+| `NoProgress` | Every replica's commits are consistent but none committed a leader. Expected under unrecoverable partitions (e.g. a symmetric split, or `star` on a crashed centre). |
+| `Diverged`   | At least two replicas disagree on a commit within their shared prefix. This is a safety violation and fails the run.                                                 |
+
+A suite's final exit code is non-zero if any simulation `Diverged`.
+
+## Saving Detailed Results
+
+Pass `--output-dir <DIR>` and the simulator drops a fixed set of artefacts on disk for each run.
+The directory is created if it doesn't exist.
+
+```bash
+cargo run --release simulate \
+    --config-path crates/simulator/examples/suite.yaml \
+    --output-dir results/
+```
+
+For a single-run invocation the artefacts land directly in `<output-dir>/`. For a suite, each
+simulation gets its own subdirectory named after the run (`name` field, sanitised) or by 1-based
+index when unnamed. Files are written atomically (`NamedTempFile` + `persist`), so a mid-write crash
+leaves each file either intact or absent — never half-written.
+
+| File                       | Contents                                                                                                                                                  |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<output-dir>/tracing.log` | Suite-wide tracing log (one log for the whole invocation).                                                                                                |
+| `<run>/config.yaml`        | The full `SimulationConfig` that produced the run, including any defaults filled in.                                                                      |
+| `<run>/meta.yaml`          | `{ outcome, duration_secs, kind: simulation, timestamp_unix }`.                                                                                           |
+| `<run>/metrics.prom`       | Per-replica Prometheus text exposition; each replica's block is preceded by `# replica: N`. Parseable by `promtool`, Prometheus, and most TSDB ingesters. |
+| `<run>/dag.ndjson`         | _(opt-in via `--export-dag`)_ every committed sub-DAG, one JSON object per line. Can be many GB; off by default.                                          |
+
+## Programmatic Use
+
+The simulator is also usable as a library, which is how the integration tests in
+[`crates/simulator/tests/simulation.rs`](../crates/simulator/tests/simulation.rs) drive it. A
+minimal example:
+
+```rust
+use dag::metrics::Outcome;
+use simulator::{NetworkTopology, SimulationConfig, SimulationRunner};
+
+#[test]
+fn one_down_still_commits() {
+    let config = SimulationConfig {
+        committee_size: 7,
+        topology: NetworkTopology::OneDown(0),
+        duration_secs: 40,
+        ..Default::default()
+    };
+
+    let result = SimulationRunner::new(config).run().expect("simulation");
+
+    assert_eq!(result.outcome, Outcome::Pass);
+    assert!(result.commit_count_per_replica().iter().all(|&c| c > 0));
+}
+```
+
+`SimulationRunner::run` returns a `RunResult<SimulationConfig>` carrying per-replica
+`MetricsSnapshot`s, the derived `Outcome`, and the original config.
+`SimulationRunner::from_yaml` loads a `SimulationConfig` from disk, useful when test cases share
+configuration with the CLI. To stream every committed sub-DAG to disk during the run, chain
+`.with_dag_writer(writer)` on the runner before calling `run()`. Because every run is deterministic
+in the `rng_seed`, these tests are reproducible across machines.

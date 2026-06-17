@@ -1,10 +1,12 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::blockchain::Blockchain;
+use crate::consensus::{
+    Checkpoint, DagMetrics, DagProductionPolicy, DagVertex, PersistentDagState,
+};
 use ahash::AHashMap;
 use anyhow::{Context, Result};
-use centauri::blockchain::Blockchain;
-use centauri::consensus::{Checkpoint, DagMetrics, PersistentDagState};
 use kanari_move_runtime_v1::changeset::ChangeSet;
 use kanari_move_runtime_v1::move_runtime::MoveRuntime;
 use kanari_move_runtime_v1::state::StateManager;
@@ -32,12 +34,10 @@ type ProofCache = LruCache<(u64, usize), (String, Vec<Vec<u8>>)>;
 
 mod apply_checkpoint;
 mod bootstrap;
-mod dag_integration;
 mod mempool;
 mod produce_dag_vertex;
 mod queries;
 mod runtime_guards;
-pub use centauri::consensus::{ConsensusProtocol, Protocol as ConsensusRuntimeProtocol};
 pub use produce_dag_vertex::{CheckpointInfo, DagBlockInfo, DagEngine};
 pub use runtime_guards::{RuntimeGuardConfig, RuntimeHealthReport};
 
@@ -800,7 +800,7 @@ impl BlockchainEngine {
         dag_engine.produce_vertex_summary()
     }
 
-    pub fn dag_production_policy(&self) -> Result<centauri::consensus::DagProductionPolicy> {
+    pub fn dag_production_policy(&self) -> Result<DagProductionPolicy> {
         let dag_engine = self.dag_engine_instance()?;
         let consensus_lock = dag_engine.consensus();
         let consensus = match consensus_lock.read() {
@@ -813,14 +813,11 @@ impl BlockchainEngine {
         Ok(consensus.production_policy())
     }
 
-    pub fn latest_own_dag_vertices(
-        &self,
-        limit: usize,
-    ) -> Result<Vec<centauri::consensus::DagVertex>> {
+    pub fn latest_own_dag_vertices(&self, limit: usize) -> Result<Vec<DagVertex>> {
         Ok(self.dag_engine_instance()?.latest_own_vertices(limit))
     }
 
-    pub fn add_network_dag_vertex(&self, vertex: centauri::consensus::DagVertex) -> Result<bool> {
+    pub fn add_network_dag_vertex(&self, vertex: DagVertex) -> Result<bool> {
         let previous_height = self.get_stats().height;
         self.dag_engine_instance()?.add_network_vertex(vertex)?;
         Ok(self.get_stats().height > previous_height)

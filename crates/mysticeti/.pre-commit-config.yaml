@@ -1,0 +1,73 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-yaml
+        # Syntax-only check: the settings templates use serde_yaml's custom
+        # `!aws`/`!custom` tags, which the default safe loader cannot resolve.
+        args: ["--unsafe"]
+      - id: check-symlinks
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+  - repo: https://github.com/editorconfig-checker/editorconfig-checker.python
+    rev: 3.6.1
+    hooks:
+      - id: editorconfig-checker
+        alias: ec
+  - repo: https://github.com/google/yamlfmt
+    rev: v0.21.0
+    hooks:
+      - id: yamlfmt
+  - repo: https://github.com/notken12/licensesnip
+    rev: f01f898e2cef002c653bde4cfe9aefe89019cbb8
+    hooks:
+      - id: licensesnip
+        args: []
+        pass_filenames: false
+  - repo: https://github.com/crate-ci/typos
+    rev: v1
+    hooks:
+      - id: typos
+        pass_filenames: false
+  - repo: local
+    hooks:
+      - id: taplo-format
+        alias: taplo
+        name: taplo-format
+        description: Format TOML documents
+        entry: taplo format
+        language: rust
+        types: [toml]
+        args: []
+        additional_dependencies: ["taplo-cli:0.10.0"]
+      - id: shellcheck
+        args: ["--severity=error"]
+        name: shellcheck
+        description: Test shell scripts with shellcheck
+        entry: shellcheck
+        language: python
+        types: [shell]
+        require_serial: true
+        additional_dependencies: ["shellcheck-py==0.11.0.1"]
+      # Rust hooks
+      - id: cargo-fmt
+        name: cargo-fmt
+        entry: cargo fmt
+        language: system
+        files: &rust-files-pattern ^(crates/|Cargo\.(toml|lock)|rust-toolchain\.toml$)
+        pass_filenames: false
+      - id: cargo-test
+        name: cargo-test
+        entry: bash -c 'cargo nextest run --no-tests=warn && cargo test --doc'
+        language: system
+        files: (^crates/|Cargo\.(toml|lock)$|rust-toolchain\.toml$)
+        pass_filenames: false
+      - id: clippy
+        name: clippy
+        entry: cargo clippy
+        args: ["--tests", "--", "-D", "warnings"]
+        language: system
+        files: *rust-files-pattern
+        pass_filenames: false

@@ -1,0 +1,38 @@
+# Orchestrator settings
+crates/orchestrator/assets/settings.yml
+
+# Build artifacts
+/target/
+debug/
+
+# Backup files from rustfmt
+**/*.rs.bk
+
+# MSVC debugging info
+*.pdb
+
+# Cargo mutants
+**/mutants.out*/
+
+# Coverage and profiling
+/coverage/
+/*.profraw
+*.profdata
+cobertura.xml
+lcov.info
+tarpaulin-report.html
+
+# IDE
+.idea/
+.vscode/
+*.sw?
+*~
+
+# Claude Code
+.claude/worktrees/
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db

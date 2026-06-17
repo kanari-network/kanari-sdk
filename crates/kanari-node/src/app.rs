@@ -271,6 +271,7 @@ pub async fn run_node(
     let runtime_guards = engine.runtime_guard_config();
     let stats = engine.get_stats();
 
+    eprintln!("Kanari blockchain node starting");
     tracing::info!("Kanari blockchain node starting");
     tracing::info!("Network: {}, Move VM: Enabled", network);
     tracing::info!(
@@ -337,6 +338,7 @@ pub async fn run_node(
         peer_store.cleanup_old_peers(7 * 24 * 60 * 60);
 
         let mut p2p_network = P2PNetwork::new(keypair, p2p_port, relay_server)?;
+        eprintln!("P2P network initialized on port {}", p2p_port);
         tracing::info!("P2P network initialized on port {}", p2p_port);
         if relay_server {
             tracing::info!(
@@ -406,10 +408,12 @@ pub async fn run_node(
             }
         });
     } else {
+        eprintln!("Running in local-only mode: P2P disabled");
         tracing::info!("Running in local-only mode: P2P disabled");
     }
 
     let bind_addr = format!("{}:{}", rpc_host, rpc_port);
+    eprintln!("Binding RPC server to {}", bind_addr);
     tracing::info!("Binding RPC server to {}", bind_addr);
 
     let display_ip = if rpc_host == "0.0.0.0" {
@@ -417,6 +421,7 @@ pub async fn run_node(
     } else {
         rpc_host.clone()
     };
+    eprintln!("Starting RPC server on http://{}:{}", display_ip, rpc_port);
     tracing::info!("Starting RPC server on http://{}:{}", display_ip, rpc_port);
 
     let engine_for_rpc = engine.clone();
@@ -428,6 +433,7 @@ pub async fn run_node(
     });
 
     sleep(Duration::from_millis(500)).await;
+    eprintln!("RPC server ready at http://{}:{}", display_ip, rpc_port);
     tracing::info!("RPC server ready");
 
     loop {

@@ -11,7 +11,7 @@ resolver = "2"                   # Use the version 2 feature resolver for more c
 exclude = [
     "third_party/move",           # Exclude the 'third_party/move' directory from workspace builds.
     "crates/kanari-crypto/fuzz",  # Exclude fuzz targets from workspace builds (fuzzing uses separate Cargo.toml)
-    "crates/centauri/fuzz",       # Exclude centauri fuzz targets (uses libfuzzer-sys)
+    "crates/mysticeti",           # Nested Mysticeti workspace used through explicit path dependencies.
 ]
 
 
@@ -36,7 +36,6 @@ members = [
       "crates/kanari-benchmarks", 
       "crates/kanari-system-natives",
       "crates/kanari-db-common", 
-      "crates/centauri", 
       "sdk/wallet", 
       "crates/kanari-indexer", 
       "crates/run-auth",

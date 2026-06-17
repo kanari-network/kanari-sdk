@@ -1,0 +1,48 @@
+name: Updates
+on:
+  schedule:
+    - cron: "14 3 1 * *"
+  workflow_dispatch:
+jobs:
+  pre-commit:
+    name: Update pre-commit hooks and run them on all files
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # pin@v6.2.0
+        with:
+          python-version: "3.x"
+      - run: rustup update stable
+      - run: pip install pre-commit
+      - name: Run pre-commit autoupdate
+        run: |
+          pre-commit autoupdate \
+            --repo https://github.com/pre-commit/pre-commit-hooks \
+            --repo https://github.com/editorconfig-checker/editorconfig-checker.python \
+            --repo https://github.com/google/yamlfmt \
+            --repo https://github.com/crate-ci/typos
+      - run: pre-commit run --all-files
+      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # pin@v8.1.1
+        if: ${{ success() }}
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: chore/update-pre-commit-hooks
+          title: "chore: update pre-commit hooks"
+          commit-message: "chore: update pre-commit hooks"
+          body: Update pre-commit hooks to latest version.
+      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # pin@v8.1.1
+        if: ${{ failure() }}
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: chore/update-pre-commit-hooks
+          title: "chore: update pre-commit hooks"
+          commit-message: "chore: update pre-commit hooks"
+          body: |
+            Update pre-commit hooks to latest version.
+
+            **Warning**: Some checks did not succeed. Please check the [action output][run] before merging this PR.
+
+            [run]: https://github.com/asonnino/mysticeti/actions/runs/${{ github.run_id }}

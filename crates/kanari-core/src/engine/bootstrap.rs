@@ -55,7 +55,7 @@ impl BlockchainEngine {
         Self::repair_blockchain_from_dag_state(&mut blockchain, persisted_dag_state.as_ref())?;
         let state = Self::load_state(&persistent_store);
 
-        let workers = num_cpus::get().max(1);
+        let workers = Self::runtime_worker_count();
         let mut runtime_pool = Vec::new();
 
         let base_runtime = match if let Some(store) = persistent_store.clone() {
@@ -74,17 +74,26 @@ impl BlockchainEngine {
             "Initializing runtime pool with {} workers (independent VMs sharing DB)",
             workers
         );
+        eprintln!(
+            "Initializing Move runtime pool with {} worker(s). Set KANARI_RUNTIME_WORKERS to tune startup time.",
+            workers
+        );
         runtime_pool.push(base_runtime.clone());
 
         for i in 1..workers {
+            eprintln!("Starting Move runtime worker {}/{}...", i + 1, workers);
             match base_runtime.spawn_worker() {
-                Ok(rt) => runtime_pool.push(rt),
+                Ok(rt) => {
+                    runtime_pool.push(rt);
+                    eprintln!("Move runtime worker {}/{} ready", i + 1, workers);
+                }
                 Err(e) => {
                     log::error!("Failed to spawn worker runtime #{}: {}", i, e);
                     anyhow::bail!("Failed to initialize runtime pool: {}", e);
                 }
             }
         }
+        eprintln!("Move runtime pool ready ({} worker(s))", runtime_pool.len());
 
         let pending_txs = Arc::new(RwLock::new(Vec::new()));
         let pending_tx_hashes = Arc::new(RwLock::new(HashSet::new()));
@@ -110,6 +119,22 @@ impl BlockchainEngine {
             consensus_signing_key: None,
             consensus_public_keys: BTreeMap::new(),
         })
+    }
+
+    fn runtime_worker_count() -> usize {
+        const DEFAULT_MAX_RUNTIME_WORKERS: usize = 4;
+
+        if let Ok(raw) = std::env::var("KANARI_RUNTIME_WORKERS") {
+            match raw.trim().parse::<usize>() {
+                Ok(value) if value > 0 => return value,
+                _ => eprintln!(
+                    "WARN: Ignoring invalid KANARI_RUNTIME_WORKERS='{}'. Using default.",
+                    raw
+                ),
+            }
+        }
+
+        num_cpus::get().max(1).min(DEFAULT_MAX_RUNTIME_WORKERS)
     }
 
     fn repair_blockchain_from_dag_state(

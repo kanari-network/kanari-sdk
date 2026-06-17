@@ -31,8 +31,8 @@ rayon = { workspace = true }
 smt = { workspace = true }
 ed25519-dalek = { workspace = true }
 ahash = { workspace = true }
-
-centauri = { workspace = true }
+mysticeti-consensus = { package = "consensus", path = "../mysticeti/crates/consensus" }
+mysticeti-dag = { package = "dag", path = "../mysticeti/crates/dag" }
 
 [dev-dependencies]
 tempfile = { workspace = true }

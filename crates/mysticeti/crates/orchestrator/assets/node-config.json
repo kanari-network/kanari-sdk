@@ -1,0 +1,5 @@
+{
+    "benchmark_transaction_size": 512,
+    "disable_pipeline": false,
+    "leader_count": 2
+}

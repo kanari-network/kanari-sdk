@@ -512,28 +512,28 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
     }
 
     let normalized = hash_param.trim_start_matches("0x").to_lowercase();
+    let tx_hash_bytes = match hex::decode(&normalized) {
+        Ok(bytes) => bytes,
+        Err(_) => return invalid_params_response(request.id, "Invalid transaction hash hex"),
+    };
 
     let chain = state.engine.blockchain.read().unwrap_or_else(|p| {
         error!("blockchain lock poisoned; recovering");
         p.into_inner()
     });
 
-    for block in chain.blocks.iter().rev() {
-        for tx in block.transactions.iter().rev() {
-            let tx_hash = hex::encode(tx.transaction.hash());
-            if tx_hash.to_lowercase() == normalized {
-                let details = map_transaction_to_details(
-                    state,
-                    &tx.transaction,
-                    &tx_hash,
-                    "committed",
-                    Some(block.header.height),
-                    Some(hex::encode(&block.header.state_root)),
-                );
-                return respond_with_serialize(request.id, details);
-            }
-        }
+    if let Some((tx, height, state_root)) = chain.get_transaction_location(&tx_hash_bytes) {
+        let details = map_transaction_to_details(
+            state,
+            &tx.transaction,
+            &hex::encode(tx.transaction_hash()),
+            "committed",
+            Some(height),
+            Some(hex::encode(state_root)),
+        );
+        return respond_with_serialize(request.id, details);
     }
+    drop(chain);
 
     let pending = state.engine.pending_txs.read().unwrap_or_else(|p| {
         error!("pending_txs lock poisoned; recovering");
@@ -541,7 +541,7 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
     });
 
     for tx in pending.iter() {
-        let tx_hash = hex::encode(tx.transaction.hash());
+        let tx_hash = hex::encode(tx.transaction_hash());
         if tx_hash.to_lowercase() == normalized {
             let details =
                 map_transaction_to_details(state, &tx.transaction, &tx_hash, "pending", None, None);
@@ -594,7 +594,7 @@ pub async fn handle_get_all_transactions(
             map_transaction_to_details(
                 state,
                 &tx.transaction,
-                &hex::encode(tx.transaction.hash()),
+                &hex::encode(tx.transaction_hash()),
                 "pending",
                 None,
                 None,
@@ -610,12 +610,12 @@ pub async fn handle_get_all_transactions(
             p.into_inner()
         });
 
-        for block in chain.blocks.iter().rev() {
+        for checkpoint in chain.dag_checkpoints.iter().rev() {
             if results.len() >= limit {
                 break;
             }
 
-            for tx in block.transactions.iter().rev() {
+            for tx in checkpoint.transactions.iter().rev() {
                 if !tx_matches_account(&tx.transaction, account_norm.as_deref()) {
                     continue;
                 }
@@ -627,10 +627,10 @@ pub async fn handle_get_all_transactions(
                     map_transaction_to_details(
                         state,
                         &tx.transaction,
-                        &hex::encode(tx.transaction.hash()),
+                        &hex::encode(tx.transaction_hash()),
                         "committed",
-                        Some(block.header.height),
-                        Some(hex::encode(&block.header.state_root)),
+                        Some(checkpoint.sequence),
+                        Some(hex::encode(&checkpoint.state_root)),
                     ),
                 ) {
                     break;

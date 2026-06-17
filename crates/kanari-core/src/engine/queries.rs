@@ -416,7 +416,7 @@ impl BlockchainEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use centauri::consensus::Checkpoint;
+    use crate::consensus::Checkpoint;
 
     #[test]
     fn sync_checkpoint_from_data_applies_next_checkpoint() {

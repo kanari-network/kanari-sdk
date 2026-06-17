@@ -1,19 +1,30 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! DAG-based block production for Kanari blockchain engine
-//! Integrates DAG consensus with parallel transaction execution
-
 use anyhow::Result;
-use centauri::consensus::{DagConsensus, DagNetworkVertexAction, DagPendingSelection};
-use log::{error, info, warn};
-use std::collections::BTreeMap;
+use log::{info, warn};
+use mysticeti_consensus::{
+    committer::Committer as MysticetiCommitter,
+    protocol::{
+        ConsensusProtocol as MysticetiConsensusProtocol, Protocol as MysticetiRuntimeProtocol,
+    },
+};
+use mysticeti_dag::{
+    authority::Authority as MysticetiAuthority, block::RoundNumber as MysticetiRound,
+    committee::Committee as MysticetiCommittee, metrics::Metrics as MysticetiMetrics,
+    storage::Storage as MysticetiStorage,
+};
+use std::collections::{BTreeMap, BTreeSet};
+use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
 
-use super::dag_integration::DagConsensusIntegration;
+use crate::consensus::{
+    Checkpoint, ConsensusRuntimeProtocol, DagMetrics, DagProductionPolicy, DagVertex,
+    PersistentDagState, VertexId,
+};
+
 use super::*;
 
-/// DAG Block Production Info
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DagBlockInfo {
     pub vertex_id: String,
@@ -23,8 +34,7 @@ pub struct DagBlockInfo {
     pub failed: usize,
     pub events: Vec<Event>,
     pub checkpoint: Option<CheckpointInfo>,
-    /// The actual DAG vertex for network broadcast
-    pub vertex: Option<centauri::consensus::DagVertex>,
+    pub vertex: Option<DagVertex>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -34,43 +44,218 @@ pub struct CheckpointInfo {
     pub tx_count: usize,
 }
 
-/// DAG-enabled blockchain engine
+pub struct MysticetiBackend {
+    _committee: Arc<MysticetiCommittee>,
+    _storage: MysticetiStorage,
+    committer: MysticetiCommitter,
+    _protocol_config: MysticetiConsensusProtocol,
+    protocol: MysticetiRuntimeProtocol,
+    last_decided: Option<(MysticetiRound, MysticetiAuthority)>,
+}
+
+impl MysticetiBackend {
+    fn new(authority_count: usize) -> Result<Self> {
+        let authority_count = authority_count.max(1);
+        let committee = MysticetiCommittee::new_test(vec![1; authority_count]);
+        let protocol_config = MysticetiConsensusProtocol::Mysticeti {
+            leader_count: NonZeroUsize::new(authority_count.min(2).max(1))
+                .expect("leader count is non-zero"),
+        };
+        let protocol = protocol_config
+            .to_protocol(&committee)
+            .map_err(|e| anyhow::anyhow!("Failed to build Mysticeti protocol: {}", e))?;
+        let metrics = MysticetiMetrics::new_for_test(committee.len());
+        let (storage, _) =
+            MysticetiStorage::ephemeral(MysticetiAuthority::default(), metrics, committee.as_ref());
+        let committer =
+            MysticetiCommitter::new(committee.clone(), storage.block_reader().clone(), protocol);
+        let protocol = protocol_config
+            .to_protocol(&committee)
+            .map_err(|e| anyhow::anyhow!("Failed to rebuild Mysticeti protocol: {}", e))?;
+
+        Ok(Self {
+            _committee: committee,
+            _storage: storage,
+            committer,
+            _protocol_config: protocol_config,
+            protocol,
+            last_decided: None,
+        })
+    }
+
+    fn runtime_protocol(&self) -> ConsensusRuntimeProtocol {
+        ConsensusRuntimeProtocol::from_mysticeti(&self.protocol)
+    }
+
+    fn quorum_threshold(&self) -> usize {
+        self.protocol.direct_commit_quorum as usize
+    }
+
+    fn try_advance(&mut self) {
+        for decision in self.committer.try_commit(self.last_decided) {
+            self.last_decided = Some((decision.round(), decision.authority()));
+        }
+    }
+}
+
+pub struct CoreDagConsensus {
+    authority_id: String,
+    authorities: Vec<String>,
+    vertices: Vec<DagVertex>,
+    checkpoints: Vec<Checkpoint>,
+    current_round: u64,
+    last_checkpoint_round: u64,
+    metrics: DagMetrics,
+    mysticeti: MysticetiBackend,
+}
+
+impl CoreDagConsensus {
+    fn new(
+        authority_id: String,
+        authorities: Vec<String>,
+        state: Option<PersistentDagState>,
+    ) -> Result<Self> {
+        let mut checkpoints = vec![Checkpoint::genesis()];
+        let mut vertices = Vec::new();
+        let mut current_round = 0;
+        let mut last_checkpoint_round = 0;
+
+        if let Some(state) = state {
+            if !state.checkpoints.is_empty() {
+                checkpoints = state.checkpoints;
+            }
+            vertices = state.vertices;
+            current_round = state.current_round;
+            last_checkpoint_round = state.last_checkpoint_round;
+        }
+
+        let mysticeti = MysticetiBackend::new(authorities.len())?;
+
+        Ok(Self {
+            authority_id,
+            authorities,
+            vertices,
+            checkpoints,
+            current_round,
+            last_checkpoint_round,
+            metrics: DagMetrics::default(),
+            mysticeti,
+        })
+    }
+
+    pub fn production_policy(&self) -> DagProductionPolicy {
+        let parent_round = self.current_round;
+        let target_round = self.current_round.saturating_add(1);
+        let parent_vertices: Vec<&DagVertex> = self
+            .vertices
+            .iter()
+            .filter(|vertex| vertex.round == parent_round)
+            .collect();
+        let parent_ids = parent_vertices.iter().map(|vertex| vertex.id).collect();
+        let parent_authors: Vec<String> = parent_vertices
+            .iter()
+            .map(|vertex| vertex.author.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let missing_parent_authors = self
+            .authorities
+            .iter()
+            .filter(|authority| !parent_authors.contains(authority))
+            .cloned()
+            .collect();
+        let local_has_vertex_in_current_round = parent_vertices
+            .iter()
+            .any(|vertex| vertex.author == self.authority_id);
+
+        DagProductionPolicy {
+            current_round: self.current_round,
+            parent_round,
+            target_round,
+            parent_ids,
+            parent_authors: parent_authors.clone(),
+            missing_parent_authors,
+            parent_author_count: parent_authors.len(),
+            quorum_size: self.mysticeti.quorum_threshold(),
+            local_has_vertex_in_current_round,
+            using_catch_up_round: false,
+        }
+    }
+
+    pub fn metrics(&self) -> &DagMetrics {
+        &self.metrics
+    }
+
+    pub fn protocol(&self) -> ConsensusRuntimeProtocol {
+        self.mysticeti.runtime_protocol()
+    }
+
+    fn save_state(&self) -> PersistentDagState {
+        PersistentDagState {
+            vertices: self.vertices.clone(),
+            checkpoints: self.checkpoints.clone(),
+            current_round: self.current_round,
+            last_checkpoint_round: self.last_checkpoint_round,
+        }
+    }
+
+    fn latest_vertices_by_authority(&self, authority: &str, limit: usize) -> Vec<DagVertex> {
+        self.vertices
+            .iter()
+            .rev()
+            .filter(|vertex| vertex.author == authority)
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+
+    fn known_vertex(&self, id: &VertexId) -> bool {
+        self.vertices.iter().any(|vertex| &vertex.id == id)
+    }
+
+    fn add_vertex(&mut self, vertex: DagVertex) -> Result<bool> {
+        vertex.verify()?;
+        if self.known_vertex(&vertex.id) {
+            return Ok(false);
+        }
+        self.current_round = self.current_round.max(vertex.round);
+        self.metrics.vertices_created = self.metrics.vertices_created.saturating_add(1);
+        self.vertices.push(vertex);
+        Ok(true)
+    }
+
+    fn record_checkpoint(&mut self, checkpoint: Checkpoint) {
+        self.last_checkpoint_round = self.current_round;
+        self.metrics.checkpoints_created = self.metrics.checkpoints_created.saturating_add(1);
+        self.checkpoints.push(checkpoint);
+        self.mysticeti.try_advance();
+    }
+
+    pub fn needs_progress(&self) -> bool {
+        self.current_round > 0
+            || self.current_round > self.last_checkpoint_round
+            || self
+                .vertices
+                .iter()
+                .all(|vertex| vertex.author != self.authority_id)
+    }
+}
+
 #[derive(Clone)]
 pub struct DagEngine {
-    /// Reference to the base blockchain engine
     engine: Arc<BlockchainEngine>,
-
-    /// DAG consensus instance
-    consensus: Arc<RwLock<DagConsensus>>,
-
-    /// This node's authority ID
+    consensus: Arc<RwLock<CoreDagConsensus>>,
     authority_id: String,
+    local_signing_key: Option<ed25519_dalek::SigningKey>,
 }
 
 impl DagEngine {
-    fn integration(&self) -> DagConsensusIntegration {
-        DagConsensusIntegration::new(self.engine.clone(), self.consensus.clone())
-    }
-
-    #[cfg(test)]
-    fn apply_checkpoint_once(
-        &self,
-        checkpoint: centauri::consensus::Checkpoint,
-        log_prefix: &str,
-        allow_root_override: bool,
-    ) -> Result<centauri::consensus::Checkpoint> {
-        self.integration()
-            .apply_checkpoint_once(checkpoint, log_prefix, allow_root_override)
-    }
-
-    /// Create a new DAG engine with default configuration (optimized for 500K TPS)
     pub fn new(
         engine: Arc<BlockchainEngine>,
         authority_id: String,
         authorities: Vec<String>,
     ) -> Result<Self> {
-        let consensus = DagConsensus::try_mysticeti(authority_id.clone(), authorities)?;
-        Self::from_consensus(engine, authority_id, consensus)
+        Self::from_parts(engine, authority_id, authorities, None)
     }
 
     pub fn new_secure(
@@ -80,123 +265,87 @@ impl DagEngine {
         local_signing_key: ed25519_dalek::SigningKey,
         authority_public_keys: BTreeMap<String, Vec<u8>>,
     ) -> Result<Self> {
-        let consensus = DagConsensus::try_mysticeti_secure(
-            authority_id.clone(),
-            authorities,
-            local_signing_key,
-            authority_public_keys,
-        )?;
-        Self::from_consensus(engine, authority_id, consensus)
+        let local_public_key = local_signing_key.verifying_key().to_bytes().to_vec();
+        let expected_public_key = authority_public_keys
+            .get(&authority_id)
+            .ok_or_else(|| anyhow::anyhow!("Missing consensus public key for {}", authority_id))?;
+        if *expected_public_key != local_public_key {
+            anyhow::bail!("Consensus signing key does not match local authority public key");
+        }
+        Self::from_parts(engine, authority_id, authorities, Some(local_signing_key))
     }
 
-    fn from_consensus(
+    fn from_parts(
         engine: Arc<BlockchainEngine>,
         authority_id: String,
-        mut consensus: DagConsensus,
+        authorities: Vec<String>,
+        local_signing_key: Option<ed25519_dalek::SigningKey>,
     ) -> Result<Self> {
-        // Enable DAG mode on blockchain
         {
             let mut blockchain = engine.blockchain.write().unwrap_or_else(|e| e.into_inner());
             blockchain.enable_dag_mode();
         }
 
-        let blockchain_checkpoints = Self::blockchain_checkpoints(&engine);
-        let (blockchain_checkpoint_seq, blockchain_checkpoint_hash) =
-            if let Some(checkpoint) = blockchain_checkpoints.last() {
-                (checkpoint.sequence, checkpoint.hash()?)
-            } else {
-                let genesis = centauri::consensus::Checkpoint::genesis();
-                (
-                    genesis.sequence,
-                    genesis
-                        .hash()
-                        .expect("genesis checkpoint hash should be infallible"),
-                )
-            };
-
-        // Load persisted DAG state if it exists, then force its checkpoint lineage to
-        // match the canonical blockchain. This keeps restart recovery from reusing a
-        // stale consensus checkpoint history after the blockchain has advanced.
-        if let Some(dag_state) = &engine.persisted_dag_state {
-            let dag_checkpoint_seq = dag_state
-                .checkpoints
-                .last()
-                .map(|checkpoint| checkpoint.sequence)
-                .unwrap_or(0);
-            let dag_checkpoint_hash = dag_state
-                .checkpoints
-                .last()
-                .map(|checkpoint| checkpoint.hash())
-                .transpose()?
-                .unwrap_or_else(|| {
-                    centauri::consensus::Checkpoint::genesis()
-                        .hash()
-                        .expect("genesis checkpoint hash should be infallible")
-                });
-
-            let mut dag_state = dag_state.clone();
-            if dag_checkpoint_seq != blockchain_checkpoint_seq {
-                warn!(
-                    "Persisted DAG state checkpoint sequence ({}) does not match blockchain ({}). Rebuilding DAG checkpoint lineage from blockchain.",
-                    dag_checkpoint_seq, blockchain_checkpoint_seq
-                );
-                Self::reconcile_dag_state_checkpoints(&mut dag_state, &blockchain_checkpoints);
-            } else if dag_checkpoint_hash != blockchain_checkpoint_hash {
-                warn!(
-                    "Persisted DAG state checkpoint hash ({}) does not match blockchain ({}). Rebuilding DAG checkpoint lineage from blockchain.",
-                    hex::encode(dag_checkpoint_hash),
-                    hex::encode(&blockchain_checkpoint_hash)
-                );
-                Self::reconcile_dag_state_checkpoints(&mut dag_state, &blockchain_checkpoints);
-            }
-
-            if let Err(e) = consensus.load_state(dag_state.clone()) {
-                error!(
-                    "Failed to load persisted DAG state: {}. Creating fresh state.",
-                    e
-                );
-            } else {
-                info!(
-                    "Successfully loaded DAG state aligned to blockchain checkpoint {}.",
-                    blockchain_checkpoint_seq
-                );
-                engine.persist_dag_state(consensus.save_state()?)?;
-            }
-        } else if blockchain_checkpoint_seq > 0 {
-            let mut dag_state = consensus.save_state()?;
-            Self::reconcile_dag_state_checkpoints(&mut dag_state, &blockchain_checkpoints);
-            consensus.load_state(dag_state)?;
-            engine.persist_dag_state(consensus.save_state()?)?;
-            info!(
-                "Rebuilt DAG checkpoint lineage from blockchain at checkpoint {}.",
-                blockchain_checkpoint_seq
-            );
-        }
-
-        Ok(Self {
+        let state = Self::aligned_dag_state(&engine);
+        let consensus = CoreDagConsensus::new(authority_id.clone(), authorities, state)?;
+        let dag_engine = Self {
             engine,
             consensus: Arc::new(RwLock::new(consensus)),
             authority_id,
-        })
+            local_signing_key,
+        };
+        dag_engine.persist_consensus_state()?;
+        Ok(dag_engine)
     }
 
-    fn blockchain_checkpoints(engine: &BlockchainEngine) -> Vec<centauri::consensus::Checkpoint> {
-        let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
-        chain.dag_checkpoints.iter().cloned().collect()
-    }
-
-    fn reconcile_dag_state_checkpoints(
-        dag_state: &mut centauri::consensus::PersistentDagState,
-        blockchain_checkpoints: &[centauri::consensus::Checkpoint],
-    ) {
+    fn aligned_dag_state(engine: &BlockchainEngine) -> Option<PersistentDagState> {
+        let blockchain_checkpoints = {
+            let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            chain.dag_checkpoints.iter().cloned().collect::<Vec<_>>()
+        };
         if blockchain_checkpoints.is_empty() {
-            return;
+            return engine.persisted_dag_state.clone();
         }
 
-        dag_state.checkpoints = blockchain_checkpoints.to_vec();
-        dag_state.last_checkpoint_round = dag_state.current_round;
+        let dag_seq = engine
+            .persisted_dag_state
+            .as_ref()
+            .and_then(|state| state.checkpoints.last())
+            .map(|checkpoint| checkpoint.sequence)
+            .unwrap_or(0);
+        let chain_seq = blockchain_checkpoints
+            .last()
+            .map(|checkpoint| checkpoint.sequence)
+            .unwrap_or(0);
+        if dag_seq != chain_seq {
+            warn!(
+                "Persisted DAG checkpoint sequence ({}) does not match blockchain ({}); using blockchain checkpoints.",
+                dag_seq, chain_seq
+            );
+            return Some(PersistentDagState {
+                vertices: engine
+                    .persisted_dag_state
+                    .as_ref()
+                    .map(|state| state.vertices.clone())
+                    .unwrap_or_default(),
+                checkpoints: blockchain_checkpoints,
+                current_round: 0,
+                last_checkpoint_round: 0,
+            });
+        }
+
+        engine.persisted_dag_state.clone()
     }
-    /// Produce a DAG vertex with pending transactions
+
+    fn persist_consensus_state(&self) -> Result<()> {
+        let state = self
+            .consensus
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .save_state();
+        self.engine.persist_dag_state(state)
+    }
+
     pub fn produce_vertex(&self) -> Result<DagBlockInfo> {
         self.produce_vertex_inner(true)
     }
@@ -206,98 +355,134 @@ impl DagEngine {
     }
 
     fn produce_vertex_inner(&self, include_vertex: bool) -> Result<DagBlockInfo> {
-        let production_plan = {
+        let policy = {
             let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
-            consensus.production_plan()?
+            consensus.production_policy()
+        };
+        let transactions = self
+            .engine
+            .pending_txs
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let tx_count = transactions.len();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs().saturating_mul(1000))
+            .unwrap_or(0);
+
+        let (state_root, executed, failed) = if transactions.is_empty() {
+            (self.engine.state_read().compute_state_root(), 0, 0)
+        } else {
+            let state_snapshot = self.engine.state_read().clone();
+            let state_arc = Arc::new(RwLock::new(state_snapshot));
+            self.engine
+                .execute_system_prologue_to_state_for_dag_v2(&state_arc, timestamp)?;
+            let (executed, failed) = self.engine.execute_tx_waves_deterministic_parallel(
+                transactions.clone(),
+                &state_arc,
+                Some(timestamp),
+                false,
+            )?;
+            let state_root = state_arc
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .compute_state_root();
+            (state_root, executed, failed)
         };
 
-        let integration = self.integration();
-
-        let DagPendingSelection {
-            included: transactions,
-            remove_hashes: tx_to_remove_from_pending,
-        } = integration.select_pending_for_production(&production_plan);
-
-        integration.remove_pending_hashes(&tx_to_remove_from_pending);
-        {
-            let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
-            consensus.ensure_production_allowed(&production_plan, transactions.len())?;
+        let mut vertex = DagVertex::new(
+            policy.target_round,
+            self.authority_id.clone(),
+            "kanari-v2-mysticeti".to_string(),
+            policy.parent_ids,
+            transactions,
+            state_root,
+            timestamp,
+        );
+        if let Some(signing_key) = &self.local_signing_key {
+            use ed25519_dalek::Signer;
+            vertex.signature = signing_key.sign(&vertex.id).to_bytes().to_vec();
         }
 
-        let tx_count = transactions.len();
-        // Convert wall-clock time to the millisecond unit expected by the Move clock prologue.
-        let proposed_timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let proposed_timestamp = proposed_timestamp.saturating_mul(1000);
-        let timestamp = {
-            let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
-            consensus.suggest_vertex_timestamp_for_plan(&production_plan, proposed_timestamp)
-        };
-
-        let outcome = integration.execute_vertex_plan(
-            &production_plan.history_vertices,
-            &transactions,
-            timestamp,
-            !transactions.is_empty(),
-        )?;
-        info!(
-            "[DAG] Executing vertex plan for {} transactions",
-            transactions.len()
-        );
-        let state_root = outcome.state_root;
-        let executed = outcome.executed;
-        let failed = outcome.failed;
-
-        let events: Vec<Event> = Vec::new();
-        let vertex = {
-            let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
-            let v = consensus.create_vertex_from_plan(
-                &production_plan,
-                transactions,
-                state_root.clone(),
-                timestamp,
-            )?;
-            info!(
-                "[DAG] Created vertex for round {} with {} transactions",
-                v.round, tx_count
-            );
-            v
-        };
+        let checkpoint = self.finalize_vertex(vertex.clone())?;
+        let checkpoint_info = checkpoint.as_ref().map(|checkpoint| CheckpointInfo {
+            sequence: checkpoint.sequence,
+            vertex_count: checkpoint.vertices.len(),
+            tx_count: checkpoint.transactions.len(),
+        });
 
         let vertex_id = hex::encode(vertex.id);
-        let round = vertex.round;
-        let vertex_for_broadcast = include_vertex.then(|| vertex.clone());
-        let checkpoint_info = {
-            let checkpoint = integration.submit_local_vertex(vertex)?;
-
-            if let Some(checkpoint) = checkpoint {
-                let checkpoint = integration.finalize_checkpoint(checkpoint, "[DAG]")?;
-
-                Some(CheckpointInfo {
-                    sequence: checkpoint.sequence,
-                    vertex_count: checkpoint.vertices.len(),
-                    tx_count: checkpoint.transactions.len(),
-                })
-            } else {
-                None
-            }
-        };
+        info!(
+            "[DAG v2] Produced Mysticeti-backed vertex {} round {} txs {}",
+            vertex_id, vertex.round, tx_count
+        );
 
         Ok(DagBlockInfo {
             vertex_id,
-            round,
+            round: vertex.round,
             tx_count,
             executed,
             failed,
-            events,
+            events: Vec::new(),
             checkpoint: checkpoint_info,
-            vertex: vertex_for_broadcast,
+            vertex: include_vertex.then_some(vertex),
         })
     }
 
-    pub fn consensus(&self) -> Arc<RwLock<DagConsensus>> {
+    fn finalize_vertex(&self, vertex: DagVertex) -> Result<Option<Checkpoint>> {
+        {
+            let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
+            consensus.add_vertex(vertex.clone())?;
+        }
+
+        let prev_hash = {
+            let chain = self
+                .engine
+                .blockchain
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
+            chain.latest_checkpoint().hash()?
+        };
+        let checkpoint = Checkpoint::new(
+            self.engine.get_stats().height.saturating_add(1),
+            vec![vertex.id],
+            vertex.transactions.clone(),
+            vertex.metadata.state_root.clone(),
+            vertex.timestamp,
+            prev_hash,
+        );
+        let mut checkpoint = checkpoint;
+
+        if checkpoint.transactions.is_empty() {
+            checkpoint.state_root = self.engine.state_read().compute_state_root();
+            self.engine.apply_checkpoint(checkpoint.clone())?;
+        } else {
+            let (computed_root, verified_state, to_execute) =
+                self.engine.prepare_checkpoint_state(&checkpoint)?;
+            if !self.engine.checkpoint_root_matches(
+                checkpoint.sequence,
+                &computed_root,
+                &checkpoint.state_root,
+            )? {
+                checkpoint.state_root = computed_root;
+            }
+            self.engine.apply_prepared_checkpoint(
+                checkpoint.clone(),
+                verified_state,
+                to_execute,
+            )?;
+        }
+
+        {
+            let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
+            consensus.record_checkpoint(checkpoint.clone());
+        }
+        self.persist_consensus_state()?;
+        Ok(Some(checkpoint))
+    }
+
+    pub fn consensus(&self) -> Arc<RwLock<CoreDagConsensus>> {
         self.consensus.clone()
     }
 
@@ -314,102 +499,45 @@ impl DagEngine {
         &self.authority_id
     }
 
-    pub fn consensus_protocol(&self) -> centauri::consensus::Protocol {
+    pub fn consensus_protocol(&self) -> ConsensusRuntimeProtocol {
         let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
-        consensus.protocol().clone()
+        consensus.protocol()
     }
 
-    pub fn latest_own_vertices(&self, limit: usize) -> Vec<centauri::consensus::DagVertex> {
+    pub fn latest_own_vertices(&self, limit: usize) -> Vec<DagVertex> {
         let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
         consensus.latest_vertices_by_authority(&self.authority_id, limit)
     }
 
-    pub fn add_network_vertex(&self, vertex: centauri::consensus::DagVertex) -> Result<()> {
-        let vertex_id_hex = hex::encode(vertex.id);
-        let integration = self.integration();
+    pub fn add_network_vertex(&self, vertex: DagVertex) -> Result<()> {
+        {
+            let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
+            if consensus.known_vertex(&vertex.id) {
+                return Ok(());
+            }
+        }
         info!(
-            "[DAG SYNC] Received vertex {} for round {} from network with {} transactions",
-            vertex_id_hex,
+            "[DAG v2 SYNC] Accepted network vertex {} round {} txs {}",
+            hex::encode(vertex.id),
             vertex.round,
             vertex.transactions.len()
         );
+        self.finalize_vertex(vertex)?;
+        Ok(())
+    }
+}
 
-        {
-            let consensus = match self.consensus.read() {
-                Ok(guard) => guard,
-                Err(poisoned) => {
-                    error!("Consensus lock poisoned during vertex check, recovering...");
-                    poisoned.into_inner()
-                }
-            };
-            const MAX_FUTURE_EMPTY_VERTEX_ROUNDS: u64 = 20;
-            match consensus.classify_network_vertex(&vertex, MAX_FUTURE_EMPTY_VERTEX_ROUNDS) {
-                DagNetworkVertexAction::Accept => {}
-                DagNetworkVertexAction::IgnoreExisting => {
-                    info!(
-                        "[DAG SYNC] Vertex {} (round {}) already exists, skipping",
-                        vertex_id_hex, vertex.round
-                    );
-                    return Ok(());
-                }
-                DagNetworkVertexAction::IgnoreFarFutureEmpty { current_round } => {
-                    info!(
-                        "[DAG SYNC] Ignoring far-future empty vertex {} at round {} (current round: {})",
-                        vertex_id_hex, vertex.round, current_round
-                    );
-                    return Ok(());
-                }
-            }
-        }
-
-        let transactions = vertex.transactions.clone();
-
-        if !transactions.is_empty() {
-            let outcome = integration.validate_network_vertex(&vertex)?;
-            let Some(outcome) = outcome else {
-                unreachable!("non-empty transactions must produce validation outcome");
-            };
-            let executed = outcome.executed;
-            let failed = outcome.failed;
-
-            info!(
-                "[DAG SYNC] Validation result for vertex round {}: executed={}, failed={}, state_root={}",
-                vertex.round,
-                executed,
-                failed,
-                hex::encode(&outcome.state_root)
-            );
-        }
-
-        let checkpoint = integration.submit_vertex(vertex)?;
-
-        if !transactions.is_empty() {
-            let pending_remaining = integration.remove_pending_transactions(&transactions);
-            if pending_remaining > 0 {
-                info!(
-                    "[DAG SYNC] Removed {} transactions from pending pool (keeping {})",
-                    transactions.len(),
-                    pending_remaining
-                );
-            }
-        }
-
-        if let Some(checkpoint) = checkpoint {
-            info!(
-                "[DAG SYNC] Committed checkpoint {} with {} transactions",
-                checkpoint.sequence,
-                checkpoint.transactions.len()
-            );
-
-            if let Err(e) = integration.finalize_checkpoint(checkpoint, "[DAG SYNC]") {
-                error!(
-                    "[DAG SYNC] Failed to apply committed checkpoint to engine: {}",
-                    e
-                );
-                return Err(e);
-            }
-        }
-
+impl BlockchainEngine {
+    fn execute_system_prologue_to_state_for_dag_v2(
+        &self,
+        state_arc: &Arc<RwLock<StateManager>>,
+        timestamp_ms: u64,
+    ) -> Result<()> {
+        let runtime = &self.runtime_pool[0];
+        let mut state_write = state_arc.write().unwrap_or_else(|e| e.into_inner());
+        let clock_id = runtime.ensure_system_clock(&mut state_write)?;
+        let changeset = runtime.execute_clock_consensus_commit_prologue(clock_id, timestamp_ms)?;
+        state_write.apply_changeset(&changeset)?;
         Ok(())
     }
 }
@@ -419,32 +547,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_dag_engine_creation() {
-        let engine = Arc::new(BlockchainEngine::new().unwrap());
-        let authorities = vec![
-            "auth1".to_string(),
-            "auth2".to_string(),
-            "auth3".to_string(),
-            "auth4".to_string(),
-        ];
-
-        let dag_engine = DagEngine::new(engine, "auth1".to_string(), authorities);
-        assert!(dag_engine.is_ok());
-    }
-
-    #[test]
     fn test_dag_engine_defaults_to_mysticeti_protocol() {
         let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
-        let authorities = vec![
+        let dag_engine = DagEngine::new(
+            engine,
             "auth1".to_string(),
-            "auth2".to_string(),
-            "auth3".to_string(),
-            "auth4".to_string(),
-        ];
-
-        let dag_engine = DagEngine::new(engine, "auth1".to_string(), authorities).unwrap();
+            vec![
+                "auth1".to_string(),
+                "auth2".to_string(),
+                "auth3".to_string(),
+                "auth4".to_string(),
+            ],
+        )
+        .unwrap();
         let protocol = dag_engine.consensus_protocol();
 
+        assert_eq!(protocol.protocol, "mysticeti");
         assert_eq!(protocol.wave_length, 3);
         assert_eq!(protocol.direct_commit_quorum, 3);
         assert!(protocol.pipeline);
@@ -452,432 +570,24 @@ mod tests {
     }
 
     #[test]
-    fn test_dag_engine_secure_constructor_accepts_explicit_keys() {
-        let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
-        let authorities = vec!["auth1".to_string(), "auth2".to_string()];
-        let sk1 = ed25519_dalek::SigningKey::from_bytes(&[11u8; 32]);
-        let sk2 = ed25519_dalek::SigningKey::from_bytes(&[22u8; 32]);
-        let mut public_keys = BTreeMap::new();
-        public_keys.insert("auth1".to_string(), sk1.verifying_key().to_bytes().to_vec());
-        public_keys.insert("auth2".to_string(), sk2.verifying_key().to_bytes().to_vec());
-
-        let dag_engine =
-            DagEngine::new_secure(engine, "auth1".to_string(), authorities, sk1, public_keys);
-
-        assert!(dag_engine.is_ok());
-    }
-
-    #[test]
     fn test_dag_engine_secure_constructor_rejects_mismatched_local_key() {
         let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
-        let authorities = vec!["auth1".to_string(), "auth2".to_string()];
         let expected = ed25519_dalek::SigningKey::from_bytes(&[11u8; 32]);
         let wrong = ed25519_dalek::SigningKey::from_bytes(&[33u8; 32]);
-        let sk2 = ed25519_dalek::SigningKey::from_bytes(&[22u8; 32]);
         let mut public_keys = BTreeMap::new();
         public_keys.insert(
             "auth1".to_string(),
             expected.verifying_key().to_bytes().to_vec(),
         );
-        public_keys.insert("auth2".to_string(), sk2.verifying_key().to_bytes().to_vec());
 
-        let dag_engine =
-            DagEngine::new_secure(engine, "auth1".to_string(), authorities, wrong, public_keys);
-
-        assert!(dag_engine.is_err());
-    }
-
-    #[test]
-    fn test_apply_checkpoint_once_reuses_canonical_checkpoint() {
-        let engine = Arc::new(BlockchainEngine::new().unwrap());
-        let authorities = vec![
+        let result = DagEngine::new_secure(
+            engine,
             "auth1".to_string(),
-            "auth2".to_string(),
-            "auth3".to_string(),
-            "auth4".to_string(),
-        ];
-        let dag_engine = DagEngine::new(engine.clone(), "auth1".to_string(), authorities).unwrap();
-
-        let prev_hash = {
-            let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
-            chain.latest_checkpoint().hash().unwrap()
-        };
-        let canonical_root = engine
-            .state
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .compute_state_root();
-        let checkpoint = centauri::consensus::Checkpoint::new(
-            1,
-            vec![],
-            vec![],
-            canonical_root.clone(),
-            1,
-            prev_hash,
+            vec!["auth1".to_string()],
+            wrong,
+            public_keys,
         );
 
-        let verified_state = engine
-            .state
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
-        engine
-            .apply_prepared_checkpoint(checkpoint.clone(), verified_state, vec![])
-            .unwrap();
-
-        let mut stale_checkpoint = checkpoint.clone();
-        stale_checkpoint.state_root = vec![9u8; 32];
-
-        let resolved = dag_engine
-            .apply_checkpoint_once(stale_checkpoint, "[TEST]", false)
-            .unwrap();
-
-        assert_eq!(resolved.sequence, checkpoint.sequence);
-        assert_eq!(resolved.state_root, checkpoint.state_root);
-    }
-
-    #[test]
-    fn test_finalize_checkpoint_ignores_already_finalized_catch_up_checkpoint() {
-        let engine = Arc::new(BlockchainEngine::new().unwrap());
-        let authorities = vec![
-            "auth1".to_string(),
-            "auth2".to_string(),
-            "auth3".to_string(),
-            "auth4".to_string(),
-        ];
-        let dag_engine = DagEngine::new(engine.clone(), "auth1".to_string(), authorities).unwrap();
-
-        let prev_hash = {
-            let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
-            chain.latest_checkpoint().hash().unwrap()
-        };
-        let canonical_root = engine
-            .state
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .compute_state_root();
-        let canonical =
-            centauri::consensus::Checkpoint::new(1, vec![], vec![], canonical_root, 1, prev_hash);
-        engine.apply_checkpoint(canonical).unwrap();
-
-        let stale_catch_up = centauri::consensus::Checkpoint::new(
-            1,
-            vec![],
-            vec![],
-            vec![9u8; 32],
-            99,
-            vec![7u8; 32],
-        );
-
-        let resolved = dag_engine
-            .integration()
-            .finalize_checkpoint(stale_catch_up, "[TEST]")
-            .unwrap();
-
-        assert_eq!(resolved.sequence, 1);
-        assert_eq!(engine.get_stats().height, 1);
-    }
-
-    #[test]
-    fn test_restart_rebuilds_stale_dag_checkpoint_lineage_from_blockchain() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let path = temp_dir.path().to_str().unwrap();
-        let authorities = vec![
-            "auth1".to_string(),
-            "auth2".to_string(),
-            "auth3".to_string(),
-            "auth4".to_string(),
-        ];
-
-        {
-            let engine = BlockchainEngine::new_dir(path).unwrap();
-            if engine.persistent_store.is_none() {
-                return;
-            }
-            let prev_hash = {
-                let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
-                chain.latest_checkpoint().hash().unwrap()
-            };
-            let canonical_root = {
-                let mut state = engine.state_write();
-                state.commit().unwrap();
-                state.compute_state_root()
-            };
-            let canonical = centauri::consensus::Checkpoint::new(
-                1,
-                vec![],
-                vec![],
-                canonical_root,
-                1,
-                prev_hash,
-            );
-            engine.apply_checkpoint(canonical).unwrap();
-
-            engine
-                .persist_dag_state(centauri::consensus::PersistentDagState {
-                    vertices: vec![],
-                    checkpoints: vec![centauri::consensus::Checkpoint::genesis()],
-                    current_round: 7,
-                    last_checkpoint_round: 7,
-                })
-                .unwrap();
-        }
-
-        let restarted = Arc::new(BlockchainEngine::new_dir(path).unwrap());
-        if restarted.persistent_store.is_none() {
-            return;
-        }
-        assert_eq!(restarted.get_stats().height, 1);
-
-        let dag_engine =
-            DagEngine::new(restarted.clone(), "auth1".to_string(), authorities).unwrap();
-        let consensus = dag_engine.consensus();
-        let consensus = consensus.read().unwrap_or_else(|e| e.into_inner());
-        let latest = consensus.latest_checkpoint();
-
-        assert_eq!(latest.sequence, 1);
-        assert_eq!(
-            hex::encode(latest.hash().unwrap()),
-            restarted.latest_checkpoint_hash_hex()
-        );
-    }
-
-    #[test]
-    fn test_partial_round_allows_safe_catch_up_vertex() {
-        let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
-
-        let engine_a = Arc::new(BlockchainEngine::new_in_memory().unwrap());
-        let dag_a = DagEngine::new(engine_a, "0x1".to_string(), authorities.clone()).unwrap();
-        let remote_round_one = dag_a.produce_vertex().unwrap();
-        let remote_vertex = remote_round_one.vertex.unwrap();
-
-        let engine_b = Arc::new(BlockchainEngine::new_in_memory().unwrap());
-        let dag_b = DagEngine::new(engine_b, "0x2".to_string(), authorities).unwrap();
-        dag_b.add_network_vertex(remote_vertex).unwrap();
-        let catch_up_vertex = dag_b.produce_vertex().unwrap();
-        assert_eq!(catch_up_vertex.round, 1);
-    }
-
-    #[test]
-    fn test_genesis_bootstrap_allows_empty_round_one_vertex() {
-        let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
-
-        let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
-        let dag = DagEngine::new(engine, "0x1".to_string(), authorities).unwrap();
-
-        let vertex = dag.produce_vertex().unwrap();
-        assert_eq!(vertex.round, 1);
-        assert_eq!(vertex.tx_count, 0);
-        assert_eq!(vertex.executed, 0);
-    }
-
-    #[test]
-    fn test_empty_vertex_does_not_reexecute_history_transactions_after_quorum() {
-        let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
-
-        let mut engine_a = BlockchainEngine::new_in_memory().unwrap();
-        engine_a.set_authorities("0x1".to_string(), authorities.clone());
-        let engine_a = Arc::new(engine_a);
-        let dag_a = DagEngine::new(engine_a, "0x1".to_string(), authorities.clone()).unwrap();
-
-        let tx = SignedTransaction::new(Transaction::new_transfer(
-            "0x1".to_string(),
-            "0x2".to_string(),
-            1,
-            0,
-        ));
-        dag_a
-            .engine
-            .pending_txs
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(tx);
-
-        let tx_vertex = dag_a.produce_vertex().unwrap();
-        assert_eq!(tx_vertex.tx_count, 1);
-        assert_eq!(tx_vertex.executed, 1);
-
-        let remote_round_one = tx_vertex.vertex.unwrap();
-
-        let mut engine_c = BlockchainEngine::new_in_memory().unwrap();
-        engine_c.set_authorities("0x3".to_string(), authorities.clone());
-        let engine_c = Arc::new(engine_c);
-        let dag_c = DagEngine::new(engine_c, "0x3".to_string(), authorities.clone()).unwrap();
-        let quorum_round_one = dag_c.produce_vertex().unwrap().vertex.unwrap();
-
-        let mut engine_b = BlockchainEngine::new_in_memory().unwrap();
-        engine_b.set_authorities("0x2".to_string(), authorities.clone());
-        let engine_b = Arc::new(engine_b);
-        let dag_b = DagEngine::new(engine_b, "0x2".to_string(), authorities).unwrap();
-
-        dag_b.add_network_vertex(remote_round_one).unwrap();
-        dag_b.add_network_vertex(quorum_round_one).unwrap();
-
-        let empty_vertex = dag_b.produce_vertex().unwrap();
-        assert_eq!(empty_vertex.tx_count, 0);
-        assert_eq!(empty_vertex.executed, 0);
-    }
-
-    #[test]
-    fn test_network_vertex_state_root_mismatch_is_non_fatal() {
-        let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
-
-        let mut source_engine = BlockchainEngine::new_in_memory().unwrap();
-        source_engine.set_authorities("0x1".to_string(), authorities.clone());
-        let source_engine = Arc::new(source_engine);
-        let source_dag =
-            DagEngine::new(source_engine, "0x1".to_string(), authorities.clone()).unwrap();
-
-        let tx = SignedTransaction::new(Transaction::new_transfer(
-            "0x1".to_string(),
-            "0x2".to_string(),
-            1,
-            0,
-        ));
-        source_dag
-            .engine
-            .pending_txs
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(tx.clone());
-
-        let remote_vertex = source_dag.produce_vertex().unwrap().vertex.unwrap();
-
-        let mut target_engine = BlockchainEngine::new_in_memory().unwrap();
-        target_engine.set_authorities("0x2".to_string(), authorities.clone());
-        target_engine.execute_system_prologue(123).unwrap();
-        let target_engine = Arc::new(target_engine);
-        target_engine
-            .pending_txs
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(tx.clone());
-        let target_dag =
-            DagEngine::new(target_engine.clone(), "0x2".to_string(), authorities).unwrap();
-
-        target_dag.add_network_vertex(remote_vertex).unwrap();
-        assert_eq!(
-            target_engine
-                .pending_txs
-                .read()
-                .unwrap_or_else(|e| e.into_inner())
-                .len(),
-            0
-        );
-    }
-
-    #[test]
-    fn test_network_vertex_advertises_replayed_state_root() {
-        let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
-
-        let mut source_engine = BlockchainEngine::new_in_memory().unwrap();
-        source_engine.set_authorities("0x1".to_string(), authorities.clone());
-        let source_engine = Arc::new(source_engine);
-        let source_dag =
-            DagEngine::new(source_engine, "0x1".to_string(), authorities.clone()).unwrap();
-
-        let mut tx = SignedTransaction::new(Transaction::new_transfer(
-            "0x1".to_string(),
-            "0x2".to_string(),
-            1,
-            0,
-        ));
-        tx.signature = vec![1];
-        source_dag
-            .engine
-            .pending_txs
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(tx);
-
-        let remote_vertex = source_dag.produce_vertex().unwrap().vertex.unwrap();
-        let source_checkpoint_root = source_dag
-            .engine
-            .blockchain
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .latest_checkpoint()
-            .state_root
-            .clone();
-        assert_ne!(remote_vertex.metadata.state_root, source_checkpoint_root);
-
-        let mut target_engine = BlockchainEngine::new_in_memory().unwrap();
-        target_engine.set_authorities("0x2".to_string(), authorities.clone());
-        let target_engine = Arc::new(target_engine);
-        let target_dag = DagEngine::new(target_engine, "0x2".to_string(), authorities).unwrap();
-
-        target_dag.add_network_vertex(remote_vertex).unwrap();
-    }
-
-    #[test]
-    fn test_apply_checkpoint_once_overrides_provisional_root() {
-        let mut engine = BlockchainEngine::new().unwrap();
-        engine.set_authorities(
-            "0x1".to_string(),
-            vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()],
-        );
-        let engine = Arc::new(engine);
-        let dag_engine = DagEngine::new(
-            engine.clone(),
-            "0x1".to_string(),
-            vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()],
-        )
-        .unwrap();
-
-        let tx = SignedTransaction::new(Transaction::new_transfer(
-            "0x1".to_string(),
-            "0x2".to_string(),
-            1,
-            0,
-        ));
-
-        let prev_hash = {
-            let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
-            chain.latest_checkpoint().hash().unwrap()
-        };
-
-        let provisional_checkpoint =
-            centauri::consensus::Checkpoint::new(1, vec![], vec![tx], vec![7u8; 32], 1, prev_hash);
-
-        let resolved = dag_engine
-            .apply_checkpoint_once(provisional_checkpoint, "[TEST]", true)
-            .unwrap();
-
-        assert_ne!(resolved.state_root, vec![7u8; 32]);
-        assert_eq!(resolved.sequence, 1);
-    }
-
-    #[test]
-    fn test_apply_checkpoint_once_keeps_previous_root_for_empty_checkpoint() {
-        let mut engine = BlockchainEngine::new().unwrap();
-        engine.set_authorities(
-            "0x2".to_string(),
-            vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()],
-        );
-        let engine = Arc::new(engine);
-        let dag_engine = DagEngine::new(
-            engine.clone(),
-            "0x2".to_string(),
-            vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()],
-        )
-        .unwrap();
-
-        let (prev_hash, previous_root) = {
-            let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
-            (
-                chain.latest_checkpoint().hash().unwrap(),
-                chain.latest_checkpoint().state_root.clone(),
-            )
-        };
-
-        let provisional_checkpoint =
-            centauri::consensus::Checkpoint::new(1, vec![], vec![], vec![7u8; 32], 1, prev_hash);
-
-        let resolved = dag_engine
-            .apply_checkpoint_once(provisional_checkpoint, "[TEST]", true)
-            .unwrap();
-
-        assert_eq!(resolved.state_root, previous_root);
-        assert_eq!(resolved.sequence, 1);
+        assert!(result.is_err());
     }
 }
