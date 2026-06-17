@@ -59,11 +59,7 @@ cargo run --release -p kanari-benchmarks -- --mode parallel-exec-only --txs 1000
 
 Every run must meet the target. If a run drops below 100k TPS, the process exits with an error so CI and local scripts catch it immediately.
 
-For production checkpoint TPS, use:
-
-```powershell
-cargo run --release -p kanari-benchmarks -- --mode production --txs 10000 --senders 256 --target-tps 100000 --json
-```
+For production checkpoint TPS, run `production` mode explicitly with your target threshold.
 
 ## Interpreting Results
 

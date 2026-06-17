@@ -236,14 +236,14 @@ tikv-jemallocator = { git = "https://github.com/jamesatomc/jemallocator.git", fe
 # ============================================================================
 # Database
 # ============================================================================
-rusqlite = { version = "0.40.0", features = ["bundled", "chrono", "serde_json"] }
+rusqlite = { version = "0.40.1", features = ["bundled", "chrono", "serde_json"] }
 
 # ============================================================================
 # Proc Macro Dependencies
 # ============================================================================
 proc-macro2 = "1.0.106"
 quote = "1.0.45"
-syn = { version = "2.0.117", features = ["full"] }
+syn = { version = "2.0.118", features = ["full"] }
 
 # ============================================================================
 

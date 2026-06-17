@@ -13,7 +13,7 @@ This tool provides a centralized system to manage multiple Move packages without
 
 ## Architecture
 
-```
+```json
 crates/packages/
 ├── src/
 │   ├── main.rs              # CLI entry point with subcommands
@@ -91,7 +91,7 @@ const PACKAGES: &[PackageConfig] = &[
 
 1. **Create package directory structure:**
 
-   ```
+   ```json
    packages/
    └── your-package/
        ├── Move.toml

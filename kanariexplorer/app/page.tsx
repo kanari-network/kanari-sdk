@@ -325,6 +325,8 @@ function StateDivergenceAudit({
   const canonicalRoot = leader && leaderCount >= quorum ? leader.root : null;
   const rootMode = canonicalRoot ? "Quorum" : leadingRoot ? "Leading" : "Unknown";
   const currentSplit = groups.length > 1;
+  const auditStatus = !currentSplit ? "Aligned" : canonicalRoot ? "Outlier" : "Diverged";
+  const auditState = auditStatus === "Aligned" ? "ok" : auditStatus === "Outlier" ? "warn" : "down";
   const divergingNodes =
     leadingRoot === null
       ? []
@@ -339,8 +341,8 @@ function StateDivergenceAudit({
   const cards = [
     {
       detail: divergingNodes.length > 0 ? suspectLabels : readableChecks.length > 1 ? "all readable roots agree" : "waiting for multiple readable nodes",
-      label: "Diverging Nodes",
-      tone: divergingNodes.length > 0 ? "down" : readableChecks.length > 1 ? "ok" : "idle",
+      label: canonicalRoot ? "Root Outliers" : "Diverging Nodes",
+      tone: divergingNodes.length > 0 ? (canonicalRoot ? "warn" : "down") : readableChecks.length > 1 ? "ok" : "idle",
       value: divergingNodes.length > 0 ? formatNumber(divergingNodes.length) : readableChecks.length > 1 ? "None" : "Collecting",
     },
     {
@@ -361,10 +363,10 @@ function StateDivergenceAudit({
       value: rootMode,
     },
     {
-      detail: divergingNodes.length > 0 ? `root outliers: ${suspectLabels}` : "Mysticeti vote proof RPC is required to prove a bad vote",
-      label: "Wrong Vote Proof",
+      detail: divergingNodes.length > 0 ? `repair or resync: ${suspectLabels}` : "no root outliers detected",
+      label: "Repair Hint",
       tone: divergingNodes.length > 0 ? "warn" : "idle",
-      value: "Unavailable",
+      value: divergingNodes.length > 0 ? "Resync" : "None",
     },
   ];
 
@@ -375,7 +377,7 @@ function StateDivergenceAudit({
           <h2 className="panel-title">State Divergence Audit</h2>
           <p className="panel-subtitle">Detects root split, likely canonical root, and root outlier nodes from live RPC state roots.</p>
         </div>
-        <StatusPill label={currentSplit ? "Diverged" : "Aligned"} state={currentSplit ? "down" : "ok"} />
+        <StatusPill label={auditStatus} state={auditState} />
       </div>
       <div className="state-audit-grid">
         {cards.map((card) => (

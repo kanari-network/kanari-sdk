@@ -17,7 +17,9 @@ use std::path::{Path, PathBuf};
 
 use crate::packages_config::get_package_configs;
 
-/// Kanari Package Data (JSON format)
+const RPD_MAGIC: &[u8] = b"KANARI_RPD\0v1\n";
+
+/// Kanari Package Data
 #[derive(Serialize, Deserialize)]
 pub struct KanariPackage {
     pub package: String,
@@ -111,14 +113,21 @@ pub fn compile_package(
 
     // Write .rpd file as package.rpd
     let output_file = address_dir.join("package.rpd");
-    // Write binary .rpd using `bincode` (serde module) for a raw byte format
-    let bin_data = bincode::serde::encode_to_vec(&package, bincode::config::standard())
-        .context("Failed to serialize package to binary")?;
+    let bin_data = encode_rpd_package(&package)?;
     fs::write(&output_file, bin_data)?;
 
     info!("Created: {:?}", output_file);
 
     Ok(output_file)
+}
+
+fn encode_rpd_package(package: &KanariPackage) -> Result<Vec<u8>> {
+    let payload = bincode::serde::encode_to_vec(package, bincode::config::standard())
+        .context("Failed to serialize package to binary")?;
+    let mut data = Vec::with_capacity(RPD_MAGIC.len() + payload.len());
+    data.extend_from_slice(RPD_MAGIC);
+    data.extend_from_slice(&payload);
+    Ok(data)
 }
 
 /// Compile Move source files to bytecode

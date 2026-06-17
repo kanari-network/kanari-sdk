@@ -1,0 +1,208 @@
+use crate::config::{DEFAULT_SENDER_COUNT, HarnessConfig, HarnessMode};
+use crate::execution::{execute_immediate, execute_parallel, execute_production_path};
+use crate::report::HarnessReport;
+use crate::workload::{build_signed_workload, prepare_engine};
+use anyhow::{Result, bail};
+use std::time::Instant;
+
+pub fn run_harness(config: &HarnessConfig) -> Result<HarnessReport> {
+    eprintln!(
+        "Kanari benchmarks: creating engine and preparing {} txs in {} mode",
+        config.tx_count,
+        config.mode.as_str()
+    );
+
+    let _temp_dir = tempfile::Builder::new().prefix("kanari_tps").tempdir()?;
+    let engine = prepare_engine()?;
+
+    let sender_count = configured_sender_count(config);
+    eprintln!("Deriving {sender_count} deterministic benchmark senders...");
+    eprintln!("Using zero-gas native benchmark workload; funding is not required.");
+    eprintln!("Signing transactions...");
+    let signed_txs = build_signed_workload(config, sender_count)?;
+
+    eprintln!("Starting benchmark...");
+    let start = Instant::now();
+    let mut submit_secs = None;
+    let mut produce_secs = None;
+    let block_info = match config.mode {
+        HarnessMode::Production => {
+            let (block_info, submit, produce) = execute_production_path(&engine, signed_txs)?;
+            submit_secs = Some(submit);
+            produce_secs = Some(produce);
+            block_info
+        }
+        HarnessMode::Immediate => execute_immediate(&engine, signed_txs)?,
+        HarnessMode::Parallel => execute_parallel(&engine, signed_txs, true)?,
+        HarnessMode::ParallelExecOnly => execute_parallel(&engine, signed_txs, false)?,
+    };
+    let duration_secs = start.elapsed().as_secs_f64();
+    let tps = if duration_secs > 0.0 {
+        block_info.tx_count as f64 / duration_secs
+    } else {
+        block_info.tx_count as f64
+    };
+
+    Ok(HarnessReport {
+        requested_txs: config.tx_count,
+        mode: config.mode.clone(),
+        block_info,
+        duration_secs,
+        submit_secs,
+        produce_secs,
+        tps,
+        target_tps: config.target_tps,
+    })
+}
+
+pub fn run_many(config: &HarnessConfig) -> Result<Vec<HarnessReport>> {
+    (0..config.runs)
+        .map(|_| run_harness(config))
+        .collect::<Result<Vec<_>>>()
+}
+
+pub fn render_reports(config: &HarnessConfig, reports: &[HarnessReport]) -> String {
+    if reports.len() == 1 {
+        return if config.json {
+            reports[0].render_json()
+        } else {
+            reports[0].render_text()
+        };
+    }
+
+    let (min_tps, median_tps, max_tps) = tps_summary(reports);
+    if config.json {
+        let runs = reports
+            .iter()
+            .map(HarnessReport::render_json)
+            .collect::<Vec<_>>()
+            .join(",");
+        format!(
+            "{{\"runs\":{},\"median_tps\":{:.6},\"min_tps\":{:.6},\"max_tps\":{:.6},\"results\":[{}]}}",
+            config.runs, median_tps, min_tps, max_tps, runs
+        )
+    } else {
+        let mut output = format!(
+            "Kanari benchmark summary\nruns={}\nmedian_tps={:.2}\nmin_tps={:.2}\nmax_tps={:.2}",
+            config.runs, median_tps, min_tps, max_tps
+        );
+        for (index, report) in reports.iter().enumerate() {
+            output.push_str(&format!("\nrun={} tps={:.2}", index + 1, report.tps));
+        }
+        output
+    }
+}
+
+pub fn ensure_targets(reports: &[HarnessReport]) -> Result<()> {
+    for report in reports {
+        ensure_target_tps(report)?;
+    }
+    Ok(())
+}
+
+pub fn ensure_target_tps(report: &HarnessReport) -> Result<()> {
+    if let Some(target_tps) = report.target_tps {
+        if report.tps < target_tps {
+            bail!(
+                "TPS target not reached: {:.2} < {:.2} (mode={}, txs={})",
+                report.tps,
+                target_tps,
+                report.mode.as_str(),
+                report.requested_txs
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn configured_sender_count(config: &HarnessConfig) -> usize {
+    config
+        .sender_count
+        .or_else(|| {
+            std::env::var("KANARI_BENCH_SENDERS")
+                .ok()
+                .and_then(|value| value.parse::<usize>().ok())
+        })
+        .unwrap_or(DEFAULT_SENDER_COUNT)
+        .min(config.tx_count)
+}
+
+fn tps_summary(reports: &[HarnessReport]) -> (f64, f64, f64) {
+    let mut sorted_tps = reports.iter().map(|report| report.tps).collect::<Vec<_>>();
+    sorted_tps.sort_by(|a, b| a.total_cmp(b));
+    let min_tps = *sorted_tps.first().unwrap_or(&0.0);
+    let max_tps = *sorted_tps.last().unwrap_or(&0.0);
+    let median_tps = sorted_tps[sorted_tps.len() / 2];
+    (min_tps, median_tps, max_tps)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kanari_core::CheckpointProductionInfo;
+
+    #[test]
+    fn target_tps_guard_fails_below_threshold() {
+        let report = HarnessReport {
+            requested_txs: 5,
+            mode: HarnessMode::Immediate,
+            block_info: CheckpointProductionInfo {
+                vertex_id: "vertex".to_string(),
+                round: 1,
+                tx_count: 5,
+                executed: 5,
+                failed: 0,
+                events: vec![],
+                checkpoint: None,
+                vertex: None,
+            },
+            duration_secs: 1.0,
+            submit_secs: None,
+            produce_secs: None,
+            tps: 5.0,
+            target_tps: Some(100_000.0),
+        };
+
+        let err = ensure_target_tps(&report).unwrap_err();
+        assert!(err.to_string().contains("TPS target not reached"));
+    }
+
+    #[test]
+    #[ignore = "long-running soak test; enable explicitly with --ignored"]
+    fn production_soak_test() {
+        let duration_secs = std::env::var("KANARI_SOAK_SECONDS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(24 * 60 * 60);
+        let tx_count = std::env::var("KANARI_SOAK_TXS")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(10_000);
+        let min_tps = std::env::var("KANARI_SOAK_MIN_TPS")
+            .ok()
+            .and_then(|value| value.parse::<f64>().ok())
+            .unwrap_or(1.0);
+
+        let deadline = Instant::now() + std::time::Duration::from_secs(duration_secs);
+        let config = HarnessConfig {
+            tx_count,
+            sender_count: None,
+            runs: 1,
+            json: true,
+            mode: HarnessMode::Production,
+            target_tps: Some(min_tps),
+        };
+        let mut runs = 0usize;
+
+        while Instant::now() < deadline {
+            let report = run_harness(&config).expect("soak benchmark run should succeed");
+            assert_eq!(report.block_info.executed, tx_count);
+            assert_eq!(report.block_info.failed, 0);
+            ensure_target_tps(&report).expect("soak TPS should stay above threshold");
+            runs += 1;
+        }
+
+        assert!(runs > 0, "soak test should run at least once");
+    }
+}
