@@ -306,12 +306,13 @@ export async function getAllTransactions(limit: number = 50, account?: string) {
   if (Array.isArray(response)) return dedupeTransactions(response);
 
   const result = readField(response, "result");
-  if (Array.isArray(result)) {
-    return {
-      ...response,
-      result: dedupeTransactions(result),
-    };
-  }
+  if (Array.isArray(result)) return dedupeTransactions(result);
+
+  const transactions = readField(response, "transactions");
+  if (Array.isArray(transactions)) return dedupeTransactions(transactions);
+
+  const data = readField(response, "data");
+  if (Array.isArray(data)) return dedupeTransactions(data);
 
   return response;
 }

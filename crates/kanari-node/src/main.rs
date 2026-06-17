@@ -1,22 +1,20 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::BTreeMap;
+
 // Main entry point for Kanari blockchain node
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use kanari_crypto::keys::{CurveType, KANARI_KEY_PREFIX, generate_keypair};
-use kanari_crypto::wallet::list_wallet_files;
-use std::collections::BTreeMap;
+use tracing::info;
 
 mod app;
 mod indexer;
 mod p2p;
 mod peer_store;
 mod sync;
-use app::{
-    configure_consensus_signing_key, create_engine, default_data_dir, print_account, print_block,
-    print_stats, run_node,
-};
+use app::{configure_consensus_signing_key, create_engine, default_data_dir, run_node};
 
 #[derive(Clone, Debug, ValueEnum)]
 pub(crate) enum NetworkMode {
@@ -33,6 +31,26 @@ impl NetworkMode {
             Self::Devnet => "devnet",
         }
     }
+}
+
+fn print_boot_banner(
+    node_label: &str,
+    network: &NetworkMode,
+    p2p_port: u16,
+    rpc_port: u16,
+    rpc_host: &str,
+    data_dir: &std::path::Path,
+) {
+    info!(
+        node = node_label,
+        network = network.as_str(),
+        p2p_port,
+        rpc_port,
+        rpc_host,
+        data_dir = %data_dir.display(),
+        "Starting Kanari node"
+    );
+    info!("Initializing Kanari engine and Move runtime");
 }
 
 /// Kanari node command-line interface
@@ -83,14 +101,6 @@ enum Commands {
     },
     /// Run a local-only node
     Local,
-    /// List wallet files
-    ListWallets,
-    /// Show blockchain statistics
-    Stats,
-    /// Get account info
-    Account { address: String },
-    /// Get block information by height
-    Block { height: u64 },
     /// Generate Ed25519 consensus keys for local multi-node setup
     ConsensusKeygen {
         /// Number of authorities/nodes to generate
@@ -185,20 +195,16 @@ fn write_consensus_key_files(
 
 fn main() -> Result<()> {
     // Initialize tracing subscriber first so all commands have log output
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_ansi(true)
+        .with_level(true)
+        .with_target(true)
+        .compact()
+        .init();
 
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::ListWallets => {
-            for (addr, selected) in list_wallet_files()? {
-                tracing::info!("{}{}", addr, if selected { " (selected)" } else { "" });
-            }
-            Ok(())
-        }
-        Commands::Stats => print_stats(),
-        Commands::Account { address } => print_account(&address),
-        Commands::Block { height } => print_block(height),
         Commands::ConsensusKeygen {
             node_count,
             output_dir,
@@ -219,7 +225,20 @@ fn main() -> Result<()> {
         } => {
             validate_start_authority_config(&authority_id, &authorities)?;
             let data_dir_path = data_dir.clone().unwrap_or_else(default_data_dir);
+            let node_label = authority_id
+                .as_deref()
+                .map(|id| format!("Kanari Node {}", id))
+                .unwrap_or_else(|| "Kanari Node".to_string());
+            print_boot_banner(
+                &node_label,
+                &network,
+                p2p_port,
+                rpc_port,
+                &rpc_host,
+                &data_dir_path,
+            );
             let mut engine = create_engine(&data_dir, &network)?;
+            info!("Engine initialized. Configuring authority and consensus keys");
 
             let id = authority_id.expect("validated authority_id must exist");
             let auths = authorities.expect("validated authorities must exist");
@@ -234,6 +253,7 @@ fn main() -> Result<()> {
                 &consensus_private_key_hex,
                 &consensus_public_keys,
             )?;
+            info!("Consensus keys configured. Entering node runtime");
 
             runtime()?.block_on(run_node(
                 std::sync::Arc::new(engine),
@@ -252,7 +272,16 @@ fn main() -> Result<()> {
             // Ensure data directory exists
             std::fs::create_dir_all(&data_dir_path)?;
             let data_dir = Some(data_dir_path.clone());
+            print_boot_banner(
+                "Kanari Local Node",
+                &NetworkMode::Devnet,
+                0,
+                6767,
+                "127.0.0.1",
+                &data_dir_path,
+            );
             let engine = create_engine(&data_dir, &NetworkMode::Devnet)?;
+            info!("Engine initialized. Starting local RPC node");
             runtime()?.block_on(run_node(
                 std::sync::Arc::new(engine),
                 NetworkMode::Devnet.as_str().to_string(),

@@ -3,11 +3,9 @@
 
 use anyhow::Result;
 use kanari_core::BlockchainEngine;
-use kanari_core::engine::AccountInfo;
-use kanari_crypto::wallet::list_wallet_files;
 use kanari_rpc_server::start_server;
 use kanari_types::address::Address as KanariAddress;
-use kanari_types::kanari::{KANARI_TOKEN_TYPE, KanariModule};
+use kanari_types::kanari::KanariModule;
 use libp2p::identity::Keypair;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -39,6 +37,15 @@ fn env_write_guard() -> &'static Mutex<()> {
 fn path_to_env_value(path: &std::path::Path) -> Result<&str> {
     path.to_str()
         .ok_or_else(|| anyhow::anyhow!("Invalid data directory path: {}", path.display()))
+}
+
+fn short_value(value: impl AsRef<str>) -> String {
+    let value = value.as_ref();
+    if value.len() <= 48 {
+        value.to_string()
+    } else {
+        format!("{}...{}", &value[..24], &value[value.len() - 16..])
+    }
 }
 
 fn configure_engine_environment(
@@ -140,13 +147,6 @@ pub fn configure_consensus_signing_key(
     engine.set_consensus_signing_key(signing_key, public_keys)
 }
 
-fn native_balance(info: &AccountInfo) -> u64 {
-    info.token_balances
-        .get(KANARI_TOKEN_TYPE)
-        .copied()
-        .unwrap_or(0)
-}
-
 fn log_shutdown() {
     tracing::info!("Shutdown signal received. Cleaning up and exiting...");
 }
@@ -195,48 +195,6 @@ fn serialize_and_queue_message<T: Serialize>(
     }
 }
 
-pub fn print_stats() -> Result<()> {
-    let stats = BlockchainEngine::new()?.get_stats();
-    tracing::info!("Blockchain Statistics:");
-    tracing::info!("  Height: {}", stats.height);
-    tracing::info!("  Total Checkpoints: {}", stats.total_blocks);
-    tracing::info!("  Total Transactions: {}", stats.total_transactions);
-    tracing::info!("  Pending: {}", stats.pending_transactions);
-    tracing::info!("  Accounts: {}", stats.total_accounts);
-    tracing::info!("  Supply: {} Kanari", stats.total_supply);
-    Ok(())
-}
-
-pub fn print_account(address: &str) -> Result<()> {
-    match BlockchainEngine::new()?.get_account_info(address) {
-        Some(info) => {
-            tracing::info!("  Account: {}", info.address);
-            tracing::info!("  Balance: {}", native_balance(&info));
-            tracing::info!("  Sequence: {}", info.sequence_number);
-            tracing::info!("  Modules: {}", info.modules.len());
-            for module in &info.modules {
-                tracing::info!("    - {}", module);
-            }
-        }
-        None => tracing::info!("Account not found: {}", address),
-    }
-    Ok(())
-}
-
-pub fn print_block(height: u64) -> Result<()> {
-    match BlockchainEngine::new()?.get_block(height) {
-        Some(block) => {
-            tracing::info!("  Block #{}", block.height);
-            tracing::info!("  Timestamp: {}", block.timestamp);
-            tracing::info!("  Hash: {}", block.hash);
-            tracing::info!("  Prev Hash: {}", block.prev_hash);
-            tracing::info!("  Transactions: {}", block.tx_count);
-        }
-        None => tracing::info!("Block not found: {}", height),
-    }
-    Ok(())
-}
-
 fn detect_local_ip() -> Option<String> {
     std::net::UdpSocket::bind("0.0.0.0:0")
         .ok()
@@ -271,41 +229,39 @@ pub async fn run_node(
     let runtime_guards = engine.runtime_guard_config();
     let stats = engine.get_stats();
 
-    eprintln!("Kanari blockchain node starting");
-    tracing::info!("Kanari blockchain node starting");
-    tracing::info!("Network: {}, Move VM: Enabled", network);
-    tracing::info!(
-        "Runtime guards: strict_persistence={}, strict_checkpoint_roots={}, fail_fast_supply={}",
-        runtime_guards.strict_persistence_required,
-        runtime_guards.strict_checkpoint_roots,
-        runtime_guards.fail_fast_supply_enabled
-    );
-    tracing::info!("Initial blockchain height: {}", stats.height);
     let total_supply_str = KanariModule::format_kanari(stats.total_supply);
-    tracing::info!(
-        "Total accounts: {}, Total supply: {}",
-        stats.total_accounts,
-        total_supply_str
-    );
 
     let (genesis_root, size_bytes) = genesis_root_info(&engine);
     let dao_addr = KanariAddress::DAO_ADDRESS;
-    tracing::info!(
-        "The latest Root object state root: 0x{}, size: {} bytes",
-        genesis_root,
-        size_bytes
-    );
-    tracing::info!("DAO address: ({})", dao_addr);
-
     let dev_addr = KanariAddress::DEV_ADDRESS;
-    tracing::info!("RPC Server sequencer address: ({})", dev_addr);
+    tracing::info!(
+        network = %network,
+        checkpoint = stats.height,
+        txs = stats.total_transactions,
+        accounts = stats.total_accounts,
+        supply = %total_supply_str,
+        "Kanari blockchain node starting"
+    );
+    tracing::info!(
+        strict_persistence = runtime_guards.strict_persistence_required,
+        strict_checkpoint_roots = runtime_guards.strict_checkpoint_roots,
+        fail_fast_supply = runtime_guards.fail_fast_supply_enabled,
+        "Runtime guards"
+    );
+    tracing::info!(
+        root = %format!("0x{}", short_value(&genesis_root)),
+        size_bytes,
+        dao = %short_value(dao_addr),
+        sequencer = %short_value(dev_addr),
+        "System addresses"
+    );
 
     let (p2p_msg_tx, mut p2p_msg_rx) = tokio::sync::mpsc::unbounded_channel::<P2PMessage>();
     let (network_tx, network_rx) = tokio::sync::mpsc::unbounded_channel::<P2PMessage>();
 
     let keypair = Keypair::generate_ed25519();
     let peer_id = keypair.public().to_peer_id().to_string();
-    tracing::info!("Node Peer ID: {}", peer_id);
+    tracing::info!(peer_id = %short_value(&peer_id), "Node peer identity ready");
 
     let node_indexer = match NodeIndexer::new(data_dir.clone()) {
         Ok(idx) => {
@@ -338,8 +294,7 @@ pub async fn run_node(
         peer_store.cleanup_old_peers(7 * 24 * 60 * 60);
 
         let mut p2p_network = P2PNetwork::new(keypair, p2p_port, relay_server)?;
-        eprintln!("P2P network initialized on port {}", p2p_port);
-        tracing::info!("P2P network initialized on port {}", p2p_port);
+        tracing::info!(p2p_port, "P2P network initialized");
         if relay_server {
             tracing::info!(
                 "Relay server mode: ENABLED - This node will help relay traffic for NAT'd peers"
@@ -408,21 +363,17 @@ pub async fn run_node(
             }
         });
     } else {
-        eprintln!("Running in local-only mode: P2P disabled");
-        tracing::info!("Running in local-only mode: P2P disabled");
+        tracing::info!("P2P disabled; running in local-only mode");
     }
 
     let bind_addr = format!("{}:{}", rpc_host, rpc_port);
-    eprintln!("Binding RPC server to {}", bind_addr);
-    tracing::info!("Binding RPC server to {}", bind_addr);
 
     let display_ip = if rpc_host == "0.0.0.0" {
         detect_local_ip().unwrap_or_else(|| "127.0.0.1".to_string())
     } else {
         rpc_host.clone()
     };
-    eprintln!("Starting RPC server on http://{}:{}", display_ip, rpc_port);
-    tracing::info!("Starting RPC server on http://{}:{}", display_ip, rpc_port);
+    tracing::info!(listen = %bind_addr, public_url = %format!("http://{}:{}", display_ip, rpc_port), "Starting JSON-RPC HTTP server");
 
     let engine_for_rpc = engine.clone();
     let bind_addr_clone = bind_addr.clone();
@@ -433,8 +384,15 @@ pub async fn run_node(
     });
 
     sleep(Duration::from_millis(500)).await;
-    eprintln!("RPC server ready at http://{}:{}", display_ip, rpc_port);
-    tracing::info!("RPC server ready");
+    let ready_stats = engine.get_stats();
+    tracing::info!(
+        listen = %bind_addr,
+        public_url = %format!("http://{}:{}", display_ip, rpc_port),
+        env = %network,
+        checkpoint = ready_stats.height,
+        pending = ready_stats.pending_transactions,
+        "Kanari RPC service ready"
+    );
 
     let mut last_stats_log = Instant::now() - Duration::from_secs(2);
 
@@ -442,13 +400,11 @@ pub async fn run_node(
         let stats = engine.get_stats();
         if last_stats_log.elapsed() >= Duration::from_secs(2) {
             last_stats_log = Instant::now();
-            let wallets = list_wallet_files().unwrap_or_default();
             tracing::info!(
-                "Event height: {}, Transactions: {}, Pending: {}, Wallets: {}",
-                stats.height,
-                stats.total_transactions,
-                stats.pending_transactions,
-                wallets.len()
+                height = stats.height,
+                txs = stats.total_transactions,
+                pending = stats.pending_transactions,
+                "Node status"
             );
 
             if let Some(ref node_idx) = node_indexer

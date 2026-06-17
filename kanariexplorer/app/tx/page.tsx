@@ -1,11 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import TransactionDetailsModal from "../components/TransactionDetailsModal";
 import { asArray, CopyButton, EmptyState, PageHeader, RawDetails, readAddress, readString, SearchForm, StatusPill } from "../components/ExplorerUI";
 import { getAllTransactions, getTransaction } from "../lib/rpc";
+
+function readTransactionHash(transaction: unknown, fallback: string) {
+  return readString(
+    transaction,
+    "hash",
+    readString(transaction, "tx_hash", readString(transaction, "transaction_hash", readString(transaction, "digest", fallback))),
+  );
+}
 
 function TxContent() {
   const searchParams = useSearchParams();
@@ -15,20 +23,27 @@ function TxContent() {
   const [selectedTransaction, setSelectedTransaction] = useState<unknown>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
+  const searchRef = useRef(search);
+
+  useEffect(() => {
+    searchRef.current = search;
+  }, [search]);
 
   async function fetchTransactions(query = search) {
     setLoading(true);
     try {
       const trimmed = query.trim();
+      searchRef.current = query;
       if (trimmed.length > 40) {
         const transaction = await getTransaction(trimmed);
         setTransactions(transaction ? [transaction] : []);
       } else {
         const response = await getAllTransactions(50, trimmed || undefined);
-        setTransactions(asArray(response));
+        const nextTransactions = asArray(response);
+        setTransactions((current) => (nextTransactions.length > 0 || trimmed ? nextTransactions : current));
       }
     } catch {
-      setTransactions([]);
+      if (query.trim()) setTransactions([]);
     } finally {
       setLoading(false);
     }
@@ -53,7 +68,7 @@ function TxContent() {
       void fetchTransactions(initialQuery);
     }, 0);
     const interval = window.setInterval(() => {
-      void fetchTransactions(search);
+      void fetchTransactions(searchRef.current);
     }, 10000);
     return () => {
       window.clearTimeout(timeout);
@@ -104,7 +119,9 @@ function PanelTransactions({
       {transactions.length > 0 ? (
         <div className="data-list">
           {transactions.map((transaction, index) => {
-            const hash = readString(transaction, "hash", `transaction-${index}`);
+            const fallbackHash = `transaction-${index}`;
+            const hash = readTransactionHash(transaction, fallbackHash);
+            const canOpen = hash !== fallbackHash;
             const status = readString(transaction, "status", "unknown");
             const senderAddress = readAddress(transaction, "sender_address", "sender");
             return (
@@ -112,10 +129,14 @@ function PanelTransactions({
                 <div>
                   <p className="tiny-label">Txn Hash</p>
                   <span className="copy-row copy-row--wrap">
-                    <button className="hash-button mono break-anywhere" type="button" onClick={() => onOpen(hash)}>
-                      {hash}
-                    </button>
-                    <CopyButton value={hash} label="Copy transaction hash" />
+                    {canOpen ? (
+                      <button className="hash-button mono break-anywhere" type="button" onClick={() => onOpen(hash)}>
+                        {hash}
+                      </button>
+                    ) : (
+                      <span className="mono muted-text">{hash}</span>
+                    )}
+                    {canOpen ? <CopyButton value={hash} label="Copy transaction hash" /> : null}
                   </span>
                 </div>
                 <div>

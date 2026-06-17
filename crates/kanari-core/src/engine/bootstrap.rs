@@ -39,9 +39,10 @@ impl BlockchainEngine {
                             e
                         );
                     }
-                    eprintln!(
-                        "WARN: Failed to open {} persistent store: {}. Falling back to in-memory mode.",
-                        context, e
+                    tracing::warn!(
+                        "Failed to open {} persistent store: {}. Falling back to in-memory mode.",
+                        context,
+                        e
                     );
                     Ok(None)
                 }
@@ -50,9 +51,13 @@ impl BlockchainEngine {
     }
 
     fn init(persistent_store: Option<Arc<PersistentStore>>) -> Result<Self> {
+        tracing::info!("Loading blockchain checkpoints");
         let mut blockchain = Self::load_blockchain(&persistent_store);
+        tracing::info!("Loading Mysticeti DAG state");
         let persisted_dag_state = Self::load_dag_state(&persistent_store);
+        tracing::info!("Repairing checkpoint index from DAG state");
         Self::repair_blockchain_from_dag_state(&mut blockchain, persisted_dag_state.as_ref())?;
+        tracing::info!("Opening state database");
         let state = Self::load_state(&persistent_store);
 
         let workers = Self::runtime_worker_count();
@@ -74,18 +79,22 @@ impl BlockchainEngine {
             "Initializing runtime pool with {} workers (independent VMs sharing DB)",
             workers
         );
-        eprintln!(
-            "Initializing Move runtime pool with {} worker(s). Set KANARI_RUNTIME_WORKERS to tune startup time.",
-            workers
-        );
+        let verbose_startup = std::env::var("KANARI_VERBOSE_STARTUP")
+            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+            .unwrap_or(false);
+        tracing::info!(workers, "Move runtime pool initializing");
         runtime_pool.push(base_runtime.clone());
 
         for i in 1..workers {
-            eprintln!("Starting Move runtime worker {}/{}...", i + 1, workers);
+            if verbose_startup {
+                tracing::info!(worker = i + 1, workers, "Starting Move runtime worker");
+            }
             match base_runtime.spawn_worker() {
                 Ok(rt) => {
                     runtime_pool.push(rt);
-                    eprintln!("Move runtime worker {}/{} ready", i + 1, workers);
+                    if verbose_startup {
+                        tracing::info!(worker = i + 1, workers, "Move runtime worker ready");
+                    }
                 }
                 Err(e) => {
                     log::error!("Failed to spawn worker runtime #{}: {}", i, e);
@@ -93,7 +102,8 @@ impl BlockchainEngine {
                 }
             }
         }
-        eprintln!("Move runtime pool ready ({} worker(s))", runtime_pool.len());
+        tracing::info!(workers = runtime_pool.len(), "Move runtime pool ready");
+        tracing::info!("Preparing mempool, proof cache, and authority defaults");
 
         let pending_txs = Arc::new(RwLock::new(Vec::new()));
         let pending_tx_hashes = Arc::new(RwLock::new(HashSet::new()));
@@ -103,7 +113,7 @@ impl BlockchainEngine {
         let authority_id = "0xDEFAULT_AUTHORITY".to_string();
         let authorities = vec![authority_id.clone()];
 
-        Ok(Self {
+        let engine = Self {
             blockchain,
             state,
             pending_txs,
@@ -118,7 +128,17 @@ impl BlockchainEngine {
             persisted_dag_state,
             consensus_signing_key: None,
             consensus_public_keys: BTreeMap::new(),
-        })
+        };
+
+        let stats = engine.get_stats();
+        tracing::info!(
+            height = stats.height,
+            txs = stats.total_transactions,
+            accounts = stats.total_accounts,
+            pending = stats.pending_transactions,
+            "Kanari engine ready"
+        );
+        Ok(engine)
     }
 
     fn runtime_worker_count() -> usize {
@@ -127,8 +147,8 @@ impl BlockchainEngine {
         if let Ok(raw) = std::env::var("KANARI_RUNTIME_WORKERS") {
             match raw.trim().parse::<usize>() {
                 Ok(value) if value > 0 => return value,
-                _ => eprintln!(
-                    "WARN: Ignoring invalid KANARI_RUNTIME_WORKERS='{}'. Using default.",
+                _ => tracing::warn!(
+                    "Ignoring invalid KANARI_RUNTIME_WORKERS='{}'. Using default.",
                     raw
                 ),
             }

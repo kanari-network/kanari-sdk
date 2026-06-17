@@ -11,6 +11,8 @@ export function asArray(value: unknown): unknown[] {
   if (Array.isArray(value)) return value;
   const record = asRecord(value);
   if (Array.isArray(record.result)) return record.result;
+  if (Array.isArray(record.transactions)) return record.transactions;
+  if (Array.isArray(record.data)) return record.data;
   if (Array.isArray(record.balances)) return record.balances;
   return [];
 }

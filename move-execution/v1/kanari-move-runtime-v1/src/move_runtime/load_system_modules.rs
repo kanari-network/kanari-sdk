@@ -312,7 +312,7 @@ fn save_framework_modules(
             }
         }
         if let Err(e) = runtime.state.save_module(&m.module_id, &m.bytes) {
-            eprintln!("Warning: Failed to save {}: {}", module_file, e);
+            tracing::warn!("Failed to save {}: {}", module_file, e);
             continue;
         }
         if let Ok(mut mods) = runtime.published_modules.write() {
@@ -354,13 +354,21 @@ pub(crate) fn find_kanari_system_modules_dir() -> PathBuf {
     find_modules_dir("KANARI_FRAMEWORK_PATH", KANARI_SYSTEM_BYTECODE_SEGMENTS)
 }
 
+fn verbose_startup_enabled() -> bool {
+    std::env::var("KANARI_VERBOSE_STARTUP")
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(false)
+}
+
 /// Load move-stdlib and kanari-system modules as methods on `MoveRuntime`
 impl super::MoveRuntime {
     /// Load move-stdlib modules (0x1::*)
     pub fn load_move_stdlib(&self) -> Result<()> {
         let modules_dir = find_move_stdlib_modules_dir();
 
-        eprintln!("✓ Looking for Move stdlib modules at: {:?}", modules_dir);
+        if verbose_startup_enabled() {
+            tracing::info!("Looking for Move stdlib modules at {:?}", modules_dir);
+        }
 
         if !modules_dir.exists() {
             warn!(
@@ -399,7 +407,11 @@ impl super::MoveRuntime {
         prune_framework_modules(self, &modules, std_addr);
         count += save_framework_modules(self, modules, "stdlib")?;
 
-        eprintln!("✓ Loaded {} move-stdlib modules (0x1::*)", count);
+        tracing::info!(
+            modules = count,
+            address = "0x1",
+            "Move stdlib modules loaded"
+        );
         Ok(())
     }
 
@@ -407,7 +419,9 @@ impl super::MoveRuntime {
     pub fn load_kanari_system(&self) -> Result<()> {
         let modules_dir = find_kanari_system_modules_dir();
 
-        eprintln!("Looking for Kanari system modules at: {:?}", modules_dir);
+        if verbose_startup_enabled() {
+            tracing::info!("Looking for Kanari system modules at {:?}", modules_dir);
+        }
 
         if !modules_dir.exists() {
             warn!(
@@ -458,7 +472,11 @@ impl super::MoveRuntime {
         prune_framework_modules(self, &modules, system_addr);
         count += save_framework_modules(self, modules, "system")?;
 
-        eprintln!("Loaded {} kanari-system modules (0x2::*)", count);
+        tracing::info!(
+            modules = count,
+            address = "0x2",
+            "Kanari system modules loaded"
+        );
         Ok(())
     }
 }

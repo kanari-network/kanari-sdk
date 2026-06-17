@@ -31,6 +31,14 @@ function formatHex(bytes: number[]) {
   return `0x${bytes.map((byte) => Math.max(0, Math.min(255, byte)).toString(16).padStart(2, "0")).join("")}`;
 }
 
+function readTransactionHash(transaction: unknown, fallback: string) {
+  return readString(
+    transaction,
+    "hash",
+    readString(transaction, "tx_hash", readString(transaction, "transaction_hash", readString(transaction, "digest", fallback))),
+  );
+}
+
 function AccountContent() {
   const searchParams = useSearchParams();
   const [address, setAddress] = useState(searchParams.get("address") ?? "");
@@ -187,16 +195,22 @@ function AccountContent() {
           {transactions.length === 0 ? <EmptyState label="No transactions found." /> : null}
           <div className="data-list">
             {transactions.map((transaction, index) => {
-              const hash = readString(transaction, "hash", `transaction-${index}`);
+              const fallbackHash = `transaction-${index}`;
+              const hash = readTransactionHash(transaction, fallbackHash);
+              const canOpen = hash !== fallbackHash;
               return (
                 <div className="data-row" key={`${hash}-${index}`}>
                   <div>
                     <p className="tiny-label">Txn Hash</p>
                     <span className="copy-row copy-row--wrap">
-                      <button className="hash-button mono break-anywhere" type="button" onClick={() => openTransaction(hash)}>
-                        {hash}
-                      </button>
-                      <CopyButton value={hash} label="Copy transaction hash" />
+                      {canOpen ? (
+                        <button className="hash-button mono break-anywhere" type="button" onClick={() => openTransaction(hash)}>
+                          {hash}
+                        </button>
+                      ) : (
+                        <span className="mono muted-text">{hash}</span>
+                      )}
+                      {canOpen ? <CopyButton value={hash} label="Copy transaction hash" /> : null}
                     </span>
                   </div>
                   <div>
