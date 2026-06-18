@@ -59,7 +59,7 @@ impl BlockchainEngine {
         if Self::repair_blockchain_from_dag_state(&mut blockchain, persisted_dag_state.as_ref())? {
             if let Some(store) = &persistent_store {
                 let chain = blockchain.read().unwrap_or_else(|e| e.into_inner());
-                if let Err(e) = store.save(b"blockchain", &*chain) {
+                if let Err(e) = Self::persist_blockchain_snapshot_to_store(store, &chain) {
                     tracing::warn!("Failed to persist repaired blockchain: {}", e);
                 }
             }
@@ -214,6 +214,7 @@ impl BlockchainEngine {
         if let Some(store) = store {
             match store.load::<Blockchain>(b"blockchain") {
                 Ok(Some(mut blockchain)) => {
+                    Self::hydrate_blockchain_transactions(store, &mut blockchain);
                     info!(
                         "Successfully loaded blockchain from persistent store (height: {}, checkpoints: {})",
                         blockchain.height(),
@@ -252,7 +253,8 @@ impl BlockchainEngine {
     fn load_dag_state(store: &Option<Arc<PersistentStore>>) -> Option<PersistentDagState> {
         if let Some(store) = store {
             match store.load::<PersistentDagState>(b"dag_state") {
-                Ok(Some(state)) => {
+                Ok(Some(mut state)) => {
+                    Self::hydrate_dag_state_transactions(store, &mut state);
                     info!("Successfully loaded DAG consensus state from persistent store");
                     Some(state)
                 }

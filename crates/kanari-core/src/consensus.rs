@@ -6,10 +6,12 @@ use kanari_crypto::hash_data_blake3;
 use kanari_types::transaction::SignedTransaction;
 use mysticeti_consensus::protocol::Protocol as MysticetiProtocol;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 pub type VertexId = [u8; 32];
 pub type Round = u64;
 pub type AuthorityId = String;
+pub type TransactionBatch = Arc<[SignedTransaction]>;
 
 fn logical_tx_hash(tx: &SignedTransaction) -> Vec<u8> {
     tx.transaction_hash().to_vec()
@@ -28,7 +30,7 @@ pub struct DagVertex {
     pub author: AuthorityId,
     pub chain_id: String,
     pub parents: Vec<VertexId>,
-    pub transactions: Vec<SignedTransaction>,
+    pub transactions: TransactionBatch,
     pub timestamp: u64,
     pub signature: Vec<u8>,
     pub metadata: VertexMetadata,
@@ -48,15 +50,18 @@ pub struct VertexMetadata {
 }
 
 impl DagVertex {
-    pub fn new(
+    pub fn new<T>(
         round: Round,
         author: AuthorityId,
         chain_id: String,
         parents: Vec<VertexId>,
-        transactions: Vec<SignedTransaction>,
+        transactions: T,
         state_root: Vec<u8>,
         timestamp: u64,
-    ) -> Self {
+    ) -> Self
+    where
+        T: Into<TransactionBatch>,
+    {
         Self::try_new(
             round,
             author,
@@ -69,15 +74,19 @@ impl DagVertex {
         .expect("DagVertex::new failed")
     }
 
-    pub fn try_new(
+    pub fn try_new<T>(
         round: Round,
         author: AuthorityId,
         chain_id: String,
         parents: Vec<VertexId>,
-        transactions: Vec<SignedTransaction>,
+        transactions: T,
         state_root: Vec<u8>,
         timestamp: u64,
-    ) -> Result<Self> {
+    ) -> Result<Self>
+    where
+        T: Into<TransactionBatch>,
+    {
+        let transactions = transactions.into();
         let metadata = VertexMetadata {
             tx_count: transactions.len(),
             total_gas_used: 0,
@@ -136,25 +145,28 @@ impl DagVertex {
 pub struct Checkpoint {
     pub sequence: u64,
     pub vertices: Vec<VertexId>,
-    pub transactions: Vec<SignedTransaction>,
+    pub transactions: TransactionBatch,
     pub state_root: Vec<u8>,
     pub timestamp: u64,
     pub prev_checkpoint_hash: Vec<u8>,
 }
 
 impl Checkpoint {
-    pub fn new(
+    pub fn new<T>(
         sequence: u64,
         vertices: Vec<VertexId>,
-        transactions: Vec<SignedTransaction>,
+        transactions: T,
         state_root: Vec<u8>,
         timestamp: u64,
         prev_checkpoint_hash: Vec<u8>,
-    ) -> Self {
+    ) -> Self
+    where
+        T: Into<TransactionBatch>,
+    {
         Self {
             sequence,
             vertices,
-            transactions,
+            transactions: transactions.into(),
             state_root,
             timestamp,
             prev_checkpoint_hash,
@@ -176,7 +188,7 @@ impl Checkpoint {
         Self {
             sequence: 0,
             vertices: Vec::new(),
-            transactions: Vec::new(),
+            transactions: Vec::new().into(),
             state_root: smt::default_hashes()[0].to_vec(),
             timestamp: 0,
             prev_checkpoint_hash: vec![0u8; 32],

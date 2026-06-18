@@ -47,6 +47,13 @@ pub struct CheckpointSyncData {
 }
 
 const MAX_MEMPOOL_SIZE: usize = 1_000_000;
+const MAX_PERSISTED_RECENT_TX_HASHES: usize = 100_000;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct PersistedTransactionLocation {
+    checkpoint_sequence: u64,
+    state_root: Vec<u8>,
+}
 
 /// Complete blockchain engine with Move VM integration
 pub struct BlockchainEngine {
@@ -161,6 +168,380 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
 }
 
 impl BlockchainEngine {
+    fn checkpoint_transactions_key(sequence: u64) -> Vec<u8> {
+        format!("checkpoint_txs/{sequence:020}").into_bytes()
+    }
+
+    fn checkpoint_metadata_key(sequence: u64) -> Vec<u8> {
+        format!("checkpoint_meta/{sequence:020}").into_bytes()
+    }
+
+    fn transaction_payload_key(tx_hash: &[u8]) -> Vec<u8> {
+        let mut key = b"tx_payload/".to_vec();
+        key.extend_from_slice(hex::encode(tx_hash).as_bytes());
+        key
+    }
+
+    fn transaction_index_key(tx_hash: &[u8]) -> Vec<u8> {
+        let mut key = b"tx_index/".to_vec();
+        key.extend_from_slice(hex::encode(tx_hash).as_bytes());
+        key
+    }
+
+    fn recent_transaction_hashes_key() -> &'static [u8] {
+        b"tx_recent"
+    }
+
+    fn vertex_transactions_key(vertex_id: &[u8; 32]) -> Vec<u8> {
+        let mut key = b"dag_vertex_txs/".to_vec();
+        key.extend_from_slice(hex::encode(vertex_id).as_bytes());
+        key
+    }
+
+    fn checkpoint_without_transactions(checkpoint: &Checkpoint) -> Checkpoint {
+        Checkpoint::new(
+            checkpoint.sequence,
+            checkpoint.vertices.clone(),
+            Vec::new(),
+            checkpoint.state_root.clone(),
+            checkpoint.timestamp,
+            checkpoint.prev_checkpoint_hash.clone(),
+        )
+    }
+
+    fn vertex_without_transactions(vertex: &DagVertex) -> DagVertex {
+        let mut slim = vertex.clone();
+        slim.transactions = Vec::new().into();
+        slim
+    }
+
+    fn persist_checkpoint_transactions(
+        store: &PersistentStore,
+        checkpoint: &Checkpoint,
+    ) -> Result<()> {
+        store
+            .save(
+                &Self::checkpoint_metadata_key(checkpoint.sequence),
+                &Self::checkpoint_without_transactions(checkpoint),
+            )
+            .context("Failed to persist checkpoint metadata")?;
+
+        if checkpoint.transactions.is_empty() || checkpoint.sequence == 0 {
+            return Ok(());
+        }
+
+        let mut recent_hashes = store
+            .load::<Vec<Vec<u8>>>(Self::recent_transaction_hashes_key())
+            .unwrap_or_default()
+            .unwrap_or_default();
+        let mut recent_set: HashSet<Vec<u8>> = recent_hashes.iter().cloned().collect();
+
+        for tx in checkpoint.transactions.iter() {
+            let tx_hash = tx.transaction_hash().to_vec();
+            store
+                .save(&Self::transaction_payload_key(&tx_hash), tx)
+                .context("Failed to persist transaction payload")?;
+            store
+                .save(
+                    &Self::transaction_index_key(&tx_hash),
+                    &PersistedTransactionLocation {
+                        checkpoint_sequence: checkpoint.sequence,
+                        state_root: checkpoint.state_root.clone(),
+                    },
+                )
+                .context("Failed to persist transaction hash index")?;
+
+            if recent_set.insert(tx_hash.clone()) {
+                recent_hashes.push(tx_hash);
+            }
+        }
+
+        if recent_hashes.len() > MAX_PERSISTED_RECENT_TX_HASHES {
+            let trim = recent_hashes.len() - MAX_PERSISTED_RECENT_TX_HASHES;
+            recent_hashes.drain(0..trim);
+        }
+        store
+            .save(Self::recent_transaction_hashes_key(), &recent_hashes)
+            .context("Failed to persist recent transaction index")?;
+
+        store
+            .save(
+                &Self::checkpoint_transactions_key(checkpoint.sequence),
+                &checkpoint.transactions,
+            )
+            .context("Failed to persist checkpoint transaction payload")?;
+        Ok(())
+    }
+
+    fn load_checkpoint_metadata(store: &PersistentStore, sequence: u64) -> Option<Checkpoint> {
+        store
+            .load(&Self::checkpoint_metadata_key(sequence))
+            .map_err(|e| {
+                tracing::warn!(
+                    checkpoint = sequence,
+                    "Failed to load checkpoint metadata: {}",
+                    e
+                );
+                e
+            })
+            .ok()
+            .flatten()
+    }
+
+    fn load_checkpoint_transactions(
+        store: &PersistentStore,
+        sequence: u64,
+    ) -> Option<crate::consensus::TransactionBatch> {
+        store
+            .load(&Self::checkpoint_transactions_key(sequence))
+            .map_err(|e| {
+                tracing::warn!(
+                    checkpoint = sequence,
+                    "Failed to load checkpoint transaction payload: {}",
+                    e
+                );
+                e
+            })
+            .ok()
+            .flatten()
+    }
+
+    fn load_transaction_by_hash_from_index(
+        store: &PersistentStore,
+        tx_hash: &[u8],
+    ) -> Option<(SignedTransaction, PersistedTransactionLocation)> {
+        let location = store
+            .load::<PersistedTransactionLocation>(&Self::transaction_index_key(tx_hash))
+            .map_err(|e| {
+                tracing::warn!(
+                    tx_hash = %hex::encode(tx_hash),
+                    "Failed to load transaction index: {}",
+                    e
+                );
+                e
+            })
+            .ok()
+            .flatten()?;
+        let tx = store
+            .load::<SignedTransaction>(&Self::transaction_payload_key(tx_hash))
+            .map_err(|e| {
+                tracing::warn!(
+                    tx_hash = %hex::encode(tx_hash),
+                    "Failed to load transaction payload: {}",
+                    e
+                );
+                e
+            })
+            .ok()
+            .flatten()?;
+        Some((tx, location))
+    }
+
+    fn persist_vertex_transactions(store: &PersistentStore, vertex: &DagVertex) -> Result<()> {
+        if vertex.transactions.is_empty() {
+            return Ok(());
+        }
+        store
+            .save(
+                &Self::vertex_transactions_key(&vertex.id),
+                &vertex.transactions,
+            )
+            .context("Failed to persist DAG vertex transaction payload")?;
+        Ok(())
+    }
+
+    fn persist_blockchain_snapshot_to_store(
+        store: &PersistentStore,
+        chain: &Blockchain,
+    ) -> Result<()> {
+        for checkpoint in &chain.dag_checkpoints {
+            Self::persist_checkpoint_transactions(store, checkpoint)?;
+        }
+
+        let mut slim = chain.clone();
+        for checkpoint in &mut slim.dag_checkpoints {
+            if !checkpoint.transactions.is_empty() {
+                *checkpoint = Self::checkpoint_without_transactions(checkpoint);
+            }
+        }
+        store
+            .save(b"blockchain", &slim)
+            .context("Failed to persist blockchain metadata")?;
+        Ok(())
+    }
+
+    pub(crate) fn persist_blockchain_snapshot(&self, chain: &Blockchain) -> Result<()> {
+        let Some(store) = &self.persistent_store else {
+            return Ok(());
+        };
+        Self::persist_blockchain_snapshot_to_store(store, chain)
+    }
+
+    fn hydrate_blockchain_transactions(store: &PersistentStore, chain: &mut Blockchain) {
+        for checkpoint in &mut chain.dag_checkpoints {
+            if !checkpoint.transactions.is_empty() || checkpoint.sequence == 0 {
+                continue;
+            }
+            if let Some(transactions) =
+                Self::load_checkpoint_transactions(store, checkpoint.sequence)
+            {
+                checkpoint.transactions = transactions;
+            }
+        }
+    }
+
+    fn slim_persistent_dag_state(state: &PersistentDagState) -> PersistentDagState {
+        PersistentDagState {
+            vertices: state
+                .vertices
+                .iter()
+                .map(Self::vertex_without_transactions)
+                .collect(),
+            checkpoints: state
+                .checkpoints
+                .iter()
+                .map(Self::checkpoint_without_transactions)
+                .collect(),
+            current_round: state.current_round,
+            last_checkpoint_round: state.last_checkpoint_round,
+        }
+    }
+
+    fn persist_dag_payloads(store: &PersistentStore, state: &PersistentDagState) -> Result<()> {
+        for vertex in &state.vertices {
+            Self::persist_vertex_transactions(store, vertex)?;
+        }
+        for checkpoint in &state.checkpoints {
+            Self::persist_checkpoint_transactions(store, checkpoint)?;
+        }
+        Ok(())
+    }
+
+    fn hydrate_dag_state_transactions(store: &PersistentStore, state: &mut PersistentDagState) {
+        for vertex in &mut state.vertices {
+            if !vertex.transactions.is_empty() {
+                continue;
+            }
+            match store.load(&Self::vertex_transactions_key(&vertex.id)) {
+                Ok(Some(transactions)) => vertex.transactions = transactions,
+                Ok(None) => {}
+                Err(e) => tracing::warn!(
+                    vertex = %hex::encode(vertex.id),
+                    "Failed to hydrate DAG vertex transaction payload: {}",
+                    e
+                ),
+            }
+        }
+
+        for checkpoint in &mut state.checkpoints {
+            if !checkpoint.transactions.is_empty() || checkpoint.sequence == 0 {
+                continue;
+            }
+            if let Some(transactions) =
+                Self::load_checkpoint_transactions(store, checkpoint.sequence)
+            {
+                checkpoint.transactions = transactions;
+            }
+        }
+    }
+
+    pub fn get_committed_transaction_from_history(
+        &self,
+        tx_hash: &[u8],
+    ) -> Option<(SignedTransaction, u64, Vec<u8>)> {
+        let store = self.persistent_store.as_ref()?;
+        if let Some((tx, location)) = Self::load_transaction_by_hash_from_index(store, tx_hash) {
+            return Some((tx, location.checkpoint_sequence, location.state_root));
+        }
+
+        let height = self.get_stats().height;
+
+        for sequence in (1..=height).rev() {
+            let Some(transactions) = Self::load_checkpoint_transactions(store, sequence) else {
+                continue;
+            };
+            for tx in transactions.iter().rev() {
+                if tx.transaction_hash() == tx_hash {
+                    let state_root = Self::load_checkpoint_metadata(store, sequence)
+                        .map(|checkpoint| checkpoint.state_root)
+                        .unwrap_or_default();
+                    return Some((tx.clone(), sequence, state_root));
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn list_committed_transactions_from_history<F>(
+        &self,
+        limit: usize,
+        mut matches: F,
+    ) -> Vec<(SignedTransaction, u64, Vec<u8>)>
+    where
+        F: FnMut(&Transaction) -> bool,
+    {
+        let Some(store) = self.persistent_store.as_ref() else {
+            return Vec::new();
+        };
+        let mut results = Vec::with_capacity(limit);
+        let mut seen_hashes = HashSet::new();
+
+        if let Ok(Some(recent_hashes)) =
+            store.load::<Vec<Vec<u8>>>(Self::recent_transaction_hashes_key())
+        {
+            for tx_hash in recent_hashes.iter().rev() {
+                if results.len() >= limit {
+                    break;
+                }
+                if !seen_hashes.insert(tx_hash.clone()) {
+                    continue;
+                }
+                let Some((tx, location)) =
+                    Self::load_transaction_by_hash_from_index(store, tx_hash)
+                else {
+                    continue;
+                };
+                if matches(&tx.transaction) {
+                    results.push((tx, location.checkpoint_sequence, location.state_root));
+                }
+            }
+        }
+
+        if results.len() >= limit {
+            return results;
+        }
+
+        let height = self.get_stats().height;
+
+        for sequence in (1..=height).rev() {
+            if results.len() >= limit {
+                break;
+            }
+
+            let Some(transactions) = Self::load_checkpoint_transactions(store, sequence) else {
+                continue;
+            };
+            let state_root = Self::load_checkpoint_metadata(store, sequence)
+                .map(|checkpoint| checkpoint.state_root)
+                .unwrap_or_default();
+
+            for tx in transactions.iter().rev() {
+                if results.len() >= limit {
+                    break;
+                }
+                if !seen_hashes.insert(tx.transaction_hash().to_vec()) {
+                    continue;
+                }
+                if matches(&tx.transaction) {
+                    results.push((tx.clone(), sequence, state_root.clone()));
+                }
+            }
+        }
+
+        results
+    }
+
     pub fn state_read(&self) -> RwLockReadGuard<'_, StateManager> {
         self.state.read().unwrap_or_else(|poisoned| {
             error!("State lock poisoned while reading runtime state; recovering...");
@@ -316,7 +697,9 @@ impl BlockchainEngine {
             let is_zero_native_call = matches!(
                 function.as_str(),
                 Transaction::BURN_AMOUNT_FUNCTION | Transaction::TRANSFER_AMOUNT_FUNCTION
-            ) && args.first().is_some_and(|amount| amount.as_slice() == zero_amount);
+            ) && args
+                .first()
+                .is_some_and(|amount| amount.as_slice() == zero_amount);
             if !is_zero_native_call {
                 return Ok(None);
             }
@@ -540,8 +923,10 @@ impl BlockchainEngine {
 
     pub(crate) fn persist_dag_state(&self, state: PersistentDagState) -> Result<()> {
         if let Some(store) = &self.persistent_store {
+            Self::persist_dag_payloads(store, &state)?;
+            let slim = Self::slim_persistent_dag_state(&state);
             store
-                .save(b"dag_state", &state)
+                .save(b"dag_state", &slim)
                 .context("Failed to persist DAG state")?;
         }
         Ok(())
@@ -1181,6 +1566,51 @@ mod tests {
         assert_eq!(repaired_chain.height(), 1);
         assert_eq!(repaired_chain.get_transaction_count(), 1);
         assert_eq!(repaired_chain.latest_checkpoint().transactions.len(), 1);
+    }
+
+    #[test]
+    fn committed_transaction_history_survives_metadata_stripping() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let data_dir = temp_dir.path().to_str().unwrap();
+        let engine = BlockchainEngine::new_dir(data_dir).unwrap();
+        if engine.persistent_store.is_none() {
+            return;
+        }
+
+        let sender = generate_keypair(CurveType::Ed25519).unwrap();
+        let tx = signed_transfer_from(&sender, 0);
+        let tx_hash = tx.transaction_hash().to_vec();
+        let genesis_hash = {
+            let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            chain.latest_checkpoint().hash().unwrap()
+        };
+        let checkpoint = Checkpoint::new(
+            1,
+            vec![[7u8; 32]],
+            vec![tx],
+            vec![9u8; 32],
+            42,
+            genesis_hash,
+        );
+
+        {
+            let mut chain = engine.blockchain.write().unwrap_or_else(|e| e.into_inner());
+            chain
+                .add_checkpoint_with_validation(checkpoint, false)
+                .unwrap();
+            engine.persist_blockchain_snapshot(&chain).unwrap();
+        }
+
+        let latest = engine.list_committed_transactions_from_history(10, |_| true);
+        assert_eq!(latest.len(), 1);
+        assert_eq!(latest[0].1, 1);
+        assert_eq!(latest[0].0.transaction_hash(), tx_hash.as_slice());
+
+        let found = engine
+            .get_committed_transaction_from_history(&tx_hash)
+            .expect("transaction must be found in persistent history");
+        assert_eq!(found.1, 1);
+        assert_eq!(found.0.transaction_hash(), tx_hash.as_slice());
     }
 
     #[test]

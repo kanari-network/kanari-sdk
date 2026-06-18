@@ -557,6 +557,21 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
     }
     drop(chain);
 
+    if let Some((tx, height, state_root)) = state
+        .engine
+        .get_committed_transaction_from_history(&tx_hash_bytes)
+    {
+        let details = map_transaction_to_details(
+            state,
+            &tx.transaction,
+            &hex::encode(tx.transaction_hash()),
+            "committed",
+            Some(height),
+            Some(hex::encode(state_root)),
+        );
+        return respond_with_serialize(request.id, details);
+    }
+
     let pending = state.engine.pending_txs.read().unwrap_or_else(|p| {
         error!("pending_txs lock poisoned; recovering");
         p.into_inner()
@@ -657,6 +672,31 @@ pub async fn handle_get_all_transactions(
                 ) {
                     break;
                 }
+            }
+        }
+    }
+
+    if results.len() < limit {
+        for (tx, height, state_root) in state
+            .engine
+            .list_committed_transactions_from_history(limit, |tx| {
+                tx_matches_account(tx, account_norm.as_deref())
+            })
+        {
+            if !push_unique_tx_details(
+                &mut results,
+                &mut seen_hashes,
+                limit,
+                map_transaction_to_details(
+                    state,
+                    &tx.transaction,
+                    &hex::encode(tx.transaction_hash()),
+                    "committed",
+                    Some(height),
+                    Some(hex::encode(state_root)),
+                ),
+            ) {
+                break;
             }
         }
     }

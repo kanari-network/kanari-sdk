@@ -133,7 +133,7 @@ impl Blockchain {
             }
 
             let mut seen_txs = HashSet::new();
-            for tx in &checkpoint.transactions {
+            for tx in checkpoint.transactions.iter() {
                 let tx_hash = tx.transaction_hash().to_vec();
                 if !seen_txs.insert(tx_hash.clone()) {
                     anyhow::bail!("Duplicate transaction found within checkpoint");
@@ -149,7 +149,7 @@ impl Blockchain {
 
         if self.dag_checkpoints.len() > MAX_RETAINED_BLOCKS {
             if let Some(evicted) = self.dag_checkpoints.pop_front() {
-                for tx in evicted.transactions {
+                for tx in evicted.transactions.iter() {
                     let hash = tx.transaction_hash().to_vec();
                     self.executed_tx_hashes.remove(&hash);
                     self.tx_location_index.remove(&hash);

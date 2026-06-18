@@ -152,7 +152,7 @@ impl BlockchainEngine {
             state_root: hex::encode(&checkpoint.state_root),
             tx_count: checkpoint.transactions.len(),
             events: Vec::new(),
-            transactions: checkpoint.transactions.clone(),
+            transactions: checkpoint.transactions.iter().cloned().collect(),
             vertices: checkpoint.vertices.iter().map(hex::encode).collect(),
         }
     }
@@ -255,14 +255,14 @@ impl BlockchainEngine {
             checkpoint.sequence
         );
         for (i, signed_tx) in checkpoint.transactions.iter().enumerate() {
-            let tx_hash = signed_tx.transaction_hash().to_vec();
-            if !signed_tx.verify_signature_for_hash(&tx_hash)? {
-                anyhow::bail!(
-                    "Invalid or missing signature for transaction {} in checkpoint #{}",
+            signed_tx.verified_transaction_hash().map_err(|e| {
+                anyhow::anyhow!(
+                    "Invalid or missing signature for transaction {} in checkpoint #{}: {}",
                     i + 1,
-                    checkpoint.sequence
-                );
-            }
+                    checkpoint.sequence,
+                    e
+                )
+            })?;
         }
 
         let mut checkpoint_to_apply = checkpoint.clone();

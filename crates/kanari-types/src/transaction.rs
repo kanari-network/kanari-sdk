@@ -22,6 +22,14 @@ pub struct SignedTransaction {
     cached_verified_signature: OnceLock<(Vec<u8>, Vec<u8>)>,
 }
 
+/// Immutable transaction wrapper for internal paths that have already verified
+/// the signature against the exact transaction bytes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerifiedSignedTransaction {
+    signed: SignedTransaction,
+    tx_hash: Vec<u8>,
+}
+
 impl SignedTransaction {
     pub fn new(transaction: Transaction) -> Self {
         Self {
@@ -78,8 +86,11 @@ impl SignedTransaction {
 
         let sender = self.transaction.sender();
 
-        verify_signature(sender, tx_hash, signature)
+        let verified = verify_signature(sender, tx_hash, signature)
             .map_err(|e| anyhow::anyhow!("Signature verification failed: {}", e))?;
+        if !verified {
+            return Ok(false);
+        }
         let _ = self
             .cached_verified_signature
             .set((current_hash, signature.clone()));
@@ -105,12 +116,23 @@ impl SignedTransaction {
         }
 
         let sender = self.transaction.sender();
-        verify_signature(sender, &current_hash, signature)
+        let verified = verify_signature(sender, &current_hash, signature)
             .map_err(|e| anyhow::anyhow!("Signature verification failed: {}", e))?;
+        if !verified {
+            anyhow::bail!("Invalid transaction signature");
+        }
         let _ = self
             .cached_verified_signature
             .set((current_hash.clone(), signature.clone()));
         Ok(current_hash)
+    }
+
+    pub fn into_verified(self) -> Result<VerifiedSignedTransaction> {
+        let tx_hash = self.verified_transaction_hash()?;
+        Ok(VerifiedSignedTransaction {
+            signed: self,
+            tx_hash,
+        })
     }
 
     pub fn hash(&self) -> Vec<u8> {
@@ -122,6 +144,20 @@ impl SignedTransaction {
             }
         };
         hash_data_blake3(&serialized)
+    }
+}
+
+impl VerifiedSignedTransaction {
+    pub fn hash(&self) -> &[u8] {
+        &self.tx_hash
+    }
+
+    pub fn transaction(&self) -> &Transaction {
+        &self.signed.transaction
+    }
+
+    pub fn into_signed_transaction(self) -> SignedTransaction {
+        self.signed
     }
 }
 
@@ -459,5 +495,32 @@ mod tests {
         let decoded: SignedTransaction = bcs::from_bytes(&bytes).unwrap();
 
         assert!(decoded.verify_signature().unwrap());
+    }
+
+    #[test]
+    fn verified_transaction_rejects_tampered_signed_payload() {
+        let keypair = kanari_crypto::keys::generate_keypair(CurveType::Ed25519).unwrap();
+        let mut signed_tx = SignedTransaction::new(Transaction::new_burn_with_gas(
+            keypair.tagged_address(),
+            0,
+            0,
+            100_000,
+            0,
+        ));
+        signed_tx
+            .sign(&keypair.private_key, keypair.curve_type)
+            .unwrap();
+
+        let verified = signed_tx.clone().into_verified().unwrap();
+        assert_eq!(verified.hash(), signed_tx.transaction_hash());
+
+        match &mut signed_tx.transaction {
+            Transaction::ExecuteFunction {
+                sequence_number, ..
+            } => *sequence_number += 1,
+            Transaction::PublishModule { .. } => unreachable!(),
+        }
+
+        assert!(signed_tx.into_verified().is_err());
     }
 }

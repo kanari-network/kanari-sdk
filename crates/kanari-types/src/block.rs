@@ -163,12 +163,6 @@ impl Block {
 
         // Verify each transaction has valid structure
         for (i, signed_tx) in self.transactions.iter().enumerate() {
-            // Verify transaction hash is valid
-            let tx_hash = signed_tx.transaction.hash();
-            if tx_hash.is_empty() {
-                anyhow::bail!("Transaction {} has empty hash", i);
-            }
-
             // Verify sender address format
             let sender = signed_tx.transaction.sender_address();
             if sender.is_empty() {
@@ -176,9 +170,12 @@ impl Block {
             }
 
             // Require a valid signature for every transaction
-            signed_tx.verify_signature().map_err(|e| {
+            let tx_hash = signed_tx.verified_transaction_hash().map_err(|e| {
                 anyhow::anyhow!("Invalid or missing signature for transaction {}: {}", i, e)
             })?;
+            if tx_hash.is_empty() {
+                anyhow::bail!("Transaction {} has empty hash", i);
+            }
         }
 
         Ok(())

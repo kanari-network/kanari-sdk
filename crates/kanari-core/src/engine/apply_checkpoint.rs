@@ -165,9 +165,9 @@ impl BlockchainEngine {
         }
 
         // 3. Persist blockchain state
-        if let Some(store) = &self.persistent_store {
+        if self.persistent_store.is_some() {
             let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
-            if let Err(e) = store.save(b"blockchain", &*chain) {
+            if let Err(e) = self.persist_blockchain_snapshot(&chain) {
                 error!("Failed to persist blockchain: {}", e);
             }
         }

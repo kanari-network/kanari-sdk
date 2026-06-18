@@ -44,21 +44,32 @@ impl BlockchainEngine {
         }
 
         // Hash, verify, and extract metadata in one parallel pass.
-        let batch_metadata = signed_txs
-            .par_iter()
-            .map(|signed_tx| -> Result<(Vec<u8>, String, u64)> {
-                let tx_hash = signed_tx.verified_transaction_hash()?;
-                let sender = signed_tx.transaction.sender_address();
-                Ok((
-                    tx_hash,
-                    sender_cache
+        let verified_txs = signed_txs
+            .into_par_iter()
+            .map(
+                |signed_tx| -> Result<(SignedTransaction, Vec<u8>, String, u64)> {
+                    let verified = signed_tx.into_verified()?;
+                    let tx_hash = verified.hash().to_vec();
+                    let sender = verified.transaction().sender_address();
+                    let normalized_sender = sender_cache
                         .get(sender)
                         .expect("sender cache must contain every batch sender")
-                        .clone(),
-                    signed_tx.transaction.sequence_number(),
-                ))
-            })
+                        .clone();
+                    let sequence_number = verified.transaction().sequence_number();
+                    Ok((
+                        verified.into_signed_transaction(),
+                        tx_hash,
+                        normalized_sender,
+                        sequence_number,
+                    ))
+                },
+            )
             .collect::<Result<Vec<_>>>()?;
+
+        let batch_metadata: Vec<(Vec<u8>, String, u64)> = verified_txs
+            .iter()
+            .map(|(_, hash, sender, sequence)| (hash.clone(), sender.clone(), *sequence))
+            .collect();
 
         // Batch read account sequences to minimize state lock contention
         let base_sequences = {
@@ -179,7 +190,11 @@ impl BlockchainEngine {
                 anyhow::bail!("Mempool is currently full. Please try again later.");
             }
 
-            pending.extend(signed_txs);
+            pending.extend(
+                verified_txs
+                    .into_iter()
+                    .map(|(signed_tx, _, _, _)| signed_tx),
+            );
         }
 
         // Update hash set separately to reduce lock contention
@@ -198,12 +213,9 @@ impl BlockchainEngine {
         &self,
         signed_tx: SignedTransaction,
     ) -> Result<(Vec<u8>, ChangeSet)> {
-        if !signed_tx.verify_signature()? {
-            anyhow::bail!("Invalid transaction signature");
-        }
-
-        let tx_hash = signed_tx.transaction_hash().to_vec();
-        let tx = signed_tx.transaction;
+        let verified = signed_tx.into_verified()?;
+        let tx_hash = verified.hash().to_vec();
+        let tx = verified.into_signed_transaction().transaction;
 
         let changeset = {
             let mut state_snapshot = self.state_read().clone();
