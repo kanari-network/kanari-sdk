@@ -530,14 +530,6 @@ pub mod methods {
     )]
     pub const GET_ALL_TRANSACTIONS: &str = "kanari_getAllTransactions";
     #[open_rpc_method(
-        summary = "Produce checkpoint",
-        description = "Forces Mysticeti checkpoint production immediately.",
-        params = [],
-        result = ("checkpoint_info", "Produced checkpoint result.", schema_object()),
-        tags = ["checkpoint"]
-    )]
-    pub const PRODUCE_CHECKPOINT: &str = "kanari_produceCheckpoint";
-    #[open_rpc_method(
         summary = "Submit transaction",
         description = "Submits a transfer or burn transaction to the mempool.",
         params = [("transaction", "Signed transaction payload.", true, schema_object())],

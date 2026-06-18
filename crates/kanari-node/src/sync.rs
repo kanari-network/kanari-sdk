@@ -43,7 +43,7 @@ pub struct SyncManager {
     checkpoint_buffer: Mutex<BTreeMap<u64, VecDeque<BufferedCheckpointCandidate>>>,
     /// Last advertised height by peer id.
     peer_heights: Mutex<BTreeMap<String, u64>>,
-    /// Peers that advertised a conflicting state/checkpoint and should not be used for sync.
+    /// Peers that advertised a conflicting state root and should not be used for sync.
     divergent_peers: Mutex<BTreeMap<String, DivergentPeerInfo>>,
     /// Last request timestamp per checkpoint sequence to avoid request spam while still retrying fast.
     pending_checkpoint_requests: Mutex<BTreeMap<u64, u64>>,
@@ -63,14 +63,15 @@ impl SyncManager {
         local_state_root: &str,
         peer_info: &PeerInfoMsg,
     ) -> Option<&'static str> {
-        let checkpoint_mismatch = peer_info.latest_checkpoint_hash != local_checkpoint_hash;
         let state_root_mismatch = peer_info.latest_state_root != local_state_root;
-
-        match (checkpoint_mismatch, state_root_mismatch) {
-            (true, true) => Some("checkpoint-history-and-state-root"),
-            (true, false) => Some("checkpoint-history"),
-            (false, true) => Some("state-root"),
-            (false, false) => None,
+        if state_root_mismatch {
+            if peer_info.latest_checkpoint_hash != local_checkpoint_hash {
+                Some("checkpoint-history-and-state-root")
+            } else {
+                Some("state-root")
+            }
+        } else {
+            None
         }
     }
 
@@ -1354,6 +1355,20 @@ mod tests {
         assert!(sync.is_peer_divergent("peer-1"));
         assert_eq!(sync.best_peer_for_height(stats.height), None);
         assert_eq!(sync.max_eligible_peer_height(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_hash_mismatch_with_same_state_root_is_eligible() {
+        let sync = new_sync_manager();
+        let stats = sync.engine.get_stats();
+        let local_state_root = sync.engine.latest_checkpoint_state_root_hex();
+
+        sync.handle_peer_info(peer_info(stats.height, "different-checkpoint", &local_state_root))
+            .await;
+
+        assert!(!sync.is_peer_divergent("peer-1"));
+        assert_eq!(sync.best_peer_for_height(stats.height), Some("peer-1".to_string()));
+        assert_eq!(sync.max_eligible_peer_height(), stats.height);
     }
 
     #[test]

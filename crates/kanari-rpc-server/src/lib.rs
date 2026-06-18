@@ -15,6 +15,7 @@ use axum::{
 };
 use kanari_core::BlockchainEngine;
 use kanari_rpc_api::*;
+use kanari_types::transaction::SignedTransaction;
 
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
@@ -24,10 +25,7 @@ use crate::{
     balance::{
         handle_get_account, handle_get_all_balances, handle_get_token_balance, handle_list_tokens,
     },
-    block::{
-        handle_get_block, handle_get_block_height, handle_get_full_block, handle_get_stats,
-        handle_produce_checkpoint,
-    },
+    block::{handle_get_block, handle_get_block_height, handle_get_full_block, handle_get_stats},
     module::{
         handle_get_module, handle_get_object, handle_get_owned_objects, handle_list_modules,
         handle_verify_module,
@@ -45,15 +43,39 @@ pub mod module;
 pub mod nft;
 pub mod transaction;
 
+type TransactionBroadcaster = Arc<dyn Fn(SignedTransaction) -> Result<()> + Send + Sync>;
+
 /// RPC server state
 #[derive(Clone)]
 pub struct RpcServerState {
     pub engine: Arc<BlockchainEngine>,
+    transaction_broadcaster: Option<TransactionBroadcaster>,
 }
 
 impl RpcServerState {
     pub fn new(engine: Arc<BlockchainEngine>) -> Self {
-        Self { engine }
+        Self {
+            engine,
+            transaction_broadcaster: None,
+        }
+    }
+
+    pub fn with_transaction_broadcaster(
+        engine: Arc<BlockchainEngine>,
+        broadcaster: impl Fn(SignedTransaction) -> Result<()> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            engine,
+            transaction_broadcaster: Some(Arc::new(broadcaster)),
+        }
+    }
+
+    pub fn broadcast_submitted_transaction(&self, signed_tx: SignedTransaction) {
+        if let Some(broadcaster) = &self.transaction_broadcaster
+            && let Err(e) = broadcaster(signed_tx)
+        {
+            tracing::warn!("Failed to broadcast submitted transaction: {}", e);
+        }
     }
 }
 
@@ -158,7 +180,6 @@ async fn handle_rpc(
         methods::GET_ALL_TRANSACTIONS => {
             transaction::handle_get_all_transactions(&state, &request).await
         }
-        methods::PRODUCE_CHECKPOINT => handle_produce_checkpoint(&state, &request).await,
         methods::GET_BLOCK_HEIGHT => handle_get_block_height(&state, &request).await,
         methods::GET_STATS => handle_get_stats(&state, &request).await,
         methods::SUBMIT_TRANSACTION => handle_submit_transaction(&state, &request).await,
@@ -217,6 +238,21 @@ async fn handle_metrics(State(state): State<RpcServerState>) -> impl IntoRespons
 /// Start RPC server
 pub async fn start_server(engine: Arc<BlockchainEngine>, addr: &str) -> Result<()> {
     let state = RpcServerState::new(engine);
+    let app = create_router(state);
+
+    info!("Starting RPC server on {}", addr);
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
+
+    Ok(())
+}
+
+pub async fn start_server_with_transaction_broadcaster(
+    engine: Arc<BlockchainEngine>,
+    addr: &str,
+    broadcaster: impl Fn(SignedTransaction) -> Result<()> + Send + Sync + 'static,
+) -> Result<()> {
+    let state = RpcServerState::with_transaction_broadcaster(engine, broadcaster);
     let app = create_router(state);
 
     info!("Starting RPC server on {}", addr);

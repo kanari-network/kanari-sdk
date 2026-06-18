@@ -3,7 +3,7 @@
 
 use anyhow::Result;
 use kanari_core::BlockchainEngine;
-use kanari_rpc_server::start_server;
+use kanari_rpc_server::start_server_with_transaction_broadcaster;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::kanari::KanariModule;
 use libp2p::identity::Keypair;
@@ -377,8 +377,21 @@ pub async fn run_node(
 
     let engine_for_rpc = engine.clone();
     let bind_addr_clone = bind_addr.clone();
+    let network_tx_for_rpc = network_tx.clone();
     tokio::spawn(async move {
-        if let Err(e) = start_server(engine_for_rpc, &bind_addr_clone).await {
+        if let Err(e) = start_server_with_transaction_broadcaster(
+            engine_for_rpc,
+            &bind_addr_clone,
+            move |signed_tx| {
+                let payload = serde_json::to_string(&signed_tx)?;
+                network_tx_for_rpc
+                    .send(P2PMessage::NewTransaction(payload))
+                    .map_err(|e| anyhow::anyhow!("failed to queue transaction broadcast: {}", e))?;
+                Ok(())
+            },
+        )
+        .await
+        {
             tracing::error!("RPC server error: {}", e);
         }
     });
@@ -395,6 +408,8 @@ pub async fn run_node(
     );
 
     let mut last_stats_log = Instant::now() - Duration::from_secs(2);
+    let mut last_pending_count = ready_stats.pending_transactions;
+    let mut pending_gossip_ready_at: Option<Instant> = None;
 
     loop {
         let stats = engine.get_stats();
@@ -421,7 +436,28 @@ pub async fn run_node(
         let mut did_work = false;
         let mut idle_delay = Duration::from_millis(50);
 
-        if stats.pending_transactions > 0 || engine.should_produce_dag_progress() {
+        if stats.pending_transactions > last_pending_count {
+            pending_gossip_ready_at = Some(Instant::now() + Duration::from_millis(150));
+        } else if stats.pending_transactions == 0 {
+            pending_gossip_ready_at = None;
+        }
+        last_pending_count = stats.pending_transactions;
+
+        let pending_gossip_ready = match pending_gossip_ready_at {
+            Some(ready_at) => Instant::now() >= ready_at,
+            None => true,
+        };
+
+        if stats.pending_transactions > 0 && !pending_gossip_ready {
+            idle_delay = Duration::from_millis(10);
+        }
+
+        let should_produce_pending =
+            stats.pending_transactions > 0 && pending_gossip_ready;
+        let should_produce_progress =
+            stats.pending_transactions == 0 && engine.should_produce_dag_progress();
+
+        if should_produce_pending || should_produce_progress {
             match engine.produce_checkpoint() {
                 Ok(block_info) => {
                     did_work = true;

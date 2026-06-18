@@ -44,7 +44,7 @@ impl BlockchainEngine {
         }
 
         // Hash, verify, and extract metadata in one parallel pass.
-        let verified_txs = signed_txs
+        let mut verified_txs = signed_txs
             .into_par_iter()
             .map(
                 |signed_tx| -> Result<(SignedTransaction, Vec<u8>, String, u64)> {
@@ -65,6 +65,12 @@ impl BlockchainEngine {
                 },
             )
             .collect::<Result<Vec<_>>>()?;
+
+        verified_txs.sort_by(|a, b| {
+            a.2.cmp(&b.2)
+                .then_with(|| a.3.cmp(&b.3))
+                .then_with(|| a.1.cmp(&b.1))
+        });
 
         let batch_metadata: Vec<(Vec<u8>, String, u64)> = verified_txs
             .iter()
@@ -143,7 +149,8 @@ impl BlockchainEngine {
 
         let sequence_groups = sequence_groups
             .into_iter()
-            .map(|(sender, tx_sequences)| {
+            .map(|(sender, mut tx_sequences)| {
+                tx_sequences.sort_unstable();
                 let expected_start = base_sequences.get(&sender).copied().unwrap_or(0)
                     + pending_by_sender.get(&sender).copied().unwrap_or(0);
                 (sender, expected_start, tx_sequences)

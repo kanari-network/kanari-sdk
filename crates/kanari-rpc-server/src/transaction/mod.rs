@@ -333,10 +333,12 @@ fn submit_pending_response(
     action: &str,
     submit_error: &str,
 ) -> RpcResponse {
+    let tx_for_broadcast = signed_tx.clone();
     match state.engine.submit_transactions_batch(vec![signed_tx]) {
         Ok(tx_hashes) => {
             let tx_hash = hex::encode(&tx_hashes[0]);
             debug!("{} accepted into mempool: {}", action, tx_hash);
+            state.broadcast_submitted_transaction(tx_for_broadcast);
 
             respond_with_serialize(
                 request_id,
@@ -393,6 +395,7 @@ fn execute_or_submit_response(
                 );
             }
 
+            let tx_for_broadcast = signed_tx.clone();
             if let Err(e) = state.engine.submit_transactions_batch(vec![signed_tx]) {
                 error!("Failed to submit executed transaction: {}", e);
                 return RpcResponse {
@@ -405,6 +408,7 @@ fn execute_or_submit_response(
                     id: request_id,
                 };
             }
+            state.broadcast_submitted_transaction(tx_for_broadcast);
 
             info!(
                 "{} executed immediately & submitted: {}",

@@ -1634,6 +1634,27 @@ mod tests {
     }
 
     #[test]
+    fn batch_submit_accepts_shuffled_contiguous_sequences_for_same_sender() {
+        let engine = BlockchainEngine::new().unwrap();
+        let sender = generate_keypair(CurveType::Ed25519).unwrap();
+        let tx0 = signed_transfer_from(&sender, 0);
+        let tx1 = signed_transfer_from(&sender, 1);
+        let tx2 = signed_transfer_from(&sender, 2);
+
+        let hashes = engine
+            .submit_transactions_batch(vec![tx2.clone(), tx0.clone(), tx1.clone()])
+            .unwrap();
+
+        assert_eq!(hashes.len(), 3);
+        let pending = engine.pending_txs.read().unwrap_or_else(|e| e.into_inner());
+        let pending_sequences = pending
+            .iter()
+            .map(|tx| tx.transaction.sequence_number())
+            .collect::<Vec<_>>();
+        assert_eq!(pending_sequences, vec![0, 1, 2]);
+    }
+
+    #[test]
     fn gas_application_does_not_increment_sequence_twice() {
         let sender = AccountAddress::random();
         let mut changeset = ChangeSet::new();

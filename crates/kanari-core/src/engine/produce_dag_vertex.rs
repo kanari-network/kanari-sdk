@@ -317,8 +317,7 @@ impl CoreDagConsensus {
     }
 
     pub fn needs_progress(&self) -> bool {
-        self.current_round > 0
-            || self.current_round > self.last_checkpoint_round
+        self.current_round > self.last_checkpoint_round
             || self
                 .vertices
                 .iter()
@@ -423,12 +422,23 @@ impl DagEngine {
             let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
             consensus.production_policy()
         };
-        let transactions = self
+        let mut transactions = self
             .engine
             .pending_txs
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
+        transactions.sort_by(|a, b| {
+            a.transaction
+                .sender_address()
+                .cmp(b.transaction.sender_address())
+                .then_with(|| {
+                    a.transaction
+                        .sequence_number()
+                        .cmp(&b.transaction.sequence_number())
+                })
+                .then_with(|| a.transaction_hash().cmp(b.transaction_hash()))
+        });
         let tx_count = transactions.len();
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
