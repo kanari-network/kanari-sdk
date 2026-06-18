@@ -80,6 +80,7 @@ pub async fn handle_get_stats(state: &RpcServerState, request: &RpcRequest) -> R
         pending_transactions: stats.pending_transactions,
         total_accounts: stats.total_accounts,
         total_supply: stats.total_supply,
+        state_root: stats.state_root,
     };
     respond_with_serialize(request.id, blockchain_stats)
 }

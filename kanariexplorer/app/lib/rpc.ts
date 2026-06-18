@@ -53,6 +53,7 @@ export type NodeHealth = {
   online: boolean;
   status: string;
   height: number | null;
+  stateRoot: string | null;
   totalTransactions: number | null;
   totalAccounts: number | null;
   pendingTransactions: number | null;
@@ -238,6 +239,7 @@ export async function getNodeHealth(endpoint: RpcEndpoint): Promise<NodeHealth> 
       online: true,
       status: String(readField(health, "status") ?? "ok"),
       height: Number(readField(stats, "height") ?? 0),
+      stateRoot: String(readField(stats, "state_root") ?? readField(stats, "stateRoot") ?? "") || null,
       totalTransactions: Number(readField(stats, "total_transactions") ?? 0),
       totalAccounts: Number(readField(stats, "total_accounts") ?? 0),
       pendingTransactions: Number(readField(stats, "pending_transactions") ?? 0),
@@ -249,6 +251,7 @@ export async function getNodeHealth(endpoint: RpcEndpoint): Promise<NodeHealth> 
       online: false,
       status: "offline",
       height: null,
+      stateRoot: null,
       totalTransactions: null,
       totalAccounts: null,
       pendingTransactions: null,

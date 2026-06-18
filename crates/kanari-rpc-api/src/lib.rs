@@ -137,6 +137,7 @@ pub struct BlockchainStats {
     pub pending_transactions: usize,
     pub total_accounts: usize,
     pub total_supply: u64,
+    pub state_root: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

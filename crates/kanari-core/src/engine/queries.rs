@@ -47,6 +47,7 @@ impl BlockchainEngine {
             pending_transactions: pending.len(),
             total_accounts: state.account_count(),
             total_supply: state.total_supply,
+            state_root: hex::encode(&chain.latest_checkpoint().state_root),
         }
     }
 

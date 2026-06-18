@@ -335,30 +335,13 @@ fn submit_pending_response(
 ) -> RpcResponse {
     match state.engine.submit_transactions_batch(vec![signed_tx]) {
         Ok(tx_hashes) => {
-            match state.engine.produce_checkpoint() {
-                Ok(info) => {
-                    let checkpoint_sequence = info
-                        .checkpoint
-                        .as_ref()
-                        .map(|checkpoint| checkpoint.sequence)
-                        .unwrap_or(info.round);
-                    debug!(
-                        "Flushed pending transaction into checkpoint {} with {} txs",
-                        checkpoint_sequence, info.tx_count
-                    );
-                }
-                Err(e) => {
-                    debug!(
-                        "Pending transaction accepted; checkpoint flush deferred: {}",
-                        e
-                    );
-                }
-            }
+            let tx_hash = hex::encode(&tx_hashes[0]);
+            debug!("{} accepted into mempool: {}", action, tx_hash);
 
             respond_with_serialize(
                 request_id,
                 serde_json::json!({
-                    "hash": hex::encode(&tx_hashes[0]),
+                    "hash": tx_hash,
                     "status": "pending",
                     "action": action
                 }),

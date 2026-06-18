@@ -77,6 +77,14 @@ function readNumber(source: unknown, ...keys: string[]) {
   return null;
 }
 
+function readFirstString(source: unknown, ...keys: string[]) {
+  for (const key of keys) {
+    const value = readString(source, key, "");
+    if (value && value !== "-") return value;
+  }
+  return "";
+}
+
 function isLaggingAt(check: StateRootCheck, height: number | null) {
   return check.online && height !== null && check.nodeHeight !== null && check.nodeHeight < height;
 }
@@ -134,19 +142,24 @@ async function readStateRootChecksAtHeight(
       try {
         const checkpoint = await getFullBlock(height, endpoint.url).catch(() => getBlock(height, endpoint.url).catch(() => null));
         const returnedHeight = readNumber(checkpoint, "height", "checkpoint_height", "block_height", "number");
+        const latestRootAtHeight = nodeHeight === height && node?.stateRoot ? node.stateRoot : null;
         if (returnedHeight !== height) {
           return {
             endpoint: endpoint.url,
-            error: returnedHeight === null ? "checkpoint height unavailable" : `returned height ${returnedHeight}`,
+            error: latestRootAtHeight
+              ? undefined
+              : returnedHeight === null
+                ? "checkpoint height unavailable"
+                : `returned height ${returnedHeight}`,
             height,
             node: endpoint.name,
             nodeHeight,
             online: true,
-            root: null,
+            root: latestRootAtHeight,
           };
         }
 
-        const root = readString(checkpoint, "state_root", "");
+        const root = readFirstString(checkpoint, "state_root", "stateRoot", "root");
         return {
           endpoint: endpoint.url,
           height,
@@ -474,6 +487,7 @@ function MysticetiNodeGraph({
           latencyMs: null,
           online: false,
           pendingTransactions: null,
+          stateRoot: null,
           status: "loading",
           totalAccounts: null,
           totalTransactions: null,
@@ -785,6 +799,7 @@ export default function Home() {
                   latencyMs: null,
                   online: false,
                   pendingTransactions: null,
+                  stateRoot: null,
                   status: "loading",
                   totalAccounts: null,
                   totalTransactions: null,
