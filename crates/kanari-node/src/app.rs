@@ -452,12 +452,9 @@ pub async fn run_node(
             idle_delay = Duration::from_millis(10);
         }
 
-        let should_produce_pending =
-            stats.pending_transactions > 0 && pending_gossip_ready;
-        let should_produce_progress =
-            stats.pending_transactions == 0 && engine.should_produce_dag_progress();
+        let should_produce_pending = stats.pending_transactions > 0 && pending_gossip_ready;
 
-        if should_produce_pending || should_produce_progress {
+        if should_produce_pending {
             match engine.produce_checkpoint() {
                 Ok(block_info) => {
                     did_work = true;

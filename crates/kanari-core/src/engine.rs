@@ -1152,28 +1152,8 @@ impl BlockchainEngine {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .is_empty();
 
-        {
-            let consensus_lock = dag_engine.consensus();
-            let consensus = match consensus_lock.read() {
-                Ok(guard) => guard,
-                Err(poisoned) => {
-                    log::error!("Consensus lock poisoned in produce_checkpoint, recovering...");
-                    poisoned.into_inner()
-                }
-            };
-            let policy = consensus.production_policy();
-
-            if !has_pending_transactions && policy.should_wait_for_current_round_quorum() {
-                anyhow::bail!(
-                    "SYNC_WAITING: have {}/{} vertices in round {} from authors [{}]; missing authorities [{}]; need quorum for round {}",
-                    policy.parent_author_count,
-                    policy.quorum_size,
-                    policy.current_round,
-                    policy.parent_authors.join(", "),
-                    policy.missing_parent_authors.join(", "),
-                    policy.current_round + 1
-                );
-            }
+        if !has_pending_transactions {
+            anyhow::bail!("No new transactions to checkpoint");
         }
 
         dag_engine.produce_vertex()
@@ -1196,38 +1176,8 @@ impl BlockchainEngine {
         Ok(self.dag_engine_instance()?.latest_own_vertices(limit))
     }
 
-    pub fn add_network_dag_vertex(&self, vertex: DagVertex) -> Result<bool> {
-        let previous_height = self.get_stats().height;
-        self.dag_engine_instance()?.add_network_vertex(vertex)?;
-        Ok(self.get_stats().height > previous_height)
-    }
-
-    pub fn should_produce_dag_progress(&self) -> bool {
-        if self.consensus_signing_key.is_none() {
-            return false;
-        }
-
-        let dag_engine_guard = match self.dag_engine.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                log::error!(
-                    "DAG engine lock poisoned in should_produce_dag_progress, recovering..."
-                );
-                poisoned.into_inner()
-            }
-        };
-
-        if let Some(dag_engine) = dag_engine_guard.as_ref() {
-            return dag_engine.needs_progress();
-        }
-        drop(dag_engine_guard);
-
-        self.dag_engine_instance()
-            .map(|dag_engine| dag_engine.needs_progress())
-            .unwrap_or_else(|e| {
-                log::warn!("Failed to initialize DAG engine for progress check: {}", e);
-                false
-            })
+    pub fn add_network_dag_vertex(&self, vertex: DagVertex) -> Result<()> {
+        self.dag_engine_instance()?.add_network_vertex(vertex)
     }
 
     fn clone_for_dag(&self) -> BlockchainEngine {
@@ -1466,7 +1416,7 @@ mod tests {
     }
 
     #[test]
-    fn dag_engine_uses_configured_consensus_signing_key() {
+    fn configured_dag_engine_rejects_empty_checkpoint() {
         let mut engine = BlockchainEngine::new_in_memory().unwrap();
         let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
         engine.set_authorities("0x1".to_string(), authorities.clone());
@@ -1475,13 +1425,14 @@ mod tests {
             .set_consensus_signing_key(local_key, public_keys)
             .unwrap();
 
-        let block = engine.produce_checkpoint().unwrap();
+        let err = engine.produce_checkpoint().unwrap_err();
 
-        assert_eq!(block.round, 1);
+        assert!(err.to_string().contains("No new transactions"));
+        assert_eq!(engine.get_stats().height, 0);
     }
 
     #[test]
-    fn restarted_engine_detects_persisted_dag_progress_before_pending_txs() {
+    fn restarted_engine_does_not_create_empty_dag_progress() {
         let temp_dir = tempfile::tempdir().unwrap();
         let data_dir = temp_dir.path().to_str().unwrap();
         let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
@@ -1497,9 +1448,9 @@ mod tests {
                 .set_consensus_signing_key(local_key, public_keys)
                 .unwrap();
 
-            let block = engine.produce_checkpoint().unwrap();
-            assert_eq!(block.round, 1);
-            assert_eq!(block.tx_count, 0);
+            let err = engine.produce_checkpoint().unwrap_err();
+            assert!(err.to_string().contains("No new transactions"));
+            assert_eq!(engine.get_stats().height, 0);
         }
 
         let mut restarted = BlockchainEngine::new_dir(data_dir).unwrap();
@@ -1513,7 +1464,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(restarted.get_stats().pending_transactions, 0);
-        assert!(restarted.should_produce_dag_progress());
+        assert_eq!(restarted.get_stats().height, 0);
+        let err = restarted.produce_checkpoint().unwrap_err();
+        assert!(err.to_string().contains("No new transactions"));
     }
 
     #[test]

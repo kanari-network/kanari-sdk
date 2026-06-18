@@ -315,14 +315,6 @@ impl CoreDagConsensus {
         self.checkpoints.push(checkpoint);
         self.mysticeti.try_advance();
     }
-
-    pub fn needs_progress(&self) -> bool {
-        self.current_round > self.last_checkpoint_round
-            || self
-                .vertices
-                .iter()
-                .all(|vertex| vertex.author != self.authority_id)
-    }
 }
 
 #[derive(Clone)]
@@ -440,14 +432,15 @@ impl DagEngine {
                 .then_with(|| a.transaction_hash().cmp(b.transaction_hash()))
         });
         let tx_count = transactions.len();
+        if tx_count == 0 {
+            anyhow::bail!("No new transactions to checkpoint");
+        }
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs().saturating_mul(1000))
             .unwrap_or(0);
 
-        let (state_root, executed, failed, prepared_checkpoint_state) = if transactions.is_empty() {
-            (self.engine.state_read().compute_state_root(), 0, 0, None)
-        } else {
+        let (state_root, executed, failed, verified_state, to_execute, validate_supply) = {
             let state_snapshot = self.engine.state_read().clone();
             let state_arc = Arc::new(RwLock::new(state_snapshot));
             self.engine
@@ -474,15 +467,13 @@ impl DagEngine {
                 state_root,
                 executed,
                 failed,
-                Some((
-                    verified_state,
-                    if validate_supply {
-                        transactions.clone()
-                    } else {
-                        Vec::new()
-                    },
-                    validate_supply,
-                )),
+                verified_state,
+                if validate_supply {
+                    transactions.clone()
+                } else {
+                    Vec::new()
+                },
+                validate_supply,
             )
         };
 
@@ -514,8 +505,9 @@ impl DagEngine {
         use ed25519_dalek::Signer;
         vertex.signature = self.local_signing_key.sign(&vertex.id).to_bytes().to_vec();
 
-        let checkpoint = self.finalize_vertex(&vertex, prepared_checkpoint_state)?;
-        let checkpoint_info = checkpoint.as_ref().map(|checkpoint| CheckpointInfo {
+        let checkpoint =
+            self.finalize_vertex(&vertex, verified_state, to_execute, validate_supply)?;
+        let checkpoint_info = Some(CheckpointInfo {
             sequence: checkpoint.sequence,
             vertex_count: checkpoint.vertices.len(),
             tx_count: checkpoint.transactions.len(),
@@ -542,8 +534,10 @@ impl DagEngine {
     fn finalize_vertex(
         &self,
         vertex: &DagVertex,
-        prepared_checkpoint_state: Option<(StateManager, Vec<SignedTransaction>, bool)>,
-    ) -> Result<Option<Checkpoint>> {
+        verified_state: StateManager,
+        to_execute: Vec<SignedTransaction>,
+        validate_supply: bool,
+    ) -> Result<Checkpoint> {
         {
             let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
             consensus.add_vertex(vertex.clone())?;
@@ -565,53 +559,23 @@ impl DagEngine {
             vertex.timestamp,
             prev_hash,
         );
-        let mut checkpoint = checkpoint;
-
-        if checkpoint.transactions.is_empty() {
-            checkpoint.state_root = self.engine.state_read().compute_state_root();
-            self.engine.apply_checkpoint(checkpoint.clone())?;
-        } else if let Some((verified_state, to_execute, validate_supply)) =
-            prepared_checkpoint_state
-        {
-            self.engine.apply_prepared_checkpoint(
-                checkpoint.clone(),
-                verified_state,
-                to_execute,
-                validate_supply,
-            )?;
-        } else {
-            let (computed_root, verified_state, to_execute) =
-                self.engine.prepare_checkpoint_state(&checkpoint)?;
-            if !self.engine.checkpoint_root_matches(
-                checkpoint.sequence,
-                &computed_root,
-                &checkpoint.state_root,
-            )? {
-                checkpoint.state_root = computed_root;
-            }
-            self.engine.apply_prepared_checkpoint(
-                checkpoint.clone(),
-                verified_state,
-                to_execute,
-                true,
-            )?;
-        }
+        self.engine.apply_prepared_checkpoint(
+            checkpoint.clone(),
+            verified_state,
+            to_execute,
+            validate_supply,
+        )?;
 
         {
             let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
             consensus.record_checkpoint(checkpoint.clone());
         }
         self.persist_consensus_state()?;
-        Ok(Some(checkpoint))
+        Ok(checkpoint)
     }
 
     pub fn consensus(&self) -> Arc<RwLock<CoreDagConsensus>> {
         self.consensus.clone()
-    }
-
-    pub fn needs_progress(&self) -> bool {
-        let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
-        consensus.needs_progress()
     }
 
     pub fn latest_own_vertices(&self, limit: usize) -> Vec<DagVertex> {
@@ -620,11 +584,9 @@ impl DagEngine {
     }
 
     pub fn add_network_vertex(&self, vertex: DagVertex) -> Result<()> {
-        {
-            let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
-            if consensus.known_vertex(&vertex.id) {
-                return Ok(());
-            }
+        let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
+        if consensus.known_vertex(&vertex.id) {
+            return Ok(());
         }
         info!(
             "[DAG v2 SYNC] Accepted network vertex {} round {} txs {}",
@@ -632,8 +594,9 @@ impl DagEngine {
             vertex.round,
             vertex.transactions.len()
         );
-        self.finalize_vertex(&vertex, None)?;
-        Ok(())
+        consensus.add_vertex(vertex)?;
+        drop(consensus);
+        self.persist_consensus_state()
     }
 }
 

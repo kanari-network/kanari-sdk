@@ -1,280 +1,306 @@
-# Kanari
+# Kanari SDK
 
-Kanari is a **Modular Execution Client** inspired by the efficiency of **Reth**, reimagined for the **Move VM**.
+Kanari SDK is a Rust and Move workspace for building, running, and integrating
+the Kanari transaction network.
 
-## Developer Quick Start
+The current node architecture uses:
 
-### Prerequisites
+- Move VM execution through `kanari-move-runtime-v1`;
+- Mysticeti DAG metadata and consensus integration;
+- transaction-driven blockchain checkpoints;
+- libp2p transaction and checkpoint propagation;
+- JSON-RPC APIs and client SDKs;
+- RocksDB-backed state and transaction indexes;
+- Sparse Merkle Tree state roots.
 
-- Rust and Cargo (stable channel recommended)
-- Clang, LLVM, CMake (for RocksDB)
-- Libssl-dev, pkg-config
+## Design Requirement
 
-### Build CLI
+Blockchain height represents committed transaction work.
+
+- No transaction means no new checkpoint.
+- No transaction means no height increment.
+- Receiving a network DAG vertex does not directly create a checkpoint.
+- Read-only API calls do not create transactions or checkpoints.
+- Lagging nodes recover through checkpoint synchronization.
+- Transaction counts represent unique committed signed transactions.
+
+Read [Checkpoint and Height Design Invariants](crates/kanari-core/CHECKPOINT_DESIGN_INVARIANTS.md)
+before changing core checkpoint, DAG, sync, state-root, or transaction-counting
+behavior.
+
+## Prerequisites
+
+- Rust stable and Cargo
+- Clang and LLVM
+- CMake
+- A C/C++ build toolchain supported by RocksDB
+- PowerShell for the included Windows node scripts
+
+Linux environments may also require `pkg-config` and OpenSSL development
+packages.
+
+## Build
+
+Build the CLI:
 
 ```powershell
 cargo build -p kanari
 ```
 
-### Run CLI
+Build the node:
 
 ```powershell
-# List wallets (first run will bootstrap genesis)
+cargo build -p kanari-node
+```
+
+Build an optimized node:
+
+```powershell
+cargo build -p kanari-node --release
+```
+
+## CLI
+
+List local wallets:
+
+```powershell
 cargo run -p kanari -- keytool list
 ```
 
-### Move commands
+Create a Move package:
 
 ```powershell
-# Create new Move package
 cargo run -p kanari -- move new my_token
+```
 
-# Test Move package
+Test a Move package:
+
+```powershell
 cargo run -p kanari -- move test ./my_token
 ```
 
-**Note:** On first run, the CLI performs a Rust-side genesis that mints initial supply. To reset state, remove `~/.kanari/kanari-db/` and rerun.
-
----
-
-## Testing
+Publish a Move package through a running RPC node:
 
 ```powershell
-# Run all tests
-cargo test
+cargo run -p kanari -- move publish --skip-fetch-latest-git-deps
+```
 
-# Run specific crate tests
+See [Move CLI Guide](crates/kanari/MOVE_CLI_GUIDE.md) for additional commands.
+
+## Run Four Local Nodes
+
+The local scripts are in `crates/kanari-node`.
+
+```powershell
+cd crates/kanari-node
+cargo build -p kanari-node
+.\setup-multi-node.ps1 -NodeCount 4 -Network devnet -ResetSourceData -ResetReplicaData -ResetConsensusKeys
+```
+
+After the first clean setup, restart without reset flags to preserve state:
+
+```powershell
+.\setup-multi-node.ps1 -NodeCount 4 -Network devnet
+```
+
+Default RPC ports:
+
+| Node | Authority | RPC |
+|---|---|---|
+| 1 | `0x1` | `19001` |
+| 2 | `0x2` | `19011` |
+| 3 | `0x3` | `19021` |
+| 4 | `0x4` | `19031` |
+
+Every validator requires a unique consensus private key and the shared authority
+public-key map. The setup script generates local development keys when required.
+
+See [Multi-Node Guide](crates/kanari-node/MULTI_NODE_GUIDE.md) for manual startup,
+bootstrap peers, relay mode, and consensus-key handling.
+
+## Transaction Lifecycle
+
+```text
+RPC submit
+   |
+   v
+signature, replay, duplicate, and sequence validation
+   |
+   v
+verified mempool
+   |
+   v
+P2P transaction gossip
+   |
+   v
+deterministic Move execution
+   |
+   v
+Mysticeti-backed DAG metadata
+   |
+   v
+checkpoint, state root, and transaction indexes
+   |
+   v
+checkpoint synchronization for lagging nodes
+```
+
+The node waits for a short transaction gossip window before local checkpoint
+production. This allows authorities to receive the same transaction batch.
+
+Network DAG vertices are consensus metadata. They are stored and deduplicated,
+but they do not directly execute transactions or increment blockchain height.
+
+## Workspace Components
+
+### Runtime and Consensus
+
+- `crates/kanari-core`: execution, checkpoints, DAG integration, persistence
+- `move-execution/v1/kanari-move-runtime-v1`: Move VM runtime and state manager
+- `crates/mysticeti`: nested Mysticeti workspace used through path dependencies
+- `crates/smt`: Sparse Merkle Tree and Merkle utilities
+- `crates/kanari-db-common`: database helpers
+
+### Node and RPC
+
+- `crates/kanari-node`: validator node, libp2p networking, synchronization
+- `crates/kanari-rpc-api`: JSON-RPC types and method names
+- `crates/kanari-rpc-server`: RPC request handling
+- `crates/kanari-rpc-client`: Rust RPC client
+- `crates/kanari-indexer`: query indexing
+- `crates/kanari-faucet`: faucet service
+
+### Move and Frameworks
+
+- `crates/kanari`: CLI and Move package commands
+- `crates/kanari-frameworks`: released and source Move framework packages
+- `crates/kanari-framework-builder`: framework build tooling
+- `crates/kanari-system-natives`: Kanari native Move functions
+- `third_party/move`: bundled Move toolchain dependencies
+
+### Types, Crypto, and SDKs
+
+- `crates/kanari-types`: transactions, blocks, addresses, events, gas types
+- `crates/kanari-crypto`: keys, signatures, hashing, wallet cryptography
+- `crates/kanari-auth`: authentication support
+- `sdk/kanari_pay`: Kanari Pay Dart SDK and backend examples
+- `sdk/wallet`: wallet SDK
+- `packages/kanari_flutter`: Flutter integration
+
+### Applications and Tooling
+
+- `kanariexplorer`: network and transaction explorer
+- `kanari-web`: web application
+- `crates/kanari-benchmarks`: controlled execution benchmarks
+- `crates/kanari-open-rpc*`: OpenRPC generation and specifications
+
+## Persistence
+
+Node data is stored under the configured `--data-dir`. Local scripts use
+directories below `%USERPROFILE%\.kanari`.
+
+Do not delete node data for a normal restart. Reset data only when intentionally
+starting a fresh network or repairing an incompatible local development state.
+
+Persistent state includes:
+
+- Move state;
+- blockchain checkpoint metadata;
+- transaction payloads and hash indexes;
+- Mysticeti DAG metadata;
+- consensus identity configuration outside the database.
+
+Private consensus keys must not be committed to git or shared between
+authorities.
+
+## Safety
+
+The runtime verifies:
+
+- signed transaction integrity;
+- duplicate and replay protection;
+- per-sender sequence ordering;
+- checkpoint sequence continuity;
+- checkpoint transaction signatures;
+- state roots during synchronization;
+- optional strict persistence and supply invariants;
+- explicit consensus signing keys.
+
+Do not disable correctness checks to improve benchmark results.
+
+State-root differences at the same committed height are not expected. Different
+DAG vertex or checkpoint hashes may be acceptable only when committed state and
+transaction history remain identical.
+
+## Test
+
+Core and node checks:
+
+```powershell
+cargo check -p kanari-core -p kanari-node -p kanari-rpc-server
+cargo test -p kanari-core
+cargo test -p kanari-node sync::tests
+```
+
+Run a specific crate:
+
+```powershell
 cargo test -p kanari-types
 ```
 
----
+Run the complete workspace when required:
 
-## Project Structure
+```powershell
+cargo test --workspace
+```
 
-- `crates/kanari` — CLI binary and bootstrap logic
-- `crates/kanari-types` — domain types (accounts, balances, TransferRecord)
-- `crates/kanari-move-runtime` — Move VM integration (execution, validation, persistence)
-- `crates/kanari-crypto` — key management, signing, crypto utilities (**Standardized on Hybrid Signatures**)
-- `crates/kanari-frameworks/packages/kanari-system` — Move packages (on-chain modules)
-- `crates/kanari-core` — blockchain engine and DAG consensus
-- `crates/centauri` — consensus implementation
-- `third_party/move` — bundled Move toolchain (path dependencies)
+For consensus or synchronization changes, also run a four-node restart test:
 
----
+1. Start four authorities.
+2. Confirm idle height remains unchanged.
+3. Submit transactions through one RPC endpoint.
+4. Confirm all nodes converge on height, unique transaction count, and state
+   root.
+5. Stop and restart all nodes without resetting data.
+6. Confirm restart creates no extra transaction or checkpoint.
 
-## Local State
+## Benchmarks
 
-- **RocksDB path**: `~/.kanari/kanari-db/`
-- **State storage**: Serialized `MoveVMState` under key `"state"`
-- **Reset state**: Delete the DB directory and restart
+Use `kanari-benchmarks` for controlled measurements.
 
----
+Performance depends on:
 
-## Architecture (Advanced)
+- CPU and memory;
+- debug or release build;
+- transaction type and Move workload;
+- sender conflicts;
+- batch size;
+- storage and persistence settings;
+- network topology.
 
-Kanari is a **Modular Execution Client** inspired by the efficiency of **Reth**, reimagined for the **Move VM**:
-
-- **Parallel Execution:** Transactions are executed in parallel, achieving **52,000+ TPS**.
-- **Event-driven (Blockless):** No block dependency for instant user feedback.
-- **SDK-First:** Every component is designed as a crate for developers to extend or integrate.
-- **DAG-based propagation:** Narwhal & Bullshark consensus protocol for high throughput.
-- **Byzantine quorum consensus:** 2f+1 finality guarantee.
-- **Sparse Merkle Tree:** Efficient state verification and proofs.
-
-Transactions are executed instantly and finalized asynchronously through DAG consensus.
-
-For detailed architecture documentation:
-
-- [Kanari Core README](crates/kanari-core/README.md)
-- [DAG Architecture](crates/centauri/DAG_ARCHITECTURE.md)
-- [System ER Diagram](DOCS/SYSTEM_ER.md)
-
----
-
-## Key Files for Development
-
-- `crates/kanari/src/main.rs` — CLI entry point and bootstrap
-- `crates/kanari-move-runtime/src/move_runtime.rs` — Move VM integration
-- `crates/kanari-types/src/transfer.rs` — TransferRecord validation
-- `crates/kanari-frameworks/packages/kanari-system` — Move modules
-
----
+TPS and latency results must include the command, workload, hardware, build
+profile, and measurement boundary. A benchmark result is not automatically a
+mainnet throughput or finality guarantee.
 
 ## Documentation
 
-### Core Documentation
-
-- [Move CLI Guide](crates/kanari/MOVE_CLI_GUIDE.md) — Complete Move development guide
-- [Kanari Core](crates/kanari-core/README.md) — Engine and consensus details
-- [Whitepaper](documentation/whitepaper/) — Technical whitepaper
-- [Developer Book](documentation/book/) — Comprehensive docs
-
-### Centauri Consensus (Advanced)
-
-Kanari uses **DAG-based consensus** (Narwhal & Bullshark protocol) to achieve instant execution and sub-second finality.
-
-#### Why DAG Consensus?
-
-Traditional blockchain consensus:
-
-- ❌ Sequential block production (slow)
-- ❌ Single leader bottleneck
-- ❌ High latency (seconds to minutes)
-
-Kanari's DAG approach:
-
-- ✅ Parallel vertex creation (multiple authorities)
-- ✅ No single point of failure
-- ✅ Sub-second finality (~300ms)
-- ✅ High throughput (**52,000+ TPS**)
-
-#### How it works
-
-1. Transaction is submitted
-2. Executed instantly by a small node set (~10 ms)
-3. Propagated across the network (DAG)
-4. Finalized by Byzantine quorum (~300 ms)
-
-Result: Instant user experience with strong consistency and verifiable state.
-
-#### Architecture Overview
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                     Application Layer                            │
-│  (Move VM, Smart Contracts, Transactions)                        │
-└────────────────┬─────────────────────────────────────────────────┘
-                 │
-┌────────────────▼─────────────────────────────────────────────────┐
-│                   DAG Execution Layer                            │
-│                                                                  │
-│  ┌───────────────────────────────────────────────────────┐       │
-│  │              DagEngine                                │       │
-│  │  • produce_vertex()                                   │       │
-│  │  • Parallel transaction execution                     │       │
-│  │  • State management                                   │       │
-│  └───────────────────┬───────────────────────────────────┘       │
-└──────────────────────┼───────────────────────────────────────────┘
-                       │
-┌──────────────────────▼───────────────────────────────────────────┐
-│                 Consensus Layer (Bullshark)                      │
-│                                                                  │
-│  ┌────────────┐  ┌────────────┐  ┌────────────┐                  │
-│  │  Ordering  │  │  Quorum    │  │  Leader    │                  │
-│  │  Protocol  │  │  Check     │  │  Election  │                  │
-│  │  (3 rounds)│  │  (2f+1)    │  │  (Round-   │                  │
-│  │            │  │            │  │   Robin)   │                  │
-│  └────────────┘  └────────────┘  └────────────┘                  │
-│                                                                  │
-│  ┌────────────────────────────────────────────────────┐          │
-│  │         DagConsensus                               │          │
-│  │  • create_vertex()                                 │          │
-│  │  • add_vertex()                                    │          │
-│  │  • try_commit() → Checkpoint                       │          │
-│  └────────────────────┬───────────────────────────────┘          │
-└───────────────────────┼──────────────────────────────────────────┘
-                        │
-┌───────────────────────▼──────────────────────────────────────────┐
-│              Data Availability Layer                             │
-│                                                                  │
-│  ┌────────────────────────────────────────────────────┐          │
-│  │              DagStore                              │          │
-│  │  • Store vertices (HashMap<VertexId, DagVertex>)   │          │
-│  │  • Index by round                                  │          │
-│  │  • Index by authority                              │          │
-│  │  • Maintain pending vertices queue                 │          │
-│  └────────────────────────────────────────────────────┘          │
-└──────────────────────────────────────────────────────────────────┘
-```
-
-#### Parallel Execution Model
-
-```
-┌───────────────────────────────────────────────────────────┐
-│                    Transaction Pool                       │
-│  [Tx1 Tx2 Tx3 Tx4 Tx5 Tx6 Tx7 Tx8 Tx9 Tx10]               │
-└─────────┬─────────────────────────────────────────────────┘
-          │
-          │ Group by sender
-          ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Sender A: [Tx1, Tx4, Tx7]  (sequential execution)          │
-│  Sender B: [Tx2, Tx5, Tx8]  (sequential execution)          │
-│  Sender C: [Tx3, Tx6, Tx9]  (sequential execution)          │
-│  Sender D: [Tx10]           (sequential execution)          │
-└────┬──────────┬──────────┬───────────┬──────────────────────┘
-     │          │          │           │
-     │          │          │           │
-┌────▼────┐ ┌───▼─────┐ ┌──▼──────┐ ┌──▼──────┐
-│Worker 1 │ │Worker 2 │ │Worker 3 │ │Worker 4 │  (Parallel)
-│Runtime 1│ │Runtime 2│ │Runtime 3│ │Runtime 4│
-└────┬────┘ └───┬─────┘ └──┬──────┘ └──┬──────┘
-     │          │          │           │
-     └──────────┴──────────┴───────────┘
-                │
-                ▼
-         ┌──────────────┐
-         │  ChangeSet   │
-         │  Aggregation │
-         └──────┬───────┘
-                │
-                ▼
-         ┌──────────────┐
-         │ Apply to     │
-         │ State        │
-         └──────────────┘
-```
-
-#### Security Model: Byzantine Fault Tolerance
-
-```
-Total Authorities: n = 4
-Maximum Faulty: f = (n-1)/3 = 1
-Quorum Required: 2f+1 = 3
-
-For commit to happen:
-• Leader vertex needs ≥ 3 supporters
-• Even if 1 authority is malicious, 3 honest
-  authorities form quorum
-```
-
-#### SMT and Light Client Integration
-
-Centauri uses the `smt` crate to provide cryptographic proofs for light clients:
-
-- **State Proofs (SMT)**: The `state_root` in each checkpoint represents the root of a Sparse Merkle Tree. Light clients can verify account state using `StateProof`.
-- **Transaction Proofs**: The `tx_root` is computed from actual transaction hashes using binary Merkle trees. Light clients verify transaction inclusion using `TransactionProof`.
-
-#### Production Status
-
-- **Security Audit**: ✅ All 22 critical vulnerabilities fixed and verified
-- **Test Coverage**: ✅ 107/107 tests passing with comprehensive fuzz testing
-- **Performance**: ✅ 52,000+ TPS with sub-300ms finality
-- **Production Ready**: ✅ Ready for mainnet deployment
-
----
-
-## Vision
-
-Kanari is built for real-time interactive systems like games, where speed, usability, and reliability are critical.
-
-It bridges the gap between traditional game backend systems and verifiable distributed infrastructure.
-
----
+- [Kanari Core](crates/kanari-core/README.md)
+- [Checkpoint Design Invariants](crates/kanari-core/CHECKPOINT_DESIGN_INVARIANTS.md)
+- [Multi-Node Guide](crates/kanari-node/MULTI_NODE_GUIDE.md)
+- [Move CLI Guide](crates/kanari/MOVE_CLI_GUIDE.md)
+- [Frameworks](crates/kanari-frameworks/README.md)
+- [SMT](crates/smt/README.md)
+- [System ER Diagram](DOCS/SYSTEM_ER.md)
+- [Merkle Trees](DOCS/MERKLE_TREES.md)
+- [Developer Book](documentation/book/)
+- [Whitepaper](documentation/whitepaper/)
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-Copyright (c) KanariNetwork, Inc.  
+Copyright (c) KanariNetwork, Inc.
+
 SPDX-License-Identifier: Apache-2.0
-
----
-
-## Need help?
-
-- **Issues**: [GitHub Issues](https://github.com/kanari-network/kanari-sdk/issues)
-
-- **Docs**: [docs.kanari.network](https://docs.kanarinetwork.site)

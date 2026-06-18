@@ -1,287 +1,230 @@
-# Kanari Architecture
+# Kanari Core
 
-Real-time transaction network for in-game payments and asset systems.
+`kanari-core` is the transaction execution and checkpoint state layer used by
+`kanari-node`.
 
-## What is Kanari?
+It connects:
 
-Kanari is a real-time transaction network designed for game economies.
+- signed Kanari transactions;
+- the Move runtime;
+- persistent blockchain and transaction indexes;
+- Sparse Merkle Tree state roots;
+- Mysticeti DAG metadata;
+- checkpoint production and synchronization.
 
-It allows developers to build:
+This crate is not a standalone consensus demo. Normal applications should use
+the Kanari RPC API or SDK instead of constructing `DagEngine` directly.
 
-- Instant in-game payments (UID top-up)
-- Real-time asset trading
-- Game economy systems
+## Current Design
 
-Transactions execute instantly (~10 ms) and finalize securely within ~300 ms.
+Kanari uses transaction-driven checkpoints.
 
-## Why Kanari?
-
-Traditional systems:
-
-- ❌ Slow settlement (seconds)
-- ❌ Complex backend
-- ❌ No verifiable state
-
-Kanari:
-
-- ✅ Instant execution
-- ✅ Sub-second finality
-- ✅ No gas fees
-- ✅ Simple integration
-
----
-
-## How it works
-
-1. Transaction is submitted
-2. Executed instantly by a small node set (~10 ms)
-3. Propagated across the network (DAG)
-4. Finalized by Byzantine quorum (~300 ms)
-
-Result:
-
-- Instant user experience
-- Strong consistency
-
-## Example: In-game payment
-
-1. Player enters UID
-2. Payment is submitted
-3. Balance updates instantly
-4. Transaction is finalized within 300 ms
-
-No waiting. No gas fees.
-
----
-
-## Quick Start
-
-### DAG Mode
-
-```rust
-use kanari_core::engine::{BlockchainEngine, DagEngine};
-use std::sync::Arc;
-
-// Create base engine
-let engine = Arc::new(BlockchainEngine::new()?);
-
-// Setup authorities
-let authorities = vec![
-    "auth1".to_string(),
-    "auth2".to_string(),
-    "auth3".to_string(),
-    "auth4".to_string(),
-];
-
-// Create DAG engine
-let dag_engine = DagEngine::new(
-    engine.clone(),
-    "auth1".to_string(),
-    authorities,
-)?;
-
-// Submit transactions
-dag_engine.engine().submit_transaction(signed_tx)?;
-
-// Produce vertex
-let dag_info = dag_engine.produce_vertex()?;
-
-// Check checkpoint
-if let Some(checkpoint) = dag_info.checkpoint {
-    println!("Checkpoint #{} created!", checkpoint.sequence);
-}
+```text
+RPC or P2P transaction
+        |
+        v
+signature, replay, and sequence validation
+        |
+        v
+verified mempool
+        |
+        v
+deterministic Move execution
+        |
+        v
+Mysticeti-backed DAG vertex
+        |
+        v
+checkpoint + state root + transaction indexes
 ```
 
----
+A checkpoint is created only when at least one accepted transaction is waiting
+in the mempool. An idle node does not increment blockchain height.
 
-## Features
+See [CHECKPOINT_DESIGN_INVARIANTS.md](CHECKPOINT_DESIGN_INVARIANTS.md) before
+changing checkpoint production, DAG synchronization, transaction counting, or
+state-root behavior.
 
-### 🔗 DAG-Based Network
+## Important Invariants
 
-- **DAG Mode**: High-throughput DAG-based consensus (Mysticeti-style)
-- Parallel transaction processing
-- Byzantine fault tolerance
+- Empty mempools do not create checkpoints.
+- Empty mempools do not increment blockchain height.
+- Network DAG vertices update consensus metadata only.
+- Receiving a DAG vertex does not directly execute its transactions.
+- Lagging nodes recover blockchain state through checkpoint synchronization.
+- Transaction counts represent unique committed signed transactions.
+- Move system prologues, clock updates, and peer messages are not transactions.
+- Nodes with the same committed transaction history must produce the same state
+  root.
 
-### ⚡ High Performance
+These rules are intentional product behavior.
 
-- **10,000+ TPS** throughput in DAG mode
-- **100-500ms** latency
-- Parallel transaction execution
-- Multi-core CPU utilization
+## Main Components
 
-### 🛡️ Byzantine Fault Tolerance
+### `BlockchainEngine`
 
-- Tolerates f = (n-1)/3 Byzantine failures
-- 2f+1 quorum requirements
-- Signature verification on all transactions
-- Proven consensus algorithms
+The main execution and state API.
 
-### 🔧 Move VM Integration
+Responsibilities include:
 
-- Execute Move smart contracts
-- Parallel execution for non-conflicting transactions
-- Gas metering and limits
-- State management with Sparse Merkle Trees
+- loading in-memory or persistent state;
+- validating and accepting signed transaction batches;
+- deterministic parallel Move execution;
+- checkpoint production;
+- checkpoint replay and synchronization;
+- transaction history and hash indexes;
+- account, block, transaction, and network statistics.
 
----
-
-## Architecture
+Constructors:
 
 ```rust
-┌─────────────────────────────────────────┐
-│       Application Layer                 │
-│  (Move VM, Smart Contracts, TXs)        │
-└──────────────┬──────────────────────────┘
-               │
-┌──────────────▼──────────────────────────┐
-│       Execution Layer                   │
-│  • DagEngine / BlockchainEngine         │
-│  • Parallel TX execution                │
-│  • State management                     │
-└──────────────┬──────────────────────────┘
-               │
-┌──────────────▼──────────────────────────┐
-│       Consensus Layer                   │
-│  • DagConsensus (Mysticeti)             │
-│  • Multi-leader selection               │
-│  • Checkpoint creation                  │
-└──────────────┬──────────────────────────┘
-               │
-┌──────────────▼──────────────────────────┐
-│       Data Availability Layer            │
-│  • DagStore                              │
-│  • Vertex storage & indexing             │
-│  • Merkle proofs                         │
-└──────────────────────────────────────────┘
+use kanari_core::BlockchainEngine;
+
+let persistent = BlockchainEngine::new_dir("./kanari-db")?;
+let default_path = BlockchainEngine::new()?;
+let test_engine = BlockchainEngine::new_in_memory()?;
 ```
 
-## Modules
+Production checkpoint creation also requires configured authorities and an
+explicit consensus signing key.
 
-### blockchain
+### `DagEngine`
 
-Core blockchain data structures and operations:
+Internal Mysticeti integration used by `BlockchainEngine`.
 
-- `Block`, `BlockHeader`, `Transaction`, `SignedTransaction`
-- `Blockchain` - DAG-based blockchain state
-- `DagVertex`, `Checkpoint` - DAG structures
-- `DagStore`, `DagConsensus` - DAG consensus protocol
-- Merkle tree implementation
+It:
 
-### engine
+- proposes local DAG vertices from verified mempool transactions;
+- tracks known local and network vertices;
+- persists DAG metadata;
+- rejects zero-transaction local production.
 
-Blockchain execution engine:
+Network vertices are not finalized directly into blockchain checkpoints.
 
-- `BlockchainEngine` - main engine with Move VM
-- `DagEngine` - DAG consensus engine
-- `produce_vertex()` - DAG vertex production
-- Parallel transaction execution
+### `Blockchain`
 
----
+Stores retained checkpoint history and query indexes:
+
+- committed checkpoints;
+- executed transaction hashes;
+- transaction-to-checkpoint locations;
+- unique committed transaction count.
+
+### Move Runtime
+
+`kanari-move-runtime-v1` executes Move transactions and maintains logical state.
+State roots are generated through the workspace `smt` crate.
+
+## Transaction Flow
+
+1. A signed transaction arrives through RPC or P2P.
+2. The engine verifies its signature and immutable transaction hash.
+3. Replay, duplicate, sender sequence, and mempool limits are checked.
+4. The transaction enters the verified mempool.
+5. The node allows a short gossip window for other authorities.
+6. Pending transactions are sorted deterministically.
+7. Move execution prepares the next state and state root.
+8. Mysticeti supplies DAG vertex metadata.
+9. The checkpoint, state, transaction payloads, and indexes are persisted.
+10. The checkpoint is broadcast so lagging nodes can synchronize.
+
+Calling read-only RPC methods must not create transactions or checkpoints.
+
+## Persistence
+
+Persistent mode separates checkpoint metadata from transaction payload storage.
+Transaction hashes and locations are indexed so RPC and explorer queries do not
+need to scan the entire blockchain history for normal lookups.
+
+On startup, the engine:
+
+- loads checkpoint and Move state;
+- hydrates retained transaction payloads;
+- rebuilds in-memory replay and location indexes;
+- repairs recoverable metadata from persisted DAG state when required.
+
+## Public Types
+
+The crate exports:
+
+- `BlockchainEngine`
+- `BlockchainStats`
+- `BlockData`
+- `FullBlockData`
+- `Checkpoint`
+- `CheckpointSyncData`
+- `CheckpointProductionInfo`
+- `DagVertex`
+- `DagProductionPolicy`
+- `PersistentDagState`
+- `ConsensusRuntimeProtocol`
+
+`DagEngine` is exposed for internal workspace integration, but application code
+should normally use `BlockchainEngine`, RPC, or an SDK.
+
+## Validation and Safety
+
+The engine enforces:
+
+- transaction signature verification;
+- per-sender sequence ordering;
+- duplicate and replay rejection;
+- checkpoint sequence validation;
+- deterministic transaction ordering;
+- state-root verification during checkpoint sync;
+- optional strict persistence and supply invariant guards;
+- explicit consensus signing keys.
+
+Do not weaken these checks to improve benchmark results.
+
+## Build and Test
+
+```powershell
+cargo check -p kanari-core -p kanari-node -p kanari-rpc-server
+cargo test -p kanari-core
+cargo test -p kanari-node sync::tests
+```
+
+Build an optimized node with:
+
+```powershell
+cargo build -p kanari-node --release
+```
+
+After changing consensus or synchronization, verify a four-node network:
+
+1. Start all authorities.
+2. Confirm idle heights remain unchanged.
+3. Submit one signed transaction through one node.
+4. Confirm every node converges on height, unique transaction count, and state
+   root.
+5. Restart all nodes without resetting data.
+6. Confirm restart does not create an additional transaction or checkpoint.
 
 ## Performance
 
-|    Metric   |       DAG Mode      |
-|-------------|---------------------|
-| Throughput  | ~50,000+ TPS        |
-| Latency     | ~100-300ms          |
-| Parallelism | High (N validators) |
-| CPU Usage   | ~80%+ (optimized)   |
+Performance depends on transaction type, sender conflicts, Move execution,
+storage, CPU, memory, build profile, and batch size.
 
-## DAG Consensus
-
-Implements a Mysticeti-style DAG consensus protocol:
-
-### Data Availability
-
-- Vertices created in parallel by multiple authorities
-- Each vertex references 2f+1 parents
-- Efficient storage with HashMap indexing
-
-### Ordering
-
-- Deterministic multi-leader ordering
-- 3-round decision protocol
-- Automatic checkpoint creation
-
-### Execution
-
-- Parallel transaction execution
-- Per-sender sequence enforcement
-- State management with snapshots
-
----
-
-## Documentation
-
-- [DAG_CONSENSUS.md](DAG_CONSENSUS.md) - Complete DAG consensus guide
-- [DAG_ARCHITECTURE.md](DAG_ARCHITECTURE.md) - Architecture diagrams
-- [DAG_IMPLEMENTATION_SUMMARY.md](DAG_IMPLEMENTATION_SUMMARY.md) - Implementation details
-- [DAG_COMPLETION_REPORT.md](DAG_COMPLETION_REPORT.md) - Project completion report
-- [examples/README.md](examples/README.md) - Examples guide
-
-## Examples
-
-Run the DAG consensus demo:
-
-```bash
-cargo run --package kanari-core --example dag_consensus_demo
-```
-
-See [examples/](examples/) directory for more.
-
-## Testing
-
-```bash
-# Run all tests
-cargo test --package kanari-core
-
-# Run DAG-specific tests
-cargo test --package kanari-core --lib dag
-
-# Run with output
-cargo test --package kanari-core -- --nocapture
-```
+Use `kanari-benchmarks` for measurements. Do not place fixed TPS or latency
+claims in this README unless they identify the exact workload, hardware, build,
+and measurement method.
 
 ## Dependencies
 
-- `kanari-move-runtime-v1` - Move VM integration
-- `kanari-crypto` - Cryptographic primitives (Blake3, Ed25519, etc.)
-- `kanari-types` - Common type definitions
-- `smt` - Sparse Merkle Tree implementation
-- `move-core-types` - Move language types
+Key workspace dependencies:
 
-## Features Flags
-
-Currently no feature flags. All features are enabled by default.
-
-## Building
-
-```bash
-# Check compilation
-cargo check --package kanari-core
-
-# Build
-cargo build --package kanari-core
-
-# Build with optimizations
-cargo build --package kanari-core --release
-```
-
-## Benchmarks
-
-Run benchmarks with:
-
-```bash
-cargo bench --package kanari-core
-```
-
-## Contributing
-
-See [CONTRIBUTING.md](../../CONTRIBUTING.md) in the workspace root.
+- `kanari-move-runtime-v1`
+- `kanari-types`
+- `kanari-crypto`
+- `smt`
+- `mysticeti-consensus`
+- `mysticeti-dag`
 
 ## License
 
-Copyright (c) KanariNetwork, Inc.  
+Copyright (c) KanariNetwork, Inc.
+
 SPDX-License-Identifier: Apache-2.0
 
 ## References

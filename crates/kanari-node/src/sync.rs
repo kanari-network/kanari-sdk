@@ -406,39 +406,6 @@ impl SyncManager {
             self.handle_new_dag_vertex(vertex_data.clone()).await;
         }
 
-        let local_authority = self.engine.authority_id().to_string();
-        if !request.missing_authorities.is_empty()
-            && !request
-                .missing_authorities
-                .iter()
-                .any(|authority| authority == &local_authority)
-        {
-            return;
-        }
-
-        match self.engine.produce_checkpoint() {
-            Ok(block_info) => {
-                info!(
-                    "[DAG SYNC] Produced catch-up vertex for request: round {}, txs {}",
-                    block_info.round, block_info.tx_count
-                );
-            }
-            Err(e) => {
-                let error_text = e.to_string();
-                if !error_text.contains("No new transactions")
-                    && !error_text.contains("DAG_WAITING")
-                    && !error_text.contains("SYNC_WAITING")
-                    && !error_text.contains("DAG not ready")
-                    && !error_text.contains("Not enough parents for quorum")
-                {
-                    warn!(
-                        "[DAG SYNC] Catch-up production for request failed: {}",
-                        error_text
-                    );
-                }
-            }
-        }
-
         let limit = (request.limit as usize).clamp(1, MAX_DAG_VERTICES_PER_RESPONSE);
         let vertices = match self.engine.latest_own_dag_vertices(limit) {
             Ok(vertices) => vertices,
@@ -703,13 +670,12 @@ impl SyncManager {
         buffer.push_back(vertex);
     }
 
-    fn retry_buffered_dag_vertices(&self) -> bool {
+    fn retry_buffered_dag_vertices(&self) {
         let retry_count = self.dag_vertex_buffer_guard().len();
         if retry_count == 0 {
-            return false;
+            return;
         }
 
-        let mut height_changed = false;
         for _ in 0..retry_count {
             let Some(vertex) = self.dag_vertex_buffer_guard().pop_front() else {
                 break;
@@ -717,12 +683,11 @@ impl SyncManager {
 
             let vertex_id = hex::encode(vertex.id);
             match self.engine.add_network_dag_vertex(vertex.clone()) {
-                Ok(changed) => {
+                Ok(()) => {
                     info!(
                         "[DAG SYNC] Applied buffered DAG vertex {} (round {})",
                         vertex_id, vertex.round
                     );
-                    height_changed |= changed;
                 }
                 Err(e) => {
                     let error_text = e.to_string();
@@ -737,8 +702,6 @@ impl SyncManager {
                 }
             }
         }
-
-        height_changed
     }
 
     async fn request_missing_checkpoints_from_peer(
@@ -982,7 +945,6 @@ impl SyncManager {
         // not as the higher-level block metadata wrapper.
 
         if let Some(vertex) = Self::parse_message::<DagVertex>(&vertex_data, "DAG vertex") {
-            let stats = self.engine.get_stats();
             info!(
                 "Received DAG vertex {} (round {}) from network with {} transactions",
                 hex::encode(vertex.id),
@@ -991,19 +953,12 @@ impl SyncManager {
             );
 
             match self.engine.add_network_dag_vertex(vertex.clone()) {
-                Ok(height_changed) => {
+                Ok(()) => {
                     info!(
                         "Successfully added DAG vertex {} to local consensus",
                         hex::encode(vertex.id)
                     );
-                    let buffered_height_changed = self.retry_buffered_dag_vertices();
-                    if height_changed || buffered_height_changed {
-                        let new_stats = self.engine.get_stats();
-                        if new_stats.height > stats.height {
-                            info!("New height reached via DAG: {}", new_stats.height);
-                            self.broadcast_peer_info().await;
-                        }
-                    }
+                    self.retry_buffered_dag_vertices();
                 }
                 Err(e) => {
                     let error_text = e.to_string();
@@ -1363,11 +1318,18 @@ mod tests {
         let stats = sync.engine.get_stats();
         let local_state_root = sync.engine.latest_checkpoint_state_root_hex();
 
-        sync.handle_peer_info(peer_info(stats.height, "different-checkpoint", &local_state_root))
-            .await;
+        sync.handle_peer_info(peer_info(
+            stats.height,
+            "different-checkpoint",
+            &local_state_root,
+        ))
+        .await;
 
         assert!(!sync.is_peer_divergent("peer-1"));
-        assert_eq!(sync.best_peer_for_height(stats.height), Some("peer-1".to_string()));
+        assert_eq!(
+            sync.best_peer_for_height(stats.height),
+            Some("peer-1".to_string())
+        );
         assert_eq!(sync.max_eligible_peer_height(), stats.height);
     }
 
