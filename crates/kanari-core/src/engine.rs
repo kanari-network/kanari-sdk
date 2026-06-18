@@ -294,34 +294,40 @@ impl BlockchainEngine {
             return Ok(Some((0, 0)));
         }
 
-        let mut changeset = ChangeSet::new();
+        let mut sequence_increments: AHashMap<AccountAddress, u64> = AHashMap::default();
+        let zero_amount = 0u64.to_le_bytes();
+
         for signed_tx in transactions {
-            let Transaction::ExecuteFunction { gas_price, .. } = &signed_tx.transaction else {
+            let Transaction::ExecuteFunction {
+                sender,
+                module,
+                function,
+                args,
+                gas_price,
+                ..
+            } = &signed_tx.transaction
+            else {
                 return Ok(None);
             };
-            if *gas_price != 0 {
+            if *gas_price != 0 || module != Transaction::KANARI_MODULE {
                 return Ok(None);
             }
 
-            match signed_tx.transaction.native_call() {
-                Some(NativeCall::TransferAmount { amount, .. })
-                | Some(NativeCall::BurnAmount { amount })
-                    if amount == 0 =>
-                {
-                    let sender_addr = KanariAddress::parse_to_account_address(
-                        signed_tx.transaction.sender_address(),
-                    )?;
-                    changeset
-                        .get_or_create_change(sender_addr)
-                        .increment_sequence();
-                }
-                _ => return Ok(None),
+            let is_zero_native_call = matches!(
+                function.as_str(),
+                Transaction::BURN_AMOUNT_FUNCTION | Transaction::TRANSFER_AMOUNT_FUNCTION
+            ) && args.first().is_some_and(|amount| amount.as_slice() == zero_amount);
+            if !is_zero_native_call {
+                return Ok(None);
             }
+
+            let sender_addr = KanariAddress::parse_to_account_address(sender)?;
+            *sequence_increments.entry(sender_addr).or_insert(0) += 1;
         }
 
         let mut state_write = state_arc.write().unwrap_or_else(|e| e.into_inner());
         state_write
-            .apply_changeset_without_supply_validation(&changeset)
+            .apply_zero_effect_sequence_batch(sequence_increments)
             .map_err(|e| anyhow::anyhow!("Failed to apply zero-effect native batch: {}", e))?;
 
         Ok(Some((transactions.len(), 0)))

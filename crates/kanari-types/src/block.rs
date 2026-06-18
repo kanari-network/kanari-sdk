@@ -5,7 +5,7 @@
 use anyhow::Result;
 use kanari_crypto::hash_data_blake3;
 use serde::{Deserialize, Serialize};
-use smt::compute_merkle_root;
+use smt::compute_merkle_root as compute_transaction_merkle_root;
 // use fully-qualified paths for time APIs to avoid unused-import warnings
 use tracing::error;
 
@@ -74,7 +74,7 @@ impl Block {
 
         // Compute merkle root from transaction hashes
         let tx_hashes: Vec<Vec<u8>> = transactions.iter().map(|tx| tx.hash()).collect();
-        let merkle_root = compute_merkle_root(&tx_hashes);
+        let merkle_root = compute_transaction_merkle_root(&tx_hashes);
 
         let header = BlockHeader::new(
             height,
@@ -152,7 +152,7 @@ impl Block {
 
         // Verify merkle root
         let tx_hashes: Vec<Vec<u8>> = self.transactions.iter().map(|tx| tx.hash()).collect();
-        let computed_merkle_root = compute_merkle_root(&tx_hashes);
+        let computed_merkle_root = compute_transaction_merkle_root(&tx_hashes);
         if self.header.merkle_root != computed_merkle_root {
             anyhow::bail!(
                 "Merkle root mismatch: header {}, computed {}",

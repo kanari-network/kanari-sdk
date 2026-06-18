@@ -199,10 +199,10 @@ impl BlockchainEngine {
 
     pub fn block_from_full_data(full_block: &FullBlockData) -> kanari_types::block::Block {
         use kanari_types::block::{Block, BlockHeader};
-        use smt::compute_merkle_root;
+        use smt::compute_merkle_root as compute_transaction_merkle_root;
 
         let tx_hashes: Vec<Vec<u8>> = full_block.transactions.iter().map(|tx| tx.hash()).collect();
-        let merkle_root = compute_merkle_root(&tx_hashes);
+        let merkle_root = compute_transaction_merkle_root(&tx_hashes);
 
         let header = BlockHeader::new(
             full_block.height,

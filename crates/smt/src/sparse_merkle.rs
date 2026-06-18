@@ -116,6 +116,97 @@ impl SparseMerkleTree {
         }
     }
 
+    pub fn root_hash_with_changes(
+        &self,
+        updates: &[(Vec<u8>, Vec<u8>)],
+        deletes: &[Vec<u8>],
+    ) -> Result<[u8; 32]> {
+        if updates.is_empty() && deletes.is_empty() {
+            return self.root_hash();
+        }
+
+        use std::collections::HashMap;
+
+        let mut node_cache: HashMap<NodeCacheKey, [u8; 32]> = HashMap::with_capacity(
+            node_cache_capacity(updates.len().saturating_add(deletes.len())),
+        );
+        let mut root = self.root_hash()?;
+
+        for key in deletes {
+            let kh = digest(key.as_slice());
+            let mut cur = self.default_hashes[256];
+
+            for depth in (1..=256).rev() {
+                let (byte_idx, bit_in_byte) = key_bit_position(depth);
+
+                let (mut sibling_key, sibling_key_len) = node_cache_key(depth, &kh);
+                flip_last_key_bit(&mut sibling_key, depth);
+
+                let sibling_hash = if let Some(hash) = node_cache.get(&sibling_key) {
+                    *hash
+                } else if let Ok(Some(v)) = self.db.get(&sibling_key[..sibling_key_len]) {
+                    let mut arr = [0u8; 32];
+                    arr.copy_from_slice(&v);
+                    arr
+                } else {
+                    self.default_hashes[depth]
+                };
+
+                let bit_is_left = ((kh[byte_idx] >> bit_in_byte) & 1u8) == 0;
+                let (left, right) = if bit_is_left {
+                    (cur, sibling_hash)
+                } else {
+                    (sibling_hash, cur)
+                };
+                let parent = hash_node(&left, &right);
+
+                flip_last_key_bit(&mut sibling_key, depth);
+                node_cache.insert(sibling_key, cur);
+                cur = parent;
+            }
+
+            root = cur;
+        }
+
+        for (key, value) in updates {
+            let kh = digest(key.as_slice());
+            let mut cur = hash_leaf(&kh, value);
+
+            for depth in (1..=256).rev() {
+                let (byte_idx, bit_in_byte) = key_bit_position(depth);
+
+                let (mut sibling_key, sibling_key_len) = node_cache_key(depth, &kh);
+                flip_last_key_bit(&mut sibling_key, depth);
+
+                let sibling_hash = if let Some(hash) = node_cache.get(&sibling_key) {
+                    *hash
+                } else if let Ok(Some(v)) = self.db.get(&sibling_key[..sibling_key_len]) {
+                    let mut arr = [0u8; 32];
+                    arr.copy_from_slice(&v);
+                    arr
+                } else {
+                    self.default_hashes[depth]
+                };
+
+                let bit_is_left = ((kh[byte_idx] >> bit_in_byte) & 1u8) == 0;
+                let (left, right) = if bit_is_left {
+                    (cur, sibling_hash)
+                } else {
+                    (sibling_hash, cur)
+                };
+                let parent = hash_node(&left, &right);
+
+                flip_last_key_bit(&mut sibling_key, depth);
+                node_cache.insert(sibling_key, cur);
+                cur = parent;
+            }
+
+            root = cur;
+        }
+
+        Ok(root)
+    }
+
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let kh = digest(key);
         let data_key = data_key(&kh);
@@ -327,6 +418,55 @@ pub fn default_hashes() -> &'static [[u8; 32]] {
     &DEFAULT_HASHES
 }
 
+pub fn compute_sparse_root(entries: &[(Vec<u8>, Vec<u8>)]) -> [u8; 32] {
+    if entries.is_empty() {
+        return DEFAULT_HASHES[0];
+    }
+
+    use std::collections::HashMap;
+
+    let ordered = entries
+        .iter()
+        .map(|(key, value)| (digest(key), value))
+        .collect::<Vec<_>>();
+
+    let mut node_cache: HashMap<NodeCacheKey, [u8; 32]> =
+        HashMap::with_capacity(node_cache_capacity(ordered.len()));
+    let mut root = DEFAULT_HASHES[0];
+
+    for (kh, value) in ordered {
+        let mut cur = hash_leaf(&kh, value);
+
+        for depth in (1..=256).rev() {
+            let (byte_idx, bit_in_byte) = key_bit_position(depth);
+
+            let (mut sibling_key, _sibling_key_len) = node_cache_key(depth, &kh);
+            flip_last_key_bit(&mut sibling_key, depth);
+
+            let sibling_hash = node_cache
+                .get(&sibling_key)
+                .copied()
+                .unwrap_or(DEFAULT_HASHES[depth]);
+
+            let bit_is_left = ((kh[byte_idx] >> bit_in_byte) & 1u8) == 0;
+            let (left, right) = if bit_is_left {
+                (cur, sibling_hash)
+            } else {
+                (sibling_hash, cur)
+            };
+            let parent = hash_node(&left, &right);
+
+            flip_last_key_bit(&mut sibling_key, depth);
+            node_cache.insert(sibling_key, cur);
+            cur = parent;
+        }
+
+        root = cur;
+    }
+
+    root
+}
+
 /// Verify a proof (membership or non-membership) against a given root.
 /// `proof` is the tuple returned by `proof()`: `(is_member, leaf_hash, siblings)`.
 pub fn verify_proof(root: &[u8; 32], key: &[u8], proof: (bool, [u8; 32], Vec<[u8; 32]>)) -> bool {
@@ -487,6 +627,46 @@ mod tests {
         let (is_member, _, _) = smt.proof(key)?;
         assert!(!is_member);
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_root_hash_with_changes_matches_applied_batch() -> Result<()> {
+        let dir = tempdir()?;
+        let smt = open_test_db(dir.path());
+
+        smt.insert(&[
+            (b"keep".to_vec(), b"old".to_vec()),
+            (b"delete".to_vec(), b"value".to_vec()),
+        ])?;
+
+        let updates = vec![
+            (b"keep".to_vec(), b"new".to_vec()),
+            (b"add".to_vec(), b"value".to_vec()),
+        ];
+        let deletes = vec![b"delete".to_vec()];
+        let speculative_root = smt.root_hash_with_changes(&updates, &deletes)?;
+
+        smt.delete(&deletes)?;
+        smt.insert(&updates)?;
+
+        assert_eq!(speculative_root, smt.root_hash()?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_compute_sparse_root_matches_persisted_smt_insert() -> Result<()> {
+        let dir = tempdir()?;
+        let smt = open_test_db(dir.path());
+        let entries = vec![
+            (b"account:a".to_vec(), b"one".to_vec()),
+            (b"account:b".to_vec(), b"two".to_vec()),
+            (b"system:clock".to_vec(), b"three".to_vec()),
+        ];
+
+        smt.insert(&entries)?;
+
+        assert_eq!(compute_sparse_root(&entries), smt.root_hash()?);
         Ok(())
     }
 }

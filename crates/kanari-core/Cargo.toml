@@ -23,6 +23,7 @@ kanari-rpc-api = { workspace = true }
 kanari-crypto = { workspace = true }
 anyhow = { workspace = true }
 bcs = { workspace = true }
+blake3 = { workspace = true }
 num_cpus = { workspace = true }
 log = { workspace = true }
 tracing = { workspace = true }

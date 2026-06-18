@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Result;
-use kanari_crypto::hash_data_blake3;
 use log::{info, warn};
 use mysticeti_consensus::{
     committer::Committer as MysticetiCommitter,
@@ -163,20 +162,17 @@ fn signed_tx_batch_to_mysticeti_transaction(
     transactions: &[SignedTransaction],
     timestamp_ms: u64,
 ) -> MysticetiTransaction {
-    let mut materialized = Vec::with_capacity(
-        b"kanari:mysticeti-batch:v1".len()
-            + std::mem::size_of::<u64>()
-            + std::mem::size_of::<u64>()
-            + transactions.len() * 32,
-    );
-    materialized.extend_from_slice(b"kanari:mysticeti-batch:v1");
-    materialized.extend_from_slice(&timestamp_ms.to_le_bytes());
-    materialized.extend_from_slice(&(transactions.len() as u64).to_le_bytes());
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"kanari:mysticeti-batch:v1");
+    hasher.update(&timestamp_ms.to_le_bytes());
+    hasher.update(&(transactions.len() as u64).to_le_bytes());
     for tx in transactions {
-        materialized.extend_from_slice(tx.transaction_hash());
+        hasher.update(tx.transaction_hash());
     }
 
-    MysticetiTransaction::new(minibytes::Bytes::from(hash_data_blake3(&materialized)))
+    MysticetiTransaction::new(minibytes::Bytes::copy_from_slice(
+        hasher.finalize().as_bytes(),
+    ))
 }
 
 fn mysticeti_reference_to_vertex_id(reference: &MysticetiBlockReference) -> VertexId {
@@ -468,7 +464,15 @@ impl DagEngine {
                 state_root,
                 executed,
                 failed,
-                Some((verified_state, transactions.clone(), validate_supply)),
+                Some((
+                    verified_state,
+                    if validate_supply {
+                        transactions.clone()
+                    } else {
+                        Vec::new()
+                    },
+                    validate_supply,
+                )),
             )
         };
 
@@ -500,7 +504,7 @@ impl DagEngine {
         use ed25519_dalek::Signer;
         vertex.signature = self.local_signing_key.sign(&vertex.id).to_bytes().to_vec();
 
-        let checkpoint = self.finalize_vertex(vertex.clone(), prepared_checkpoint_state)?;
+        let checkpoint = self.finalize_vertex(&vertex, prepared_checkpoint_state)?;
         let checkpoint_info = checkpoint.as_ref().map(|checkpoint| CheckpointInfo {
             sequence: checkpoint.sequence,
             vertex_count: checkpoint.vertices.len(),
@@ -527,7 +531,7 @@ impl DagEngine {
 
     fn finalize_vertex(
         &self,
-        vertex: DagVertex,
+        vertex: &DagVertex,
         prepared_checkpoint_state: Option<(StateManager, Vec<SignedTransaction>, bool)>,
     ) -> Result<Option<Checkpoint>> {
         {
@@ -618,7 +622,7 @@ impl DagEngine {
             vertex.round,
             vertex.transactions.len()
         );
-        self.finalize_vertex(vertex, None)?;
+        self.finalize_vertex(&vertex, None)?;
         Ok(())
     }
 }

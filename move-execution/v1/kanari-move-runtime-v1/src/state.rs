@@ -557,6 +557,10 @@ impl StateManager {
             events: Vec::new(),
         };
 
+        state
+            .ensure_smt_initialized()
+            .context("Failed to initialize state SMT")?;
+
         if persisted_total_supply == 0 && recovered_total_supply > 0 {
             state
                 .save_internal(b"total_supply", &recovered_total_supply)
@@ -584,6 +588,30 @@ impl StateManager {
         Ok(state)
     }
 
+    fn ensure_smt_initialized(&self) -> Result<()> {
+        let Some(smt) = &self.smt else {
+            return Ok(());
+        };
+        if smt.root_hash()? != smt::default_hashes()[0] {
+            return Ok(());
+        }
+
+        let mut entries: BTreeMap<Vec<u8>, Vec<u8>> = self
+            .store
+            .logical_entries()
+            .context("Failed to read state entries for SMT rebuild")?
+            .into_iter()
+            .collect();
+        Self::retain_canonical_state_root_entries(&mut entries);
+        if entries.is_empty() {
+            return Ok(());
+        }
+
+        let updates = entries.into_iter().collect::<Vec<_>>();
+        smt.insert(&updates)?;
+        Ok(())
+    }
+
     /// Commit pending overlay changes to the persistent store and update SMT
     pub fn commit(&mut self) -> Result<()> {
         let mut updates = Vec::new();
@@ -601,11 +629,12 @@ impl StateManager {
 
         // Update SMT if available
         if let Some(smt) = &self.smt {
-            if !updates.is_empty() {
-                smt.insert(&updates)?;
+            let (smt_updates, smt_deletes) = self.smt_changes_from_overlay();
+            if !smt_updates.is_empty() {
+                smt.insert(&smt_updates)?;
             }
-            if !deletes.is_empty() {
-                smt.delete(&deletes)?;
+            if !smt_deletes.is_empty() {
+                smt.delete(&smt_deletes)?;
             }
         }
 
@@ -752,6 +781,52 @@ impl StateManager {
         });
     }
 
+    fn object_key_id(key: &[u8]) -> Option<&str> {
+        key.strip_prefix(b"object:")
+            .and_then(|id| std::str::from_utf8(id).ok())
+    }
+
+    fn object_is_owned_in_overlay_root(&self, object_id: &str, stored: &StoredObject) -> bool {
+        let owner_key = Self::owned_objects_key(&stored.owner);
+        self.load_internal::<Vec<String>>(&owner_key)
+            .ok()
+            .flatten()
+            .map(|owned| owned.iter().any(|id| id == object_id))
+            .unwrap_or(false)
+    }
+
+    fn is_canonical_smt_update(&self, key: &[u8], value: &[u8]) -> bool {
+        if Self::is_canonical_state_root_key(key) {
+            return true;
+        }
+
+        let Some(object_id) = Self::object_key_id(key) else {
+            return false;
+        };
+        bcs::from_bytes::<StoredObject>(value)
+            .map(|stored| self.object_is_owned_in_overlay_root(object_id, &stored))
+            .unwrap_or(false)
+    }
+
+    fn smt_changes_from_overlay(&self) -> (Vec<(Vec<u8>, Vec<u8>)>, Vec<Vec<u8>>) {
+        let mut updates = Vec::new();
+        let mut deletes = Vec::new();
+
+        for (key, value_opt) in &self.overlay {
+            match value_opt {
+                Some(value) if self.is_canonical_smt_update(key, value) => {
+                    updates.push((key.clone(), value.clone()));
+                }
+                None if Self::is_canonical_state_root_key(key) || key.starts_with(b"object:") => {
+                    deletes.push(key.clone());
+                }
+                _ => {}
+            }
+        }
+
+        (updates, deletes)
+    }
+
     pub fn get_system_clock_object_id(&self) -> Result<Option<AccountAddress>> {
         let bytes_opt: Option<Vec<u8>> = self.load_internal(SYSTEM_CLOCK_OBJECT_ID_KEY)?;
         match bytes_opt {
@@ -774,6 +849,26 @@ impl StateManager {
     pub fn save_account(&mut self, account: &Account) -> Result<()> {
         self.save_account_record(account)?;
         self.add_to_index_list(ACCOUNT_INDEX_KEY, account.address.to_hex_literal())
+    }
+
+    pub fn apply_zero_effect_sequence_batch<I>(&mut self, sequence_increments: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (AccountAddress, u64)>,
+    {
+        let mut account_index_additions = Vec::new();
+
+        for (address, increment) in sequence_increments {
+            if increment == 0 {
+                continue;
+            }
+
+            let mut account = self.load_account_or_default(address)?;
+            account.sequence_number = account.sequence_number.saturating_add(increment);
+            self.save_account_record(&account)?;
+            account_index_additions.push(account.address.to_hex_literal());
+        }
+
+        self.add_many_to_index_list(ACCOUNT_INDEX_KEY, account_index_additions)
     }
 
     fn save_account_record(&mut self, account: &Account) -> Result<()> {
@@ -1338,6 +1433,16 @@ impl StateManager {
     }
 
     pub fn compute_state_root(&self) -> Vec<u8> {
+        if let Some(smt) = &self.smt {
+            let (updates, deletes) = self.smt_changes_from_overlay();
+            match smt.root_hash_with_changes(&updates, &deletes) {
+                Ok(root) => return root.to_vec(),
+                Err(e) => {
+                    log::error!("Failed to compute SMT state root, falling back: {}", e);
+                }
+            }
+        }
+
         let mut entries: BTreeMap<Vec<u8>, Vec<u8>> = match self.store.logical_entries() {
             Ok(entries) => entries.into_iter().collect(),
             Err(e) => {
@@ -1356,29 +1461,7 @@ impl StateManager {
 
         Self::retain_canonical_state_root_entries(&mut entries);
 
-        let materialized_len = b"kanari:state-root:v2".len()
-            + std::mem::size_of::<u64>()
-            + entries
-                .iter()
-                .map(|(key, value)| {
-                    std::mem::size_of::<u64>()
-                        + key.len()
-                        + std::mem::size_of::<u64>()
-                        + value.len()
-                })
-                .sum::<usize>();
-        let mut materialized = Vec::with_capacity(materialized_len);
-        materialized.extend_from_slice(b"kanari:state-root:v2");
-        materialized.extend_from_slice(&(entries.len() as u64).to_le_bytes());
-
-        for (key, value) in entries {
-            materialized.extend_from_slice(&(key.len() as u64).to_le_bytes());
-            materialized.extend_from_slice(&key);
-            materialized.extend_from_slice(&(value.len() as u64).to_le_bytes());
-            materialized.extend_from_slice(&value);
-        }
-
-        hash_data_blake3(&materialized).to_vec()
+        smt::compute_sparse_root(&entries.into_iter().collect::<Vec<_>>()).to_vec()
     }
 
     /// Validate sequence number for an account
@@ -1815,6 +1898,63 @@ mod tests {
             "logical state root must not change when RocksDB overlay is flushed"
         );
 
+        Ok(())
+    }
+
+    fn materialized_sparse_root_for_test(state: &StateManager) -> Result<Vec<u8>> {
+        let mut entries: BTreeMap<Vec<u8>, Vec<u8>> =
+            state.store.logical_entries()?.into_iter().collect();
+        for (key, value_opt) in &state.overlay {
+            if let Some(value) = value_opt {
+                entries.insert(key.clone(), value.clone());
+            } else {
+                entries.remove(key);
+            }
+        }
+        StateManager::retain_canonical_state_root_entries(&mut entries);
+        Ok(smt::compute_sparse_root(&entries.into_iter().collect::<Vec<_>>()).to_vec())
+    }
+
+    #[test]
+    fn compute_state_root_matches_materialized_sparse_root_for_rocksdb() -> Result<()> {
+        let temp_dir = tempfile::tempdir()?;
+        let Ok(store) = PersistentStore::open_with_path(Some(temp_dir.path().join("state"))) else {
+            return Ok(());
+        };
+        let publisher = AccountAddress::from_hex_literal("0x1111")?;
+        let owner = AccountAddress::from_hex_literal("0x2222")?;
+
+        let mut state = StateManager::new(Arc::new(store));
+
+        let mut cs = ChangeSet::new();
+        cs.publish_module(publisher, "example".to_string());
+        cs.created_objects.push((
+            "0xcafe".to_string(),
+            CreatedObject {
+                owner,
+                uid: None,
+                id: None,
+                type_: "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
+                data: vec![1, 2, 3],
+                version: 1,
+            },
+        ));
+
+        state.apply_changeset(&cs)?;
+
+        assert_eq!(
+            state.compute_state_root(),
+            materialized_sparse_root_for_test(&state)?,
+            "incremental SMT root must match a fully materialized sparse root before commit"
+        );
+
+        state.commit()?;
+
+        assert_eq!(
+            state.compute_state_root(),
+            materialized_sparse_root_for_test(&state)?,
+            "committed SMT root must match a fully materialized sparse root"
+        );
         Ok(())
     }
 }

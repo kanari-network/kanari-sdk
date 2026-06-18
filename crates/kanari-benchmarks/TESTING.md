@@ -92,7 +92,7 @@ Important fields:
 - Use `--release` for throughput numbers.
 - Treat `production` as the honest local blockchain TPS benchmark without disk I/O.
 - Larger `--txs` values can take much longer in production mode because they include signature verification, state-root work, and block production.
-- On the current Windows test machine, `production --txs 10000` can exceed 180k TPS on the local in-memory path after warm-up.
+- On the current Windows test machine, `production --txs 10000 --senders 10000 --runs 3` measured about 65k median TPS after the SMT/zero-effect fast-path work.
 
 ## Soak Test
 
