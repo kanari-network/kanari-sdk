@@ -1,94 +1,47 @@
 ## 7. Roadmap & Conclusion
 
-### 7.1 Universal Payment Network Growth
+### 7.1 Current Engineering Priorities
 
-Kanari's value grows with adoption across all payment sectors following Metcalfe's Law:
+The most important optimization areas are:
 
-**Network Value Formula:**
+- incremental state-root maintenance
+- reducing transaction cloning between execution and checkpoint paths
+- keeping checkpoint persistence compact
+- preserving deterministic replay and divergence visibility
 
-```
-Network Value = k × n²
-```
+### 7.2 Operational Safety
 
-Where:
+Kanari should prefer explicit invariants over hidden automation. That means:
 
-- `k` = constant representing utility per connection
-- `n` = number of active users across all industries
+- do not generate checkpoints without transactions
+- do not hide state-root mismatches
+- do not treat sync traffic as committed execution
 
-**Example Growth:**
+These rules make debugging harder to ignore, but they keep the system honest.
 
-- 10,000 users → Value = k × 100,000,000
-- 100,000 users → Value = k × 10,000,000,000  
-- **10x user growth = 100x value increase**
+### 7.3 Performance Scaling
 
-### 7.2 Universal Adoption Roadmap
+Performance work should be measured, not assumed. Useful benchmark reports include:
 
-**Phase 1: Foundation (Complete)**
+- exact command line
+- validator count
+- sender distribution
+- CPU and RAM profile
+- workload mode
 
-- ✅ DAG consensus working at 50,000+ TPS
-- ✅ MoveVM integration complete
-- ✅ Zero fee model implemented
-- ✅ Security audits passed
-- ✅ Multi-currency support (USDC, EURO, THB examples)
+Without that context, a TPS number is only anecdotal.
 
-**Phase 2: Ecosystem Expansion (In Progress)**
+### 7.4 Long-Term Direction
 
-- 🚧 Mobile SDKs for iOS/Android wallets
-- 🚧 E-commerce plugins (Shopify, WooCommerce)
-- 🚧 Banking API integrations
-- 🚧 Developer documentation and tutorials
-- 🚧 Public testnet launch
+The long-term goal is a payment-oriented programmable network with:
 
-**Phase 3: Global Payment Network (Coming Soon)**
-
-- 🔜 Cross-border payment partnerships
-- 🔜 Regulatory compliance frameworks (KYC/AML)
-- 🔜 Enterprise banking integrations
-- 🔜 Central bank digital currency (CBDC) compatibility
-- 🔜 Global merchant acceptance network
-
-### 7.3 Performance Scaling for Global Payments
-
-As the network grows, performance improves through parallelization:
-
-**Scaling Formula:**
-
-```
-Max TPS = Base TPS × Validators
-```
-
-**Current**: 50,000 TPS with 4 validators
-**Future**: 500,000+ TPS with 40 validators
-
-The system scales linearly to support global payment volumes.
-
-### 7.4 Quantum Safety for Financial Infrastructure
-
-**Cryptography Transition Plan:**
-
-- **2026**: Hybrid signatures (Ed25519 + Dilithium)
-- **2028**: Full post-quantum migration
-- **2030**: Quantum-resistant by default
-
-This ensures long-term security for financial transactions without disrupting current users.
+- efficient execution
+- compact persistence
+- clear validator recovery behavior
+- observable state convergence
 
 ### 7.5 Conclusion
 
-Kanari Network solves the fundamental problems preventing blockchain adoption in **universal payments**:
+Kanari's current design is centered on one simple idea: blockchain state should move only when real user work is committed. Mysticeti-style ordering, Move execution, and explicit state-root comparison all serve that goal.
 
-**Problem → Solution:**
-
-- **Slow settlement** → 300ms finality
-- **High fees** → Zero user fees  
-- **Complex onboarding** → Simple account mapping
-- **Poor scalability** → 50,000+ TPS
-- **Security concerns** → Quantum-resistant crypto
-
-By focusing on **payment infrastructure** rather than just gaming, Kanari enables instant, fee-free transactions for e-commerce, remittances, digital content, financial services, and gaming—all on a single, secure network.
-
-**Getting Started:**
-
-- Developers: Visit <https://docs.kanarinetwork.site>
-- Financial Institutions: Run `kanari node --help` to start
-
-The future of payments is fast, free, and universal—and it starts with Kanari.
+That makes the system easier to reason about, easier to benchmark honestly, and easier to operate in a multi-node environment.

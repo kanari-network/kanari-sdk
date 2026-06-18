@@ -1,102 +1,36 @@
 ## 5. Infrastructure & Networking
 
-### 5.1 Rust Performance Benefits
+### 5.1 Rust Runtime
 
-Kanari is built in Rust for three key reasons:
+Kanari's node and core services are written in Rust to keep concurrency, storage control, and networking behavior explicit.
 
-**Memory Safety Formula:**
+### 5.2 Networking Model
 
-```
-Bugs Prevented = Memory Errors + Data Races + Null Pointers
-```
+A running node combines several responsibilities:
 
-Rust's compiler prevents these at compile time, making the system more reliable for **financial infrastructure**.
+- peer-to-peer communication between authorities
+- DAG metadata exchange
+- mempool transaction propagation
+- JSON-RPC access for clients and tooling
 
-**Performance Characteristics:**
+The network layer must allow validators to sync without turning synchronization into fake blockchain progress.
 
-- Near C/C++ speed with automatic memory management
-- Zero-cost abstractions mean no performance penalty for safety
-- Efficient multi-core utilization
+### 5.3 Storage Model
 
-This ensures **banking-grade reliability** for payment processing.
+Storage efficiency is a major part of correctness and performance. The current direction emphasizes:
 
-### 5.2 Simple Networking Model
+- compact checkpoint metadata
+- incremental state-root maintenance where possible
+- separation between summary records and heavier transaction payloads
 
-Kanari uses libp2p for peer-to-peer networking:
+This reduces unnecessary recomputation and keeps persistence work closer to the actual transaction delta.
 
-**Network Topology:**
+### 5.4 State Roots and Divergence Detection
 
-- Each node connects to 10-20 other nodes
-- Automatic discovery finds new peers
-- Messages propagate in ~100ms across global network
+State roots are not cosmetic metrics. They are how operators verify that nodes which claim the same checkpoint height also agree on the same committed state.
 
-**Bandwidth Formula:**
+If two nodes report different roots at the same checkpoint height, that indicates divergence and should trigger investigation or resync.
 
-```
-Total Bandwidth = (Transactions × Size) / Time
-```
+### 5.5 Deployment Notes
 
-**Example:**
-
-- 50,000 TPS × 200 bytes per transaction ÷ 1 second = 10 MB/s per node
-
-This is manageable even on modest internet connections, enabling **global payment accessibility**.
-
-### 5.3 Storage Efficiency
-
-Kanari uses RocksDB for persistent storage with smart compression:
-
-**Storage Formula:**
-
-```
-Compressed Size = Original Size × Compression Ratio
-```
-
-**Typical Values:**
-
-- Original transaction size: 200 bytes
-- After Zstd compression: ~80 bytes  
-- **Compression ratio: ~40%**
-
-This reduces storage costs significantly for **high-volume payment processors**.
-
-### 5.4 Cryptography Made Simple
-
-Kanari supports both current and future-proof cryptography:
-
-**Security Levels:**
-
-- **Current**: Ed25519 signatures (fast, secure today)
-- **Future**: Dilithium post-quantum signatures (quantum-resistant)
-- **Hybrid**: Both together for smooth transition
-
-**Key Generation Formula:**
-
-```
-Public Key = generate_public(private_key)
-Signature = sign(message, private_key)
-verify(message, signature, public_key) = true/false
-```
-
-The system handles all complexity—developers just use simple functions for **secure payment processing**.
-
-### 5.5 Easy Deployment for Payment Services
-
-**Single Node Setup:**
-
-```powershell
-# Start a payment node (Windows)
-.\start-node.ps1
-
-# Multi-node setup for high availability  
-.\setup-multi-node.ps1
-```
-
-**Resource Requirements:**
-
-- CPU: 4+ cores recommended
-- RAM: 8+ GB  
-- Storage: 100+ GB SSD
-- Network: 10+ Mbps upload
-
-This makes it accessible for **payment processors, e-commerce platforms, and financial institutions** of all sizes.
+Kanari supports single-node and multi-node developer setups. In multi-node environments, validators should be restarted from consistent binaries and data expectations so explorers and RPC queries are interpreting the same runtime behavior.

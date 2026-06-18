@@ -1,96 +1,58 @@
-## 2 Architecture & Centauri Consensus
+## 2 Architecture & Mysticeti Consensus
 
-### 2.1 What is DAG Consensus?
+### 2.1 DAG Ordering in Kanari
 
-Traditional blockchains process transactions one block at a time, creating bottlenecks for payment systems. Kanari uses a **Directed Acyclic Graph (DAG)** structure that allows multiple validators to process transactions simultaneously.
+Kanari uses a Directed Acyclic Graph to exchange ordering metadata between authorities. DAG traffic helps validators agree on the order of work, but it does not directly define blockchain state.
 
-**Key Difference:**
+That distinction is intentional:
 
-- **Blockchain**: Linear sequence → Slow, sequential processing
-- **DAG**: Parallel structure → Fast, concurrent processing
+- DAG sync must not create synthetic checkpoints
+- network liveness must not inflate blockchain height
+- state roots must come from executed transaction effects
 
-This makes DAG ideal for **high-frequency payment networks** requiring instant settlement.
+### 2.2 Mysticeti-Style Authority Flow
 
-### 2.2 How Centauri Consensus Works
+The current implementation follows a Mysticeti-oriented authority model.
 
-Centauri uses the Bullshark protocol with a simple 3-round commit process:
+At a high level:
 
-**Round 1**: Leader creates a vertex (transaction batch)
-**Round 2**: Other validators reference the leader's vertex  
-**Round 3**: If enough validators agree, the vertex is committed
+1. Authorities receive and propagate transactions.
+2. Validators exchange DAG vertices and dependency references.
+3. Ordered transaction batches move into execution.
+4. A checkpoint is finalized only if there are pending transactions to commit.
 
-#### Mathematical Formulas
+This keeps consensus progress and state progress aligned without forcing empty blocks during quiet periods.
 
-**Byzantine Fault Tolerance (BFT)**
-For a network with `n` validators:
+### 2.3 Checkpoint Invariants
 
-- Maximum faulty validators tolerated: `f = floor((n-1)/3)`
-- Minimum honest validators needed: `2f + 1`
+Kanari currently treats the following rules as architectural invariants:
 
-**Example Calculation:**
+- no pending transactions means no new checkpoint
+- DAG metadata propagation alone must not advance chain height
+- nodes catching up from peers should replay committed work instead of inventing local progress
+- state roots at the same checkpoint height should converge across honest nodes
 
-- With 4 validators: `f = floor((4-1)/3) = 1`
-- Need `2(1) + 1 = 3` honest validators to reach consensus
-
-**Throughput Formula**
-Maximum Transactions Per Second (TPS):
-
-```
-TPS = (Validators × Transactions per Vertex) / Finality Time
-```
-
-**Example:**
-
-- 4 validators × 500 transactions per vertex ÷ 0.3 seconds = ~6,667 TPS
-- With optimizations: Up to 50,000+ TPS
-
-This throughput supports **global payment volumes** including e-commerce, remittances, and financial services.
-
-### 2.3 Performance Characteristics
-
-| Metric | Value |
-|--------|-------|
-| Finality Time | ~300 milliseconds |
-| Transaction Execution | ~10 milliseconds |
-| Throughput | 50,000+ TPS |
-| Validator Requirements | 2f+1 honest nodes |
-
-These metrics make Kanari suitable for **real-time payment processing** across all industries.
+These rules make explorer output and operator debugging much easier to trust.
 
 ### 2.4 Security Model
 
-**Network Security Formula:**
-The probability of network compromise decreases exponentially with more validators:
+Kanari assumes partial faults and Byzantine behavior are possible. Safety depends on deterministic execution and validator agreement on the ordered transaction set.
 
-```
-Security = 1 - (f/n)^k
-```
+Operationally this means:
 
-Where:
+- root mismatches at the same height are treated as real divergence signals
+- lagging nodes must resync from committed history
+- checkpoint persistence must reflect executed state, not transient consensus chatter
 
-- `f` = maximum faulty validators
-- `n` = total validators  
-- `k` = number of consensus rounds
+### 2.5 Component Overview
 
-**Light Client Verification**
-Light clients verify transactions using Merkle proofs:
+The main runtime components are:
 
-```
-verify_proof(state_root, account_data, merkle_path) = true/false
-```
+- `kanari-core`: execution orchestration, checkpoint production, persistence, DAG integration
+- `kanari-node`: runtime startup, networking, synchronization, RPC bootstrapping
+- `kanari-rpc-api`: public method surface and shared RPC types
+- `kanari-rpc-server`: JSON-RPC handlers and query endpoints
+- `kanari-move-runtime-v1`: Move execution and state application
+- `crates/smt`: sparse Merkle tree support for state-root maintenance
 
-This allows **mobile wallets, e-commerce platforms, and banking apps** to verify payments without running full nodes.
-
-### 2.5 Simple Architecture Overview
-
-Kanari's system is built from specialized components:
-
-**Core Components:**
-
-- **centauri**: Handles consensus and transaction ordering
-- **kanari-core**: Coordinates the entire system
-- **kanari-move-runtime**: Executes smart contracts safely
-- **kanari-crypto**: Provides secure cryptography
-- **kanari-node**: Runs the complete network node
-
-Each component has a specific job, making the system reliable and maintainable for **universal payment applications**.
+This separation lets Kanari optimize execution and storage without weakening the consensus model.

@@ -1,102 +1,54 @@
 ## 3. MoveVM Execution Layer
 
-### 3.1 Why MoveVM for Universal Payments?
+### 3.1 Why Move for Kanari
 
-MoveVM is perfect for payment systems because it treats digital assets as **resources** that cannot be accidentally lost, copied, or duplicated.
+Kanari uses Move to express programmable state transitions with deterministic execution rules. This is useful for payment and asset workloads where ownership, balances, and module-level policy need to remain explicit.
 
-**Traditional Smart Contracts:**
+### 3.2 Execution Model
 
-- Assets are just numbers in a database
-- Easy to create bugs that lose or duplicate money
+The execution path is intentionally simple:
 
-**MoveVM Resources:**
+1. signed transactions enter the mempool
+2. ordered batches are selected for execution
+3. Move applies state changes deterministically
+4. committed effects are persisted into checkpoint history
 
-- Assets are physical objects in code
-- Cannot be copied or discarded without explicit actions
-- Compiler prevents common financial mistakes
+Execution does not define consensus by itself. It consumes ordered work and produces state changes that can be verified and replayed.
 
-This makes MoveVM ideal for **stablecoins, loyalty points, gift cards, and any financial instrument** where asset integrity is critical.
+### 3.3 Transaction-Driven Progress
 
-### 3.2 Gasless Transaction Model
+Kanari does not advance checkpoint height just because the network is alive. The Move layer participates only when there is real work to execute.
 
-End users never pay gas fees. Instead, the system uses a simple resource accounting model:
+Benefits of this model:
 
-**Resource Accounting Formula:**
+- no empty-checkpoint spam
+- clearer explorer semantics
+- state-root changes stay tied to actual transactions
 
-```
-Total Steps = Σ(Operation Cost × Quantity)
-```
+### 3.4 Performance Notes
 
-Each transaction has a step limit (e.g., 10,000 steps). If a transaction exceeds this limit, it's rejected—but users aren't charged.
+Observed performance depends on:
 
-**Operation Costs:**
+- transaction mix
+- signer distribution
+- worker count
+- storage backend cost
+- state-root update strategy
 
-- Simple transfer: 100 steps
-- Multi-currency swap: 500 steps  
-- Complex payment logic: 1,000 steps
-- Publish new payment module: 5,000 steps
+For that reason, benchmark numbers should always be published together with the exact command, code revision, and hardware profile used.
 
-This prevents spam attacks while keeping transactions free for users across all payment scenarios.
+### 3.5 Developer Workflow
 
-### 3.3 Universal Payment Primitives
-
-Kanari provides ready-to-use building blocks for all payment applications:
-
-**Core Modules:**
-
-- **Coins**: Fungible tokens for stablecoins, loyalty points, currencies
-- **NFTs**: Unique assets like gift cards, certificates, tickets
-- **Accounts**: Secure wallets with multi-signature support
-- **Clock**: Time-based payments for subscriptions and escrow
-
-**Example: Cross-Border Payment**
-
-```move
-// Send USDC to international recipient
-public entry fun send_international(
-    sender_coin: &mut Coin<USDC>, 
-    amount: u64,
-    recipient: address,
-    ctx: &mut TxContext
-) {
-    // Verify sufficient balance
-    assert!(coin::value(sender_coin) >= amount, 1);
-    
-    // Split amount to send
-    let payment = coin::split(sender_coin, amount, ctx);
-    
-    // Instant international transfer
-    transfer::public_transfer(payment, recipient);
-}
-```
-
-### 3.4 Performance for Real-Time Payments
-
-**Execution Speed Formula:**
-
-```
-Total Time = Execution Time + Finality Time
-```
-
-- Execution Time: ~10ms (transaction processing)
-- Finality Time: ~300ms (network confirmation)
-- **Total**: ~310ms for complete payment settlement
-
-This speed enables real-time payments for e-commerce, remittances, and instant settlements.
-
-### 3.5 Simple Development Workflow
-
-Developers can build payment applications easily:
+Typical development flow:
 
 ```bash
-# Create new stablecoin
-kanari move new my_stablecoin
+# Create or update a Move package
 
-# Test payment flows  
-kanari move test ./my_stablecoin
+# Build modules
 
-# Deploy to network
-kanari move publish ./my_stablecoin
+# Run tests
+
+# Publish through the Kanari toolchain
 ```
 
-The system handles all complexity—developers focus on payment logic for any industry.
+Developers should treat the runtime as deterministic infrastructure, not as a source of synthetic chain activity.

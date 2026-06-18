@@ -1,103 +1,39 @@
 ## 4. The Zero-Fee Payment Infrastructure
 
-### 4.1 Universal Zero-Fee Model
+### 4.1 Fee Policy
 
-Kanari eliminates transaction fees for end users across all payment scenarios:
+Kanari is designed for low-friction application flows. In the current developer setup, many examples use zero-gas or operator-controlled fee policy so teams can test payment paths without exposing end users to chain UX complexity.
 
-**Traditional Payment Costs:**
+### 4.2 Why This Matters
 
-- **Credit Cards**: 2-4% + $0.30 per transaction
-- **Bank Transfers**: $15-50 for international, 1-3 day settlement
-- **Blockchain**: $0.50-$20+ in gas fees, variable finality
+For payment-oriented systems, fee predictability is often more important than speculative token mechanics. Kanari therefore emphasizes:
 
-**Kanari Model:**
+- simple transfer flows
+- predictable application behavior
+- developer-controlled integration surfaces
 
-- **End Users**: Pay $0 in transaction fees
-- **Merchants/Businesses**: Cover minimal infrastructure costs
-- **Predictable Economics**: Fixed costs enable better business planning
+### 4.3 Account and Asset Flows
 
-### 4.2 PoA Economic Sustainability
+Kanari supports programmable account and asset workflows through Move modules and RPC services. This allows teams to model balances, token logic, escrow, and application-specific rules without changing the consensus layer.
 
-Since Kanari uses **Proof of Authority (PoA)** consensus, there are no validator rewards or token inflation. The network stays sustainable through operational efficiency:
+### 4.4 Economic Considerations
 
-**Infrastructure Cost Formula:**
+The cost model still exists even when user-facing gas is hidden:
 
-```
-Cost per Transaction = (Total Infrastructure Cost) / Transactions
-```
+- operators pay for hardware, storage, and availability
+- validators pay for synchronization and persistence work
+- application design still determines system load
 
-**Example Calculation:**
+A low-friction UX is sustainable only when runtime and storage behavior stay efficient.
 
-- Monthly server costs: $1,000
-- Monthly transactions: 10,000,000
-- Cost per transaction: $1,000 / 10,000,000 = $0.0001
+### 4.5 Payment Scenarios
 
-Businesses absorb this minimal cost as part of their normal operational expenses, similar to payment processor or database costs.
+Example use cases include:
 
-### 4.3 Universal Account System
+- consumer payment flows
+- in-game assets and marketplace settlement
+- creator payouts
+- service credits and prepaid balances
+- internal application accounting
 
-Users can link any existing account to Kanari seamlessly:
-
-**Account Mapping Formula:**
-
-```
-Payment Address = hash(User_ID + Salt)
-```
-
-**Integration Examples:**
-
-- **E-commerce**: Map email addresses to payment addresses
-- **Gaming**: Map game UIDs to payment addresses  
-- **Banking**: Map phone numbers to payment addresses
-- **Social**: Map usernames to payment addresses
-
-No wallet setup or cryptocurrency knowledge required—users interact with familiar identifiers.
-
-### 4.4 Micro and Macro Payment Economics
-
-**Cost Comparison Across Scenarios:**
-
-| Transaction Type | Traditional Cost | Kanari Cost |
-|------------------|------------------|-------------|
-| $1 Coffee | $0.34 (3.4%) | $0.0001 |
-| $100 Online Purchase | $4.30 (4.3%) | $0.0001 |
-| $1,000 International Transfer | $50.00 (5%) | $0.0001 |
-| NFT Purchase ($50) | $5-20 gas fee | $0.0001 |
-
-**Business Revenue Formula:**
-
-```
-Net Revenue = Gross Revenue - Infrastructure Cost
-```
-
-Since infrastructure costs are fixed and extremely low (~$0.0001 per transaction), businesses keep virtually all revenue while offering free payments to customers.
-
-### 4.5 Real-World Payment Scenarios
-
-**E-commerce Platform:**
-
-- 50,000 daily transactions
-- Average transaction value: $75
-- Traditional processing fees: ~$150,000/month
-- **Kanari cost: ~$15/month**
-
-**Remittance Service:**
-
-- Cross-border money transfers
-- Instant settlement instead of 1-3 days
-- Near-zero fees instead of 5-10% charges
-- Transparent exchange rates
-
-**Digital Content Marketplace:**
-
-- Creator monetization with instant payouts
-- Fractional payments (pay-per-article, pay-per-minute)
-- Global accessibility without banking barriers
-
-**Gaming Platform:**
-
-- In-game purchases with instant confirmation
-- Player-to-player trading with zero fees
-- Tournament prize distributions in seconds
-
-This universal payment infrastructure enables new business models across all industries by removing the friction and cost barriers of traditional payment systems.
+The shared requirement across these cases is deterministic, observable state progression.
