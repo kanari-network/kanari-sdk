@@ -22,9 +22,8 @@ This crate provides a production-ready HTTP API wrapper around the `kanari-auth`
 ### Running the Server
 
 ```bash
-# Local development only. Production must use HTTPS through a reverse proxy.
-export AUTH_ALLOW_INSECURE_HTTP=true
-export AUTH_ALLOWED_ORIGIN=http://localhost:3000
+# Local development loads crates/run-auth/.env automatically.
+cp crates/run-auth/.env.example crates/run-auth/.env
 cargo run -p run-auth
 
 # Production behind a local HTTPS reverse proxy.

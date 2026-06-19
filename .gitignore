@@ -6,3 +6,9 @@ tmp
 Cargo.lock
 frameworks/kanari-framework/build
 data
+
+# Local environment secrets
+.env
+**/.env
+!.env.example
+!**/.env.example

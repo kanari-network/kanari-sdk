@@ -104,6 +104,10 @@ async fn health_check() -> Json<serde_json::Value> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Load crate-local configuration when launched from the workspace root.
+    if dotenvy::from_filename("crates/run-auth/.env").is_err() {
+        dotenvy::dotenv().ok();
+    }
     // Initialize logging
     tracing_subscriber::registry()
         .with(

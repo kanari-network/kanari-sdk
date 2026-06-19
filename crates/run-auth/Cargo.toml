@@ -37,6 +37,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 # Utilities
 uuid.workspace = true
 chrono.workspace = true
+dotenvy.workspace = true
 
 # TOTP for 2FA
 totp-rs.workspace = true
