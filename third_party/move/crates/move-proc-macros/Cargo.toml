@@ -11,5 +11,5 @@ proc-macro = true
 
 [dependencies]
 quote.workspace = true
-syn = { version = "2", features = ["full", "fold", "extra-traits"] }
+syn = { workspace = true, features = ["full", "fold", "extra-traits"] }
 enum-compat-util.workspace = true

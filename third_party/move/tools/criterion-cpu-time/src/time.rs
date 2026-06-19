@@ -2,7 +2,7 @@ use criterion::measurement::{Measurement, ValueFormatter};
 use std::time::Duration;
 
 #[cfg(unix)]
-use libc::{c_long, time_t, timespec, timeval};
+use libc::{c_long, time_t, timespec};
 
 #[cfg(unix)]
 struct Timeval {
