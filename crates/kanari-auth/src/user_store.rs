@@ -426,6 +426,17 @@ impl UserStore {
         Ok(())
     }
 
+    pub fn has_legacy_two_factor_secrets(&self) -> AuthResult<bool> {
+        let count: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM users WHERE totp_secret IS NOT NULL AND substr(totp_secret, 1, 1) != '{'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
+        Ok(count > 0)
+    }
     /// Add a new user to the database
     ///
     /// # Arguments

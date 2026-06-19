@@ -184,27 +184,23 @@ pub struct AuditLogger {
 
 impl AuditLogger {
     /// Create a new audit logger
-    pub fn new(log_dir: Option<PathBuf>) -> Self {
+    pub fn new(log_dir: Option<PathBuf>) -> std::io::Result<Self> {
         let log_dir = log_dir.unwrap_or_else(|| PathBuf::from("logs"));
 
-        // Ensure log directory exists
-        if let Err(e) = std::fs::create_dir_all(&log_dir) {
-            error!("Failed to create audit log directory: {:?}", e);
-        }
+        std::fs::create_dir_all(&log_dir)?;
+        crate::security::secure_path(&log_dir, true)?;
 
         let log_path = log_dir.join(format!("audit_{}.log", Utc::now().format("%Y%m%d")));
-
-        // Initialize file handle
         let file = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(&log_path)
-            .ok();
+            .open(&log_path)?;
+        crate::security::secure_path(&log_path, false)?;
 
-        Self {
+        Ok(Self {
             log_path,
-            file_handle: Arc::new(Mutex::new(file)),
-        }
+            file_handle: Arc::new(Mutex::new(Some(file))),
+        })
     }
 
     /// Log an audit event

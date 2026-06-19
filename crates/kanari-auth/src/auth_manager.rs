@@ -59,6 +59,9 @@ impl AuthManager {
         })
     }
 
+    pub fn has_legacy_two_factor_secrets(&self) -> AuthResult<bool> {
+        self.user_store.has_legacy_two_factor_secrets()
+    }
     /// Register a new user with email and password
     ///
     /// This creates a new wallet and associates it with the user's email.
@@ -220,7 +223,7 @@ impl AuthManager {
     /// * `session_id` - The session identifier to invalidate
     pub fn logout(&mut self, session_id: &str) -> AuthResult<()> {
         self.session_manager.invalidate_session(session_id)?;
-        log::info!("Session invalidated: {}", session_id);
+        log::info!("Session invalidated");
         Ok(())
     }
 
@@ -487,27 +490,30 @@ impl AuthManager {
 
     /// Return current 2FA state, including pending setup information.
     pub fn get_two_factor_status(
-        &self,
+        &mut self,
         email: &str,
         password: &str,
     ) -> AuthResult<Option<TwoFactorStatus>> {
         let normalized_email = email_validator::normalize_email(email);
-        let user = self
+        let mut user = self
             .user_store
             .get_user(&normalized_email)?
             .ok_or(AuthError::UserNotFound(normalized_email.clone()))?;
 
-        let secret = user
-            .totp_secret
-            .map(|secret| {
-                if secret.starts_with('{') {
-                    decrypt_private_key(&secret, password)
-                } else {
-                    // Read legacy plaintext until the next enrollment/password change.
-                    Ok(secret)
+        let secret = match user.totp_secret.clone() {
+            Some(secret) if secret.starts_with('{') => {
+                Some(decrypt_private_key(&secret, password)?)
+            }
+            Some(secret) => {
+                if !user.verify_password(password)? {
+                    return Err(AuthError::AuthenticationFailed);
                 }
-            })
-            .transpose()?;
+                user.totp_secret = Some(encrypt_private_key(&secret, password)?);
+                self.user_store.update_user(&user)?;
+                Some(secret)
+            }
+            None => None,
+        };
 
         Ok(secret.map(|secret| TwoFactorStatus {
             secret,
@@ -738,6 +744,39 @@ mod tests {
         assert!(auth.login("test@example.com", "NewPass456!", None).is_ok());
     }
 
+    #[test]
+    fn test_legacy_totp_secret_is_migrated_after_password_verification() {
+        let mut auth = AuthManager::new();
+        auth.register_user(
+            "legacy@example.com",
+            "SecurePass123!",
+            Some(CurveType::Ed25519),
+        )
+        .unwrap();
+
+        let mut user = auth
+            .user_store
+            .get_user("legacy@example.com")
+            .unwrap()
+            .unwrap();
+        user.totp_secret = Some("LEGACYPLAINTEXT".to_string());
+        user.totp_enabled = true;
+        auth.user_store.update_user(&user).unwrap();
+        assert!(auth.has_legacy_two_factor_secrets().unwrap());
+
+        assert!(
+            auth.get_two_factor_status("legacy@example.com", "WrongPassword123!")
+                .is_err()
+        );
+        assert!(auth.has_legacy_two_factor_secrets().unwrap());
+
+        let status = auth
+            .get_two_factor_status("legacy@example.com", "SecurePass123!")
+            .unwrap()
+            .unwrap();
+        assert_eq!(status.secret, "LEGACYPLAINTEXT");
+        assert!(!auth.has_legacy_two_factor_secrets().unwrap());
+    }
     #[test]
     fn test_enabled_two_factor_cannot_be_overwritten() {
         let mut auth = AuthManager::new();

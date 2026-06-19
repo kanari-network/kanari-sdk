@@ -414,7 +414,7 @@ pub async fn logout(
     State(state): State<AppState>,
     Json(payload): Json<LogoutRequest>,
 ) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
-    info!("Logout attempt for session: {}", payload.session_id);
+    info!("Logout attempt");
 
     let mut auth = state.auth_manager.lock().await;
 

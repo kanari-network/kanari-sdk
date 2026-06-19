@@ -22,15 +22,15 @@ This crate provides a production-ready HTTP API wrapper around the `kanari-auth`
 ### Running the Server
 
 ```bash
-# Default configuration (port 3000, in-memory database)
+# Local development only. Production must use HTTPS through a reverse proxy.
+export AUTH_ALLOW_INSECURE_HTTP=true
+export AUTH_ALLOWED_ORIGIN=http://localhost:3000
 cargo run -p run-auth
 
-# With persistent database
+# Production behind a local HTTPS reverse proxy.
 export AUTH_DB_PATH=data/auth.db
-cargo run -p run-auth
-
-# Custom port
-export AUTH_API_PORT=8080
+export AUTH_ALLOWED_ORIGIN=https://auth.example.com
+export AUTH_BIND_ADDRESS=127.0.0.1
 cargo run -p run-auth
 ```
 
@@ -39,7 +39,13 @@ cargo run -p run-auth
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `AUTH_DB_PATH` | Path to SQLite database file | `data/auth.db` |
+| `AUDIT_LOG_DIR` | Protected audit log directory | `logs` |
 | `AUTH_API_PORT` | HTTP server port | `3000` |
+| `AUTH_BIND_ADDRESS` | Bind address; keep loopback when proxy is on the same host | `127.0.0.1` |
+| `AUTH_ALLOWED_ORIGIN` | Exact browser origin; required in secure mode and cannot be `*` | None |
+| `AUTH_TRUSTED_PROXY_IPS` | Comma-separated reverse-proxy IPs allowed to assert HTTPS | Loopback only |
+| `AUTH_ALLOW_INSECURE_HTTP` | Explicit local-development override | `false` |
+| `AUTH_ALLOW_LEGACY_TOTP_MIGRATION` | Temporary migration mode for old plaintext TOTP records | `false` |
 | `RUST_LOG` | Log level filter | `run_auth=debug,tower_http=info,axum=info` |
 
 ## API Endpoints
@@ -315,17 +321,17 @@ All errors follow a consistent format:
 
 ### HTTP Status Codes
 
-| Code | Meaning | Example |
-|------|---------|---------|
-| 200 | Success | Successful operation |
-| 201 | Created | User registered |
-| 400 | Bad Request | Invalid email/password format |
-| 401 | Unauthorized | Invalid credentials |
-| 403 | Forbidden | Account locked |
-| 404 | Not Found | User not found |
-| 409 | Conflict | User already exists |
-| 500 | Internal Server Error | Database/system error |
-| 501 | Not Implemented | Endpoint not yet implemented |
+| Code | Meaning               | Example                       |
+|------|-----------------------|-------------------------------|
+|  200 | Success               | Successful operation          |
+|  201 | Created               | User registered               |
+|  400 | Bad Request           | Invalid email/password format |
+|  401 | Unauthorized          | Invalid credentials           |
+|  403 | Forbidden             | Account locked                |
+|  404 | Not Found             | User not found                |
+|  409 | Conflict              | User already exists           |
+|  500 | Internal Server Error | Database/system error         |
+|  501 | Not Implemented       | Endpoint not yet implemented  |
 
 ---
 
@@ -408,21 +414,21 @@ Logs include:
 
 ## Architecture
 
-```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+```rs
+┌─────────────┐      ┌──────────────┐     ┌─────────────┐
 │   Client    │────▶│  Axum Router │────▶│  Handlers   │
-│  (HTTP)     │     │  + CORS      │     │             │
-└─────────────┘     └──────────────┘     └──────┬──────┘
-                                                │
-                                          ┌─────▼──────┐
-                                          │ AppState   │
-                                          │ (Mutex)    │
-                                          └─────┬──────┘
-                                                │
-                                          ┌─────▼──────┐
-                                          │AuthManager │
-                                          │ (SQLite)   │
-                                          └────────────┘
+│  (HTTP)     │      │  + CORS      │     │             │
+└─────────────┘      └──────────────┘     └──────┬──────┘
+                                                 │
+                                           ┌─────▼──────┐
+                                           │ AppState   │
+                                           │ (Mutex)    │
+                                           └─────┬──────┘
+                                                 │
+                                           ┌─────▼──────┐
+                                           │AuthManager │
+                                           │ (SQLite)   │
+                                           └────────────┘
 ```
 
 ### Thread Safety
@@ -437,7 +443,7 @@ Logs include:
 
 ### Docker Example
 
-```
+```er
 FROM rust:latest as builder
 WORKDIR /app
 COPY . .
@@ -449,12 +455,14 @@ COPY --from=builder /app/target/release/run-auth /usr/local/bin/
 EXPOSE 3000
 ENV AUTH_DB_PATH=/data/auth.db
 ENV AUTH_API_PORT=3000
+ENV AUTH_BIND_ADDRESS=0.0.0.0
+# Set AUTH_ALLOWED_ORIGIN and AUTH_TRUSTED_PROXY_IPS at deployment time.
 CMD ["run-auth"]
 ```
 
 ### Reverse Proxy (Nginx)
 
-```
+```nginx
 server {
     listen 443 ssl;
     server_name auth.example.com;
@@ -465,9 +473,14 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_hide_header Server;
     }
 }
 ```
+
+Keep port 3000 private. If Nginx is not on loopback, add only its exact IP to
+`AUTH_TRUSTED_PROXY_IPS`. The service rejects spoofed `X-Forwarded-Proto` headers
+from all other peers.
 
 ### Monitoring
 
