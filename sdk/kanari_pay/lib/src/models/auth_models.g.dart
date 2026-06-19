@@ -149,15 +149,19 @@ Map<String, dynamic> _$LogoutRequestToJson(LogoutRequest instance) =>
     <String, dynamic>{'sessionId': instance.sessionId};
 
 LogoutAllRequest _$LogoutAllRequestFromJson(Map<String, dynamic> json) =>
-    LogoutAllRequest(email: json['email'] as String);
+    LogoutAllRequest(
+      email: json['email'] as String,
+      sessionId: json['sessionId'] as String,
+    );
 
 Map<String, dynamic> _$LogoutAllRequestToJson(LogoutAllRequest instance) =>
-    <String, dynamic>{'email': instance.email};
+    <String, dynamic>{'email': instance.email, 'sessionId': instance.sessionId};
 
 ChangePasswordRequest _$ChangePasswordRequestFromJson(
   Map<String, dynamic> json,
 ) => ChangePasswordRequest(
   email: json['email'] as String,
+  sessionId: json['sessionId'] as String,
   oldPassword: json['oldPassword'] as String,
   newPassword: json['newPassword'] as String,
 );
@@ -166,6 +170,7 @@ Map<String, dynamic> _$ChangePasswordRequestToJson(
   ChangePasswordRequest instance,
 ) => <String, dynamic>{
   'email': instance.email,
+  'sessionId': instance.sessionId,
   'oldPassword': instance.oldPassword,
   'newPassword': instance.newPassword,
 };
@@ -174,30 +179,16 @@ DeleteAccountRequest _$DeleteAccountRequestFromJson(
   Map<String, dynamic> json,
 ) => DeleteAccountRequest(
   email: json['email'] as String,
+  sessionId: json['sessionId'] as String,
   password: json['password'] as String,
 );
 
 Map<String, dynamic> _$DeleteAccountRequestToJson(
   DeleteAccountRequest instance,
-) => <String, dynamic>{'email': instance.email, 'password': instance.password};
-
-SignTransferRequest _$SignTransferRequestFromJson(Map<String, dynamic> json) =>
-    SignTransferRequest(
-      sessionId: json['sessionId'] as String,
-      recipient: json['recipient'] as String,
-      amount: (json['amount'] as num).toInt(),
-      gasLimit: (json['gasLimit'] as num?)?.toInt(),
-      gasPrice: (json['gasPrice'] as num?)?.toInt(),
-    );
-
-Map<String, dynamic> _$SignTransferRequestToJson(
-  SignTransferRequest instance,
 ) => <String, dynamic>{
+  'email': instance.email,
   'sessionId': instance.sessionId,
-  'recipient': instance.recipient,
-  'amount': instance.amount,
-  'gasLimit': instance.gasLimit,
-  'gasPrice': instance.gasPrice,
+  'password': instance.password,
 };
 
 ValidateSessionResponse _$ValidateSessionResponseFromJson(

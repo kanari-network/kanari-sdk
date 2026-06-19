@@ -111,7 +111,22 @@ class _KanariLoginScreenState extends State<KanariLoginScreen> {
             if (!mounted) return;
             String? pin;
 
-            if (!hasPinSet) {
+            if (hasPinSet && !walletState.isUnlocked) {
+              final authorized = await showAppPinVerificationSheet(
+                context: context,
+                onVerify: walletState.verifyPin,
+                lockRemaining: walletState.pinLockRemaining,
+                title: 'Unlock Wallet',
+                subtitle:
+                    'Enter your 6-digit PIN to import and unlock this wallet.',
+              );
+              if (!mounted || !authorized) {
+                setState(() {
+                  _errorMessage = 'Wallet import requires PIN verification.';
+                });
+                return;
+              }
+            } else if (!hasPinSet) {
               pin = await showAppPinEntrySheet(
                 context: context,
                 title: 'Set PIN',
@@ -140,14 +155,21 @@ class _KanariLoginScreenState extends State<KanariLoginScreen> {
         }
 
         if (!mounted) return;
-        if (matchedLocalWallet) {
-          showAppSuccessSnackBar(context, 'Login successful!');
-        } else {
-          showAppInfoSnackBar(
+        if (!matchedLocalWallet) {
+          widget.authClient.clearSession();
+          setState(() {
+            _errorMessage =
+                _errorMessage ??
+                'Login succeeded, but this wallet could not be loaded on this device.';
+          });
+          showAppErrorSnackBar(
             context,
-            'Login successful, but this wallet is not stored on this device yet.',
+            'Wallet not found for this account on this device.',
           );
+          return;
         }
+
+        showAppSuccessSnackBar(context, 'Login successful!');
         widget.onLoginSuccess?.call();
       } else {
         final error = response.error ?? 'Login failed';
@@ -164,7 +186,6 @@ class _KanariLoginScreenState extends State<KanariLoginScreen> {
       });
     }
   }
-
   @override
   Widget build(BuildContext context) {
     Theme.of(context);

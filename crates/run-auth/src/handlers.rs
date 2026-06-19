@@ -6,17 +6,58 @@ use axum::{
 };
 use axum_client_ip::ClientIp;
 use kanari_crypto::keys::CurveType;
+use serde::Serialize;
 use tracing::{error, info, warn};
 
 use crate::{
     AppState,
     models::{
         ApiResponse, ChangePasswordRequest, DeleteAccountRequest, EncryptedKeyResponse,
-        ListUsersResponse, LoginRequest, LoginResponse, LogoutAllRequest, LogoutRequest,
-        RegisterRequest, RegisterResponse, SignTransactionRequest, SignTransferRequest,
-        UserInfoResponse, ValidateSessionResponse,
+        LoginRequest, LoginResponse, LogoutAllRequest, LogoutRequest, RegisterRequest,
+        RegisterResponse, UserInfoResponse, ValidateSessionResponse,
     },
 };
+
+fn internal_error<T: Serialize>(message: &'static str) -> Json<ApiResponse<T>> {
+    Json(ApiResponse::error(message))
+}
+
+fn validate_session_owner(
+    auth: &mut kanari_auth::AuthManager,
+    session_id: &str,
+    email: &str,
+) -> Result<(), (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let normalized_email = kanari_auth::email_validator::normalize_email(email);
+
+    match auth.validate_session(session_id) {
+        Ok(session) if session.email == normalized_email => Ok(()),
+        Ok(_) => Err((
+            StatusCode::FORBIDDEN,
+            Json(ApiResponse::error(
+                "Unauthorized: Session does not match email",
+            )),
+        )),
+        Err(_) => Err((
+            StatusCode::UNAUTHORIZED,
+            Json(ApiResponse::error("Invalid or expired session")),
+        )),
+    }
+}
+
+fn validate_session_owner_for<T: Serialize>(
+    auth: &mut kanari_auth::AuthManager,
+    session_id: &str,
+    email: &str,
+) -> Result<(), (StatusCode, Json<ApiResponse<T>>)> {
+    validate_session_owner(auth, session_id, email).map_err(|(status, json)| {
+        (
+            status,
+            Json(ApiResponse::error(
+                json.0.error.unwrap_or_else(|| "Request failed".to_string()),
+            )),
+        )
+    })
+}
 
 fn build_rate_limit_response(
     retry_after_secs: u64,
@@ -152,11 +193,12 @@ pub async fn register(
                 | kanari_auth::AuthError::InvalidPassword(_) => StatusCode::BAD_REQUEST,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             };
-            (
-                status_code,
-                Json(ApiResponse::<serde_json::Value>::error(format!("{:?}", e))),
-            )
-                .into_response()
+            let message = match status_code {
+                StatusCode::CONFLICT => "User already exists",
+                StatusCode::BAD_REQUEST => "Invalid registration data",
+                _ => "Registration failed",
+            };
+            (status_code, Json(ApiResponse::<serde_json::Value>::error(message))).into_response()
         }
     }
 }
@@ -278,7 +320,9 @@ pub async fn login(
                         error!("Failed to fetch encrypted key after login: {:?}", e);
                         return (
                             StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(ApiResponse::<serde_json::Value>::error(format!("{:?}", e))),
+                            Json(ApiResponse::<serde_json::Value>::error(
+                                "Failed to fetch encrypted key after login",
+                            )),
                         )
                             .into_response();
                     }
@@ -306,8 +350,7 @@ pub async fn login(
                     expires_at: session.expires_at.to_rfc3339(),
                 })),
             )
-                .into_response()
-        }
+                .into_response()        }
         Err(e) => {
             error!("Login failed: {:?}", e);
             state
@@ -329,11 +372,13 @@ pub async fn login(
                 kanari_auth::AuthError::InvalidEmail(_) => StatusCode::BAD_REQUEST,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             };
-            (
-                status_code,
-                Json(ApiResponse::<serde_json::Value>::error(format!("{:?}", e))),
-            )
-                .into_response()
+            let message = match status_code {
+                StatusCode::UNAUTHORIZED => "Invalid credentials",
+                StatusCode::FORBIDDEN => "Account locked",
+                StatusCode::BAD_REQUEST => "Invalid login request",
+                _ => "Login failed",
+            };
+            (status_code, Json(ApiResponse::<serde_json::Value>::error(message))).into_response()
         }
     }
 }
@@ -359,10 +404,18 @@ pub async fn logout(
         }
         Err(e) => {
             error!("Logout failed: {:?}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(format!("{:?}", e))),
-            )
+            let status_code = match e {
+                kanari_auth::AuthError::InvalidSession | kanari_auth::AuthError::SessionExpired => {
+                    StatusCode::UNAUTHORIZED
+                }
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            let message = if status_code == StatusCode::UNAUTHORIZED {
+                "Invalid or expired session"
+            } else {
+                "Logout failed"
+            };
+            (status_code, Json(ApiResponse::error(message)))
         }
     }
 }
@@ -375,6 +428,11 @@ pub async fn logout_all(
     info!("Logout all sessions for email: {}", payload.email);
 
     let mut auth = state.auth_manager.lock().await;
+    if let Err(response) =
+        validate_session_owner_for(&mut auth, &payload.session_id, &payload.email)
+    {
+        return response;
+    }
 
     match auth.logout_all(&payload.email) {
         Ok(_) => {
@@ -390,7 +448,7 @@ pub async fn logout_all(
             error!("Logout all failed: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(format!("{:?}", e))),
+                Json(ApiResponse::error("Logout all failed")),
             )
         }
     }
@@ -404,6 +462,11 @@ pub async fn change_password(
     info!("Password change attempt for email: {}", payload.email);
 
     let mut auth = state.auth_manager.lock().await;
+    if let Err(response) =
+        validate_session_owner_for(&mut auth, &payload.session_id, &payload.email)
+    {
+        return response;
+    }
 
     match auth.change_password(&payload.email, &payload.old_password, &payload.new_password) {
         Ok(_) => {
@@ -423,7 +486,13 @@ pub async fn change_password(
                 kanari_auth::AuthError::InvalidPassword(_) => StatusCode::BAD_REQUEST,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             };
-            (status_code, Json(ApiResponse::error(format!("{:?}", e))))
+            let message = match status_code {
+                StatusCode::UNAUTHORIZED => "Authentication failed",
+                StatusCode::NOT_FOUND => "User not found",
+                StatusCode::BAD_REQUEST => "Invalid new password",
+                _ => "Password change failed",
+            };
+            (status_code, Json(ApiResponse::error(message)))
         }
     }
 }
@@ -436,6 +505,11 @@ pub async fn delete_account(
     info!("Account deletion attempt for email: {}", payload.email);
 
     let mut auth = state.auth_manager.lock().await;
+    if let Err(response) =
+        validate_session_owner_for(&mut auth, &payload.session_id, &payload.email)
+    {
+        return response;
+    }
 
     match auth.delete_account(&payload.email, &payload.password) {
         Ok(_) => {
@@ -454,44 +528,14 @@ pub async fn delete_account(
                 kanari_auth::AuthError::UserNotFound(_) => StatusCode::NOT_FOUND,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             };
-            (status_code, Json(ApiResponse::error(format!("{:?}", e))))
+            let message = match status_code {
+                StatusCode::UNAUTHORIZED => "Authentication failed",
+                StatusCode::NOT_FOUND => "User not found",
+                _ => "Account deletion failed",
+            };
+            (status_code, Json(ApiResponse::error(message)))
         }
     }
-}
-
-/// List all users
-pub async fn list_users(
-    State(state): State<AppState>,
-) -> (StatusCode, Json<ApiResponse<ListUsersResponse>>) {
-    info!("Listing all users");
-
-    let auth = state.auth_manager.lock().await;
-
-    let users = auth.list_users();
-    let count = users.len();
-
-    (
-        StatusCode::OK,
-        Json(ApiResponse::success(ListUsersResponse { users, count })),
-    )
-}
-
-/// Get user count
-pub async fn user_count(
-    State(state): State<AppState>,
-) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
-    info!("Getting user count");
-
-    let auth = state.auth_manager.lock().await;
-
-    let count = auth.user_count();
-
-    (
-        StatusCode::OK,
-        Json(ApiResponse::success(serde_json::json!({
-            "count": count
-        }))),
-    )
 }
 
 /// Get user info from session
@@ -529,10 +573,13 @@ pub async fn get_user_info(
                 wallet_address,
             })),
         ),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiResponse::error(format!("{:?}", e))),
-        ),
+        Err(e) => {
+            error!("Failed to load user info: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::error("Failed to load user info")),
+            )
+        }
     }
 }
 
@@ -550,29 +597,10 @@ pub async fn get_user_encrypted_key(
     let mut auth = state.auth_manager.lock().await;
 
     // SECURITY FIX #5: Validate session before returning encrypted key
-    match auth.validate_session(&payload.session_id) {
-        Ok(session) => {
-            // Verify the session belongs to the requesting email
-            if session.email != payload.email {
-                warn!(
-                    "Session/email mismatch: session={} requested={}",
-                    session.email, payload.email
-                );
-                return (
-                    StatusCode::FORBIDDEN,
-                    Json(ApiResponse::error(
-                        "Unauthorized: Session does not match email",
-                    )),
-                );
-            }
-        }
-        Err(e) => {
-            warn!("Invalid session for encrypted key request: {:?}", e);
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(ApiResponse::error("Invalid or expired session")),
-            );
-        }
+    if let Err(response) =
+        validate_session_owner_for(&mut auth, &payload.session_id, &payload.email)
+    {
+        return response;
     }
 
     match auth.get_user_encrypted_key(&payload.email) {
@@ -596,142 +624,12 @@ pub async fn get_user_encrypted_key(
                 kanari_auth::AuthError::AccountLocked => StatusCode::FORBIDDEN,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             };
-            (status_code, Json(ApiResponse::error(format!("{:?}", e))))
-        }
-    }
-}
-
-/// Sign a transfer transaction
-pub async fn sign_transfer(
-    State(state): State<AppState>,
-    Json(payload): Json<SignTransferRequest>,
-) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
-    info!(
-        "Transfer signing attempt for session: {}",
-        payload.session_id
-    );
-
-    let mut auth = state.auth_manager.lock().await;
-
-    // SECURITY FIX #4: Validate session instead of creating mock session
-    let session = match auth.validate_session(&payload.session_id) {
-        Ok(session) => session.clone(),
-        Err(e) => {
-            warn!("Invalid session for transfer signing: {:?}", e);
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(ApiResponse::error("Invalid or expired session")),
-            );
-        }
-    };
-
-    match auth.sign_transfer(
-        &session,
-        &payload.recipient,
-        payload.amount,
-        payload.gas_limit,
-        payload.gas_price,
-    ) {
-        Ok(signed_tx) => {
-            info!("Transfer signed successfully");
-            // Serialize the signed transaction
-            match serde_json::to_string(&signed_tx) {
-                Ok(tx_json) => (
-                    StatusCode::OK,
-                    Json(ApiResponse::success(serde_json::json!({
-                        "signed_transaction": tx_json
-                    }))),
-                ),
-                Err(e) => {
-                    error!("Failed to serialize transaction: {:?}", e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ApiResponse::error("Failed to serialize transaction")),
-                    )
-                }
-            }
-        }
-        Err(e) => {
-            error!("Transfer signing failed: {:?}", e);
-            let status_code = match e {
-                kanari_auth::AuthError::SessionExpired | kanari_auth::AuthError::InvalidSession => {
-                    StatusCode::UNAUTHORIZED
-                }
-                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            let message = match status_code {
+                StatusCode::NOT_FOUND => "User not found",
+                StatusCode::FORBIDDEN => "Account locked",
+                _ => "Encrypted key retrieval failed",
             };
-            (status_code, Json(ApiResponse::error(format!("{:?}", e))))
-        }
-    }
-}
-
-/// Sign a generic transaction
-pub async fn sign_transaction(
-    State(state): State<AppState>,
-    Json(payload): Json<SignTransactionRequest>,
-) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
-    info!(
-        "Transaction signing attempt for session: {}",
-        payload.session_id
-    );
-
-    // Parse the transaction JSON
-    let transaction: kanari_types::transaction::Transaction =
-        match serde_json::from_str(&payload.transaction_json) {
-            Ok(tx) => tx,
-            Err(e) => {
-                error!("Failed to parse transaction JSON: {:?}", e);
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(ApiResponse::error(format!(
-                        "Invalid transaction JSON: {}",
-                        e
-                    ))),
-                );
-            }
-        };
-
-    let mut auth = state.auth_manager.lock().await;
-
-    // SECURITY FIX #4: Validate session instead of creating mock session
-    let session = match auth.validate_session(&payload.session_id) {
-        Ok(session) => session.clone(),
-        Err(e) => {
-            warn!("Invalid session for transaction signing: {:?}", e);
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(ApiResponse::error("Invalid or expired session")),
-            );
-        }
-    };
-
-    match auth.sign_transaction(&session, transaction) {
-        Ok(signed_tx) => {
-            info!("Transaction signed successfully");
-            match serde_json::to_string(&signed_tx) {
-                Ok(tx_json) => (
-                    StatusCode::OK,
-                    Json(ApiResponse::success(serde_json::json!({
-                        "signed_transaction": tx_json
-                    }))),
-                ),
-                Err(e) => {
-                    error!("Failed to serialize transaction: {:?}", e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ApiResponse::error("Failed to serialize transaction")),
-                    )
-                }
-            }
-        }
-        Err(e) => {
-            error!("Transaction signing failed: {:?}", e);
-            let status_code = match e {
-                kanari_auth::AuthError::SessionExpired | kanari_auth::AuthError::InvalidSession => {
-                    StatusCode::UNAUTHORIZED
-                }
-                _ => StatusCode::INTERNAL_SERVER_ERROR,
-            };
-            (status_code, Json(ApiResponse::error(format!("{:?}", e))))
+            (status_code, Json(ApiResponse::error(message)))
         }
     }
 }
@@ -769,7 +667,7 @@ pub async fn validate_session(
                 error!("Session validation failed: {:?}", e);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ApiResponse::error(format!("{:?}", e))),
+                    internal_error("Session validation failed"),
                 )
             }
         }

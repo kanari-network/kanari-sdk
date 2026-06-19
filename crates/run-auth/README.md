@@ -278,61 +278,6 @@ GET /api/v1/users/count
 
 ---
 
-### Transaction Signing
-
-#### Sign Transfer
-
-```http
-POST /api/v1/sign/transfer
-Content-Type: application/json
-
-{
-  "session_id": "550e8400-e29b-41d4-a716-446655440000",
-  "recipient": "0xRecipientAddress...",
-  "amount": 1000000,
-  "gas_limit": 100000,
-  "gas_price": 1000
-}
-```
-
-**Response (200 OK):**
-
-```json
-{
-  "success": true,
-  "data": {
-    "signed_transaction": "{\"Transfer\":{...}}"
-  },
-  "error": null
-}
-```
-
-#### Sign Generic Transaction
-
-```http
-POST /api/v1/sign/transaction
-Content-Type: application/json
-
-{
-  "session_id": "550e8400-e29b-41d4-a716-446655440000",
-  "transaction_json": "{\"Transfer\":{\"recipient\":\"0x...\",\"amount\":1000000}}"
-}
-```
-
-**Response (200 OK):**
-
-```json
-{
-  "success": true,
-  "data": {
-    "signed_transaction": "{\"Transfer\":{...}}"
-  },
-  "error": null
-}
-```
-
----
-
 ### Session Validation
 
 #### Validate Session
@@ -532,20 +477,6 @@ Consider adding:
 - Health check intervals (every 30s)
 - Log aggregation (ELK stack, Datadog)
 - Alerting on error rates (>5% of requests)
-
----
-
-## Future Enhancements
-
-- [ ] Authentication middleware for protected routes
-- [ ] Rate limiting per IP/email
-- [ ] API key authentication for admin endpoints
-- [ ] WebSocket support for real-time events
-- [ ] OpenAPI/Swagger documentation
-- [ ] GraphQL interface
-- [ ] Multi-tenant support
-- [ ] Audit logging endpoint
-- [ ] Backup/restore API
 
 ---
 

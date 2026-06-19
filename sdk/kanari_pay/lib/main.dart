@@ -183,8 +183,8 @@ class _KanariAppState extends State<KanariApp> with WidgetsBindingObserver {
           final authClient = context.watch<KanariAuthClient>();
           final walletState = context.watch<WalletState>();
           final canEnterHome =
-              authClient.isAuthenticated ||
-              (walletState.isUnlocked && walletState.hasWallet);
+              walletState.hasWallet &&
+              (authClient.isAuthenticated || walletState.isUnlocked);
 
           debugPrint(
             "Route '/' check: isAuthenticated=${authClient.isAuthenticated}, isUnlocked=${walletState.isUnlocked}, hasWallet=${walletState.hasWallet}",

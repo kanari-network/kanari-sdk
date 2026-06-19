@@ -5,9 +5,10 @@ use tokio::sync::Mutex;
 
 use axum::{
     Json, Router,
-    http::Method,
+    http::{HeaderValue, Method},
     routing::{get, post},
 };
+use axum_client_ip::ClientIpSource;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -80,10 +81,17 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Configure CORS
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
-        .allow_headers(Any);
+    let cors = if let Ok(origin) = std::env::var("AUTH_ALLOWED_ORIGIN") {
+        let origin = HeaderValue::from_str(&origin)?;
+        CorsLayer::new()
+            .allow_origin(origin)
+            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+            .allow_headers(Any)
+    } else {
+        CorsLayer::new()
+            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+            .allow_headers(Any)
+    };
 
     // Build router
     let app = Router::new()
@@ -97,17 +105,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/change-password", post(handlers::change_password))
         .route("/api/v1/delete-account", post(handlers::delete_account))
         // User management
-        .route("/api/v1/users", get(handlers::list_users))
-        .route("/api/v1/users/count", get(handlers::user_count))
         .route("/api/v1/user/info", get(handlers::get_user_info))
         // SECURITY FIX #5: Changed from GET to POST for encrypted key retrieval (requires session validation)
         .route(
             "/api/v1/user/encrypted-key",
             post(handlers::get_user_encrypted_key),
         )
-        // Transaction signing
-        .route("/api/v1/sign/transfer", post(handlers::sign_transfer))
-        .route("/api/v1/sign/transaction", post(handlers::sign_transaction))
         // Session validation
         .route(
             "/api/v1/session/validate/{session_id}",
@@ -119,6 +122,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/2fa/disable", post(handlers::disable_2fa))
         .route("/api/v1/2fa/verify", post(handlers::verify_2fa))
         // Apply middleware and state
+        .layer(ClientIpSource::ConnectInfo.into_extension())
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);

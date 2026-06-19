@@ -316,7 +316,14 @@ class KanariAuthClient extends ChangeNotifier {
       return ApiResponse(success: false, error: 'No user logged in');
     }
 
-    final request = LogoutAllRequest(email: _userEmail!);
+    if (_sessionId == null) {
+      return ApiResponse(success: false, error: 'No active session');
+    }
+
+    final request = LogoutAllRequest(
+      email: _userEmail!,
+      sessionId: _sessionId!,
+    );
 
     final response = await _client.post(
       Uri.parse('$baseUrl/api/v1/logout-all'),
@@ -359,8 +366,13 @@ class KanariAuthClient extends ChangeNotifier {
       return ApiResponse(success: false, error: 'No user logged in');
     }
 
+    if (_sessionId == null) {
+      return ApiResponse(success: false, error: 'No active session');
+    }
+
     final request = ChangePasswordRequest(
       email: _userEmail!,
+      sessionId: _sessionId!,
       oldPassword: oldPassword,
       newPassword: newPassword,
     );
@@ -404,8 +416,13 @@ class KanariAuthClient extends ChangeNotifier {
       return ApiResponse(success: false, error: 'No user logged in');
     }
 
+    if (_sessionId == null) {
+      return ApiResponse(success: false, error: 'No active session');
+    }
+
     final request = DeleteAccountRequest(
       email: _userEmail!,
+      sessionId: _sessionId!,
       password: password,
     );
 
@@ -479,53 +496,6 @@ class KanariAuthClient extends ChangeNotifier {
       }
     } catch (e) {
       return ApiResponse(success: false, error: 'Validation error: $e');
-    }
-  }
-
-  /// Sign a transfer transaction
-  ///
-  /// [recipient] - Recipient wallet address
-  /// [amount] - Amount to transfer (in mist)
-  /// [gasLimit] - Optional gas limit
-  /// [gasPrice] - Optional gas price
-  ///
-  /// Returns signed transaction JSON string
-  Future<ApiResponse<Map<String, dynamic>>> signTransfer({
-    required String recipient,
-    required int amount,
-    int? gasLimit,
-    int? gasPrice,
-  }) async {
-    if (_sessionId == null) {
-      return ApiResponse(success: false, error: 'No active session');
-    }
-
-    final request = SignTransferRequest(
-      sessionId: _sessionId!,
-      recipient: recipient,
-      amount: amount,
-      gasLimit: gasLimit,
-      gasPrice: gasPrice,
-    );
-
-    final response = await _client.post(
-      Uri.parse('$baseUrl/api/v1/sign/transfer'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(request.toJson()),
-    );
-
-    final jsonResponse = jsonDecode(response.body) as Map<String, dynamic>;
-
-    if (response.statusCode == 200) {
-      return ApiResponse(
-        success: true,
-        data: jsonResponse['data'] as Map<String, dynamic>,
-      );
-    } else {
-      return ApiResponse(
-        success: false,
-        error: jsonResponse['error'] as String? ?? 'Sign transfer failed',
-      );
     }
   }
 

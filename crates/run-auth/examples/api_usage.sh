@@ -61,21 +61,8 @@ echo "6. User Count"
 curl -s "$API_BASE/users/count" | jq .
 echo ""
 
-# 7. Sign a Transfer Transaction (example)
-echo "7. Sign Transfer Transaction"
-curl -s -X POST "$API_BASE/sign/transfer" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"session_id\": \"$SESSION_ID\",
-    \"recipient\": \"0xRecipientAddressHere\",
-    \"amount\": 1000000,
-    \"gas_limit\": 100000,
-    \"gas_price\": 1000
-  }" | jq .
-echo ""
-
-# 8. Change Password
-echo "8. Change Password"
+# 7. Change Password
+echo "7. Change Password"
 curl -s -X POST "$API_BASE/change-password" \
   -H "Content-Type: application/json" \
   -d '{
@@ -85,8 +72,8 @@ curl -s -X POST "$API_BASE/change-password" \
   }' | jq .
 echo ""
 
-# 9. Logout
-echo "9. Logout"
+# 8. Logout
+echo "8. Logout"
 curl -s -X POST "$API_BASE/logout" \
   -H "Content-Type: application/json" \
   -d "{
@@ -94,8 +81,8 @@ curl -s -X POST "$API_BASE/logout" \
   }" | jq .
 echo ""
 
-# 10. Delete Account (cleanup)
-echo "10. Delete Account"
+# 9. Delete Account (cleanup)
+echo "9. Delete Account"
 curl -s -X POST "$API_BASE/delete-account" \
   -H "Content-Type: application/json" \
   -d '{

@@ -113,12 +113,16 @@ pub struct LogoutRequest {
 #[derive(Debug, Deserialize)]
 pub struct LogoutAllRequest {
     pub email: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
 }
 
 /// Change password request
 #[derive(Debug, Deserialize)]
 pub struct ChangePasswordRequest {
     pub email: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
     #[serde(rename = "oldPassword")]
     pub old_password: String,
     #[serde(rename = "newPassword")]
@@ -129,36 +133,9 @@ pub struct ChangePasswordRequest {
 #[derive(Debug, Deserialize)]
 pub struct DeleteAccountRequest {
     pub email: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
     pub password: String,
-}
-
-/// Transfer signing request
-#[derive(Debug, Deserialize)]
-pub struct SignTransferRequest {
-    #[serde(rename = "sessionId")]
-    pub session_id: String,
-    pub recipient: String,
-    pub amount: u64,
-    #[serde(rename = "gasLimit")]
-    pub gas_limit: Option<u64>,
-    #[serde(rename = "gasPrice")]
-    pub gas_price: Option<u64>,
-}
-
-/// Generic transaction signing request
-#[derive(Debug, Deserialize)]
-pub struct SignTransactionRequest {
-    #[serde(rename = "sessionId")]
-    pub session_id: String,
-    #[serde(rename = "transactionJson")]
-    pub transaction_json: String, // JSON-encoded transaction
-}
-
-/// List users response
-#[derive(Debug, Serialize)]
-pub struct ListUsersResponse {
-    pub users: Vec<String>,
-    pub count: usize,
 }
 
 /// Session validation response

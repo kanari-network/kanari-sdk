@@ -191,8 +191,9 @@ class LogoutRequest {
 @JsonSerializable()
 class LogoutAllRequest {
   final String email;
+  final String sessionId;
 
-  LogoutAllRequest({required this.email});
+  LogoutAllRequest({required this.email, required this.sessionId});
 
   factory LogoutAllRequest.fromJson(Map<String, dynamic> json) =>
       _$LogoutAllRequestFromJson(json);
@@ -204,11 +205,13 @@ class LogoutAllRequest {
 @JsonSerializable()
 class ChangePasswordRequest {
   final String email;
+  final String sessionId;
   final String oldPassword;
   final String newPassword;
 
   ChangePasswordRequest({
     required this.email,
+    required this.sessionId,
     required this.oldPassword,
     required this.newPassword,
   });
@@ -223,37 +226,19 @@ class ChangePasswordRequest {
 @JsonSerializable()
 class DeleteAccountRequest {
   final String email;
+  final String sessionId;
   final String password;
 
-  DeleteAccountRequest({required this.email, required this.password});
+  DeleteAccountRequest({
+    required this.email,
+    required this.sessionId,
+    required this.password,
+  });
 
   factory DeleteAccountRequest.fromJson(Map<String, dynamic> json) =>
       _$DeleteAccountRequestFromJson(json);
 
   Map<String, dynamic> toJson() => _$DeleteAccountRequestToJson(this);
-}
-
-/// Sign transfer request
-@JsonSerializable()
-class SignTransferRequest {
-  final String sessionId;
-  final String recipient;
-  final int amount;
-  final int? gasLimit;
-  final int? gasPrice;
-
-  SignTransferRequest({
-    required this.sessionId,
-    required this.recipient,
-    required this.amount,
-    this.gasLimit,
-    this.gasPrice,
-  });
-
-  factory SignTransferRequest.fromJson(Map<String, dynamic> json) =>
-      _$SignTransferRequestFromJson(json);
-
-  Map<String, dynamic> toJson() => _$SignTransferRequestToJson(this);
 }
 
 /// Session validation response
