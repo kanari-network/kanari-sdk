@@ -35,6 +35,11 @@ class KanariAuthClient extends ChangeNotifier {
   KanariAuthClient(this.baseUrl, {http.Client? client})
     : _client = client ?? http.Client();
 
+  Map<String, String> get _authenticatedJsonHeaders => {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ${_sessionId!}',
+  };
+
   /// Register a new user account
   ///
   /// [email] - User's email address
@@ -159,7 +164,7 @@ class KanariAuthClient extends ChangeNotifier {
 
     final response = await _client.post(
       Uri.parse('$baseUrl/api/v1/2fa/setup'),
-      headers: {'Content-Type': 'application/json'},
+      headers: _authenticatedJsonHeaders,
       body: jsonEncode(request.toJson()),
     );
 
@@ -191,6 +196,9 @@ class KanariAuthClient extends ChangeNotifier {
     required String password,
     required String code,
   }) async {
+    if (_sessionId == null) {
+      return ApiResponse(success: false, error: 'No active session');
+    }
     final request = Enable2faRequest(
       email: email,
       password: password,
@@ -199,7 +207,7 @@ class KanariAuthClient extends ChangeNotifier {
 
     final response = await _client.post(
       Uri.parse('$baseUrl/api/v1/2fa/enable'),
-      headers: {'Content-Type': 'application/json'},
+      headers: _authenticatedJsonHeaders,
       body: jsonEncode(request.toJson()),
     );
 
@@ -221,12 +229,20 @@ class KanariAuthClient extends ChangeNotifier {
   Future<ApiResponse<Map<String, dynamic>>> disable2fa({
     required String email,
     required String password,
+    required String code,
   }) async {
-    final request = Disable2faRequest(email: email, password: password);
+    if (_sessionId == null) {
+      return ApiResponse(success: false, error: 'No active session');
+    }
+    final request = Disable2faRequest(
+      email: email,
+      password: password,
+      code: code,
+    );
 
     final response = await _client.post(
       Uri.parse('$baseUrl/api/v1/2fa/disable'),
-      headers: {'Content-Type': 'application/json'},
+      headers: _authenticatedJsonHeaders,
       body: jsonEncode(request.toJson()),
     );
 
@@ -241,33 +257,6 @@ class KanariAuthClient extends ChangeNotifier {
     return ApiResponse(
       success: false,
       error: jsonResponse['error'] as String? ?? '2FA disable failed',
-    );
-  }
-
-  /// Verify an already-enabled TOTP code.
-  Future<ApiResponse<Map<String, dynamic>>> verify2fa({
-    required String email,
-    required String code,
-  }) async {
-    final request = Verify2faRequest(email: email, code: code);
-
-    final response = await _client.post(
-      Uri.parse('$baseUrl/api/v1/2fa/verify'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(request.toJson()),
-    );
-
-    final jsonResponse = jsonDecode(response.body) as Map<String, dynamic>;
-    if (response.statusCode == 200) {
-      return ApiResponse(
-        success: true,
-        data: (jsonResponse['data'] as Map?)?.cast<String, dynamic>(),
-      );
-    }
-
-    return ApiResponse(
-      success: false,
-      error: jsonResponse['error'] as String? ?? '2FA verification failed',
     );
   }
 
@@ -462,7 +451,8 @@ class KanariAuthClient extends ChangeNotifier {
 
     try {
       final response = await _client.get(
-        Uri.parse('$baseUrl/api/v1/session/validate/$_sessionId'),
+        Uri.parse('$baseUrl/api/v1/session/validate'),
+        headers: {'Authorization': 'Bearer $_sessionId'},
       );
 
       final jsonResponse = jsonDecode(response.body) as Map<String, dynamic>;

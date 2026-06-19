@@ -253,10 +253,21 @@ impl UserRecord {
     }
 
     /// Save a pending or refreshed 2FA enrollment for the user.
-    pub fn set_two_factor_setup(&mut self, secret: String, backup_codes: Vec<String>) {
-        self.totp_secret = Some(secret);
+    pub fn set_two_factor_setup(
+        &mut self,
+        secret: String,
+        backup_codes: Vec<String>,
+        password: &str,
+    ) -> AuthResult<()> {
+        self.totp_secret = Some(crate::private_key_crypto::encrypt_private_key(
+            &secret, password,
+        )?);
         self.totp_enabled = false;
-        self.backup_codes = backup_codes;
+        self.backup_codes = backup_codes
+            .iter()
+            .map(|code| Self::hash_password(code))
+            .collect::<AuthResult<Vec<_>>>()?;
+        Ok(())
     }
 
     /// Mark the currently stored 2FA setup as enabled.
@@ -273,11 +284,22 @@ impl UserRecord {
 
     /// Consume a one-time backup code if present.
     pub fn consume_backup_code(&mut self, backup_code: &str) -> bool {
-        if let Some(index) = self
-            .backup_codes
-            .iter()
-            .position(|stored| stored == backup_code)
-        {
+        use argon2::{Argon2, PasswordHash, PasswordVerifier};
+
+        let index = self.backup_codes.iter().position(|stored| {
+            if stored.starts_with("$argon2") {
+                PasswordHash::new(stored).ok().is_some_and(|hash| {
+                    Argon2::default()
+                        .verify_password(backup_code.as_bytes(), &hash)
+                        .is_ok()
+                })
+            } else {
+                // Legacy plaintext values are accepted once and removed after use.
+                stored == backup_code
+            }
+        });
+
+        if let Some(index) = index {
             self.backup_codes.remove(index);
             true
         } else {
@@ -785,14 +807,29 @@ mod tests {
         user.set_two_factor_setup(
             "BASE32SECRET".to_string(),
             vec!["CODE1234".to_string(), "CODE5678".to_string()],
-        );
+            "SecurePass123!",
+        )
+        .unwrap();
         user.enable_two_factor();
 
         store.add_user(user).unwrap();
         let loaded = store.get_user("user@example.com").unwrap().unwrap();
 
-        assert_eq!(loaded.totp_secret.as_deref(), Some("BASE32SECRET"));
+        let encrypted_secret = loaded.totp_secret.as_deref().unwrap();
+        assert_ne!(encrypted_secret, "BASE32SECRET");
+        assert_eq!(
+            crate::private_key_crypto::decrypt_private_key(encrypted_secret, "SecurePass123!")
+                .unwrap(),
+            "BASE32SECRET"
+        );
         assert!(loaded.totp_enabled);
         assert_eq!(loaded.backup_codes.len(), 2);
+        assert!(
+            loaded
+                .backup_codes
+                .iter()
+                .all(|code| code.starts_with("$argon2"))
+        );
+        assert!(!loaded.backup_codes.iter().any(|code| code == "CODE1234"));
     }
 }

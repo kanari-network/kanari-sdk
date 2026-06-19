@@ -407,6 +407,7 @@ class SettingScreen extends StatelessWidget {
     if (!context.mounted || !authorized) return;
 
     final passwordController = TextEditingController();
+    final disableCodeController = TextEditingController();
     var isLoading = false;
     String? errorMessage;
 
@@ -425,6 +426,7 @@ class SettingScreen extends StatelessWidget {
               final response = await authClient.disable2fa(
                 email: email,
                 password: passwordController.text,
+                code: disableCodeController.text.trim(),
               );
 
               if (!context.mounted) return;
@@ -477,6 +479,17 @@ class SettingScreen extends StatelessWidget {
                         decoration: const InputDecoration(
                           labelText: 'Password',
                           prefixIcon: Icon(Icons.lock_rounded),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: disableCodeController,
+                        keyboardType: TextInputType.number,
+                        enabled: !isLoading,
+                        decoration: const InputDecoration(
+                          labelText: 'Current authenticator code',
+                          hintText: '123456',
+                          prefixIcon: Icon(Icons.shield_rounded),
                         ),
                       ),
                       if (errorMessage != null) ...[

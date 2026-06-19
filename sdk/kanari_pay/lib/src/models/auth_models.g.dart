@@ -128,19 +128,15 @@ Disable2faRequest _$Disable2faRequestFromJson(Map<String, dynamic> json) =>
     Disable2faRequest(
       email: json['email'] as String,
       password: json['password'] as String,
-    );
-
-Map<String, dynamic> _$Disable2faRequestToJson(Disable2faRequest instance) =>
-    <String, dynamic>{'email': instance.email, 'password': instance.password};
-
-Verify2faRequest _$Verify2faRequestFromJson(Map<String, dynamic> json) =>
-    Verify2faRequest(
-      email: json['email'] as String,
       code: json['code'] as String,
     );
 
-Map<String, dynamic> _$Verify2faRequestToJson(Verify2faRequest instance) =>
-    <String, dynamic>{'email': instance.email, 'code': instance.code};
+Map<String, dynamic> _$Disable2faRequestToJson(Disable2faRequest instance) =>
+    <String, dynamic>{
+      'email': instance.email,
+      'password': instance.password,
+      'code': instance.code,
+    };
 
 LogoutRequest _$LogoutRequestFromJson(Map<String, dynamic> json) =>
     LogoutRequest(sessionId: json['sessionId'] as String);

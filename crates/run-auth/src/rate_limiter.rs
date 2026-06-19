@@ -56,21 +56,25 @@ struct TokenBucket {
     max_tokens: u32,
     tokens: u32,
     last_refill: Instant,
+    last_activity: Instant,
     refill_interval: Duration,
 }
 
 impl TokenBucket {
     fn new(max_requests: u32, interval_secs: u64) -> Self {
+        let now = Instant::now();
         Self {
             max_tokens: max_requests,
             tokens: max_requests,
-            last_refill: Instant::now(),
+            last_refill: now,
+            last_activity: now,
             refill_interval: Duration::from_secs(interval_secs),
         }
     }
 
     fn allow_request(&mut self) -> bool {
         let now = Instant::now();
+        self.last_activity = now;
 
         // Refill tokens based on elapsed time
         let elapsed = now.duration_since(self.last_refill);
@@ -117,6 +121,11 @@ impl RateLimiter {
     pub async fn check_rate_limit(&self, ip: IpAddr) -> Result<(), RateLimitError> {
         let mut buckets = self.buckets.lock().await;
 
+        // Drop idle clients so one-off IP addresses cannot grow this map forever.
+        let stale_after = Duration::from_secs(self.config.interval_secs.saturating_mul(2));
+        let now = Instant::now();
+        buckets.retain(|_, bucket| now.duration_since(bucket.last_activity) < stale_after);
+
         // Get or create token bucket for this IP
         let bucket = buckets.entry(ip).or_insert_with(|| {
             TokenBucket::new(self.config.max_requests, self.config.interval_secs)
@@ -136,5 +145,41 @@ impl RateLimiter {
     /// Get current rate limit configuration
     pub fn config(&self) -> &RateLimitConfig {
         &self.config
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    #[tokio::test]
+    async fn rejects_requests_over_limit() {
+        let limiter = RateLimiter::new(RateLimitConfig {
+            max_requests: 2,
+            interval_secs: 60,
+        });
+        let ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        assert!(limiter.check_rate_limit(ip).await.is_ok());
+        assert!(limiter.check_rate_limit(ip).await.is_ok());
+        assert!(limiter.check_rate_limit(ip).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn removes_stale_ip_buckets() {
+        let limiter = RateLimiter::new(RateLimitConfig {
+            max_requests: 1,
+            interval_secs: 1,
+        });
+        let stale_ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        limiter.check_rate_limit(stale_ip).await.unwrap();
+        {
+            let mut buckets = limiter.buckets.lock().await;
+            buckets.get_mut(&stale_ip).unwrap().last_activity -= Duration::from_secs(3);
+        }
+        limiter
+            .check_rate_limit(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)))
+            .await
+            .unwrap();
+        assert_eq!(limiter.buckets.lock().await.len(), 1);
     }
 }

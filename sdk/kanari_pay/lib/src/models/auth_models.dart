@@ -151,27 +151,18 @@ class Enable2faRequest {
 class Disable2faRequest {
   final String email;
   final String password;
+  final String code;
 
-  Disable2faRequest({required this.email, required this.password});
+  Disable2faRequest({
+    required this.email,
+    required this.password,
+    required this.code,
+  });
 
   factory Disable2faRequest.fromJson(Map<String, dynamic> json) =>
       _$Disable2faRequestFromJson(json);
 
   Map<String, dynamic> toJson() => _$Disable2faRequestToJson(this);
-}
-
-/// Verify two-factor code request
-@JsonSerializable()
-class Verify2faRequest {
-  final String email;
-  final String code;
-
-  Verify2faRequest({required this.email, required this.code});
-
-  factory Verify2faRequest.fromJson(Map<String, dynamic> json) =>
-      _$Verify2faRequestFromJson(json);
-
-  Map<String, dynamic> toJson() => _$Verify2faRequestToJson(this);
 }
 
 /// Logout request

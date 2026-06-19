@@ -441,6 +441,15 @@ impl AuthManager {
         user.encrypted_private_key =
             Some(encrypt_private_key(&decrypted_private_key, new_password)?);
 
+        if let Some(secret) = user.totp_secret.take() {
+            let plaintext = if secret.starts_with('{') {
+                decrypt_private_key(&secret, old_password)?
+            } else {
+                secret
+            };
+            user.totp_secret = Some(encrypt_private_key(&plaintext, new_password)?);
+        }
+
         // Persist the password change
         self.user_store.update_user(&user)?;
 
@@ -458,27 +467,49 @@ impl AuthManager {
         email: &str,
         secret: String,
         backup_codes: Vec<String>,
+        password: &str,
     ) -> AuthResult<()> {
         let normalized_email = email_validator::normalize_email(email);
         let mut user = self
             .user_store
             .get_user(&normalized_email)?
             .ok_or(AuthError::UserNotFound(normalized_email.clone()))?;
+        if user.totp_enabled {
+            return Err(AuthError::ValidationError(
+                "Disable existing 2FA before creating a new setup".to_string(),
+            ));
+        }
 
-        user.set_two_factor_setup(secret, backup_codes);
+        user.set_two_factor_setup(secret, backup_codes, password)?;
         self.user_store.update_user(&user)?;
         Ok(())
     }
 
     /// Return current 2FA state, including pending setup information.
-    pub fn get_two_factor_status(&self, email: &str) -> AuthResult<Option<TwoFactorStatus>> {
+    pub fn get_two_factor_status(
+        &self,
+        email: &str,
+        password: &str,
+    ) -> AuthResult<Option<TwoFactorStatus>> {
         let normalized_email = email_validator::normalize_email(email);
         let user = self
             .user_store
             .get_user(&normalized_email)?
             .ok_or(AuthError::UserNotFound(normalized_email.clone()))?;
 
-        Ok(user.totp_secret.map(|secret| TwoFactorStatus {
+        let secret = user
+            .totp_secret
+            .map(|secret| {
+                if secret.starts_with('{') {
+                    decrypt_private_key(&secret, password)
+                } else {
+                    // Read legacy plaintext until the next enrollment/password change.
+                    Ok(secret)
+                }
+            })
+            .transpose()?;
+
+        Ok(secret.map(|secret| TwoFactorStatus {
             secret,
             enabled: user.totp_enabled,
             backup_codes: user.backup_codes,
@@ -486,7 +517,7 @@ impl AuthManager {
     }
 
     /// Mark the stored 2FA setup as enabled.
-    pub fn enable_two_factor(&mut self, email: &str) -> AuthResult<Vec<String>> {
+    pub fn enable_two_factor(&mut self, email: &str) -> AuthResult<()> {
         let normalized_email = email_validator::normalize_email(email);
         let mut user = self
             .user_store
@@ -500,9 +531,8 @@ impl AuthManager {
         }
 
         user.enable_two_factor();
-        let backup_codes = user.backup_codes.clone();
         self.user_store.update_user(&user)?;
-        Ok(backup_codes)
+        Ok(())
     }
 
     /// Disable 2FA and clear persisted recovery data.
@@ -709,6 +739,38 @@ mod tests {
     }
 
     #[test]
+    fn test_enabled_two_factor_cannot_be_overwritten() {
+        let mut auth = AuthManager::new();
+        auth.register_user(
+            "protected@example.com",
+            "SecurePass123!",
+            Some(CurveType::Ed25519),
+        )
+        .unwrap();
+        auth.save_two_factor_setup(
+            "protected@example.com",
+            "ORIGINALSECRET".to_string(),
+            vec!["ORIGINAL1".to_string()],
+            "SecurePass123!",
+        )
+        .unwrap();
+        auth.enable_two_factor("protected@example.com").unwrap();
+
+        let result = auth.save_two_factor_setup(
+            "protected@example.com",
+            "ATTACKERSECRET".to_string(),
+            vec!["ATTACKER1".to_string()],
+            "SecurePass123!",
+        );
+        assert!(matches!(result, Err(AuthError::ValidationError(_))));
+        let status = auth
+            .get_two_factor_status("protected@example.com", "SecurePass123!")
+            .unwrap()
+            .unwrap();
+        assert_eq!(status.secret, "ORIGINALSECRET");
+        assert!(status.enabled);
+    }
+    #[test]
     fn test_persisted_two_factor_lifecycle() {
         let mut auth = AuthManager::new();
         auth.register_user(
@@ -722,18 +784,18 @@ mod tests {
             "test@example.com",
             "BASE32SECRET".to_string(),
             vec!["CODE1234".to_string()],
+            "SecurePass123!",
         )
         .unwrap();
 
         let status = auth
-            .get_two_factor_status("test@example.com")
+            .get_two_factor_status("test@example.com", "SecurePass123!")
             .unwrap()
             .unwrap();
         assert!(!status.enabled);
         assert_eq!(status.secret, "BASE32SECRET");
 
-        let backup_codes = auth.enable_two_factor("test@example.com").unwrap();
-        assert_eq!(backup_codes, vec!["CODE1234".to_string()]);
+        auth.enable_two_factor("test@example.com").unwrap();
 
         assert!(
             auth.consume_backup_code("test@example.com", "CODE1234")
@@ -747,7 +809,7 @@ mod tests {
 
         assert!(auth.disable_two_factor("test@example.com").unwrap());
         assert!(
-            auth.get_two_factor_status("test@example.com")
+            auth.get_two_factor_status("test@example.com", "SecurePass123!")
                 .unwrap()
                 .is_none()
         );

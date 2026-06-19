@@ -112,15 +112,11 @@ async fn main() -> anyhow::Result<()> {
             post(handlers::get_user_encrypted_key),
         )
         // Session validation
-        .route(
-            "/api/v1/session/validate/{session_id}",
-            get(handlers::validate_session),
-        )
+        .route("/api/v1/session/validate", get(handlers::validate_session))
         // Two-Factor Authentication routes
         .route("/api/v1/2fa/setup", post(handlers::setup_2fa))
         .route("/api/v1/2fa/enable", post(handlers::enable_2fa))
         .route("/api/v1/2fa/disable", post(handlers::disable_2fa))
-        .route("/api/v1/2fa/verify", post(handlers::verify_2fa))
         // Apply middleware and state
         .layer(ClientIpSource::ConnectInfo.into_extension())
         .layer(cors)

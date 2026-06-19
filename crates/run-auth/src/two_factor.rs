@@ -22,16 +22,6 @@ pub struct TwoFactorSetup {
     pub backup_codes: Vec<String>,
 }
 
-/// TOTP verification request
-#[derive(Debug, Deserialize)]
-pub struct TotpVerifyRequest {
-    /// User's email
-    pub email: String,
-
-    /// 6-digit TOTP code
-    pub code: String,
-}
-
 /// Enable 2FA request
 #[derive(Debug, Deserialize)]
 pub struct Enable2faRequest {
@@ -53,6 +43,9 @@ pub struct Disable2faRequest {
 
     /// User's password for verification
     pub password: String,
+
+    /// Current 6-digit TOTP code
+    pub code: String,
 }
 
 /// TOTP Manager for handling 2FA operations

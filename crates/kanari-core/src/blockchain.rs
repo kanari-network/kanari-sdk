@@ -242,7 +242,9 @@ mod tests {
             1,
             chain.latest_checkpoint().hash().unwrap(),
         );
-        chain.add_checkpoint_with_validation(checkpoint, false).unwrap();
+        chain
+            .add_checkpoint_with_validation(checkpoint, false)
+            .unwrap();
         chain.total_transaction_count = 99;
 
         assert_eq!(chain.get_transaction_count(), 2);
