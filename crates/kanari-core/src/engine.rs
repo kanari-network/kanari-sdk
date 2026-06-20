@@ -55,13 +55,18 @@ struct PersistedTransactionLocation {
     state_root: Vec<u8>,
 }
 
+#[derive(Debug, Default)]
+pub(crate) struct MempoolState {
+    pending_txs: Vec<SignedTransaction>,
+    pending_tx_hashes: HashSet<Vec<u8>>,
+    pending_sender_counts: AHashMap<String, u64>,
+}
+
 /// Complete blockchain engine with Move VM integration
 pub struct BlockchainEngine {
     pub blockchain: Arc<RwLock<Blockchain>>,
     pub state: Arc<RwLock<StateManager>>,
-    pub pending_txs: Arc<RwLock<Vec<SignedTransaction>>>,
-    pending_tx_hashes: Arc<RwLock<HashSet<Vec<u8>>>>,
-    pending_sender_counts: Arc<RwLock<AHashMap<String, u64>>>,
+    mempool: Arc<RwLock<MempoolState>>,
     pub persistent_store: Option<Arc<PersistentStore>>,
     // Reusable pool of MoveRuntime instances for parallel execution
     pub runtime_pool: Vec<kanari_move_runtime_v1::move_runtime::MoveRuntime>,
@@ -554,6 +559,28 @@ impl BlockchainEngine {
             error!("State lock poisoned while writing runtime state; recovering...");
             poisoned.into_inner()
         })
+    }
+
+    pub(crate) fn mempool_read(&self) -> RwLockReadGuard<'_, MempoolState> {
+        self.mempool.read().unwrap_or_else(|poisoned| {
+            error!("Mempool lock poisoned while reading pending state; recovering...");
+            poisoned.into_inner()
+        })
+    }
+
+    pub(crate) fn mempool_write(&self) -> RwLockWriteGuard<'_, MempoolState> {
+        self.mempool.write().unwrap_or_else(|poisoned| {
+            error!("Mempool lock poisoned while writing pending state; recovering...");
+            poisoned.into_inner()
+        })
+    }
+
+    pub fn pending_transactions_snapshot(&self) -> Vec<SignedTransaction> {
+        self.mempool_read().pending_txs.clone()
+    }
+
+    pub fn pending_transaction_len(&self) -> usize {
+        self.mempool_read().pending_txs.len()
     }
 
     pub(crate) fn get_expected_sequence(&self, address_hex: &str) -> u64 {
@@ -1146,11 +1173,7 @@ impl BlockchainEngine {
 
     pub fn produce_checkpoint(&self) -> Result<CheckpointProductionInfo> {
         let dag_engine = self.dag_engine_instance()?;
-        let has_pending_transactions = !self
-            .pending_txs
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .is_empty();
+        let has_pending_transactions = self.pending_transaction_len() > 0;
 
         if !has_pending_transactions {
             anyhow::bail!("No new transactions to checkpoint");
@@ -1184,9 +1207,7 @@ impl BlockchainEngine {
         BlockchainEngine {
             blockchain: self.blockchain.clone(),
             state: self.state.clone(),
-            pending_txs: self.pending_txs.clone(),
-            pending_tx_hashes: self.pending_tx_hashes.clone(),
-            pending_sender_counts: self.pending_sender_counts.clone(),
+            mempool: self.mempool.clone(),
             persistent_store: self.persistent_store.clone(),
             runtime_pool: self.runtime_pool.clone(),
             proof_cache: self.proof_cache.clone(),
@@ -1576,14 +1597,7 @@ mod tests {
         let hashes = engine.submit_transactions_batch(vec![tx0, tx1]).unwrap();
 
         assert_eq!(hashes.len(), 2);
-        assert_eq!(
-            engine
-                .pending_txs
-                .read()
-                .unwrap_or_else(|e| e.into_inner())
-                .len(),
-            2
-        );
+        assert_eq!(engine.pending_transaction_len(), 2);
     }
 
     #[test]
@@ -1599,7 +1613,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(hashes.len(), 3);
-        let pending = engine.pending_txs.read().unwrap_or_else(|e| e.into_inner());
+        let pending = engine.pending_transactions_snapshot();
         let pending_sequences = pending
             .iter()
             .map(|tx| tx.transaction.sequence_number())
@@ -1703,3 +1717,5 @@ mod tests {
         assert_eq!(strict_root, parallel_root);
     }
 }
+
+

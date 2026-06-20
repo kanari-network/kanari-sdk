@@ -112,9 +112,7 @@ impl BlockchainEngine {
         tracing::info!(workers = runtime_pool.len(), "Move runtime pool ready");
         tracing::info!("Preparing mempool, proof cache, and authority defaults");
 
-        let pending_txs = Arc::new(RwLock::new(Vec::new()));
-        let pending_tx_hashes = Arc::new(RwLock::new(HashSet::new()));
-        let pending_sender_counts = Arc::new(RwLock::new(AHashMap::new()));
+        let mempool = Arc::new(RwLock::new(MempoolState::default()));
         let proof_cache = Arc::new(RwLock::new(LruCache::new(NonZeroUsize::new(1000).unwrap())));
 
         let authority_id = "0xDEFAULT_AUTHORITY".to_string();
@@ -123,9 +121,7 @@ impl BlockchainEngine {
         let engine = Self {
             blockchain,
             state,
-            pending_txs,
-            pending_tx_hashes,
-            pending_sender_counts,
+            mempool,
             persistent_store,
             runtime_pool,
             proof_cache,
@@ -272,3 +268,4 @@ impl BlockchainEngine {
         }
     }
 }
+

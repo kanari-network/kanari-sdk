@@ -32,19 +32,13 @@ impl BlockchainEngine {
                 poisoned.into_inner()
             }
         };
-        let pending = match self.pending_txs.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                log::error!("Pending txs lock poisoned in get_stats, recovering...");
-                poisoned.into_inner()
-            }
-        };
+        let pending_transactions = self.pending_transaction_len();
 
         BlockchainStats {
             height: chain.height(),
             total_blocks: chain.dag_checkpoints.len(),
             total_transactions: chain.get_transaction_count(),
-            pending_transactions: pending.len(),
+            pending_transactions,
             total_accounts: state.account_count(),
             total_supply: state.total_supply,
             state_root: hex::encode(&chain.latest_checkpoint().state_root),
@@ -266,38 +260,28 @@ impl BlockchainEngine {
             })?;
         }
 
-        let mut checkpoint_to_apply = checkpoint.clone();
+        if checkpoint.transactions.is_empty() {
+            anyhow::bail!(
+                "Refusing to sync empty checkpoint #{} from network",
+                checkpoint.sequence
+            );
+        }
+
+        let checkpoint_to_apply = checkpoint.clone();
         let (computed_root, verified_state, to_execute) =
             self.prepare_checkpoint_state(&checkpoint_to_apply)?;
 
-        if checkpoint_to_apply.transactions.is_empty() {
-            let previous_checkpoint_root = {
-                let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
-                chain.latest_checkpoint().state_root.clone()
-            };
-
-            if checkpoint_to_apply.state_root != previous_checkpoint_root {
-                info!(
-                    "[SYNC] Canonicalizing empty checkpoint #{} root: advertised={}, canonical={}",
-                    checkpoint_to_apply.sequence,
-                    hex::encode(&checkpoint_to_apply.state_root),
-                    hex::encode(&previous_checkpoint_root)
-                );
-            }
-
-            checkpoint_to_apply.state_root = previous_checkpoint_root;
-        } else if !self.checkpoint_root_matches(
+        if !self.checkpoint_root_matches(
             checkpoint_to_apply.sequence,
             &computed_root,
             &checkpoint_to_apply.state_root,
         )? {
-            info!(
-                "[SYNC] Canonicalizing checkpoint #{} root after replay: advertised={}, computed={}",
+            anyhow::bail!(
+                "Checkpoint #{} state root mismatch: advertised={}, computed={}",
                 checkpoint_to_apply.sequence,
                 hex::encode(&checkpoint_to_apply.state_root),
                 hex::encode(&computed_root)
             );
-            checkpoint_to_apply.state_root = computed_root;
         }
 
         self.apply_prepared_checkpoint(checkpoint_to_apply, verified_state, to_execute, true)?;
@@ -328,9 +312,27 @@ impl BlockchainEngine {
 mod tests {
     use super::*;
     use crate::{CheckpointSyncData, consensus::Checkpoint};
+    use kanari_crypto::keys::{CurveType, generate_keypair};
+    use kanari_types::transaction::{SignedTransaction, Transaction};
+
+    fn signed_transfer(sequence_number: u64) -> SignedTransaction {
+        let sender = generate_keypair(CurveType::Ed25519).unwrap();
+        let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+        let tx = Transaction::new_transfer(
+            sender.tagged_address(),
+            recipient.address,
+            1,
+            sequence_number,
+        );
+        let mut signed_tx = SignedTransaction::new(tx);
+        signed_tx
+            .sign(&sender.private_key, sender.curve_type)
+            .unwrap();
+        signed_tx
+    }
 
     #[test]
-    fn sync_checkpoint_from_data_applies_next_checkpoint() {
+    fn sync_checkpoint_from_data_rejects_empty_checkpoint() {
         let engine = BlockchainEngine::new_in_memory().unwrap();
         let prev_hash = {
             let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
@@ -344,27 +346,29 @@ mod tests {
         let checkpoint = Checkpoint::new(1, vec![], vec![], state_root, 42, prev_hash);
         let sync_data = CheckpointSyncData { checkpoint };
 
-        engine.sync_checkpoint_from_data(&sync_data).unwrap();
-        assert_eq!(engine.get_stats().height, 1);
+        let error = engine.sync_checkpoint_from_data(&sync_data).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Refusing to sync empty checkpoint")
+        );
+        assert_eq!(engine.get_stats().height, 0);
     }
 
     #[test]
-    fn sync_checkpoint_from_data_canonicalizes_empty_checkpoint_root() {
+    fn sync_checkpoint_from_data_rejects_root_mismatch() {
         let engine = BlockchainEngine::new_in_memory().unwrap();
-        let (prev_hash, previous_root) = {
+        let prev_hash = {
             let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
-            (
-                chain.latest_checkpoint().hash().unwrap(),
-                chain.latest_checkpoint().state_root.clone(),
-            )
+            chain.latest_checkpoint().hash().unwrap()
         };
-        let checkpoint = Checkpoint::new(1, vec![], vec![], vec![9u8; 32], 42, prev_hash);
+        let signed_tx = signed_transfer(0);
+        let checkpoint = Checkpoint::new(1, vec![], vec![signed_tx], vec![9u8; 32], 42, prev_hash);
         let sync_data = CheckpointSyncData { checkpoint };
 
-        engine.sync_checkpoint_from_data(&sync_data).unwrap();
-
-        let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
-        assert_eq!(chain.latest_checkpoint().sequence, 1);
-        assert_eq!(chain.latest_checkpoint().state_root, previous_root);
+        let error = engine.sync_checkpoint_from_data(&sync_data).unwrap_err();
+        assert!(error.to_string().contains("state root mismatch"));
+        assert_eq!(engine.get_stats().height, 0);
     }
 }
+

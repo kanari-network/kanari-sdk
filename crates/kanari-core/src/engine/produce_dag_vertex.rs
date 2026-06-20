@@ -22,7 +22,7 @@ use mysticeti_dag::{
     metrics::Metrics as MysticetiMetrics,
     storage::Storage as MysticetiStorage,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
@@ -323,6 +323,7 @@ pub struct DagEngine {
     consensus: Arc<RwLock<CoreDagConsensus>>,
     authority_id: String,
     local_signing_key: ed25519_dalek::SigningKey,
+    authority_public_keys: BTreeMap<String, Vec<u8>>,
 }
 
 impl DagEngine {
@@ -340,7 +341,13 @@ impl DagEngine {
         if *expected_public_key != local_public_key {
             anyhow::bail!("Consensus signing key does not match local authority public key");
         }
-        Self::from_parts(engine, authority_id, authorities, local_signing_key)
+        Self::from_parts(
+            engine,
+            authority_id,
+            authorities,
+            local_signing_key,
+            authority_public_keys,
+        )
     }
 
     fn from_parts(
@@ -348,6 +355,7 @@ impl DagEngine {
         authority_id: String,
         authorities: Vec<String>,
         local_signing_key: ed25519_dalek::SigningKey,
+        authority_public_keys: BTreeMap<String, Vec<u8>>,
     ) -> Result<Self> {
         let state = Self::aligned_dag_state(&engine);
         let consensus = CoreDagConsensus::new(authority_id.clone(), authorities, state)?;
@@ -356,6 +364,7 @@ impl DagEngine {
             consensus: Arc::new(RwLock::new(consensus)),
             authority_id,
             local_signing_key,
+            authority_public_keys,
         };
         dag_engine.persist_consensus_state()?;
         Ok(dag_engine)
@@ -414,12 +423,7 @@ impl DagEngine {
             let consensus = self.consensus.read().unwrap_or_else(|e| e.into_inner());
             consensus.production_policy()
         };
-        let mut transactions = self
-            .engine
-            .pending_txs
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
+        let mut transactions = self.engine.pending_transactions_snapshot();
         transactions.sort_by(|a, b| {
             a.transaction
                 .sender_address()
@@ -435,11 +439,18 @@ impl DagEngine {
         if tx_count == 0 {
             anyhow::bail!("No new transactions to checkpoint");
         }
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs().saturating_mul(1000))
-            .unwrap_or(0);
-
+        let timestamp = {
+            let chain = self
+                .engine
+                .blockchain
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
+            chain
+                .latest_checkpoint()
+                .timestamp
+                .saturating_add(1)
+                .max(chain.height().saturating_add(1))
+        };
         let (state_root, executed, failed, verified_state, to_execute, validate_supply) = {
             let state_snapshot = self.engine.state_read().clone();
             let state_arc = Arc::new(RwLock::new(state_snapshot));
@@ -583,11 +594,135 @@ impl DagEngine {
         consensus.latest_vertices_by_authority(&self.authority_id, limit)
     }
 
+    fn validate_network_vertex(
+        &self,
+        consensus: &CoreDagConsensus,
+        vertex: &DagVertex,
+    ) -> Result<()> {
+        const DAG_CHAIN_ID: &str = "kanari-v2-mysticeti";
+
+        if vertex.chain_id != DAG_CHAIN_ID {
+            anyhow::bail!("Invalid DAG vertex chain id: {}", vertex.chain_id);
+        }
+        if vertex.round == 0 {
+            anyhow::bail!("Invalid DAG vertex round 0");
+        }
+        if !consensus.authorities.contains(&vertex.author) {
+            anyhow::bail!("Unknown DAG vertex author: {}", vertex.author);
+        }
+        if vertex.transactions.len() != vertex.metadata.tx_count {
+            anyhow::bail!("Transaction count mismatch");
+        }
+        if vertex.metadata.is_checkpoint || vertex.metadata.checkpoint_seq.is_some() {
+            anyhow::bail!("Network DAG vertex must not carry checkpoint metadata");
+        }
+        if consensus
+            .vertices
+            .iter()
+            .any(|existing| existing.author == vertex.author && existing.round == vertex.round)
+        {
+            anyhow::bail!(
+                "Duplicate DAG vertex for author {} at round {}",
+                vertex.author,
+                vertex.round
+            );
+        }
+
+        let public_key_bytes = self
+            .authority_public_keys
+            .get(&vertex.author)
+            .ok_or_else(|| anyhow::anyhow!("Missing consensus public key for {}", vertex.author))?;
+        let public_key_bytes: [u8; 32] = public_key_bytes.as_slice().try_into().map_err(|_| {
+            anyhow::anyhow!("Invalid consensus public key length for {}", vertex.author)
+        })?;
+        let verifying_key =
+            ed25519_dalek::VerifyingKey::from_bytes(&public_key_bytes).map_err(|e| {
+                anyhow::anyhow!("Invalid consensus public key for {}: {}", vertex.author, e)
+            })?;
+        let signature_bytes: [u8; 64] = vertex.signature.as_slice().try_into().map_err(|_| {
+            anyhow::anyhow!("Invalid DAG vertex signature length for {}", vertex.author)
+        })?;
+        let signature = ed25519_dalek::Signature::from_bytes(&signature_bytes);
+        use ed25519_dalek::Verifier;
+        verifying_key.verify(&vertex.id, &signature).map_err(|e| {
+            anyhow::anyhow!("Invalid DAG vertex signature for {}: {}", vertex.author, e)
+        })?;
+
+        let mut seen_tx_hashes = HashSet::new();
+        for (index, tx) in vertex.transactions.iter().enumerate() {
+            let tx_hash = tx.verified_transaction_hash().map_err(|e| {
+                anyhow::anyhow!(
+                    "Invalid transaction {} in DAG vertex {}: {}",
+                    index + 1,
+                    hex::encode(vertex.id),
+                    e
+                )
+            })?;
+            if !seen_tx_hashes.insert(tx_hash.to_vec()) {
+                anyhow::bail!(
+                    "Duplicate transaction inside DAG vertex {}",
+                    hex::encode(vertex.id)
+                );
+            }
+        }
+
+        let mut seen_parents = HashSet::new();
+        for parent in &vertex.parents {
+            if !seen_parents.insert(*parent) {
+                anyhow::bail!("Duplicate parent in DAG vertex {}", hex::encode(vertex.id));
+            }
+        }
+
+        if vertex.round == 1 {
+            if !vertex.parents.is_empty() {
+                anyhow::bail!("Round-1 DAG vertex must not have parents");
+            }
+            return Ok(());
+        }
+
+        if vertex.parents.is_empty() {
+            anyhow::bail!("DAG vertex round {} is missing parents", vertex.round);
+        }
+
+        let expected_parent_round = vertex.round - 1;
+        let mut parent_authors = HashSet::new();
+        for parent_id in &vertex.parents {
+            let parent = consensus
+                .vertices
+                .iter()
+                .find(|candidate| candidate.id == *parent_id)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Missing parent {} for DAG vertex {}",
+                        hex::encode(parent_id),
+                        hex::encode(vertex.id)
+                    )
+                })?;
+            if parent.round != expected_parent_round {
+                anyhow::bail!(
+                    "Invalid parent round for DAG vertex {}: expected {}, got {}",
+                    hex::encode(vertex.id),
+                    expected_parent_round,
+                    parent.round
+                );
+            }
+            if !parent_authors.insert(parent.author.clone()) {
+                anyhow::bail!(
+                    "Duplicate parent author in DAG vertex {}",
+                    hex::encode(vertex.id)
+                );
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn add_network_vertex(&self, vertex: DagVertex) -> Result<()> {
         let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
         if consensus.known_vertex(&vertex.id) {
             return Ok(());
         }
+        self.validate_network_vertex(&consensus, &vertex)?;
         info!(
             "[DAG v2 SYNC] Accepted network vertex {} round {} txs {}",
             hex::encode(vertex.id),
@@ -599,7 +734,6 @@ impl DagEngine {
         self.persist_consensus_state()
     }
 }
-
 impl BlockchainEngine {
     fn execute_system_prologue_to_state_for_dag_v2(
         &self,
@@ -618,11 +752,54 @@ impl BlockchainEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kanari_crypto::keys::{CurveType, generate_keypair};
+    use kanari_types::transaction::{SignedTransaction, Transaction};
+
+    fn authority_key(seed: u8) -> ed25519_dalek::SigningKey {
+        ed25519_dalek::SigningKey::from_bytes(&[seed; 32])
+    }
+
+    fn signed_transfer(sequence_number: u64) -> SignedTransaction {
+        let sender = generate_keypair(CurveType::Ed25519).unwrap();
+        let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+        let tx = Transaction::new_transfer(
+            sender.tagged_address(),
+            recipient.address,
+            1,
+            sequence_number,
+        );
+        let mut signed_tx = SignedTransaction::new(tx);
+        signed_tx
+            .sign(&sender.private_key, sender.curve_type)
+            .unwrap();
+        signed_tx
+    }
+
+    fn signed_network_vertex(
+        author: &str,
+        signing_key: &ed25519_dalek::SigningKey,
+        round: u64,
+        parents: Vec<VertexId>,
+    ) -> DagVertex {
+        let tx = signed_transfer(0);
+        let mut vertex = DagVertex::new(
+            round,
+            author.to_string(),
+            "kanari-v2-mysticeti".to_string(),
+            parents,
+            vec![tx],
+            vec![7u8; 32],
+            123,
+        );
+        use ed25519_dalek::Signer;
+        vertex.signature = signing_key.sign(&vertex.id).to_bytes().to_vec();
+        vertex
+    }
 
     #[test]
     fn test_dag_engine_defaults_to_mysticeti_protocol() {
         let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
-        let signing_key = ed25519_dalek::SigningKey::from_bytes(&[11u8; 32]);
+        let signing_key = authority_key(11);
         let mut public_keys = BTreeMap::new();
         public_keys.insert(
             "auth1".to_string(),
@@ -657,8 +834,8 @@ mod tests {
     #[test]
     fn test_dag_engine_secure_constructor_rejects_mismatched_local_key() {
         let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
-        let expected = ed25519_dalek::SigningKey::from_bytes(&[11u8; 32]);
-        let wrong = ed25519_dalek::SigningKey::from_bytes(&[33u8; 32]);
+        let expected = authority_key(11);
+        let wrong = authority_key(33);
         let mut public_keys = BTreeMap::new();
         public_keys.insert(
             "auth1".to_string(),
@@ -675,4 +852,96 @@ mod tests {
 
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_add_network_vertex_accepts_valid_remote_vertex() {
+        let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
+        let local_key = authority_key(11);
+        let remote_key = authority_key(22);
+        let mut public_keys = BTreeMap::new();
+        public_keys.insert(
+            "auth1".to_string(),
+            local_key.verifying_key().to_bytes().to_vec(),
+        );
+        public_keys.insert(
+            "auth2".to_string(),
+            remote_key.verifying_key().to_bytes().to_vec(),
+        );
+        let dag_engine = DagEngine::new_secure(
+            engine,
+            "auth1".to_string(),
+            vec!["auth1".to_string(), "auth2".to_string()],
+            local_key,
+            public_keys,
+        )
+        .unwrap();
+
+        let vertex = signed_network_vertex("auth2", &remote_key, 1, vec![]);
+        dag_engine.add_network_vertex(vertex).unwrap();
+
+        let consensus = dag_engine.consensus.read().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(consensus.vertices.len(), 1);
+        assert_eq!(consensus.vertices[0].author, "auth2");
+    }
+
+    #[test]
+    fn test_add_network_vertex_rejects_invalid_signature() {
+        let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
+        let local_key = authority_key(11);
+        let remote_key = authority_key(22);
+        let wrong_key = authority_key(33);
+        let mut public_keys = BTreeMap::new();
+        public_keys.insert(
+            "auth1".to_string(),
+            local_key.verifying_key().to_bytes().to_vec(),
+        );
+        public_keys.insert(
+            "auth2".to_string(),
+            remote_key.verifying_key().to_bytes().to_vec(),
+        );
+        let dag_engine = DagEngine::new_secure(
+            engine,
+            "auth1".to_string(),
+            vec!["auth1".to_string(), "auth2".to_string()],
+            local_key,
+            public_keys,
+        )
+        .unwrap();
+
+        let vertex = signed_network_vertex("auth2", &wrong_key, 1, vec![]);
+        let error = dag_engine.add_network_vertex(vertex).unwrap_err();
+        assert!(error.to_string().contains("Invalid DAG vertex signature"));
+    }
+
+    #[test]
+    fn test_add_network_vertex_rejects_missing_parent() {
+        let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
+        let local_key = authority_key(11);
+        let remote_key = authority_key(22);
+        let mut public_keys = BTreeMap::new();
+        public_keys.insert(
+            "auth1".to_string(),
+            local_key.verifying_key().to_bytes().to_vec(),
+        );
+        public_keys.insert(
+            "auth2".to_string(),
+            remote_key.verifying_key().to_bytes().to_vec(),
+        );
+        let dag_engine = DagEngine::new_secure(
+            engine,
+            "auth1".to_string(),
+            vec!["auth1".to_string(), "auth2".to_string()],
+            local_key,
+            public_keys,
+        )
+        .unwrap();
+
+        let vertex = signed_network_vertex("auth2", &remote_key, 2, vec![[9u8; 32]]);
+        let error = dag_engine.add_network_vertex(vertex).unwrap_err();
+        assert!(error.to_string().contains("Missing parent"));
+    }
 }
+
+
+
+

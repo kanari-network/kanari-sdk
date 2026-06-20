@@ -16,18 +16,11 @@ impl BlockchainEngine {
         // Early size check to avoid unnecessary work
         let batch_size = signed_txs.len();
         let (pending_hashes, pending_by_sender) = {
-            let pending_hashes = self
-                .pending_tx_hashes
-                .read()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone();
-            let pending_by_sender = self
-                .pending_sender_counts
-                .read()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone();
-
-            (pending_hashes, pending_by_sender)
+            let mempool = self.mempool_read();
+            (
+                mempool.pending_tx_hashes.clone(),
+                mempool.pending_sender_counts.clone(),
+            )
         };
 
         if pending_hashes.len().saturating_add(batch_size) > MAX_MEMPOOL_SIZE {
@@ -183,34 +176,23 @@ impl BlockchainEngine {
 
         // Write to mempool with minimal lock duration
         {
-            let mut pending = match self.pending_txs.write() {
-                Ok(guard) => guard,
-                Err(poisoned) => {
-                    log::error!(
-                        "Pending txs lock poisoned in submit_transactions_batch write, recovering..."
-                    );
-                    poisoned.into_inner()
-                }
-            };
+            let mut mempool = self.mempool_write();
 
-            if pending.len().saturating_add(batch_size) > MAX_MEMPOOL_SIZE {
+            if mempool.pending_txs.len().saturating_add(batch_size) > MAX_MEMPOOL_SIZE {
                 anyhow::bail!("Mempool is currently full. Please try again later.");
             }
 
-            pending.extend(
+            mempool.pending_txs.extend(
                 verified_txs
                     .into_iter()
                     .map(|(signed_tx, _, _, _)| signed_tx),
             );
-        }
-
-        // Update hash set separately to reduce lock contention
-        if !accepted_hashes.is_empty() {
-            self.pending_tx_hashes
-                .write()
-                .unwrap_or_else(|e| e.into_inner())
+            mempool
+                .pending_tx_hashes
                 .extend(accepted_hashes.iter().cloned());
-            self.add_pending_sender_counts(&accepted_counts_by_sender);
+            for (sender, count) in &accepted_counts_by_sender {
+                *mempool.pending_sender_counts.entry(sender.clone()).or_insert(0) += *count;
+            }
         }
 
         Ok(accepted_hashes)
@@ -252,33 +234,21 @@ impl BlockchainEngine {
 
     pub(crate) fn pending_tx_count_for_sender(&self, sender: &str) -> u64 {
         let normalized_sender = Self::normalize_addr(sender);
-        self.pending_sender_counts
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
+        self.mempool_read()
+            .pending_sender_counts
             .get(&normalized_sender)
             .copied()
             .unwrap_or(0)
     }
 
-    pub(crate) fn add_pending_sender_counts(&self, accepted_counts: &ahash::AHashMap<String, u64>) {
-        let mut counts = self
-            .pending_sender_counts
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
-        for (sender, count) in accepted_counts {
-            *counts.entry(sender.clone()).or_insert(0) += *count;
-        }
-    }
-
-    pub(crate) fn remove_pending_sender_counts(&self, transactions: &[SignedTransaction]) {
+    pub(crate) fn remove_pending_sender_counts(
+        counts: &mut ahash::AHashMap<String, u64>,
+        transactions: &[SignedTransaction],
+    ) {
         if transactions.is_empty() {
             return;
         }
 
-        let mut counts = self
-            .pending_sender_counts
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
         for tx in transactions {
             let sender = Self::normalize_addr(tx.transaction.sender_address());
             let should_remove = if let Some(count) = counts.get_mut(&sender) {
@@ -293,13 +263,6 @@ impl BlockchainEngine {
         }
     }
 
-    pub(crate) fn clear_pending_sender_counts(&self) {
-        self.pending_sender_counts
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
-    }
-
     pub(crate) fn normalize_addr(addr: &str) -> String {
         use std::str::FromStr;
         KanariAddress::from_str(addr)
@@ -307,3 +270,4 @@ impl BlockchainEngine {
             .unwrap_or_else(|_| addr.trim_start_matches("0x").to_lowercase())
     }
 }
+

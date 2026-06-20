@@ -559,10 +559,7 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
         return respond_with_serialize(request.id, details);
     }
 
-    let pending = state.engine.pending_txs.read().unwrap_or_else(|p| {
-        error!("pending_txs lock poisoned; recovering");
-        p.into_inner()
-    });
+    let pending = state.engine.pending_transactions_snapshot();
 
     for tx in pending.iter() {
         let tx_hash = hex::encode(tx.transaction_hash());
@@ -601,10 +598,7 @@ pub async fn handle_get_all_transactions(
 
     let mut results: Vec<TransactionDetails> = Vec::new();
     let mut seen_hashes = HashSet::new();
-    let pending = state.engine.pending_txs.read().unwrap_or_else(|p| {
-        error!("pending_txs lock poisoned while listing transactions; recovering");
-        p.into_inner()
-    });
+    let pending = state.engine.pending_transactions_snapshot();
 
     for tx in pending.iter().rev() {
         if !tx_matches_account(&tx.transaction, account_norm.as_deref()) {
@@ -790,3 +784,4 @@ pub async fn handle_view_function(state: &RpcServerState, request: &RpcRequest) 
         }
     }
 }
+

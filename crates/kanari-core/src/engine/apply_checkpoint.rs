@@ -6,7 +6,7 @@ use crate::consensus::Checkpoint;
 use anyhow::{Context, Result, bail};
 use kanari_move_runtime_v1::state::StateManager;
 use kanari_types::transaction::SignedTransaction;
-use log::{error, info};
+use log::info;
 use std::sync::{Arc, RwLock};
 
 impl BlockchainEngine {
@@ -128,52 +128,61 @@ impl BlockchainEngine {
     }
 
     fn finalize_checkpoint_metadata(&self, checkpoint: Checkpoint) -> Result<()> {
-        // 1. Update blockchain
+        // 1. Update blockchain metadata in-memory.
         {
             let mut chain = self.blockchain.write().unwrap_or_else(|e| e.into_inner());
-            chain.add_checkpoint_with_validation(checkpoint.clone(), false)?;
+            chain.add_checkpoint_with_validation(checkpoint.clone(), true)?;
         }
 
-        // 2. Remove committed transactions from pending pool
+        // 2. Persist blockchain state before draining the live mempool view.
+        if self.persistent_store.is_some() {
+            let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            if let Err(e) = self.persist_blockchain_snapshot(&chain) {
+                drop(chain);
+                let mut rollback_chain = self.blockchain.write().unwrap_or_else(|e| e.into_inner());
+                rollback_chain.rollback_latest_checkpoint(checkpoint.sequence);
+                anyhow::bail!(
+                    "Failed to persist blockchain metadata for checkpoint {}: {}",
+                    checkpoint.sequence,
+                    e
+                );
+            }
+        }
+
+        // 3. Remove committed transactions from pending pool.
         {
-            let mut pending = self.pending_txs.write().unwrap_or_else(|e| e.into_inner());
-            if pending.len() == checkpoint.transactions.len() {
-                pending.clear();
-                self.pending_tx_hashes
-                    .write()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .clear();
-                self.clear_pending_sender_counts();
+            let mut mempool = self.mempool_write();
+            if mempool.pending_txs.len() == checkpoint.transactions.len() {
+                mempool.pending_txs.clear();
+                mempool.pending_tx_hashes.clear();
+                mempool.pending_sender_counts.clear();
             } else {
                 let committed_hashes: std::collections::HashSet<_> = checkpoint
                     .transactions
                     .iter()
                     .map(|tx| tx.transaction_hash().to_vec())
                     .collect();
-                let removed_transactions = pending
+                let removed_transactions = mempool
+                    .pending_txs
                     .iter()
                     .filter(|tx| committed_hashes.contains(tx.transaction_hash()))
                     .cloned()
                     .collect::<Vec<_>>();
-                pending.retain(|tx| !committed_hashes.contains(tx.transaction_hash()));
-                self.pending_tx_hashes
-                    .write()
-                    .unwrap_or_else(|e| e.into_inner())
+                mempool
+                    .pending_txs
+                    .retain(|tx| !committed_hashes.contains(tx.transaction_hash()));
+                mempool
+                    .pending_tx_hashes
                     .retain(|hash| !committed_hashes.contains(hash));
-                self.remove_pending_sender_counts(&removed_transactions);
+                Self::remove_pending_sender_counts(
+                    &mut mempool.pending_sender_counts,
+                    &removed_transactions,
+                );
             }
         }
 
-        // 3. Persist blockchain state
-        if self.persistent_store.is_some() {
-            let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
-            if let Err(e) = self.persist_blockchain_snapshot(&chain) {
-                error!("Failed to persist blockchain: {}", e);
-            }
-        }
         Ok(())
     }
-
     pub(crate) fn apply_prepared_checkpoint(
         &self,
         checkpoint: Checkpoint,
