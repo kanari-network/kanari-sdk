@@ -1404,4 +1404,3 @@ mod tests {
         assert_eq!(pending_heights, BTreeSet::from([1, 2, 3]));
     }
 }
-
