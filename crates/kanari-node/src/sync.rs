@@ -1334,7 +1334,7 @@ mod tests {
     }
 
     #[test]
-    fn test_buffered_checkpoint_applies_when_gap_is_filled() {
+    fn test_buffered_empty_checkpoint_is_not_applied_when_gap_is_filled() {
         let source_engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
         apply_empty_checkpoint(source_engine.as_ref(), 1);
         apply_empty_checkpoint(source_engine.as_ref(), 2);
@@ -1361,8 +1361,8 @@ mod tests {
             .unwrap();
         runtime.block_on(sync.try_apply_buffered_checkpoints());
 
-        assert_eq!(engine.get_stats().height, 2);
-        assert_eq!(sync.latest_buffered_sequence(), 0);
+        assert_eq!(engine.get_stats().height, 0);
+        assert_eq!(sync.latest_buffered_sequence(), 2);
     }
 
     #[test]
@@ -1404,3 +1404,4 @@ mod tests {
         assert_eq!(pending_heights, BTreeSet::from([1, 2, 3]));
     }
 }
+

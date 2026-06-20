@@ -61,6 +61,7 @@ impl From<std::io::Error> for PersistentStoreError {
 
 /// Type alias for in-memory store to reduce complexity
 type MemoryStore = Arc<RwLock<HashMap<Vec<u8>, Vec<u8>>>>;
+type RawKeyValue = (Vec<u8>, Vec<u8>);
 
 /// Lightweight persistent BCS-backed store for runtime state using RocksDB.
 #[derive(Debug)]
@@ -171,9 +172,7 @@ impl PersistentStore {
     }
 
     /// Return a stable snapshot of logical state entries, excluding SMT internals.
-    pub fn logical_entries(
-        &self,
-    ) -> std::result::Result<Vec<(Vec<u8>, Vec<u8>)>, PersistentStoreError> {
+    pub fn logical_entries(&self) -> std::result::Result<Vec<RawKeyValue>, PersistentStoreError> {
         let mut entries = Vec::new();
 
         if let Some(db) = &self.db {

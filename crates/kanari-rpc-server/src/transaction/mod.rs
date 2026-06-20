@@ -784,4 +784,3 @@ pub async fn handle_view_function(state: &RpcServerState, request: &RpcRequest) 
         }
     }
 }
-

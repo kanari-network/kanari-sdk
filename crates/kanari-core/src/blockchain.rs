@@ -147,15 +147,14 @@ impl Blockchain {
         self.track_checkpoint_transactions(&checkpoint);
         self.dag_checkpoints.push_back(checkpoint);
 
-        if self.dag_checkpoints.len() > MAX_RETAINED_BLOCKS {
-            if let Some(evicted) = self.dag_checkpoints.pop_front() {
+        if self.dag_checkpoints.len() > MAX_RETAINED_BLOCKS
+            && let Some(evicted) = self.dag_checkpoints.pop_front() {
                 for tx in evicted.transactions.iter() {
                     let hash = tx.transaction_hash().to_vec();
                     self.executed_tx_hashes.remove(&hash);
                     self.tx_location_index.remove(&hash);
                 }
             }
-        }
         Ok(())
     }
 
@@ -262,4 +261,3 @@ mod tests {
         assert_eq!(chain.get_transaction_count(), 2);
     }
 }
-

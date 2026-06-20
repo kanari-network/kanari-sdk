@@ -371,4 +371,3 @@ mod tests {
         assert_eq!(engine.get_stats().height, 0);
     }
 }
-

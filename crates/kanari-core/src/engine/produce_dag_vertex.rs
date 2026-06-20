@@ -53,6 +53,13 @@ pub struct CheckpointInfo {
     pub tx_count: usize,
 }
 
+struct StagedCheckpoint {
+    checkpoint: Checkpoint,
+    verified_state: StateManager,
+    to_execute: Vec<SignedTransaction>,
+    validate_supply: bool,
+}
+
 pub struct MysticetiBackend {
     _committee: Arc<MysticetiCommittee>,
     core: MysticetiCore<MysticetiTokioCtx, MysticetiCommitter>,
@@ -65,7 +72,7 @@ impl MysticetiBackend {
         let authority_count = authority_count.max(1);
         let committee = MysticetiCommittee::new_test(vec![1; authority_count]);
         let protocol_config = MysticetiConsensusProtocol::Mysticeti {
-            leader_count: NonZeroUsize::new(authority_count.min(2).max(1))
+            leader_count: NonZeroUsize::new(authority_count.clamp(1, 2))
                 .expect("leader count is non-zero"),
         };
         let protocol = protocol_config
@@ -324,6 +331,7 @@ pub struct DagEngine {
     authority_id: String,
     local_signing_key: ed25519_dalek::SigningKey,
     authority_public_keys: BTreeMap<String, Vec<u8>>,
+    staged_checkpoints: Arc<RwLock<BTreeMap<VertexId, StagedCheckpoint>>>,
 }
 
 impl DagEngine {
@@ -365,6 +373,7 @@ impl DagEngine {
             authority_id,
             local_signing_key,
             authority_public_keys,
+            staged_checkpoints: Arc::new(RwLock::new(BTreeMap::new())),
         };
         dag_engine.persist_consensus_state()?;
         Ok(dag_engine)
@@ -516,8 +525,8 @@ impl DagEngine {
         use ed25519_dalek::Signer;
         vertex.signature = self.local_signing_key.sign(&vertex.id).to_bytes().to_vec();
 
-        let checkpoint =
-            self.finalize_vertex(&vertex, verified_state, to_execute, validate_supply)?;
+        self.stage_locally_produced_vertex(&vertex, verified_state, to_execute, validate_supply)?;
+        let checkpoint = self.finalize_staged_checkpoint(vertex.id)?;
         let checkpoint_info = Some(CheckpointInfo {
             sequence: checkpoint.sequence,
             vertex_count: checkpoint.vertices.len(),
@@ -542,7 +551,7 @@ impl DagEngine {
         })
     }
 
-    fn finalize_vertex(
+    fn stage_locally_produced_vertex(
         &self,
         vertex: &DagVertex,
         verified_state: StateManager,
@@ -570,19 +579,49 @@ impl DagEngine {
             vertex.timestamp,
             prev_hash,
         );
+
+        let mut staged = self
+            .staged_checkpoints
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
+        staged.insert(
+            vertex.id,
+            StagedCheckpoint {
+                checkpoint: checkpoint.clone(),
+                verified_state,
+                to_execute,
+                validate_supply,
+            },
+        );
+        Ok(checkpoint)
+    }
+
+    fn finalize_staged_checkpoint(&self, vertex_id: VertexId) -> Result<Checkpoint> {
+        let staged = self
+            .staged_checkpoints
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&vertex_id)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Missing staged checkpoint for vertex {}",
+                    hex::encode(vertex_id)
+                )
+            })?;
+
         self.engine.apply_prepared_checkpoint(
-            checkpoint.clone(),
-            verified_state,
-            to_execute,
-            validate_supply,
+            staged.checkpoint.clone(),
+            staged.verified_state,
+            staged.to_execute,
+            staged.validate_supply,
         )?;
 
         {
             let mut consensus = self.consensus.write().unwrap_or_else(|e| e.into_inner());
-            consensus.record_checkpoint(checkpoint.clone());
+            consensus.record_checkpoint(staged.checkpoint.clone());
         }
         self.persist_consensus_state()?;
-        Ok(checkpoint)
+        Ok(staged.checkpoint)
     }
 
     pub fn consensus(&self) -> Arc<RwLock<CoreDagConsensus>> {
@@ -734,6 +773,7 @@ impl DagEngine {
         self.persist_consensus_state()
     }
 }
+
 impl BlockchainEngine {
     fn execute_system_prologue_to_state_for_dag_v2(
         &self,
@@ -879,7 +919,10 @@ mod tests {
         let vertex = signed_network_vertex("auth2", &remote_key, 1, vec![]);
         dag_engine.add_network_vertex(vertex).unwrap();
 
-        let consensus = dag_engine.consensus.read().unwrap_or_else(|e| e.into_inner());
+        let consensus = dag_engine
+            .consensus
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         assert_eq!(consensus.vertices.len(), 1);
         assert_eq!(consensus.vertices[0].author, "auth2");
     }
@@ -941,7 +984,3 @@ mod tests {
         assert!(error.to_string().contains("Missing parent"));
     }
 }
-
-
-
-

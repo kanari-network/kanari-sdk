@@ -27,6 +27,12 @@ const OBJECT_LOCKED_COIN_RECORDS_KEY: &[u8] = b"object_locked_coin_records";
 const UID_SIZE: usize = 32;
 const U64_SIZE: usize = 8;
 
+type RawStateKey = Vec<u8>;
+type RawStateValue = Vec<u8>;
+type RawStateUpdate = (RawStateKey, RawStateValue);
+type RawStateDelete = RawStateKey;
+type OverlaySmtChanges = (Vec<RawStateUpdate>, Vec<RawStateDelete>);
+
 /// Account state in the blockchain
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Account {
@@ -808,7 +814,7 @@ impl StateManager {
             .unwrap_or(false)
     }
 
-    fn smt_changes_from_overlay(&self) -> (Vec<(Vec<u8>, Vec<u8>)>, Vec<Vec<u8>>) {
+    fn smt_changes_from_overlay(&self) -> OverlaySmtChanges {
         let mut updates = Vec::new();
         let mut deletes = Vec::new();
 

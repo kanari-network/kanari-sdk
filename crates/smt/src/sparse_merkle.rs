@@ -210,7 +210,7 @@ impl SparseMerkleTree {
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let kh = digest(key);
         let data_key = data_key(&kh);
-        if let Some(v) = self.db.get(&data_key)? {
+        if let Some(v) = self.db.get(data_key)? {
             Ok(Some(v.to_vec()))
         } else {
             Ok(None)
@@ -223,7 +223,7 @@ impl SparseMerkleTree {
         let data_key = data_key(&kh);
 
         // check membership
-        let value = self.db.get(&data_key)?;
+        let value = self.db.get(data_key)?;
         let is_member = value.is_some();
 
         // leaf hash
@@ -275,7 +275,7 @@ impl SparseMerkleTree {
 
             // queue data write
             let data_key = data_key(&kh);
-            batch.put(&data_key, value);
+            batch.put(data_key, value);
 
             // current hash as array
             let mut cur = leaf_hash;
@@ -356,7 +356,7 @@ impl SparseMerkleTree {
         for kh in keyed.into_iter() {
             // delete stored data entry
             let data_key = data_key(&kh);
-            batch.delete(&data_key);
+            batch.delete(data_key);
 
             // start with default leaf
             let mut cur = self.default_hashes[256];

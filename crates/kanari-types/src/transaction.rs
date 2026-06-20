@@ -53,7 +53,7 @@ impl SignedTransaction {
 
     pub fn verify_signature(&self) -> Result<bool> {
         let tx_hash = self.transaction_hash();
-        self.verify_signature_for_hash(&tx_hash)
+        self.verify_signature_for_hash(tx_hash)
     }
 
     pub fn transaction_hash(&self) -> &[u8] {

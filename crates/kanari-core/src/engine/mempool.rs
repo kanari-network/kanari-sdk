@@ -191,7 +191,10 @@ impl BlockchainEngine {
                 .pending_tx_hashes
                 .extend(accepted_hashes.iter().cloned());
             for (sender, count) in &accepted_counts_by_sender {
-                *mempool.pending_sender_counts.entry(sender.clone()).or_insert(0) += *count;
+                *mempool
+                    .pending_sender_counts
+                    .entry(sender.clone())
+                    .or_insert(0) += *count;
             }
         }
 
@@ -270,4 +273,3 @@ impl BlockchainEngine {
             .unwrap_or_else(|_| addr.trim_start_matches("0x").to_lowercase())
     }
 }
-

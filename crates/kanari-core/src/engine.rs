@@ -1717,5 +1717,3 @@ mod tests {
         assert_eq!(strict_root, parallel_root);
     }
 }
-
-

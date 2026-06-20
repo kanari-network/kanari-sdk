@@ -56,12 +56,12 @@ impl BlockchainEngine {
         tracing::info!("Loading Mysticeti DAG state");
         let persisted_dag_state = Self::load_dag_state(&persistent_store);
         tracing::info!("Repairing checkpoint index from DAG state");
-        if Self::repair_blockchain_from_dag_state(&mut blockchain, persisted_dag_state.as_ref())? {
-            if let Some(store) = &persistent_store {
-                let chain = blockchain.read().unwrap_or_else(|e| e.into_inner());
-                if let Err(e) = Self::persist_blockchain_snapshot_to_store(store, &chain) {
-                    tracing::warn!("Failed to persist repaired blockchain: {}", e);
-                }
+        if Self::repair_blockchain_from_dag_state(&mut blockchain, persisted_dag_state.as_ref())?
+            && let Some(store) = &persistent_store
+        {
+            let chain = blockchain.read().unwrap_or_else(|e| e.into_inner());
+            if let Err(e) = Self::persist_blockchain_snapshot_to_store(store, &chain) {
+                tracing::warn!("Failed to persist repaired blockchain: {}", e);
             }
         }
         tracing::info!("Opening state database");
@@ -157,7 +157,7 @@ impl BlockchainEngine {
             }
         }
 
-        num_cpus::get().max(1).min(DEFAULT_MAX_RUNTIME_WORKERS)
+        num_cpus::get().clamp(1, DEFAULT_MAX_RUNTIME_WORKERS)
     }
 
     pub(crate) fn repair_blockchain_from_dag_state(
@@ -268,4 +268,3 @@ impl BlockchainEngine {
         }
     }
 }
-
