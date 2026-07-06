@@ -351,9 +351,14 @@ impl StateManager {
             );
         }
 
-        state
+        if state
             .repair_legacy_native_wallet_overcount()
-            .context("Failed to repair native wallet supply on startup")?;
+            .context("Failed to repair native wallet supply on startup")?
+        {
+            state
+                .commit()
+                .context("Failed to persist repaired native wallet supply on startup")?;
+        }
 
         if let Err(e) = state.validate_supply_invariants() {
             Self::report_supply_invariant_violation("on startup", &e)?;
@@ -584,10 +589,9 @@ impl StateManager {
                 Some(value) if self.is_canonical_smt_update(key, value) => {
                     updates.push((key.clone(), value.clone()));
                 }
-                None
-                    if Self::is_canonical_state_root_key(key)
-                        || key.starts_with(b"module:")
-                        || key.starts_with(b"object:") =>
+                None if Self::is_canonical_state_root_key(key)
+                    || key.starts_with(b"module:")
+                    || key.starts_with(b"object:") =>
                 {
                     deletes.push(key.clone());
                 }

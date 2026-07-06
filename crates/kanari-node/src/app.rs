@@ -538,7 +538,7 @@ pub async fn run_node(
                         sync_manager.broadcast_latest_dag_vertices(16, "while waiting for quorum");
                         sync_manager.request_dag_vertices_for_quorum().await;
                     } else if !error_text.contains("DAG not ready") {
-                        tracing::error!("Checkpoint production failed: {}", e);
+                        tracing::error!("Checkpoint production failed: {:#}", e);
                     }
                 }
             }

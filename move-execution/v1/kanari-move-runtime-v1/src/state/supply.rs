@@ -96,7 +96,9 @@ impl StateManager {
     /// normalized.
     pub fn repair_legacy_native_wallet_overcount(&mut self) -> Result<bool> {
         let indexed_visible = self.indexed_wallet_supply(KANARI_TOKEN_TYPE)?;
-        if indexed_visible <= self.total_supply {
+        let ledger_locked_supply = self.object_locked_supply_for_token(KANARI_TOKEN_TYPE)?;
+        let max_wallet_visible = self.total_supply.saturating_sub(ledger_locked_supply);
+        if indexed_visible <= max_wallet_visible {
             let changed = self.sync_native_visible_supply_cache()?;
             if changed {
                 let supplies_clone = self.global_token_supplies.clone();
@@ -105,7 +107,7 @@ impl StateManager {
             return Ok(changed);
         }
 
-        let mut excess = indexed_visible - self.total_supply;
+        let mut excess = indexed_visible - max_wallet_visible;
         let mut accounts = self
             .load_account_addresses()?
             .into_iter()
@@ -135,10 +137,12 @@ impl StateManager {
             excess
         );
         log::warn!(
-            "[StateManager] Repaired legacy native wallet overcount: indexed_visible={} total_supply={} repaired_excess={}",
+            "[StateManager] Repaired legacy native wallet overcount: indexed_visible={} total_supply={} object_locked_supply={} max_wallet_visible={} repaired_excess={}",
             indexed_visible,
             self.total_supply,
-            indexed_visible - self.total_supply
+            ledger_locked_supply,
+            max_wallet_visible,
+            indexed_visible - max_wallet_visible
         );
         self.sync_native_visible_supply_cache()?;
         let supplies_clone = self.global_token_supplies.clone();
@@ -354,8 +358,8 @@ impl StateManager {
 
     fn apply_native_delta(balance: u64, delta: i128) -> Result<u64> {
         if delta >= 0 {
-            let amount = u64::try_from(delta)
-                .expect("Native object delta overflowed u64 account balance");
+            let amount =
+                u64::try_from(delta).expect("Native object delta overflowed u64 account balance");
             return balance
                 .checked_add(amount)
                 .require("Native object balance overflow after account delta");
@@ -425,7 +429,8 @@ impl StateManager {
             .map(|(token_type, amount)| (token_type, BalanceRecord::new(amount)))
             .collect();
 
-        let adjusted_native_delta = native_delta.saturating_add(i128::from(native_object_gas_adjusted));
+        let adjusted_native_delta =
+            native_delta.saturating_add(i128::from(native_object_gas_adjusted));
         let native_balance = if let Some(object_balance) = native_object_balance {
             if native_object_changed {
                 Self::apply_native_delta(object_balance, adjusted_native_delta)?

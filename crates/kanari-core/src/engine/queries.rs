@@ -3,6 +3,7 @@
 
 use kanari_rpc_api::{AccountInfo, BlockData, BlockchainStats, FullBlockData};
 use kanari_types::address::Address as KanariAddress;
+use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use log::{info, warn};
 
 use super::*;
@@ -66,6 +67,10 @@ impl BlockchainEngine {
                 };
 
                 let token_type = obj.type_[start + 1..end].to_string();
+                if token_type == KANARI_TOKEN_TYPE {
+                    continue;
+                }
+
                 let mut amount_bytes = [0u8; 8];
                 amount_bytes.copy_from_slice(&obj.data[32..40]);
                 let amount = u64::from_le_bytes(amount_bytes);
@@ -75,9 +80,13 @@ impl BlockchainEngine {
             }
 
             for (token_type, balance) in &acc.token_balances {
-                actual_token_balances
-                    .entry(token_type.clone())
-                    .or_insert_with(|| balance.value());
+                if token_type == KANARI_TOKEN_TYPE {
+                    actual_token_balances.insert(token_type.clone(), balance.value());
+                } else {
+                    actual_token_balances
+                        .entry(token_type.clone())
+                        .or_insert_with(|| balance.value());
+                }
             }
 
             AccountInfo {

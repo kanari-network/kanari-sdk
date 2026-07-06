@@ -87,8 +87,7 @@ impl Argon2Policy {
     fn validate(self) -> AuthResult<()> {
         if !(MIN_ARGON2_MEMORY_KIB..=MAX_ARGON2_MEMORY_KIB).contains(&self.memory_kib)
             || !(MIN_ARGON2_TIME_COST..=MAX_ARGON2_TIME_COST).contains(&self.time_cost)
-            || !(MIN_ARGON2_PARALLELISM..=MAX_ARGON2_PARALLELISM)
-                .contains(&self.parallelism)
+            || !(MIN_ARGON2_PARALLELISM..=MAX_ARGON2_PARALLELISM).contains(&self.parallelism)
         {
             return Err(AuthError::CryptoError(
                 "Argon2 parameters are outside the accepted policy".to_string(),
@@ -225,9 +224,10 @@ fn parse_and_validate_payload(encrypted_payload: &str) -> AuthResult<EncryptedPr
             "Encrypted private key payload is too large".to_string(),
         ));
     }
-    let payload: EncryptedPrivateKeyPayload = serde_json::from_str(encrypted_payload).map_err(|e| {
-        AuthError::SerializationError(format!("Invalid encrypted key payload: {e}"))
-    })?;
+    let payload: EncryptedPrivateKeyPayload =
+        serde_json::from_str(encrypted_payload).map_err(|e| {
+            AuthError::SerializationError(format!("Invalid encrypted key payload: {e}"))
+        })?;
     validate_encoded_field("ciphertext", &payload.ciphertext)?;
     validate_encoded_field("nonce", &payload.nonce)?;
     validate_encoded_field("salt", &payload.salt)?;
@@ -264,10 +264,7 @@ fn derive_argon2id_key(
 fn argon2_aad(policy: Argon2Policy) -> Vec<u8> {
     format!(
         "kanari-auth-key-v{}:argon2id:m={}:t={}:p={}",
-        PAYLOAD_VERSION_ARGON2ID,
-        policy.memory_kib,
-        policy.time_cost,
-        policy.parallelism
+        PAYLOAD_VERSION_ARGON2ID, policy.memory_kib, policy.time_cost, policy.parallelism
     )
     .into_bytes()
 }

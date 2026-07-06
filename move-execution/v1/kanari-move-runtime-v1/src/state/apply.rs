@@ -362,14 +362,15 @@ impl StateManager {
             return Ok(());
         }
 
-        let supply_delta = changeset
-            .account_changes
-            .values()
-            .try_fold(0i128, |total, change| {
-                total
-                    .checked_add(change.balance_delta)
-                    .require("Native supply delta overflow")
-            })?;
+        let supply_delta =
+            changeset
+                .account_changes
+                .values()
+                .try_fold(0i128, |total, change| {
+                    total
+                        .checked_add(change.balance_delta)
+                        .require("Native supply delta overflow")
+                })?;
         let next_total_supply = if supply_delta > 0 {
             let mint_amount = u64::try_from(supply_delta)
                 .expect("Native supply delta overflowed u64 total supply");
@@ -580,9 +581,8 @@ impl StateManager {
                         .map(|change| change.balance_delta)
                         .filter(|delta| *delta < 0)
                         .map(|delta| {
-                            u64::try_from(delta.unsigned_abs()).expect(
-                                "Native debit overflowed u64 object gas adjustment",
-                            )
+                            u64::try_from(delta.unsigned_abs())
+                                .expect("Native debit overflowed u64 object gas adjustment")
                         })
                         .unwrap_or(0);
                     let already_adjusted = native_object_gas_adjusted

@@ -252,9 +252,7 @@ impl ChangeSet {
             .iter_mut()
             .find(|(o, t, _)| o == &owner && t == &token_type)
         {
-            *existing_balance = BalanceRecord::new(
-                existing_balance.value().saturating_add(amount),
-            );
+            *existing_balance = BalanceRecord::new(existing_balance.value().saturating_add(amount));
         } else {
             self.token_balance_sets
                 .push((owner, token_type, BalanceRecord::new(amount)));

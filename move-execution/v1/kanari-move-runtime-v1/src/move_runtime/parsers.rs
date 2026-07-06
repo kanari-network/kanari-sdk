@@ -25,12 +25,8 @@ impl super::MoveRuntime {
 
         for (addr, account_changes) in move_cs.accounts() {
             for (module_name, op) in account_changes.modules() {
-                let key = format!(
-                    "module:{}:{}",
-                    addr.to_hex_literal(),
-                    module_name.as_str()
-                )
-                .into_bytes();
+                let key = format!("module:{}:{}", addr.to_hex_literal(), module_name.as_str())
+                    .into_bytes();
                 match op {
                     MoveOp::New(bytes) | MoveOp::Modify(bytes) => {
                         kanari_cs.publish_module(*addr, module_name.to_string());

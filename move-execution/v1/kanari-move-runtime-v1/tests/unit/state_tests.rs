@@ -999,3 +999,54 @@ fn apply_changeset_repairs_existing_native_wallet_overcount_before_custom_token_
 
     Ok(())
 }
+
+#[test]
+fn repair_legacy_native_wallet_overcount_reserves_locked_native_supply() -> Result<()> {
+    let sender = AccountAddress::from_hex_literal("0x1111")?;
+    let stale_account = AccountAddress::from_hex_literal(
+        "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    )?;
+    let holder_owner = AccountAddress::from_hex_literal("0x2222")?;
+    let mut state = StateManager::new_in_memory();
+    let base = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+
+    state.save_account(&Account::with_native_balance(sender, 10_000))?;
+    state.save_account(&Account::with_native_balance(stale_account, 6_614))?;
+    state.save_object_locked_coin_records(&[ObjectLockedCoinRecord {
+        holder_object_id: "0xlock".to_string(),
+        holder_type: "0x2::escrow::Vault".to_string(),
+        owner: holder_owner,
+        token_type: KANARI_TOKEN_TYPE.to_string(),
+        amount: 1_000,
+    }])?;
+    set_native_supply_for_test(&mut state, base.total_supply + 10_000)?;
+
+    state.repair_legacy_native_wallet_overcount()?;
+
+    assert_eq!(
+        state
+            .get_account(&stale_account)
+            .invariant("stale account should still exist")
+            .native_balance(),
+        0
+    );
+    assert_eq!(
+        state
+            .get_account(&sender)
+            .invariant("sender account should exist")
+            .native_balance(),
+        10_000
+    );
+
+    let summary = state.token_supply_summary(KANARI_TOKEN_TYPE)?;
+    assert_eq!(summary.total_supply, base.total_supply + 10_000);
+    assert_eq!(
+        summary.wallet_visible_supply,
+        base.wallet_visible_supply + 9_000
+    );
+    assert_eq!(summary.object_locked_supply, 1_000);
+    assert_eq!(summary.accounted_supply, summary.total_supply);
+    state.validate_supply_invariants()?;
+
+    Ok(())
+}

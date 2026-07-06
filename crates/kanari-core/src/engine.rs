@@ -11,11 +11,12 @@ use kanari_move_runtime_v1::changeset::ChangeSet;
 use kanari_move_runtime_v1::move_runtime::MoveRuntime;
 use kanari_move_runtime_v1::state::StateManager;
 use kanari_move_runtime_v1::storage::persistent_store::PersistentStore;
-pub use kanari_rpc_api::{AccountInfo, BlockData, BlockchainStats, FullBlockData, ObjectInfo};
+use kanari_rpc_api::ObjectInfo;
 use kanari_types::address::Address as KanariAddress;
+use kanari_types::error::KanariUnwrapExt;
 use kanari_types::event::Event;
-use kanari_types::gas::{GasMeter, GasOperation};
 use kanari_types::transaction::{NativeCall, SignedTransaction, Transaction};
+use kanari_types::{GasMeter, GasOperation};
 use log::{error, info};
 use lru::LruCache;
 use move_core_types::{
@@ -738,7 +739,7 @@ impl BlockchainEngine {
         let mut state_write = state_arc.write().unwrap_or_else(|e| e.into_inner());
         state_write
             .apply_zero_effect_sequence_batch(sequence_increments)
-            .map_err(|e| anyhow::anyhow!("Failed to apply zero-effect native batch: {}", e))?;
+            .require("Failed to apply zero-effect native batch")?;
 
         Ok(Some((transactions.len(), 0)))
     }
@@ -791,7 +792,7 @@ impl BlockchainEngine {
 
                 state_write
                     .apply_changeset(&changeset)
-                    .map_err(|e| anyhow::anyhow!("Failed to apply changeset: {}", e))?;
+                    .require("Failed to apply changeset")?;
                 executed_count += 1;
             }
 
@@ -844,7 +845,7 @@ impl BlockchainEngine {
                 let mut wave_executed = 0usize;
 
                 for res in results {
-                    let cs = res.map_err(|e| anyhow::anyhow!("Execution failed: {}", e))?;
+                    let cs = res.require("Execution failed")?;
 
                     if persist_objects {
                         let runtime = &self.runtime_pool[0];
@@ -870,7 +871,7 @@ impl BlockchainEngine {
 
                 state_write
                     .apply_changeset_without_supply_validation(&wave_changeset)
-                    .map_err(|e| anyhow::anyhow!("Failed to apply changeset: {}", e))?;
+                    .require("Failed to apply changeset")?;
                 executed_count += wave_executed;
             } else {
                 // Apply changesets with proper error handling to prevent node crashes
@@ -1112,10 +1113,7 @@ impl BlockchainEngine {
 
                 let type_tags: Vec<move_core_types::language_storage::TypeTag> = type_args
                     .iter()
-                    .map(|s| {
-                        parse_type_tag(s.as_str())
-                            .ok_or_else(|| anyhow::anyhow!("Invalid type argument: {}", s))
-                    })
+                    .map(|s| parse_type_tag(s.as_str()).require("Invalid type argument"))
                     .collect::<Result<Vec<_>>>()?;
 
                 match runtime.execute_entry_function_with_tx_hash_and_persistence(
@@ -1168,7 +1166,7 @@ impl BlockchainEngine {
         dag_engine_guard
             .as_ref()
             .cloned()
-            .ok_or_else(|| anyhow::anyhow!("Failed to initialize DAG engine"))
+            .require("Failed to initialize DAG engine")
     }
 
     pub fn produce_checkpoint(&self) -> Result<CheckpointProductionInfo> {
@@ -1323,7 +1321,7 @@ mod tests {
     use crate::blockchain::Blockchain;
     use crate::consensus::{Checkpoint, PersistentDagState};
     use kanari_crypto::keys::{CurveType, generate_keypair};
-    use kanari_move_runtime_v1::changeset::ChangeSet;
+    use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
     use kanari_move_runtime_v1::state::Account;
     use kanari_types::balance::BalanceRecord;
     use kanari_types::kanari::KANARI_TOKEN_TYPE;
@@ -1362,6 +1360,47 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner())
             .save_account(&account)
             .unwrap();
+    }
+
+    #[test]
+    fn account_info_uses_ledger_native_balance_over_coin_object_amount() {
+        let engine = BlockchainEngine::new_in_memory().unwrap();
+        let owner = AccountAddress::from_hex_literal("0x1111").unwrap();
+        let stale_object_balance = 1_100_000u64;
+        let ledger_balance_after_fee = stale_object_balance - 210;
+        let mut coin_data = vec![0u8; 40];
+        coin_data[32..40].copy_from_slice(&stale_object_balance.to_le_bytes());
+
+        let mut cs = ChangeSet::new();
+        cs.created_objects.push((
+            "0xcoin".to_string(),
+            CreatedObject {
+                owner,
+                uid: None,
+                id: None,
+                type_: format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE),
+                data: coin_data,
+                version: 1,
+            },
+        ));
+        {
+            let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
+            state
+                .apply_changeset_without_supply_validation(&cs)
+                .unwrap();
+            let mut account = Account::with_native_balance(owner, ledger_balance_after_fee);
+            account.set_token_balance(
+                KANARI_TOKEN_TYPE.to_string(),
+                BalanceRecord::new(ledger_balance_after_fee),
+            );
+            state.save_account(&account).unwrap();
+        }
+
+        let account = engine.get_account_info("0x1111").unwrap();
+        assert_eq!(
+            account.token_balances.get(KANARI_TOKEN_TYPE).copied(),
+            Some(ledger_balance_after_fee)
+        );
     }
 
     fn secure_consensus_keys(

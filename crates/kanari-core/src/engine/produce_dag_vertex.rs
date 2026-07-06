@@ -1,7 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use log::{info, warn};
 use mysticeti_consensus::{
     committer::Committer as MysticetiCommitter,
@@ -461,7 +461,12 @@ impl DagEngine {
                 .max(chain.height().saturating_add(1))
         };
         let (state_root, executed, failed, verified_state, to_execute, validate_supply) = {
-            let state_snapshot = self.engine.state_read().clone();
+            let mut state_snapshot = self.engine.state_read().clone();
+            state_snapshot
+                .repair_legacy_native_wallet_overcount()
+                .context(
+                    "Failed to repair legacy native wallet overcount before DAG state execution",
+                )?;
             let state_arc = Arc::new(RwLock::new(state_snapshot));
             self.engine
                 .execute_system_prologue_to_state_for_dag_v2(&state_arc, timestamp)?;
@@ -481,6 +486,14 @@ impl DagEngine {
                     false,
                 )?,
             };
+            {
+                let mut state_write = state_arc.write().unwrap_or_else(|e| e.into_inner());
+                state_write
+                    .repair_legacy_native_wallet_overcount()
+                    .context(
+                        "Failed to repair legacy native wallet overcount after DAG state execution",
+                    )?;
+            }
             let verified_state = state_arc.read().unwrap_or_else(|e| e.into_inner()).clone();
             let state_root = verified_state.compute_state_root();
             (

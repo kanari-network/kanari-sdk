@@ -69,7 +69,12 @@ impl BlockchainEngine {
         &self,
         checkpoint: &Checkpoint,
     ) -> Result<(Vec<u8>, StateManager, Vec<SignedTransaction>)> {
-        let state_snapshot = self.state_read().clone();
+        let mut state_snapshot = self.state_read().clone();
+        state_snapshot
+            .repair_legacy_native_wallet_overcount()
+            .context(
+                "Failed to repair legacy native wallet overcount before checkpoint state execution",
+            )?;
         let state_arc = Arc::new(RwLock::new(state_snapshot));
         let to_execute: Vec<SignedTransaction> = {
             let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
@@ -93,6 +98,13 @@ impl BlockchainEngine {
             Some(checkpoint.timestamp),
             false, // persist_objects = false
         )?;
+
+        {
+            let mut state_write = state_arc.write().unwrap_or_else(|e| e.into_inner());
+            state_write
+                .repair_legacy_native_wallet_overcount()
+                .context("Failed to repair legacy native wallet overcount after checkpoint state execution")?;
+        }
 
         let verified_state = state_arc.read().unwrap_or_else(|e| e.into_inner()).clone();
         let computed_root = verified_state.compute_state_root();
@@ -191,7 +203,11 @@ impl BlockchainEngine {
         validate_supply: bool,
     ) -> Result<()> {
         if !to_execute.is_empty() && Self::requires_runtime_side_effect_persistence(&to_execute) {
-            let side_effect_state = Arc::new(RwLock::new(self.state_read().clone()));
+            let mut side_effect_snapshot = self.state_read().clone();
+            side_effect_snapshot
+                .repair_legacy_native_wallet_overcount()
+                .context("Failed to repair legacy native wallet overcount before checkpoint side effects")?;
+            let side_effect_state = Arc::new(RwLock::new(side_effect_snapshot));
             self.apply_system_prologue_to_state(&side_effect_state, checkpoint.timestamp, true)?;
             self.execute_tx_waves_strict_serial(
                 to_execute,
