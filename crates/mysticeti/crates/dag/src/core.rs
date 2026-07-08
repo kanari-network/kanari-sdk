@@ -279,15 +279,6 @@ impl<C: Ctx, D: DagConsensus> Core<C, D> {
         Some(block)
     }
 
-    /// Drain transactions submitted to the block handler into the next proposal payload.
-    ///
-    /// The network synchronizer normally drives this internally. Embedders that run
-    /// `Core` directly can call this after sending transactions to the handler and
-    /// before `try_new_block`.
-    pub fn drain_submitted_transactions(&mut self) {
-        self.run_block_handler();
-    }
-
     pub fn wal_syncer(&self) -> WalSyncer {
         self.storage.syncer()
     }

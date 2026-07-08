@@ -46,6 +46,16 @@ pub enum ConsensusProtocol {
         #[serde(default = "defaults::default_leader_count")]
         leader_count: NonZeroUsize,
     },
+    DagHydrangea {
+        #[serde(default = "defaults::default_leader_count")]
+        leader_count: NonZeroUsize,
+        /// Byzantine-fault stake to tolerate.
+        f: Stake,
+        /// Crash-only fault stake to tolerate (on top of `f`).
+        c: Stake,
+        /// Tunable slack widening the fast path; requires `n >= 3f + 2c + k + 1`.
+        k: Stake,
+    },
 }
 
 mod defaults {
@@ -110,6 +120,18 @@ impl fmt::Display for ConsensusProtocol {
             Self::NemoNemo { leader_count } => {
                 write!(fmt, "Nemo-Nemo ({} leaders/round)", leader_count)
             }
+            Self::DagHydrangea {
+                leader_count,
+                f,
+                c,
+                k,
+            } => {
+                write!(
+                    fmt,
+                    "DagHydrangea ({} leaders/round, f={f}, c={c}, k={k})",
+                    leader_count
+                )
+            }
         }
     }
 }
@@ -131,6 +153,12 @@ impl fmt::Debug for ConsensusProtocol {
                 wave_length,
             } => write!(fmt, "mahi-mahi-l{leader_count}-w{wave_length}"),
             Self::NemoNemo { leader_count } => write!(fmt, "nemo-nemo-l{leader_count}"),
+            Self::DagHydrangea {
+                leader_count,
+                f,
+                c,
+                k,
+            } => write!(fmt, "dag-hydrangea-l{leader_count}-f{f}-c{c}-k{k}"),
         }
     }
 }
@@ -146,7 +174,8 @@ impl ConsensusProtocol {
             | Self::BlueBottle { leader_count }
             | Self::Orcaella { leader_count, .. }
             | Self::MahiMahi { leader_count, .. }
-            | Self::NemoNemo { leader_count } => Some(*leader_count),
+            | Self::NemoNemo { leader_count }
+            | Self::DagHydrangea { leader_count, .. } => Some(*leader_count),
         };
         if let Some(leader_count) = user_leader_count
             && leader_count.get() > committee_size
@@ -172,6 +201,12 @@ impl ConsensusProtocol {
                 wave_length,
             } => Protocol::mahi_mahi(total_stake, leader_count, wave_length)?,
             Self::NemoNemo { leader_count } => Protocol::nemo_nemo(total_stake, leader_count),
+            Self::DagHydrangea {
+                leader_count,
+                f,
+                c,
+                k,
+            } => Protocol::dag_hydrangea(total_stake, f, c, k, leader_count)?,
         })
     }
 }
@@ -215,9 +250,95 @@ impl ConsensusProtocol {
                 leader_count,
                 wave_length: 5,
             });
+            variants.push(Self::DagHydrangea {
+                leader_count,
+                f: 1,
+                c: 0,
+                k: 0,
+            });
+            variants.push(Self::DagHydrangea {
+                leader_count,
+                f: 0,
+                c: 1,
+                k: 1,
+            });
+            if n >= 20 {
+                variants.push(Self::DagHydrangea {
+                    leader_count,
+                    f: 6,
+                    c: 0,
+                    k: 1,
+                });
+                variants.push(Self::DagHydrangea {
+                    leader_count,
+                    f: 0,
+                    c: 9,
+                    k: 1,
+                });
+                variants.push(Self::DagHydrangea {
+                    leader_count,
+                    f: 3,
+                    c: 4,
+                    k: 2,
+                });
+                variants.push(Self::DagHydrangea {
+                    leader_count,
+                    f: 4,
+                    c: 1,
+                    k: 5,
+                });
+            }
         }
         variants.push(Self::CordialMinersPartiallySynchronous);
         variants.push(Self::CordialMinersAsynchronous);
+        variants
+    }
+
+    /// Fast-path protocols at the baseline matrix configuration, for the
+    /// fast-path-specific scenario tests.
+    pub fn all_fast_path_for_test(n: usize, leader_counts: &[usize]) -> Vec<Self> {
+        let mut variants = Vec::new();
+        for &l in leader_counts {
+            let leader_count = NonZeroUsize::new(l).expect("leader_count must be non-zero");
+            variants.push(Self::DagHydrangea {
+                leader_count,
+                f: 1,
+                c: 0,
+                k: 0,
+            });
+            variants.push(Self::DagHydrangea {
+                leader_count,
+                f: 0,
+                c: 1,
+                k: 1,
+            });
+            if n >= 20 {
+                variants.push(Self::DagHydrangea {
+                    leader_count,
+                    f: 6,
+                    c: 0,
+                    k: 1,
+                });
+                variants.push(Self::DagHydrangea {
+                    leader_count,
+                    f: 0,
+                    c: 9,
+                    k: 1,
+                });
+                variants.push(Self::DagHydrangea {
+                    leader_count,
+                    f: 3,
+                    c: 4,
+                    k: 2,
+                });
+                variants.push(Self::DagHydrangea {
+                    leader_count,
+                    f: 4,
+                    c: 1,
+                    k: 5,
+                });
+            }
+        }
         variants
     }
 }
@@ -225,8 +346,12 @@ impl ConsensusProtocol {
 /// Errors that can arise when building a [`Protocol`] from a [`ConsensusProtocol`].
 #[derive(Debug, thiserror::Error)]
 pub enum ProtocolError {
-    #[error("Orcaella fault bound violated (n={n}, f={f}, c={c})")]
-    OrcaellaFaultBoundViolated { n: Stake, f: Stake, c: Stake },
+    #[error("{protocol} fault bound violated: requires n >= {min_n}, got n = {n}")]
+    FaultBoundViolated {
+        protocol: &'static str,
+        n: Stake,
+        min_n: Stake,
+    },
     #[error("Mahi-Mahi requires wave_length in {{4, 5}}, got {wave_length}")]
     MahiMahiInvalidWaveLength { wave_length: RoundNumber },
     #[error("leader_count ({leader_count}) exceeds committee size ({committee_size})")]
@@ -236,12 +361,32 @@ pub enum ProtocolError {
     },
 }
 
+/// Optimistic fast-path parameters for dual-path protocols.
+#[derive(Clone, Copy)]
+pub struct FastPath {
+    /// The quorum of votes at the voting round to fast-commit a leader.
+    pub commit_quorum: Stake,
+    /// The quorum of anchor-linked votes to indirectly commit a leader
+    /// (second rung of the graded indirect rule).
+    pub weak_indirect_quorum: Stake,
+}
+
 /// Protocol-specific parameters for the consensus committer.
 pub struct Protocol {
-    /// The quorum threshold to directly commit a leader.
+    /// The quorum threshold to directly commit a leader: the number of
+    /// certificates required at the decision round (the outer threshold).
     pub direct_commit_quorum: Stake,
     /// The quorum threshold to directly skip a leader.
     pub direct_skip_quorum: Stake,
+    /// The quorum of votes a decision block must reference to count as a
+    /// certificate (the inner threshold).
+    pub certificate_quorum: Stake,
+    /// The quorum governing round advancement and block validity (parents /
+    /// availability). Historically implicit in `direct_commit_quorum`, with
+    /// which it coincides for all single-tier protocols.
+    pub quorum_threshold: Stake,
+    /// Optimistic fast-path parameters; `None` for single-tier protocols.
+    pub fast_path: Option<FastPath>,
     /// The stake of anchor-linked support required to indirectly decide a leader.
     pub anchor_link_size: Stake,
     /// The number of rounds to commit a leader.
@@ -266,6 +411,9 @@ impl Protocol {
         Self {
             direct_commit_quorum: quorum,
             direct_skip_quorum: total_stake,
+            certificate_quorum: quorum,
+            quorum_threshold: quorum,
+            fast_path: None,
             anchor_link_size: 1,
             wave_length: 3,
             leader_count: NonZeroUsize::new(1).unwrap(),
@@ -284,6 +432,9 @@ impl Protocol {
         Self {
             direct_commit_quorum: quorum,
             direct_skip_quorum: total_stake,
+            certificate_quorum: quorum,
+            quorum_threshold: quorum,
+            fast_path: None,
             anchor_link_size: 1,
             wave_length: 5,
             leader_count: NonZeroUsize::new(1).unwrap(),
@@ -302,6 +453,9 @@ impl Protocol {
         Self {
             direct_commit_quorum: quorum,
             direct_skip_quorum: quorum,
+            certificate_quorum: quorum,
+            quorum_threshold: quorum,
+            fast_path: None,
             anchor_link_size: 1,
             wave_length: 3,
             leader_count,
@@ -321,6 +475,9 @@ impl Protocol {
         Self {
             direct_commit_quorum: strong_quorum,
             direct_skip_quorum: strong_quorum,
+            certificate_quorum: strong_quorum,
+            quorum_threshold: strong_quorum,
+            fast_path: None,
             anchor_link_size: weak_quorum,
             wave_length: 2,
             leader_count,
@@ -333,7 +490,7 @@ impl Protocol {
     /// Orcaella
     ///
     /// "Orcaella: Hybrid Fault Tolerance with Client-Selectable Finality Latency"
-    /// <TBD>
+    /// <https://sonnino.com/papers/orcaella.pdf>
     pub fn orcaella(
         total_stake: Stake,
         f: Stake,
@@ -342,16 +499,19 @@ impl Protocol {
     ) -> Result<Self, ProtocolError> {
         let min_n = if f == 0 { 2 * c + 1 } else { 5 * f + 3 * c + 1 };
         if min_n > total_stake {
-            return Err(ProtocolError::OrcaellaFaultBoundViolated {
+            return Err(ProtocolError::FaultBoundViolated {
+                protocol: "Orcaella",
                 n: total_stake,
-                f,
-                c,
+                min_n,
             });
         }
 
         Ok(Self {
             direct_commit_quorum: total_stake - f - c,
             direct_skip_quorum: 4 * f + 2 * c + 1,
+            certificate_quorum: total_stake - f - c,
+            quorum_threshold: total_stake - f - c,
+            fast_path: None,
             anchor_link_size: total_stake - 3 * f - 2 * c,
             wave_length: 2,
             leader_count,
@@ -378,6 +538,9 @@ impl Protocol {
         Ok(Self {
             direct_commit_quorum: quorum,
             direct_skip_quorum: quorum,
+            certificate_quorum: quorum,
+            quorum_threshold: quorum,
+            fast_path: None,
             anchor_link_size: 1,
             wave_length,
             leader_count,
@@ -396,6 +559,9 @@ impl Protocol {
         Self {
             direct_commit_quorum: quorum,
             direct_skip_quorum: total_stake,
+            certificate_quorum: quorum,
+            quorum_threshold: quorum,
+            fast_path: None,
             anchor_link_size: 1,
             wave_length: 2,
             leader_count,
@@ -403,6 +569,62 @@ impl Protocol {
             leader_wait: true,
             require_crypto: false,
         }
+    }
+
+    /// DagHydrangea
+    ///
+    /// "Hydrangea: Optimistic Two-Round Partial Synchrony with Improved Fault Resilience"
+    /// <https://eprint.iacr.org/2025/1112>
+    pub fn dag_hydrangea(
+        total_stake: Stake,
+        f: Stake,
+        c: Stake,
+        k: Stake,
+        leader_count: NonZeroUsize,
+    ) -> Result<Self, ProtocolError> {
+        // Widen to u128 so the bound and threshold arithmetic cannot overflow;
+        // every resulting threshold is at most `total_stake`, so narrowing back
+        // to `Stake` is safe.
+        let n = total_stake as u128;
+        let (f, c, k) = (f as u128, c as u128, k as u128);
+        let min_n = 3 * f + 2 * c + k + 1;
+        if min_n > n {
+            return Err(ProtocolError::FaultBoundViolated {
+                protocol: "DagHydrangea",
+                n: total_stake,
+                min_n: Stake::try_from(min_n).unwrap_or(Stake::MAX),
+            });
+        }
+
+        let p = (c + k) / 2;
+        // ceil((n + f + 1) / 2): large enough that two conflicting certificates
+        // cannot both form.
+        let certificate_quorum = (n + f + 2) / 2;
+        let fast_path = FastPath {
+            commit_quorum: (n - p) as Stake,
+            weak_indirect_quorum: (f + p + 1) as Stake,
+        };
+        // Certificate uniqueness, and a fast commit starving every conflicting
+        // leader block below the weak indirect quorum. Both follow from the fault
+        // bound; assert on the stored thresholds to catch formula regressions.
+        assert!(2 * certificate_quorum > n + f);
+        let fast_commit_quorum = fast_path.commit_quorum as u128;
+        let weak_indirect_quorum = fast_path.weak_indirect_quorum as u128;
+        assert!(fast_commit_quorum + weak_indirect_quorum > n + f);
+
+        Ok(Self {
+            direct_commit_quorum: (2 * f + c + 1) as Stake,
+            direct_skip_quorum: fast_path.commit_quorum,
+            certificate_quorum: certificate_quorum as Stake,
+            quorum_threshold: (n - f - c) as Stake,
+            fast_path: Some(fast_path),
+            anchor_link_size: 1,
+            wave_length: 3,
+            leader_count,
+            pipeline: true,
+            leader_wait: true,
+            require_crypto: f != 0,
+        })
     }
 }
 
@@ -416,5 +638,52 @@ impl Protocol {
         } else {
             Duration::from_millis(75)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroUsize;
+
+    use crate::protocol::{Protocol, ProtocolError};
+
+    /// Reference thresholds from the design note at the mixed configuration
+    /// n = 20, f = 3, c = 4, k = 2 (p = 3), where the certificate, slow-commit,
+    /// and pacemaker quorums are all distinct.
+    #[test]
+    fn dag_hydrangea_thresholds_mixed_configuration() {
+        let protocol = Protocol::dag_hydrangea(20, 3, 4, 2, NonZeroUsize::new(1).unwrap()).unwrap();
+        let fast_path = protocol.fast_path.expect("dual-path protocol");
+        assert_eq!(fast_path.commit_quorum, 17); // n - p
+        assert_eq!(fast_path.weak_indirect_quorum, 7); // f + p + 1
+        assert_eq!(protocol.certificate_quorum, 12); // ceil((n + f + 1) / 2)
+        assert_eq!(protocol.direct_commit_quorum, 11); // 2f + c + 1
+        assert_eq!(protocol.direct_skip_quorum, 17); // n - p
+        assert_eq!(protocol.quorum_threshold, 13); // n - f - c
+    }
+
+    /// At `k = 0` the certificate, slow-commit, and pacemaker quorums coincide
+    /// (n = 99, f = 10, c = 34 from the design note).
+    #[test]
+    fn dag_hydrangea_quorums_coincide_at_zero_slack() {
+        let protocol =
+            Protocol::dag_hydrangea(99, 10, 34, 0, NonZeroUsize::new(1).unwrap()).unwrap();
+        assert_eq!(protocol.certificate_quorum, 55);
+        assert_eq!(protocol.direct_commit_quorum, 55);
+        assert_eq!(protocol.quorum_threshold, 55);
+    }
+
+    /// The fault bound `n >= 3f + 2c + k + 1` is enforced.
+    #[test]
+    fn dag_hydrangea_fault_bound_rejected() {
+        let result = Protocol::dag_hydrangea(4, 1, 0, 1, NonZeroUsize::new(1).unwrap());
+        assert!(matches!(
+            result,
+            Err(ProtocolError::FaultBoundViolated {
+                protocol: "DagHydrangea",
+                n: 4,
+                min_n: 5,
+            })
+        ));
     }
 }

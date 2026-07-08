@@ -6,7 +6,11 @@ use std::{
     sync::Arc,
 };
 
-use crate::{leader::LeaderElector, protocol::Protocol, wave::Wave};
+use crate::{
+    leader::LeaderElector,
+    protocol::{FastPath, Protocol},
+    wave::Wave,
+};
 use dag::{
     authority::Authority,
     block::{Block, BlockReference, RoundNumber},
@@ -29,6 +33,8 @@ pub(crate) struct BaseCommitter {
     leader_elector: LeaderElector,
     direct_commit_quorum: Stake,
     direct_skip_quorum: Stake,
+    certificate_quorum: Stake,
+    fast_path: Option<FastPath>,
     anchor_link_size: Stake,
     pub(crate) wave: Wave,
     leader_offset: RoundNumber,
@@ -49,6 +55,8 @@ impl BaseCommitter {
             leader_elector,
             direct_commit_quorum: protocol.direct_commit_quorum,
             direct_skip_quorum: protocol.direct_skip_quorum,
+            certificate_quorum: protocol.certificate_quorum,
+            fast_path: protocol.fast_path,
             anchor_link_size: protocol.anchor_link_size,
             wave: Wave::new(protocol.wave_length, round_offset),
             leader_offset,
@@ -63,9 +71,13 @@ impl BaseCommitter {
         leader_offset: RoundNumber,
     ) -> Self {
         let total = committee.total_stake();
+        let quorum = 2 * total / 3 + 1;
         let protocol = Protocol {
-            direct_commit_quorum: 2 * total / 3 + 1,
-            direct_skip_quorum: 2 * total / 3 + 1,
+            direct_commit_quorum: quorum,
+            direct_skip_quorum: quorum,
+            certificate_quorum: quorum,
+            quorum_threshold: quorum,
+            fast_path: None,
             anchor_link_size: 1,
             wave_length,
             leader_count: std::num::NonZeroUsize::new(1).unwrap(),
@@ -81,6 +93,13 @@ impl BaseCommitter {
             leader_offset,
             0,
         )
+    }
+
+    /// Enable the optimistic fast path on a test committer.
+    #[cfg(test)]
+    fn with_fast_path(mut self, fast_path: FastPath) -> Self {
+        self.fast_path = Some(fast_path);
+        self
     }
 
     /// The leader-elect protocol is offset by `leader_offset` to ensure that different
@@ -146,7 +165,7 @@ impl BaseCommitter {
             return self.is_vote(potential_certificate, leader_block);
         }
 
-        let mut votes_stake_aggregator = StakeAggregator::new(self.direct_commit_quorum);
+        let mut votes_stake_aggregator = StakeAggregator::new(self.certificate_quorum);
         for reference in potential_certificate.includes() {
             let potential_vote = self
                 .block_reader
@@ -166,8 +185,10 @@ impl BaseCommitter {
         false
     }
 
-    /// Decide the status of a target leader from the specified anchor. We commit the target leader
-    /// if it has a certified link to the anchor. Otherwise, we skip the target leader.
+    /// Decide the status of a target leader from the specified anchor, applying the
+    /// graded indirect rule: commit the leader block with a certified link to the
+    /// anchor (unique); else, for fast-path protocols, commit the leader block backed
+    /// by a weak quorum of anchor-linked votes; else skip the target leader.
     fn decide_leader_from_anchor(
         &self,
         anchor: &Data<Block>,
@@ -187,7 +208,7 @@ impl BaseCommitter {
         let decision_blocks = self.block_reader.get_blocks_by_round(decision_round);
 
         // Find the certified leader block (at most one).
-        let mut certified = leader_blocks.into_iter().filter(|leader_block| {
+        let mut certified = leader_blocks.iter().filter(|leader_block| {
             let mut aggregator = StakeAggregator::new(self.anchor_link_size);
             decision_blocks.iter().any(|block| {
                 if !self.block_reader.linked(anchor, block) {
@@ -205,24 +226,46 @@ impl BaseCommitter {
         }
 
         tracing::trace!("[{self}] leader {leader} is decided by anchor {anchor:?}");
-        match first {
-            Some(block) => LeaderStatus::IndirectCommit(block.clone()),
-            None => LeaderStatus::IndirectSkip(leader, leader_round),
+        if let Some(block) = first {
+            return LeaderStatus::IndirectCommit(block.clone());
         }
+
+        // Second rung (fast-path protocols only): commit the leader block backed by a
+        // weak quorum of votes linked to the anchor. Unlike the certificate rung, two
+        // equivocating leader blocks can both qualify (a slow commit does not starve
+        // conflicts of votes), so ties are broken deterministically.
+        if let Some(fast_path) = &self.fast_path {
+            let voting_round = self.wave.voting_round(wave);
+            let voting_blocks = self.block_reader.get_blocks_by_round(voting_round);
+            let weak_commit = leader_blocks
+                .into_iter()
+                .filter(|leader_block| {
+                    let mut aggregator = StakeAggregator::new(fast_path.weak_indirect_quorum);
+                    voting_blocks.iter().any(|block| {
+                        self.block_reader.linked(anchor, block)
+                            && self.is_vote(block, leader_block)
+                            && aggregator.add(block.author(), &self.committee)
+                    })
+                })
+                .min_by_key(|leader_block| leader_block.reference().digest);
+            if let Some(block) = weak_commit {
+                return LeaderStatus::IndirectCommit(block);
+            }
+        }
+
+        LeaderStatus::IndirectSkip(leader, leader_round)
     }
 
-    /// Check whether the specified leader has enough blames (`direct_skip_quorum` non-votes)
-    /// to be directly skipped.
+    /// Check whether the specified leader has enough blames (`direct_skip_quorum` non-votes
+    /// among the voting-round blocks) to be directly skipped.
     fn enough_leader_blame(
         &self,
-        voting_round: RoundNumber,
+        voting_blocks: &[Data<Block>],
         leader: Authority,
         leader_round: RoundNumber,
     ) -> bool {
-        let voting_blocks = self.block_reader.get_blocks_by_round(voting_round);
-
         let mut aggregator = StakeAggregator::new(self.direct_skip_quorum);
-        for voting_block in &voting_blocks {
+        for voting_block in voting_blocks {
             let voter = voting_block.reference().authority;
             if self
                 .find_support((leader, leader_round), voting_block)
@@ -254,6 +297,28 @@ impl BaseCommitter {
             let authority = decision_block.reference().authority;
             if self.is_certificate(decision_block, leader_block)
                 && certificate_stake_aggregator.add(authority, &self.committee)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Check whether the specified leader has enough votes at the voting round to be
+    /// fast-committed. Always false for protocols without a fast path.
+    fn enough_fast_path_support(
+        &self,
+        voting_blocks: &[Data<Block>],
+        leader_block: &Data<Block>,
+    ) -> bool {
+        let Some(fast_path) = &self.fast_path else {
+            return false;
+        };
+        let mut votes_stake_aggregator = StakeAggregator::new(fast_path.commit_quorum);
+        for voting_block in voting_blocks {
+            let authority = voting_block.reference().authority;
+            if self.is_vote(voting_block, leader_block)
+                && votes_stake_aggregator.add(authority, &self.committee)
             {
                 return true;
             }
@@ -311,22 +376,26 @@ impl BaseCommitter {
         let voting_round = self.wave.voting_round(wave);
         let decision_round = self.wave.decision_round(wave);
 
+        let voting_blocks = self.block_reader.get_blocks_by_round(voting_round);
+
         // Check whether the leader has enough blame. That is, whether there are
         // `direct_skip_quorum` non-votes for that leader (which ensure there will never
         // be a certificate for that leader).
-        if self.enough_leader_blame(voting_round, leader, leader_round) {
+        if self.enough_leader_blame(&voting_blocks, leader, leader_round) {
             return LeaderStatus::DirectSkip(leader, leader_round);
         }
 
-        // Check whether the leader(s) has enough support. That is, whether there are
-        // `direct_commit_quorum` certificates over the leader. Note that there could be
-        // more than one leader block (created by Byzantine leaders).
+        // Check whether the leader(s) has enough support: `fast_path.commit_quorum`
+        // votes at the voting round (fast path, when configured) or
+        // `direct_commit_quorum` certificates at the decision round. Note that there
+        // could be more than one leader block (created by Byzantine leaders).
         let leader_blocks = self
             .block_reader
             .get_blocks_at_authority_round(leader, leader_round);
-        let mut supported = leader_blocks
-            .into_iter()
-            .filter(|l| self.enough_leader_support(decision_round, l));
+        let mut supported = leader_blocks.into_iter().filter(|leader_block| {
+            self.enough_fast_path_support(&voting_blocks, leader_block)
+                || self.enough_leader_support(decision_round, leader_block)
+        });
         let first = supported.next();
         if supported.next().is_some() {
             panic!(
@@ -362,7 +431,7 @@ mod tests {
         test_util::{build_dag, build_dag_layer, committee},
     };
 
-    use crate::base::BaseCommitter;
+    use crate::{base::BaseCommitter, protocol::FastPath};
 
     /// `elect_leader` returns `None` outside leader rounds.
     #[test]
@@ -540,7 +609,8 @@ mod tests {
 
         let committer =
             BaseCommitter::new_for_test(&committee, storage.block_reader().clone(), 3, 0);
-        assert!(committer.enough_leader_blame(4, leader, leader_round));
+        let voting_blocks = storage.block_reader().get_blocks_by_round(4);
+        assert!(committer.enough_leader_blame(&voting_blocks, leader, leader_round));
     }
 
     /// `enough_leader_support` is `true` for a fully-connected DAG.
@@ -632,6 +702,113 @@ mod tests {
                 assert_eq!(round, 3);
             }
             other => panic!("expected Undecided, got {other:?}"),
+        }
+    }
+
+    /// With a fast path, a quorum of votes at the voting round direct-commits the
+    /// leader even though the decision round is absent; without a fast path the same
+    /// DAG stays `Undecided`.
+    #[test]
+    fn try_direct_decide_fast_commits_at_voting_round() {
+        let committee = committee(4);
+        let mut storage = Storage::new_for_test(&committee);
+        // DAG stops at the voting round: votes exist, certificates cannot.
+        build_dag(&committee, &mut storage, None, 4);
+
+        let fast_committer =
+            BaseCommitter::new_for_test(&committee, storage.block_reader().clone(), 3, 0)
+                .with_fast_path(FastPath {
+                    commit_quorum: 3,
+                    weak_indirect_quorum: 2,
+                });
+        let slow_committer =
+            BaseCommitter::new_for_test(&committee, storage.block_reader().clone(), 3, 0);
+
+        let leader = fast_committer.elect_leader(3).unwrap();
+        match fast_committer.try_direct_decide(leader, 3) {
+            LeaderStatus::DirectCommit(block) => assert_eq!(block.author(), leader),
+            other => panic!("expected DirectCommit, got {other:?}"),
+        }
+        match slow_committer.try_direct_decide(leader, 3) {
+            LeaderStatus::Undecided(authority, round) => {
+                assert_eq!(authority, leader);
+                assert_eq!(round, 3);
+            }
+            other => panic!("expected Undecided, got {other:?}"),
+        }
+    }
+
+    /// With no certificate at the decision round, a weak quorum of anchor-linked votes
+    /// indirect-commits the leader (second rung of the graded rule); without a fast
+    /// path the same DAG indirect-skips.
+    #[test]
+    fn decide_leader_from_anchor_weak_quorum_commits() {
+        let committee = committee(4);
+        let mut storage = Storage::new_for_test(&committee);
+
+        let leader_round = 3;
+        let references_at_leader = build_dag(&committee, &mut storage, None, leader_round);
+        // Round-robin: round 3 → authority 3.
+        let leader = committee.authorities().nth(3).unwrap();
+        let references_without_leader: Vec<_> = references_at_leader
+            .iter()
+            .copied()
+            .filter(|reference| reference.authority != leader)
+            .collect();
+
+        // Voting round: authorities 0 and 1 vote for the leader; 2 and 3 blame it.
+        // Two votes clear the weak quorum (2) but not the certificate quorum (3).
+        let voters = [
+            committee.authorities().next().unwrap(),
+            committee.authorities().nth(1).unwrap(),
+        ];
+        let voting_connections = committee
+            .authorities()
+            .map(|authority| {
+                let parents = if voters.contains(&authority) {
+                    references_at_leader.clone()
+                } else {
+                    references_without_leader.clone()
+                };
+                (authority, parents)
+            })
+            .collect();
+        let references_at_voting_round = build_dag_layer(voting_connections, &mut storage);
+
+        // Decision and anchor rounds are fully connected: every decision block carries
+        // only the two votes (no certificate) and the anchor links every voting block.
+        build_dag(
+            &committee,
+            &mut storage,
+            Some(references_at_voting_round),
+            6,
+        );
+        let anchor = storage
+            .block_reader()
+            .get_blocks_at_authority_round(committee.authorities().next().unwrap(), 6)
+            .into_iter()
+            .next()
+            .unwrap();
+
+        let fast_committer =
+            BaseCommitter::new_for_test(&committee, storage.block_reader().clone(), 3, 0)
+                .with_fast_path(FastPath {
+                    commit_quorum: 3,
+                    weak_indirect_quorum: 2,
+                });
+        let slow_committer =
+            BaseCommitter::new_for_test(&committee, storage.block_reader().clone(), 3, 0);
+
+        match fast_committer.decide_leader_from_anchor(&anchor, leader, leader_round) {
+            LeaderStatus::IndirectCommit(block) => assert_eq!(block.author(), leader),
+            other => panic!("expected IndirectCommit, got {other:?}"),
+        }
+        match slow_committer.decide_leader_from_anchor(&anchor, leader, leader_round) {
+            LeaderStatus::IndirectSkip(authority, round) => {
+                assert_eq!(authority, leader);
+                assert_eq!(round, leader_round);
+            }
+            other => panic!("expected IndirectSkip, got {other:?}"),
         }
     }
 
