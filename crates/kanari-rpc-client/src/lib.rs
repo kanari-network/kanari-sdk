@@ -110,8 +110,11 @@ impl RpcClient {
         serde_json::from_value(result).context("Failed to parse stats")
     }
 
-    /// Submit signed transaction
-    pub async fn submit_transaction(&self, tx: SignedTransactionData) -> Result<TransactionStatus> {
+    /// Submit an object transfer request through the legacy transfer endpoint.
+    pub async fn submit_object_transfer(
+        &self,
+        tx: kanari_rpc_api::ObjectTransferData,
+    ) -> Result<TransactionStatus> {
         let response = self
             .request(methods::SUBMIT_TRANSACTION, serde_json::to_value(tx)?)
             .await?;
@@ -132,6 +135,11 @@ impl RpcClient {
         };
 
         Ok(status)
+    }
+
+    /// Backward-compatible alias for object transfer submission.
+    pub async fn submit_transaction(&self, tx: SignedTransactionData) -> Result<TransactionStatus> {
+        self.submit_object_transfer(tx).await
     }
 
     /// Publish Move module

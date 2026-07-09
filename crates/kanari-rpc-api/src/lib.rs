@@ -177,9 +177,9 @@ pub struct GetStateRootRequest {
     pub height: Option<u64>,
 }
 
-/// Account state proof returned to light clients
+/// Owner state proof returned to light clients
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AccountProof {
+pub struct OwnerProof {
     pub state_root: String,
     pub is_member: bool,
     pub leaf_hash: Vec<u8>,
@@ -187,7 +187,7 @@ pub struct AccountProof {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetAccountProofRequest {
+pub struct GetOwnerProofRequest {
     pub address: String,
     pub height: Option<u64>,
 }
@@ -242,15 +242,15 @@ pub struct TransactionResult {
     pub error_message: Option<String>,
 }
 
-/// Submit transaction request
+/// Submit object transfer request
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SubmitTransactionRequest {
-    pub transaction: SignedTransactionData,
+pub struct SubmitObjectTransferRequest {
+    pub transaction: ObjectTransferData,
 }
 
-/// Signed transaction data
+/// Object transfer submission data
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignedTransactionData {
+pub struct ObjectTransferData {
     pub sender: String,
     pub coin_object_id: String,
     pub recipient: String,
@@ -262,6 +262,11 @@ pub struct SignedTransactionData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execute_immediate: Option<bool>,
 }
+
+pub type AccountProof = OwnerProof;
+pub type GetAccountProofRequest = GetOwnerProofRequest;
+pub type SubmitTransactionRequest = SubmitObjectTransferRequest;
+pub type SignedTransactionData = ObjectTransferData;
 
 /// Publish module request
 #[derive(Debug, Clone, Serialize, Deserialize)]

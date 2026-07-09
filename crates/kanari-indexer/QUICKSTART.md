@@ -43,9 +43,9 @@ indexer.sync_to_latest(|height| {
 let txs = indexer.db()
     .get_transactions_by_sender("0x123...", 10)?;
 
-// Get account balances
+// Get owner balances
 let balances = indexer.db()
-    .get_all_balances("0x123...")?;
+    .get_all_owner_balances("0x123...")?;
 
 // Get statistics
 let stats = indexer.get_statistics()?;
@@ -96,7 +96,7 @@ let events = indexer.db().get_events_by_transaction(&tx_hash)?;
 
 // Coins & Balances
 let coins = indexer.db().get_coins_by_owner(addr)?;
-let balance = indexer.db().get_account_balance(addr, "KANARI")?;
+let balance = indexer.db().get_owner_balance(addr, "KANARI")?;
 ```
 
 ### Analytics

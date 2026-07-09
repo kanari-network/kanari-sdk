@@ -57,12 +57,12 @@ fn main() -> Result<()> {
     }
     println!();
 
-    // Example 4: Account Balance Queries
-    println!("4. ACCOUNT BALANCE QUERIES");
+    // Example 4: Owner Balance Queries
+    println!("4. OWNER BALANCE QUERIES");
     let sample_address = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
     println!("   Checking balances for: {}...", sample_address);
 
-    let balances = indexer.db().get_all_balances(sample_address)?;
+    let balances = indexer.db().get_all_owner_balances(sample_address)?;
     if !balances.is_empty() {
         for balance in balances {
             println!(

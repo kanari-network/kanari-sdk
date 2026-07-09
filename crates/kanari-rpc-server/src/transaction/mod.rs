@@ -6,7 +6,7 @@ use crate::{
 use super::{RpcError, RpcRequest, RpcResponse, RpcServerState};
 use kanari_move_runtime_v1::changeset::ChangeSet;
 use kanari_rpc_api::{
-    CallFunctionRequest, PublishModuleRequest, SignedTransactionData, TransactionDetails,
+    CallFunctionRequest, ObjectTransferData, PublishModuleRequest, TransactionDetails,
     ViewFunctionRequest,
 };
 use kanari_types::address::Address;
@@ -492,7 +492,7 @@ pub async fn handle_submit_transaction(
     state: &RpcServerState,
     request: &RpcRequest,
 ) -> RpcResponse {
-    let tx_data: SignedTransactionData = match serde_json::from_value(request.params.clone()) {
+    let tx_data: ObjectTransferData = match serde_json::from_value(request.params.clone()) {
         Ok(data) => data,
         Err(e) => {
             return invalid_params_response(request.id, format!("Invalid transaction data: {}", e));

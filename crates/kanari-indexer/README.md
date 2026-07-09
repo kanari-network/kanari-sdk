@@ -10,7 +10,7 @@ The Kanari Indexer provides efficient storage and querying capabilities for bloc
 - **Transactions**: All transaction types (Transfer, ExecuteFunction, PublishModule, Burn)
 - **Events**: Move VM events emitted during transaction execution
 - **Coins**: Individual coin objects with ownership tracking
-- **Account Balances**: Aggregated balance information per address
+- **Owner Balances**: Aggregated balance information per owner address
 - **Analytics**: Statistics and queries for blockchain analysis
 
 ## Features
@@ -98,8 +98,8 @@ for tx in txs {
     println!("TX: {} - Type: {}", tx.tx_hash, tx.tx_type);
 }
 
-// Get account balances
-let balances = indexer.db().get_all_balances("0x123...")?;
+// Get owner balances
+let balances = indexer.db().get_all_owner_balances("0x123...")?;
 for balance in balances {
     println!("{}: {} coins", balance.coin_type, balance.total_balance);
 }
@@ -137,7 +137,8 @@ println!("{}", stats);
 - **transaction_args**: Function call arguments
 - **events**: Move VM events
 - **coins**: Individual coin objects
-- **account_balances**: Aggregated balances per address
+- **account_balances**: Aggregated balances per owner address
+  The table name stays `account_balances` for backward-compatible SQLite migrations.
 - **indexer_metadata**: Internal indexer state
 
 ### Indexes

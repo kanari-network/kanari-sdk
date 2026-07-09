@@ -122,7 +122,6 @@ pub struct CheckpointInfo {
 
 struct StagedCheckpoint {
     checkpoint: Checkpoint,
-    verified_state: StateManager,
     to_execute: Vec<SignedTransaction>,
     validate_supply: bool,
 }
@@ -354,6 +353,11 @@ struct DagEngineState {
     /// kanari-specific `SignedTransaction`s. This cache bridges that gap
     /// so network gossip can include full transaction data.
     vertices: Vec<DagVertex>,
+    /// Pre-executed states for locally-produced vertices, waiting for
+    /// Mysticeti commitment. Key is vertex_id. When a Mysticeti block
+    /// is committed, the cached state is used to create a checkpoint
+    /// without re-executing transactions.
+    pending_executed_states: BTreeMap<[u8; 32], StateManager>,
 }
 
 #[derive(Clone)]
@@ -411,6 +415,7 @@ impl DagEngine {
             state: Arc::new(RwLock::new(DagEngineState {
                 mysticeti,
                 vertices: Vec::new(),
+                pending_executed_states: BTreeMap::new(),
             })),
             authority_id,
             authorities,
@@ -527,7 +532,7 @@ impl DagEngine {
                 .max(chain.height().saturating_add(1))
         };
 
-        let (_state_root, executed, failed, verified_state, to_execute, validate_supply) = {
+        let (state_root, executed, failed, verified_state, to_execute, validate_supply) = {
             let mut state_snapshot = self.engine.state_read().clone();
             state_snapshot
                 .repair_legacy_native_wallet_overcount()
@@ -634,7 +639,13 @@ impl DagEngine {
         use ed25519_dalek::Signer;
         vertex.signature = self.local_signing_key.sign(&vertex.id).to_bytes().to_vec();
 
-        self.stage_locally_produced_vertex(&vertex, verified_state, to_execute, validate_supply)?;
+        self.stage_locally_produced_vertex(
+            &vertex,
+            verified_state,
+            to_execute,
+            validate_supply,
+            state_root,
+        )?;
         let checkpoint = self.finalize_staged_checkpoint(vertex.id)?;
         let checkpoint_info = Some(CheckpointInfo {
             sequence: checkpoint.sequence,
@@ -666,10 +677,14 @@ impl DagEngine {
         verified_state: StateManager,
         to_execute: Vec<SignedTransaction>,
         validate_supply: bool,
+        state_root: Vec<u8>,
     ) -> Result<Checkpoint> {
         {
             let mut state = lock_write(&self.state);
             state.vertices.push(vertex.clone());
+            state
+                .pending_executed_states
+                .insert(vertex.id, verified_state.clone());
         }
 
         let prev_hash = {
@@ -680,8 +695,7 @@ impl DagEngine {
             self.engine.get_stats().height.saturating_add(1),
             vec![vertex.id],
             vertex.transactions.clone(),
-            // Use empty state root initially; it will be set after finalization.
-            vec![],
+            state_root,
             vertex.timestamp,
             prev_hash,
         );
@@ -691,7 +705,6 @@ impl DagEngine {
             vertex.id,
             StagedCheckpoint {
                 checkpoint: checkpoint.clone(),
-                verified_state,
                 to_execute,
                 validate_supply,
             },
@@ -708,10 +721,19 @@ impl DagEngine {
                     hex::encode(vertex_id)
                 )
             })?;
+        let verified_state = lock_write(&self.state)
+            .pending_executed_states
+            .remove(&vertex_id)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Missing pre-executed state for vertex {}",
+                    hex::encode(vertex_id)
+                )
+            })?;
 
         self.engine.apply_prepared_checkpoint(
             staged.checkpoint.clone(),
-            staged.verified_state,
+            verified_state,
             staged.to_execute,
             staged.validate_supply,
         )?;

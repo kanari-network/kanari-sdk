@@ -42,8 +42,8 @@ Successfully implemented a complete SQLite-based blockchain indexer for the Kana
    - Coin ID, owner, type, balance
    - Frozen status, creation/update tracking
 
-6. **account_balances** - Aggregated balances
-   - Per address and coin type
+6. **account_balances** - Aggregated owner balances
+   - Per owner address and coin type
    - Total balance and coin count
 
 7. **indexer_metadata** - Internal state
@@ -75,7 +75,7 @@ Optimized for common queries:
 - Get transaction by hash/sender/block
 - Get events by transaction/key
 - Get coins by ID/owner
-- Get account balances
+- Get owner balances
 - Top addresses by activity
 
 ✅ **Sync Capabilities**
@@ -143,7 +143,7 @@ indexer.sync_to_latest(|height| fetch_block(height))?;
 
 ```rust
 let txs = indexer.db().get_transactions_by_sender(addr, 10)?;
-let balances = indexer.db().get_all_balances(addr)?;
+let balances = indexer.db().get_all_owner_balances(addr)?;
 ```
 
 ### Analytics

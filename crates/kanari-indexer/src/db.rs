@@ -406,14 +406,17 @@ impl IndexerDB {
         ])
         .context("Failed to upsert coin")?;
 
-        // Update account balance
-        self.update_account_balance(&coin.owner, &coin.coin_type, coin.balance as i64)?;
+        // Update owner balance aggregate
+        self.update_owner_balance(&coin.owner, &coin.coin_type, coin.balance as i64)?;
 
         Ok(())
     }
 
-    /// Update account balance aggregation
-    fn update_account_balance(&self, address: &str, coin_type: &str, balance: i64) -> Result<()> {
+    /// Update owner balance aggregation.
+    ///
+    /// The underlying SQLite table name remains `account_balances` for backward
+    /// compatibility with existing indexer databases and tooling.
+    fn update_owner_balance(&self, address: &str, coin_type: &str, balance: i64) -> Result<()> {
         let mut stmt = self.conn.prepare_cached(
             "INSERT INTO account_balances (address, coin_type, total_balance, coin_count, last_updated)
              VALUES (?1, ?2, ?3, 1, datetime('now'))
@@ -480,12 +483,12 @@ impl IndexerDB {
         Ok(coins)
     }
 
-    /// Get account balance
-    pub fn get_account_balance(
+    /// Get aggregated balance for an owner and coin type.
+    pub fn get_owner_balance(
         &self,
         address: &str,
         coin_type: &str,
-    ) -> Result<Option<AccountBalance>> {
+    ) -> Result<Option<OwnerBalance>> {
         let mut stmt = self.conn.prepare(
             "SELECT address, coin_type, total_balance, coin_count, last_updated
              FROM account_balances WHERE address = ?1 AND coin_type = ?2",
@@ -493,7 +496,7 @@ impl IndexerDB {
 
         let balance = stmt
             .query_row(params![address, coin_type], |row| {
-                Ok(AccountBalance {
+                Ok(OwnerBalance {
                     address: row.get(0)?,
                     coin_type: row.get(1)?,
                     total_balance: row.get::<_, i64>(2)? as u64,
@@ -506,8 +509,8 @@ impl IndexerDB {
         Ok(balance)
     }
 
-    /// Get all balances for an address
-    pub fn get_all_balances(&self, address: &str) -> Result<Vec<AccountBalance>> {
+    /// Get all aggregated balances for an owner.
+    pub fn get_all_owner_balances(&self, address: &str) -> Result<Vec<OwnerBalance>> {
         let mut stmt = self.conn.prepare(
             "SELECT address, coin_type, total_balance, coin_count, last_updated
              FROM account_balances WHERE address = ?1 ORDER BY coin_type",
@@ -515,7 +518,7 @@ impl IndexerDB {
 
         let balances = stmt
             .query_map(params![address], |row| {
-                Ok(AccountBalance {
+                Ok(OwnerBalance {
                     address: row.get(0)?,
                     coin_type: row.get(1)?,
                     total_balance: row.get::<_, i64>(2)? as u64,
@@ -526,6 +529,18 @@ impl IndexerDB {
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(balances)
+    }
+
+    pub fn get_account_balance(
+        &self,
+        address: &str,
+        coin_type: &str,
+    ) -> Result<Option<AccountBalance>> {
+        self.get_owner_balance(address, coin_type)
+    }
+
+    pub fn get_all_balances(&self, address: &str) -> Result<Vec<AccountBalance>> {
+        self.get_all_owner_balances(address)
     }
 
     // =========================================================================

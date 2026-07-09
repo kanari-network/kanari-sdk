@@ -74,15 +74,17 @@ pub struct IndexedCoin {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Account balance summary
+/// Owner balance summary
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AccountBalance {
+pub struct OwnerBalance {
     pub address: String,
     pub coin_type: String,
     pub total_balance: u64,
     pub coin_count: u32,
     pub last_updated: DateTime<Utc>,
 }
+
+pub type AccountBalance = OwnerBalance;
 
 /// Indexer metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]

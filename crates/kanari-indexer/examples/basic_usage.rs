@@ -46,7 +46,7 @@ fn main() -> Result<()> {
     println!("  - get_block_by_height(height): Query block by height");
     println!("  - get_transactions_by_sender(addr, limit): Query transactions");
     println!("  - get_coins_by_owner(addr): Query coins owned by address");
-    println!("  - get_all_balances(addr): Get all balances for address");
+    println!("  - get_all_owner_balances(addr): Get all balances for owner");
     println!("  - get_events_by_transaction(tx_hash): Get events from TX");
     println!();
 

@@ -135,8 +135,9 @@ Response (invalid):
 **Transaction methods**
 
 - `kanari_submitTransaction` - submit a signed object-input native transfer transaction
+  This legacy method name remains for compatibility; the payload shape is now object-centric.
 
-Request `params` (SignedTransactionData):
+Request `params` (`ObjectTransferData`, legacy alias: `SignedTransactionData`):
 
 ```json
 {

@@ -36,6 +36,7 @@ fn main() -> Result<()> {
     let _tx = SignedTransaction::new(Transaction::new_transfer(
         "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef".to_string(),
         "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890".to_string(),
+        "0x9999999999999999999999999999999999999999999999999999999999999999".to_string(),
         1000,
         0,
     ));
@@ -60,8 +61,8 @@ fn main() -> Result<()> {
     println!("4. Coin & Balance Queries:");
     println!("   - get_coin_by_id(coin_id)");
     println!("   - get_coins_by_owner(owner)");
-    println!("   - get_account_balance(addr, coin_type)");
-    println!("   - get_all_balances(addr)");
+    println!("   - get_owner_balance(addr, coin_type)");
+    println!("   - get_all_owner_balances(addr)");
     println!();
     println!("5. Analytics:");
     println!("   - get_transaction_count()");
