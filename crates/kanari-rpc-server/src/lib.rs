@@ -23,7 +23,7 @@ use tracing::info;
 
 use crate::{
     balance::{
-        handle_get_all_balances, handle_get_owner, handle_get_token_balance, handle_list_tokens,
+        handle_get_owner, handle_get_owner_balances, handle_get_token_balance, handle_list_tokens,
     },
     block::{handle_get_block, handle_get_block_height, handle_get_full_block, handle_get_stats},
     module::{
@@ -33,7 +33,7 @@ use crate::{
     nft::{handle_get_nfts_by_collection, handle_get_owned_nfts, handle_list_collections},
     transaction::{
         handle_call_function, handle_get_transaction, handle_publish_module,
-        handle_submit_transaction, handle_view_function,
+        handle_submit_object_transfer, handle_view_function,
     },
 };
 
@@ -171,7 +171,7 @@ async fn handle_rpc(
         methods::GET_OWNER => handle_get_owner(&state, &request).await,
         methods::GET_TOKEN_BALANCE => handle_get_token_balance(&state, &request).await,
         methods::LIST_TOKENS => handle_list_tokens(&state, &request).await,
-        methods::GET_ALL_BALANCES => handle_get_all_balances(&state, &request).await,
+        methods::GET_OWNER_BALANCES => handle_get_owner_balances(&state, &request).await,
 
         // Blocks & Transactions
         methods::GET_BLOCK => handle_get_block(&state, &request).await,
@@ -182,7 +182,7 @@ async fn handle_rpc(
         }
         methods::GET_BLOCK_HEIGHT => handle_get_block_height(&state, &request).await,
         methods::GET_STATS => handle_get_stats(&state, &request).await,
-        methods::SUBMIT_TRANSACTION => handle_submit_transaction(&state, &request).await,
+        methods::SUBMIT_OBJECT_TRANSFER => handle_submit_object_transfer(&state, &request).await,
 
         // Health
         methods::HEALTH => handle_health(&state, &request).await,
@@ -411,7 +411,7 @@ mod tests {
         create_router(RpcServerState::new(engine))
     }
 
-    fn fund_test_account(engine: &BlockchainEngine, address: &str, balance: u64) {
+    fn fund_test_owner(engine: &BlockchainEngine, address: &str, balance: u64) {
         let owner = AccountAddress::from_hex_literal(address).invariant("valid owner address");
         let mut owner_state = OwnerState::with_native_balance(owner, balance);
         owner_state.set_token_balance(KANARI_TOKEN_TYPE.to_string(), BalanceRecord::new(balance));
@@ -540,7 +540,7 @@ mod tests {
 
         let all_balances = rpc_call(
             app.clone(),
-            methods::GET_ALL_BALANCES,
+            methods::GET_OWNER_BALANCES,
             serde_json::json!({ "owner": "0x1111" }),
             5,
         )
@@ -650,7 +650,7 @@ mod tests {
 
         let submitted = rpc_call(
             app.clone(),
-            methods::SUBMIT_TRANSACTION,
+            methods::SUBMIT_OBJECT_TRANSFER,
             serde_json::json!({
                 "sender": sender_tagged,
                 "coin_object_id": "0xaaaa",
@@ -707,7 +707,7 @@ mod tests {
 
         let sender = generate_keypair(CurveType::Ed25519).invariant("sender keypair");
         let recipient = generate_keypair(CurveType::Ed25519).invariant("recipient keypair");
-        fund_test_account(&engine, &sender.address, 2_000_000);
+        fund_test_owner(&engine, &sender.address, 2_000_000);
 
         let sender_tagged = sender.tagged_address();
         let recipient_address = recipient.address.clone();
@@ -728,7 +728,7 @@ mod tests {
         let app = create_router(RpcServerState::new(Arc::new(engine)));
         let submitted = rpc_call(
             app,
-            methods::SUBMIT_TRANSACTION,
+            methods::SUBMIT_OBJECT_TRANSFER,
             serde_json::json!({
                 "sender": sender_tagged,
                 "coin_object_id": "0xaaaa",
@@ -758,7 +758,7 @@ mod tests {
 
         let response = rpc_call_response(
             app,
-            methods::SUBMIT_TRANSACTION,
+            methods::SUBMIT_OBJECT_TRANSFER,
             serde_json::json!({
                 "sender": "0x1111",
                 "coin_object_id": "0xaaaa",

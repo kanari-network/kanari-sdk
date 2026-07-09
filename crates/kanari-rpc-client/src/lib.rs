@@ -70,6 +70,20 @@ impl RpcClient {
         serde_json::from_value(result).context("Failed to parse owner info")
     }
 
+    /// Get all visible balances for an owner.
+    pub async fn get_owner_balances(&self, owner: &str) -> Result<serde_json::Value> {
+        let response = self
+            .request(
+                methods::GET_OWNER_BALANCES,
+                serde_json::to_value(GetOwnerBalancesRequest {
+                    owner: owner.to_string(),
+                })?,
+            )
+            .await?;
+
+        response.result.context("No result in response")
+    }
+
     /// Get block by height
     pub async fn get_block(&self, height: u64) -> Result<BlockInfo> {
         let response = self
@@ -110,13 +124,13 @@ impl RpcClient {
         serde_json::from_value(result).context("Failed to parse stats")
     }
 
-    /// Submit an object transfer request through the legacy transfer endpoint.
+    /// Submit an object transfer request.
     pub async fn submit_object_transfer(
         &self,
         tx: kanari_rpc_api::ObjectTransferData,
     ) -> Result<TransactionStatus> {
         let response = self
-            .request(methods::SUBMIT_TRANSACTION, serde_json::to_value(tx)?)
+            .request(methods::SUBMIT_OBJECT_TRANSFER, serde_json::to_value(tx)?)
             .await?;
 
         let result = response.result.context("No result in response")?;
@@ -135,11 +149,6 @@ impl RpcClient {
         };
 
         Ok(status)
-    }
-
-    /// Backward-compatible alias for object transfer submission.
-    pub async fn submit_transaction(&self, tx: SignedTransactionData) -> Result<TransactionStatus> {
-        self.submit_object_transfer(tx).await
     }
 
     /// Publish Move module

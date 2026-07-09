@@ -76,21 +76,22 @@ fn normalize_addr(s: &str) -> String {
         .unwrap_or_else(|_| s.trim_start_matches("0x").to_lowercase())
 }
 
-fn tx_matches_account(tx: &Transaction, account_norm: Option<&str>) -> bool {
-    let Some(acct) = account_norm else {
+fn tx_matches_owner(tx: &Transaction, owner_norm: Option<&str>) -> bool {
+    let Some(owner) = owner_norm else {
         return true;
     };
 
     if let Some(native_call) = tx.native_call() {
         match native_call {
             NativeCall::Transfer { recipient, .. } => {
-                return normalize_addr(tx.sender()) == acct || normalize_addr(&recipient) == acct;
+                return normalize_addr(tx.sender()) == owner
+                    || normalize_addr(&recipient) == owner;
             }
             NativeCall::BurnAmount { .. } => {}
         }
     }
 
-    normalize_addr(tx.sender()) == acct
+    normalize_addr(tx.sender()) == owner
 }
 
 fn push_unique_tx_details(
@@ -487,8 +488,8 @@ async fn execute_or_submit_response(
 // HANDLERS
 // =========================================================================
 
-/// Handle submit transaction request
-pub async fn handle_submit_transaction(
+/// Handle submit object transfer request
+pub async fn handle_submit_object_transfer(
     state: &RpcServerState,
     request: &RpcRequest,
 ) -> RpcResponse {
@@ -606,14 +607,14 @@ pub async fn handle_get_all_transactions(
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
 
-    let account_norm = request
+    let owner_norm = request
         .params
         .as_str()
         .or_else(|| {
             request
                 .params
                 .as_object()
-                .and_then(|obj| obj.get("account").and_then(|v| v.as_str()))
+                .and_then(|obj| obj.get("owner").and_then(|v| v.as_str()))
         })
         .map(|a| a.trim_start_matches("0x").to_lowercase());
 
@@ -622,7 +623,7 @@ pub async fn handle_get_all_transactions(
     let pending = state.engine.pending_transactions_snapshot();
 
     for tx in pending.iter().rev() {
-        if !tx_matches_account(&tx.transaction, account_norm.as_deref()) {
+        if !tx_matches_owner(&tx.transaction, owner_norm.as_deref()) {
             continue;
         }
 
@@ -655,7 +656,7 @@ pub async fn handle_get_all_transactions(
             }
 
             for tx in checkpoint.transactions.iter().rev() {
-                if !tx_matches_account(&tx.transaction, account_norm.as_deref()) {
+                if !tx_matches_owner(&tx.transaction, owner_norm.as_deref()) {
                     continue;
                 }
 
@@ -682,7 +683,7 @@ pub async fn handle_get_all_transactions(
         for (tx, height, state_root) in state
             .engine
             .list_committed_transactions_from_history(limit, |tx| {
-                tx_matches_account(tx, account_norm.as_deref())
+                tx_matches_owner(tx, owner_norm.as_deref())
             })
         {
             if !push_unique_tx_details(

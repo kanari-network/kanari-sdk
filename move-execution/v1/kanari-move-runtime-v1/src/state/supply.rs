@@ -439,14 +439,14 @@ impl StateManager {
     fn apply_native_delta(balance: u64, delta: i128) -> Result<u64> {
         if delta >= 0 {
             let amount =
-                u64::try_from(delta).expect("Native object delta overflowed u64 account balance");
+                u64::try_from(delta).expect("Native object delta overflowed u64 owner balance");
             return balance
                 .checked_add(amount)
                 .require("Native object balance overflow after account delta");
         }
 
         let debit = u64::try_from(delta.unsigned_abs())
-            .expect("Native object delta overflowed u64 account balance");
+            .expect("Native object delta overflowed u64 owner balance");
         ensure!(
             balance >= debit,
             "Native object balance underflow after account delta: balance={}, debit={}",

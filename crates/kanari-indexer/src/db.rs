@@ -413,12 +413,9 @@ impl IndexerDB {
     }
 
     /// Update owner balance aggregation.
-    ///
-    /// The underlying SQLite table name remains `account_balances` for backward
-    /// compatibility with existing indexer databases and tooling.
     fn update_owner_balance(&self, address: &str, coin_type: &str, balance: i64) -> Result<()> {
         let mut stmt = self.conn.prepare_cached(
-            "INSERT INTO account_balances (address, coin_type, total_balance, coin_count, last_updated)
+            "INSERT INTO owner_balances (address, coin_type, total_balance, coin_count, last_updated)
              VALUES (?1, ?2, ?3, 1, datetime('now'))
              ON CONFLICT(address, coin_type) DO UPDATE SET
                 total_balance = total_balance + ?3,
@@ -426,7 +423,7 @@ impl IndexerDB {
                 last_updated = datetime('now')",
         )?;
         stmt.execute(params![address, coin_type, balance])
-            .context("Failed to update account balance")?;
+            .context("Failed to update owner balance")?;
 
         Ok(())
     }
@@ -491,7 +488,7 @@ impl IndexerDB {
     ) -> Result<Option<OwnerBalance>> {
         let mut stmt = self.conn.prepare(
             "SELECT address, coin_type, total_balance, coin_count, last_updated
-             FROM account_balances WHERE address = ?1 AND coin_type = ?2",
+             FROM owner_balances WHERE address = ?1 AND coin_type = ?2",
         )?;
 
         let balance = stmt
@@ -513,7 +510,7 @@ impl IndexerDB {
     pub fn get_all_owner_balances(&self, address: &str) -> Result<Vec<OwnerBalance>> {
         let mut stmt = self.conn.prepare(
             "SELECT address, coin_type, total_balance, coin_count, last_updated
-             FROM account_balances WHERE address = ?1 ORDER BY coin_type",
+             FROM owner_balances WHERE address = ?1 ORDER BY coin_type",
         )?;
 
         let balances = stmt
@@ -530,19 +527,6 @@ impl IndexerDB {
 
         Ok(balances)
     }
-
-    pub fn get_account_balance(
-        &self,
-        address: &str,
-        coin_type: &str,
-    ) -> Result<Option<AccountBalance>> {
-        self.get_owner_balance(address, coin_type)
-    }
-
-    pub fn get_all_balances(&self, address: &str) -> Result<Vec<AccountBalance>> {
-        self.get_all_owner_balances(address)
-    }
-
     // =========================================================================
     // Metadata Operations
     // =========================================================================

@@ -429,7 +429,7 @@ impl StateManager {
                 continue;
             }
             let debit = u64::try_from(change.balance_delta.unsigned_abs())
-                .expect("Native debit overflowed u64 account balance");
+                .expect("Native debit overflowed u64 owner balance");
             let balance = self.resolve_owner_native_balance(*address)?;
             ensure!(
                 balance >= debit,
@@ -466,15 +466,15 @@ impl StateManager {
                 owners_to_recompute.insert(*address);
             } else if change.balance_delta > 0 {
                 let amount = u64::try_from(change.balance_delta)
-                    .expect("Native credit overflowed u64 account balance");
+                    .expect("Native credit overflowed u64 owner balance");
                 let next = owner_state
                     .native_balance()
                     .checked_add(amount)
-                    .require("Native account balance overflow")?;
+                    .require("Native owner balance overflow")?;
                 owner_state.set_token_balance_value(&native_token, next);
             } else if change.balance_delta < 0 {
                 let debit = u64::try_from(change.balance_delta.unsigned_abs())
-                    .expect("Native debit overflowed u64 account balance");
+                    .expect("Native debit overflowed u64 owner balance");
                 let next = owner_state.native_balance() - debit;
                 owner_state.set_token_balance_value(&native_token, next);
             }

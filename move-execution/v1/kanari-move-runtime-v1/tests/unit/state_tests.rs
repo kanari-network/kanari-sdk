@@ -507,7 +507,7 @@ fn apply_changeset_rejects_insufficient_debit_without_partial_writes() -> Result
     assert_eq!(
         state
             .get_owner_state(&sender)
-            .invariant("sender account should exist")
+            .invariant("sender owner state should exist")
             .native_balance(),
         5
     );
@@ -530,7 +530,7 @@ fn apply_changeset_rejects_supply_invariant_violation_without_mutating_live_stat
     let root_before = state.compute_state_root();
     let sender_balance_before = state
         .get_owner_state(&sender)
-        .invariant("sender account should exist")
+        .invariant("sender owner state should exist")
         .native_balance();
 
     let mut changeset = ChangeSet::new();
@@ -543,7 +543,7 @@ fn apply_changeset_rejects_supply_invariant_violation_without_mutating_live_stat
     assert_eq!(
         state
             .get_owner_state(&sender)
-            .invariant("sender account should exist")
+            .invariant("sender owner state should exist")
             .native_balance(),
         sender_balance_before
     );
@@ -557,7 +557,7 @@ fn unrelated_object_creation_preserves_native_balance_cache() -> Result<()> {
     let mut state = StateManager::new_in_memory();
     let before_balance = state
         .get_owner_state(&owner)
-        .invariant("owner account should exist")
+        .invariant("owner state should exist")
         .native_balance();
     let before_visible = state.indexed_wallet_supply(KANARI_TOKEN_TYPE)?;
 
@@ -578,7 +578,7 @@ fn unrelated_object_creation_preserves_native_balance_cache() -> Result<()> {
     assert_eq!(
         state
             .get_owner_state(&owner)
-            .invariant("owner account should exist")
+            .invariant("owner state should exist")
             .native_balance(),
         before_balance
     );
@@ -608,7 +608,7 @@ fn recompute_owner_balances_preserves_native_gas_adjustments() -> Result<()> {
 
     let before_balance = state
         .get_owner_state(&owner)
-        .invariant("owner account should exist")
+        .invariant("owner state should exist")
         .native_balance();
 
     let mut gas_only = ChangeSet::new();
@@ -617,7 +617,7 @@ fn recompute_owner_balances_preserves_native_gas_adjustments() -> Result<()> {
     state.apply_changeset(&gas_only)?;
     let after_gas_balance = state
         .get_owner_state(&owner)
-        .invariant("owner account should exist")
+        .invariant("owner state should exist")
         .native_balance();
     assert_eq!(after_gas_balance, before_balance - 210);
 
@@ -640,7 +640,7 @@ fn recompute_owner_balances_preserves_native_gas_adjustments() -> Result<()> {
     assert_eq!(
         state
             .get_owner_state(&owner)
-            .invariant("owner account should exist")
+            .invariant("owner state should exist")
             .native_balance(),
         after_gas_balance
     );
@@ -711,21 +711,21 @@ fn native_coin_object_transfer_applies_gas_delta_without_supply_overcount() -> R
     assert_eq!(
         state
             .get_owner_state(&alice)
-            .invariant("alice account should exist")
+            .invariant("alice owner state should exist")
             .native_balance(),
         890
     );
     assert_eq!(
         state
             .get_owner_state(&bob)
-            .invariant("bob account should exist")
+            .invariant("bob owner state should exist")
             .native_balance(),
         100
     );
     assert_eq!(
         state
             .get_owner_state(&gas_collector)
-            .invariant("gas collector account should exist")
+            .invariant("gas collector owner state should exist")
             .native_balance(),
         10
     );
@@ -764,14 +764,14 @@ fn native_token_balance_hints_do_not_double_count_transfers() -> Result<()> {
     assert_eq!(
         state
             .get_owner_state(&alice)
-            .invariant("alice account should exist")
+            .invariant("alice owner state should exist")
             .native_balance(),
         900
     );
     assert_eq!(
         state
             .get_owner_state(&bob)
-            .invariant("bob account should exist")
+            .invariant("bob owner state should exist")
             .native_balance(),
         100
     );
@@ -787,7 +787,7 @@ fn native_token_balance_hints_do_not_double_count_transfers() -> Result<()> {
 }
 
 #[test]
-fn get_account_returns_none_for_missing_account() -> Result<()> {
+fn get_owner_state_returns_none_for_missing_owner() -> Result<()> {
     let state = StateManager::new_in_memory();
     let missing = AccountAddress::from_hex_literal("0x4242")?;
 
@@ -853,14 +853,14 @@ fn native_coin_object_full_transfer_subtracts_gas_from_moved_coin() -> Result<()
     assert_eq!(
         state
             .get_owner_state(&bob)
-            .invariant("bob account should exist")
+            .invariant("bob owner state should exist")
             .native_balance(),
         990
     );
     assert_eq!(
         state
             .get_owner_state(&gas_collector)
-            .invariant("gas collector account should exist")
+            .invariant("gas collector owner state should exist")
             .native_balance(),
         10
     );
@@ -920,14 +920,14 @@ fn custom_token_mint_repairs_stale_native_visible_supply_cache() -> Result<()> {
     assert_eq!(
         state
             .get_owner_state(&sender)
-            .invariant("sender account should exist")
+            .invariant("sender owner state should exist")
             .native_balance(),
         9_790
     );
     assert_eq!(
         state
             .get_owner_state(&gas_collector)
-            .invariant("gas collector account should exist")
+            .invariant("gas collector owner state should exist")
             .native_balance(),
         210
     );
@@ -1051,14 +1051,14 @@ fn apply_changeset_repairs_existing_native_wallet_overcount_before_custom_token_
     assert_eq!(
         state
             .get_owner_state(&sender)
-            .invariant("sender account should exist")
+            .invariant("sender owner state should exist")
             .native_balance(),
         9_790
     );
     assert_eq!(
         state
             .get_owner_state(&gas_collector)
-            .invariant("gas collector account should exist")
+            .invariant("gas collector owner state should exist")
             .native_balance(),
         210
     );
@@ -1116,7 +1116,7 @@ fn repair_legacy_native_wallet_overcount_reserves_locked_native_supply() -> Resu
     assert_eq!(
         state
             .get_owner_state(&sender)
-            .invariant("sender account should exist")
+            .invariant("sender owner state should exist")
             .native_balance(),
         10_000
     );

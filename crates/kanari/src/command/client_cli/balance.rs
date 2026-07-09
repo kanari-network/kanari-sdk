@@ -4,7 +4,6 @@
 use crate::command::common::{get_rpc_endpoint, resolve_sender};
 use anyhow::{Context, Result};
 use clap::*;
-use kanari_rpc_api::{GetAllBalancesRequest, RpcRequest, RpcResponse, methods};
 use kanari_rpc_client::RpcClient;
 
 /// Show token balances for an owner address
@@ -33,41 +32,13 @@ impl Balance {
         eprintln!("   Owner: {}", owner);
         eprintln!("   RPC: {}\n", rpc);
 
-        let _client = RpcClient::new(&rpc);
-
-        let request = GetAllBalancesRequest {
-            owner: owner.clone(),
-        };
-
-        let rpc_request = RpcRequest {
-            jsonrpc: "2.0".to_string(),
-            method: methods::GET_ALL_BALANCES.to_string(),
-            params: serde_json::to_value(request).unwrap_or(serde_json::json!(null)),
-            id: 1,
-        };
-
-        // Use the underlying reqwest client from RpcClient if needed,
-        // or just use RpcClient's request method if it was public (it's not).
-        // For now, let's just use a standard reqwest call like before but cleaner.
-        let http_client = reqwest::Client::new();
-        let response = http_client
-            .post(&rpc)
-            .json(&rpc_request)
-            .send()
+        let client = RpcClient::new(&rpc);
+        let result = client
+            .get_owner_balances(&owner)
             .await
-            .context("Failed to send RPC request")?;
+            .context("Failed to fetch owner balances")?;
 
-        let rpc_response: RpcResponse = response
-            .json()
-            .await
-            .context("Failed to parse RPC response")?;
-
-        if let Some(error) = rpc_response.error {
-            eprintln!("Error: {} (code: {})", error.message, error.code);
-            return Ok(());
-        }
-
-        if let Some(result) = rpc_response.result {
+        {
             if let Some(balances) = result.get("balances").and_then(|b| b.as_array()) {
                 eprintln!("TOKEN BALANCES");
                 eprintln!("------------------------------");
@@ -132,8 +103,6 @@ impl Balance {
             } else {
                 eprintln!("No balances found");
             }
-        } else {
-            eprintln!("Invalid response format");
         }
 
         Ok(())

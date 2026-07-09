@@ -42,7 +42,7 @@ Successfully implemented a complete SQLite-based blockchain indexer for the Kana
    - Coin ID, owner, type, balance
    - Frozen status, creation/update tracking
 
-6. **account_balances** - Aggregated owner balances
+6. **owner_balances** - Aggregated owner balances
    - Per owner address and coin type
    - Total balance and coin count
 

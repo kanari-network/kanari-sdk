@@ -4,7 +4,7 @@
 //! Kanari Blockchain Indexer using SQLite
 //!
 //! This module provides a comprehensive indexing solution for the Kanari blockchain,
-//! storing transactions, blocks, events, coins, and account balances in a SQLite database
+//! storing transactions, blocks, events, coins, and owner balances in a SQLite database
 //! for efficient querying and analysis.
 
 mod db;

@@ -84,8 +84,6 @@ pub struct OwnerBalance {
     pub last_updated: DateTime<Utc>,
 }
 
-pub type AccountBalance = OwnerBalance;
-
 /// Indexer metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexerMetadata {

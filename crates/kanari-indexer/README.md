@@ -137,8 +137,7 @@ println!("{}", stats);
 - **transaction_args**: Function call arguments
 - **events**: Move VM events
 - **coins**: Individual coin objects
-- **account_balances**: Aggregated balances per owner address
-  The table name stays `account_balances` for backward-compatible SQLite migrations.
+- **owner_balances**: Aggregated balances per owner address
 - **indexer_metadata**: Internal indexer state
 
 ### Indexes
@@ -149,7 +148,7 @@ Optimized indexes on:
 - Transaction hash, sender, and block
 - Event keys and types
 - Coin owners and types
-- Account addresses
+- Owner addresses
 
 ## Configuration
 

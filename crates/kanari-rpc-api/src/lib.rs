@@ -263,10 +263,6 @@ pub struct ObjectTransferData {
     pub execute_immediate: Option<bool>,
 }
 
-pub type AccountProof = OwnerProof;
-pub type GetAccountProofRequest = GetOwnerProofRequest;
-pub type SubmitTransactionRequest = SubmitObjectTransferRequest;
-pub type SignedTransactionData = ObjectTransferData;
 
 /// Publish module request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -425,11 +421,12 @@ pub struct GetTokenBalanceRequest {
     pub token_type: String,
 }
 
-/// Get all balances request
+/// Get all balances for an owner request
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetAllBalancesRequest {
+pub struct GetOwnerBalancesRequest {
     pub owner: String,
 }
+
 
 /// RPC Methods
 #[kanari_open_rpc::open_rpc]
@@ -472,7 +469,7 @@ pub mod methods {
         result = ("balances", "All owner balances.", schema_object()),
         tags = ["owner", "balance"]
     )]
-    pub const GET_ALL_BALANCES: &str = "kanari_getAllBalances";
+    pub const GET_OWNER_BALANCES: &str = "kanari_getOwnerBalances";
     #[open_rpc_method(
         summary = "List tokens",
         description = "Returns visible token metadata and supply summaries.",
@@ -525,7 +522,7 @@ pub mod methods {
         description = "Returns recent committed and pending transactions, with optional filtering.",
         params = [(
             "request",
-            "Optional list options such as limit or account.",
+            "Optional list options such as limit or owner filter.",
             false,
             schema_object()
         )],
@@ -540,7 +537,7 @@ pub mod methods {
         result = ("submission", "Submission status payload.", schema_object()),
         tags = ["transaction"]
     )]
-    pub const SUBMIT_TRANSACTION: &str = "kanari_submitTransaction";
+    pub const SUBMIT_OBJECT_TRANSFER: &str = "kanari_submitObjectTransfer";
 
     // Stats & Info
     #[open_rpc_method(

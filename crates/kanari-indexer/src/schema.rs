@@ -94,8 +94,8 @@ pub fn initialize_schema(conn: &Connection) -> SqliteResult<()> {
         CREATE INDEX IF NOT EXISTS idx_coins_owner ON coins(owner);
         CREATE INDEX IF NOT EXISTS idx_coins_type ON coins(coin_type);
 
-        -- Create account balances table (aggregated view)
-        CREATE TABLE IF NOT EXISTS account_balances (
+        -- Create owner balances table (aggregated view)
+        CREATE TABLE IF NOT EXISTS owner_balances (
             address TEXT NOT NULL,
             coin_type TEXT NOT NULL,
             total_balance INTEGER NOT NULL DEFAULT 0,
@@ -104,8 +104,8 @@ pub fn initialize_schema(conn: &Connection) -> SqliteResult<()> {
             PRIMARY KEY (address, coin_type)
         );
 
-        CREATE INDEX IF NOT EXISTS idx_account_balances_address ON account_balances(address);
-        CREATE INDEX IF NOT EXISTS idx_account_balances_coin_type ON account_balances(coin_type);
+        CREATE INDEX IF NOT EXISTS idx_owner_balances_address ON owner_balances(address);
+        CREATE INDEX IF NOT EXISTS idx_owner_balances_coin_type ON owner_balances(coin_type);
 
         -- Create indexer metadata table
         CREATE TABLE IF NOT EXISTS indexer_metadata (

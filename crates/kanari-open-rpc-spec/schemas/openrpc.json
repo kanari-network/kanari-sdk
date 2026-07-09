@@ -265,7 +265,7 @@
       "params": [
         {
           "name": "request",
-          "description": "Optional list options such as limit or account.",
+          "description": "Optional list options such as limit or owner filter.",
           "required": false,
           "schema": {
             "type": "object"

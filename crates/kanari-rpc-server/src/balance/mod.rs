@@ -4,7 +4,7 @@ use super::{
 };
 use crate::module::aggregate_owned_objects;
 use kanari_move_runtime_v1::state::StateManager;
-use kanari_rpc_api::{GetAllBalancesRequest, GetTokenBalanceRequest};
+use kanari_rpc_api::{GetOwnerBalancesRequest, GetTokenBalanceRequest};
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use move_core_types::language_storage::TypeTag;
 use serde_json;
@@ -117,9 +117,9 @@ pub async fn handle_get_token_balance(state: &RpcServerState, request: &RpcReque
     }
 }
 
-/// Handle get all balances request
-pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let req_data: GetAllBalancesRequest = match parse_params(request.id, &request.params) {
+/// Handle get owner balances request.
+pub async fn handle_get_owner_balances(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    let req_data: GetOwnerBalancesRequest = match parse_params(request.id, &request.params) {
         Ok(data) => data,
         Err(response) => return *response,
     };
