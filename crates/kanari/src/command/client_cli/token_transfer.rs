@@ -127,16 +127,21 @@ impl TokenTransfer {
                         if coin_balance > largest_coin_balance {
                             largest_coin_balance = coin_balance;
                             largest_coin_id = Some(obj.id.clone());
-                            largest_coin_ref =
-                                Some(ObjectRef::new(obj.id.clone(), Some(obj.version), obj.digest.clone()));
+                            largest_coin_ref = Some(ObjectRef::new(
+                                obj.id.clone(),
+                                Some(obj.version),
+                                obj.digest.clone(),
+                            ));
                         }
                         if coin_balance >= self.amount
-                            && (selected_coin_id.is_none()
-                                || coin_balance < selected_coin_balance)
+                            && (selected_coin_id.is_none() || coin_balance < selected_coin_balance)
                         {
                             selected_coin_id = Some(obj.id.clone());
-                            selected_coin_ref =
-                                Some(ObjectRef::new(obj.id.clone(), Some(obj.version), obj.digest.clone()));
+                            selected_coin_ref = Some(ObjectRef::new(
+                                obj.id.clone(),
+                                Some(obj.version),
+                                obj.digest.clone(),
+                            ));
                             selected_coin_balance = coin_balance;
                         }
                     }

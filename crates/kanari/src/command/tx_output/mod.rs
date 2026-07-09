@@ -13,7 +13,10 @@ pub fn rpc_error_reason(error: &RpcError) -> Option<&str> {
 }
 
 pub fn print_rpc_error(prefix: &str, error: &RpcError) {
-    error!("{}RPC error: {} (code {})", prefix, error.message, error.code);
+    error!(
+        "{}RPC error: {} (code {})",
+        prefix, error.message, error.code
+    );
     if let Some(reason) = rpc_error_reason(error) {
         eprintln!("{}RPC reason: {}", prefix, reason);
     }

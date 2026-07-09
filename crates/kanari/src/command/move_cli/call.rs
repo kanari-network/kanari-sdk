@@ -155,7 +155,10 @@ impl Call {
                         KANARI_TOKEN_TYPE, sender_normalized
                     )
                 })?;
-        eprintln!("   Gas payment object: {}", selected_gas_coin.coin_object_id);
+        eprintln!(
+            "   Gas payment object: {}",
+            selected_gas_coin.coin_object_id
+        );
         eprintln!(
             "   Gas coin balance: {} Mist",
             selected_gas_coin.selected_balance

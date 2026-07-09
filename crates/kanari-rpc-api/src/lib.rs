@@ -97,10 +97,7 @@ impl RpcError {
         }
     }
 
-    pub fn transaction_error_with_data(
-        msg: impl Into<String>,
-        data: serde_json::Value,
-    ) -> Self {
+    pub fn transaction_error_with_data(msg: impl Into<String>, data: serde_json::Value) -> Self {
         Self {
             code: -32002,
             message: format!("Transaction error: {}", msg.into()),
@@ -330,7 +327,6 @@ pub struct ObjectTransferData {
     pub execute_immediate: Option<bool>,
 }
 
-
 /// Publish module request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PublishModuleRequest {
@@ -518,7 +514,6 @@ pub struct GetTokenBalanceRequest {
 pub struct GetOwnerBalancesRequest {
     pub owner: String,
 }
-
 
 /// RPC Methods
 #[kanari_open_rpc::open_rpc]

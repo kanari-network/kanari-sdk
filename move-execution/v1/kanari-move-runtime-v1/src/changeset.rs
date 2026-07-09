@@ -3,13 +3,13 @@
 
 use hex;
 use kanari_crypto::hash_data_blake3;
-use kanari_types::transaction::{
-    GasPayment, ObjectChange, ObjectChangeKind, ObjectGraphEdge, ObjectGraphEdgeKind,
-    ObjectOwnerKind, ObjectRef, TransactionEffects, ObjectInput,
-};
 use kanari_types::coin::TreasuryCap;
 use kanari_types::object::IDRecord;
 use kanari_types::object::UIDRecord;
+use kanari_types::transaction::{
+    GasPayment, ObjectChange, ObjectChangeKind, ObjectGraphEdge, ObjectGraphEdgeKind, ObjectInput,
+    ObjectOwnerKind, ObjectRef, TransactionEffects,
+};
 use kanari_types::{balance::BalanceRecord, event::Event};
 use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
@@ -40,7 +40,11 @@ impl CreatedObject {
     }
 
     pub fn object_ref(&self, object_id: &str) -> ObjectRef {
-        ObjectRef::new(object_id.to_string(), Some(self.version), Some(self.digest()))
+        ObjectRef::new(
+            object_id.to_string(),
+            Some(self.version),
+            Some(self.digest()),
+        )
     }
 }
 
@@ -182,7 +186,8 @@ impl ChangeSet {
 
     /// Collect gas fees to DAO
     pub fn collect_gas(&mut self, dao_address: AccountAddress, gas_amount: u64) {
-        self.get_or_create_owner_delta(dao_address).credit(gas_amount);
+        self.get_or_create_owner_delta(dao_address)
+            .credit(gas_amount);
     }
 
     pub fn set_gas_used(&mut self, gas: u64) {

@@ -27,8 +27,8 @@ use crate::{
     },
     block::{handle_get_block, handle_get_block_height, handle_get_full_block, handle_get_stats},
     module::{
-        handle_get_module, handle_get_object, handle_get_objects_by_type,
-        handle_get_owned_objects, handle_list_modules, handle_verify_module,
+        handle_get_module, handle_get_object, handle_get_objects_by_type, handle_get_owned_objects,
+        handle_list_modules, handle_verify_module,
     },
     nft::{handle_get_nfts_by_collection, handle_get_owned_nfts, handle_list_collections},
     transaction::{
@@ -621,14 +621,13 @@ mod tests {
         let sender_tagged = sender.tagged_address();
         let recipient_address = recipient.address.clone();
 
-        let mut transaction =
-            Transaction::new_transfer(
-                sender_tagged.clone(),
-                "0xaaaa".to_string(),
-                recipient_address.clone(),
-                1,
-                0,
-            );
+        let mut transaction = Transaction::new_transfer(
+            sender_tagged.clone(),
+            "0xaaaa".to_string(),
+            recipient_address.clone(),
+            1,
+            0,
+        );
         if let Transaction::ExecuteFunction {
             gas_limit,
             gas_price,

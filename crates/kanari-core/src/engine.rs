@@ -15,8 +15,8 @@ use kanari_types::error::KanariUnwrapExt;
 use kanari_types::kanari::KANARI_TOKEN_TYPE;
 
 use kanari_types::transaction::{
-    ObjectChange, ObjectChangeKind, ObjectGraphEdge, ObjectOwnerKind, ObjectRef,
-    SignedTransaction, Transaction, TransactionEffects,
+    ObjectChange, ObjectChangeKind, ObjectGraphEdge, ObjectOwnerKind, ObjectRef, SignedTransaction,
+    Transaction, TransactionEffects,
 };
 use kanari_types::{GasMeter, GasOperation};
 use log::{error, info};
@@ -444,7 +444,11 @@ impl BlockchainEngine {
             }
             for tx in checkpoint.transactions.iter().rev() {
                 if tx.transaction_hash() == tx_hash {
-                    return Some((tx.clone(), checkpoint.sequence, checkpoint.state_root.clone()));
+                    return Some((
+                        tx.clone(),
+                        checkpoint.sequence,
+                        checkpoint.state_root.clone(),
+                    ));
                 }
             }
         }
@@ -536,7 +540,11 @@ impl BlockchainEngine {
                     }
 
                     if matches(&tx.transaction) {
-                        results.push((tx.clone(), checkpoint.sequence, checkpoint.state_root.clone()));
+                        results.push((
+                            tx.clone(),
+                            checkpoint.sequence,
+                            checkpoint.state_root.clone(),
+                        ));
                     }
                 }
             }
@@ -1196,10 +1204,7 @@ impl BlockchainEngine {
             if let Some(digest) = &input.object_ref.digest
                 && stored.digest() != *digest
             {
-                anyhow::bail!(
-                    "Object digest mismatch for {}",
-                    input.object_ref.object_id
-                );
+                anyhow::bail!("Object digest mismatch for {}", input.object_ref.object_id);
             }
 
             if let Some(owner) = input.owner {
@@ -1257,9 +1262,9 @@ impl BlockchainEngine {
                         payment.object_id
                     );
                 }
-                let stored = state
-                    .get_object(&payment.object_id)?
-                    .ok_or_else(|| anyhow::anyhow!("Gas payment object {} does not exist", payment.object_id))?;
+                let stored = state.get_object(&payment.object_id)?.ok_or_else(|| {
+                    anyhow::anyhow!("Gas payment object {} does not exist", payment.object_id)
+                })?;
                 ensure!(
                     Self::is_native_gas_coin_type(&stored.type_),
                     "Gas payment object {} must be Coin<{}>, found {}",
@@ -1502,9 +1507,9 @@ mod tests {
     use crate::consensus::Checkpoint;
     use kanari_crypto::keys::{CurveType, generate_keypair};
     use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
-    use kanari_types::coin::TreasuryCap;
     use kanari_move_runtime_v1::state::OwnerState;
     use kanari_types::balance::BalanceRecord;
+    use kanari_types::coin::TreasuryCap;
     use kanari_types::kanari::KANARI_TOKEN_TYPE;
     use kanari_types::transaction::{
         GasPayment, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
@@ -1590,10 +1595,7 @@ mod tests {
             let updated_total = previous_total.saturating_add(balance);
             let updated_visible = previous_visible.saturating_add(balance);
             state.total_supply = updated_total;
-            state
-                .store
-                .save(b"total_supply", &updated_total)
-                .unwrap();
+            state.store.save(b"total_supply", &updated_total).unwrap();
             state
                 .store
                 .save(
@@ -1924,14 +1926,13 @@ mod tests {
             let coin_object_id = format!("0x{:0>64x}", i + 1);
             fund_sender_with_coin(&engine, &sender.address, &coin_object_id, 1_000_000);
 
-            let tx =
-                Transaction::new_transfer(
-                    sender.tagged_address(),
-                    coin_object_id,
-                    recipient.address.clone(),
-                    1,
-                    0,
-                );
+            let tx = Transaction::new_transfer(
+                sender.tagged_address(),
+                coin_object_id,
+                recipient.address.clone(),
+                1,
+                0,
+            );
             let mut signed_tx = SignedTransaction::new(tx);
             signed_tx
                 .sign(&sender.private_key, sender.curve_type)
@@ -1995,12 +1996,15 @@ mod tests {
             sequence_number: 0,
         };
         let mut signed_tx = SignedTransaction::new(tx);
-        signed_tx.sign(&sender.private_key, sender.curve_type).unwrap();
+        signed_tx
+            .sign(&sender.private_key, sender.curve_type)
+            .unwrap();
 
         let err = engine.execute_transaction_immediate(signed_tx).unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("must include (object_id, version, digest)"));
+        assert!(
+            err.to_string()
+                .contains("must include (object_id, version, digest)")
+        );
     }
 
     #[test]
@@ -2033,7 +2037,9 @@ mod tests {
             sequence_number: 0,
         };
         let mut signed_tx = SignedTransaction::new(tx);
-        signed_tx.sign(&sender.private_key, sender.curve_type).unwrap();
+        signed_tx
+            .sign(&sender.private_key, sender.curve_type)
+            .unwrap();
 
         let err = engine.execute_transaction_immediate(signed_tx).unwrap_err();
         assert!(err.to_string().contains("must be Coin<"));
@@ -2053,9 +2059,14 @@ mod tests {
             0,
         );
         let mut signed_tx = SignedTransaction::new(tx);
-        signed_tx.sign(&sender.private_key, sender.curve_type).unwrap();
+        signed_tx
+            .sign(&sender.private_key, sender.curve_type)
+            .unwrap();
 
         let err = engine.execute_transaction_immediate(signed_tx).unwrap_err();
-        assert!(err.to_string().contains("cannot overlap with a mutable object input"));
+        assert!(
+            err.to_string()
+                .contains("cannot overlap with a mutable object input")
+        );
     }
 }

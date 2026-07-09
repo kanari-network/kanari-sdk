@@ -13,7 +13,9 @@ use kanari_rpc_client::RpcClient;
 use kanari_types::{
     address::Address,
     kanari::KANARI_TOKEN_TYPE,
-    transaction::{GasPayment, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction},
+    transaction::{
+        GasPayment, ObjectInput, ObjectOwnerKind, ObjectRef, SignedTransaction, Transaction,
+    },
 };
 use std::env;
 
@@ -328,7 +330,7 @@ pub async fn request_from_dev(
         .as_ref()
         .context("Dev wallet owner state has no owned object list from RPC")?;
     let mut selected_coin = select_native_coin_object(owned_objects, total_required)
-            .context("No spendable native coin object found in dev wallet")?;
+        .context("No spendable native coin object found in dev wallet")?;
     let mut next_sequence = owner.sequence_number;
     if selected_coin.1 < total_required {
         if selected_coin.2 < total_required {
@@ -359,12 +361,8 @@ pub async fn request_from_dev(
     }
     let (coin_object_ref, selected_coin_balance, _total_coin_balance) = selected_coin;
 
-    let (object_inputs, gas_payment) = object_call_context(
-        &sender_for_tx,
-        coin_object_ref.clone(),
-        100_000,
-        1_000,
-    );
+    let (object_inputs, gas_payment) =
+        object_call_context(&sender_for_tx, coin_object_ref.clone(), 100_000, 1_000);
 
     let call_req = CallFunctionRequest {
         sender: sender_for_tx,
@@ -373,9 +371,11 @@ pub async fn request_from_dev(
         function: "transfer".to_string(),
         type_args: vec![],
         args: vec![
-            move_core_types::account_address::AccountAddress::from_hex_literal(&coin_object_ref.object_id)
-                .context("Invalid coin object ID")?
-                .to_vec(),
+            move_core_types::account_address::AccountAddress::from_hex_literal(
+                &coin_object_ref.object_id,
+            )
+            .context("Invalid coin object ID")?
+            .to_vec(),
             bcs::to_bytes(&amount_mist).context("Failed to serialize amount")?,
             bcs::to_bytes(
                 &move_core_types::account_address::AccountAddress::from_hex_literal(&recipient)?,

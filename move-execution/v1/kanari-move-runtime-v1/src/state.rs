@@ -844,10 +844,12 @@ impl StateManager {
             .map(|owner_ids| owner_ids.len())
             .unwrap_or(0)
     }
-
 }
 
-pub(crate) fn default_owner_kind_for_type(type_name: &str, owner: AccountAddress) -> ObjectOwnerKind {
+pub(crate) fn default_owner_kind_for_type(
+    type_name: &str,
+    owner: AccountAddress,
+) -> ObjectOwnerKind {
     if type_name.contains("::clock::Clock") {
         ObjectOwnerKind::Shared
     } else if type_name.contains("::coin::CoinMetadata<") {

@@ -3,7 +3,9 @@
 
 use anyhow::{Context, Result, bail};
 use kanari_crypto::wallet::Wallet;
-use kanari_rpc_api::{CallFunctionRequest, OwnerInfo, RpcRequest, RpcResponse, TransactionStatus, methods};
+use kanari_rpc_api::{
+    CallFunctionRequest, OwnerInfo, RpcRequest, RpcResponse, TransactionStatus, methods,
+};
 use kanari_rpc_client::RpcClient;
 use kanari_types::transaction::{SignedTransaction, Transaction};
 use reqwest::blocking::Client;
@@ -60,7 +62,11 @@ pub async fn sign_and_call_function(
     Ok(status)
 }
 
-pub fn get_owner_info(client: &Client, rpc_endpoint: &str, sender_normalized: &str) -> Result<OwnerInfo> {
+pub fn get_owner_info(
+    client: &Client,
+    rpc_endpoint: &str,
+    sender_normalized: &str,
+) -> Result<OwnerInfo> {
     let acct_req = RpcRequest {
         jsonrpc: "2.0".to_string(),
         method: methods::GET_OWNER.to_string(),

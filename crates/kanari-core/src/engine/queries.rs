@@ -1,8 +1,8 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use kanari_rpc_api::{BlockData, BlockchainStats, FullBlockData, OwnerInfo};
 use kanari_rpc_api::ObjectInfo;
+use kanari_rpc_api::{BlockData, BlockchainStats, FullBlockData, OwnerInfo};
 use kanari_types::address::Address as KanariAddress;
 use log::{info, warn};
 
@@ -331,10 +331,10 @@ mod tests {
     use kanari_crypto::keys::{CurveType, generate_keypair};
     use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
     use kanari_move_runtime_v1::state::OwnerState;
+    use kanari_types::address::Address as KanariAddress;
     use kanari_types::balance::BalanceRecord;
     use kanari_types::coin::TreasuryCap;
     use kanari_types::kanari::KANARI_TOKEN_TYPE;
-    use kanari_types::address::Address as KanariAddress;
     use kanari_types::transaction::{
         ObjectChange, ObjectChangeKind, ObjectGraphEdge, ObjectGraphEdgeKind, ObjectRef,
         SignedTransaction, Transaction,
@@ -395,10 +395,7 @@ mod tests {
         let mut owner_state = state
             .get_owner_state(&owner)
             .unwrap_or_else(|| OwnerState::new(owner));
-        owner_state.set_token_balance(
-            KANARI_TOKEN_TYPE.to_string(),
-            BalanceRecord::new(balance),
-        );
+        owner_state.set_token_balance(KANARI_TOKEN_TYPE.to_string(), BalanceRecord::new(balance));
         state.save_owner_state(&owner_state).unwrap();
 
         let updated_total = previous_total.saturating_add(balance);
@@ -492,7 +489,9 @@ mod tests {
 
         {
             let mut chain = engine.blockchain.write().unwrap_or_else(|e| e.into_inner());
-            chain.add_checkpoint_with_validation(checkpoint, false).unwrap();
+            chain
+                .add_checkpoint_with_validation(checkpoint, false)
+                .unwrap();
         }
 
         let block = engine.get_block(1).expect("block should exist");

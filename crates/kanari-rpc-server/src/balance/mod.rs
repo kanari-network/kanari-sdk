@@ -100,11 +100,7 @@ pub async fn handle_get_token_balance(state: &RpcServerState, request: &RpcReque
     };
 
     let target_token = normalize_token_type(&req_data.token_type);
-    let final_balance = owner_info
-        .balances
-        .get(&target_token)
-        .copied()
-        .unwrap_or(0);
+    let final_balance = owner_info.balances.get(&target_token).copied().unwrap_or(0);
 
     RpcResponse {
         jsonrpc: "2.0".into(),
@@ -118,7 +114,10 @@ pub async fn handle_get_token_balance(state: &RpcServerState, request: &RpcReque
 }
 
 /// Handle get owner balances request.
-pub async fn handle_get_owner_balances(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+pub async fn handle_get_owner_balances(
+    state: &RpcServerState,
+    request: &RpcRequest,
+) -> RpcResponse {
     let req_data: GetOwnerBalancesRequest = match parse_params(request.id, &request.params) {
         Ok(data) => data,
         Err(response) => return *response,

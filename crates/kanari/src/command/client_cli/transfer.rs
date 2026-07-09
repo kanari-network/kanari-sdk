@@ -73,13 +73,13 @@ impl Transfer {
             .context("Sender owner state has no owned object list from RPC")?;
 
         let required_balance = amount_mist.saturating_add(gas_limit.saturating_mul(gas_price));
-        let mut selected_coin =
-            select_native_coin_object(owned_objects, required_balance).with_context(|| {
-            format!(
-                "No spendable Coin<{}> object found for {}",
-                KANARI_TOKEN_TYPE, from_addr
-            )
-        })?;
+        let mut selected_coin = select_native_coin_object(owned_objects, required_balance)
+            .with_context(|| {
+                format!(
+                    "No spendable Coin<{}> object found for {}",
+                    KANARI_TOKEN_TYPE, from_addr
+                )
+            })?;
 
         let mut next_sequence = owner.sequence_number;
         if selected_coin.selected_balance < required_balance {
@@ -112,7 +112,10 @@ impl Transfer {
         }
 
         eprintln!("  Using coin object: {}", selected_coin.coin_object_id);
-        eprintln!("  Selected Coin Balance (Mist): {}", selected_coin.selected_balance);
+        eprintln!(
+            "  Selected Coin Balance (Mist): {}",
+            selected_coin.selected_balance
+        );
         eprintln!(
             "  Total Spendable Coin Balance (Mist): {}",
             selected_coin.total_balance
@@ -145,8 +148,8 @@ impl Transfer {
                 move_core_types::account_address::AccountAddress::from_hex_literal(
                     &selected_coin.coin_object_id,
                 )
-                    .context("Invalid coin object ID")?
-                    .to_vec(),
+                .context("Invalid coin object ID")?
+                .to_vec(),
                 bcs::to_bytes(&amount_mist).context("Failed to serialize amount")?,
                 bcs::to_bytes(
                     &move_core_types::account_address::AccountAddress::from_hex_literal(&to_addr)?,

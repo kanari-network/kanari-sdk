@@ -62,8 +62,7 @@ fn main() -> Result<()> {
         "Balance should be 1000"
     );
     assert_eq!(
-        owner_state.sequence_number,
-        1,
+        owner_state.sequence_number, 1,
         "Sequence number should be 1"
     );
 

@@ -32,13 +32,9 @@ impl OwnerCommand {
                 let owner_normalized = resolve_sender(owner.clone())?;
 
                 let client = RpcClient::new(&rpc);
-                let owner_info =
-                    client
-                        .get_owner(&owner_normalized)
-                        .await
-                        .with_context(|| {
-                            format!("Failed to get owner info for {}", owner_normalized)
-                        })?;
+                let owner_info = client.get_owner(&owner_normalized).await.with_context(|| {
+                    format!("Failed to get owner info for {}", owner_normalized)
+                })?;
 
                 eprintln!("Owner info for {}:\n", owner_normalized);
                 eprintln!(

@@ -1,8 +1,8 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::storage::resolver::KanariMoveResolver;
 use crate::state::default_owner_kind_for_type;
+use crate::storage::resolver::KanariMoveResolver;
 use anyhow::{Context, Result, ensure};
 use kanari_crypto::hash_data_blake3;
 use kanari_system_natives::dynamic_field::DynamicFieldsExt;
@@ -729,7 +729,11 @@ impl MoveRuntime {
         &self,
         loaded_mutable_objects: &[LoadedMutableObject],
         object_id: &str,
-    ) -> (AccountAddress, kanari_types::transaction::ObjectOwnerKind, u64) {
+    ) -> (
+        AccountAddress,
+        kanari_types::transaction::ObjectOwnerKind,
+        u64,
+    ) {
         if let Some((_, _, owner, owner_kind, _, version)) = loaded_mutable_objects
             .iter()
             .find(|(_, id, _, _, _, _)| id == object_id)
@@ -1064,21 +1068,24 @@ impl MoveRuntime {
                             param_index: i,
                             mutable: false,
                         }),
-                        RuntimeType::MutableReference(_) => {
-                            Some(ObjectParamBindingRequirement {
-                                param_index: i,
-                                mutable: true,
-                            })
-                        }
+                        RuntimeType::MutableReference(_) => Some(ObjectParamBindingRequirement {
+                            param_index: i,
+                            mutable: true,
+                        }),
                         _ => None,
                     }
                 })
                 .collect::<Vec<_>>();
 
-            Self::validate_declared_object_input_bindings(
-                &object_inputs,
-                &binding_requirements,
-            )?;
+            // System functions (bypass_entry_check) bind object references via the
+            // plain 32-byte id argument path below rather than via declared
+            // object_inputs, so the declared-binding count check does not apply.
+            if !bypass_entry_check {
+                Self::validate_declared_object_input_bindings(
+                    &object_inputs,
+                    &binding_requirements,
+                )?;
+            }
 
             for (i, param_type) in func.parameters.iter().enumerate() {
                 if i >= final_args.len() {
@@ -1104,15 +1111,14 @@ impl MoveRuntime {
                 ) && let Some(TypeTag::Struct(_)) = type_tag_for_param(param_type)
                     && let Some(explicit_input) = explicit_object_bindings.next()
                 {
-                    let explicit_addr = AccountAddress::from_hex_literal(
-                        &explicit_input.object_ref.object_id,
-                    )
-                    .with_context(|| {
-                        format!(
-                            "Invalid explicit object input {} for parameter {}",
-                            explicit_input.object_ref.object_id, i
-                        )
-                    })?;
+                    let explicit_addr =
+                        AccountAddress::from_hex_literal(&explicit_input.object_ref.object_id)
+                            .with_context(|| {
+                                format!(
+                                    "Invalid explicit object input {} for parameter {}",
+                                    explicit_input.object_ref.object_id, i
+                                )
+                            })?;
                     final_args[i] = explicit_addr.to_vec();
                     bound_from_explicit_input = true;
                 }
@@ -1127,16 +1133,13 @@ impl MoveRuntime {
                         continue;
                     };
                     let object_id = object_addr.to_hex_literal();
-                    if !explicit_object_ids.is_empty()
-                        && !explicit_object_ids.contains(&object_id)
+                    if !explicit_object_ids.is_empty() && !explicit_object_ids.contains(&object_id)
                     {
                         continue;
                     }
 
                     if let Some(mut stored_obj) = self.object_storage.get_object(&object_id) {
-                        if !bound_from_explicit_input
-                            && let Some(s_addr) = sender
-                        {
+                        if !bound_from_explicit_input && let Some(s_addr) = sender {
                             let sys_addr = KanariAddress::kanari_system_account_address();
                             let std_addr = KanariAddress::std_account_address();
                             if stored_obj.owner != s_addr
@@ -1301,8 +1304,8 @@ impl MoveRuntime {
                 for (idx, data, _layout) in return_values.mutable_reference_outputs {
                     if let Some((_, id, owner, owner_kind, type_name, version)) =
                         loaded_mutable_objects
-                        .iter()
-                        .find(|(i, _, _, _, _, _)| *i == idx as usize)
+                            .iter()
+                            .find(|(i, _, _, _, _, _)| *i == idx as usize)
                     {
                         auto_merged_coin_ids.retain(|merged_id| merged_id != id);
                         self.upsert_created_object(
@@ -1346,10 +1349,8 @@ impl MoveRuntime {
                         continue;
                     }
 
-                    let (owner, owner_kind, version) = self.resolve_saved_owner_metadata(
-                        &loaded_mutable_objects,
-                        &borrowed.object_id,
-                    );
+                    let (owner, owner_kind, version) = self
+                        .resolve_saved_owner_metadata(&loaded_mutable_objects, &borrowed.object_id);
 
                     self.upsert_created_object(
                         &mut cs,
@@ -1674,8 +1675,14 @@ mod binding_tests {
     fn declared_object_inputs_must_match_reference_param_count() {
         let err = MoveRuntime::validate_declared_object_input_bindings(
             &[ObjectInput {
-                object_ref: kanari_types::transaction::ObjectRef::new("0x1", Some(1), Some("d".to_string())),
-                owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner("0x1".to_string())),
+                object_ref: kanari_types::transaction::ObjectRef::new(
+                    "0x1",
+                    Some(1),
+                    Some("d".to_string()),
+                ),
+                owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+                    "0x1".to_string(),
+                )),
                 mutable: true,
             }],
             &[],
@@ -1689,8 +1696,14 @@ mod binding_tests {
     fn declared_object_inputs_must_match_reference_param_mutability() {
         let err = MoveRuntime::validate_declared_object_input_bindings(
             &[ObjectInput {
-                object_ref: kanari_types::transaction::ObjectRef::new("0x1", Some(1), Some("d".to_string())),
-                owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner("0x1".to_string())),
+                object_ref: kanari_types::transaction::ObjectRef::new(
+                    "0x1",
+                    Some(1),
+                    Some("d".to_string()),
+                ),
+                owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
+                    "0x1".to_string(),
+                )),
                 mutable: false,
             }],
             &[ObjectParamBindingRequirement {
@@ -1707,7 +1720,11 @@ mod binding_tests {
     fn immutable_object_cannot_bind_mutable_reference_param() {
         let err = MoveRuntime::validate_declared_object_input_bindings(
             &[ObjectInput {
-                object_ref: kanari_types::transaction::ObjectRef::new("0x1", Some(1), Some("d".to_string())),
+                object_ref: kanari_types::transaction::ObjectRef::new(
+                    "0x1",
+                    Some(1),
+                    Some("d".to_string()),
+                ),
                 owner: Some(kanari_types::transaction::ObjectOwnerKind::Immutable),
                 mutable: true,
             }],

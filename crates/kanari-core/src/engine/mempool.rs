@@ -189,7 +189,9 @@ impl BlockchainEngine {
                 .entry(primary_access.clone())
                 .or_insert(0) += 1;
             for access_key in access_keys {
-                *accepted_counts_by_access.entry(access_key.clone()).or_insert(0) += 1;
+                *accepted_counts_by_access
+                    .entry(access_key.clone())
+                    .or_insert(0) += 1;
             }
             sequence_groups
                 .entry(sender.clone())

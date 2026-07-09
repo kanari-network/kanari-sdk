@@ -131,11 +131,7 @@ impl StressTest {
             .context("Failed to get sender owner state")?;
 
         // Check balance before starting
-        let native_balance = owner
-            .balances
-            .get(KANARI_TOKEN_TYPE)
-            .copied()
-            .unwrap_or(0);
+        let native_balance = owner.balances.get(KANARI_TOKEN_TYPE).copied().unwrap_or(0);
         let total_needed = amount_mist.saturating_mul(self.count);
         // Rough gas estimate: ~100k gas * 1000 price = 100M Mist per tx
         let gas_per_tx: u64 = 100_000 * 1000;
@@ -221,8 +217,12 @@ impl StressTest {
             &[selected_coin.coin_object_id.as_str()],
         )
         .unwrap_or_else(|_| {
-            let (_, gas_payment) =
-                object_call_context(&sender_tagged, selected_coin.coin_object_ref.clone(), 100_000, 1);
+            let (_, gas_payment) = object_call_context(
+                &sender_tagged,
+                selected_coin.coin_object_ref.clone(),
+                100_000,
+                1,
+            );
             (selected_coin.clone(), gas_payment)
         });
         eprintln!("  Gas payment object: {}", gas_coin.coin_object_id);

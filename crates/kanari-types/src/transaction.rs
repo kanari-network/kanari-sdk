@@ -765,11 +765,8 @@ mod tests {
 
     #[test]
     fn transfer_helper_preserves_full_object_ref_metadata() {
-        let object_ref = ObjectRef::new(
-            "0xaaaa".to_string(),
-            Some(7),
-            Some("0xdigest".to_string()),
-        );
+        let object_ref =
+            ObjectRef::new("0xaaaa".to_string(), Some(7), Some("0xdigest".to_string()));
         let tx = Transaction::new_transfer_with_object_ref(
             "0x1".to_string(),
             object_ref.clone(),
@@ -793,9 +790,7 @@ mod tests {
             module: "0x99::demo".to_string(),
             function: "touch".to_string(),
             type_args: vec![],
-            args: vec![AccountAddress::from_hex_literal("0xaaaa")
-                .unwrap()
-                .to_vec()],
+            args: vec![AccountAddress::from_hex_literal("0xaaaa").unwrap().to_vec()],
             object_inputs: Vec::new(),
             gas_payment: None,
             gas_limit: 100_000,

@@ -11,16 +11,16 @@ use reqwest::blocking::Client;
 use std::time::Duration;
 
 pub use crate::command::gas_and_coin_selection::{
-    SelectedCoinObject, SpendableCoinObject, build_native_gas_payment,
-    consolidate_coin_objects, object_call_context, select_coin_object,
-    select_native_coin_object, select_native_gas_coin_object, spendable_coin_objects,
+    SelectedCoinObject, SpendableCoinObject, build_native_gas_payment, consolidate_coin_objects,
+    object_call_context, select_coin_object, select_native_coin_object,
+    select_native_gas_coin_object, spendable_coin_objects,
 };
 pub use crate::command::rpc_helpers::{
     get_owner_info, get_owner_sequence, sign_and_call_function, sign_call_function_request,
 };
 pub use crate::command::tx_output::{
-    print_json_value, print_rpc_error, print_transaction_result,
-    print_transaction_status, rpc_error_reason,
+    print_json_value, print_rpc_error, print_transaction_result, print_transaction_status,
+    rpc_error_reason,
 };
 
 /// Normalize and validate an address string to a 0x-prefixed 64-hex format

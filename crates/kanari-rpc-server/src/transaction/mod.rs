@@ -85,8 +85,7 @@ fn tx_matches_owner(tx: &Transaction, owner_norm: Option<&str>) -> bool {
     if let Some(native_call) = tx.native_call() {
         match native_call {
             NativeCall::Transfer { recipient, .. } => {
-                return normalize_addr(tx.sender()) == owner
-                    || normalize_addr(&recipient) == owner;
+                return normalize_addr(tx.sender()) == owner || normalize_addr(&recipient) == owner;
             }
             NativeCall::BurnAmount { .. } => {}
         }
@@ -440,13 +439,9 @@ fn classify_transaction_error_data(message: &str) -> Option<serde_json::Value> {
         "invalid_gas_payment_type"
     } else if message.contains("cannot overlap with a mutable object input") {
         "gas_payment_object_overlap"
-    } else if message.contains("Gas payment object")
-        && message.contains("does not exist")
-    {
+    } else if message.contains("Gas payment object") && message.contains("does not exist") {
         "gas_payment_object_not_found"
-    } else if message.contains("Gas payment object")
-        && message.contains("is not owned by sender")
-    {
+    } else if message.contains("Gas payment object") && message.contains("is not owned by sender") {
         "gas_payment_owner_mismatch"
     } else if message.contains("Gas payment owner must match sender") {
         "gas_payment_owner_mismatch"
@@ -673,20 +668,19 @@ pub async fn handle_submit_object_transfer(
         Err(response) => return *response,
     };
 
-    let coin_object_ref = tx_data
-        .coin_object_ref
-        .clone()
-        .ok_or_else(|| {
-            invalid_params_response(
-                request.id,
-                "coin_object_ref is required and must include (object_id, version, digest)",
-            )
-        });
+    let coin_object_ref = tx_data.coin_object_ref.clone().ok_or_else(|| {
+        invalid_params_response(
+            request.id,
+            "coin_object_ref is required and must include (object_id, version, digest)",
+        )
+    });
     let coin_object_ref = match coin_object_ref {
         Ok(object_ref) => object_ref,
         Err(response) => return response,
     };
-    if let Err(response) = validate_object_ref_completeness(request.id, "coin_object_ref", &coin_object_ref) {
+    if let Err(response) =
+        validate_object_ref_completeness(request.id, "coin_object_ref", &coin_object_ref)
+    {
         return response;
     }
     if !(coin_object_ref.version.is_some() && coin_object_ref.digest.is_some()) {
@@ -695,7 +689,9 @@ pub async fn handle_submit_object_transfer(
             "coin_object_ref must include (object_id, version, digest)",
         );
     }
-    if let Err(response) = validate_object_inputs_and_gas(request.id, &[], tx_data.gas_payment.as_ref()) {
+    if let Err(response) =
+        validate_object_inputs_and_gas(request.id, &[], tx_data.gas_payment.as_ref())
+    {
         return response;
     }
 
@@ -828,23 +824,18 @@ pub async fn handle_get_all_transactions(
             continue;
         }
 
-        if !push_unique_tx_details(
-            &mut results,
-            &mut seen_hashes,
-            limit,
-            {
-                let mut details = map_transaction_to_details(
+        if !push_unique_tx_details(&mut results, &mut seen_hashes, limit, {
+            let mut details = map_transaction_to_details(
                 state,
                 &tx.signed_tx.transaction,
                 &hex::encode(tx.signed_tx.transaction_hash()),
                 pending_status(tx),
                 None,
                 None,
-                );
-                apply_pending_preview_metadata(tx, &mut details);
-                details
-            },
-        ) {
+            );
+            apply_pending_preview_metadata(tx, &mut details);
+            details
+        }) {
             break;
         }
     }
@@ -1031,7 +1022,10 @@ pub async fn handle_view_function(state: &RpcServerState, request: &RpcRequest) 
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_transaction_error_data, derive_transaction_state_flags, transaction_error_with_reason};
+    use super::{
+        classify_transaction_error_data, derive_transaction_state_flags,
+        transaction_error_with_reason,
+    };
 
     #[test]
     fn transaction_state_flags_match_pending_status() {
