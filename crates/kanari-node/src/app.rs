@@ -238,7 +238,7 @@ pub async fn run_node(
         network = %network,
         checkpoint = stats.height,
         txs = stats.total_transactions,
-        accounts = stats.total_accounts,
+        owners = stats.total_owners,
         supply = %total_supply_str,
         "Kanari blockchain node starting"
     );

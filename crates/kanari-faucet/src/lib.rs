@@ -84,11 +84,11 @@ pub async fn request_from_dev(
         .context("Cannot connect to RPC server")?;
 
     // Check if dev account exists on-chain
-    let account = match client.get_account(&dev_address).await {
+    let owner = match client.get_owner(&dev_address).await {
         Ok(acct) => acct,
         Err(e) => {
             anyhow::bail!(
-                "Dev wallet account not found on-chain: {}\n\
+                "Dev wallet owner state not found on-chain: {}\n\
                  The dev wallet must be initialized first by receiving a transaction.\n\
                  Error: {}",
                 dev_address,
@@ -104,8 +104,8 @@ pub async fn request_from_dev(
     // Estimate gas cost (transfer typically costs ~1000 mist/gas * 100000 gas = 100M mist = 0.1 KANARI)
     let estimated_gas_cost = 100_000 * 1000;
     let total_required = amount_mist + estimated_gas_cost;
-    let native_balance = account
-        .token_balances
+    let native_balance = owner
+        .balances
         .get(KANARI_TOKEN_TYPE)
         .copied()
         .unwrap_or(0);
@@ -135,7 +135,7 @@ pub async fn request_from_dev(
         sender_for_tx.clone(),
         recipient.clone(),
         amount_mist,
-        account.sequence_number,
+        owner.sequence_number,
     );
 
     let mut signed_tx = SignedTransaction::new(tx);
@@ -149,7 +149,7 @@ pub async fn request_from_dev(
         amount: Some(amount_mist),
         gas_limit: signed_tx.transaction.gas_limit(),
         gas_price: signed_tx.transaction.gas_price(),
-        sequence_number: account.sequence_number,
+        sequence_number: owner.sequence_number,
         signature: Some(signed_tx.signature.clone()),
         execute_immediate: Some(false),
     };

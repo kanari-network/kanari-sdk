@@ -275,6 +275,54 @@ impl StateManager {
         }
     }
 
+    fn object_balance_token_for_type_and_data(type_name: &str, data: &[u8]) -> Option<String> {
+        Self::balance_token_amount(type_name, data).map(|(token_type, _)| token_type)
+    }
+
+    fn changeset_creates_object_balance_for_owner(
+        changeset: &ChangeSet,
+        owner: AccountAddress,
+        token_type: &str,
+    ) -> bool {
+        changeset.created_objects.iter().any(|(_, created)| {
+            created.owner == owner
+                && Self::object_balance_token_for_type_and_data(&created.type_, &created.data)
+                    .is_some_and(|created_token| created_token == token_type)
+        })
+    }
+
+    fn changeset_deletes_object_balance_for_owner(
+        &self,
+        changeset: &ChangeSet,
+        owner: AccountAddress,
+        token_type: &str,
+    ) -> Result<bool> {
+        for object_id in &changeset.deleted_objects {
+            let Some((_, existing)) = self.load_stored_object_by_any_id(object_id)? else {
+                continue;
+            };
+            if existing.owner != owner {
+                continue;
+            }
+            if Self::object_balance_token_for_type_and_data(&existing.type_name, &existing.data)
+                .is_some_and(|existing_token| existing_token == token_type)
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn owner_has_object_backed_token_balance(
+        &self,
+        owner: AccountAddress,
+        token_type: &str,
+    ) -> Result<bool> {
+        Ok(self
+            .compute_owned_token_balances(owner, None)?
+            .contains_key(token_type))
+    }
+
     fn persist_treasury_cap_state(
         &mut self,
         token_type: &str,
@@ -440,7 +488,7 @@ impl StateManager {
             account.sequence_number = account
                 .sequence_number
                 .checked_add(change.sequence_increment)
-                .require("Account sequence number overflow")?;
+                .require("Owner sequence number overflow")?;
             for module_name in &change.modules_added {
                 account.add_module(module_name.clone());
             }
@@ -479,10 +527,15 @@ impl StateManager {
             self.save_internal(&key, nft_cap)?;
         }
 
-        // Apply incremental token balance hints first; exact owner totals are recomputed
-        // from owned coin objects after object mutations are applied.
+        // Record Global Token Supplies to database only once after all processing
+        let mut owners_to_recompute: BTreeSet<AccountAddress> = BTreeSet::new();
+        let mut native_object_changed_owners: BTreeSet<AccountAddress> = BTreeSet::new();
+        let mut native_object_gas_adjusted: BTreeMap<AccountAddress, u64> = BTreeMap::new();
+
+        // Apply incremental token balance hints only for owners/tokens that do not yet have
+        // object-backed balances. Once a token balance is represented by owned objects, the
+        // account cache is refreshed from object state instead of being incremented directly.
         for (owner, token_type, amount) in &changeset.token_balance_sets {
-            let mut account = self.load_account_or_default(*owner)?;
             let normalized_token_type = Self::normalize_token_type(token_type);
             if normalized_token_type == KANARI_TOKEN_TYPE {
                 // Native KANARI balance is applied from account_changes so gas and
@@ -490,19 +543,32 @@ impl StateManager {
                 continue;
             }
 
+            let object_backed = self
+                .owner_has_object_backed_token_balance(*owner, &normalized_token_type)?
+                || Self::changeset_creates_object_balance_for_owner(
+                    changeset,
+                    *owner,
+                    &normalized_token_type,
+                )
+                || self.changeset_deletes_object_balance_for_owner(
+                    changeset,
+                    *owner,
+                    &normalized_token_type,
+                )?;
+            if object_backed {
+                owners_to_recompute.insert(*owner);
+                continue;
+            }
+
+            let mut account = self.load_account_or_default(*owner)?;
             let old_balances = account.token_balances.clone();
             let current = account.get_token_balance(&normalized_token_type);
             let next = current.saturating_add(amount.value());
             account.set_token_balance_value(&normalized_token_type, next);
-            self.save_account(&account)?;
+            self.save_owner_state(&account)?;
 
             supplies_dirty |= self.capture_supply_changed(&account, &old_balances);
         }
-
-        // Record Global Token Supplies to database only once after all processing
-        let mut owners_to_recompute: BTreeSet<AccountAddress> = BTreeSet::new();
-        let mut native_object_changed_owners: BTreeSet<AccountAddress> = BTreeSet::new();
-        let mut native_object_gas_adjusted: BTreeMap<AccountAddress, u64> = BTreeMap::new();
 
         for obj_id in &changeset.deleted_objects {
             if let Some((stored_id, existing)) = self.load_stored_object_by_any_id(obj_id)? {

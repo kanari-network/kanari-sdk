@@ -95,11 +95,11 @@ impl TokenTransfer {
         let client = RpcClient::new(&rpc);
         check_node_connection(&client, &rpc).await?;
 
-        // Get account to get sequence number and owned objects
-        let account = client
-            .get_account(&from_addr)
+        // Get owner state to get sequence number and owned objects
+        let owner = client
+            .get_owner(&from_addr)
             .await
-            .context("Failed to get sender account")?;
+            .context("Failed to get sender owner state")?;
 
         // Find coin objects of the specified token type
         let wanted_token = normalize_token_type(&self.token);
@@ -107,7 +107,7 @@ impl TokenTransfer {
         let mut selected_coin_balance = 0u64;
         let mut total_coin_balance = 0u64;
         let mut seen_coin_types = std::collections::BTreeSet::new();
-        if let Some(owned_objects) = &account.owned_objects {
+        if let Some(owned_objects) = &owner.owned_objects {
             for obj in owned_objects {
                 if let Some(obj_token) = coin_token_type_from_object_type(&obj.type_) {
                     seen_coin_types.insert(obj_token.clone());
@@ -126,8 +126,8 @@ impl TokenTransfer {
         }
 
         if selected_coin_id.is_none() {
-            let state_balance = account
-                .token_balances
+            let state_balance = owner
+                .balances
                 .iter()
                 .find(|(k, _)| normalize_token_type(k) == wanted_token)
                 .map(|(_, v)| *v)
@@ -140,7 +140,7 @@ impl TokenTransfer {
             };
 
             anyhow::bail!(
-                "No Coin<{}> objects found for address {}.\n  - token balance in token_balances: {}\n  - available coin object types: {}\nThis usually means the account state tracks the token, but there is no spendable Coin object for that token.",
+                "No Coin<{}> objects found for owner {}.\n  - token balance in balances: {}\n  - available coin object types: {}\nThis usually means the owner state tracks the token, but there is no spendable Coin object for that token.",
                 wanted_token,
                 from_addr,
                 state_balance,
@@ -200,7 +200,7 @@ impl TokenTransfer {
             ],
             gas_limit,
             gas_price,
-            sequence_number: account.sequence_number,
+            sequence_number: owner.sequence_number,
             signature: None, // Will be set after signing
             execute_immediate: Some(true),
         };

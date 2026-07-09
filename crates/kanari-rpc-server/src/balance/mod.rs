@@ -68,21 +68,22 @@ fn build_balance_json(
     })
 }
 
-/// Handle get account request
-pub async fn handle_get_account(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let address: String = match parse_params(request.id, &request.params) {
-        Ok(addr) => addr,
+/// Handle get owner request
+pub async fn handle_get_owner(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
+    let owner: String = match parse_params(request.id, &request.params) {
+        Ok(owner) => owner,
         Err(response) => return *response,
     };
 
-    match state.engine.get_account_info(&address) {
+    match state.engine.get_owner_info(&owner) {
         Some(mut info) => {
             if let Some(objects) = info.owned_objects.take() {
-                info.owned_objects = Some(aggregate_owned_objects(objects));
+                let aggregated = aggregate_owned_objects(objects);
+                info.owned_objects = Some(aggregated);
             }
             respond_with_serialize(request.id, info)
         }
-        None => internal_error_response(request.id, "Account not found"),
+        None => internal_error_response(request.id, "Owner not found"),
     }
 }
 
@@ -93,14 +94,14 @@ pub async fn handle_get_token_balance(state: &RpcServerState, request: &RpcReque
         Err(response) => return *response,
     };
 
-    let account_info = match state.engine.get_account_info(&req_data.address) {
+    let owner_info = match state.engine.get_owner_info(&req_data.owner) {
         Some(info) => info,
-        None => return internal_error_response(request.id, "Account not found"),
+        None => return internal_error_response(request.id, "Owner not found"),
     };
 
     let target_token = normalize_token_type(&req_data.token_type);
-    let final_balance = account_info
-        .token_balances
+    let final_balance = owner_info
+        .balances
         .get(&target_token)
         .copied()
         .unwrap_or(0);
@@ -123,14 +124,14 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
         Err(response) => return *response,
     };
 
-    let account_info = match state.engine.get_account_info(&req_data.address) {
+    let owner_info = match state.engine.get_owner_info(&req_data.owner) {
         Some(info) => info,
-        None => return internal_error_response(request.id, "Account not found"),
+        None => return internal_error_response(request.id, "Owner not found"),
     };
 
     let state_guard = state.engine.state_read();
-    let balances: Vec<_> = account_info
-        .token_balances
+    let balances: Vec<_> = owner_info
+        .balances
         .into_iter()
         .filter(|(token_type, amount)| *amount > 0 || token_type == KANARI_TOKEN_TYPE)
         .map(|(token_type, balance)| build_balance_json(&state_guard, token_type, balance))
@@ -138,7 +139,7 @@ pub async fn handle_get_all_balances(state: &RpcServerState, request: &RpcReques
 
     RpcResponse {
         jsonrpc: "2.0".into(),
-        result: Some(serde_json::json!({ "address": req_data.address, "balances": balances })),
+        result: Some(serde_json::json!({ "owner": req_data.owner, "balances": balances })),
         error: None,
         id: request.id,
     }

@@ -6,14 +6,14 @@ use anyhow::{Context, Result};
 use clap::*;
 use kanari_rpc_client::RpcClient;
 
-/// Account subcommands
+/// Owner subcommands
 #[derive(Subcommand, Debug)]
-pub enum AccountCommand {
-    /// Get account info (address, sequence, modules, token balances, owned objects)
+pub enum OwnerCommand {
+    /// Get owner info (owner, sequence, modules, token balances, owned objects)
     Get {
-        /// Address to query
-        #[clap(long = "address")]
-        address: Option<String>,
+        /// Owner address to query
+        #[clap(long = "owner")]
+        owner: Option<String>,
 
         /// RPC endpoint URL
         #[clap(long = "rpc")]
@@ -21,29 +21,29 @@ pub enum AccountCommand {
     },
 }
 
-impl AccountCommand {
+impl OwnerCommand {
     pub async fn execute(&self) -> Result<()> {
         match self {
-            AccountCommand::Get {
-                address,
+            OwnerCommand::Get {
+                owner,
                 rpc_endpoint,
             } => {
                 let rpc = get_rpc_endpoint(rpc_endpoint.clone());
-                let address_normalized = resolve_sender(address.clone())?;
+                let owner_normalized = resolve_sender(owner.clone())?;
 
                 let client = RpcClient::new(&rpc);
-                let account_info =
+                let owner_info =
                     client
-                        .get_account(&address_normalized)
+                        .get_owner(&owner_normalized)
                         .await
                         .with_context(|| {
-                            format!("Failed to get account info for {}", address_normalized)
+                            format!("Failed to get owner info for {}", owner_normalized)
                         })?;
 
-                eprintln!("Account info for {}:\n", address_normalized);
+                eprintln!("Owner info for {}:\n", owner_normalized);
                 eprintln!(
                     "{}",
-                    serde_json::to_string_pretty(&account_info)
+                    serde_json::to_string_pretty(&owner_info)
                         .unwrap_or_else(|_| "<invalid result>".to_string())
                 );
 

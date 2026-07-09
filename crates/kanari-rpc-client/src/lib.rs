@@ -60,14 +60,14 @@ impl RpcClient {
         Ok(rpc_response)
     }
 
-    /// Get account information
-    pub async fn get_account(&self, address: &str) -> Result<AccountInfo> {
+    /// Get owner information
+    pub async fn get_owner(&self, owner: &str) -> Result<OwnerInfo> {
         let response = self
-            .request(methods::GET_ACCOUNT, serde_json::json!(address))
+            .request(methods::GET_OWNER, serde_json::json!(owner))
             .await?;
 
         let result = response.result.context("No result in response")?;
-        serde_json::from_value(result).context("Failed to parse account info")
+        serde_json::from_value(result).context("Failed to parse owner info")
     }
 
     /// Get block by height

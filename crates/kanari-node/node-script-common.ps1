@@ -214,7 +214,7 @@ function Test-NodeHealth {
                 throw "Node $NodeId reports total_supply=0 after startup."
             }
 
-            Write-Host "Node $NodeId stats OK | total_supply=$($stats.total_supply) | accounts=$($stats.total_accounts)" -ForegroundColor Green
+            Write-Host "Node $NodeId stats OK | total_supply=$($stats.total_supply) | owners=$($stats.total_owners)" -ForegroundColor Green
         }
     } catch {
         Write-Host "Node $NodeId health check failed at $RpcUrl : $($_.Exception.Message)" -ForegroundColor Yellow

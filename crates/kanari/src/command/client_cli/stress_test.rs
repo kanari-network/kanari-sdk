@@ -121,15 +121,15 @@ impl StressTest {
             }
         }
 
-        // ── Step 3: Get current account state ──
-        let account = client
-            .get_account(&from_addr)
+        // ── Step 3: Get current owner state ──
+        let owner = client
+            .get_owner(&from_addr)
             .await
-            .context("Failed to get sender account")?;
+            .context("Failed to get sender owner state")?;
 
         // Check balance before starting
-        let native_balance = account
-            .token_balances
+        let native_balance = owner
+            .balances
             .get(KANARI_TOKEN_TYPE)
             .copied()
             .unwrap_or(0);
@@ -173,7 +173,7 @@ impl StressTest {
         eprintln!();
         eprintln!("--- Sending {} transactions ---", self.count);
 
-        let mut seq = account.sequence_number;
+        let mut seq = owner.sequence_number;
         let mut success_count = 0u64;
         let mut fail_count = 0u64;
         let start_time = Instant::now();
@@ -226,9 +226,9 @@ impl StressTest {
                     // On first failure, try refreshing sequence number
                     if fail_count == 1 {
                         eprintln!("  Refreshing sequence number after failure...");
-                        if let Ok(acct) = client.get_account(&from_addr).await {
-                            if acct.sequence_number > seq {
-                                seq = acct.sequence_number;
+                        if let Ok(owner_state) = client.get_owner(&from_addr).await {
+                            if owner_state.sequence_number > seq {
+                                seq = owner_state.sequence_number;
                                 eprintln!("  Sequence bumped to {}", seq);
                                 continue; // retry this transaction
                             }

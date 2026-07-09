@@ -14,7 +14,7 @@ impl super::MoveRuntime {
         kanari_cs: &mut ChangeSet,
     ) {
         debug!(
-            "[PARSER] parse_move_changeset: accounts={}, total_resources={}",
+            "[PARSER] parse_move_changeset: owners={}, total_resources={}",
             move_cs.accounts().len(),
             move_cs
                 .accounts()

@@ -95,15 +95,13 @@ impl RpcError {
     }
 }
 
-/// Account info response
+/// Owner info response
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AccountInfo {
-    pub address: String,
+pub struct OwnerInfo {
+    pub owner: String,
     pub sequence_number: u64,
     pub modules: Vec<String>,
-    /// Token balances: token_type -> amount
-    pub token_balances: std::collections::BTreeMap<String, u64>,
-    /// Owned objects discovered by the runtime (optional)
+    pub balances: std::collections::BTreeMap<String, u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owned_objects: Option<Vec<ObjectInfo>>,
 }
@@ -135,7 +133,7 @@ pub struct BlockchainStats {
     pub total_blocks: usize,
     pub total_transactions: usize,
     pub pending_transactions: usize,
-    pub total_accounts: usize,
+    pub total_owners: usize,
     pub total_supply: u64,
     pub state_root: String,
 }
@@ -417,14 +415,14 @@ pub struct GetObjectsByTypeRequest {
 /// Get token balance request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetTokenBalanceRequest {
-    pub address: String,
+    pub owner: String,
     pub token_type: String,
 }
 
 /// Get all balances request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetAllBalancesRequest {
-    pub address: String,
+    pub owner: String,
 }
 
 /// RPC Methods
@@ -434,39 +432,39 @@ pub mod methods {
         object_schema, optional_schema, schema_array, schema_integer, schema_object, schema_string,
     };
 
-    // Account & Balance
+    // Owner & Balance
     #[open_rpc_method(
-        summary = "Get account info",
-        description = "Returns account data including sequence number, balances, modules, and owned objects.",
-        params = [("address", "Target account address.", true, schema_string())],
-        result = ("account", "Account information object.", schema_object()),
-        tags = ["account", "balance"]
+        summary = "Get owner info",
+        description = "Returns owner data including sequence number, balances, modules, and owned objects.",
+        params = [("owner", "Target owner address.", true, schema_string())],
+        result = ("owner", "Owner information object.", schema_object()),
+        tags = ["owner", "balance"]
     )]
-    pub const GET_ACCOUNT: &str = "kanari_getAccount";
+    pub const GET_OWNER: &str = "kanari_getOwner";
     #[open_rpc_method(
         summary = "Get one token balance",
-        description = "Returns the balance of a specific token type for one account.",
+        description = "Returns the balance of a specific token type for one owner.",
         params = [(
             "request",
-            "Address and token type payload.",
+            "Owner and token type payload.",
             true,
-            object_schema(&[("address", schema_string()), ("token_type", schema_string())])
+            object_schema(&[("owner", schema_string()), ("token_type", schema_string())])
         )],
         result = ("balance", "Token balance payload.", schema_object()),
-        tags = ["account", "balance"]
+        tags = ["owner", "balance"]
     )]
     pub const GET_TOKEN_BALANCE: &str = "kanari_getTokenBalance";
     #[open_rpc_method(
         summary = "Get all balances",
-        description = "Returns all visible balances for one account.",
+        description = "Returns all visible balances for one owner.",
         params = [(
             "request",
-            "Address payload.",
+            "Owner payload.",
             true,
-            object_schema(&[("address", schema_string())])
+            object_schema(&[("owner", schema_string())])
         )],
-        result = ("balances", "All account balances.", schema_object()),
-        tags = ["account", "balance"]
+        result = ("balances", "All owner balances.", schema_object()),
+        tags = ["owner", "balance"]
     )]
     pub const GET_ALL_BALANCES: &str = "kanari_getAllBalances";
     #[open_rpc_method(
@@ -667,8 +665,8 @@ pub mod methods {
     // NFT queries
     #[open_rpc_method(
         summary = "Get owned NFTs",
-        description = "Returns NFT-like objects owned by one address.",
-        params = [("address", "Target owner address.", true, schema_string())],
+        description = "Returns NFT-like objects owned by one owner.",
+        params = [("owner", "Target owner address.", true, schema_string())],
         result = ("nfts", "Owned NFT list.", schema_array(schema_object())),
         tags = ["nft"]
     )]

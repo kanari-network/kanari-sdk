@@ -163,8 +163,8 @@ pub async fn sign_and_submit_transaction(
     Ok(status)
 }
 
-/// Query account sequence number from RPC for a sender address (normalized)
-pub fn get_account_sequence(
+/// Query owner sequence number from RPC for a sender address (normalized).
+pub fn get_owner_sequence(
     client: &Client,
     rpc_endpoint: &str,
     sender_normalized: &str,
@@ -173,7 +173,7 @@ pub fn get_account_sequence(
 
     let acct_req = RpcRequest {
         jsonrpc: "2.0".to_string(),
-        method: methods::GET_ACCOUNT.to_string(),
+        method: methods::GET_OWNER.to_string(),
         params: serde_json::to_value(sender_normalized)
             .context("Failed to serialize sender for RPC")?,
         id: 1,
@@ -183,22 +183,21 @@ pub fn get_account_sequence(
         .post(rpc_endpoint)
         .json(&acct_req)
         .send()
-        .context("Failed to query account sequence number from RPC")?;
+        .context("Failed to query owner sequence number from RPC")?;
 
-    let rpc_resp: RpcResponse = resp
-        .json()
-        .context("Failed to parse account RPC response")?;
+    let rpc_resp: RpcResponse = resp.json().context("Failed to parse owner RPC response")?;
 
     if let Some(result) = rpc_resp.result {
         if let Some(sn) = result.get("sequence_number").and_then(|v| v.as_u64()) {
             Ok(sn)
         } else {
-            bail!("Account RPC result missing 'sequence_number'");
+            bail!("Owner RPC result missing 'sequence_number'");
         }
     } else {
-        bail!("RPC did not return account info for sender");
+        bail!("RPC did not return owner info for sender");
     }
 }
+
 
 /// Determine the sender address string for a transaction.
 /// For all wallets, this returns the tagged address (Curve:PublicKey)

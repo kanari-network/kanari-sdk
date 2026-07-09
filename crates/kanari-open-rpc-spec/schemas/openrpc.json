@@ -3,7 +3,7 @@
   "info": {
     "title": "Kanari JSON-RPC",
     "description": "Kanari JSON-RPC API for interaction with kanari server.",
-    "version": "0.1.7",
+    "version": "0.1.8",
     "contact": {
       "name": "Kanari Network",
       "url": "https://kanarinetwork.site",
@@ -16,13 +16,13 @@
   },
   "methods": [
     {
-      "name": "kanari_getAccount",
-      "summary": "Get account info",
-      "description": "Returns account data including sequence number, balances, modules, and owned objects.",
+      "name": "kanari_getOwner",
+      "summary": "Get owner info",
+      "description": "Returns owner data including sequence number, balances, modules, and owned objects.",
       "params": [
         {
-          "name": "address",
-          "description": "Target account address.",
+          "name": "owner",
+          "description": "Target owner address.",
           "required": true,
           "schema": {
             "type": "string"
@@ -30,8 +30,8 @@
         }
       ],
       "result": {
-        "name": "account",
-        "description": "Account information object.",
+        "name": "owner",
+        "description": "Owner information object.",
         "required": true,
         "schema": {
           "type": "object"
@@ -39,7 +39,7 @@
       },
       "tags": [
         {
-          "name": "account"
+          "name": "owner"
         },
         {
           "name": "balance"
@@ -49,16 +49,16 @@
     {
       "name": "kanari_getTokenBalance",
       "summary": "Get one token balance",
-      "description": "Returns the balance of a specific token type for one account.",
+      "description": "Returns the balance of a specific token type for one owner.",
       "params": [
         {
           "name": "request",
-          "description": "Address and token type payload.",
+          "description": "Owner and token type payload.",
           "required": true,
           "schema": {
             "additionalProperties": false,
             "properties": {
-              "address": {
+              "owner": {
                 "type": "string"
               },
               "token_type": {
@@ -66,7 +66,7 @@
               }
             },
             "required": [
-              "address",
+              "owner",
               "token_type"
             ],
             "type": "object"
@@ -83,7 +83,7 @@
       },
       "tags": [
         {
-          "name": "account"
+          "name": "owner"
         },
         {
           "name": "balance"
@@ -93,21 +93,21 @@
     {
       "name": "kanari_getAllBalances",
       "summary": "Get all balances",
-      "description": "Returns all visible balances for one account.",
+      "description": "Returns all visible balances for one owner.",
       "params": [
         {
           "name": "request",
-          "description": "Address payload.",
+          "description": "Owner payload.",
           "required": true,
           "schema": {
             "additionalProperties": false,
             "properties": {
-              "address": {
+              "owner": {
                 "type": "string"
               }
             },
             "required": [
-              "address"
+              "owner"
             ],
             "type": "object"
           }
@@ -115,7 +115,7 @@
       ],
       "result": {
         "name": "balances",
-        "description": "All account balances.",
+        "description": "All owner balances.",
         "required": true,
         "schema": {
           "type": "object"
@@ -123,7 +123,7 @@
       },
       "tags": [
         {
-          "name": "account"
+          "name": "owner"
         },
         {
           "name": "balance"
@@ -290,25 +290,6 @@
       ]
     },
     {
-      "name": "kanari_produceBlock",
-      "summary": "Produce block",
-      "description": "Forces block production immediately.",
-      "params": [],
-      "result": {
-        "name": "block_info",
-        "description": "Produced block result.",
-        "required": true,
-        "schema": {
-          "type": "object"
-        }
-      },
-      "tags": [
-        {
-          "name": "block"
-        }
-      ]
-    },
-    {
       "name": "kanari_submitTransaction",
       "summary": "Submit transaction",
       "description": "Submits a transfer or burn transaction to the mempool.",
@@ -363,6 +344,25 @@
       "result": {
         "name": "health",
         "description": "Health status payload.",
+        "required": true,
+        "schema": {
+          "type": "object"
+        }
+      },
+      "tags": [
+        {
+          "name": "system"
+        }
+      ]
+    },
+    {
+      "name": "kanari_getNetworkStatus",
+      "summary": "Get network authority status",
+      "description": "Returns the configured validator authority set for this node.",
+      "params": [],
+      "result": {
+        "name": "network",
+        "description": "Network authority status payload.",
         "required": true,
         "schema": {
           "type": "object"
@@ -652,10 +652,10 @@
     {
       "name": "kanari_getOwnedNfts",
       "summary": "Get owned NFTs",
-      "description": "Returns NFT-like objects owned by one address.",
+      "description": "Returns NFT-like objects owned by one owner.",
       "params": [
         {
-          "name": "address",
+          "name": "owner",
           "description": "Target owner address.",
           "required": true,
           "schema": {

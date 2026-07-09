@@ -25,6 +25,28 @@ All requests use the JSON-RPC 2.0 wrapper:
 - Successful replies return a `RpcResponse` with `result` populated.
 - Errors populate the `error` field with `code`, `message`, and optional `data`.
 
+**Owner-related methods**
+
+- `kanari_getOwner` - fetch owner-centric state including sequence number, balances, modules, and owned objects
+
+Request `params`:
+
+```json
+"0x..."
+```
+
+Response `result` (`OwnerInfo`):
+
+```json
+{
+  "owner": "0x...",
+  "sequence_number": 0,
+  "modules": [],
+  "balances": {},
+  "owned_objects": []
+}
+```
+
 **Module-related methods**
 
 - `kanari_publishModule` — publish a new Move module

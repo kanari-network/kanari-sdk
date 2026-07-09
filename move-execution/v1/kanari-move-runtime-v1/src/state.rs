@@ -39,9 +39,9 @@ type RawStateUpdate = (RawStateKey, RawStateValue);
 type RawStateDelete = RawStateKey;
 type OverlaySmtChanges = (Vec<RawStateUpdate>, Vec<RawStateDelete>);
 
-/// Account state in the blockchain
+/// Owner state in the blockchain
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Account {
+pub struct OwnerState {
     pub address: AccountAddress,
     pub sequence_number: u64,
     pub modules: BTreeSet<String>,
@@ -50,7 +50,7 @@ pub struct Account {
     pub token_balances: BTreeMap<String, BalanceRecord>,
 }
 
-impl Account {
+impl OwnerState {
     pub fn new(address: AccountAddress) -> Self {
         Self {
             address,
@@ -93,6 +93,14 @@ impl Account {
 
     pub fn native_balance(&self) -> u64 {
         self.get_token_balance(KANARI_TOKEN_TYPE)
+    }
+
+    pub fn owner_address(&self) -> AccountAddress {
+        self.address
+    }
+
+    pub fn owned_token_balances(&self) -> &BTreeMap<String, BalanceRecord> {
+        &self.token_balances
     }
 
     pub fn increment_sequence(&mut self) {
@@ -443,8 +451,8 @@ impl StateManager {
         Ok(self.store.load(key)?)
     }
 
-    // Helper to construct DB key for account
-    fn account_key(address: &AccountAddress) -> Vec<u8> {
+    // Helper to construct DB key for one owner-state record.
+    fn owner_state_key(address: &AccountAddress) -> Vec<u8> {
         let mut key = b"account:".to_vec();
         key.extend_from_slice(address.as_ref());
         key
@@ -617,15 +625,6 @@ impl StateManager {
         self.save_internal(SYSTEM_CLOCK_OBJECT_ID_KEY, &id.as_ref().to_vec())
     }
 
-    pub fn load_account(&self, address: &AccountAddress) -> Result<Option<Account>> {
-        self.load_internal(&Self::account_key(address))
-    }
-
-    pub fn save_account(&mut self, account: &Account) -> Result<()> {
-        self.save_account_record(account)?;
-        self.add_to_index_list(ACCOUNT_INDEX_KEY, account.address.to_hex_literal())
-    }
-
     pub fn apply_zero_effect_sequence_batch<I>(&mut self, sequence_increments: I) -> Result<()>
     where
         I: IntoIterator<Item = (AccountAddress, u64)>,
@@ -646,8 +645,8 @@ impl StateManager {
         self.add_many_to_index_list(ACCOUNT_INDEX_KEY, account_index_additions)
     }
 
-    fn save_account_record(&mut self, account: &Account) -> Result<()> {
-        self.save_internal(&Self::account_key(&account.address), account)
+    fn save_account_record(&mut self, account: &OwnerState) -> Result<()> {
+        self.save_internal(&Self::owner_state_key(&account.address), account)
     }
 
     fn add_many_to_index_list<I>(&mut self, key: &[u8], values: I) -> Result<()>
@@ -670,7 +669,7 @@ impl StateManager {
         Ok(())
     }
 
-    fn load_account_addresses(&self) -> Result<Vec<AccountAddress>> {
+    fn load_owner_addresses(&self) -> Result<Vec<AccountAddress>> {
         let ids = self.load_index_list(ACCOUNT_INDEX_KEY)?;
         Ok(ids
             .into_iter()
@@ -678,19 +677,42 @@ impl StateManager {
             .collect())
     }
 
-    fn load_account_or_default(&self, address: AccountAddress) -> Result<Account> {
+    fn load_owner_state_or_default(&self, address: AccountAddress) -> Result<OwnerState> {
         Ok(self
-            .load_account(&address)?
-            .unwrap_or_else(|| Account::new(address)))
+            .load_owner_state(&address)?
+            .unwrap_or_else(|| OwnerState::new(address)))
     }
 
-    pub fn get_account(&self, address: &AccountAddress) -> Option<Account> {
-        match self.load_account(address) {
+    fn load_account_or_default(&self, address: AccountAddress) -> Result<Account> {
+        self.load_owner_state_or_default(address)
+    }
+
+    pub fn load_owner_state(&self, owner: &AccountAddress) -> Result<Option<OwnerState>> {
+        self.load_internal(&Self::owner_state_key(owner))
+    }
+
+    /// Legacy alias for owner-state loading.
+    pub fn load_account(&self, address: &AccountAddress) -> Result<Option<Account>> {
+        self.load_owner_state(address)
+    }
+
+    pub fn save_owner_state(&mut self, owner_state: &OwnerState) -> Result<()> {
+        self.save_account_record(owner_state)?;
+        self.add_to_index_list(ACCOUNT_INDEX_KEY, owner_state.address.to_hex_literal())
+    }
+
+    /// Legacy alias for owner-state saving.
+    pub fn save_account(&mut self, account: &Account) -> Result<()> {
+        self.save_owner_state(account)
+    }
+
+    pub fn get_owner_state(&self, owner: &AccountAddress) -> Option<OwnerState> {
+        match self.load_owner_state(owner) {
             Ok(account) => account,
             Err(e) => {
                 log::error!(
-                    "[StateManager] Failed to load account {}: {}",
-                    address.to_hex_literal(),
+                    "[StateManager] Failed to load owner state {}: {}",
+                    owner.to_hex_literal(),
                     e
                 );
                 None
@@ -698,18 +720,27 @@ impl StateManager {
         }
     }
 
-    pub fn get_account_by_hex(&self, hex_address: &str) -> Option<Account> {
+    /// Legacy alias for owner-state lookup.
+    pub fn get_account(&self, address: &AccountAddress) -> Option<Account> {
+        self.get_owner_state(address)
+    }
+
+    pub fn get_owner_state_by_hex(&self, owner: &str) -> Option<OwnerState> {
         // Use Address::parse_to_account_address which handles tagged addresses,
         // tagged public keys (hashing), and regular 0x addresses.
-        if let Ok(addr) = kanari_types::address::Address::parse_to_account_address(hex_address) {
-            self.get_account(&addr)
+        if let Ok(addr) = kanari_types::address::Address::parse_to_account_address(owner) {
+            self.get_owner_state(&addr)
         } else {
             log::warn!(
-                "[StateManager] Failed to parse address from hex: {}",
-                hex_address
+                "[StateManager] Failed to parse owner address from hex: {}",
+                owner
             );
             None
         }
+    }
+
+    pub fn get_account_by_hex(&self, hex_address: &str) -> Option<Account> {
+        self.get_owner_state_by_hex(hex_address)
     }
 
     fn balance_token_amount(type_name: &str, data: &[u8]) -> Option<(String, u64)> {
@@ -776,29 +807,49 @@ impl StateManager {
         smt::compute_sparse_root(&entries.into_iter().collect::<Vec<_>>()).to_vec()
     }
 
-    /// Validate sequence number for an account
-    pub fn validate_sequence(&self, addr: &AccountAddress, expected_seq: u64) -> Result<()> {
-        let account_key = Self::account_key(addr);
-        if let Some(account) = self.load_internal::<Account>(&account_key)? {
-            if account.sequence_number != expected_seq {
-                anyhow::bail!("Invalid sequence number");
-            }
-            Ok(())
-        } else {
-            if expected_seq != 0 {
-                anyhow::bail!("Account does not exist, sequence number must be 0");
-            }
-            Ok(())
-        }
+    pub fn resolve_owner_sequence_number(&self, owner: &AccountAddress) -> Result<u64> {
+        Ok(self
+            .load_owner_state(owner)?
+            .map(|owner_state| owner_state.sequence_number)
+            .unwrap_or(0))
     }
 
-    /// Get the total number of accounts
-    pub fn account_count(&self) -> usize {
+    /// Validate sequence number for an owner state entry.
+    pub fn validate_owner_sequence(
+        &self,
+        owner: &AccountAddress,
+        expected_sequence: u64,
+    ) -> Result<()> {
+        let actual_sequence = self.resolve_owner_sequence_number(owner)?;
+        if actual_sequence != expected_sequence {
+            if actual_sequence == 0 {
+                anyhow::bail!("Owner state does not exist, sequence number must be 0");
+            }
+            anyhow::bail!("Invalid sequence number");
+        }
+        Ok(())
+    }
+
+    /// Legacy alias for owner-sequence validation.
+    pub fn validate_sequence(&self, addr: &AccountAddress, expected_seq: u64) -> Result<()> {
+        self.validate_owner_sequence(addr, expected_seq)
+    }
+
+    /// Get the total number of owners with persisted owner state.
+    pub fn owner_count(&self) -> usize {
         self.load_index_list(ACCOUNT_INDEX_KEY)
             .map(|accounts| accounts.len())
             .unwrap_or(0)
     }
+
+    /// Legacy alias for owner-count queries.
+    pub fn account_count(&self) -> usize {
+        self.owner_count()
+    }
 }
+
+/// Legacy alias kept while internal call sites migrate to owner-centric naming.
+pub type Account = OwnerState;
 
 #[cfg(test)]
 #[path = "../tests/unit/state_tests.rs"]

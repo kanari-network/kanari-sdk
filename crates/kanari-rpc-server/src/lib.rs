@@ -23,7 +23,7 @@ use tracing::info;
 
 use crate::{
     balance::{
-        handle_get_account, handle_get_all_balances, handle_get_token_balance, handle_list_tokens,
+        handle_get_all_balances, handle_get_owner, handle_get_token_balance, handle_list_tokens,
     },
     block::{handle_get_block, handle_get_block_height, handle_get_full_block, handle_get_stats},
     module::{
@@ -168,7 +168,7 @@ async fn handle_rpc(
 
     let response = match request.method.as_str() {
         // Account & Balance
-        methods::GET_ACCOUNT => handle_get_account(&state, &request).await,
+        methods::GET_OWNER => handle_get_owner(&state, &request).await,
         methods::GET_TOKEN_BALANCE => handle_get_token_balance(&state, &request).await,
         methods::LIST_TOKENS => handle_list_tokens(&state, &request).await,
         methods::GET_ALL_BALANCES => handle_get_all_balances(&state, &request).await,
@@ -510,7 +510,7 @@ mod tests {
 
         let stats = rpc_call(app.clone(), methods::GET_STATS, serde_json::json!([]), 2).await;
         assert!(stats["total_supply"].as_u64().invariant("total supply") >= 500);
-        assert!(stats["total_accounts"].as_u64().is_some());
+        assert!(stats["total_owners"].as_u64().is_some());
 
         let height = rpc_call(
             app.clone(),
@@ -521,17 +521,17 @@ mod tests {
         .await;
         assert!(height.as_u64().is_some());
 
-        let account = rpc_call(
+        let owner = rpc_call(
             app.clone(),
-            methods::GET_ACCOUNT,
+            methods::GET_OWNER,
             serde_json::json!("0x1111"),
             4,
         )
         .await;
-        assert!(hex_ends_with(&account["address"], "1111"));
-        assert_eq!(account["token_balances"][KANARI_TOKEN_TYPE], 500);
+        assert!(hex_ends_with(&owner["owner"], "1111"));
+        assert_eq!(owner["balances"][KANARI_TOKEN_TYPE], 500);
         assert_eq!(
-            account["owned_objects"]
+            owner["owned_objects"]
                 .as_array()
                 .invariant("json array")
                 .len(),
@@ -541,7 +541,7 @@ mod tests {
         let all_balances = rpc_call(
             app.clone(),
             methods::GET_ALL_BALANCES,
-            serde_json::json!({ "address": "0x1111" }),
+            serde_json::json!({ "owner": "0x1111" }),
             5,
         )
         .await;

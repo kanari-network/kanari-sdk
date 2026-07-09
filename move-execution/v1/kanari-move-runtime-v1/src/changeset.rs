@@ -25,7 +25,7 @@ pub struct CreatedObject {
     pub version: u64,
 }
 
-/// Represents changes to account state from Move VM execution
+/// Represents changes to owner state from Move VM execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccountChange {
     pub address: AccountAddress,

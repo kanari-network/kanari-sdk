@@ -63,18 +63,18 @@ impl Transfer {
         let client = RpcClient::new(&rpc);
         check_node_connection(&client, &rpc).await?;
 
-        // Get account to get sequence number
-        let account = client
-            .get_account(&from_addr)
+        // Get owner state to determine the next sequence number and available objects.
+        let owner = client
+            .get_owner(&from_addr)
             .await
-            .context("Failed to get sender account")?;
+            .context("Failed to get sender owner state")?;
 
         let sender_tagged = get_sender_for_tx(&wallet, &from_addr)?;
 
-        let owned_objects = account
+        let owned_objects = owner
             .owned_objects
             .as_ref()
-            .context("Sender account has no owned object list from RPC")?;
+            .context("Sender owner state has no owned object list from RPC")?;
 
         let mut selected_coin_id = None;
         let mut selected_coin_balance = 0u64;
@@ -139,7 +139,7 @@ impl Transfer {
             ],
             gas_limit,
             gas_price,
-            sequence_number: account.sequence_number,
+            sequence_number: owner.sequence_number,
             signature: None,
             execute_immediate: Some(true),
         };

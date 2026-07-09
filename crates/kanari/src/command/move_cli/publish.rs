@@ -4,7 +4,7 @@
 use super::reroot_path;
 use crate::command::common::resolve_transaction_gas;
 use crate::command::common::{
-    build_blocking_client, get_account_sequence, get_rpc_endpoint, get_sender_for_tx,
+    build_blocking_client, get_owner_sequence, get_rpc_endpoint, get_sender_for_tx,
     load_wallet_for, normalize_addr, resolve_sender,
 };
 use anyhow::{Result, bail};
@@ -118,7 +118,7 @@ impl Publish {
         let mut skipped_count = 0;
 
         // === Fetch base sequence number once to avoid race conditions ===
-        let base_seq: u64 = get_account_sequence(&client, &rpc, &sender_for_tx)?;
+        let base_seq: u64 = get_owner_sequence(&client, &rpc, &sender_for_tx)?;
 
         // Next sequence to use for publishing modules (increment only when a module is actually published)
         let mut next_seq = base_seq;

@@ -95,6 +95,42 @@ fn token_supply_summary_uses_treasury_supply_for_custom_tokens() -> Result<()> {
 }
 
 #[test]
+fn resolve_owner_token_balances_supports_object_state_and_compat_cache() -> Result<()> {
+    let object_owner = AccountAddress::from_hex_literal("0x1111")?;
+    let compat_owner = AccountAddress::from_hex_literal("0x2222")?;
+    let token_type = "0x2::test::TEST";
+    let coin_type = format!("0x2::coin::Coin<{}>", token_type);
+    let compat_only_token = "0x2::legacy::LEGACY";
+    let mut state = StateManager::new_in_memory();
+
+    let mut coin_data = vec![0u8; UID_SIZE + U64_SIZE];
+    coin_data[UID_SIZE..].copy_from_slice(&250u64.to_le_bytes());
+
+    let mut changeset = ChangeSet::new();
+    changeset.created_objects.push((
+        "0xaaaa".to_string(),
+        CreatedObject {
+            owner: object_owner,
+            uid: None,
+            id: None,
+            type_: coin_type,
+            data: coin_data,
+            version: 1,
+        },
+    ));
+    changeset.add_token_balance_set(compat_owner, compat_only_token.to_string(), 75);
+    state.apply_changeset(&changeset)?;
+
+    let object_balances = state.resolve_owner_token_balances(object_owner)?;
+    assert_eq!(object_balances.get(token_type).copied(), Some(250));
+
+    let compat_balances = state.resolve_owner_token_balances(compat_owner)?;
+    assert_eq!(compat_balances.get(compat_only_token).copied(), Some(75));
+
+    Ok(())
+}
+
+#[test]
 fn object_locked_coin_ledger_tracks_defi_lock_and_release() -> Result<()> {
     let owner = AccountAddress::from_hex_literal("0x1111")?;
     let token_type = "0x2::test::TEST";

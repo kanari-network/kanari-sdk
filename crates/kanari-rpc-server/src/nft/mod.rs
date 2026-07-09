@@ -92,14 +92,14 @@ fn parse_collection_fields(
 }
 
 pub async fn handle_get_owned_nfts(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
-    let address_str: String = match parse_labeled_params(request.id, &request.params, "address") {
-        Ok(addr) => addr,
+    let owner: String = match parse_labeled_params(request.id, &request.params, "owner") {
+        Ok(owner) => owner,
         Err(response) => return *response,
     };
 
-    let addr = match Address::parse_to_account_address(&address_str) {
+    let addr = match Address::parse_to_account_address(&owner) {
         Ok(a) => a,
-        Err(_) => return invalid_params_response(request.id, "Invalid address format"),
+        Err(_) => return invalid_params_response(request.id, "Invalid owner address format"),
     };
 
     let state_guard = state.engine.state_read();
@@ -117,7 +117,7 @@ pub async fn handle_get_owned_nfts(state: &RpcServerState, request: &RpcRequest)
             nfts.push(json!({
                 "object_id": id,
                 "type": obj.type_,
-                "owner": address_str,
+                "owner": owner,
                 "version": obj.version,
                 "parsed": parse_any_nft(&obj.type_, &obj.data),
                 "data": obj.data,

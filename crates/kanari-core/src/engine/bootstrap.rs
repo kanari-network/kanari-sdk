@@ -125,7 +125,7 @@ impl BlockchainEngine {
         tracing::info!(
             height = stats.height,
             txs = stats.total_transactions,
-            accounts = stats.total_accounts,
+            owners = stats.total_owners,
             pending = stats.pending_transactions,
             "Kanari engine ready"
         );

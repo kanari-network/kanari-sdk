@@ -1,6 +1,86 @@
 use super::*;
 
 impl StateManager {
+    pub fn resolve_owner_token_balances(
+        &self,
+        owner: AccountAddress,
+    ) -> Result<BTreeMap<String, u64>> {
+        let owner_state = self.load_owner_state(&owner)?;
+        let native_balance_fallback = owner_state
+            .as_ref()
+            .map(OwnerState::native_balance)
+            .filter(|balance| *balance > 0);
+        let mut balances = self.compute_owned_token_balances(owner, native_balance_fallback)?;
+
+        if let Some(owner_state) = owner_state {
+            for (token_type, balance) in owner_state.owned_token_balances() {
+                balances
+                    .entry(token_type.clone())
+                    .or_insert_with(|| balance.value());
+            }
+        }
+
+        Ok(balances)
+    }
+
+    pub fn resolve_owner_token_balance(
+        &self,
+        owner: AccountAddress,
+        token_type: &str,
+    ) -> Result<u64> {
+        let token_type = Self::normalize_token_type(token_type);
+        Ok(self
+            .resolve_owner_token_balances(owner)?
+            .get(&token_type)
+            .copied()
+            .unwrap_or(0))
+    }
+
+    pub fn resolve_owner_native_balance(&self, owner: AccountAddress) -> Result<u64> {
+        self.resolve_owner_token_balance(owner, KANARI_TOKEN_TYPE)
+    }
+
+    pub fn compute_owned_token_balances(
+        &self,
+        owner: AccountAddress,
+        native_balance_fallback: Option<u64>,
+    ) -> Result<BTreeMap<String, u64>> {
+        let mut aggregated: BTreeMap<String, u64> = BTreeMap::new();
+
+        for object_id in self.get_owned_objects(&owner)? {
+            let Some(obj) = self.get_object(&object_id)? else {
+                continue;
+            };
+
+            let Ok(struct_tag) = StructTag::from_str(&obj.type_) else {
+                continue;
+            };
+
+            if !Self::is_balance_struct(&struct_tag) {
+                continue;
+            }
+
+            let Some(amount) = Self::extract_balance_from_object_bytes(&obj.data, &struct_tag)
+            else {
+                continue;
+            };
+
+            let Some(token_type) = Self::token_type_from_balance_struct(&struct_tag) else {
+                continue;
+            };
+
+            let token_type = Self::normalize_token_type(&token_type);
+            let entry = aggregated.entry(token_type).or_insert(0);
+            *entry = entry.saturating_add(amount);
+        }
+
+        if let Some(native_balance) = native_balance_fallback {
+            aggregated.insert(KANARI_TOKEN_TYPE.to_string(), native_balance);
+        }
+
+        Ok(aggregated)
+    }
+
     pub(super) fn supply_key(token_type: &str) -> Vec<u8> {
         let mut key = b"supply:".to_vec();
         key.extend_from_slice(token_type.as_bytes());
@@ -62,10 +142,9 @@ impl StateManager {
     pub(super) fn indexed_wallet_supply(&self, token_type: &str) -> Result<u64> {
         let token_type = Self::normalize_token_type(token_type);
         Ok(self
-            .load_account_addresses()?
+            .load_owner_addresses()?
             .into_iter()
-            .filter_map(|address| self.load_account(&address).ok().flatten())
-            .map(|account| account.get_token_balance(&token_type))
+            .filter_map(|owner| self.resolve_owner_token_balance(owner, &token_type).ok())
             .fold(0u64, |acc, balance| acc.saturating_add(balance)))
     }
 
@@ -109,9 +188,9 @@ impl StateManager {
 
         let mut excess = indexed_visible - max_wallet_visible;
         let mut accounts = self
-            .load_account_addresses()?
+            .load_owner_addresses()?
             .into_iter()
-            .filter_map(|address| self.load_account(&address).ok().flatten())
+            .filter_map(|address| self.load_owner_state(&address).ok().flatten())
             .filter(|account| account.native_balance() > 0)
             .collect::<Vec<_>>();
 
@@ -378,7 +457,7 @@ impl StateManager {
 
     pub(super) fn capture_supply_changed(
         &mut self,
-        account: &Account,
+        account: &OwnerState,
         old_balances: &BTreeMap<String, BalanceRecord>,
     ) -> bool {
         self.adjust_global_supplies_for_account_delta(old_balances, &account.token_balances)
@@ -394,34 +473,7 @@ impl StateManager {
         let mut account = self.load_account_or_default(owner)?;
         let old_balances = account.token_balances.clone();
         let native_balance_after_account_changes = account.native_balance();
-        let mut aggregated: BTreeMap<String, u64> = BTreeMap::new();
-
-        for object_id in self.get_owned_objects(&owner)? {
-            let Some(obj) = self.get_object(&object_id)? else {
-                continue;
-            };
-
-            let Ok(struct_tag) = StructTag::from_str(&obj.type_) else {
-                continue;
-            };
-
-            if !Self::is_balance_struct(&struct_tag) {
-                continue;
-            }
-
-            let Some(amount) = Self::extract_balance_from_object_bytes(&obj.data, &struct_tag)
-            else {
-                continue;
-            };
-
-            let Some(token_type) = Self::token_type_from_balance_struct(&struct_tag) else {
-                continue;
-            };
-
-            let token_type = Self::normalize_token_type(&token_type);
-            let entry = aggregated.entry(token_type).or_insert(0);
-            *entry = entry.saturating_add(amount);
-        }
+        let mut aggregated = self.compute_owned_token_balances(owner, None)?;
 
         let native_object_balance = aggregated.remove(KANARI_TOKEN_TYPE);
         account.token_balances = aggregated
@@ -443,7 +495,7 @@ impl StateManager {
             native_balance_after_account_changes
         };
         account.set_token_balance_value(KANARI_TOKEN_TYPE, native_balance);
-        self.save_account(&account)?;
+        self.save_owner_state(&account)?;
 
         Ok(self.capture_supply_changed(&account, &old_balances))
     }

@@ -4,12 +4,12 @@
 use anyhow::Result;
 use clap::Subcommand;
 
-pub mod account;
 pub mod balance;
 pub mod burn;
 pub mod envs;
 pub mod faucet;
 pub mod objects;
+pub mod owner;
 pub mod stats;
 pub mod stress_test;
 pub mod token_transfer;
@@ -28,12 +28,12 @@ pub enum ClientCommand {
     Burn(burn::Burn),
     /// Show blockchain statistics
     Stats(stats::Stats),
-    /// Show token balances for an address
+    /// Show token balances for an owner address
     Balance(balance::Balance),
-    /// Account operations (get account info)
-    Account {
+    /// Owner operations (object-centric state queries)
+    Owner {
         #[command(subcommand)]
-        command: account::AccountCommand,
+        command: owner::OwnerCommand,
     },
     /// Manage environments (RPC endpoints)
     Envs(envs::Envs),
@@ -54,7 +54,7 @@ impl ClientCommand {
             ClientCommand::Burn(cmd) => cmd.execute().await,
             ClientCommand::Stats(cmd) => cmd.execute().await,
             ClientCommand::Balance(cmd) => cmd.execute().await,
-            ClientCommand::Account { command } => command.execute().await,
+            ClientCommand::Owner { command } => command.execute().await,
             ClientCommand::Envs(cmd) => cmd.execute(),
             ClientCommand::Objects(cmd) => cmd.execute().await,
             ClientCommand::View(cmd) => cmd.execute().await,

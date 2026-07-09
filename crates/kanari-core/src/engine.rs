@@ -501,15 +501,19 @@ impl BlockchainEngine {
     }
 
     pub(crate) fn get_expected_sequence(&self, address_hex: &str) -> u64 {
-        let mut seq = self
-            .state
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .get_account_by_hex(address_hex)
-            .map(|acc| acc.sequence_number)
+        let base_sequence = KanariAddress::parse_to_account_address(address_hex)
+            .ok()
+            .and_then(|owner| {
+                self.state
+                    .read()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .resolve_owner_sequence_number(&owner)
+                    .ok()
+            })
             .unwrap_or(0);
+        let mut seq = self.pending_tx_count_for_sender(address_hex);
 
-        seq += self.pending_tx_count_for_sender(address_hex);
+        seq += base_sequence;
         seq
     }
 
@@ -922,14 +926,11 @@ impl BlockchainEngine {
             };
             if validate_sequence {
                 state
-                    .validate_sequence(&sender_addr, tx.sequence_number())
+                    .validate_owner_sequence(&sender_addr, tx.sequence_number())
                     .context("Sequence number validation failed")?;
             }
             if total_required > 0 {
-                let balance = state
-                    .get_account(&sender_addr)
-                    .map(|acc| acc.native_balance())
-                    .unwrap_or(0);
+                let balance = state.resolve_owner_native_balance(sender_addr).unwrap_or(0);
                 if balance < total_required {
                     let msg = if required_amount > 0 {
                         format!(
@@ -1209,7 +1210,7 @@ mod tests {
     use crate::consensus::Checkpoint;
     use kanari_crypto::keys::{CurveType, generate_keypair};
     use kanari_move_runtime_v1::changeset::{ChangeSet, CreatedObject};
-    use kanari_move_runtime_v1::state::Account;
+    use kanari_move_runtime_v1::state::OwnerState;
     use kanari_types::balance::BalanceRecord;
     use kanari_types::kanari::KANARI_TOKEN_TYPE;
     use kanari_types::transaction::{SignedTransaction, Transaction};
@@ -1239,14 +1240,10 @@ mod tests {
 
     fn fund_sender(engine: &BlockchainEngine, address: &str, balance: u64) {
         let addr = AccountAddress::from_hex_literal(address).unwrap();
-        let mut account = Account::with_native_balance(addr, balance);
-        account.set_token_balance(KANARI_TOKEN_TYPE.to_string(), BalanceRecord::new(balance));
-        engine
-            .state
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .save_account(&account)
-            .unwrap();
+        let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
+        let mut mint = ChangeSet::new();
+        mint.mint(addr, balance);
+        state.apply_changeset(&mint).unwrap();
     }
 
     #[test]
@@ -1275,17 +1272,17 @@ mod tests {
             state
                 .apply_changeset_without_supply_validation(&cs)
                 .unwrap();
-            let mut account = Account::with_native_balance(owner, ledger_balance_after_fee);
-            account.set_token_balance(
+            let mut owner_state = OwnerState::with_native_balance(owner, ledger_balance_after_fee);
+            owner_state.set_token_balance(
                 KANARI_TOKEN_TYPE.to_string(),
                 BalanceRecord::new(ledger_balance_after_fee),
             );
-            state.save_account(&account).unwrap();
+            state.save_owner_state(&owner_state).unwrap();
         }
 
-        let account = engine.get_account_info("0x1111").unwrap();
+        let account = engine.get_owner_info("0x1111").unwrap();
         assert_eq!(
-            account.token_balances.get(KANARI_TOKEN_TYPE).copied(),
+            account.balances.get(KANARI_TOKEN_TYPE).copied(),
             Some(ledger_balance_after_fee)
         );
     }

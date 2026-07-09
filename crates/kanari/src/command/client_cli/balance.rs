@@ -7,13 +7,13 @@ use clap::*;
 use kanari_rpc_api::{GetAllBalancesRequest, RpcRequest, RpcResponse, methods};
 use kanari_rpc_client::RpcClient;
 
-/// Show token balances for an address
+/// Show token balances for an owner address
 #[derive(Parser, Debug)]
 #[clap(name = "balances")]
 pub struct Balance {
-    /// Address to query
-    #[clap(long = "address")]
-    pub address: Option<String>,
+    /// Owner address to query
+    #[clap(long = "owner")]
+    pub owner: Option<String>,
 
     /// RPC endpoint URL
     #[clap(long = "rpc")]
@@ -27,16 +27,16 @@ pub struct Balance {
 impl Balance {
     pub async fn execute(&self) -> Result<()> {
         let rpc = get_rpc_endpoint(self.rpc_endpoint.clone());
-        let address_normalized = resolve_sender(self.address.clone())?;
+        let owner = resolve_sender(self.owner.clone())?;
 
-        eprintln!("Querying token balances...");
-        eprintln!("   Address: {}", address_normalized);
+        eprintln!("Querying owner token balances...");
+        eprintln!("   Owner: {}", owner);
         eprintln!("   RPC: {}\n", rpc);
 
         let _client = RpcClient::new(&rpc);
 
         let request = GetAllBalancesRequest {
-            address: address_normalized.clone(),
+            owner: owner.clone(),
         };
 
         let rpc_request = RpcRequest {

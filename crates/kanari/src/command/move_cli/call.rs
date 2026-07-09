@@ -3,7 +3,7 @@
 
 use crate::command::common::resolve_transaction_gas;
 use crate::command::common::{
-    build_blocking_client, get_account_sequence, get_rpc_endpoint, get_sender_for_tx,
+    build_blocking_client, get_owner_sequence, get_rpc_endpoint, get_sender_for_tx,
     load_wallet_for, normalize_addr, resolve_sender,
 };
 use anyhow::{Context, Result};
@@ -138,7 +138,7 @@ impl Call {
 
         // Query account sequence number so signature and RPC include it (fail-fast)
         let client = build_blocking_client(30)?;
-        let seq_num: u64 = get_account_sequence(&client, &rpc, &sender_for_tx)?;
+        let seq_num: u64 = get_owner_sequence(&client, &rpc, &sender_for_tx)?;
 
         // Sign transaction using the loaded wallet via SignedTransaction
         let signed_tx = {

@@ -33,7 +33,7 @@ impl Stats {
         eprintln!("  Total Blocks: {}", stats.total_blocks);
         eprintln!("  Total Transactions: {}", stats.total_transactions);
         eprintln!("  Pending Transactions: {}", stats.pending_transactions);
-        eprintln!("  Total Accounts: {}", stats.total_accounts);
+        eprintln!("  Total Owners: {}", stats.total_owners);
         eprintln!("  Total Supply: {:.0} KANARI", total_supply_kanari);
         eprintln!("----------------------------------------");
 

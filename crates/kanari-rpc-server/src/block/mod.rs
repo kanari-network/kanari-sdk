@@ -78,7 +78,7 @@ pub async fn handle_get_stats(state: &RpcServerState, request: &RpcRequest) -> R
         total_blocks: stats.total_blocks,
         total_transactions: stats.total_transactions,
         pending_transactions: stats.pending_transactions,
-        total_accounts: stats.total_accounts,
+        total_owners: stats.total_owners,
         total_supply: stats.total_supply,
         state_root: stats.state_root,
     };

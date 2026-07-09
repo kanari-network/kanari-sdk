@@ -12,7 +12,7 @@ fn format_token_type(type_: &str) -> String {
     type_.to_string()
 }
 
-/// List owned objects
+/// List objects owned by one owner
 #[derive(Parser, Debug)]
 pub struct Objects {
     /// Owner address to query (optional). If omitted, uses selected wallet in config.
@@ -37,7 +37,7 @@ impl Objects {
         let rpc = get_rpc_endpoint(self.rpc_endpoint.clone());
         let owner_address = resolve_sender(self.owner.clone())?;
 
-        eprintln!("Querying owned objects...");
+        eprintln!("Querying owner objects...");
         eprintln!("   Owner: {}", owner_address);
         if let Some(ref obj_type) = self.object_type {
             eprintln!("   Type filter: {}", obj_type);

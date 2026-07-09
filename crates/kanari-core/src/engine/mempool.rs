@@ -92,8 +92,9 @@ impl BlockchainEngine {
                 sequences.entry(sender.clone()).or_insert_with(|| {
                     KanariAddress::parse_to_account_address(sender)
                         .ok()
-                        .and_then(|sender_addr| state.get_account(&sender_addr))
-                        .map(|acc| acc.sequence_number)
+                        .and_then(|sender_addr| {
+                            state.resolve_owner_sequence_number(&sender_addr).ok()
+                        })
                         .unwrap_or(0)
                 });
             }
@@ -229,10 +230,10 @@ impl BlockchainEngine {
             let addr = KanariAddress::parse_to_account_address(sender_addr)?;
 
             for _ in 0..self.pending_tx_count_for_sender(sender_addr) {
-                if let Some(mut acct) = state_snapshot.get_account(&addr) {
-                    acct.increment_sequence();
-                    if let Err(e) = state_snapshot.save_account(&acct) {
-                        error!("Failed to save account during sequence update: {}", e);
+                if let Some(mut owner_state) = state_snapshot.get_owner_state(&addr) {
+                    owner_state.increment_sequence();
+                    if let Err(e) = state_snapshot.save_owner_state(&owner_state) {
+                        error!("Failed to save owner state during sequence update: {}", e);
                     }
                 }
             }

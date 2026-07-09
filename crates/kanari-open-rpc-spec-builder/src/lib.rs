@@ -67,7 +67,7 @@ pub fn run_action(action: Action) -> Result<()> {
             }
             let names: std::collections::BTreeSet<_> = doc.methods.iter().map(|m| m.name).collect();
             for required in [
-                methods::GET_ACCOUNT,
+                methods::GET_OWNER,
                 methods::GET_STATS,
                 methods::HEALTH,
                 methods::VIEW_FUNCTION,
@@ -109,7 +109,7 @@ mod tests {
         assert!(
             spec.methods
                 .iter()
-                .any(|method| method.name == methods::GET_ACCOUNT)
+                .any(|method| method.name == methods::GET_OWNER)
         );
         assert!(
             spec.methods

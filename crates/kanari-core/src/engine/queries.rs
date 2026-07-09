@@ -1,9 +1,8 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use kanari_rpc_api::{AccountInfo, BlockData, BlockchainStats, FullBlockData};
+use kanari_rpc_api::{BlockData, BlockchainStats, FullBlockData, OwnerInfo};
 use kanari_types::address::Address as KanariAddress;
-use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use log::{info, warn};
 
 use super::*;
@@ -40,60 +39,32 @@ impl BlockchainEngine {
             total_blocks: chain.dag_checkpoints.len(),
             total_transactions: chain.get_transaction_count(),
             pending_transactions,
-            total_accounts: state.account_count(),
+            total_owners: state.owner_count(),
             total_supply: state.total_supply,
             state_root: hex::encode(&chain.latest_checkpoint().state_root),
         }
     }
 
-    pub fn get_account_info(&self, address: &str) -> Option<AccountInfo> {
+    pub fn get_owner_info(&self, owner: &str) -> Option<OwnerInfo> {
         let state = self.state_read();
 
-        state.get_account_by_hex(address).map(|acc| {
+        state.get_owner_state_by_hex(owner).map(|acc| {
             let final_owned_objects = self.resolve_account_objects(&state, &acc.address);
-            let sequence_number = self.get_expected_sequence(address);
-            let mut actual_token_balances = std::collections::BTreeMap::new();
+            let sequence_number = self.get_expected_sequence(owner);
+            let balances = state
+                .resolve_owner_token_balances(acc.address)
+                .unwrap_or_else(|_| {
+                    acc.token_balances
+                        .iter()
+                        .map(|(token_type, balance)| (token_type.clone(), balance.value()))
+                        .collect()
+                });
 
-            for obj in &final_owned_objects {
-                if !obj.type_.contains("::coin::Coin<") || obj.data.len() < 40 {
-                    continue;
-                }
-
-                let Some(start) = obj.type_.find('<') else {
-                    continue;
-                };
-                let Some(end) = obj.type_.rfind('>') else {
-                    continue;
-                };
-
-                let token_type = obj.type_[start + 1..end].to_string();
-                if token_type == KANARI_TOKEN_TYPE {
-                    continue;
-                }
-
-                let mut amount_bytes = [0u8; 8];
-                amount_bytes.copy_from_slice(&obj.data[32..40]);
-                let amount = u64::from_le_bytes(amount_bytes);
-
-                let entry = actual_token_balances.entry(token_type).or_insert(0u64);
-                *entry = entry.saturating_add(amount);
-            }
-
-            for (token_type, balance) in &acc.token_balances {
-                if token_type == KANARI_TOKEN_TYPE {
-                    actual_token_balances.insert(token_type.clone(), balance.value());
-                } else {
-                    actual_token_balances
-                        .entry(token_type.clone())
-                        .or_insert_with(|| balance.value());
-                }
-            }
-
-            AccountInfo {
-                address: format!("{:#x}", acc.address),
+            OwnerInfo {
+                owner: format!("{:#x}", acc.owner_address()),
                 sequence_number,
                 modules: acc.modules.iter().cloned().collect(),
-                token_balances: actual_token_balances,
+                balances,
                 owned_objects: Some(final_owned_objects),
             }
         })
@@ -322,6 +293,8 @@ mod tests {
     use super::*;
     use crate::{CheckpointSyncData, consensus::Checkpoint};
     use kanari_crypto::keys::{CurveType, generate_keypair};
+    use kanari_move_runtime_v1::changeset::ChangeSet;
+    use kanari_types::address::Address as KanariAddress;
     use kanari_types::transaction::{SignedTransaction, Transaction};
 
     fn signed_transfer(sequence_number: u64) -> SignedTransaction {
@@ -372,6 +345,15 @@ mod tests {
             chain.latest_checkpoint().hash().unwrap()
         };
         let signed_tx = signed_transfer(0);
+        let sender =
+            KanariAddress::parse_to_account_address(signed_tx.transaction.sender_address())
+                .unwrap();
+        {
+            let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
+            let mut mint = ChangeSet::new();
+            mint.mint(sender, 1_000_000);
+            state.apply_changeset(&mint).unwrap();
+        }
         let checkpoint = Checkpoint::new(1, vec![], vec![signed_tx], vec![9u8; 32], 42, prev_hash);
         let sync_data = CheckpointSyncData { checkpoint };
 
