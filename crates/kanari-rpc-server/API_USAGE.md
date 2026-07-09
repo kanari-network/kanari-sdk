@@ -152,7 +152,7 @@ Request `params` (`ObjectTransferData`):
 }
 ```
 
-`coin_object_id` must identify the `Coin<0x2::kanari::KANARI>` object that will be split for the transfer. When `execute_immediate` is `true`, the RPC server attempts execution immediately and returns the resulting changeset. When omitted or `false`, the transaction is submitted as pending.
+`coin_object_id` must identify the `Coin<0x2::kanari::KANARI>` object that will be split for the transfer. When `execute_immediate` is `true`, the RPC server runs a pre-execution preview, returns the simulated effects, and then submits the signed transaction as pending. It does not commit a checkpoint inline. When omitted or `false`, the transaction is submitted as pending without the preview.
 
 **Examples (curl)**
 
@@ -183,7 +183,7 @@ curl -X POST http://127.0.0.1:19001/rpc \
 **Notes & tips**
 
 - All numeric byte arrays use JSON arrays of integers for `Vec<u8>` fields (e.g. `module_bytes`).
-- `execute_immediate` is optional and, if true, will attempt to run the transaction immediately and return the changeset.
+- `execute_immediate` is optional and, if true, returns a preview with status `simulated_pending` before normal checkpoint commit happens later.
 - Errors use the `RpcError` structure with standard JSON-RPC error codes for parse/invalid/method-not-found and custom module/transaction error codes for runtime failures.
 
 For more details on the request/response types, see the API definitions in the crate: [crates/kanari-rpc-api/src/lib.rs](crates/kanari-rpc-api/src/lib.rs).

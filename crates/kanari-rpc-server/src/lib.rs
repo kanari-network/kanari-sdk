@@ -750,7 +750,7 @@ mod tests {
         )
         .await;
 
-        assert_eq!(submitted["status"], "executed");
+        assert_eq!(submitted["status"], "simulated_pending");
         assert_eq!(submitted["action"], "submit");
         assert!(submitted["changeset"].is_object());
 

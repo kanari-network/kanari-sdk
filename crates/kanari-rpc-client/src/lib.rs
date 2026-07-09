@@ -145,7 +145,14 @@ impl RpcClient {
                 .require("missing transaction status")?
                 .to_string(),
             block_height: None,
-            gas_used: None,
+            gas_used: result["gas_used"].as_u64(),
+            success: result["success"].as_bool().unwrap_or(matches!(
+                result["status"].as_str().unwrap_or_default(),
+                "pending" | "executed" | "committed" | "simulated_pending"
+            )),
+            previewed: result["previewed"].as_bool().unwrap_or(false),
+            submitted: result["submitted"].as_bool().unwrap_or(false),
+            committed: result["committed"].as_bool().unwrap_or(false),
         };
 
         Ok(status)
@@ -169,7 +176,14 @@ impl RpcClient {
                 .require("missing transaction status")?
                 .to_string(),
             block_height: None,
-            gas_used: None,
+            gas_used: result["gas_used"].as_u64(),
+            success: result["success"].as_bool().unwrap_or(matches!(
+                result["status"].as_str().unwrap_or_default(),
+                "pending" | "executed" | "committed" | "simulated_pending"
+            )),
+            previewed: result["previewed"].as_bool().unwrap_or(false),
+            submitted: result["submitted"].as_bool().unwrap_or(false),
+            committed: result["committed"].as_bool().unwrap_or(false),
         };
 
         Ok(status)
@@ -193,7 +207,14 @@ impl RpcClient {
                 .require("missing transaction status")?
                 .to_string(),
             block_height: None,
-            gas_used: None,
+            gas_used: result["gas_used"].as_u64(),
+            success: result["success"].as_bool().unwrap_or(matches!(
+                result["status"].as_str().unwrap_or_default(),
+                "pending" | "executed" | "committed" | "simulated_pending"
+            )),
+            previewed: result["previewed"].as_bool().unwrap_or(false),
+            submitted: result["submitted"].as_bool().unwrap_or(false),
+            committed: result["committed"].as_bool().unwrap_or(false),
         };
 
         Ok(status)

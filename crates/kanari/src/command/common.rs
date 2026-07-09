@@ -128,10 +128,13 @@ pub async fn sign_and_call_function(
         .await
         .context("Failed to submit transaction")?;
 
-    if status.status != "pending" && status.status != "executed" && status.status != "committed" {
+    if !status.success || (!status.submitted && !status.committed) {
         bail!(
-            "Transaction was not successful (status: {}). Tx hash: {}",
+            "Transaction was not successful (status: {}, submitted: {}, committed: {}, previewed: {}). Tx hash: {}",
             status.status,
+            status.submitted,
+            status.committed,
+            status.previewed,
             status.hash
         );
     }

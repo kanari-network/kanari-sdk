@@ -228,6 +228,14 @@ pub struct TransactionStatus {
     pub status: String,
     pub block_height: Option<u64>,
     pub gas_used: Option<u64>,
+    #[serde(default)]
+    pub success: bool,
+    #[serde(default)]
+    pub previewed: bool,
+    #[serde(default)]
+    pub submitted: bool,
+    #[serde(default)]
+    pub committed: bool,
 }
 
 /// Detailed transaction information returned by `getTransaction` and `getAllTransactions`.
@@ -264,6 +272,14 @@ pub struct TransactionResult {
     pub hash: String,
     pub status: String,
     pub gas_used: u64,
+    #[serde(default)]
+    pub success: bool,
+    #[serde(default)]
+    pub previewed: bool,
+    #[serde(default)]
+    pub submitted: bool,
+    #[serde(default)]
+    pub committed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effects: Option<TransactionEffects>,
     #[serde(skip_serializing_if = "Option::is_none")]

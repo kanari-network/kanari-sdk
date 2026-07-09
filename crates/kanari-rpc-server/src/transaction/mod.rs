@@ -417,7 +417,11 @@ fn submit_pending_response(
                 serde_json::json!({
                     "hash": tx_hash,
                     "status": "pending",
-                    "action": action
+                    "action": action,
+                    "success": true,
+                    "previewed": false,
+                    "submitted": true,
+                    "committed": false
                 }),
             )
         }
@@ -494,6 +498,10 @@ async fn execute_or_submit_response(
                         hash: tx_hash_hex,
                         status: "failed".to_string(),
                         gas_used: changeset.gas_used,
+                        success: false,
+                        previewed: true,
+                        submitted: false,
+                        committed: false,
                         effects: Some(changeset.effects(None)),
                         error_message: changeset.error_message.clone(),
                     },
@@ -516,15 +524,19 @@ async fn execute_or_submit_response(
             state.broadcast_submitted_transaction(tx_for_broadcast);
 
             info!(
-                "{} executed immediately & submitted: {}",
+                "{} previewed immediately & submitted pending: {}",
                 action, tx_hash_hex
             );
             respond_with_serialize(
                 request_id,
                 kanari_rpc_api::TransactionResult {
                     hash: tx_hash_hex,
-                    status: "executed".to_string(),
+                    status: "simulated_pending".to_string(),
                     gas_used: changeset.gas_used,
+                    success: true,
+                    previewed: true,
+                    submitted: true,
+                    committed: false,
                     effects: Some(changeset.effects(None)),
                     error_message: None,
                 },

@@ -252,6 +252,10 @@ impl TokenTransfer {
         eprintln!("  Transaction submitted successfully");
         eprintln!("  Transaction hash: {}", status.hash);
         eprintln!("  Status: {}", status.status);
+        eprintln!(
+            "  Outcome: success={} previewed={} submitted={} committed={}",
+            status.success, status.previewed, status.submitted, status.committed
+        );
 
         Ok(())
     }

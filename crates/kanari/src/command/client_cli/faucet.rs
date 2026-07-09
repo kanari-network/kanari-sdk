@@ -43,8 +43,13 @@ impl Faucet {
         .context("Faucet request failed")?;
 
         eprintln!(
-            "Faucet tx submitted: hash={} status={}",
-            status.hash, status.status
+            "Faucet tx submitted: hash={} status={} success={} previewed={} submitted={} committed={}",
+            status.hash,
+            status.status,
+            status.success,
+            status.previewed,
+            status.submitted,
+            status.committed
         );
 
         Ok(())
