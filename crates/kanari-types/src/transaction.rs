@@ -402,7 +402,9 @@ impl Transaction {
         keys.push(format!("owner:{}", sender_norm));
 
         match self {
-            Transaction::ExecuteFunction { args, .. } if keys.len() == 1 => {
+            Transaction::ExecuteFunction { args, .. }
+                if keys.len() == 1 && self.native_call().is_some() =>
+            {
                 for arg in args {
                     if arg.len() == 32
                         && let Ok(addr) = AccountAddress::from_bytes(arg)
@@ -790,6 +792,27 @@ mod tests {
 
         let gas_payment = tx.gas_payment().expect("transfer should carry gas payment");
         assert_eq!(gas_payment.payment_objects, vec![object_ref]);
+    }
+
+    #[test]
+    fn non_native_execute_function_does_not_infer_conflicts_from_args_only() {
+        let tx = Transaction::ExecuteFunction {
+            sender: "0x1".to_string(),
+            module: "0x99::demo".to_string(),
+            function: "touch".to_string(),
+            type_args: vec![],
+            args: vec![AccountAddress::from_hex_literal("0xaaaa")
+                .unwrap()
+                .to_vec()],
+            object_inputs: Vec::new(),
+            gas_payment: None,
+            gas_limit: 100_000,
+            gas_price: 1,
+            sequence_number: 0,
+        };
+
+        let keys = tx.get_conflict_keys();
+        assert_eq!(keys, vec!["owner:0x1".to_string()]);
     }
 
     #[test]

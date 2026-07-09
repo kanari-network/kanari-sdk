@@ -96,6 +96,17 @@ impl RpcError {
             data: None,
         }
     }
+
+    pub fn transaction_error_with_data(
+        msg: impl Into<String>,
+        data: serde_json::Value,
+    ) -> Self {
+        Self {
+            code: -32002,
+            message: format!("Transaction error: {}", msg.into()),
+            data: Some(data),
+        }
+    }
 }
 
 /// Owner info response

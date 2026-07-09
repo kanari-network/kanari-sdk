@@ -12,6 +12,7 @@ use kanari_move_runtime_v1::storage::persistent_store::PersistentStore;
 use kanari_rpc_api::ObjectInfo;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::error::KanariUnwrapExt;
+use kanari_types::kanari::KANARI_TOKEN_TYPE;
 
 use kanari_types::transaction::{
     ObjectChange, ObjectChangeKind, ObjectGraphEdge, ObjectOwnerKind, ObjectRef,
@@ -187,6 +188,12 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
 }
 
 impl BlockchainEngine {
+    fn is_native_gas_coin_type(object_type: &str) -> bool {
+        let canonical = format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE);
+        let alternate = format!("0x2::coin::coin::Coin<{}>", KANARI_TOKEN_TYPE);
+        object_type == canonical || object_type == alternate
+    }
+
     fn checkpoint_transactions_key(sequence: u64) -> Vec<u8> {
         format!("checkpoint_txs/{sequence:020}").into_bytes()
     }
@@ -1139,6 +1146,12 @@ impl BlockchainEngine {
         sender_addr: AccountAddress,
     ) -> Result<()> {
         let strict_metadata = tx.requires_strict_object_metadata();
+        let mutable_input_ids = tx
+            .object_inputs()
+            .into_iter()
+            .filter(|input| input.mutable)
+            .map(|input| input.object_ref.object_id)
+            .collect::<HashSet<_>>();
 
         for input in tx.object_inputs() {
             if strict_metadata {
@@ -1247,6 +1260,13 @@ impl BlockchainEngine {
                 let stored = state
                     .get_object(&payment.object_id)?
                     .ok_or_else(|| anyhow::anyhow!("Gas payment object {} does not exist", payment.object_id))?;
+                ensure!(
+                    Self::is_native_gas_coin_type(&stored.type_),
+                    "Gas payment object {} must be Coin<{}>, found {}",
+                    payment.object_id,
+                    KANARI_TOKEN_TYPE,
+                    stored.type_
+                );
                 if stored.owner != expected_owner {
                     anyhow::bail!(
                         "Gas payment object {} is not owned by sender",
@@ -1268,6 +1288,11 @@ impl BlockchainEngine {
                 {
                     anyhow::bail!("Gas payment digest mismatch for {}", payment.object_id);
                 }
+                ensure!(
+                    !mutable_input_ids.contains(&payment.object_id),
+                    "Gas payment object {} cannot overlap with a mutable object input",
+                    payment.object_id
+                );
             }
         }
 
@@ -1515,6 +1540,16 @@ mod tests {
         coin_object_id: &str,
         balance: u64,
     ) {
+        fund_sender_with_coin_type(engine, address, coin_object_id, balance, KANARI_TOKEN_TYPE);
+    }
+
+    fn fund_sender_with_coin_type(
+        engine: &BlockchainEngine,
+        address: &str,
+        coin_object_id: &str,
+        balance: u64,
+        token_type: &str,
+    ) {
         let addr = AccountAddress::from_hex_literal(address).unwrap();
         let mut coin_data = vec![0u8; 40];
         coin_data[32..40].copy_from_slice(&balance.to_le_bytes());
@@ -1536,7 +1571,7 @@ mod tests {
                 ),
                 uid: None,
                 id: None,
-                type_: format!("0x2::coin::Coin<{}>", KANARI_TOKEN_TYPE),
+                type_: format!("0x2::coin::Coin<{}>", token_type),
                 data: coin_data,
                 version: 1,
             },
@@ -1548,35 +1583,34 @@ mod tests {
         let mut owner_state = state
             .get_owner_state(&addr)
             .unwrap_or_else(|| OwnerState::new(addr));
-        owner_state.set_token_balance(
-            KANARI_TOKEN_TYPE.to_string(),
-            BalanceRecord::new(balance),
-        );
+        owner_state.set_token_balance(token_type.to_string(), BalanceRecord::new(balance));
         state.save_owner_state(&owner_state).unwrap();
 
-        let updated_total = previous_total.saturating_add(balance);
-        let updated_visible = previous_visible.saturating_add(balance);
-        state.total_supply = updated_total;
-        state
-            .store
-            .save(b"total_supply", &updated_total)
-            .unwrap();
-        state
-            .store
-            .save(
-                format!("supply:{}", KANARI_TOKEN_TYPE).as_bytes(),
-                &TreasuryCap {
-                    total_supply: updated_total,
-                },
-            )
-            .unwrap();
-        state
-            .global_token_supplies
-            .insert(KANARI_TOKEN_TYPE.to_string(), updated_visible);
-        state
-            .store
-            .save(b"global_token_supplies", &state.global_token_supplies)
-            .unwrap();
+        if token_type == KANARI_TOKEN_TYPE {
+            let updated_total = previous_total.saturating_add(balance);
+            let updated_visible = previous_visible.saturating_add(balance);
+            state.total_supply = updated_total;
+            state
+                .store
+                .save(b"total_supply", &updated_total)
+                .unwrap();
+            state
+                .store
+                .save(
+                    format!("supply:{}", KANARI_TOKEN_TYPE).as_bytes(),
+                    &TreasuryCap {
+                        total_supply: updated_total,
+                    },
+                )
+                .unwrap();
+            state
+                .global_token_supplies
+                .insert(KANARI_TOKEN_TYPE.to_string(), updated_visible);
+            state
+                .store
+                .save(b"global_token_supplies", &state.global_token_supplies)
+                .unwrap();
+        }
     }
 
     #[test]
@@ -1967,5 +2001,61 @@ mod tests {
         assert!(err
             .to_string()
             .contains("must include (object_id, version, digest)"));
+    }
+
+    #[test]
+    fn gas_payment_object_must_be_native_kanari_coin() {
+        let engine = BlockchainEngine::new_in_memory().unwrap();
+        let sender = generate_keypair(CurveType::Ed25519).unwrap();
+        fund_sender_with_coin_type(
+            &engine,
+            &sender.address,
+            "0xaaaa",
+            1_000_000,
+            "0x2::james::JAMES",
+        );
+
+        let tx = Transaction::ExecuteFunction {
+            sender: sender.tagged_address(),
+            module: "0x2::kanari".to_string(),
+            function: "burn_amount".to_string(),
+            type_args: vec![],
+            args: vec![bcs::to_bytes(&1u64).unwrap()],
+            object_inputs: vec![],
+            gas_payment: Some(GasPayment {
+                payment_objects: vec![ObjectRef::new("0xaaaa", None, None)],
+                owner: sender.address.clone(),
+                budget: 100_000,
+                price: 1,
+            }),
+            gas_limit: 100_000,
+            gas_price: 1,
+            sequence_number: 0,
+        };
+        let mut signed_tx = SignedTransaction::new(tx);
+        signed_tx.sign(&sender.private_key, sender.curve_type).unwrap();
+
+        let err = engine.execute_transaction_immediate(signed_tx).unwrap_err();
+        assert!(err.to_string().contains("must be Coin<"));
+    }
+
+    #[test]
+    fn gas_payment_object_cannot_overlap_mutable_object_input() {
+        let engine = BlockchainEngine::new_in_memory().unwrap();
+        let sender = generate_keypair(CurveType::Ed25519).unwrap();
+        fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 1_000_000);
+
+        let tx = Transaction::new_transfer(
+            sender.tagged_address(),
+            "0xaaaa".to_string(),
+            generate_keypair(CurveType::Ed25519).unwrap().address,
+            1,
+            0,
+        );
+        let mut signed_tx = SignedTransaction::new(tx);
+        signed_tx.sign(&sender.private_key, sender.curve_type).unwrap();
+
+        let err = engine.execute_transaction_immediate(signed_tx).unwrap_err();
+        assert!(err.to_string().contains("cannot overlap with a mutable object input"));
     }
 }

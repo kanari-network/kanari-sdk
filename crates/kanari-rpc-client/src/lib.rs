@@ -54,6 +54,19 @@ impl RpcClient {
             response.json().await.context("Failed to parse response")?;
 
         if let Some(error) = rpc_response.error {
+            let reason = error
+                .data
+                .as_ref()
+                .and_then(|data| data.get("reason"))
+                .and_then(|value| value.as_str());
+            if let Some(reason) = reason {
+                anyhow::bail!(
+                    "RPC error: {} (code: {}, reason: {})",
+                    error.message,
+                    error.code,
+                    reason
+                );
+            }
             anyhow::bail!("RPC error: {} (code: {})", error.message, error.code);
         }
 

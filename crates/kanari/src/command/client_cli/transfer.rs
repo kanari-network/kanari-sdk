@@ -2,10 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::command::common::{
-    check_node_connection, consolidate_coin_objects, get_rpc_endpoint, get_sender_for_tx,
-    load_wallet_for, normalize_addr, object_call_context, resolve_sender, resolve_transaction_gas,
-    select_native_coin_object, sign_and_call_function, spendable_coin_objects,
+    check_node_connection, get_rpc_endpoint, get_sender_for_tx, load_wallet_for, normalize_addr,
+    resolve_sender, resolve_transaction_gas,
 };
+use crate::command::gas_and_coin_selection::{
+    build_native_gas_payment, consolidate_coin_objects, object_call_context,
+    select_native_coin_object, spendable_coin_objects,
+};
+use crate::command::rpc_helpers::sign_and_call_function;
+use crate::command::tx_output::print_transaction_status;
 use anyhow::{Context, Result};
 use clap::Parser;
 use kanari_rpc_api::CallFunctionRequest;
@@ -113,12 +118,22 @@ impl Transfer {
             selected_coin.total_balance
         );
 
-        let (object_inputs, gas_payment) = object_call_context(
+        let (object_inputs, mut gas_payment) = object_call_context(
             &sender_tagged,
             selected_coin.coin_object_ref.clone(),
             gas_limit,
             gas_price,
         );
+        let (gas_coin, explicit_gas_payment) = build_native_gas_payment(
+            owned_objects,
+            &sender_tagged,
+            gas_limit,
+            gas_price,
+            &[selected_coin.coin_object_id.as_str()],
+        )
+        .unwrap_or_else(|_| (selected_coin.clone(), gas_payment.clone()));
+        eprintln!("  Gas payment object: {}", gas_coin.coin_object_id);
+        gas_payment = explicit_gas_payment;
 
         let call_req = CallFunctionRequest {
             sender: sender_tagged.clone(),
@@ -152,13 +167,7 @@ impl Transfer {
 
         let status = sign_and_call_function(&client, &wallet, call_req).await?;
 
-        eprintln!("  Transaction submitted successfully");
-        eprintln!("  Transaction hash: {}", status.hash);
-        eprintln!("  Status: {}", status.status);
-        eprintln!(
-            "  Outcome: success={} previewed={} submitted={} committed={}",
-            status.success, status.previewed, status.submitted, status.committed
-        );
+        print_transaction_status("  ", &status);
 
         Ok(())
     }

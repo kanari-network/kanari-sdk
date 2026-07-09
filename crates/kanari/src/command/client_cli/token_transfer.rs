@@ -3,8 +3,11 @@
 
 use crate::command::common::{
     check_node_connection, get_rpc_endpoint, get_sender_for_tx, load_wallet_for, normalize_addr,
-    object_call_context, resolve_sender, resolve_transaction_gas, sign_call_function_request,
+    resolve_sender, resolve_transaction_gas,
 };
+use crate::command::gas_and_coin_selection::{build_native_gas_payment, object_call_context};
+use crate::command::rpc_helpers::sign_call_function_request;
+use crate::command::tx_output::print_transaction_status;
 use anyhow::{Context, Result};
 use clap::Parser;
 use kanari_rpc_api::CallFunctionRequest;
@@ -203,12 +206,21 @@ impl TokenTransfer {
 
         let package_address = module_parts[0].to_string();
         let module_name = module_parts[1].to_string();
-        let (object_inputs, gas_payment) = object_call_context(
+        let (object_inputs, _) = object_call_context(
             &sender_tagged,
             selected_coin_ref.invariant("selected coin ref checked"),
             gas_limit,
             gas_price,
         );
+        let (gas_coin, explicit_gas_payment) = build_native_gas_payment(
+            owner.owned_objects.as_deref().unwrap_or(&[]),
+            &sender_tagged,
+            gas_limit,
+            gas_price,
+            &[coin_object_id.as_str()],
+        )
+        .context("No spendable native gas coin object found for token transfer")?;
+        eprintln!("  Gas payment object: {}", gas_coin.coin_object_id);
 
         // Create the CallFunctionRequest for transfer_amount
         let call_req = CallFunctionRequest {
@@ -231,7 +243,7 @@ impl TokenTransfer {
             gas_limit,
             gas_price,
             sequence_number: owner.sequence_number,
-            gas_payment: Some(gas_payment),
+            gas_payment: Some(explicit_gas_payment),
             signature: None, // Will be set after signing
             execute_immediate: Some(true),
         };
@@ -249,13 +261,7 @@ impl TokenTransfer {
             .await
             .context("Failed to submit transaction")?;
 
-        eprintln!("  Transaction submitted successfully");
-        eprintln!("  Transaction hash: {}", status.hash);
-        eprintln!("  Status: {}", status.status);
-        eprintln!(
-            "  Outcome: success={} previewed={} submitted={} committed={}",
-            status.success, status.previewed, status.submitted, status.committed
-        );
+        print_transaction_status("  ", &status);
 
         Ok(())
     }

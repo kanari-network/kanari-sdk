@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::reroot_path;
-use crate::command::common::resolve_transaction_gas;
 use crate::command::common::{
-    build_blocking_client, get_owner_sequence, get_rpc_endpoint, get_sender_for_tx,
-    load_wallet_for, normalize_addr, resolve_sender,
+    build_blocking_client, get_rpc_endpoint, get_sender_for_tx, load_wallet_for, normalize_addr,
+    resolve_sender, resolve_transaction_gas,
 };
+use crate::command::rpc_helpers::get_owner_sequence;
+use crate::command::tx_output::{print_json_value, print_rpc_error, print_transaction_result};
 use anyhow::{Result, bail};
 use clap::*;
 use kanari_types::error::KanariUnwrapExt;
@@ -208,7 +209,7 @@ impl Publish {
                 Ok(resp) => match resp.json::<RpcResponse>() {
                     Ok(rpc_resp) => {
                         if let Some(err) = rpc_resp.error {
-                            error!("     RPC error: {} (code {})", err.message, err.code);
+                            print_rpc_error("     ", &err);
                         } else {
                             // No RPC error -> consider request accepted by node
                             if let Some(result) = rpc_resp.result {
@@ -218,21 +219,11 @@ impl Publish {
                                         result.clone(),
                                     )
                                 {
-                                    eprintln!("     Transaction: {}", tx_result.hash);
-                                    eprintln!("     Status: {}", tx_result.status);
-                                    eprintln!("     Gas used: {} Mist", tx_result.gas_used);
-
-                                    // Show error message if transaction failed
-                                    if let Some(ref error_msg) = tx_result.error_message {
-                                        error!("     Transaction failed: {}", error_msg);
-                                    }
+                                    print_transaction_result("     ", &tx_result);
                                 }
 
                                 // Always print the RPC result to show any side effects (like created objects)
-                                match serde_json::to_string_pretty(&result) {
-                                    Ok(s) => eprintln!("     RPC result:\n{}", s),
-                                    Err(_) => eprintln!("     RPC result: {}", result),
-                                }
+                                print_json_value("     ", "RPC result", &result);
                             } else {
                                 eprintln!("     RPC response has no result and no error");
                             }

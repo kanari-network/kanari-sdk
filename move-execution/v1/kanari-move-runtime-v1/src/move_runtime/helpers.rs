@@ -74,7 +74,12 @@ impl super::MoveRuntime {
             }
         }
 
-        // Scan through arguments to find potential object IDs (32-byte addresses)
+        if !object_inputs.is_empty() {
+            return Ok(());
+        }
+
+        // Legacy fallback: scan arguments only when the transaction did not
+        // declare object inputs explicitly.
         for arg in args {
             if arg.len() == 32 {
                 let Ok(object_addr) = AccountAddress::from_bytes(arg.as_slice()) else {

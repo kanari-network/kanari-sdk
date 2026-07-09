@@ -9,10 +9,13 @@
 //! ```
 
 use crate::command::common::{
-    consolidate_coin_objects, get_rpc_endpoint, get_sender_for_tx, load_wallet_for,
-    normalize_addr, object_call_context, resolve_sender, select_native_coin_object,
-    sign_and_call_function, spendable_coin_objects,
+    get_rpc_endpoint, get_sender_for_tx, load_wallet_for, normalize_addr, resolve_sender,
 };
+use crate::command::gas_and_coin_selection::{
+    build_native_gas_payment, consolidate_coin_objects, object_call_context,
+    select_native_coin_object, spendable_coin_objects,
+};
+use crate::command::rpc_helpers::sign_and_call_function;
 use anyhow::{Context, Result};
 use clap::Parser;
 use kanari_rpc_api::CallFunctionRequest;
@@ -210,6 +213,19 @@ impl StressTest {
             "  Selected coin balance: {:.9} KANARI",
             selected_coin.selected_balance as f64 / MIST_PER_KANARI
         );
+        let (gas_coin, explicit_gas_payment) = build_native_gas_payment(
+            owned_objects,
+            &sender_tagged,
+            100_000,
+            1,
+            &[selected_coin.coin_object_id.as_str()],
+        )
+        .unwrap_or_else(|_| {
+            let (_, gas_payment) =
+                object_call_context(&sender_tagged, selected_coin.coin_object_ref.clone(), 100_000, 1);
+            (selected_coin.clone(), gas_payment)
+        });
+        eprintln!("  Gas payment object: {}", gas_coin.coin_object_id);
 
         // ── Step 4: Send N transactions ──
         eprintln!();
@@ -221,7 +237,7 @@ impl StressTest {
         let report_interval = (self.count / 20).max(1); // ~5% progress report
 
         for i in 0..self.count {
-            let (object_inputs, gas_payment) = object_call_context(
+            let (object_inputs, _) = object_call_context(
                 &sender_tagged,
                 selected_coin.coin_object_ref.clone(),
                 100_000,
@@ -251,7 +267,7 @@ impl StressTest {
                 gas_limit: 100_000,
                 gas_price: 1,
                 sequence_number: seq,
-                gas_payment: Some(gas_payment),
+                gas_payment: Some(explicit_gas_payment.clone()),
                 signature: None,
                 // false = go through mempool -> DAG -> P2P gossip to all nodes
                 // false = go through mempool → DAG → P2P gossip to all nodes

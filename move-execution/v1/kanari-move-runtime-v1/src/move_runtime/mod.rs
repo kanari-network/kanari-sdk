@@ -3,7 +3,7 @@
 
 use crate::storage::resolver::KanariMoveResolver;
 use crate::state::default_owner_kind_for_type;
-use anyhow::Result;
+use anyhow::{Context, Result, ensure};
 use kanari_crypto::hash_data_blake3;
 use kanari_system_natives::dynamic_field::DynamicFieldsExt;
 use kanari_system_natives::event::EventsExt;
@@ -33,7 +33,7 @@ mod object_ops;
 mod parsers;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::gas::GasOperation;
-use kanari_types::transaction::ObjectInput;
+use kanari_types::transaction::{ObjectInput, ObjectOwnerKind};
 use kanari_types::tx_context::TxContextModule;
 mod move_runtime_extensions;
 use crate::changeset::ChangeSet;
@@ -78,6 +78,12 @@ type LoadedMutableObject = (
     String,
     u64,
 );
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ObjectParamBindingRequirement {
+    param_index: usize,
+    mutable: bool,
+}
 
 #[derive(Clone)]
 struct ExecutionOptions {
@@ -125,6 +131,55 @@ impl ExecutionOptions {
 }
 
 impl MoveRuntime {
+    fn is_tx_context_struct(struct_tag: &StructTag) -> bool {
+        let sys_addr = KanariAddress::kanari_system_account_address();
+        struct_tag.address == sys_addr
+            && struct_tag.module.as_str() == TxContextModule::TX_CONTEXT_MODULE
+            && struct_tag.name.as_str() == TxContextModule::TX_CONTEXT_STRUCT
+    }
+
+    fn validate_declared_object_input_bindings(
+        object_inputs: &[ObjectInput],
+        requirements: &[ObjectParamBindingRequirement],
+    ) -> Result<()> {
+        if object_inputs.is_empty() {
+            return Ok(());
+        }
+
+        if object_inputs.len() != requirements.len() {
+            anyhow::bail!(
+                "Declared object_inputs count mismatch: function expects {} object reference params, got {}",
+                requirements.len(),
+                object_inputs.len()
+            );
+        }
+
+        for (input, requirement) in object_inputs.iter().zip(requirements.iter()) {
+            ensure!(
+                input.mutable == requirement.mutable,
+                "Object input {} mutability does not match function parameter {}",
+                input.object_ref.object_id,
+                requirement.param_index
+            );
+            ensure!(
+                input.owner.is_some(),
+                "Object input {} must declare owner semantics for function parameter {}",
+                input.object_ref.object_id,
+                requirement.param_index
+            );
+            if requirement.mutable {
+                ensure!(
+                    !matches!(input.owner, Some(ObjectOwnerKind::Immutable)),
+                    "Immutable object input {} cannot bind to mutable function parameter {}",
+                    input.object_ref.object_id,
+                    requirement.param_index
+                );
+            }
+        }
+
+        Ok(())
+    }
+
     fn read_vm(&self) -> RwLockReadGuard<'_, MoveVM> {
         self.vm
             .read()
@@ -960,6 +1015,7 @@ impl MoveRuntime {
             .iter()
             .map(|input| input.object_ref.object_id.clone())
             .collect();
+        let mut explicit_object_bindings = object_inputs.iter();
 
         let mut ty_args_loaded = vec![];
         for tag in type_args.iter() {
@@ -991,10 +1047,45 @@ impl MoveRuntime {
                     })
             };
 
+            let binding_requirements = func
+                .parameters
+                .iter()
+                .enumerate()
+                .filter_map(|(i, param_type)| {
+                    let struct_tag = type_tag_for_param(param_type)?;
+                    let TypeTag::Struct(struct_tag) = struct_tag else {
+                        return None;
+                    };
+                    if Self::is_tx_context_struct(&struct_tag) {
+                        return None;
+                    }
+                    match param_type {
+                        RuntimeType::Reference(_) => Some(ObjectParamBindingRequirement {
+                            param_index: i,
+                            mutable: false,
+                        }),
+                        RuntimeType::MutableReference(_) => {
+                            Some(ObjectParamBindingRequirement {
+                                param_index: i,
+                                mutable: true,
+                            })
+                        }
+                        _ => None,
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            Self::validate_declared_object_input_bindings(
+                &object_inputs,
+                &binding_requirements,
+            )?;
+
             for (i, param_type) in func.parameters.iter().enumerate() {
                 if i >= final_args.len() {
                     break;
                 }
+
+                let mut bound_from_explicit_input = false;
 
                 if final_args[i].is_empty()
                     && let Some(TypeTag::Struct(struct_tag)) = type_tag_for_param(param_type)
@@ -1005,6 +1096,25 @@ impl MoveRuntime {
                     && let Some(otw_bytes) = Self::synthesize_otw_bytes_from_layout(&layout)
                 {
                     final_args[i] = otw_bytes;
+                }
+
+                if matches!(
+                    param_type,
+                    RuntimeType::Reference(_) | RuntimeType::MutableReference(_)
+                ) && let Some(TypeTag::Struct(_)) = type_tag_for_param(param_type)
+                    && let Some(explicit_input) = explicit_object_bindings.next()
+                {
+                    let explicit_addr = AccountAddress::from_hex_literal(
+                        &explicit_input.object_ref.object_id,
+                    )
+                    .with_context(|| {
+                        format!(
+                            "Invalid explicit object input {} for parameter {}",
+                            explicit_input.object_ref.object_id, i
+                        )
+                    })?;
+                    final_args[i] = explicit_addr.to_vec();
+                    bound_from_explicit_input = true;
                 }
 
                 let is_potential_id = final_args[i].len() == 32;
@@ -1024,7 +1134,9 @@ impl MoveRuntime {
                     }
 
                     if let Some(mut stored_obj) = self.object_storage.get_object(&object_id) {
-                        if let Some(s_addr) = sender {
+                        if !bound_from_explicit_input
+                            && let Some(s_addr) = sender
+                        {
                             let sys_addr = KanariAddress::kanari_system_account_address();
                             let std_addr = KanariAddress::std_account_address();
                             if stored_obj.owner != s_addr
@@ -1114,11 +1226,7 @@ impl MoveRuntime {
                 && let Some(last_param_type) = func.parameters.last()
                 && let Some(TypeTag::Struct(struct_tag)) = type_tag_for_param(last_param_type)
             {
-                let sys_addr = KanariAddress::kanari_system_account_address();
-                if struct_tag.address == sys_addr
-                    && struct_tag.module.as_str() == TxContextModule::TX_CONTEXT_MODULE
-                    && struct_tag.name.as_str() == TxContextModule::TX_CONTEXT_STRUCT
-                {
+                if Self::is_tx_context_struct(&struct_tag) {
                     final_args.push(tx_context_bytes);
                 }
             }
@@ -1554,6 +1662,62 @@ impl MoveRuntime {
         }
 
         serde_json::to_value(bytes).unwrap_or_else(|_| serde_json::Value::Array(Vec::new()))
+    }
+}
+
+#[cfg(test)]
+mod binding_tests {
+    use super::*;
+
+    #[test]
+    fn declared_object_inputs_must_match_reference_param_count() {
+        let err = MoveRuntime::validate_declared_object_input_bindings(
+            &[ObjectInput {
+                object_ref: kanari_types::transaction::ObjectRef::new("0x1", Some(1), Some("d".to_string())),
+                owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner("0x1".to_string())),
+                mutable: true,
+            }],
+            &[],
+        )
+        .expect_err("count mismatch should fail");
+
+        assert!(err.to_string().contains("count mismatch"));
+    }
+
+    #[test]
+    fn declared_object_inputs_must_match_reference_param_mutability() {
+        let err = MoveRuntime::validate_declared_object_input_bindings(
+            &[ObjectInput {
+                object_ref: kanari_types::transaction::ObjectRef::new("0x1", Some(1), Some("d".to_string())),
+                owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner("0x1".to_string())),
+                mutable: false,
+            }],
+            &[ObjectParamBindingRequirement {
+                param_index: 0,
+                mutable: true,
+            }],
+        )
+        .expect_err("mutability mismatch should fail");
+
+        assert!(err.to_string().contains("mutability"));
+    }
+
+    #[test]
+    fn immutable_object_cannot_bind_mutable_reference_param() {
+        let err = MoveRuntime::validate_declared_object_input_bindings(
+            &[ObjectInput {
+                object_ref: kanari_types::transaction::ObjectRef::new("0x1", Some(1), Some("d".to_string())),
+                owner: Some(kanari_types::transaction::ObjectOwnerKind::Immutable),
+                mutable: true,
+            }],
+            &[ObjectParamBindingRequirement {
+                param_index: 0,
+                mutable: true,
+            }],
+        )
+        .expect_err("immutable mutable-ref binding should fail");
+
+        assert!(err.to_string().contains("Immutable object input"));
     }
 }
 

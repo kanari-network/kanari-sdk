@@ -435,6 +435,41 @@ fn maybe_attach_signature(signed_tx: &mut SignedTransaction, signature: Option<V
     }
 }
 
+fn classify_transaction_error_data(message: &str) -> Option<serde_json::Value> {
+    let reason = if message.contains("must be Coin<") {
+        "invalid_gas_payment_type"
+    } else if message.contains("cannot overlap with a mutable object input") {
+        "gas_payment_object_overlap"
+    } else if message.contains("Gas payment object")
+        && message.contains("does not exist")
+    {
+        "gas_payment_object_not_found"
+    } else if message.contains("Gas payment object")
+        && message.contains("is not owned by sender")
+    {
+        "gas_payment_owner_mismatch"
+    } else if message.contains("Gas payment owner must match sender") {
+        "gas_payment_owner_mismatch"
+    } else if message.contains("Gas payment version mismatch") {
+        "gas_payment_version_mismatch"
+    } else if message.contains("Gas payment digest mismatch") {
+        "gas_payment_digest_mismatch"
+    } else {
+        return None;
+    };
+
+    Some(serde_json::json!({ "reason": reason }))
+}
+
+fn transaction_error_with_reason(message: impl Into<String>) -> RpcError {
+    let message = message.into();
+    if let Some(data) = classify_transaction_error_data(&message) {
+        RpcError::transaction_error_with_data(message, data)
+    } else {
+        RpcError::transaction_error(message)
+    }
+}
+
 fn submit_pending_response(
     state: &RpcServerState,
     request_id: u64,
@@ -465,7 +500,7 @@ fn submit_pending_response(
         Err(e) => RpcResponse {
             jsonrpc: "2.0".into(),
             result: None,
-            error: Some(RpcError::transaction_error(format!(
+            error: Some(transaction_error_with_reason(format!(
                 "{}: {}",
                 submit_error, e
             ))),
@@ -563,7 +598,7 @@ async fn execute_or_submit_response(
                 return RpcResponse {
                     jsonrpc: "2.0".into(),
                     result: None,
-                    error: Some(RpcError::transaction_error(format!(
+                    error: Some(transaction_error_with_reason(format!(
                         "Simulation successful, but mempool submission failed: {}",
                         e
                     ))),
@@ -594,7 +629,7 @@ async fn execute_or_submit_response(
         Err(e) => RpcResponse {
             jsonrpc: "2.0".into(),
             result: None,
-            error: Some(RpcError::internal_error(format!(
+            error: Some(transaction_error_with_reason(format!(
                 "Immediate execution failed: {}",
                 e
             ))),
@@ -966,7 +1001,7 @@ pub async fn handle_view_function(state: &RpcServerState, request: &RpcRequest) 
 
 #[cfg(test)]
 mod tests {
-    use super::derive_transaction_state_flags;
+    use super::{classify_transaction_error_data, derive_transaction_state_flags, transaction_error_with_reason};
 
     #[test]
     fn transaction_state_flags_match_pending_status() {
@@ -995,5 +1030,35 @@ mod tests {
         assert!(previewed);
         assert!(submitted);
         assert!(!committed);
+    }
+
+    #[test]
+    fn classifies_invalid_gas_payment_type_error() {
+        let data = classify_transaction_error_data(
+            "Immediate execution failed: Gas payment object 0xabc must be Coin<0x2::kanari::KANARI>, found 0x2::coin::Coin<0x2::foo::BAR>",
+        )
+        .expect("classification should exist");
+        assert_eq!(data["reason"], "invalid_gas_payment_type");
+    }
+
+    #[test]
+    fn classifies_gas_payment_overlap_error() {
+        let data = classify_transaction_error_data(
+            "Submission failed: Gas payment object 0xabc cannot overlap with a mutable object input",
+        )
+        .expect("classification should exist");
+        assert_eq!(data["reason"], "gas_payment_object_overlap");
+    }
+
+    #[test]
+    fn structured_transaction_error_sets_reason_data() {
+        let error = transaction_error_with_reason(
+            "Immediate execution failed: Gas payment object 0xabc cannot overlap with a mutable object input",
+        );
+        assert_eq!(error.code, -32002);
+        assert_eq!(
+            error.data.as_ref().and_then(|data| data.get("reason")),
+            Some(&serde_json::json!("gas_payment_object_overlap"))
+        );
     }
 }

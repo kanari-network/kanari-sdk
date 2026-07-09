@@ -1,15 +1,18 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::command::common::resolve_transaction_gas;
 use crate::command::common::{
-    build_blocking_client, get_owner_sequence, get_rpc_endpoint, get_sender_for_tx,
-    load_wallet_for, normalize_addr, resolve_sender,
+    build_blocking_client, get_rpc_endpoint, get_sender_for_tx, load_wallet_for, normalize_addr,
+    resolve_sender, resolve_transaction_gas,
 };
+use crate::command::gas_and_coin_selection::build_native_gas_payment;
+use crate::command::rpc_helpers::get_owner_info;
+use crate::command::tx_output::{print_json_value, print_rpc_error, print_transaction_result};
 use anyhow::{Context, Result};
 use clap::*;
 use kanari_rpc_api::{CallFunctionRequest, RpcRequest, RpcResponse, methods};
 use kanari_types::error::KanariUnwrapExt;
+use kanari_types::kanari::KANARI_TOKEN_TYPE;
 use kanari_types::transaction::{SignedTransaction, Transaction};
 use kanari_types::{GasEstimate, GasOperation};
 use log::error;
@@ -136,9 +139,27 @@ impl Call {
         // Create transaction
         eprintln!("Creating transaction...");
 
-        // Query account sequence number so signature and RPC include it (fail-fast)
+        // Query owner info so signature/RPC include sequence number and gas payment object.
         let client = build_blocking_client(30)?;
-        let seq_num: u64 = get_owner_sequence(&client, &rpc, &sender_for_tx)?;
+        let owner_info = get_owner_info(&client, &rpc, &sender_normalized)?;
+        let seq_num = owner_info.sequence_number;
+        let owned_objects = owner_info
+            .owned_objects
+            .as_ref()
+            .context("Sender owner state has no owned object list from RPC")?;
+        let (selected_gas_coin, gas_payment) =
+            build_native_gas_payment(owned_objects, &sender_for_tx, gas_limit, gas_price, &[])
+                .with_context(|| {
+                    format!(
+                        "No spendable Coin<{}> object found for gas payment for {}",
+                        KANARI_TOKEN_TYPE, sender_normalized
+                    )
+                })?;
+        eprintln!("   Gas payment object: {}", selected_gas_coin.coin_object_id);
+        eprintln!(
+            "   Gas coin balance: {} Mist",
+            selected_gas_coin.selected_balance
+        );
 
         // Sign transaction using the loaded wallet via SignedTransaction
         let signed_tx = {
@@ -153,7 +174,7 @@ impl Call {
                 type_args: parsed_type_args.clone(),
                 args: parsed_args.clone(),
                 object_inputs: Vec::new(),
-                gas_payment: None,
+                gas_payment: Some(gas_payment.clone()),
                 gas_limit,
                 gas_price,
                 sequence_number: seq_num,
@@ -178,7 +199,7 @@ impl Call {
             gas_limit,
             gas_price,
             sequence_number: seq_num,
-            gas_payment: None,
+            gas_payment: Some(gas_payment),
             signature: Some(signed_tx.signature.clone()),
             execute_immediate: Some(true),
         };
@@ -197,26 +218,16 @@ impl Call {
             Ok(resp) => match resp.json::<RpcResponse>() {
                 Ok(rpc_resp) => {
                     if let Some(err) = rpc_resp.error {
-                        error!("RPC error: {} (code {})", err.message, err.code);
+                        print_rpc_error("", &err);
                     } else if let Some(result) = rpc_resp.result {
                         // Parse result as `TransactionResult` if possible to print summary
                         if let Ok(tx_result) = serde_json::from_value::<
                             kanari_rpc_api::TransactionResult,
                         >(result.clone())
                         {
-                            eprintln!("Transaction: {}", tx_result.hash);
-                            eprintln!("Status: {}", tx_result.status);
-                            eprintln!("Gas used: {} Mist", tx_result.gas_used);
-
-                            if let Some(ref error_msg) = tx_result.error_message {
-                                error!("Transaction failed: {}", error_msg);
-                            }
+                            print_transaction_result("", &tx_result);
                         }
-
-                        match serde_json::to_string_pretty(&result) {
-                            Ok(s) => eprintln!("RPC result:\n{}", s),
-                            Err(_) => eprintln!("RPC result: {}", result),
-                        }
+                        print_json_value("", "RPC result", &result);
                     } else {
                         eprintln!("RPC response has no result and no error");
                     }
